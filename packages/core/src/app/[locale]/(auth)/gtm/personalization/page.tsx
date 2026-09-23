@@ -1,10 +1,11 @@
-import type { BriefRow } from '@/features/personalization/PersonalizationQueue';
-import { and, count, desc, eq, ne } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import { Sparkles } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { ListEmpty, ListPage } from '@/components/patterns';
+import { BulkActionsButton } from '@/features/personalization/BulkActionsButton';
 import { PersonalizationQueue } from '@/features/personalization/PersonalizationQueue';
 import { QueueResetControl } from '@/features/personalization/QueueResetControl';
+import { loadQueueBriefRows } from '@/features/personalization/queueRows';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -46,18 +47,7 @@ export default async function PersonalizationPage(props: {
     return null;
   }
 
-  // A lead with no brief is not on this screen, and a lead part-way through
-  // its retries is not either: both sit in `queued` until a brief exists or
-  // the tries run out, and the failure path moves the row out of that lane.
-  const rows = await db
-    .select()
-    .from(leadBriefSchema)
-    .where(and(
-      eq(leadBriefSchema.orgId, orgId),
-      ne(leadBriefSchema.status, QUEUED_STATUS),
-    ))
-    .orderBy(desc(leadBriefSchema.briefedAt))
-    .limit(500);
+  const briefs = await loadQueueBriefRows(orgId);
 
   // The count behind the empty state: leads recorded but not yet briefed.
   const [waiting] = await db
@@ -69,25 +59,6 @@ export default async function PersonalizationPage(props: {
     ));
   const waitingCount = waiting?.n ?? 0;
 
-  // The list needs the row line only — the dossier lives on the lead page.
-  // Dates cross the server/client boundary as ISO strings.
-  const briefs: BriefRow[] = rows.map(r => ({
-    id: r.id,
-    contactRef: r.contactRef,
-    contactName: r.contactName,
-    contactTitle: r.contactTitle,
-    companyName: r.companyName,
-    entranceSource: r.entranceSource,
-    utmCampaign: r.utmCampaign,
-    engagementSent: r.engagementSent,
-    engagementOpened: r.engagementOpened,
-    status: r.status,
-    confidence: r.confidence,
-    mqlAt: r.mqlAt?.toISOString() ?? null,
-    arrivedAt: r.arrivedAt?.toISOString() ?? null,
-    briefedAt: r.briefedAt?.toISOString() ?? null,
-  }));
-
   // TEMPORARY (phase 2): the reset escape hatch. Absent unless the flag is set.
   const canReset = Boolean(Env.VOCION_ALLOW_QUEUE_RESET) && has({ role: ORG_ROLE.ADMIN });
 
@@ -95,7 +66,12 @@ export default async function PersonalizationPage(props: {
     <ListPage
       title="Personalization"
       description="Researched leads waiting on your decision. Each row opens the lead's page: the brief, the evidence, and the decision. Nothing here has been sent."
-      actions={canReset ? <QueueResetControl rowCount={briefs.length} /> : undefined}
+      actions={(
+        <div className="flex items-center gap-2">
+          <BulkActionsButton />
+          {canReset && <QueueResetControl rowCount={briefs.length} />}
+        </div>
+      )}
     >
       {briefs.length === 0
         ? (

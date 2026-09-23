@@ -38,6 +38,14 @@ export type EmitEventInput = {
    */
   dispatchMode?: 'inline' | 'background';
   /**
+   * Skip the per-automation fire ceiling for this event. Only for a caller
+   * that is itself the pacing: the bulk regenerate workflow walks its leads
+   * two at a time on the worker, so a ceiling meant to stop a storm of
+   * request-time events would here drop every lead past the sixth and fold
+   * them into one coalesced fire that briefs one lead (ticket 071).
+   */
+  ignoreCeiling?: boolean;
+  /**
    * The automation fires whose work raised this event, newest first. A
    * mission run started by a check carries the check's automation; the
    * matcher skips every automation on the chain, so nothing is ever fired by
@@ -480,7 +488,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
       }
       // The ceiling: past `when.maxFiresPer10m` event fires in the window,
       // the fire is held and one coalesced fire is arranged for after it.
-      const ceiling = eventFireCeiling(a.whenConfig);
+      const ceiling = input.ignoreCeiling ? null : eventFireCeiling(a.whenConfig);
       if (ceiling !== null && await countRecentEventFires(input.orgId, a.slug) >= ceiling) {
         const coalesce = await scheduleCoalescedFire(input.orgId, a.slug);
         const skipId = await recordSkippedFire(input.orgId, a.slug, {

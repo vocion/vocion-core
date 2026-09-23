@@ -4370,3 +4370,42 @@ export const emailThreadSchema = pgTable(
     index('email_thread_conversation_idx').on(table.conversationId),
   ],
 );
+
+/** One lead's outcome inside a bulk job. */
+export type BulkLeadOutcome = {
+  leadId: number;
+  contactName: string | null;
+  state: 'queued' | 'landed' | 'failed';
+  /** Why it failed, in the words a reviewer reads. */
+  error?: string;
+  at?: string;
+};
+
+/**
+ * A bulk action on the personalization queue, as the record a person watches
+ * while it runs and what remains afterwards (Metacto ticket 071). The work
+ * itself is a Temporal workflow keyed to this row's id; `outcomes` carries
+ * one entry per lead, and `done` / `failed` are recomputed from it on every
+ * write so a retried lead never double-counts.
+ */
+export const personalizationBulkJobSchema = pgTable('personalization_bulk_job', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  /** What the job does to each lead: `regenerate_brief` is the first kind. */
+  kind: text('kind').notNull(),
+  /** The reviewer's one instruction, carried to every lead. */
+  note: text('note').notNull(),
+  leadIds: jsonb('lead_ids').$type<number[]>().notNull(),
+  total: integer('total').notNull(),
+  done: integer('done').notNull().default(0),
+  failed: integer('failed').notNull().default(0),
+  /** queued → running → done. */
+  status: text('status').notNull().default('queued'),
+  outcomes: jsonb('outcomes').$type<BulkLeadOutcome[]>().notNull().default([]),
+  workflowId: text('workflow_id'),
+  createdBy: text('created_by'),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+}, table => [
+  index('personalization_bulk_job_org_idx').on(table.orgId, table.createdAt),
+]);

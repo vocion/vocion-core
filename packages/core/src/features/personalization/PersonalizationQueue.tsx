@@ -6,6 +6,7 @@ import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
 import { confidenceLevel } from './confidence';
 import { entranceLabel, LANE_PILL, shortDate, shortDateTime } from './leadFormat';
+import { BRIEFED_WINDOWS, briefedWindowOf, filterQueueRows, QUEUE_LANES as LANES, QUEUE_LIST as LIST, QUEUE_SORTS as SORTS } from './queueFilter';
 
 /**
  * The personalization queue — a pure list, and the reference implementation
@@ -39,80 +40,6 @@ export type BriefRow = {
   mqlAt: string | null;
   arrivedAt: string | null;
   briefedAt: string | null;
-};
-
-/**
- * Lane order is the review order: what needs you, then what you did with it.
- * There is no lane for unbriefed leads because there is no such row on this
- * page.
- */
-const LANES = [
-  { key: 'ready_for_review', label: 'Review' },
-  { key: 'handed_off', label: 'Hand off' },
-  { key: 'held', label: 'Held' },
-  { key: 'sent', label: 'Sent' },
-  { key: 'all', label: 'All' },
-] as const;
-
-/**
- * Arrival order is the default and the first option. Confidence sorts a row
- * with no score (a lead that ran out of tries) to the bottom rather than
- * dropping it, because that row is the one most worth reading.
- */
-const SORTS = [
-  { key: 'arrived', label: 'Arrived' },
-  { key: 'briefed', label: 'Briefed' },
-  { key: 'confidence', label: 'Confidence' },
-  { key: 'name', label: 'Name' },
-] as const;
-
-/**
- * When the brief was written, as a filter. A reviewer working through the
- * cards drafted before a rule changed (the voice gate on 2026-09-19, the
- * sequence ladder on 2026-09-13) needs to find "the old ones" in one move;
- * a sort alone makes them scroll to the end and guess where the line is
- * (Valerie, 2026-09-23). Chips, because a reviewer may want two windows at
- * once ("this week and today"), and kept in the URL with the lane and sort.
- */
-const BRIEFED_WINDOWS = [
-  { key: 'today', label: 'Briefed today' },
-  { key: 'week', label: 'Briefed this week' },
-  { key: 'earlier', label: 'Briefed earlier' },
-] as const;
-type BriefedWindow = (typeof BRIEFED_WINDOWS)[number]['key'];
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Which window a brief falls in, by its age at `now`. Null for a row with no
- * brief timestamp, which no window claims.
- * @param briefedAt - ISO timestamp, or null.
- * @param now - The moment the list was rendered, in ms.
- */
-export function briefedWindowOf(briefedAt: string | null, now: number): BriefedWindow | null {
-  if (!briefedAt) {
-    return null;
-  }
-  const t = new Date(briefedAt).getTime();
-  if (Number.isNaN(t)) {
-    return null;
-  }
-  const age = now - t;
-  if (age < DAY_MS) {
-    return 'today';
-  }
-  if (age < 7 * DAY_MS) {
-    return 'week';
-  }
-  return 'earlier';
-}
-
-/** The page opens where the work is; the clean URL means this state. */
-const LIST = {
-  defaults: { tab: 'ready_for_review', q: '', sort: 'arrived', dir: 'desc' as const, chips: [] },
-  tabs: LANES.map(l => l.key),
-  sorts: SORTS.map(s => s.key),
-  chips: BRIEFED_WINDOWS.map(w => w.key),
 };
 
 const BriefListRow = ({ row }: { row: BriefRow }) => {
@@ -194,14 +121,7 @@ export const PersonalizationQueue = (props: {
 
   // The chip counts are taken on the lane and the search, before the chips
   // narrow anything, so a chip's number is what picking it would show.
-  const inLane = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return briefs
-      .filter(b => lane === 'all' || b.status === lane)
-      .filter(b => !q
-        || b.contactName.toLowerCase().includes(q)
-        || (b.companyName ?? '').toLowerCase().includes(q));
-  }, [briefs, lane, query]);
+  const inLane = useMemo(() => filterQueueRows(briefs, { lane, q: query, chips: [] }, now), [briefs, lane, query, now]);
 
   const windowCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -215,12 +135,7 @@ export const PersonalizationQueue = (props: {
   }, [inLane, now]);
 
   const rows = useMemo(() => {
-    const filtered = chips.length === 0
-      ? inLane
-      : inLane.filter((b) => {
-          const w = briefedWindowOf(b.briefedAt, now);
-          return w !== null && chips.includes(w);
-        });
+    const filtered = filterQueueRows(inLane, { lane, q: query, chips }, now);
 
     const direction = dir === 'desc' ? -1 : 1;
     const byTime = (at: string, bt: string) => (at === bt ? 0 : (at < bt ? -1 : 1) * direction);
@@ -242,7 +157,7 @@ export const PersonalizationQueue = (props: {
       }
       return ((a.confidence ?? 0) - (b.confidence ?? 0)) * direction;
     });
-  }, [inLane, chips, now, sort, dir]);
+  }, [inLane, lane, query, chips, now, sort, dir]);
 
   return (
     <div className="flex flex-col" data-testid="personalization-queue">
