@@ -54,6 +54,12 @@ afterAll(async () => {
 });
 
 describe('GET /api/v1/budgets/agents', () => {
+  it('rejects a request with no credential at all', async () => {
+    mockBearer.mockResolvedValue(null);
+
+    expect((await GET(requestFor())).status).toBe(401);
+  });
+
   it('403s a token that does not hold manage_sources', async () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG, ['draft']) as never);
 

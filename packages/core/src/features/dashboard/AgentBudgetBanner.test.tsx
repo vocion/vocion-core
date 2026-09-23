@@ -20,6 +20,8 @@ const BLOCKED_ON_DEFAULT = {
   spentCents: 10_050,
   hardCentsLimit: 10_000,
   hardCentsLimitFrom: 'built_in_agent_default' as const,
+  tokens: 0,
+  hardTokenLimit: null,
   periodResetsAt: '2026-09-24T00:00:00.000Z',
 };
 
@@ -56,5 +58,18 @@ describe('the agent budget banner', () => {
     await expect.element(banner).toHaveTextContent('2 agents have reached their budgets');
     await expect.element(banner).toHaveTextContent('Own Cap — $100.50 of $100.00 (its own budget)');
     await expect.element(banner).toHaveTextContent('Workspace Cap — $100.50 of $100.00 (workspace default, defaults.agentBudget)');
+  });
+
+  it('shows the token cap, not "no cap", for an agent its token cap blocked', async () => {
+    await render(
+      <AgentBudgetBanner
+        blocked={[{ ...BLOCKED_ON_DEFAULT, agentName: 'Token Capped', spentCents: 410, hardCentsLimit: null, hardCentsLimitFrom: 'own', tokens: 52_000, hardTokenLimit: 50_000 }]}
+      />,
+    );
+
+    const banner = page.getByTestId('agent-budget-banner');
+
+    await expect.element(banner).toHaveTextContent('Token Capped — 52,000 of 50,000 tokens (token cap)');
+    await expect.element(banner).not.toHaveTextContent('no cap');
   });
 });

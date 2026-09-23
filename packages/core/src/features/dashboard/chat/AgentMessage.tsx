@@ -125,9 +125,10 @@ function citeLinkify(text: string): string {
  * again" is useless advice for a spent budget — and every other ending needs
  * no notice at all.
  * @param status - How the turn ended, as stored on the row (#114).
+ * @param saidSomething - Whether the turn left any answer text on screen.
  * @returns The sentence to show, or null when this ending needs no notice.
  */
-function turnEndingNotice(status: ChatMessage['status']): string | null {
+function turnEndingNotice(status: ChatMessage['status'], saidSomething: boolean): string | null {
   if (!isFailure(status)) {
     return null;
   }
@@ -135,7 +136,11 @@ function turnEndingNotice(status: ChatMessage['status']): string | null {
     return 'This turn did not run, so there is no answer above. Ask again.';
   }
   if (status === 'refused') {
-    return 'This turn was not run. Nothing is broken — something needs changing before this agent can answer.';
+    // A turn refused partway (it reached its budget, #272) keeps what it said;
+    // "was not run" under that text would contradict the screen.
+    return saidSomething
+      ? 'This answer stopped before it finished. Nothing is broken — something needs changing before this agent can go on.'
+      : 'This turn was not run. Nothing is broken — something needs changing before this agent can answer.';
   }
   if (status === 'stalled') {
     // The work happened; the answer did not. Say both, because the steps
@@ -179,7 +184,6 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const hasToolError = Boolean(erroredRun || erroredNode);
   // How this turn ended, read once: an explanation when it owes one, a quiet
   // line when it does not, nothing at all when it simply finished (#114).
-  const endingNotice = turnEndingNotice(message.status);
   const endingMarker = turnEndingMarker(message.status);
   // WHAT failed, not just THAT something did.
   //
@@ -208,6 +212,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // screen's whole content is a red chip reading "failed" — on a phone, with
   // no hover to fall back on. So the reason opens with it.
   const turnSaidSomething = Boolean(message.content?.trim()) || runs.some(r => r.type === 'text' && r.text?.trim());
+  const endingNotice = turnEndingNotice(message.status, turnSaidSomething);
   // Bumped by the badge; the work timeline opens to the failed step on change.
   const [inspect, setInspect] = useState(0);
   const [showError, setShowError] = useState(hasToolError && !turnSaidSomething);
@@ -470,9 +475,14 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           <div
             data-testid="incomplete-turn-notice"
             role="status"
-            className="mt-2 flex items-start gap-1.5 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90"
+            data-ending={message.status}
+            // A refusal is a setting to change, not a fault: amber, where a
+            // turn that broke is red.
+            className={message.status === 'refused'
+              ? 'mt-2 flex items-start gap-1.5 rounded-md border border-[var(--brand-amber)]/40 bg-[var(--brand-amber-tint)]/40 px-3 py-2 text-[12px] text-foreground/90'
+              : 'mt-2 flex items-start gap-1.5 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90'}
           >
-            <AlertCircle className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
+            <AlertCircle className={`mt-0.5 size-3 shrink-0 ${message.status === 'refused' ? 'text-[var(--brand-amber-deep)]' : 'text-[var(--brand-fail)]'}`} aria-hidden />
             <span>
               {endingNotice}
               {message.statusReason && (

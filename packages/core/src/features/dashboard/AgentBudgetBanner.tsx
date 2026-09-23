@@ -1,7 +1,7 @@
 import type { AgentBudgetStatus, BudgetLimitSource } from '@/services/BudgetService';
 
 /** The blocked agents as the banner shows them — only what it reads. */
-export type BlockedAgentView = Pick<AgentBudgetStatus, 'agentSlug' | 'agentName' | 'spentCents' | 'hardCentsLimit' | 'hardCentsLimitFrom' | 'periodResetsAt'>;
+export type BlockedAgentView = Pick<AgentBudgetStatus, 'agentSlug' | 'agentName' | 'spentCents' | 'hardCentsLimit' | 'hardCentsLimitFrom' | 'tokens' | 'hardTokenLimit' | 'periodResetsAt'>;
 
 /**
  * Cents as a person reads money.
@@ -23,6 +23,19 @@ function capSourceLabel(source: BudgetLimitSource): string {
     return 'workspace default, defaults.agentBudget';
   }
   return 'its own budget';
+}
+
+/**
+ * What the agent spent against the cap that blocked it. An agent with no money
+ * cap was blocked by its token cap, and "$4.10 of no cap" would read as a bug.
+ * @param agent - The blocked agent.
+ */
+function spendAgainstCap(agent: BlockedAgentView): string {
+  if (agent.hardCentsLimit === null && agent.hardTokenLimit !== null) {
+    return `${agent.tokens.toLocaleString('en-US')} of ${agent.hardTokenLimit.toLocaleString('en-US')} tokens (token cap)`;
+  }
+  const cap = agent.hardCentsLimit === null ? 'no cap' : dollars(agent.hardCentsLimit);
+  return `${dollars(agent.spentCents)} of ${cap} (${capSourceLabel(agent.hardCentsLimitFrom)})`;
 }
 
 /**
@@ -66,12 +79,8 @@ export function AgentBudgetBanner({ blocked }: { blocked: BlockedAgentView[] }) 
           <li key={agent.agentSlug}>
             <span className="font-medium text-foreground/80">{agent.agentName}</span>
             {' — '}
-            {dollars(agent.spentCents)}
-            {' of '}
-            {agent.hardCentsLimit === null ? 'no cap' : dollars(agent.hardCentsLimit)}
-            {' ('}
-            {capSourceLabel(agent.hardCentsLimitFrom)}
-            {'). Resets '}
+            {spendAgainstCap(agent)}
+            {'. Resets '}
             {resetLabel(agent.periodResetsAt)}
             {' UTC.'}
           </li>

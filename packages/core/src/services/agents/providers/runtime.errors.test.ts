@@ -30,6 +30,29 @@ vi.mock('@/services/agents/tools/registry', () => ({ buildToolCatalog: vi.fn(() 
 vi.mock('@/services/agents/claims', () => ({ signClaim: vi.fn(() => 'signed-claim') }));
 vi.mock('@/services/BudgetService', () => ({ chargeUsage, preflightCheck }));
 
+/** What the deployed (AgentCore) transport was handed, and the frames it streams back. */
+const agentCore = { frames: [] as string[], abortSignal: undefined as AbortSignal | undefined };
+
+/**
+ * The frames an AgentCore response streams, one chunk each.
+ * @param frames - Raw SSE frames.
+ */
+async function* agentCoreStream(frames: string[]): AsyncGenerator<Uint8Array> {
+  for (const frame of frames) {
+    yield new TextEncoder().encode(frame);
+  }
+}
+
+vi.mock('@aws-sdk/client-bedrock-agentcore', () => ({
+  BedrockAgentCoreClient: class {
+    async send(_command: unknown, options: { abortSignal?: AbortSignal }) {
+      agentCore.abortSignal = options.abortSignal;
+      return { response: agentCoreStream(agentCore.frames) };
+    }
+  },
+  InvokeAgentRuntimeCommand: class {},
+}));
+
 const { db } = await import('@/libs/DB');
 const { agentSchema } = await import('@/models/Schema');
 const { runAgentOnRuntime } = await import('./runtime');
@@ -254,6 +277,28 @@ describe('a turn that crosses its budget partway (#272)', () => {
 
     expect(result.response).toBe('the whole answer');
     expect(events.filter(event => event.type === 'error')).toEqual([]);
+  });
+
+  it('stops the deployed AgentCore transport too, aborting the request it made', async () => {
+    await seedAgent(ORG_A);
+    vi.stubEnv('VOCION_AGENT_RUNTIME_ARN', 'arn:aws:bedrock-agentcore:us-west-2:000000000000:runtime/test');
+    preflightCheck.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce(breach);
+    agentCore.frames = [
+      sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 })),
+      sseFrame(JSON.stringify({ type: 'tool_start', tool: 'search_knowledge', input: {} })),
+      sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 })),
+      sseFrame(JSON.stringify({ type: 'response_delta', delta: 'spent past the cap' })),
+      sseFrame(JSON.stringify({ type: 'done', response: 'spent past the cap' })),
+    ];
+    const events: Array<Record<string, unknown>> = [];
+
+    const run = runAgentOnRuntime({ orgId: ORG_A, agentSlug: 'sales-assistant', message: 'hi', onEvent: event => events.push(event as never) });
+
+    await expect(run).rejects.toMatchObject({ name: 'TurnRefusedError' });
+    expect(agentCore.abortSignal?.aborted).toBe(true);
+    expect(events).not.toContainEqual({ type: 'response_delta', delta: 'spent past the cap' });
+
+    vi.unstubAllEnvs();
   });
 
   it('runs to the end unchanged when every call stays under the cap', async () => {

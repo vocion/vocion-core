@@ -68,6 +68,9 @@ function text(t: string): unknown {
 /** The part of the `streamEvents` config the stand-in loop reads. */
 type StreamConfig = { signal?: AbortSignal; callbacks?: Array<{ handleChatModelStart?: () => Promise<void> }> };
 
+/** Whether the stand-in calls say if they asked for tools; some outputs carry no message to tell by. */
+let reportsToolUse = true;
+
 /** How many model calls the stand-in loop actually started. */
 let modelCallsStarted = 0;
 /** What the usage hook threw, kept the way the real adapter drops it. */
@@ -96,7 +99,8 @@ function modelCallsStream(calls: number, config: StreamConfig): AsyncIterable<un
       // The real adapter (`libs/Langfuse.ts`) swallows whatever the hook
       // throws, so a failed charge never reaches the stream — only the abort does.
       // Every call but the last asks for tools, the way a working turn does.
-      await turnEndHooks.at(-1)!({ model: 'claude-haiku-4-5-20251001', inputTokens: 1_000, outputTokens: 100, askedForTools: call < calls })
+      const toolUse = reportsToolUse ? { askedForTools: call < calls } : {};
+      await turnEndHooks.at(-1)!({ model: 'claude-haiku-4-5-20251001', inputTokens: 1_000, outputTokens: 100, ...toolUse })
         .catch((hookError: unknown) => hookErrors.push(hookError));
     }
   } };
@@ -122,6 +126,7 @@ beforeEach(async () => {
   turnEndHooks.length = 0;
   modelCallsStarted = 0;
   hookErrors.length = 0;
+  reportsToolUse = true;
 });
 
 describe('a turn that crosses its budget partway', () => {
@@ -167,6 +172,19 @@ describe('a turn that crosses its budget partway', () => {
     expect(error).toBeNull();
     expect(modelCallsStarted).toBe(3);
     expect(result?.response).toContain('part3');
+  });
+
+  it('stops a turn over its cap when the call does not say whether more work follows', async () => {
+    reportsToolUse = false;
+    preflightCheck
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce(BREACH);
+
+    const { error } = await run();
+
+    // Unknown is taken as "goes on": the cheaper mistake is a lost answer, not a runaway turn.
+    expect(modelCallsStarted).toBe(1);
+    expect(error).toMatchObject({ name: 'TurnRefusedError' });
   });
 
   it('runs every model call and answers when the agent stays under its cap', async () => {

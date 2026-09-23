@@ -213,4 +213,10 @@ describe('a callback that charges usage', () => {
 
     expect(handler.awaitHandlers).toBe(true);
   });
+
+  it('stays on the background queue when it charges nothing', () => {
+    const { handler } = createLangfuseCallback({ feature: 'agent.chat', slug: 'usage-test', orgId: 'org_usage_test', userId: 'user_usage_test' });
+
+    expect(handler.awaitHandlers).toBe(false);
+  });
 });
