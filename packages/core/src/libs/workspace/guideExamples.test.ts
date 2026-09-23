@@ -9,9 +9,23 @@
  */
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { AutomationManifestSchema, EvalDatasetManifestSchema } from './schemas';
+import { substituteEnvTokens, TEMPLATE_VARS_ALLOWLIST_NAME } from './template-vars';
+
+/**
+ * A value for every `{{env.NAME}}` token the guides use, standing in for the
+ * box's environment.
+ *
+ * The loader resolves tokens before it parses a file, so a guide example that
+ * carries one is only valid once it is resolved. Each value here is one the
+ * guide tells the reader to set. A guide that adds a token without adding it
+ * here fails with "not allowlisted", which names the token to add.
+ */
+const GUIDE_TEMPLATE_VALUES: Record<string, string> = {
+  NIGHTLY_EVALS_STATUS: 'disabled',
+};
 
 /**
  * Every guide whose YAML examples are meant to be copied and applied.
@@ -96,8 +110,23 @@ function describeBlock(doc: Record<string, unknown>): 'automation' | 'evalDatase
   return 'evalDataset';
 }
 
+/**
+ * Put the guides' template values into the environment the way a box would,
+ * so `substituteEnvTokens` resolves them exactly as the loader does.
+ */
+function stubGuideEnvironment(): void {
+  vi.stubEnv(TEMPLATE_VARS_ALLOWLIST_NAME, Object.keys(GUIDE_TEMPLATE_VALUES).join(','));
+  for (const [name, value] of Object.entries(GUIDE_TEMPLATE_VALUES)) {
+    vi.stubEnv(name, value);
+  }
+}
+
 describe('the eval guides\' examples', () => {
   const blocks = blocksAcross(GUIDES);
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
 
   it('has examples to check', () => {
     // A rename or a rewrite that empties a guide would otherwise make every
@@ -114,11 +143,19 @@ describe('the eval guides\' examples', () => {
   });
 
   it('every example is something the workspace loader would accept', () => {
+    stubGuideEnvironment();
     const failures: string[] = [];
     for (const entry of blocks) {
-      const doc = parseYaml(entry.block) as Record<string, unknown>;
-      const kind = describeBlock(doc);
       const where = `${entry.guide} block ${entry.index}`;
+      let resolved: string;
+      try {
+        resolved = substituteEnvTokens(entry.block, where);
+      } catch (error) {
+        failures.push(`${where}: ${(error as Error).message}`);
+        continue;
+      }
+      const doc = parseYaml(resolved) as Record<string, unknown>;
+      const kind = describeBlock(doc);
       if (kind === 'evaluatorsFragment') {
         // Graft the fragment onto the smallest valid dataset so the evaluator
         // entries themselves are still checked.
