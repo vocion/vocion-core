@@ -1,4 +1,4 @@
-import type { FeatureReport, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
+import type { FeatureReport, LifecycleStep, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportPhase, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
 import type { Status } from '@/types/Status';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -130,10 +130,33 @@ function Entry({ entry }: { entry: ReportEntry }) {
           {entry.cents !== null && ` · ${money(entry.cents)}`}
         </span>
       </header>
-      <dl className="mt-2">
-        {entry.facts.map(f => <Fact key={f.label} fact={f} />)}
-      </dl>
+      {entry.steps !== undefined && entry.steps.length > 0 && (
+        // THE PLAN AS A PERSON APPROVES IT: numbered, in order, one line each.
+        // The reasoning that produced it sits behind the disclosure below —
+        // excellent, and not the thing anybody says yes to.
+        <ol className="mt-3 max-w-prose space-y-2">
+          {entry.steps.map((step, i) => (
+            <li key={step} className="grid grid-cols-[1.6rem_minmax(0,1fr)] gap-x-2 text-[15px] leading-relaxed">
+              <span className="pt-px font-mono text-xs text-muted-foreground tabular-nums">{String(i + 1).padStart(2, '0')}</span>
+              <span className="min-w-0 break-words">{step}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {entry.facts.length > 0 && (
+        <dl className="mt-3">
+          {entry.facts.map(f => <Fact key={f.label} fact={f} />)}
+        </dl>
+      )}
       <Checks checks={entry.checks} />
+      {entry.detailFacts !== undefined && entry.detailFacts.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">Why this plan</summary>
+          <dl className="mt-2">
+            {entry.detailFacts.map(f => <Fact key={f.label} fact={f} />)}
+          </dl>
+        </details>
+      )}
       {entry.flags.map(flag => (
         <p key={flag} className="mt-2 rounded border border-[var(--brand-fail)]/40 bg-[var(--brand-fail-bg)] px-2.5 py-1.5 text-xs text-[var(--brand-fail)]">{flag}</p>
       ))}
@@ -235,6 +258,21 @@ function Section({ section }: { section: ReportSection }) {
                 </div>
               ))}
               {section.evidence.length > 0 && <Gallery items={section.evidence} />}
+              {section.detailLists.length > 0 && (
+                <details className="mt-4">
+                  <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
+                    {section.key === 'plan' ? 'Interfaces, risks and what was rejected' : 'More'}
+                  </summary>
+                  {section.detailLists.map(l => (
+                    <div key={l.label} className="mt-4">
+                      <p className="text-xs text-muted-foreground">{l.label}</p>
+                      <ul className="mt-1.5 max-w-prose list-disc space-y-1.5 pl-5 text-[15px] leading-relaxed">
+                        {l.items.map(item => <li key={item} className="break-words">{item}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </details>
+              )}
             </>
           )}
       {section.flags.map(flag => (
@@ -242,6 +280,69 @@ function Section({ section }: { section: ReportSection }) {
       ))}
     </section>
   );
+}
+
+/**
+ * WHERE THIS IS, in four dots.
+ *
+ * It replaces four whole sections that each said nothing had happened yet:
+ * Build, The change, QA, Release, on work nobody had started. A person
+ * approving a plan already knows none of that has run — being told four times
+ * in four headings is, in Chris's words, "technically transparent but visually
+ * exhausting".
+ * @param props
+ * @param props.steps - The four steps and where the work has got to.
+ */
+function Lifecycle({ steps }: { steps: LifecycleStep[] }) {
+  return (
+    <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" aria-label="Where this work has got to">
+      {steps.map((step, i) => (
+        <li key={step.key} className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className={`inline-block size-1.5 rounded-full ${step.state === 'done' ? 'bg-brand-ok' : step.state === 'now' ? 'bg-brand-amber' : 'bg-border'}`}
+            />
+            <span className={step.state === 'now' ? 'font-medium text-foreground' : undefined}>{step.label}</span>
+            {step.state === 'now' && <span className="sr-only">(now)</span>}
+          </span>
+          {i < steps.length - 1 && <span aria-hidden className="text-border">→</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * Which sections LEAD in each phase. Everything else is still rendered when it
+ * has something to say, and silently dropped when all it would say is that it
+ * has not happened.
+ */
+const PHASE_LEADS: Record<ReportPhase, readonly string[]> = {
+  proposed: ['visuals', 'plan'],
+  building: ['runs', 'plan'],
+  review: ['qa', 'change', 'visuals'],
+  released: ['release', 'qa'],
+};
+
+/**
+ * Should this section be on the page at all?
+ *
+ * A section with content always earns its place. A section whose only content
+ * is an absence earns it only while it is the thing being decided — so
+ * "nothing has been built yet" is worth saying to somebody watching a build
+ * stall, and is noise to somebody approving a plan.
+ * @param section - The section.
+ * @param phase - The phase the page is in.
+ */
+function showsOnPage(section: ReportSection, phase: ReportPhase): boolean {
+  if (section.group !== 'story') {
+    return false;
+  }
+  if (section.absence === null) {
+    return true;
+  }
+  return PHASE_LEADS[phase].includes(section.key);
 }
 
 /**
@@ -440,8 +541,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
       <StateHeader state={report.state} />
-      <DoneWhen acceptance={report.acceptance} />
-      <SummaryStrip report={report} />
+      <Lifecycle steps={report.lifecycle} />
 
       {report.contradictions.length > 0 && (
         <section id="report-contradictions" className="rounded-lg border border-[var(--brand-fail)]/40 bg-[var(--brand-fail-bg)] p-3">
@@ -459,32 +559,41 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
           the per-task contracts, the approval records — is all still here,
           one level down, where it is traceable without being in the way. */}
       <div className="space-y-8">
-        {report.sections.filter(x => x.group === 'story').map(section => <Section key={section.key} section={section} />)}
+        {report.sections.filter(x => showsOnPage(x, report.phase)).map(section => <Section key={section.key} section={section} />)}
       </div>
+
+      {/* WHAT COUNTS AS DONE, under the proposal rather than above it: it is
+          the last thing read before approving, not the first. */}
+      <DoneWhen acceptance={report.acceptance} />
 
       {/* HISTORY, at the bottom. The timeline is genuinely useful and it was
           the second thing on the page, which made the database the
           protagonist. The work is the protagonist; this is what happened to
           it, for a reader who has got that far and wants it. */}
-      <section className="border-t border-border pt-5">
-        <h2 className="mb-3 text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
+      {/* HISTORY behind a tap. Good audit data, and nobody approving a plan
+          needs to scroll a timestamped event stream to understand a feature. */}
+      <details className="border-t border-border/60 pt-6">
+        <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
           History
-          <span className="ml-2 font-normal tracking-normal normal-case">
+          <span className="ml-2 text-xs">
             {report.timeline.length}
-            {' entries, newest last'}
+            {report.timeline.length === 1 ? ' event' : ' events'}
           </span>
-        </h2>
-        <Timeline report={report} />
-      </section>
+        </summary>
+        <div className="mt-4">
+          <Timeline report={report} />
+        </div>
+      </details>
 
       {report.sections.some(x => x.group === 'detail') && (
-        <details id="report-technical" className="border-t border-border pt-5">
-          <summary className="cursor-pointer list-none text-sm font-medium text-muted-foreground hover:text-foreground">
-            Technical details
-            <span className="ml-2 text-xs font-normal">the ask as written, triage, the contracts, the approval records</span>
+        <details id="report-technical" className="border-t border-border/60 pt-6">
+          <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
+            Details
+            <span className="ml-2 text-xs">the ask as written, triage, the contracts, the approvals, the figures</span>
           </summary>
-          <div className="mt-4 space-y-5">
-            {report.sections.filter(x => x.group === 'detail').map(section => <Section key={section.key} section={section} />)}
+          <div className="mt-4 space-y-8">
+            {report.sections.filter(x => x.group === 'detail' || !showsOnPage(x, report.phase)).map(section => <Section key={section.key} section={section} />)}
+            <SummaryStrip report={report} />
           </div>
         </details>
       )}

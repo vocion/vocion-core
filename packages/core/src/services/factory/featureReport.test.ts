@@ -210,18 +210,23 @@ describe('the plan stage', () => {
     expect(keys.indexOf('plan')).toBe(keys.indexOf('contract') - 1);
   });
 
-  it('carries the approach, the interfaces, the data impact, what was rejected and how it will be verified', () => {
+  it('leads with the steps a person approves and keeps the reasoning behind them', () => {
     const s = section(assembleFeatureReport(input()), 'plan');
     const entry = s.entries[0]!;
 
     expect(s.absence).toBeNull();
     expect(entry.title).toBe('Render the PDF server side from the room model');
-    expect(entry.facts.find(f => f.label === 'The approach, and why this one')?.value).toContain('not from the DOM');
+    // What is being approved: the steps, and who approved it.
+    expect(entry.steps?.length).toBeGreaterThan(0);
     expect(entry.facts.find(f => f.label === 'Approved by')?.value).toBe('Chris');
-    expect(entry.facts.find(f => f.label === 'Data or migration impact')?.value).toContain('No migration');
-    expect(entry.facts.find(f => f.label === 'How it will be verified')?.value).toContain('diff the section list');
-    expect(s.lists.find(l => l.label.startsWith('Interfaces added or altered'))?.items).toContain('POST /rooms/:id/export returns a PDF stream');
-    expect(s.lists.find(l => l.label.startsWith('Considered and rejected'))?.items[0]).toContain('rejected');
+    // Four paragraphs of reasoning is a document, not a decision — it is one
+    // tap away rather than in front of the person saying yes.
+    expect(entry.facts.some(f => f.label === 'The approach, and why this one')).toBe(false);
+    expect(entry.detailFacts?.find(f => f.label === 'The approach, and why this one')?.value).toContain('not from the DOM');
+    expect(entry.detailFacts?.find(f => f.label === 'Data or migration impact')?.value).toContain('No migration');
+    expect(entry.detailFacts?.find(f => f.label === 'How it will be verified')?.value).toContain('diff the section list');
+    expect(s.detailLists.find(l => l.label === 'Interfaces added or altered')?.items).toContain('POST /rooms/:id/export returns a PDF stream');
+    expect(s.detailLists.find(l => l.label === 'Considered and rejected, and why')?.items[0]).toContain('rejected');
   });
 
   it('says a plan was required and none exists, rather than drawing a blank stage', () => {
@@ -575,7 +580,14 @@ describe('the money line', () => {
     expect(report.money.actualCents).toBe(1450);
     expect(report.money.varianceCents).toBe(550);
     expect(report.money.variancePct).toBe(61);
-    expect(section(report, 'money').facts.find(f => f.label === 'Variance')?.value).toBe('+$5.50 (+61%)');
+
+    // One line in front: what it cost, against what it was expected to cost.
+    // The variance is part of the workings, one tap down.
+    const cost = section(report, 'money');
+
+    expect(cost.facts).toHaveLength(1);
+    expect(cost.facts[0]!.value).toBe('$14.50 · estimated $9.00');
+    expect(cost.detailLists[0]!.items.join(' ')).toContain('Variance: +$5.50 (+61%)');
   });
 
   it('falls back to what the runs charged when no task carries an actual', () => {
@@ -884,5 +896,25 @@ describe('the plan speaking for itself', () => {
 
   it('says nothing rather than guessing when the plan recorded no level', () => {
     expect(planned({}).facts.find(f => f.label === 'Was a plan required?')?.value).toBeNull();
+  });
+});
+
+describe('one decision at a time', () => {
+  it('is proposed while nothing has been contracted, and the lifecycle says where it is', () => {
+    const r = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
+
+    expect(r.phase).toBe('proposed');
+    expect(r.lifecycle.map(l => `${l.label}:${l.state}`)).toEqual(['Plan:now', 'Build:todo', 'QA:todo', 'Release:todo']);
+  });
+
+  it('moves to building once there is work to watch', () => {
+    const r = assembleFeatureReport(input({ releases: [], artifacts: [] }));
+
+    expect(r.phase).toBe('review');
+    expect(r.lifecycle.find(l => l.label === 'Build')?.state).toBe('done');
+  });
+
+  it('is released once something carried it to people', () => {
+    expect(assembleFeatureReport(input()).phase).toBe('released');
   });
 });
