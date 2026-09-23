@@ -83,7 +83,7 @@ export async function getAgentAlignmentSummaries(orgId: string, windowDays: Scor
     .select({
       agentSlug: decisionAlignmentSchema.agentSlug,
       recommendationsDecided: sql<number>`count(*) filter (where ${scoredRecommendation})::int`,
-      agreed: sql<number>`count(*) filter (where ${decisionAlignmentSchema.agreed} and not ${decisionAlignmentSchema.implicit})::int`,
+      agreed: sql<number>`count(*) filter (where ${decisionAlignmentSchema.agreed} and ${scoredRecommendation})::int`,
       recommendationsWithConfidence: sql<number>`count(${decisionAlignmentSchema.confidence}) filter (where ${scoredRecommendation})::int`,
       averageConfidence: sql<number | null>`avg(${decisionAlignmentSchema.confidence}) filter (where ${scoredRecommendation})`,
     })
@@ -174,14 +174,15 @@ export function buildScorecardRows(agents: AgentListing[], alignmentByAgent: Map
 }
 
 /**
- * Busiest agents first, then by name, so the table reads the same on every load.
+ * Busiest agents first, then by name, then by slug (names need not be unique), so the table reads the same on every load.
  * @param a - One row.
  * @param b - The row it is compared with.
  */
 function compareScorecardRows(a: ScorecardRow, b: ScorecardRow): number {
   return b.recommendationsDecided - a.recommendationsDecided
     || b.peopleReached - a.peopleReached
-    || a.agentName.localeCompare(b.agentName);
+    || a.agentName.localeCompare(b.agentName)
+    || a.agentSlug.localeCompare(b.agentSlug);
 }
 
 /**
