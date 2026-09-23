@@ -367,6 +367,11 @@ export function createLangfuseCallback(
   const trace = traceFor(opts);
 
   const generations = new Map<string, GenerationLike>();
+  // The model each call started on, for providers whose end-of-call output
+  // does not name it (Bedrock returns no `llmOutput`). Without it the charge
+  // goes in as model "unknown", which prices at zero and never counts
+  // against a budget (#272).
+  const modelsByRun = new Map<string, string>();
   const spans = new Map<string, SpanLike>();
 
   const messagesToInput = (msgs: BaseMessage[][] | BaseMessage[]): unknown => {
@@ -386,10 +391,18 @@ export function createLangfuseCallback(
       runId: string,
       _parentRunId?: string,
       extraParams?: Record<string, unknown>,
+      _tags?: string[],
+      runMetadata?: Record<string, unknown>,
     ): Promise<void> {
+      // Bedrock's Converse model leaves the model id out of its invocation
+      // params and names it only in the run metadata (`ls_model_name`); the
+      // class name (`llm.id`'s last part) is the last resort, and prices at
+      // nothing.
       const model = (extraParams?.invocation_params as { model?: string } | undefined)?.model
+        ?? (typeof runMetadata?.ls_model_name === 'string' ? runMetadata.ls_model_name : undefined)
         ?? (llm.id?.[llm.id.length - 1] as string | undefined)
         ?? 'unknown';
+      modelsByRun.set(runId, model);
       const gen = trace.generation({
         name: `chat:${model}`,
         model,
@@ -461,10 +474,12 @@ export function createLangfuseCallback(
         usageDetails,
       });
       generations.delete(runId);
+      const startedOnModel = modelsByRun.get(runId);
+      modelsByRun.delete(runId);
       if (opts.onTurnEnd) {
         try {
           await opts.onTurnEnd({
-            model: llmOutput.model ?? 'unknown',
+            model: llmOutput.model ?? startedOnModel ?? 'unknown',
             inputTokens: normalised?.inputTokens ?? usage?.promptTokens ?? anthropicInputTokens,
             outputTokens: normalised?.outputTokens ?? usage?.completionTokens ?? anthropicUsage?.output_tokens,
             cacheReadTokens: normalised?.cacheReadTokens ?? anthropicUsage?.cache_read_input_tokens,
@@ -486,6 +501,7 @@ export function createLangfuseCallback(
         statusMessage: err.message,
       });
       generations.delete(runId);
+      modelsByRun.delete(runId);
     }
 
     override async handleToolStart(
