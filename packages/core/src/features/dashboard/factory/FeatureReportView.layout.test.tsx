@@ -219,6 +219,37 @@ describe('the feature report, drawn', () => {
     expect(line.getBoundingClientRect().top).toBeGreaterThanOrEqual(port.getBoundingClientRect().top);
   });
 
+  it('opens the mockup itself when the mockup is tapped, at any width', async () => {
+    // At 430px a desktop mockup is an illegible thumbnail, and it is the one
+    // thing on this page that has to be looked at rather than read. The tap
+    // used to open the artifact's record page — which is exactly what the
+    // caption's "Open" link already does — so the page offered two tap
+    // targets with one outcome and no way to enlarge the mockup.
+    await page.viewport(390, 844);
+    await draw(fixture({
+      artifacts: [{
+        id: 91,
+        kind: 'mockup',
+        title: 'The send dialog',
+        recordType: 'object',
+        recordId: '41',
+        recordRole: 'proposal-visual',
+        spec: { contentType: 'image/png' },
+        url: 'https://files.example.test/send-dialog.png',
+        createdAt: T('2026-09-20T09:00:00Z'),
+      }],
+    }));
+
+    const shot = document.querySelector('#report-visuals img');
+
+    expect(shot).not.toBeNull();
+
+    const link = shot!.closest('a')!;
+
+    expect(link.getAttribute('href')).toBe(shot!.getAttribute('src'));
+    expect(link.getAttribute('href')).not.toBe('');
+  });
+
   it('does not scroll sideways at a desk either', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
