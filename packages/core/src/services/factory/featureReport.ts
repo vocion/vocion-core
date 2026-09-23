@@ -202,7 +202,7 @@ export type ReportEvidence = {
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 
-export const REPORT_SECTION_KEYS = ['ask', 'triage', 'visuals', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
+export const REPORT_SECTION_KEYS = ['ask', 'triage', 'visuals', 'today', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
 export type ReportSectionKey = typeof REPORT_SECTION_KEYS[number];
 
 /**
@@ -285,6 +285,10 @@ export type FeatureReport = {
   lifecycle: LifecycleStep[];
   /** What this work is FOR, in the requester's own words. Null when nobody wrote one. */
   goal: string | null;
+  /** The ask as it arrived, kept as evidence under the outcome the page leads with. */
+  asked: string;
+  /** The change as the person who will use it would tell it. Markdown. */
+  story: string | null;
   /** The contract: what has to be true before this is done. */
   acceptance: ReportAcceptance;
   sections: ReportSection[];
@@ -1798,6 +1802,40 @@ function buildLifecycle(phase: ReportPhase): LifecycleStep[] {
   }));
 }
 
+/**
+ * HOW IT WORKS TODAY — the link to go and see it, and a shot of it as it is.
+ *
+ * Split out of Preview because they answer different questions: one is what
+ * we propose, the other is what a person would find if they went and looked
+ * right now. Kept together with the link, because a shot with no way to check
+ * it against the running product is decoration (principle 10).
+ * @param request - The request.
+ * @param artifacts - Every artifact gathered for this work.
+ */
+function todaySection(request: ReportObject, artifacts: ReportArtifact[]): ReportSection {
+  const s = blank('today', 'How it works today');
+  const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
+  const surfaceUrl = str(visuals, 'surfaceUrl');
+  const shots = artifacts.filter(a => a.recordRole === 'before-shot');
+  s.facts = surfaceUrl === null
+    ? []
+    : [{ label: 'See it live', value: surfaceUrl, href: surfaceUrl }];
+  s.evidence = shots.map(a => ({
+    id: a.id,
+    kind: a.kind,
+    ...drawOf(a),
+    role: 'today',
+    title: a.title,
+    caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,
+    url: `/dashboard/artifacts/${a.id}`,
+    at: a.createdAt,
+  }));
+  if (s.evidence.length === 0 && surfaceUrl === null) {
+    s.absence = 'Nothing says where this lives on the running product, so there is no way to go and see what it does today.';
+  }
+  return s;
+}
+
 /** Surfaces a person can see, and therefore owes a picture of. */
 const VISIBLE_SURFACES: ReadonlySet<string> = new Set(['ui', 'flow']);
 
@@ -1822,7 +1860,6 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): Rep
   const s = blank('visuals', 'Preview');
   const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
   const surface = str(request.meta, 'surface');
-  const surfaceUrl = str(visuals, 'surfaceUrl');
   const noVisualReason = str(visuals, 'noVisualReason');
   const ids = (key: string): Set<string> => {
     const raw = visuals[key];
@@ -1847,11 +1884,19 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): Rep
     }))
     .sort((x, y) => x.at.getTime() - y.at.getTime());
 
-  s.evidence = [...pick(before, 'proposed'), ...pick(after, 'shipped')];
-  s.facts = [
-    { label: 'Where this is on the live product', value: surfaceUrl, href: surfaceUrl ?? undefined },
-    { label: 'Surface', value: surface },
-  ];
+  // Preview is the MOCK — what we propose it will look like. What it looks
+  // like today, and where to go and see that for yourself, is its own section
+  // after the story: they answer different questions and were crowding each
+  // other in one list.
+  const isCurrent = (e: ReportEvidence): boolean => artifacts.some(a => a.id === e.id && a.recordRole === 'before-shot');
+  const all = [...pick(before, 'proposed'), ...pick(after, 'shipped')];
+  // A PICTURE LEADS. A visual that can only be opened somewhere else — a link
+  // to a document living outside the product — cannot be looked at here, so
+  // it sorts last however it was ordered on the record. On a phone it was the
+  // first thing under Preview: a grey box reading "opens somewhere else"
+  // where the mockup should have been.
+  const drawable = (e: ReportEvidence): number => (e.imageUrl !== null ? 0 : e.body !== null ? 1 : 2);
+  s.evidence = all.filter(e => !isCurrent(e)).sort((a, b) => drawable(a) - drawable(b));
 
   if (s.evidence.length === 0) {
     if (noVisualReason !== null) {
@@ -1929,7 +1974,13 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const line = moneyLine(input.request, input.tasks, runs);
   return {
     requestId: input.request.id,
-    title: input.request.title,
+    // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's
+    // words and is evidence (`naming-the-work`), so it is never rewritten —
+    // which meant every surface led with a situation. The outcome line says
+    // what a person can do afterwards; the ask is kept underneath, verbatim.
+    title: str(input.request.meta, 'outcome') ?? input.request.title,
+    asked: input.request.title,
+    story: str(input.request.meta, 'story'),
     state: buildState(normalised),
     phase: buildPhase(normalised),
     lifecycle: buildLifecycle(buildPhase(normalised)),
@@ -1943,6 +1994,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
       askSection(input.request),
       triageSection(input.request),
       visualsSection(input.request, input.artifacts),
+      todaySection(input.request, input.artifacts),
       planSection(input.plans, input.tasks, runs.length > 0),
       contractSection(input.tasks),
       approvalsSection(input.asks, input.actionRuns, runs.length > 0),

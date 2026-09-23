@@ -80,7 +80,9 @@ function Fact({ fact }: { fact: ReportFact }) {
   // and broke every sentence into a column. A figure does NOT — stacking
   // "$9.00" under its own label turned the money section into six rows of
   // mostly air, which is the opposite of the problem being fixed.
-  const prose = fact.format === 'quote';
+  // A URL is not a figure: it is long, it wraps, and beside a 7.5rem label it
+  // gets a third of a phone screen. It stacks like prose.
+  const prose = fact.format === 'quote' || fact.href !== undefined;
   return (
     <div className={`gap-x-4 gap-y-0.5 py-2 text-[15px] ${prose ? 'block' : 'grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)]'}`}>
       <dt className={`text-xs text-muted-foreground ${prose ? 'mb-1.5' : 'leading-6'}`}>{fact.label}</dt>
@@ -204,27 +206,27 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
     <ul className="mt-3 space-y-6">
       {items.map(item => (
         <li key={item.id} className="min-w-0">
-          <figure className={`m-0 overflow-hidden rounded-xl border bg-surface-soft ${item.role === 'proposed' ? 'border-dashed border-border' : 'border-border'}`}>
-            {item.imageUrl !== null && (
-              <img src={item.imageUrl} alt={item.caption ?? item.title} loading="lazy" className="block w-full" />
-            )}
-            {item.imageUrl === null && item.body !== null && (
-              <div className="max-h-[32rem] overflow-y-auto px-4 py-3.5 sm:px-5">
-                <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:text-[13px] prose-headings:tracking-wide prose-headings:text-muted-foreground prose-headings:uppercase prose-p:leading-relaxed prose-pre:bg-background prose-pre:text-[11px] prose-pre:leading-snug prose-table:text-xs">
-                  <Markdown remarkPlugins={[remarkGfm]}>{item.body}</Markdown>
+          {(item.imageUrl !== null || item.body !== null) && (
+            <figure className={`m-0 overflow-hidden rounded-xl border bg-surface-soft ${item.role === 'proposed' ? 'border-dashed border-border' : 'border-border'}`}>
+              {item.imageUrl !== null && (
+              // A desktop mockup at 430px is a thumbnail. It opens.
+                <a href={item.url ?? undefined} aria-label={`Open ${item.title}`}>
+                  <img src={item.imageUrl} alt={item.caption ?? item.title} loading="lazy" className="block w-full" />
+                </a>
+              )}
+              {item.imageUrl === null && item.body !== null && (
+                <div className="max-h-[32rem] overflow-y-auto px-4 py-3.5 sm:px-5">
+                  <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:text-[13px] prose-headings:tracking-wide prose-headings:text-muted-foreground prose-headings:uppercase prose-p:leading-relaxed prose-pre:bg-background prose-pre:text-[11px] prose-pre:leading-snug prose-table:text-xs">
+                    <Markdown remarkPlugins={[remarkGfm]}>{item.body}</Markdown>
+                  </div>
                 </div>
-              </div>
-            )}
-            {item.imageUrl === null && item.body === null && (
-              <div className="flex aspect-[3/1] w-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
-                Opens somewhere else
-              </div>
-            )}
-          </figure>
-          <figcaption className="mt-2 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-            <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{ROLE_WORD[item.role] ?? item.role}</span>
-            <span className="min-w-0 text-[15px] break-words">{item.title}</span>
-            {item.url && <a href={item.url} className="text-xs whitespace-nowrap text-muted-foreground underline underline-offset-2 hover:text-foreground">Open it</a>}
+              )}
+            </figure>
+          )}
+          <figcaption className="mt-2 text-[15px] break-words">
+            <span className="mr-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{ROLE_WORD[item.role] ?? item.role}</span>
+            {item.title}
+            {item.url && <a href={item.url} className="ml-2 text-xs whitespace-nowrap text-muted-foreground underline underline-offset-2 hover:text-foreground">Open</a>}
           </figcaption>
           {item.caption !== null && <p className="mt-0.5 max-w-prose text-[13px] leading-relaxed break-words text-muted-foreground">{item.caption}</p>}
         </li>
@@ -283,6 +285,27 @@ function Section({ section }: { section: ReportSection }) {
 }
 
 /**
+ * THE STORY — the change as the person who will use it would tell it.
+ *
+ * Between the mock and the plan on purpose: a reader has just seen what it
+ * will look like and has not yet been asked to judge how it will be built.
+ * This is the part that says why anybody wants it, which neither the mock nor
+ * the criteria ever say.
+ * @param props
+ * @param props.story - The story, as markdown.
+ */
+function Story({ story }: { story: string }) {
+  return (
+    <section id="report-story" className="border-t border-border/60 pt-8">
+      <h3 className="mb-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">The story</h3>
+      <div className="prose prose-sm max-w-prose text-foreground dark:prose-invert prose-p:text-[15px] prose-p:leading-relaxed prose-li:text-[15px]">
+        <Markdown remarkPlugins={[remarkGfm]}>{story}</Markdown>
+      </div>
+    </section>
+  );
+}
+
+/**
  * WHERE THIS IS, in four dots.
  *
  * It replaces four whole sections that each said nothing had happened yet:
@@ -319,7 +342,7 @@ function Lifecycle({ steps }: { steps: LifecycleStep[] }) {
  * has not happened.
  */
 const PHASE_LEADS: Record<ReportPhase, readonly string[]> = {
-  proposed: ['visuals', 'plan'],
+  proposed: ['visuals', 'today', 'plan'],
   building: ['runs', 'plan'],
   review: ['qa', 'change', 'visuals'],
   released: ['release', 'qa'],
@@ -457,7 +480,11 @@ function DoneWhen({ acceptance }: { acceptance: ReportAcceptance }) {
             </span>
             <span className={`min-w-0 break-words ${item.met === true ? 'text-muted-foreground' : 'text-foreground'}`}>
               {item.statement}
-              {item.met === null && <span className="ml-1.5 text-xs text-muted-foreground">not checked</span>}
+              {/* The empty circle already says it. Seven repetitions of "not
+                  checked" wrapped every row onto two lines on a phone; the
+                  words stay for a screen reader, which has no circle. */}
+              {item.met === null && <span className="ml-1.5 hidden text-xs text-muted-foreground sm:inline">not checked</span>}
+              {item.met === null && <span className="sr-only">not checked</span>}
               {item.evidenceUrl !== null && (
                 <a href={item.evidenceUrl} className="ml-1.5 text-xs text-muted-foreground underline hover:text-foreground">evidence</a>
               )}
@@ -558,8 +585,14 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
           machinery that produced it — the original ask, the triage figures,
           the per-task contracts, the approval records — is all still here,
           one level down, where it is traceable without being in the way. */}
+      {/* THE ORDER A PERSON READS IT IN (Chris, 2026-09-23): the outcome, then
+          the mock, then the story, then where to go and see how it works
+          today, then the plan and what counts as done. The mock comes before
+          the prose because it answers the question the prose is about. */}
       <div className="space-y-8">
-        {report.sections.filter(x => showsOnPage(x, report.phase)).map(section => <Section key={section.key} section={section} />)}
+        {report.sections.filter(x => showsOnPage(x, report.phase) && x.key === 'visuals').map(section => <Section key={section.key} section={section} />)}
+        {report.story !== null && <Story story={report.story} />}
+        {report.sections.filter(x => showsOnPage(x, report.phase) && x.key !== 'visuals').map(section => <Section key={section.key} section={section} />)}
       </div>
 
       {/* WHAT COUNTS AS DONE, under the proposal rather than above it: it is

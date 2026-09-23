@@ -26,6 +26,7 @@ The five names, and who reads each one:
 | name | written by | read by | job |
 |---|---|---|---|
 | request title | the asker | everyone, forever | evidence of what a person wanted |
+| outcome line | triage | anyone deciding, on every surface | what a person can do afterwards |
 | task title | the planner | the reviewer, the merger, the person scanning the backlog | the change, literally |
 | commit subject | the engineer | `git log`, for years | the change, in the repository's vocabulary |
 | pull request title | the engineer | the reviewer and the merge queue | the change, again, unchanged |
@@ -42,6 +43,26 @@ whether the planner invented the need.
 Tag it, dedupe it, rank it, link it — do not edit it. If it is unreadable,
 that is a fact about the request worth knowing. Clarity is added in the body
 and in `requestSummary`, never by overwriting the title.
+
+## 1b. Outcome line: what every surface leads with
+
+The request title is evidence and must not be rewritten. That leaves a gap
+nobody filled for a long time: **no line on the record states the change**, so
+every surface led with the ask — which is a situation, not an outcome.
+
+`request.outcome` closes it. One sentence, written at triage, to exactly the
+task-title rules below: a verb first, the user-visible outcome, no paths or
+modules, one change. The work item page, the queue and the review card all
+lead with it and keep the asker's words as evidence underneath.
+
+> Asked: *"add send/share to file detail page"*
+> Outcome: **Allow users to send files to email recipients.**
+
+The second is the one worth approving. It names a capability rather than a
+control, it says what is different afterwards, and a person who has never
+seen the product can read it. The first names a button and a screen — and on
+this very request it also hid the fact that sharing already existed, because
+a control can be "added" to a page that already has one.
 
 ## 2. Task title: the change, literally, in the imperative
 

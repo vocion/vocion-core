@@ -138,7 +138,7 @@ describe('the feature report, drawn', () => {
     }
 
     // Nothing was dropped on the way.
-    expect(keys).toHaveLength(11);
+    expect(keys).toHaveLength(12);
 
     // And the four that moved are inside the disclosure, not merely after it.
     const technical = document.querySelector('#report-technical')!;
