@@ -1890,7 +1890,13 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): Rep
   // other in one list.
   const isCurrent = (e: ReportEvidence): boolean => artifacts.some(a => a.id === e.id && a.recordRole === 'before-shot');
   const all = [...pick(before, 'proposed'), ...pick(after, 'shipped')];
-  s.evidence = all.filter(e => !isCurrent(e));
+  // A PICTURE LEADS. A visual that can only be opened somewhere else — a link
+  // to a document living outside the product — cannot be looked at here, so
+  // it sorts last however it was ordered on the record. On a phone it was the
+  // first thing under Preview: a grey box reading "opens somewhere else"
+  // where the mockup should have been.
+  const drawable = (e: ReportEvidence): number => (e.imageUrl !== null ? 0 : e.body !== null ? 1 : 2);
+  s.evidence = all.filter(e => !isCurrent(e)).sort((a, b) => drawable(a) - drawable(b));
 
   if (s.evidence.length === 0) {
     if (noVisualReason !== null) {
