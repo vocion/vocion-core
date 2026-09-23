@@ -163,6 +163,84 @@ describe('personalization.enroll proposal', () => {
   });
 });
 
+describe('the voice gate judges only the sends that changed', () => {
+  const BANNED = 'I wanted to reach out about the hires.';
+
+  async function pendingCardWith(sends: Array<{ step: number; day: number; subject: string; body: string }>): Promise<number> {
+    // Written straight to the table: this is a card that got in before the
+    // gate existed, which is exactly the card the gate must not hold hostage.
+    const [row] = await db
+      .insert(actionRunSchema)
+      .values({
+        orgId: ORG,
+        actionId: 'personalization.enroll',
+        status: 'pending',
+        invokedBy: 'agent:revenue-lead',
+        dedupKey: `personalization.enroll:${CONTACT}`,
+        input: enrollInput({ sends }),
+        proposal: {},
+      })
+      .returning({ id: actionRunSchema.id });
+    return row!.id;
+  }
+
+  it('refuses a brand-new card that carries a banned phrase in any send', async () => {
+    await seedLead();
+
+    await expect(proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput({ sends: [
+        { step: 1, day: 0, subject: 'Your platform hires', body: BANNED },
+        { step: 2, day: 4, subject: 'One level deeper', body: 'The switching-costs section.' },
+      ] }),
+    })).rejects.toThrow(/body of send 1/);
+  });
+
+  it('lets a clean rewrite of one send through when the untouched sends still carry old violations', async () => {
+    await seedLead();
+    const runId = await pendingCardWith([
+      { step: 1, day: 0, subject: 'Your platform hires', body: BANNED },
+      { step: 2, day: 4, subject: 'One level deeper', body: 'The switching-costs section.' },
+    ]);
+
+    // The scoped regenerate's save: send 1 verbatim, send 2 rewritten clean.
+    const refreshed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput({ sends: [
+        { step: 1, day: 0, subject: 'Your platform hires', body: BANNED },
+        { step: 2, day: 4, subject: 'One level deeper', body: 'The switching-costs section, with the number.' },
+      ] }),
+    });
+
+    expect(refreshed).toMatchObject({ runId, status: 'pending', outcome: 'refreshed' });
+  });
+
+  it('still refuses the send that changed when the change itself violates, and names only that send', async () => {
+    await seedLead();
+    await pendingCardWith([
+      { step: 1, day: 0, subject: 'Your platform hires', body: BANNED },
+      { step: 2, day: 4, subject: 'One level deeper', body: 'The switching-costs section.' },
+    ]);
+
+    const attempt = proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput({ sends: [
+        { step: 1, day: 0, subject: 'Your platform hires', body: BANNED },
+        { step: 2, day: 4, subject: 'One level deeper', body: `${BANNED} Again.` },
+      ] }),
+    });
+
+    await expect(attempt).rejects.toThrow(/body of send 2/);
+    await expect(attempt).rejects.not.toThrow(/send 1/);
+  });
+});
+
 describe('edit-then-approve on the sends', () => {
   it('maps content edits onto the matching send and leaves the rest alone', () => {
     const input = personalizationEnrollAction.inputSchema.parse(enrollInput());
