@@ -19,7 +19,7 @@ import { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema } 
 import { emailDirection, emailSnippet, hubspotClientForOrg, hubspotSourcesForOrg, isAutoReply } from '@/services/agents/tools/hubspotDirect';
 import { buildReviewContext, contactEmailOf } from './reviewContextModel';
 
-const CONTACT_PROPERTIES = ['firstname', 'lastname', 'email', 'company', 'jobtitle', 'lifecyclestage', 'hubspot_owner_id', 'createdate', 'hs_analytics_source', 'hs_analytics_source_data_1'];
+const CONTACT_PROPERTIES = ['firstname', 'lastname', 'email', 'company', 'jobtitle', 'lifecyclestage', 'hubspot_owner_id', 'createdate', 'hs_analytics_source', 'hs_analytics_source_data_1', 'utm_content'];
 const EMAIL_PROPERTIES = ['hs_email_subject', 'hs_email_text', 'hs_email_html', 'hs_email_direction', 'hs_timestamp'];
 /** Enough to see the pattern; the CRM has the rest. */
 const TOUCH_CAP = 8;
@@ -77,6 +77,7 @@ async function readHubspot(orgId: string, email: string): Promise<{ contact: Sec
     createdAt: p.createdate ?? null,
     source: p.hs_analytics_source ?? null,
     sourceDetail: p.hs_analytics_source_data_1 ?? null,
+    utmContent: p.utm_content || null,
     href: portalId ? `https://app.hubspot.com/contacts/${portalId}/record/0-1/${raw.id}` : null,
   };
   const [hubspotTouches, enrollment] = await Promise.all([readHubspotEmails(client, raw.id), readEnrollment(client, raw.id)]);

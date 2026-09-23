@@ -274,6 +274,7 @@
     "context_company": "Company",
     "context_stage": "Stage",
     "context_source": "Came in via",
+    "context_lead_magnet": "Lead magnet",
     "context_since": "In CRM",
     "context_touches": "Inbox & outbox",
     "context_in": "They wrote",

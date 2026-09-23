@@ -77,6 +77,23 @@ describe('hubspotConnector', () => {
     expect(dealsUrl).not.toContain('hs_sales_email_last_replied');
   });
 
+  it('mirrors the ad lead magnet (utm_content) as metadata, fetched by default, without touching content', async () => {
+    const props = { firstname: 'Mara', lastname: 'Okafor', email: 'mara@acme.com', utm_content: 'Marketing Industry eBook' };
+    const fetchMock = vi.fn(async () => res({ results: [{ id: '1', properties: props }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const [doc] = await collect(hubspotConnector.sync(ctx()));
+
+    expect(decodeURIComponent(String((fetchMock.mock.calls[0] as unknown[])[0]))).toContain('utm_content');
+    expect(doc!.metadata).toMatchObject({ utmContent: 'Marketing Industry eBook' });
+
+    // The same contact without the property: identical content, no empty key.
+    vi.stubGlobal('fetch', vi.fn(async () => res({ results: [{ id: '1', properties: { ...props, utm_content: '' } }] })));
+    const [bare] = await collect(hubspotConnector.sync(ctx()));
+
+    expect(bare!.content).toBe(doc!.content);
+    expect(bare!.metadata!.utmContent).toBeUndefined();
+  });
+
   it('keeps content stable when volatile properties change (they are metadata-only)', async () => {
     const props = { firstname: 'Mara', lastname: 'Okafor', email: 'mara@acme.com', lifecyclestage: 'lead', hs_email_open: '2', hs_lastmodifieddate: '2026-06-01T00:00:00Z', hubspot_owner_id: '77' };
     vi.stubGlobal('fetch', vi.fn(async () => res({ results: [{ id: '1', properties: props }] })));

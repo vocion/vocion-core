@@ -40,6 +40,7 @@ describe('readContactsLive', () => {
           createdate: '2026-09-14T16:24:50.422Z',
           hs_email_delivered: '3',
           hs_v2_date_entered_marketingqualifiedlead: '2026-09-14T16:25:00.000Z',
+          utm_content: 'Construction Industry eBook',
         },
       }],
     }));
@@ -55,6 +56,7 @@ describe('readContactsLive', () => {
       createdAt: '2026-09-14T16:24:50.422Z',
       emailDelivered: 3,
       mqlEnteredAt: '2026-09-14T16:25:00.000Z',
+      utmContent: 'Construction Industry eBook',
     });
   });
 });

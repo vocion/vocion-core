@@ -183,6 +183,11 @@ export default async function LeadPage(props: {
     return who?.name ?? who?.email ?? null;
   })();
 
+  // The lead magnet is read from the CRM mirror, not the ledger row (see
+  // `contactUtmContentByRef`). A failed read leaves it out.
+  const { contactUtmContentByRef } = await import('@/services/CrmRecordsService');
+  const utmContent = (await contactUtmContentByRef(orgId, [row.contactRef]).catch(() => new Map<string, string>())).get(row.contactRef) ?? null;
+
   // Dates cross the server/client boundary as ISO strings.
   const lead: LeadRow = {
     id: row.id,
@@ -192,6 +197,7 @@ export default async function LeadPage(props: {
     companyName: row.companyName,
     entranceSource: row.entranceSource,
     utmCampaign: row.utmCampaign,
+    utmContent,
     engagementSent: row.engagementSent,
     engagementOpened: row.engagementOpened,
     status: row.status,

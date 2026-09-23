@@ -50,6 +50,10 @@ const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
     'hs_analytics_source',
     'hs_analytics_source_data_1',
     'hs_latest_source',
+    // The ad lead magnet a contact answered ("Marketing Industry eBook"): the
+    // most specific entrance signal the portal carries, so the queue and the
+    // review card name it and the copy can pick the matching industry page.
+    'utm_content',
     'hs_email_delivered',
     'hs_email_open',
     'hs_email_click',
@@ -184,6 +188,7 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
       originalSource: props.hs_analytics_source ?? undefined,
       originalSourceDetail: props.hs_analytics_source_data_1 ?? undefined,
       latestSource: props.hs_latest_source ?? undefined,
+      utmContent: props.utm_content || undefined,
       emailDelivered: hubspotNumeric(props.hs_email_delivered),
       emailOpened: hubspotNumeric(props.hs_email_open),
       emailClicked: hubspotNumeric(props.hs_email_click),

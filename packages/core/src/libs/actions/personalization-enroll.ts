@@ -547,6 +547,13 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     if (lead?.utmCampaign) {
       provenance.push({ label: 'Campaign', value: lead.utmCampaign });
     }
+    // The ad lead magnet they answered, from the CRM mirror (the ledger row
+    // does not carry it; see `contactUtmContentByRef`).
+    const { contactUtmContentByRef } = await import('@/services/CrmRecordsService');
+    const utmContent = (await contactUtmContentByRef(ctx.orgId, [input.contactRef]).catch(() => new Map<string, string>())).get(input.contactRef);
+    if (utmContent) {
+      provenance.push({ label: 'Lead magnet', value: utmContent });
+    }
     if (lead?.mqlAt) {
       provenance.push({ label: 'Became MQL', value: DATE_FORMAT.format(lead.mqlAt) });
     } else if (lead?.arrivedAt) {

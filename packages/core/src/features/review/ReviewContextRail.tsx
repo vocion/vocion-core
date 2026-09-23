@@ -64,6 +64,7 @@ export function ReviewContextRail({ context, contextRead, changes, evidence }: {
     email: t('context_email'),
     stage: t('context_stage'),
     source: t('context_source'),
+    leadMagnet: t('context_lead_magnet'),
     since: t('context_since'),
     inbound: t('context_in'),
     outbound: t('context_out'),

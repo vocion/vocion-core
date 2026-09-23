@@ -388,6 +388,7 @@ export type ContextPaneLabels = {
   email: string;
   stage: string;
   source: string;
+  leadMagnet: string;
   since: string;
   inbound: string;
   outbound: string;
@@ -423,6 +424,7 @@ export const CONTEXT_PANE_LABELS: ContextPaneLabels = {
   email: 'Email',
   stage: 'Stage',
   source: 'Came in via',
+  leadMagnet: 'Lead magnet',
   since: 'In CRM',
   inbound: 'They wrote',
   outbound: 'We wrote',
@@ -504,6 +506,7 @@ export function contextPaneRows(input: {
       { label: labels.email, value: c.email },
       { label: labels.stage, value: c.lifecycleStage ?? '—' },
       { label: labels.source, value: [c.source, c.sourceDetail].filter(Boolean).join(' · ') || '—' },
+      ...(c.utmContent ? [{ label: labels.leadMagnet, value: c.utmContent }] : []),
       ...(c.createdAt ? [{ label: labels.since, value: input.agoLabel(new Date(c.createdAt)) }] : []),
     ];
     rows.push({

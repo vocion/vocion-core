@@ -162,6 +162,20 @@ describe('the lead workspace — three zones, three tabs', () => {
     expect(page.getByText('Reference articles').elements()).toHaveLength(0);
   });
 
+  it('names the lead magnet they answered on the meta row, and leaves the cell out when there is none', async () => {
+    await render(<LeadDetail lead={lead({ id: 88203, contactName: 'Rowan Pike', utmContent: 'Marketing Industry eBook' })} contactHref={HUBSPOT} runState={NO_RUN} />);
+
+    await expect.element(page.getByTestId('review-meta').getByText('Lead magnet')).toBeVisible();
+    await expect.element(page.getByTestId('review-meta').getByText('Marketing Industry eBook')).toBeVisible();
+  });
+
+  it('draws no lead magnet cell for a contact the CRM carries none for', async () => {
+    await render(<LeadDetail lead={lead({ id: 88204, contactName: 'Rowan Pike' })} contactHref={HUBSPOT} runState={NO_RUN} />);
+
+    await expect.element(page.getByTestId('review-meta').getByText('Became MQL')).toBeVisible();
+    expect(page.getByTestId('review-meta').getByText('Lead magnet').elements()).toHaveLength(0);
+  });
+
   it('reads the headline off the same dimensions as the rows, so the two cannot disagree', async () => {
     const dimensions = computeConfidenceDimensions({ contactName: 'Rowan Pike', contactTitle: 'CEO', companyName: 'Tideline Gaming Marketing Inc', claims: CLAIMS });
 
