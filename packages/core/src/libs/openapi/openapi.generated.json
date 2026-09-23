@@ -1173,6 +1173,77 @@
         ]
       }
     },
+    "/api/v1/budgets/agents": {
+      "get": {
+        "operationId": "get_budgets_agents",
+        "summary": "Every agent in the workspace with the budget it is actually held to this period: the hard cap in force, whose setting that cap is (`own`, `workspace_agent_defa…",
+        "tags": [
+          "budgets"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `BAD_REQUEST`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every agent in the workspace with the budget it is actually held to this\nperiod: the hard cap in force, whose setting that cap is (`own`,\n`workspace_agent_default`, `built_in_agent_default`), spend, what is left,\nwhether its next turn would be refused and why, and when the period resets.\n\nUnlike `GET /api/v1/budgets`, which lists stored rows, this includes agents\nwith no row — every new agent — because since #272 those run on a default\ncap rather than none, and a caller trying to explain a refusal needs to see\nit. Same numbers the refusal is decided on (`BudgetService.agentBudgetStatuses`).\n\nRequires the `manage_sources` capability, like `GET /api/v1/budgets`.\nAuth: tenant API token or dashboard session.\n\n**Requires the `manage_sources` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-required-capability": [
+          "manage_sources"
+        ]
+      }
+    },
     "/api/v1/chat-announcements": {
       "post": {
         "operationId": "post_chat_announcements",

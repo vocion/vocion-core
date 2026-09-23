@@ -140,6 +140,23 @@ export const WorkspaceManifestSchema = z.object({
      * dial for that kind — pin one action without changing the appetite.
      */
     learningEagerness: z.number().int().min(0).max(10).optional(),
+    /**
+     * The spend cap every agent in this workspace is held to when its own
+     * YAML sets no `budget:` — the workspace's default agent cap (#272).
+     *
+     * `dailyCents` is a hard cap in cents per UTC day: `10000` is $100. `null`
+     * means this workspace chose no default, so an agent without a budget of
+     * its own runs unlimited — for a workspace that manages spend with its
+     * provider's limits instead (AWS Budgets, the Anthropic Console's spend
+     * limits); see `docs/guides/budgets.md` for what those do and do not catch.
+     *
+     * Omit the block and apply leaves whatever default is stored alone, and
+     * with none stored the built-in $100 a day applies
+     * (`BudgetService.DEFAULT_AGENT_DAILY_HARD_CENTS`).
+     */
+    agentBudget: z.object({
+      dailyCents: z.number().int().min(0).nullable(),
+    }).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -558,6 +575,25 @@ export const AgentManifestSchema = z.object({
   description: z.string().optional(),
   icon: z.string().optional(),
   active: z.boolean().default(true),
+  /**
+   * This agent's spend caps, in cents. A turn is refused once the period's
+   * spend reaches the cap, and a turn that crosses it partway is stopped at
+   * its next model call (#272). `dailyCents: 5000` is $50 per UTC day;
+   * `monthlyCents` is per UTC calendar month. Either may be left out.
+   *
+   * An agent with no daily cap of its own is held to the workspace's default
+   * agent cap (`defaults.agentBudget` in workspace.yaml) and, failing that, to
+   * the built-in $100 a day. So leaving this out is not "unlimited".
+   *
+   * Omit the block and apply leaves the agent's stored caps alone — a cap set
+   * when the agent was hired, or by an admin, survives. Write it and the YAML
+   * owns those caps: the next apply puts them back to what is written here.
+   * See `docs/guides/budgets.md`.
+   */
+  budget: z.object({
+    dailyCents: z.number().int().min(0).optional(),
+    monthlyCents: z.number().int().min(0).optional(),
+  }).optional(),
   /**
    * Slug of the primary agent this specialist reports to. Omit for
    * primary agents. One level deep: the referenced agent must itself

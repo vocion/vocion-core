@@ -55,6 +55,32 @@ function validate(body: unknown): InvocationRequest {
   return r as InvocationRequest;
 }
 
+/**
+ * Abort the turn when the response closed before the turn finished writing
+ * it — the caller hung up. A response that ended normally closes too, and
+ * aborts nothing.
+ * @param res - The event-stream response.
+ * @param callerLeft - The turn's abort controller.
+ */
+export function abortWhenCallerLeft(res: ServerResponse, callerLeft: AbortController): void {
+  if (!res.writableEnded) {
+    callerLeft.abort(new Error('the caller closed the connection'));
+  }
+}
+
+/**
+ * Write to the event stream unless the caller has already gone; a write to a
+ * destroyed response only raises an error nobody is listening for.
+ * @param res - The event-stream response.
+ * @param chunk - The frame to write.
+ */
+export function writeWhileOpen(res: ServerResponse, chunk: string): void {
+  if (res.destroyed || res.writableEnded) {
+    return;
+  }
+  res.write(chunk);
+}
+
 async function handleInvocation(req: IncomingMessage, res: ServerResponse): Promise<void> {
   let invocation: InvocationRequest;
   try {
@@ -71,16 +97,20 @@ async function handleInvocation(req: IncomingMessage, res: ServerResponse): Prom
     'connection': 'keep-alive',
   });
 
-  const send = (event: AgentEvent): void => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  };
+  // The caller hanging up ends the turn: vocion-core drops the connection to
+  // stop a turn that reached its budget (#272), and nothing charges a model
+  // call made after that.
+  const callerLeft = new AbortController();
+  res.on('close', () => abortWhenCallerLeft(res, callerLeft));
+
+  const send = (event: AgentEvent): void => writeWhileOpen(res, `data: ${JSON.stringify(event)}\n\n`);
 
   // 15s keepalives — same cadence as core's SSE route; comment frames
   // are ignored by EventSource-style parsers.
-  const keepalive = setInterval(() => res.write(': keepalive\n\n'), 15_000);
+  const keepalive = setInterval(() => writeWhileOpen(res, ': keepalive\n\n'), 15_000);
 
   try {
-    await runInvocation(invocation, send);
+    await runInvocation(invocation, send, callerLeft.signal);
   } catch (err) {
     // runInvocation already emitted an `error` event; this catch only
     // guards the stream teardown.

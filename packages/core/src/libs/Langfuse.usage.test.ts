@@ -23,6 +23,7 @@ import type { LLMResult } from '@langchain/core/outputs';
 import { AIMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
 import { createLangfuseCallback } from './Langfuse';
+import { tokenCostMicroCents } from './pricing';
 
 type ReportedUsage = {
   model: string;
@@ -152,5 +153,70 @@ describe('onTurnEnd on the llmOutput fallbacks', () => {
     } as unknown as LLMResult);
 
     expect(reported).toMatchObject({ inputTokens: 5_000, outputTokens: 300, cacheReadTokens: 4_000 });
+  });
+});
+
+describe('onTurnEnd names the model a Bedrock turn ran on', () => {
+  // Bedrock names its model only in the run metadata when the call starts and
+  // sends no `llmOutput` at the end. Reported as "unknown", the turn priced at
+  // zero, so no Bedrock agent's spend ever counted against its budget (#272).
+  it('carries the model id from the start of the call to the usage it reports', async () => {
+    const BEDROCK_HAIKU = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
+    let reported: ReportedUsage | null = null;
+    const { handler } = createLangfuseCallback({
+      feature: 'agent.chat',
+      slug: 'usage-test',
+      orgId: 'org_usage_test',
+      userId: 'user_usage_test',
+      onTurnEnd: (turn) => {
+        reported = turn;
+      },
+    });
+    const adapter = handler as unknown as {
+      handleChatModelStart: (llm: unknown, messages: unknown, id: string, parent?: string, extra?: unknown, tags?: string[], metadata?: Record<string, unknown>) => Promise<void>;
+      handleLLMEnd: (o: LLMResult, id: string) => Promise<void>;
+    };
+
+    await adapter.handleChatModelStart({ id: ['ChatBedrockConverse'] }, [[new AIMessage({ content: 'go' })]], 'run-b', undefined, { invocation_params: {} }, [], { ls_model_name: BEDROCK_HAIKU });
+    await adapter.handleLLMEnd(bedrockShaped({ input_tokens: 10_000, output_tokens: 1_000 }), 'run-b');
+
+    expect(reported).toMatchObject({ model: BEDROCK_HAIKU });
+    // $1/M in + $5/M out on Haiku 4.5: 1¢ + 0.5¢.
+    expect(tokenCostMicroCents(reported!.model, { inputTokens: 10_000, outputTokens: 1_000 })).toBe(1_500_000);
+  });
+});
+
+describe('onTurnEnd says whether the turn goes on', () => {
+  // The budget guard stops a turn at once when the call that crossed its cap
+  // asked for tools, and lets a final answer finish (#272).
+  it('reports a call that asked for tools', async () => {
+    const message = new AIMessage({ content: '', tool_calls: [{ id: 't1', name: 'write_todos', args: {} }] });
+    (message as unknown as { usage_metadata: unknown }).usage_metadata = { input_tokens: 10, output_tokens: 5 };
+
+    const reported = await usageReportedFor({ generations: [[{ text: '', message }]] } as unknown as LLMResult);
+
+    expect(reported).toMatchObject({ askedForTools: true });
+  });
+
+  it('reports a final answer as not going on', async () => {
+    const reported = await usageReportedFor(bedrockShaped({ input_tokens: 10, output_tokens: 5 }));
+
+    expect(reported).toMatchObject({ askedForTools: false });
+  });
+});
+
+describe('a callback that charges usage', () => {
+  // LangChain runs callbacks on a background queue unless told to wait; the
+  // charge and budget re-check must finish before the next model call starts.
+  it('is waited on before the turn moves on', () => {
+    const { handler } = createLangfuseCallback({ feature: 'agent.chat', slug: 'usage-test', orgId: 'org_usage_test', userId: 'user_usage_test', onTurnEnd: () => {} });
+
+    expect(handler.awaitHandlers).toBe(true);
+  });
+
+  it('stays on the background queue when it charges nothing', () => {
+    const { handler } = createLangfuseCallback({ feature: 'agent.chat', slug: 'usage-test', orgId: 'org_usage_test', userId: 'user_usage_test' });
+
+    expect(handler.awaitHandlers).toBe(false);
   });
 });

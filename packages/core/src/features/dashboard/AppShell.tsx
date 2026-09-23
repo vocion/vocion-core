@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
 import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { AgentBudgetBanner } from '@/features/dashboard/AgentBudgetBanner';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
@@ -24,7 +25,7 @@ import { readWorkspacePages } from '@/libs/workspace/pages';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
-import { listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
+import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
 import { mountedWorkspaceIsProjects } from '@/services/WorkspaceMountService';
 import { readWorkspacePauseWithName } from '@/services/workspacePause';
@@ -145,6 +146,19 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         .catch(() => null)
     : null;
 
+  // Agents that have spent through their cap — a default one included, since
+  // every agent without a budget of its own runs on one (#272). Loud on
+  // purpose: a refused turn is the person's first sign otherwise. A read that
+  // fails hides the banner rather than the page.
+  const blockedAgents = orgId
+    ? await agentBudgetStatuses(orgId)
+        .then(status => status.agents.filter(agent => agent.blocked))
+        .catch((error: unknown) => {
+          console.warn('app shell: could not read agent budgets for the banner', { orgId, error: error instanceof Error ? error.message : String(error) });
+          return [];
+        })
+    : [];
+
   return (
     // The shell IS the viewport: `h-svh` over `min-h-svh` is what stops the
     // window scrolling and carrying the sidebar and the top bar with it.
@@ -181,6 +195,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               lifts it. Inside the inset rather than fixed, so it pushes the
               page down instead of covering the first line of it. */}
           {pause && <WorkspacePausedBanner pause={pause} canResume={isAdmin} />}
+          <AgentBudgetBanner blocked={blockedAgents} />
 
           {/* The page, full width, and the one conversation surface (058) as
               an overlay on its right edge — collapsed to an edge tab until

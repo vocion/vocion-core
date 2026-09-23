@@ -56,6 +56,7 @@ vi.mock('@/services/IngestionService', () => ({
         agentSlug: 'platform:all',
         limit: 5000,
         current: 5200,
+        limitFrom: 'own',
       });
     }
     return { status: 'created' as const };

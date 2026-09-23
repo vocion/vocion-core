@@ -6,6 +6,7 @@ import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -206,6 +207,9 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       errors.push({ resource: 'agent', slug: agent.slug, message: (err as Error).message });
     }
   }
+
+  // Spend caps from each agent's `budget:` and `defaults.agentBudget` (#272).
+  await applyBudgets(orgId, loaded, mode, errors);
 
   for (const workflow of loaded.workflows) {
     try {
@@ -884,6 +888,67 @@ function embeddingConfigFrom(
  * @param mode
  * @param errors
  */
+/**
+ * Write the spend caps the YAML declares (#272): each agent's `budget:` and
+ * the workspace's default agent cap, `defaults.agentBudget`.
+ *
+ * Only what is written is applied. An agent with no `budget:` block keeps the
+ * caps it has — the one set when it was hired, or by an admin — which is the
+ * exception to this file's declarative rule, and on purpose: clearing them
+ * would silently widen a cap somebody chose. A block that IS written owns its
+ * caps, and a hand edit to them is put back on the next apply.
+ *
+ * Soft and hard caps are set to the same figure, as the hire flow sets them,
+ * so the workspace's committed allowance (`workspaceHeadroom`) counts them.
+ * @param orgId - The workspace.
+ * @param loaded - The loaded workspace.
+ * @param mode - Dry-run and offline flags; neither writes.
+ * @param errors - Where a failed write is reported.
+ */
+async function applyBudgets(
+  orgId: string,
+  loaded: LoadedWorkspace,
+  mode: ApplyMode,
+  errors: ApplyResult['errors'],
+): Promise<void> {
+  if (mode.dryRun || mode.offline) {
+    return;
+  }
+  const agentBudget = loaded.manifest.defaults?.agentBudget;
+  if (agentBudget) {
+    try {
+      await setCentsLimits({
+        orgId,
+        agentSlug: AGENT_DEFAULT_SCOPE_SLUG,
+        period: 'daily',
+        softCentsLimit: agentBudget.dailyCents,
+        hardCentsLimit: agentBudget.dailyCents,
+      });
+    } catch (err) {
+      errors.push({ resource: 'budget', slug: AGENT_DEFAULT_SCOPE_SLUG, message: (err as Error).message });
+    }
+  }
+  for (const agent of loaded.agents) {
+    if (!agent.budget) {
+      continue;
+    }
+    const caps: Array<{ period: 'daily' | 'monthly'; cents: number | undefined }> = [
+      { period: 'daily', cents: agent.budget.dailyCents },
+      { period: 'monthly', cents: agent.budget.monthlyCents },
+    ];
+    for (const cap of caps) {
+      if (cap.cents === undefined) {
+        continue;
+      }
+      try {
+        await setCentsLimits({ orgId, agentSlug: agent.slug, period: cap.period, softCentsLimit: cap.cents, hardCentsLimit: cap.cents });
+      } catch (err) {
+        errors.push({ resource: 'budget', slug: agent.slug, message: (err as Error).message });
+      }
+    }
+  }
+}
+
 async function applyWorkspaceLeadConfig(
   orgId: string,
   loaded: LoadedWorkspace,
