@@ -292,6 +292,45 @@ changes, not when an agent is edited.
 
 ---
 
+## If you run evals: the workspace's AWS key needs its own policy
+
+AgentCore Evaluations calls are signed with the AWS key a workspace stores
+under Dashboard > API credentials, never with the box's instance role. So
+granting the instance role more does nothing for evals: the key's own IAM user
+or role needs the permissions.
+
+A key missing some of them does not fail the run. It degrades it quietly, and
+each gap shows up as a warning on a later run: "Could not copy these cases to
+AgentCore" (no `CreateDataset`), then "Some evaluators this dataset declares
+could not be set up" (no `CreateEvaluator`), with scores missing those checks.
+A key made only for model calls will hit these one at a time.
+
+Find them all at once instead, before the first eval run and after every core
+pin bump. It asks IAM's policy simulator, so it is free:
+
+```bash
+# From the vocion-core submodule, with an operator profile — not the eval key.
+PRINCIPAL_ARN=arn:aws:iam::<account>:user/<key-user> \
+ENV=<env> AWS_PROFILE=<operator-profile> REGION=<region> \
+  bash infra/agentcore/check-evals-key.sh
+
+# The policy that makes it pass, ready to put in your IaC.
+ENV=<env> AWS_PROFILE=<operator-profile> REGION=<region> \
+  bash infra/agentcore/check-evals-key.sh --print-policy
+```
+
+Manage that policy in the parent project's OpenTofu, as an inline policy on
+the key's user, even if the user itself was made by hand. If two OpenTofu
+workspaces share one AWS account and one key, only one of them may manage the
+policy: two state files owning the same inline policy overwrite each other.
+Gate it on a variable set in exactly one workspace's tfvars.
+
+The action list lives in the script, and a unit test fails when the eval code
+starts sending an AgentCore command the list does not name, so a pin bump that
+adds an eval call also shows up in the script's diff.
+
+---
+
 ## Only if you use the AWS-managed harness: its execution role
 
 Most deployments run agents in **our own container** (`harness.runsOn:
