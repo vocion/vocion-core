@@ -50,10 +50,10 @@ function page(body: string): Response {
 /**
  * Make a response look like the one fetch returns after following a redirect.
  * @param res - the response the redirect landed on.
- * @param finalUrl - where the redirect landed.
+ * @param landedUrl - where the redirect landed.
  */
-function redirectedTo(res: Response, finalUrl: string): Response {
-  Object.defineProperties(res, { url: { value: finalUrl }, redirected: { value: true } });
+function redirectedTo(res: Response, landedUrl: string): Response {
+  Object.defineProperties(res, { url: { value: landedUrl }, redirected: { value: true } });
   return res;
 }
 
@@ -392,7 +392,7 @@ describe('a seed that redirects within its site', () => {
     expect(docs.map(d => d.externalId)).toEqual(expected);
   });
 
-  it('a response that did not redirect is read as before', async () => {
+  it('keeps the requested URL as the base when the response did not redirect', async () => {
     const fetchFn = stubFetch(url => url === LISTING_URL
       ? page(`
           <p><a href="https://www.venue.test/shows/opening">Opening Night</a></p>
@@ -404,14 +404,114 @@ describe('a seed that redirects within its site', () => {
 
     expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([LISTING_URL, 'https://venue.test/shows/second']);
   });
+
+  it('builds the text, the stored links and the id exactly as it would without the redirect', async () => {
+    const body = `
+      <p><a href="/shows/opening">Opening Night</a> <img src="poster.jpg" alt="Poster"></p>
+      <p><a href="second">Second Show</a></p>
+    `;
+    stubFetch(() => page(body));
+    const { docs: [direct] } = await run({ crawl: { startUrl: LISTING_URL, maxDepth: 0 } });
+    stubFetch(() => redirectedTo(page(body), WWW_LISTING_URL));
+    const { docs: [redirected] } = await run({ crawl: { startUrl: LISTING_URL, maxDepth: 0 } });
+
+    expect(redirected).toEqual(direct);
+    expect(redirected?.externalId).toBe(LISTING_URL);
+    expect(redirected?.content).toContain('Opening Night (https://venue.test/shows/opening) [image: Poster](https://venue.test/shows/poster.jpg)');
+    expect(redirected?.metadata).toMatchObject({
+      links: [
+        { url: 'https://venue.test/shows/opening', text: 'Opening Night' },
+        { url: 'https://venue.test/shows/second', text: 'Second Show' },
+      ],
+    });
+  });
+
+  it('counts an upgrade to https on the same host as the same site', async () => {
+    const seedUrl = 'http://venue.test/shows/';
+    const fetchFn = stubFetch(url => url === seedUrl
+      ? redirectedTo(page(`
+          <p><a href="https://venue.test/shows/opening">Opening Night</a></p>
+          <p><a href="/shows/second">Second Show</a></p>
+        `), LISTING_URL)
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: seedUrl } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([
+      seedUrl,
+      'https://venue.test/shows/opening',
+      'https://venue.test/shows/second',
+    ]);
+  });
+
+  it('follows the links of a plain text seed from where it landed', async () => {
+    const fetchFn = stubFetch(url => url === LISTING_URL
+      ? redirectedTo(
+          new Response('<a href="/shows/opening">Opening Night</a>', { headers: { 'content-type': 'text/plain' } }),
+          WWW_LISTING_URL,
+        )
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: LISTING_URL } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([LISTING_URL, 'https://www.venue.test/shows/opening']);
+  });
 });
 
-/** Expectations are what origin/main did before redirects were read at all. */
+describe('a detail page that redirects within its site', () => {
+  it('is never ingested a second time under the URL it landed on', async () => {
+    const opening = 'https://venue.test/shows/opening';
+    const encore = 'https://venue.test/shows/encore';
+    const fetchFn = stubFetch((url) => {
+      if (url === LISTING_URL) {
+        return page(`
+          <p><a href="/shows/opening">Opening Night</a></p>
+          <p><a href="/shows/opening-night">Opening Night, again</a></p>
+          <p><a href="/shows/encore-tickets">Encore tickets</a></p>
+          <p><a href="/shows/encore">Encore</a></p>
+        `);
+      }
+      if (url === 'https://venue.test/shows/opening-night') {
+        return redirectedTo(page('<p>Opening Night, 7:30pm.</p>'), opening);
+      }
+      if (url === 'https://venue.test/shows/encore-tickets') {
+        return redirectedTo(page('<p>Encore, 9pm.</p>'), encore);
+      }
+      return page('<p>A show.</p>');
+    });
+
+    const { docs } = await run({ crawl: { startUrl: LISTING_URL } });
+    const expected = [LISTING_URL, opening, 'https://venue.test/shows/opening-night', 'https://venue.test/shows/encore-tickets'];
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual(expected);
+    expect(docs.map(d => d.externalId)).toEqual(expected);
+  });
+
+  it.each([
+    ['the www host', 'https://venue.test', 'https://www.venue.test/shows/a'],
+    ['https', 'http://venue.test', 'https://venue.test/shows/a'],
+  ])('keeps the requested URL as the base when it lands on %s, off the seed\'s origin', async (_what, origin, landedUrl) => {
+    const fetchFn = stubFetch((url) => {
+      if (url === `${origin}/shows/`) {
+        return page('<p><a href="/shows/a">A</a></p>');
+      }
+      return url === `${origin}/shows/a`
+        ? redirectedTo(page('<p><a href="/shows/b">B</a></p>'), landedUrl)
+        : page('<p>A show.</p>');
+    });
+
+    await run({ crawl: { startUrl: `${origin}/shows/`, maxDepth: 2 } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([`${origin}/shows/`, `${origin}/shows/a`, `${origin}/shows/b`]);
+  });
+});
+
 describe('a redirect to another site', () => {
   it.each([
     ['another registrable domain', 'https://tickets.example'],
     ['another port', 'https://venue.test:8443'],
-  ])('a seed that lands on %s is read as before', async (_what, landedOrigin) => {
+    ['plain http', 'http://venue.test'],
+  ])('keeps the requested URL as the base of a seed that lands on %s', async (_what, landedOrigin) => {
     const fetchFn = stubFetch(url => url === LISTING_URL
       ? redirectedTo(page(`
           <p><a href="${landedOrigin}/venue/opening">Opening Night</a></p>
@@ -431,7 +531,7 @@ describe('a redirect to another site', () => {
     expect(docs[0]?.content).toContain('Second Show (https://venue.test/venue/second)');
   });
 
-  it('a detail page that lands on another site is read as before', async () => {
+  it('keeps the requested URL as the base of a detail page that lands on another site', async () => {
     const fetchFn = stubFetch((url) => {
       if (url === LISTING_URL) {
         return page('<p><a href="/shows/opening">Opening Night</a></p>');

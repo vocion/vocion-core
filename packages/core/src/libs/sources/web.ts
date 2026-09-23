@@ -382,8 +382,8 @@ function usableUrl(raw: unknown, urlKey: string): string | undefined {
 type FetchedPage = {
   /** The URL actually fetched, after the `webcal:` rewrite. */
   url: string;
-  /** Where the response came from after redirects; equals `url` when there were none. */
-  finalUrl: string;
+  /** Where a redirect that stayed on the site landed, else `url`. Read by navigation and the feed scope, never by text or ids. */
+  base: string;
   raw: string;
   contentType: string;
   isHtml: boolean;
@@ -440,12 +440,12 @@ async function fetchPage(
       return null;
     }
     const raw = await res.text();
-    const finalUrl = res.redirected && HTTP_URL_RE.test(res.url) ? res.url : target;
-    const extracted = isHtml ? extractFromHtml(raw, sameSiteUrl({ url: target, finalUrl })) : { title: undefined, content: raw, structure: undefined };
+    const base = res.redirected && HTTP_URL_RE.test(res.url) ? sameSiteUrl(target, res.url) : target;
+    const extracted = isHtml ? extractFromHtml(raw, target) : { title: undefined, content: raw, structure: undefined };
     const lastModifiedHeader = res.headers.get('last-modified');
     return {
       url: target,
-      finalUrl,
+      base,
       raw,
       contentType,
       isHtml,
@@ -461,12 +461,12 @@ async function fetchPage(
   }
 }
 
-function sameSiteUrl(page: Pick<FetchedPage, 'url' | 'finalUrl'>): string {
-  const requested = new URL(page.url);
-  const landed = new URL(page.finalUrl);
+function sameSiteUrl(requestedUrl: string, landedUrl: string): string {
+  const requested = new URL(requestedUrl);
+  const landed = new URL(landedUrl);
   const site = (url: URL): string => url.hostname.replace(/^www\./, '');
   const upgradedAtMost = landed.protocol === requested.protocol || (requested.protocol === 'http:' && landed.protocol === 'https:');
-  return upgradedAtMost && landed.port === requested.port && site(landed) === site(requested) ? page.finalUrl : page.url;
+  return upgradedAtMost && landed.port === requested.port && site(landed) === site(requested) ? landedUrl : requestedUrl;
 }
 
 /**
@@ -1448,7 +1448,7 @@ function discoverFeeds(page: FetchedPage, ctx: SourceContext): FeedCandidate[] {
   }
 
   const eligible = found.filter((candidate) => {
-    if (describesTheListing(candidate, [page.url, sameSiteUrl(page)])) {
+    if (describesTheListing(candidate, page.url) || describesTheListing(candidate, page.base)) {
       return true;
     }
     runNote(ctx, candidate.url, `source: skipped ${candidate.kind} feed outside the listing path ${candidate.url}`);
@@ -1505,21 +1505,24 @@ function isUnderListingPath(url: URL, listing: URL): boolean {
  * A Squarespace `?format=json` candidate is the listing URL itself, so it
  * passes on the paths being equal.
  * @param candidate - the discovered feed.
- * @param listingUrls - the listing it was discovered on, as requested and as landed on the same site.
+ * @param listingUrl - the listing it was discovered on, as requested or as landed on the same site.
  */
-function describesTheListing(candidate: FeedCandidate, listingUrls: string[]): boolean {
+function describesTheListing(candidate: FeedCandidate, listingUrl: string): boolean {
   if (candidate.kind === 'ics') {
     return true;
   }
   let feed: URL;
-  let listings: URL[];
+  let listing: URL;
   try {
     feed = new URL(candidate.url);
-    listings = listingUrls.map(url => new URL(url));
+    listing = new URL(listingUrl);
   } catch {
     return false;
   }
-  return listings.some(listing => feed.origin === listing.origin && isUnderListingPath(feed, listing));
+  if (feed.origin !== listing.origin) {
+    return false;
+  }
+  return isUnderListingPath(feed, listing);
 }
 
 /**
@@ -2036,7 +2039,7 @@ async function* crawl(
   pages: PageBudget,
 ): AsyncIterable<IngestDoc> {
   const startUrl = seed.url;
-  const start = crawlStart(seed);
+  const start = new URL(seed.base);
   const startOrigin = start.origin;
   const visited = new Set<string>();
   const queue: QueueEntry[] = [{ url: startUrl, depth: 0 }];
@@ -2054,7 +2057,7 @@ async function* crawl(
     }
     const page = prefetched ?? await fetchPage(url, ctx);
     if (page) {
-      visited.add(page.finalUrl);
+      visited.add(page.base);
       for (const doc of docsFromPage(page, ctx)) {
         yield doc;
       }
@@ -2086,8 +2089,8 @@ async function* crawl(
     // `/about-us/`, none of which has ever held an event.
     const ownPath: QueueEntry[] = [];
     const elsewhere: QueueEntry[] = [];
-    const base = sameSiteUrl(page);
-    for (const href of pageLinks(page)) {
+    const base = new URL(page.base).origin === startOrigin ? page.base : page.url;
+    for (const href of pageLinks(page, base)) {
       try {
         const next = new URL(href, base);
         // Strip fragments so #section links don't blow up the queue.
@@ -2110,24 +2113,24 @@ async function* crawl(
   }
 }
 
-function crawlStart(seed: FetchedPage): URL {
-  return new URL(sameSiteUrl(seed));
-}
-
 /** One page waiting to be crawled, and how many hops from the seed it sits. */
 type QueueEntry = { url: string; depth: number };
 
 /**
  * The links to consider following out of a fetched page.
  * @param page - the fetched page.
+ * @param base - the URL its relative links resolve against.
  */
-function pageLinks(page: FetchedPage): string[] {
+function pageLinks(page: FetchedPage, base: string): string[] {
+  if (page.structure && base !== page.url) {
+    return collectLinks(load(page.raw.replace(OWN_MARKS, ' ')), base).map(link => link.url);
+  }
   if (page.structure) {
     return page.structure.links?.map(link => link.url) ?? [];
   }
   // Non-HTML bodies never went through cheerio. The old regex still covers the
   // odd page served as text/plain with markup inside it.
-  return extractLinks(page.raw, sameSiteUrl(page));
+  return extractLinks(page.raw, base);
 }
 
 /**

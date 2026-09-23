@@ -225,10 +225,10 @@ function listing(head = '', body = '<p>Our shows.</p>'): Response {
 /**
  * Make a response look like the one fetch returns after following a redirect.
  * @param res - the response the redirect landed on.
- * @param finalUrl - where the redirect landed.
+ * @param landedUrl - where the redirect landed.
  */
-function redirectedTo(res: Response, finalUrl: string): Response {
-  Object.defineProperties(res, { url: { value: finalUrl }, redirected: { value: true } });
+function redirectedTo(res: Response, landedUrl: string): Response {
+  Object.defineProperties(res, { url: { value: landedUrl }, redirected: { value: true } });
   return res;
 }
 
@@ -1297,6 +1297,23 @@ describe('feed discovery on a listing that redirected', () => {
 
     expect(events.some(e => e.message === 'source: discovered rss feed, 1 document')).toBe(true);
     expect(docs.map(d => d.externalId)).toEqual(['https://www.venue.test/shows/feed/']);
+  });
+
+  it('keys a calendar the body links relatively on the requested host', async () => {
+    stubFetch((url) => {
+      if (url === LISTING_URL) {
+        return redirectedTo(listing('', '<p><a href="/events.ics">Add to calendar</a></p>'), 'https://www.venue.test/shows/');
+      }
+      return url === ICS_URL ? typed(TWO_EVENT_ICS, 'text/calendar') : undefined;
+    });
+
+    const { docs, events } = await run({ crawl: { startUrl: LISTING_URL } });
+
+    expect(events.some(e => e.message === 'source: discovered ics feed, 2 documents')).toBe(true);
+    expect(docs.map(d => d.externalId)).toEqual([
+      `${ICS_URL}#evt-1@venue.test`,
+      `${ICS_URL}#evt-1@venue.test#20261108T193000`,
+    ]);
   });
 
   it('keeps a Squarespace JSON feed keyed on the requested listing', async () => {
