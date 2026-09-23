@@ -380,7 +380,7 @@ function usableUrl(raw: unknown, urlKey: string): string | undefined {
 /* ------------------------------------------------------------------ */
 
 type FetchedPage = {
-  /** The URL actually fetched, after the `webcal:` rewrite. */
+  /** The URL requested, after the `webcal:` rewrite. */
   url: string;
   /** Where a redirect that stayed on the site landed, else `url`. Read by navigation and the feed scope, never by text or ids. */
   base: string;
@@ -1447,8 +1447,10 @@ function discoverFeeds(page: FetchedPage, ctx: SourceContext): FeedCandidate[] {
     add(withFormatJson(page.url), 'json');
   }
 
+  // A listing that redirected to its site root must not widen the scope to the whole site.
+  const landedListing = isUnderListingPath(new URL(page.base), new URL(page.url)) ? page.base : page.url;
   const eligible = found.filter((candidate) => {
-    if (describesTheListing(candidate, page.url) || describesTheListing(candidate, page.base)) {
+    if (describesTheListing(candidate, page.url) || describesTheListing(candidate, landedListing)) {
       return true;
     }
     runNote(ctx, candidate.url, `source: skipped ${candidate.kind} feed outside the listing path ${candidate.url}`);

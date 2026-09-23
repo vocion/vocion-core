@@ -1360,6 +1360,24 @@ describe('feed discovery on a listing that redirected', () => {
     expect(docs.map(d => d.externalId)).toEqual([CALENDAR_URL]);
   });
 
+  it('does not widen the feed scope when the listing redirects to the site root', async () => {
+    const fetchFn = stubFetch(url => url === CALENDAR_URL
+      ? redirectedTo(
+          listing(
+            '<link rel="alternate" type="application/rss+xml" href="https://www.venue.test/feed/">',
+            '<p>Tonight: Opening Night.</p>',
+          ),
+          'https://www.venue.test/',
+        )
+      : undefined);
+
+    const { docs, events } = await run({ crawl: { startUrl: CALENDAR_URL, maxDepth: 0 } });
+
+    expect(events.some(e => e.message === 'source: skipped rss feed outside the listing path https://www.venue.test/feed/')).toBe(true);
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([CALENDAR_URL]);
+    expect(docs.map(d => d.externalId)).toEqual([CALENDAR_URL]);
+  });
+
   it('still drops a feed on the host of a redirect to another site', async () => {
     const fetchFn = stubFetch(url => url === LISTING_URL
       ? redirectedTo(
