@@ -2,6 +2,7 @@ import type { BriefRow } from './PersonalizationQueue';
 import { and, desc, eq, ne } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { leadBriefSchema } from '@/models/Schema';
+import { contactUtmContentByRef } from '@/services/CrmRecordsService';
 import { QUEUED_STATUS } from '@/services/PersonalizationQueueService';
 
 /**
@@ -18,6 +19,9 @@ export async function loadQueueBriefRows(orgId: string): Promise<BriefRow[]> {
     .where(and(eq(leadBriefSchema.orgId, orgId), ne(leadBriefSchema.status, QUEUED_STATUS)))
     .orderBy(desc(leadBriefSchema.briefedAt))
     .limit(500);
+  // The lead magnet lives on the CRM mirror, not the ledger row: see
+  // `contactUtmContentByRef` for why. A failed read drops the fact, never the queue.
+  const magnets = await contactUtmContentByRef(orgId, rows.map(r => r.contactRef)).catch(() => new Map<string, string>());
   return rows.map(r => ({
     id: r.id,
     contactRef: r.contactRef,
@@ -26,6 +30,7 @@ export async function loadQueueBriefRows(orgId: string): Promise<BriefRow[]> {
     companyName: r.companyName,
     entranceSource: r.entranceSource,
     utmCampaign: r.utmCampaign,
+    utmContent: magnets.get(r.contactRef) ?? null,
     engagementSent: r.engagementSent,
     engagementOpened: r.engagementOpened,
     status: r.status,

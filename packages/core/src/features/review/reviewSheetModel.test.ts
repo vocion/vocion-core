@@ -290,6 +290,19 @@ describe('contextPaneRows — what the pane lists for a record', () => {
     expect(pane.warnings).toEqual(context.warnings);
   });
 
+  it('names the lead magnet among the contact facts when the CRM carries one, and leaves it out when not', () => {
+    const withMagnet: ReviewContextModel = context.contact.status === 'ok'
+      ? { ...context, contact: { status: 'ok', data: { ...context.contact.data, utmContent: 'Education Industry eBook' } } }
+      : context;
+    const factsOf = (m: ReviewContextModel) => {
+      const doc = contextPaneRows({ context: m, agoLabel: ago }).rows[0]!.doc as { facts?: Array<{ label: string; value: string }> };
+      return doc.facts ?? [];
+    };
+
+    expect(factsOf(withMagnet)).toContainEqual({ label: 'Lead magnet', value: 'Education Industry eBook' });
+    expect(factsOf(context).map(f => f.label)).not.toContain('Lead magnet');
+  });
+
   it('gives every locally-known row a preview the pane can paint with no round trip', () => {
     const pane = contextPaneRows({ context, agoLabel: ago });
 

@@ -27,6 +27,8 @@ export type ContactFacts = {
   /** Original source ("Organic search", "Offline — import") and its detail. */
   source: string | null;
   sourceDetail: string | null;
+  /** The ad lead magnet they answered (`utm_content`), e.g. "Marketing Industry eBook". */
+  utmContent?: string | null;
   /** In-app link to the contact, when the loader knew it. */
   href: string | null;
 };

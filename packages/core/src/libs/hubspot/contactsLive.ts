@@ -27,6 +27,7 @@ export const LIVE_CONTACT_PROPERTIES = [
   'createdate',
   'hs_analytics_source',
   'hs_analytics_source_data_1',
+  'utm_content',
   'hs_email_delivered',
   'hs_email_open',
   'hs_v2_date_entered_marketingqualifiedlead',
@@ -46,6 +47,8 @@ export type LiveContact = {
   createdAt: string | null;
   originalSource: string | null;
   originalSourceDetail: string | null;
+  /** The ad lead magnet the contact answered, from `utm_content`. */
+  utmContent: string | null;
   emailDelivered: number | undefined;
   emailOpened: number | undefined;
   mqlEnteredAt: string | null;
@@ -73,6 +76,7 @@ function toLiveContact(r: RawContact): LiveContact {
     createdAt: p.createdate ?? null,
     originalSource: p.hs_analytics_source ?? null,
     originalSourceDetail: p.hs_analytics_source_data_1 ?? null,
+    utmContent: p.utm_content || null,
     emailDelivered: hubspotNumeric(p.hs_email_delivered),
     emailOpened: hubspotNumeric(p.hs_email_open),
     mqlEnteredAt: p.hs_v2_date_entered_marketingqualifiedlead
