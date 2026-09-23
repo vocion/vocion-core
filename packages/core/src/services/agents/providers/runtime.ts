@@ -47,6 +47,15 @@ import { buildInitialFiles } from '../harness';
 import { memoryMountPaths } from '../memoryDigest';
 import { buildToolCatalog } from '../tools/registry';
 
+/**
+ * Container events that mean the turn is going on to another model call or
+ * tool: after a charged call crossed its budget, the first of these stops the
+ * relay (#272). `done`, `error`, `usage` and the ends of tools and delegations
+ * already running are let through, so a turn that finished on the call that
+ * crossed the cap keeps its answer.
+ */
+const STARTS_MORE_WORK: ReadonlySet<AgentEvent['type']> = new Set(['thinking', 'answering', 'response_delta', 'thinking_delta', 'tool_start', 'subagent_start']);
+
 const RUNTIME_URL = (): string => process.env.VOCION_AGENT_RUNTIME_URL ?? 'http://localhost:8080';
 const TOOL_ENDPOINT = (): string =>
   process.env.VOCION_TOOL_ENDPOINT_URL
@@ -218,11 +227,16 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
   let errorMessage: string | null = null;
   // Reads the caps again after each model call the container reports, and
-  // aborts the stream the first time one is crossed (#272) — the preflight in
-  // `runAgent` only sees the turn's start.
+  // once one is crossed aborts the stream at the first sign of more work
+  // (#272) — the preflight in `runAgent` only sees the turn's start. A turn
+  // that crossed its cap on its last call still delivers its `done`.
   const budgetGuard = new TurnBudgetGuard(opts.orgId, opts.agentSlug);
 
   const handleEvent = async (event: AgentEvent): Promise<void> => {
+    if (budgetGuard.crossed && STARTS_MORE_WORK.has(event.type)) {
+      budgetGuard.beforeModelCall();
+      return;
+    }
     if (event.type === 'usage') {
       await chargeUsage({
         orgId: opts.orgId,
@@ -308,8 +322,8 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const handleChunk = async (chunk: string): Promise<void> => {
     buffer += chunk;
     let sep = buffer.indexOf('\n\n');
-    // A budget stop ends the relay at the frame that tripped it: whatever the
-    // container sent after it in the same chunk is not the person's answer.
+    // A budget stop ends the relay at the frame that would have started more
+    // work: whatever the container sent after it is not the person's answer.
     while (sep >= 0 && !budgetGuard.stoppedBy) {
       const frame = buffer.slice(0, sep);
       buffer = buffer.slice(sep + 2);
@@ -402,6 +416,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     // budget stop, and ends the turn the same way the break below does.
     const budgetStop = budgetGuard.stopError();
     if (budgetStop) {
+      console.warn(`agent runtime provider: stopped at its budget for org ${opts.orgId} agent ${opts.agentSlug}: ${(err as Error).message}`);
       emit({ type: 'error', message: budgetStop.message });
       throw budgetStop;
     }

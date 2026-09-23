@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/BudgetService', () => ({ preflightCheck: vi.fn() }));
 
-const { budgetRefusalMessage, budgetStopMessage, TurnBudgetGuard } = await import('./budgetStop');
+const { BudgetGateCallback, budgetRefusalMessage, budgetStopMessage, TurnBudgetGuard } = await import('./budgetStop');
 const { isTurnRefusal } = await import('./turnRefusal');
 
 const ORG = 'org_budget_stop';
@@ -41,17 +41,24 @@ describe('the turn budget guard', () => {
     expect(guard.stopError()).toBeNull();
   });
 
-  it('aborts the turn on the first check that finds the cap crossed, with a refusal naming it', async () => {
+  it('stops the turn at the next model call after a check finds the cap crossed, with a refusal naming it', async () => {
     const check = vi.fn()
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce(breach());
     const guard = new TurnBudgetGuard(ORG, AGENT, check);
 
     await guard.afterModelCall();
+    guard.beforeModelCall();
 
     expect(guard.signal.aborted).toBe(false);
 
     await guard.afterModelCall();
+
+    // Crossed, but a call that crossed on the turn's last step must keep its answer.
+    expect(guard.signal.aborted).toBe(false);
+    expect(guard.stopError()).toBeNull();
+
+    guard.beforeModelCall();
 
     expect(guard.signal.aborted).toBe(true);
     expect(check).toHaveBeenLastCalledWith({ orgId: ORG, agentSlug: AGENT });
@@ -59,6 +66,26 @@ describe('the turn budget guard', () => {
     expect(isTurnRefusal(guard.stopError())).toBe(true);
     expect(isTurnRefusal(guard.signal.reason)).toBe(true);
     expect(guard.stopError()?.message).toContain('stopped partway');
+  });
+
+  it('never stops a turn whose last model call is the one that crossed the cap', async () => {
+    const guard = new TurnBudgetGuard(ORG, AGENT, vi.fn().mockResolvedValue(breach()));
+
+    await guard.afterModelCall();
+
+    expect(guard.crossed).not.toBeNull();
+    expect(guard.stoppedBy).toBeNull();
+    expect(guard.signal.aborted).toBe(false);
+  });
+
+  it('stops the turn from the LangGraph callback when the next model call starts', async () => {
+    const guard = new TurnBudgetGuard(ORG, AGENT, vi.fn().mockResolvedValue(breach()));
+    const gate = new BudgetGateCallback(guard);
+    await guard.afterModelCall();
+
+    await gate.handleChatModelStart();
+
+    expect(guard.signal.aborted).toBe(true);
   });
 
   it('stops checking once stopped, so a late model call cannot re-trip or reword it', async () => {

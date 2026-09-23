@@ -65,6 +65,9 @@ function text(t: string): unknown {
   return { content: [{ type: 'text', text: t }] };
 }
 
+/** The part of the `streamEvents` config the stand-in loop reads. */
+type StreamConfig = { signal?: AbortSignal; callbacks?: Array<{ handleChatModelStart?: () => Promise<void> }> };
+
 /** How many model calls the stand-in loop actually started. */
 let modelCallsStarted = 0;
 /** What the usage hook threw, kept the way the real adapter drops it. */
@@ -75,12 +78,17 @@ const hookErrors: unknown[] = [];
  * reporting its usage, and that gives up the way LangGraph does once its
  * signal is aborted.
  * @param calls - Model calls the loop would make if nothing stopped it.
- * @param signal - The abort signal `runAgentDeep` passed in the stream config.
+ * @param config - The stream config `runAgentDeep` passed: its callbacks and abort signal.
  */
-function modelCallsStream(calls: number, signal: AbortSignal | undefined): AsyncIterable<unknown> {
+function modelCallsStream(calls: number, config: StreamConfig): AsyncIterable<unknown> {
   return { async* [Symbol.asyncIterator]() {
     for (let call = 1; call <= calls; call += 1) {
-      if (signal?.aborted) {
+      // LangChain tells every callback a model call is starting before its
+      // request goes out; the budget gate aborts there.
+      for (const callback of config.callbacks ?? []) {
+        await callback.handleChatModelStart?.();
+      }
+      if (config.signal?.aborted) {
         throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
       }
       modelCallsStarted += 1;
@@ -107,7 +115,7 @@ async function run() {
 beforeEach(async () => {
   await db.delete(agentSchema);
   await db.insert(agentSchema).values({ orgId: ORG, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} } as never);
-  streamEvents.mockReset().mockImplementation(async (_input: unknown, config: { signal?: AbortSignal }) => modelCallsStream(3, config.signal));
+  streamEvents.mockReset().mockImplementation(async (_input: unknown, config: StreamConfig) => modelCallsStream(3, config));
   preflightCheck.mockReset();
   chargeUsage.mockClear();
   turnEndHooks.length = 0;
@@ -143,6 +151,21 @@ describe('a turn that crosses its budget partway', () => {
     expect(modelCallsStarted).toBe(1);
     expect(error).toMatchObject({ name: 'TurnRefusedError' });
     expect(hookErrors).toEqual([expect.objectContaining({ message: 'database unavailable' })]);
+  });
+
+  it('keeps the answer of a turn whose last model call is the one that crossed the cap', async () => {
+    // Preflight, then under, under, and over after the third and last call.
+    preflightCheck
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce(BREACH);
+
+    const { result, error } = await run();
+
+    expect(error).toBeNull();
+    expect(modelCallsStarted).toBe(3);
+    expect(result?.response).toContain('part3');
   });
 
   it('runs every model call and answers when the agent stays under its cap', async () => {

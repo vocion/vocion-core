@@ -85,6 +85,14 @@ describe('workspace apply — budgets', () => {
     expect((await getBudget({ orgId: ORG, agentSlug: SLUG }))?.hardCentsLimit).toBe(300);
   });
 
+  it('keeps a token cap an admin set when the YAML writes the dollar caps', async () => {
+    await setLimits({ orgId: ORG, agentSlug: SLUG, softTokenLimit: 40_000, hardTokenLimit: 50_000 });
+
+    await apply({ agentBudget: '  dailyCents: 5000\n' });
+
+    expect(await getBudget({ orgId: ORG, agentSlug: SLUG })).toMatchObject({ hardCentsLimit: 5000, softTokenLimit: 40_000, hardTokenLimit: 50_000 });
+  });
+
   it('writes the workspace default, which then holds an agent that set no budget of its own', async () => {
     await apply({ workspaceDefault: '500' });
 

@@ -6,7 +6,9 @@
  * running total, so one long turn spent without limit until it finished. Every
  * model call already charges as it completes; the guard here reads the caps
  * again right after each charge and, the first time one is crossed, aborts the
- * turn — the model call in flight is cancelled and no further one starts.
+ * turn at the next model call — a turn whose last call is the one that crossed
+ * the cap has already finished, and keeps its answer; the next turn is refused
+ * before it starts.
  *
  * The stop is a refusal, not a failure (`TurnRefusedError`, #114): nothing
  * broke, and asking again will not help until somebody raises the cap or the
@@ -16,10 +18,13 @@
  * It stops one call late by design. The call that crosses the cap has already
  * been paid for when its usage arrives, so a turn can overshoot by one model
  * call's worth — the price of charging real usage rather than guessing it
- * ahead. Reserving an estimate before each call is #117's job.
+ * ahead. Model calls already running side by side (parallel delegations) are
+ * each allowed to finish, so a turn that fans out can overshoot by one call
+ * per branch. Reserving an estimate before each call is #117's job.
  */
 
 import type { BudgetCheck } from '@/services/BudgetService';
+import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { preflightCheck } from '@/services/BudgetService';
 import { TurnRefusedError } from './turnRefusal';
 
@@ -84,15 +89,19 @@ export function budgetStopMessage(breach: BudgetBreach): string {
 }
 
 /**
- * Watches one agent turn's spend and aborts it the first time a cap is crossed.
+ * Watches one agent turn's spend and stops it at the first model call that
+ * would start after a cap was crossed.
  *
- * Call {@link afterModelCall} after each model call's usage is charged. Pass
- * {@link signal} to whatever runs the turn so the abort reaches it. Once
- * stopped, {@link stopError} is what the turn should end with.
+ * Call {@link afterModelCall} after each model call's usage is charged, and
+ * {@link beforeModelCall} when the next one starts. Pass {@link signal} to
+ * whatever runs the turn so the abort reaches it. Once stopped,
+ * {@link stopError} is what the turn should end with; a turn that crossed its
+ * cap on its last call never stops, and ends the way it would have.
  */
 export class TurnBudgetGuard {
   private readonly controller = new AbortController();
   private breach: BudgetBreach | null = null;
+  private stopped = false;
 
   /**
    * @param orgId - Tenant.
@@ -110,19 +119,37 @@ export class TurnBudgetGuard {
     return this.controller.signal;
   }
 
-  /** The cap that stopped the turn, or null while it is still running free. */
-  get stoppedBy(): BudgetBreach | null {
+  /** The cap a charged model call crossed, whether or not the turn has been stopped for it yet. */
+  get crossed(): BudgetBreach | null {
     return this.breach;
+  }
+
+  /** The cap that stopped the turn, or null while it is still running. */
+  get stoppedBy(): BudgetBreach | null {
+    return this.stopped ? this.breach : null;
   }
 
   /** The error the turn ends with once stopped: a refusal carrying the message. */
   stopError(): TurnRefusedError | null {
-    return this.breach ? new TurnRefusedError(budgetStopMessage(this.breach)) : null;
+    return this.stopped && this.breach ? new TurnRefusedError(budgetStopMessage(this.breach)) : null;
   }
 
   /**
-   * Read the caps again after a model call was charged, and stop the turn if
-   * one is crossed.
+   * Another model call is starting: stop the turn here if an earlier call
+   * crossed a cap. Synchronous, so the abort lands before the call's request
+   * goes out.
+   */
+  beforeModelCall(): void {
+    if (!this.breach || this.stopped) {
+      return;
+    }
+    this.stopped = true;
+    this.controller.abort(this.stopError());
+  }
+
+  /**
+   * Read the caps again after a model call was charged, and remember a cap it
+   * crossed so the next {@link beforeModelCall} stops the turn.
    *
    * A check that fails to read is logged and the turn carries on: refusing
    * somebody's answer because the database hiccupped once would be the more
@@ -147,6 +174,29 @@ export class TurnBudgetGuard {
       return;
     }
     this.breach = result;
-    this.controller.abort(this.stopError());
+  }
+}
+
+/**
+ * The callback that tells a {@link TurnBudgetGuard} a model call is starting,
+ * for an in-process LangGraph turn. Registered next to the tracing callback.
+ * `awaitHandlers` keeps LangChain from running it in the background, where the
+ * call it should stop could get its request out first.
+ */
+export class BudgetGateCallback extends BaseCallbackHandler {
+  override name = 'BudgetGateCallback';
+  override awaitHandlers = true;
+
+  /** @param guard - The turn's guard. */
+  constructor(private readonly guard: TurnBudgetGuard) {
+    super();
+  }
+
+  override async handleChatModelStart(): Promise<void> {
+    this.guard.beforeModelCall();
+  }
+
+  override async handleLLMStart(): Promise<void> {
+    this.guard.beforeModelCall();
   }
 }

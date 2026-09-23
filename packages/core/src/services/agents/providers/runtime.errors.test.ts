@@ -212,7 +212,7 @@ describe('a turn that crosses its budget partway (#272)', () => {
     limitFrom: 'built_in_agent_default',
   };
 
-  it('stops at the model call that crossed the cap, and relays nothing the container sent after it', async () => {
+  it('stops at the first sign of another model call after one crossed the cap, and relays nothing after it', async () => {
     await seedAgent(ORG_A);
     // Under the cap after the first call, over it after the second.
     preflightCheck.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce(breach);
@@ -234,6 +234,26 @@ describe('a turn that crosses its budget partway (#272)', () => {
     expect(events).toContainEqual({ type: 'response_delta', delta: 'first part ' });
     expect(events).not.toContainEqual({ type: 'response_delta', delta: 'spent past the cap' });
     expect(events).toContainEqual({ type: 'error', message: expect.stringContaining('$100.00 cap') });
+  });
+
+  it('keeps the answer of a turn whose last model call is the one that crossed the cap', async () => {
+    await seedAgent(ORG_A);
+    preflightCheck.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce(breach);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      body: bodyOf(
+        sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 }))
+        + sseFrame(JSON.stringify({ type: 'response_delta', delta: 'the whole answer' }))
+        + sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 }))
+        + sseFrame(JSON.stringify({ type: 'done', response: 'the whole answer' })),
+      ),
+    })));
+    const events: Array<Record<string, unknown>> = [];
+
+    const result = await runAgentOnRuntime({ orgId: ORG_A, agentSlug: 'sales-assistant', message: 'hi', onEvent: event => events.push(event as never) });
+
+    expect(result.response).toBe('the whole answer');
+    expect(events.filter(event => event.type === 'error')).toEqual([]);
   });
 
   it('runs to the end unchanged when every call stays under the cap', async () => {

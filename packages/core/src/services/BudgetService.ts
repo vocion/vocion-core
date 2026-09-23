@@ -801,6 +801,34 @@ export async function setLimits(opts: {
 }
 
 /**
+ * Set only the money caps on one budget row, leaving its token caps as they
+ * are. Workspace apply writes a YAML `budget:` block through this: the YAML
+ * owns the dollar caps, and a token cap an admin set elsewhere must survive
+ * every apply, where {@link setLimits} would write it back to null.
+ * @param opts
+ * @param opts.orgId - The workspace.
+ * @param opts.agentSlug - The agent, or a reserved platform scope.
+ * @param opts.period - `daily` or `monthly`.
+ * @param opts.softCentsLimit - The soft cap in cents, or null for none.
+ * @param opts.hardCentsLimit - The hard cap in cents, or null for none.
+ */
+export async function setCentsLimits(opts: {
+  orgId: string;
+  agentSlug: string;
+  period: BudgetPeriod;
+  softCentsLimit: number | null;
+  hardCentsLimit: number | null;
+}) {
+  const row = await getOrCreateBudget(opts.orgId, opts.agentSlug, opts.period);
+  const [updated] = await db
+    .update(agentBudgetSchema)
+    .set({ softCentsLimit: opts.softCentsLimit, hardCentsLimit: opts.hardCentsLimit })
+    .where(eq(agentBudgetSchema.id, row.id))
+    .returning();
+  return updated!;
+}
+
+/**
  * Every budget row this org has, platform scopes included.
  *
  * Rolls each period boundary before returning, so the caller sees the active
@@ -991,6 +1019,16 @@ export function periodEndsAt(period: BudgetPeriod, now: Date): Date {
 }
 
 /**
+ * An agent's counter for a status read: its stored row, rolled into the
+ * current period if that ended, or an empty counter when it has none yet.
+ * @param stored - The agent's budget row, if it has one.
+ * @param agentSlug - The agent.
+ */
+async function rollStoredOrEmpty(stored: typeof agentBudgetSchema.$inferSelect | undefined, agentSlug: string) {
+  return stored ? rollPeriodIfStale(stored) : emptyAgentCounter(agentSlug);
+}
+
+/**
  * Every agent in the workspace with the budget it is actually held to.
  *
  * Covers agents that have never been charged and so have no budget row — the
@@ -1018,10 +1056,12 @@ export async function agentBudgetStatuses(orgId: string, period: BudgetPeriod = 
   const bySlug = new Map(rows.map(row => [row.agentSlug, row]));
   const resetsAt = periodEndsAt(period, new Date()).toISOString();
 
+  // Only a row whose period has ended costs a round trip here; they are rolled
+  // together rather than one after another.
+  const counters = await Promise.all(agents.map(agent => rollStoredOrEmpty(bySlug.get(agent.slug), agent.slug)));
   const statuses: AgentBudgetStatus[] = [];
-  for (const agent of agents) {
-    const stored = bySlug.get(agent.slug);
-    const counter = stored ? await rollPeriodIfStale(stored) : emptyAgentCounter(agent.slug);
+  for (const [index, agent] of agents.entries()) {
+    const counter = counters[index]!;
     const { capped, sources } = withAgentDefaultCaps({ agentRow: counter, workspaceAgentDefault, period });
     const breach = breachOf(capped, 'agent', sources);
     const spent = spentCents(capped);

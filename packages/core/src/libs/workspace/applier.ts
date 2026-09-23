@@ -6,7 +6,7 @@ import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
-import { AGENT_DEFAULT_SCOPE_SLUG, setLimits } from '@/services/BudgetService';
+import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -917,7 +917,7 @@ async function applyBudgets(
   const agentBudget = loaded.manifest.defaults?.agentBudget;
   if (agentBudget) {
     try {
-      await setLimits({
+      await setCentsLimits({
         orgId,
         agentSlug: AGENT_DEFAULT_SCOPE_SLUG,
         period: 'daily',
@@ -941,7 +941,7 @@ async function applyBudgets(
         continue;
       }
       try {
-        await setLimits({ orgId, agentSlug: agent.slug, period: cap.period, softCentsLimit: cap.cents, hardCentsLimit: cap.cents });
+        await setCentsLimits({ orgId, agentSlug: agent.slug, period: cap.period, softCentsLimit: cap.cents, hardCentsLimit: cap.cents });
       } catch (err) {
         errors.push({ resource: 'budget', slug: agent.slug, message: (err as Error).message });
       }

@@ -448,7 +448,7 @@ export async function runAgentDeep(opts: {
   const { buildInitialFiles, compileAgentForRequest } = await import('./agents/harness');
   const { createLangfuseCallback } = await import('@/libs/Langfuse');
   const { chargeUsage, preflightCheck } = await import('./BudgetService');
-  const { budgetRefusalMessage, TurnBudgetGuard } = await import('./agents/budgetStop');
+  const { BudgetGateCallback, budgetRefusalMessage, TurnBudgetGuard } = await import('./agents/budgetStop');
 
   const rawEmit = opts.onEvent ?? (() => {});
   // Demo sandbox record buffer — every emitted event, in order (turnReplay).
@@ -589,8 +589,9 @@ export async function runAgentDeep(opts: {
   const failedDelegations: FailedDelegation[] = [];
 
   // Reads the caps again after every charged model call and aborts the stream
-  // the first time one is crossed — the preflight above only sees the turn's
-  // start, and a long turn used to spend past its cap until it finished (#272).
+  // at the next model call once one is crossed — the preflight above only sees
+  // the turn's start, and a long turn used to spend past its cap until it
+  // finished (#272). A turn whose last call crossed the cap keeps its answer.
   const budgetGuard = new TurnBudgetGuard(opts.orgId, opts.agentSlug);
 
   // What this run cost, summed over every model turn the callback sees.
@@ -726,7 +727,7 @@ export async function runAgentDeep(opts: {
   try {
     const stream = await compiled.graph.streamEvents(input as never, {
       version: 'v2',
-      callbacks: [langfuseHandler],
+      callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard)],
       signal: budgetGuard.signal,
       ...stepLimitStreamConfig(maxSteps),
     } as never);
@@ -891,6 +892,11 @@ export async function runAgentDeep(opts: {
     // whatever the aborted stream threw on its way out. A step-limit stop is
     // reworded for the person; anything else keeps its own message.
     const budgetStop = budgetGuard.stopError();
+    if (budgetStop) {
+      // Almost always the abort itself; logged in case something else broke
+      // as the stop landed, since the person only sees the budget message.
+      console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
+    }
     const { message, rethrow } = budgetStop
       ? { message: budgetStop.message, rethrow: budgetStop }
       : describeTurnFailure(err, maxSteps);
