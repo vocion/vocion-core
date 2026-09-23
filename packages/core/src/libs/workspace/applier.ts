@@ -1294,6 +1294,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, mode: App
     description: ds.description ?? null,
     agentSlug: ds.agentSlug,
     provider: ds.provider,
+    passThreshold: ds.passThreshold ?? null,
     items: ds.items,
     version: ds.version,
   };
@@ -1319,6 +1320,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, mode: App
     && (existing.description ?? null) === payload.description
     && existing.agentSlug === payload.agentSlug
     && existing.provider === payload.provider
+    && (existing.passThreshold ?? null) === payload.passThreshold
     && existing.version === payload.version
     && canonical(existing.items) === canonical(payload.items)
   ) {

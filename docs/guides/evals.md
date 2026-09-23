@@ -240,11 +240,259 @@ The whole vocabulary, and it is a closed list on purpose:
 |---|---|
 | `toolCalled: x` | The agent called tool `x` |
 | `toolNotCalled: x` | It did not call `x` |
+| `toolCalledWith: {...}` | The arguments of `x`'s calls look the way the case says |
+| `toolReturned: {...}` | What `x` handed back looks the way the case says |
+| `toolCallCount: {...}` | `x` was called exactly, at least or at most that many times |
 | `outputContains: "text"` | The answer contains that text |
 | `outputNotContains: "text"` | It does not |
 | `outputMatches: "regex"` | The answer matches that regular expression |
 | `latencyUnderMs: 8000` | The answer came back in under 8 seconds |
 | `turnsUnder: 4` | The conversation took fewer than 4 turns |
+
+The two that read arguments take a small block rather than a bare value:
+
+The same few shapes cover very different agents. A handful, each from a
+different kind of workspace:
+
+```text
+checks:
+  # Support: a refund question looks the order up by the number the customer gave.
+  - toolCalledWith: { tool: lookup_order, path: orderId, equals: "A-10442" }
+
+  # Sales: a deal update only ever moves the stage to one the pipeline defines.
+  - toolCalledWith:
+      tool: propose_action
+      where:
+        - { path: action_id, equals: hubspot.update }
+        - { path: action_input.objectType, equals: deals }
+      path: action_input.properties.dealstage
+      subsetOf: [qualified, proposal_sent, negotiation, closed_won, closed_lost]
+
+  # Outreach: the agent drafts emails for a person to send, never sends them itself.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_id, equals: gmail.send }
+      path: action_input.draft
+      equals: true
+
+  # Recruiting: every applicant card names the role it is for.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_input.objectType, equals: applicant }
+      path: action_input.fields.role
+      present: true
+
+  # Research: a company card is deduplicated on its domain, not its name.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_input.objectType, equals: company }
+      path: action_input.dedupOn
+      equals: [domain]
+
+  # Any workspace: every proposal says what it recommends.
+  - toolCalledWith: { tool: propose_action, path: suggested_decision, present: true }
+
+  # Any workspace: a correction refreshes the existing card instead of opening a second one.
+  - toolCallCount: { tool: propose_action, max: 1 }
+```
+
+The object types (`applicant`, `company`) and their fields are illustrations —
+yours come from your own workspace's `objects/` folder.
+
+`path` walks the arguments with dots and is optional — leave it out to test the
+whole argument object. Give one or more of `equals`, `contains`, `present` and
+`subsetOf`, and all of them have to hold. `calls` says how many of the tool's
+calls must satisfy them: `every`, the default, or `some`.
+
+#### Finding the fields a check can read
+
+A `path` is only as good as your knowledge of what the agent actually sends,
+and nothing in the YAML tells you. Work it out in this order, outermost first:
+
+1. **The tool's own arguments.** For `propose_action` they are in
+   `packages/core/src/libs/actions/proposeActionArgs.ts`: `action_id`,
+   `action_input`, `confidence`, `rationale`, `evidence`, `suggested_decision`,
+   `suggested_decision_reason`, `suggested_snooze_until`. Other tools declare
+   theirs in `packages/core/src/services/agents/tools/<tool>.ts`, in the
+   `schema:` passed to `tool()`.
+2. **The action's payload, inside `action_input`.** Its shape depends on
+   `action_id`. For `objects.propose_candidate` — every proposal an ingestion
+   agent files — it is `candidateInputShape` in
+   `packages/core/src/libs/actions/objects-propose-candidate.ts`: `objectType`,
+   `title`, `fields`, `dedupOn`, `sourceUrl`, `sourceListingUrl`, `imageUrl`,
+   `summary`, `extractionNotes`, `rawExtractRef`. Note that `title` and
+   `dedupOn` sit here, beside `fields`, not inside it.
+3. **The record itself, inside `action_input.fields`.** These are your
+   workspace's own: the `schema.properties` of `objects/<type>/type.yaml`. The
+   field descriptions there say what format each value takes — whether a date
+   is a bare day or carries a time, which zone it is in — which is what decides
+   how a check should compare it. Pin the type with
+   `where: { path: action_input.objectType, equals: <type> }` so the rule is
+   checked against that type's fields and not every type's.
+4. **A real call, to be sure.** Open a case on the run page and follow its
+   Langfuse trace: each tool call is there with the exact arguments the model
+   sent. The run page itself lists tool names, not arguments.
+
+So `action_input.fields.role` reads: the `action_input` argument of
+`propose_action`, the `fields` of the candidate envelope, the `role` property
+of the `applicant` object type. A payload for another action has its own
+shape: `action_input.properties.dealstage` is the `properties` map that
+`hubspot.update` takes (`packages/core/src/libs/actions/hubspot-update.ts`).
+
+**Paths are checked before anything runs.** `workspace:apply`, and a parent
+repo's validation job that dry-runs it, refuse a `propose_action` check whose
+`path`, `where` path or `timezoneFrom` names an argument, envelope key or
+object-type field that does not exist, and list every one with its dataset,
+case and check number and the names that do exist. What it cannot know it
+leaves alone: another tool's arguments, another action's payload (a check
+pinned to `action_id: hubspot.update`), and anything deeper than a field name.
+Those still fail at run time as "was missing", which is the one reading you
+should always double-check against a trace before blaming the agent.
+
+**Dates** take `onOrAfter` and `onOrBefore`, which compare the calendar day at
+`path` against a day named relative to the run:
+
+```text
+  # Sales: a deal's close date is never set in the past.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_id, equals: hubspot.update }
+      path: action_input.properties.closedate
+      onOrAfter: today
+      timezone: workspace
+
+  # Recruiting: an interview is booked within the next two weeks.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_input.objectType, equals: interview }
+      path: action_input.fields.scheduledFor
+      onOrAfter: today
+      onOrBefore: in 2 weeks
+      timezone: America/Chicago
+
+  # Events: no proposed event is in the past, by the venue's own clock.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_input.objectType, equals: event-candidate }
+      path: action_input.fields.startDate
+      onOrAfter: today
+      timezoneFrom: action_input.fields.timezone
+      timezone: America/New_York
+```
+
+The day words are `today`, `yesterday`, `tomorrow`, `last` or `next` followed
+by `week`, `month` or `year`, `N days|weeks|months|years ago`, `in N
+days|weeks|months|years`, or a fixed `YYYY-MM-DD`. They resolve when the check
+runs, so `today` is the day of the run, and a month move clamps to the last
+real day (a month before March 31 is the end of February). Anything else is
+refused when the workspace is applied.
+
+`timezone` is set on each check, because two date fields on one call can need
+different clocks: `utc` (the default), `local` (the machine running the check,
+which is UTC on the app servers), `workspace` (the workspace's
+`defaults.timezone`; when it sets none, the server's `VOCION_TIMEZONE`, then UTC), or an IANA name. `timezoneFrom`
+reads the zone from the call itself instead — `action_input.fields.timezone`
+judges each event by its venue's clock — and falls back to `timezone` when the
+call names no real zone. The zone decides which day "today" is, and which day a
+value carrying an offset (`2026-09-22T21:30:00-04:00`) falls on. A bare day (`2026-09-22`) or a wall-clock time with no offset
+(`2026-09-22T19:30`) already names its day and is read as written. A value that
+is not a date — `next Friday`, a number — fails the check rather than passing.
+
+`where` narrows which calls the rule is about, and you will want it more often
+than it looks. One tool frequently files several kinds of thing — a sales
+agent updates deals and contacts through the same `propose_action`, a
+recruiting agent proposes applicants and interviews — and a rule about one is
+simply false of the other. Without `where`, the deal-stage rule fails on every
+run that also updated a contact, which reads as the agent being broken when it
+was doing exactly what it should.
+
+A filter is `{ path, equals }` or `{ path, present }`, and `where` takes one or
+a list, all of which must hold. `present: false` is how a rule steps around its
+one legitimate exception:
+
+```text
+  # Recruiting: a new applicant gets an interview in the future, but a
+  # rescheduled one keeps its original booking on record, and only a
+  # reschedule carries rescheduledFrom.
+  where:
+    - { path: action_input.objectType, equals: interview }
+    - { path: action_input.fields.rescheduledFrom, present: false }
+
+  # Events: a series refresh keeps its first, possibly past, startDate on
+  # purpose, and a series is the only proposal with a recurrence.
+  where:
+    - { path: action_input.objectType, equals: event-candidate }
+    - { path: action_input.fields.recurrence, present: false }
+```
+
+A tool that was never called, or never called in a way `where` matched,
+**fails** by default: a rule about calls that never happened is not a rule
+anything kept, and an agent that silently stopped proposing anything is the
+regression most worth catching. Set `noCalls: pass` for the other shape of
+rule — "if it did this, it did it right" — such as a contact update a sales
+run only makes when the email thread named a new stakeholder.
+
+**Every item of a list** is `*` in a path. `action_input.fields.attendees.*.email`
+reads each attendee's email, and the rule holds only when all of them do; a
+failure names the item that broke it (`attendees.2.email was missing`). A list
+with no items fails, whatever the rule — even `present: false` — because
+"every item of nothing" is not something the agent did. That holds for each
+list under a nested `*` too: in `groups.*.members.*.email`, one group with no
+members fails the rule even when the others have some. A `*` on something
+that is not a list, such as a single record, fails and says so rather than
+treating the record's keys as items. A `where` filter needs one value per call, so the workspace refuses
+a `*` there. In `timezoneFrom`, a `*` means the same item `path` is on:
+`path: "*.startDate"` with `timezoneFrom: "*.timezone"` judges each record's
+date by that record's own zone.
+
+#### Checking what a tool returned
+
+`toolCalledWith` reads what the agent asked for. `toolReturned` reads what it
+got back, which is the only way to tell "the agent asked properly and the tool
+gave it nothing usable" apart from a run that went fine. It takes the same
+block — `where`, `path`, the same predicates, `noCalls`, `calls` — with one
+difference: `path` and `timezoneFrom` walk the return value, while `where`
+still picks calls by their **arguments**, so you can say which lookup you mean.
+
+```text
+  # Research: every record a lookup returns carries the id the next call needs.
+  - toolReturned:
+      tool: lookup_objects
+      where: { path: type_slug, equals: company }
+      path: "*.id"
+      present: true
+
+  # Support: an order lookup comes back with a status the refund flow knows.
+  - toolReturned:
+      tool: lookup_order
+      path: status
+      subsetOf: [paid, shipped, delivered, refunded]
+
+  # Scheduling: the calendar tool only offers slots from today on.
+  - toolReturned:
+      tool: find_free_slots
+      path: "*.start"
+      onOrAfter: today
+      timezone: workspace
+
+  # Research: a page fetch actually got the page, not an error.
+  - toolReturned: { tool: fetch_url, contains: "Total length" }
+```
+
+Every return reaches the transcript as text. When that text is JSON (as
+`lookup_objects` returns) it is parsed and `path` walks into it; when it is a
+sentence (as `fetch_url` and `propose_action` return), leave `path` out and
+use `contains` on the whole text. A `path` into a sentence fails with
+"returned text rather than JSON", quoting the start of what came back, so a
+tool that answered "No records found" reads as that and not as a missing
+field. The run's log keeps every return whole, so a check reads exactly what
+the agent read.
+The shape of a return is not declared anywhere core can read, so the
+workspace checks a `toolReturned` check's `where` paths at apply but not its
+`path`: find the fields in the tool's source or in a trace, as above.
+
+The tool names in these examples other than `lookup_objects`, `fetch_url` and
+`propose_action` are illustrations; use the tools your own agents have.
 
 | Pros | Cons |
 |---|---|
@@ -349,17 +597,20 @@ you write a file.
 
 | Test kind | Vocion grader | AgentCore grader |
 |---|---|---|
-| Deterministic checks (§4.1) | **Yes** | **No** — use §4.4 instead |
+| Deterministic checks (§4.1) | **Yes** | **Yes** — they run over the transcript either way |
 | LLM-as-judge (§4.2) | Yes, one built-in judge | Yes, a catalogue plus custom judges |
 | Trajectory matching (§4.3) | No | **Yes** |
 | Custom code (§4.4) | No | Yes, your Lambda |
 
-> **The system refuses the mismatch rather than ignoring it.** Put `checks` on a
-> dataset graded by AgentCore and the workspace file is **rejected when you apply
-> it**, naming the case. This is deliberate. The alternative — accepting the file
-> and silently never running those checks — means the case reports a pass rate
-> that reads as though the checks had passed. A loud refusal costs you two
-> minutes; a silent skip costs you a false sense of coverage for months.
+> **Checks are not a Vocion-only feature.** They read the transcript, and the
+> transcript is ours whoever grades the case, so a dataset can send its cases
+> to AWS and still assert the things a model should never be asked to judge —
+> whether the dedup key held the right three fields in the right order, whether
+> every proposal carried a reason. They arrive as their own score rows beside
+> the AWS ones, at `TOOL_CALL` level, so it is always clear which opinion came
+> from where. They were refused on an AgentCore dataset until 2026-09-21, which
+> forced a choice between AWS's evaluators and any assertion about a tool's
+> arguments.
 
 ---
 
@@ -448,6 +699,37 @@ debug it later:
 3. **The agent runs every case.** This is the expensive part.
 4. **Transcripts are written down**, before any grading.
 5. **The grader scores them**, and the scores are written.
+
+**Running it as a build gate:**
+
+```bash
+npm run eval:run -- --dataset refund-quality
+```
+
+It exits 0 when the run's pass rate reaches the bar and 1 when it does not, so
+it fails a pipeline like any other test command. The bar is 0.8 unless the
+dataset names its own:
+
+```text
+passThreshold: 0.7
+```
+
+Give a dataset its own bar when the default is the wrong shape for it — a
+handful of deterministic cases can be held to nearly all of them passing, while
+a set spread across a dozen live websites will lose a case whenever one of them
+redesigns a page, and a gate that reddens a build for that is a gate people
+learn to ignore.
+
+The pass rate counts only scores that said pass or fail: our checks and judge,
+and AWS's three trajectory matchers, whose 1 or 0 is a verdict. AWS's ratings
+on their own scales (`Very Helpful`, `Mostly Correct`) are stored and shown but
+never counted. When no score gave a verdict, the pass rate is empty rather than
+zero, and the gate reads it two ways:
+
+- **Scores came back, none of them verdicts** — `NOT GATED`, exit 0. A dataset
+  graded only by ratings has nothing to hold a bar against.
+- **Nothing was scored at all** — `FAIL`, exit 1. A run that measured nothing
+  must never read as green.
 
 ### Step 5.4 — Read the result
 
@@ -1072,10 +1354,11 @@ is not is more useful than pretending the whole thing is finished.
   YAML's fixed list of names to become open, and expect AWS-flavoured vocabulary
   (`TOOL_CALL`/`TRACE`/`SESSION`, `expectedTrajectory`) to grow neutral names,
   with the current ones kept as aliases.
-- **The gap in §4.5 narrowing.** Deterministic checks running only under the
-  Vocion grader is a real limitation, not a principle. The honest fix is for
-  checks to run over the transcript regardless of who else grades it. That is a
-  change with a migration behind it, not a config flag, and it is not done.
+- **The gap in §4.5, closed on 2026-09-21.** Deterministic checks now run over
+  the transcript whichever grader scores the case, and arrive as their own
+  score rows beside that grader's. No migration was needed in the end:
+  `eval_score.provider` is open text, and the table already expected several
+  providers to have an opinion about one case.
 - **The account-match check.** Nothing verifies that the account you provisioned
   and the key you connected are the same one. That is the single highest-value
   small fix in this whole area.

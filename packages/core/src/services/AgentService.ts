@@ -136,6 +136,7 @@ function defaultHarnessTargetFor(
 export type FailedDelegation = { name: string; message: string };
 
 /** Words a model uses when it HAS owned up to a failure. */
+
 const ADMITS_FAILURE = /\b(?:fail(?:ed|ure)?|could ?n[o']t|was ?n[o']t able|unable|errored|error|did ?n[o']t (?:complete|finish|work)|broke)\b/i;
 
 /**
@@ -433,6 +434,12 @@ export async function runAgentDeep(opts: {
 }): Promise<{
   response: string;
   traceId: string;
+  /**
+   * Every tool call, with its whole output. The agent already holds that
+   * string in its own history, so keeping it here costs a reference, not a
+   * copy — and an eval check reading a lookup's JSON or a page's text sees
+   * exactly what the agent saw.
+   */
   toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>;
   /**
    * Token usage across every model turn of this run, priced by
@@ -836,9 +843,14 @@ export async function runAgentDeep(opts: {
           }
           if (tool !== 'task' && !PLUMBING.has(tool)) {
             const input = parseJsonArgs(ev.data?.input);
+            // The live event stays short: it streams to the browser on every
+            // call. The log keeps the whole output, because an eval check
+            // reads it back — a lookup's JSON cut at 2,000 characters no
+            // longer parses, and every rule about its records would fail for
+            // the cut.
             const outputStr = outputFull.slice(0, 2000);
             emit({ type: 'tool_end', tool, input, output: outputStr });
-            toolCallLog.push({ tool, input, output: outputStr });
+            toolCallLog.push({ tool, input, output: outputFull });
           }
           break;
         }

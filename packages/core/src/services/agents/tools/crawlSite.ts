@@ -1,6 +1,12 @@
 /**
  * crawl_site — same-origin BFS crawl of a site, returning a digest of the
- * pages found. Capped depth + page count. Uses the active browse provider.
+ * pages found. Uses the active browse provider.
+ *
+ * Every limit here is a default the agent can raise: 1,200 characters per
+ * page, depth 1, 20 pages. None has a ceiling. A digest cut at a fixed length
+ * hides whatever sits past it on each page — for an events listing, the later
+ * events — and a hard page ceiling drops the rest of a large site. The cost of
+ * asking for more is prompt tokens, which the agent's instructions weigh.
  */
 
 import type { RuntimeContext } from '../types';
@@ -10,12 +16,13 @@ import { bfsCrawl } from '@/libs/tools/browse/crawl';
 import { getBrowseProvider } from '@/libs/tools/browse/registry';
 import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
 
-const PER_PAGE_CHARS = 1_200;
+const DEFAULT_CHARS_PER_PAGE = 1_200;
 
 export function crawlSiteTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
-      const { start_url, max_depth, max_pages } = args;
+      const { start_url, max_depth, max_pages, chars_per_page } = args;
+      const charsPerPage = chars_per_page ?? DEFAULT_CHARS_PER_PAGE;
       try {
         const provider = getBrowseProvider();
         const pages = await bfsCrawl(provider, start_url, {
@@ -27,7 +34,7 @@ export function crawlSiteTool(ctx: RuntimeContext) {
           return `Crawl of ${start_url} returned no readable pages.`;
         }
         const digest = pages
-          .map((p, i) => `${i + 1}. ${p.title}\n   ${p.url}\n   ${p.content.slice(0, PER_PAGE_CHARS).replace(/\s+/g, ' ').trim()}…`)
+          .map((p, i) => `${i + 1}. ${p.title}\n   ${p.url}\n   ${p.content.slice(0, charsPerPage).replace(/\s+/g, ' ').trim()}…`)
           .join('\n\n');
         return `Crawled ${pages.length} page(s) from ${start_url}:\n\n${digest}`;
       } catch (err) {
@@ -46,11 +53,12 @@ export function crawlSiteTool(ctx: RuntimeContext) {
     {
       name: 'crawl_site',
       description:
-        'Crawl a website (same-origin, breadth-first) starting from a URL and return a digest of each page. Use to survey a site or docs section. Depth and page count are capped.',
+        'Crawl a website (same-origin, breadth-first) starting from a URL and return a digest of each page. Use to survey a site or docs section. Depth, page count and characters per page are defaults you can raise.',
       schema: z.object({
         start_url: z.string().url().describe('URL to start crawling from'),
-        max_depth: z.number().int().min(0).max(3).optional().describe('Link depth to follow (default 1, max 3)'),
-        max_pages: z.number().int().min(1).max(50).optional().describe('Max pages to fetch (default 20, max 50)'),
+        max_depth: z.number().int().min(0).optional().describe('Link depth to follow (default 1)'),
+        max_pages: z.number().int().min(1).optional().describe('Most pages to fetch (default 20)'),
+        chars_per_page: z.number().int().min(1).optional().describe(`Characters of each page to return (default ${DEFAULT_CHARS_PER_PAGE}); raise it when what you need sits further down a page`),
       }),
     },
   );

@@ -2,7 +2,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
-import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -1787,6 +1787,17 @@ export const evalDatasetSchema = pgTable(
      * up, not the default reading of every page.
      */
     provider: text('provider').default('vocion').notNull(),
+    /**
+     * Pass rate a run of this dataset has to reach before `eval:run` exits 0.
+     *
+     * Null means the runner's own floor decides, which is what every dataset
+     * written before this column had. It belongs to the dataset because the
+     * right bar differs between them: a handful of deterministic cases can be
+     * held to all of them passing, while a set spread across a dozen live
+     * sites will lose one to a page redesign and should not fail a build for
+     * it.
+     */
+    passThreshold: doublePrecision('pass_threshold'),
     description: text('description'),
     /**
      * Test cases, the same shape `EvalDatasetItem` in
@@ -1870,7 +1881,14 @@ export const evalRunSchema = pgTable('eval_run', {
    */
   errorMessage: text('error_message'),
   metrics: jsonb('metrics').$type<{
-    passRate?: number;
+    /** Null when no score said pass or fail; see `scoresWithoutVerdict`. */
+    passRate?: number | null;
+    /**
+     * Scores that ran but gave no pass-or-fail verdict — AWS's ratings on
+     * their own scales. Tells a null pass rate that means "rated, not gated"
+     * apart from one that means "nothing was scored".
+     */
+    scoresWithoutVerdict?: number;
     toolCallCount?: number;
     medianLatencyMs?: number;
     failed?: number;

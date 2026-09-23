@@ -11,6 +11,7 @@ import { parse as parseYaml } from 'yaml';
 import { isSurfaceId, SURFACE_IDS } from '@/features/navigation/surfaces';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { composeKind, resolveActivation } from './compose';
+import { assertEvalCheckPaths } from './evalCheckPaths';
 import { assertAgentHierarchy } from './hierarchy';
 import { EXTENDS_CORE } from './merge';
 import { assertDoTargets, assertOwnership } from './ownership';
@@ -352,6 +353,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   assertUniqueSlugs(playbooks, 'playbook');
   assertUniqueNames(learningSteps, 'learning step');
   assertUniqueSlugs(evalDatasets, 'eval dataset');
+  assertEvalCheckPaths(evalDatasets, objectTypes);
   assertUniqueSlugs(sources, 'source');
   assertOwnership(agents, automations, workflows);
   assertDoTargets(automations, missions, workflows);
