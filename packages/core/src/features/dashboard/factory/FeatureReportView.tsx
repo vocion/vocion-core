@@ -567,6 +567,18 @@ function Timeline({ report }: { report: FeatureReport }) {
 export function FeatureReportView({ report }: { report: FeatureReport }) {
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
+      {/* WHICH WORK THIS IS. The breadcrumb names the factory and a row id;
+          neither is the product. */}
+      {report.context.length > 0 && (
+        <p className="-mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+          {report.context.map((bit, i) => (
+            <span key={bit} className="flex items-center gap-2">
+              {i > 0 && <span aria-hidden className="text-border">·</span>}
+              {bit}
+            </span>
+          ))}
+        </p>
+      )}
       <StateHeader state={report.state} />
       <Lifecycle steps={report.lifecycle} />
 

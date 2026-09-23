@@ -287,6 +287,8 @@ export type FeatureReport = {
   goal: string | null;
   /** The ask as it arrived, kept as evidence under the outcome the page leads with. */
   asked: string;
+  /** Product, size, spend and age — the line that says WHICH work this is, above the fold. */
+  context: string[];
   /** The change as the person who will use it would tell it. Markdown. */
   story: string | null;
   /** The contract: what has to be true before this is done. */
@@ -1659,7 +1661,12 @@ function goalOf(request: ReportObject): string | null {
   // to it. Drop a trailing enumeration marker, and if what is left is a
   // colon-terminated label rather than a sentence, say nothing: a label is
   // not a goal, and an empty subtitle is more honest than a broken one.
-  const trimmed = first.replace(/\s*\d+\.$/, '').trim();
+  // A LIST MARKER, NOT A DATE. This stripped any trailing digits-and-dot, so
+  // a body opening "Correction, 2026-09-23. This was filed twice…" rendered
+  // as "Correction, 2026-09-" under the title — a truncated date as the first
+  // thing under the outcome. A marker is one or two digits with WHITESPACE in
+  // front of it; the 23 in a date has a hyphen.
+  const trimmed = first.replace(/(?<=\s)\d{1,2}\.$/, '').trim();
   if (trimmed === '' || trimmed.endsWith(':')) {
     return null;
   }
@@ -1836,6 +1843,40 @@ function todaySection(request: ReportObject, artifacts: ReportArtifact[]): Repor
   return s;
 }
 
+/**
+ * WHICH WORK THIS IS, in one line above the fold.
+ *
+ * A reader could get four screens in without learning which product the work
+ * was for. The breadcrumb says "Squatch Factory · Feature · #121", which
+ * names the factory and a row id — neither of which is the product. Chris
+ * asked for this in the first critique of the page and it was never built:
+ * "Send · Major change · $24 spent · started 2d ago"*.
+ *
+ * Only what is recorded. A line that pads itself with "not recorded" is worse
+ * than a short one.
+ * @param request - The request.
+ * @param summary - The computed summary, for spend and age.
+ * @param now - The clock.
+ */
+function buildContext(request: ReportObject, summary: FeatureReportSummary, now: Date): string[] {
+  const out: string[] = [];
+  const product = str(request.meta, 'product');
+  if (product !== null) {
+    out.push(product.charAt(0).toUpperCase() + product.slice(1));
+  }
+  const size = str(request.meta, 'sizeClass');
+  if (size !== null) {
+    out.push(`${size} change`);
+  }
+  if (summary.totalCents > 0) {
+    out.push(`${money(summary.totalCents)} spent`);
+  }
+  if (summary.askedAt !== null) {
+    out.push(`asked ${formatDuration(now.getTime() - summary.askedAt.getTime())} ago`);
+  }
+  return out;
+}
+
 /** Surfaces a person can see, and therefore owes a picture of. */
 const VISIBLE_SURFACES: ReadonlySet<string> = new Set(['ui', 'flow']);
 
@@ -1989,6 +2030,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     goal: goalOf(input.request),
     acceptance: buildAcceptance(input.request),
     summary: buildSummary(normalised, line),
+    context: buildContext(input.request, buildSummary(normalised, line), input.now),
     money: line,
     sections: [
       askSection(input.request),
