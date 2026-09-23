@@ -82,6 +82,17 @@ describe('the turn budget guard', () => {
     expect(guard.signal.aborted).toBe(true);
   });
 
+  it('stops once, with one message, when parallel model calls cross the cap together', async () => {
+    const guard = new TurnBudgetGuard(ORG, AGENT, vi.fn().mockResolvedValue(breach()));
+    const abortReasons: unknown[] = [];
+    guard.signal.addEventListener('abort', () => abortReasons.push(guard.signal.reason));
+
+    await Promise.all([guard.afterModelCall({ turnGoesOn: true }), guard.afterModelCall({ turnGoesOn: true })]);
+
+    expect(abortReasons).toHaveLength(1);
+    expect(guard.stoppedBy).toMatchObject({ reason: 'hard_cents_exceeded' });
+  });
+
   it('stops checking once stopped, so a late model call cannot re-trip or reword it', async () => {
     const check = vi.fn().mockResolvedValue(breach());
     const guard = new TurnBudgetGuard(ORG, AGENT, check);
