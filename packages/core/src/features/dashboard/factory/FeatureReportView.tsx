@@ -1,5 +1,7 @@
 import type { FeatureReport, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
 import type { Status } from '@/types/Status';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
 import { formatStamp, money } from '@/services/factory/featureReport';
 
@@ -135,17 +137,6 @@ function Entry({ entry }: { entry: ReportEntry }) {
  * @param props.items - The artifacts.
  */
 /** What the tile says when there is no picture to draw — the artifact's own kind, not "report". */
-const KIND_WORD: Record<string, string> = {
-  markdown: 'a document',
-  chart: 'a chart',
-  table: 'a table',
-  sequence: 'a sequence',
-  document: 'a document',
-  link: 'a link',
-  file: 'a file',
-  record: 'a record',
-};
-
 /** What this evidence is FOR, in the reader's words rather than the field's. */
 const ROLE_WORD: Record<string, string> = {
   'proposed': 'Proposed',
@@ -155,38 +146,54 @@ const ROLE_WORD: Record<string, string> = {
   'qa-report': 'Report',
 };
 
+/**
+ * SHOW THE THING.
+ *
+ * This drew a grey square labelled "a document" over every mockup, flow and
+ * diagram filed against a work item — a caption where a picture was meant to
+ * be, and as useless as the empty field it replaced. Chris, 2026-09-22,
+ * looking at two of them: *"Still no screenshots for before, mock or diagrams
+ * visible."*
+ *
+ * So: a picture is drawn, a document is rendered where it sits, and only a
+ * link out — the one thing a page genuinely cannot inline — stays a card to
+ * open.
+ * @param props
+ * @param props.items - The evidence to draw.
+ */
 function Gallery({ items }: { items: ReportEvidence[] }) {
   return (
-    <ul className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((item) => {
-        // A picture is drawn as a picture. Everything else says what it is and
-        // opens where it renders — a grey square labelled "report" told a
-        // reader nothing about a flow diagram sitting behind it.
-        const isImage = item.role === 'qa-screenshot' || item.kind === 'image';
-        const proposed = item.role === 'proposed';
-        return (
-          <li key={item.id} className={`min-w-0 overflow-hidden rounded-lg border ${proposed ? 'border-dashed border-border' : 'border-border'}`}>
-            {isImage && item.url
-              ? <img src={item.url} alt={item.caption ?? item.title} loading="lazy" className="block aspect-video w-full object-cover" />
-              : (
-                  <div className="flex aspect-video w-full flex-col items-center justify-center gap-1 bg-surface-soft px-3 text-center">
-                    <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{ROLE_WORD[item.role] ?? item.role}</span>
-                    <span className="text-xs text-muted-foreground">{KIND_WORD[item.kind] ?? item.kind}</span>
-                  </div>
-                )}
-            <div className="p-2.5">
-              <p className="text-sm font-medium break-words">{item.title}</p>
-              <p className="mt-0.5 text-xs break-words text-muted-foreground">{item.caption ?? 'No caption was posted with this artifact.'}</p>
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                {ROLE_WORD[item.role] ?? item.role}
-                {' · '}
-                {formatStamp(item.at)}
-              </p>
-              {item.url && <a href={item.url} className="mt-1 inline-block text-xs break-all underline underline-offset-2">Open it</a>}
+    <ul className="mt-2 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {items.map(item => (
+        <li key={item.id} className={`min-w-0 overflow-hidden rounded-lg border ${item.role === 'proposed' ? 'border-dashed border-border' : 'border-border'}`}>
+          {item.imageUrl !== null && (
+            <img src={item.imageUrl} alt={item.caption ?? item.title} loading="lazy" className="block w-full bg-surface-soft object-contain" />
+          )}
+          {item.imageUrl === null && item.body !== null && (
+            <div className="max-h-[26rem] overflow-y-auto border-b border-border bg-surface-soft px-3 py-2.5">
+              <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-1 prose-headings:text-sm prose-pre:bg-background prose-pre:text-[11px] prose-table:text-xs">
+                <Markdown remarkPlugins={[remarkGfm]}>{item.body}</Markdown>
+              </div>
             </div>
-          </li>
-        );
-      })}
+          )}
+          {item.imageUrl === null && item.body === null && (
+            <div className="flex aspect-[2/1] w-full flex-col items-center justify-center gap-1 bg-surface-soft px-3 text-center">
+              <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{ROLE_WORD[item.role] ?? item.role}</span>
+              <span className="text-xs text-muted-foreground">opens in a new place</span>
+            </div>
+          )}
+          <div className="p-2.5">
+            <p className="text-sm font-medium break-words">{item.title}</p>
+            {item.caption !== null && <p className="mt-0.5 text-xs break-words text-muted-foreground">{item.caption}</p>}
+            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+              {ROLE_WORD[item.role] ?? item.role}
+              {' · '}
+              {formatStamp(item.at)}
+            </p>
+            {item.url && <a href={item.url} className="mt-1 inline-block text-xs break-all underline underline-offset-2">Open it</a>}
+          </div>
+        </li>
+      ))}
     </ul>
   );
 }
