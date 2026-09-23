@@ -240,18 +240,19 @@ describe('the tool-call log an eval reads', () => {
 
     expect(cards.length).toBeGreaterThan(2000);
     expect(logged?.output).toBe(cards);
-    expect(logged?.outputLength).toBeUndefined();
     expect(streamed?.output.length).toBe(2000);
   });
 
-  it('records the full length when even the log has to cut', async () => {
-    const huge = 'x'.repeat(60_000);
-    streamEvents.mockResolvedValue(lookupStream(huge));
+  it('keeps a page-sized return whole, with no cap of its own', async () => {
+    // fetch_url hands back a page's full text, and a 75 KB listing is an
+    // ordinary source. Any cap here would cut it for the checks while the
+    // agent read it whole.
+    const page = 'x'.repeat(200_000);
+    streamEvents.mockResolvedValue(lookupStream(page));
     const { result } = await run({ message: 'look up the event cards' });
 
     const logged = result.toolCalls.find(call => call.tool === 'lookup_objects');
 
-    expect(logged?.output.length).toBe(50_000);
-    expect(logged?.outputLength).toBe(60_000);
+    expect(logged?.output).toBe(page);
   });
 });

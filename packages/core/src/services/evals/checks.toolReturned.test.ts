@@ -139,16 +139,6 @@ describe('toolReturned', () => {
     expect(outcome?.explanation).toContain('not a list');
   });
 
-  it('says a cut return was cut even when the check has no path', () => {
-    // contains over the kept start of a cut return would blame the tool for
-    // text that may sit in the part that was dropped.
-    const cut: ToolCallRecord = { tool: 'lookup_objects', input: { type_slug: 'event-candidate' }, output: '[{"id":1,"title":"Blue', outputLength: 60_000 };
-    const outcome = runCheck(transcriptOf([cut]), { toolReturned: { tool: 'lookup_objects', contains: 'Contra Dance' } }, CLOCK);
-
-    expect(outcome?.passed).toBe(false);
-    expect(outcome?.explanation).toContain('only the first');
-  });
-
   it('judges returned dates against the run day', () => {
     const check: EvalCheck = { toolReturned: { tool: 'lookup_objects', where: EVENT_LOOKUP, path: '*.startDate', onOrAfter: 'today' } };
 
@@ -184,18 +174,6 @@ describe('toolReturned', () => {
 
     expect(outcome?.passed).toBe(false);
     expect(outcome?.explanation).toContain('lookup_objects returned 1.start was 2026-09-22');
-  });
-
-  it('says a return was cut short rather than calling it text', () => {
-    // The run log keeps a bounded amount of each output. JSON that lost its
-    // end does not parse, and blaming the tool for "answering in text" would
-    // send someone to fix a tool that is fine.
-    const full = JSON.stringify([{ id: 1, title: 'Bluegrass' }, { id: 2, title: 'Contra Dance' }]);
-    const call = { tool: 'lookup_objects', input: { type_slug: 'event-candidate' }, output: full.slice(0, 20), outputLength: full.length };
-    const outcome = runCheck(transcriptOf([call]), { toolReturned: { tool: 'lookup_objects', path: '*.id', present: true } }, CLOCK);
-
-    expect(outcome?.passed).toBe(false);
-    expect(outcome?.explanation).toContain(`lookup_objects's return was ${full.length} characters and only the first 20 were kept`);
   });
 
   it('fails by default when the tool was never called', () => {

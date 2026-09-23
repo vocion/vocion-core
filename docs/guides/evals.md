@@ -485,8 +485,8 @@ sentence (as `fetch_url` and `propose_action` return), leave `path` out and
 use `contains` on the whole text. A `path` into a sentence fails with
 "returned text rather than JSON", quoting the start of what came back, so a
 tool that answered "No records found" reads as that and not as a missing
-field. A return too long for the run's log (over 50,000 characters) is kept
-cut short, and a `path` into it fails saying so rather than blaming the tool.
+field. The run's log keeps every return whole, so a check reads exactly what
+the agent read.
 The shape of a return is not declared anywhere core can read, so the
 workspace checks a `toolReturned` check's `where` paths at apply but not its
 `path`: find the fields in the tool's source or in a trace, as above.

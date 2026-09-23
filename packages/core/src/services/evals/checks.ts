@@ -530,14 +530,6 @@ function callSatisfies(call: ToolCallRecord, condition: ToolArgumentCondition, c
   let root: unknown = call.input;
   if (check === 'toolReturned') {
     const parsed = parseToolReturn(call.output);
-    // A return cut on its way into the log is JSON that lost its end, or
-    // text whose rest was dropped. The tool answered; the rule simply cannot
-    // be judged, and the explanation has to say which of the two happened —
-    // with or without a path, since `contains` could be looking for text in
-    // the part that was cut.
-    if (!parsed.isJson && call.outputLength !== undefined && call.outputLength > call.output.length) {
-      return { ok: false, reason: `${condition.tool}'s return was ${call.outputLength} characters and only the first ${call.output.length} were kept, so ${condition.path ?? 'the whole return'} cannot be read from it` };
-    }
     // A path needs something to walk into. A tool that answered in a
     // sentence — "No records found for this type." — has no fields, and
     // saying so beats reporting every field it lacks as merely missing.

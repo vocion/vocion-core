@@ -136,12 +136,6 @@ function defaultHarnessTargetFor(
 export type FailedDelegation = { name: string; message: string };
 
 /** Words a model uses when it HAS owned up to a failure. */
-/**
- * How much of each tool's output a run's tool-call log keeps. Enough for a
- * lookup returning a few hundred records whole; bounded because the log is
- * held in memory for the run and written out when a turn is recorded.
- */
-const TOOL_LOG_OUTPUT_CAP = 50_000;
 
 const ADMITS_FAILURE = /\b(?:fail(?:ed|ure)?|could ?n[o']t|was ?n[o']t able|unable|errored|error|did ?n[o']t (?:complete|finish|work)|broke)\b/i;
 
@@ -441,12 +435,12 @@ export async function runAgentDeep(opts: {
   response: string;
   traceId: string;
   /**
-   * Every tool call, with its output capped at `TOOL_LOG_OUTPUT_CAP`.
-   * `outputLength` is the full length when the output was cut, so a reader —
-   * an eval check parsing a lookup's JSON — can tell a short answer from a
-   * long one that lost its end.
+   * Every tool call, with its whole output. The agent already holds that
+   * string in its own history, so keeping it here costs a reference, not a
+   * copy — and an eval check reading a lookup's JSON or a page's text sees
+   * exactly what the agent saw.
    */
-  toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string; outputLength?: number }>;
+  toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>;
   /**
    * Token usage across every model turn of this run, priced by
    * `tokenCostMicroCents`. `model` is the id the provider reported on the last
@@ -588,7 +582,7 @@ export async function runAgentDeep(opts: {
   );
   const boundCtx = compiled.ctx;
 
-  const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string; outputLength?: number }> = [];
+  const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
   // Full (untruncated) tool outputs — the sanitizer needs the whole thing to
   // strip a verbatim echo (toolCallLog truncates for the event/audit surface).
   const rawToolOutputs: string[] = [];
@@ -850,17 +844,13 @@ export async function runAgentDeep(opts: {
           if (tool !== 'task' && !PLUMBING.has(tool)) {
             const input = parseJsonArgs(ev.data?.input);
             // The live event stays short: it streams to the browser on every
-            // call. The log keeps far more, because an eval check reads it
-            // back — a lookup's JSON cut at 2,000 characters no longer parses,
-            // and every rule about its records would fail for the cut.
+            // call. The log keeps the whole output, because an eval check
+            // reads it back — a lookup's JSON cut at 2,000 characters no
+            // longer parses, and every rule about its records would fail for
+            // the cut.
             const outputStr = outputFull.slice(0, 2000);
             emit({ type: 'tool_end', tool, input, output: outputStr });
-            toolCallLog.push({
-              tool,
-              input,
-              output: outputFull.slice(0, TOOL_LOG_OUTPUT_CAP),
-              ...(outputFull.length > TOOL_LOG_OUTPUT_CAP ? { outputLength: outputFull.length } : {}),
-            });
+            toolCallLog.push({ tool, input, output: outputFull });
           }
           break;
         }
