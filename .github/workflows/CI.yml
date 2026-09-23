@@ -12,7 +12,7 @@ jobs:
   # every E2E run sat behind a 24.x build whose output nothing used (#629).
   #
   # The versions are the ones that ship: the agent runtime image is
-  # `node:22-slim`, and a client deployment (Veerio's compose overlay) runs
+  # `node:22-slim`, and a client deployment runs
   # the app on `node:20`. Nothing runs on 24, so nothing builds on it.
   build:
     name: Build with 22.x
@@ -275,7 +275,11 @@ jobs:
       - name: Run E2E tests
         uses: docker://mcr.microsoft.com/playwright:v1.58.2
         with:
-          args: sh -c "HOME=/root npm run test:e2e -- --shard=${{ matrix.shard }}/3" # Set HOME to /root to avoid Playwright error with Firebox
+          # Set HOME to /root to avoid Playwright error with Firebox. The
+          # workspace script, not the root one: the root `test:e2e` re-runs
+          # `npm run` itself and drops anything after `--`, so every shard ran
+          # the whole suite.
+          args: sh -c "HOME=/root npm run test:e2e --workspace @vocion/core -- --shard=${{ matrix.shard }}/3"
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           # Playwright boots `next start` next to a throwaway in-memory PGlite on
