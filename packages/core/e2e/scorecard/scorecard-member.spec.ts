@@ -75,4 +75,59 @@ test('a non-admin member reaches the scorecard from the main nav and sees every 
 
   // Client-facing wording: no engineering "eval" anywhere on the page.
   await expect(page.locator('main')).not.toContainText(/eval/i);
+
+  // Every column but Agent explains itself in a tooltip.
+  for (const column of ['Agreement', 'Average confidence', 'People', 'Conversations', 'Reviewed', 'Accepted as-is']) {
+    await expect(page.getByRole('button', { name: `What ${column} means` })).toHaveCount(1);
+  }
+
+  await expect(page.getByRole('button', { name: 'What Agent means' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'What Agreement means' }).hover();
+
+  await expect(page.getByRole('tooltip')).toContainText('made the same call the agent recommended');
+});
+
+test('the period dropdown and a custom range both re-read the numbers for that period', async ({ page }) => {
+  seedFixtures();
+
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill(MEMBER.email);
+  await page.getByLabel('Password', { exact: true }).fill(MEMBER.password);
+  await page.getByRole('button', { name: /sign in/i }).click();
+  await page.waitForURL(/\/dashboard/);
+  await page.goto('/dashboard/scorecard');
+
+  const decidedRow = page.locator(`[data-testid="scorecard-row"][data-agent-slug="${DECIDED_AGENT.slug}"]`);
+  const period = page.getByLabel('Period');
+
+  // The seeded decisions happened just now, so every preset that includes today counts them.
+  await expect(period).toHaveValue('last30');
+  await expect(decidedRow.getByRole('cell').nth(AGREEMENT_CELL)).toHaveText('67%');
+
+  await period.selectOption('last7');
+
+  await expect(decidedRow.getByRole('cell').nth(AGREEMENT_CELL)).toHaveText('67%');
+
+  // "Last month" ends before today, so the same agent has nothing decided in it.
+  await period.selectOption('lastMonth');
+
+  await expect(decidedRow.getByRole('cell').nth(AGREEMENT_CELL)).toHaveText('Not enough data');
+
+  // A custom range in the past: same empty answer, through the date inputs.
+  await period.selectOption('custom');
+  await page.getByLabel('From', { exact: true }).fill('2025-01-01');
+  await page.getByLabel('To', { exact: true }).fill('2025-01-31');
+  await page.getByRole('button', { name: 'Apply' }).click();
+
+  await expect(page.getByTestId('scorecard-period-label')).toHaveText('Jan 1 – Jan 31, 2025');
+  await expect(decidedRow.getByRole('cell').nth(AGREEMENT_CELL)).toHaveText('Not enough data');
+
+  // An end date before the start is refused in place, not sent.
+  await page.getByRole('button', { name: 'Pick a custom date range' }).click();
+  await page.getByLabel('From', { exact: true }).fill('2025-02-10');
+  await page.getByLabel('To', { exact: true }).fill('2025-02-01');
+  await page.getByRole('button', { name: 'Apply' }).click();
+
+  await expect(page.getByRole('alert').filter({ hasText: 'The end date must be on or after the start date.' })).toBeVisible();
 });

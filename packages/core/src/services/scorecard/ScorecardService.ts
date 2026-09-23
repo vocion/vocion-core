@@ -5,7 +5,7 @@
  * user can act on: how often a person went with what the agent recommended
  * (agreement rate), and how sure the agent was of itself when it recommended
  * (average confidence). Alongside them sit the plain usage numbers the
- * Adoption page already computes.
+ * Adoption page computes, over the same range.
  *
  * Why agreement comes from the alignment ledger and not from the Adoption
  * page's own agreement matrix: `decision_alignment` stores `agreed` and
@@ -23,13 +23,15 @@
  * no per-person numbers — which is what keeps it safe to open up.
  */
 
-import { and, eq, gte, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { agentSchema, decisionAlignmentSchema } from '@/models/Schema';
-import { getAgentRows } from '@/services/adoption/AdoptionService';
+import { agentSchema, decisionAlignmentSchema, userActivityEventSchema } from '@/models/Schema';
 
-/** The scorecard offers only the windows both underlying sources support. */
-export type ScorecardWindow = 7 | 30;
+/**
+ * The period the scorecard covers: `from` inclusive, `to` exclusive. Every
+ * column — agreement, confidence and usage — is read over the same range.
+ */
+export type ScorecardRange = { from: Date; to: Date };
 
 /** Agreement and confidence for one agent, read from the alignment ledger. */
 export type AgentAlignmentSummary = {
@@ -58,7 +60,8 @@ export type ScorecardRow = AgentAlignmentSummary & {
 };
 
 export type Scorecard = {
-  windowDays: ScorecardWindow;
+  from: string;
+  to: string;
   rows: ScorecardRow[];
 };
 
@@ -73,11 +76,9 @@ export type Scorecard = {
  * recommendation made without a confidence neither drags the mean to zero nor
  * counts in its denominator.
  * @param orgId - From the session, never from client input.
- * @param windowDays - Look-back in days.
- * @param now - Injectable clock, for tests.
+ * @param range - The period, `from` inclusive and `to` exclusive.
  */
-export async function getAgentAlignmentSummaries(orgId: string, windowDays: ScorecardWindow, now: Date = new Date()): Promise<Map<string, AgentAlignmentSummary>> {
-  const since = new Date(now.getTime() - windowDays * 86_400_000);
+export async function getAgentAlignmentSummaries(orgId: string, range: ScorecardRange): Promise<Map<string, AgentAlignmentSummary>> {
   const scoredRecommendation = sql`${decisionAlignmentSchema.recommended} is not null and not ${decisionAlignmentSchema.implicit}`;
   const rows = await db
     .select({
@@ -91,7 +92,8 @@ export async function getAgentAlignmentSummaries(orgId: string, windowDays: Scor
     .where(and(
       eq(decisionAlignmentSchema.orgId, orgId),
       isNotNull(decisionAlignmentSchema.agentSlug),
-      gte(decisionAlignmentSchema.decidedAt, since),
+      gte(decisionAlignmentSchema.decidedAt, range.from),
+      lt(decisionAlignmentSchema.decidedAt, range.to),
     ))
     .groupBy(decisionAlignmentSchema.agentSlug);
   return new Map(rows.map(row => [String(row.agentSlug), toAlignmentSummary(row)]));
@@ -186,21 +188,80 @@ function compareScorecardRows(a: ScorecardRow, b: ScorecardRow): number {
 }
 
 /**
+ * Usage per agent over the range, from the activity event log.
+ *
+ * The same counts the Adoption page shows (its `getAgentRows`), but over an
+ * arbitrary from/to range: the Adoption query only knows 7, 30 and 90 days
+ * back from now, and it also runs agreement, label and eval queries this page
+ * never shows. The event definitions match it exactly — keep them in step.
+ * @param orgId - From the session, never from client input.
+ * @param range - The period, `from` inclusive and `to` exclusive.
+ */
+export async function getAgentUsage(orgId: string, range: ScorecardRange): Promise<Map<string, AgentUsage>> {
+  const event = userActivityEventSchema;
+  const decision = sql`${event.metadata} ->> 'decision'`;
+  const rows = await db
+    .select({
+      agentSlug: event.agentSlug,
+      reach: sql<number>`count(distinct ${event.userId})::int`,
+      conversations: sql<number>`count(*) filter (where ${event.eventType} = 'chat.conversation_created')::int`,
+      approvals: sql<number>`count(*) filter (where ${event.eventType} = 'review.decided' and ${decision} = 'approved')::int`,
+      rejections: sql<number>`count(*) filter (where ${event.eventType} = 'review.decided' and ${decision} = 'rejected')::int`,
+      revisions: sql<number>`count(*) filter (where ${event.eventType} = 'review.decided' and ${decision} in ('edited', 'rewritten'))::int`,
+    })
+    .from(event)
+    .where(and(
+      eq(event.orgId, orgId),
+      isNotNull(event.agentSlug),
+      gte(event.createdAt, range.from),
+      lt(event.createdAt, range.to),
+    ))
+    .groupBy(event.agentSlug);
+  return new Map(rows.map(row => [String(row.agentSlug), toAgentUsage(row)]));
+}
+
+/**
+ * Coerce the counts and derive the accepted-as-is rate, null when nothing was reviewed.
+ * @param row - One grouped row of event counts.
+ * @param row.reach - Distinct people.
+ * @param row.conversations - Conversations started.
+ * @param row.approvals - Approved as-is.
+ * @param row.rejections - Turned down.
+ * @param row.revisions - Edited or rewritten.
+ */
+function toAgentUsage(row: { reach: number; conversations: number; approvals: number; rejections: number; revisions: number }): AgentUsage {
+  const approvals = Number(row.approvals);
+  const rejections = Number(row.rejections);
+  const revisions = Number(row.revisions);
+  const decisions = approvals + rejections + revisions;
+  return {
+    reach: Number(row.reach),
+    conversations: Number(row.conversations),
+    approvals,
+    rejections,
+    revisions,
+    approvalRate: decisions > 0 ? approvals / decisions : null,
+  };
+}
+
+/**
  * The whole scorecard for an organization.
  * @param orgId - From the session, never from client input.
- * @param windowDays - Look-back in days; alignment and usage use the same one.
- * @param now - Injectable clock, for tests.
+ * @param range - The period; alignment and usage read the same one.
  */
-export async function getScorecard(orgId: string, windowDays: ScorecardWindow, now: Date = new Date()): Promise<Scorecard> {
-  const [agents, alignmentByAgent, usageRows] = await Promise.all([
+export async function getScorecard(orgId: string, range: ScorecardRange): Promise<Scorecard> {
+  const [agents, alignmentByAgent, usageByAgent] = await Promise.all([
     db
       .select({ slug: agentSchema.slug, name: agentSchema.name, persona: agentSchema.persona, active: agentSchema.active })
       .from(agentSchema)
       .where(eq(agentSchema.orgId, orgId)),
-    getAgentAlignmentSummaries(orgId, windowDays, now),
-    getAgentRows(orgId, windowDays),
+    getAgentAlignmentSummaries(orgId, range),
+    getAgentUsage(orgId, range),
   ]);
   const listings = agents.map(agent => ({ slug: agent.slug, name: agent.name, displayName: agent.persona?.displayName ?? null, active: agent.active }));
-  const usageByAgent = new Map(usageRows.map(row => [row.agentSlug, row]));
-  return { windowDays, rows: buildScorecardRows(listings, alignmentByAgent, usageByAgent) };
+  return {
+    from: range.from.toISOString(),
+    to: range.to.toISOString(),
+    rows: buildScorecardRows(listings, alignmentByAgent, usageByAgent),
+  };
 }

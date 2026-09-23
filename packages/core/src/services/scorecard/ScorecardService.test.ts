@@ -9,8 +9,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, decisionAlignmentSchema } = await import('@/models/Schema');
-const { buildScorecardRows, getAgentAlignmentSummaries, getScorecard, noAlignmentYet } = await import('@/services/scorecard/ScorecardService');
+const { agentSchema, decisionAlignmentSchema, userActivityEventSchema } = await import('@/models/Schema');
+const { buildScorecardRows, getAgentAlignmentSummaries, getAgentUsage, getScorecard, noAlignmentYet } = await import('@/services/scorecard/ScorecardService');
 const { eq } = await import('drizzle-orm');
 
 const ORG = 'org_scorecard_test';
@@ -19,6 +19,10 @@ const NOW = new Date('2026-09-20T12:00:00Z');
 const DAY = 86_400_000;
 
 let nextSubjectId = 1;
+
+function lastDays(days: number) {
+  return { from: new Date(NOW.getTime() - days * DAY), to: NOW };
+}
 
 async function seedDecision(values: { agentSlug: string | null; recommended: string | null; decision: string; confidence?: number | null; implicit?: boolean; decidedAt?: Date; orgId?: string }) {
   const agreed = values.recommended === null ? null : values.recommended === values.decision;
@@ -45,6 +49,7 @@ async function wipe() {
   await db.delete(decisionAlignmentSchema).where(eq(decisionAlignmentSchema.orgId, ORG));
   await db.delete(decisionAlignmentSchema).where(eq(decisionAlignmentSchema.orgId, OTHER_ORG));
   await db.delete(agentSchema).where(eq(agentSchema.orgId, ORG));
+  await db.delete(userActivityEventSchema).where(eq(userActivityEventSchema.orgId, ORG));
 }
 
 beforeEach(wipe);
@@ -60,7 +65,7 @@ describe('average confidence and agreement per agent', () => {
     // An implicit row carries an `approve` nobody said — excluded from both numbers.
     await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'approved', confidence: 0.2, implicit: true });
 
-    const summary = (await getAgentAlignmentSummaries(ORG, 30, NOW)).get('closer');
+    const summary = (await getAgentAlignmentSummaries(ORG, lastDays(30))).get('closer');
 
     expect(summary).toMatchObject({ recommendationsDecided: 2, recommendationsAgreed: 1, agreementRate: 0.5, recommendationsWithConfidence: 2 });
     expect(summary?.averageConfidence).toBeCloseTo(0.7, 5);
@@ -70,7 +75,7 @@ describe('average confidence and agreement per agent', () => {
     await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'approved', confidence: 0.8 });
     await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'approved', confidence: null });
 
-    const summary = (await getAgentAlignmentSummaries(ORG, 30, NOW)).get('closer');
+    const summary = (await getAgentAlignmentSummaries(ORG, lastDays(30))).get('closer');
 
     expect(summary?.averageConfidence).toBeCloseTo(0.8, 5);
     expect(summary?.recommendationsWithConfidence).toBe(1);
@@ -81,7 +86,7 @@ describe('average confidence and agreement per agent', () => {
     await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'approved', confidence: null });
     await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'rejected', confidence: null });
 
-    const summary = (await getAgentAlignmentSummaries(ORG, 30, NOW)).get('closer');
+    const summary = (await getAgentAlignmentSummaries(ORG, lastDays(30))).get('closer');
 
     expect(summary?.averageConfidence).toBeNull();
     expect(summary?.agreementRate).toBe(0.5);
@@ -90,7 +95,7 @@ describe('average confidence and agreement per agent', () => {
   it('gives null agreement and null confidence when the agent has decisions but no scored recommendations', async () => {
     await seedDecision({ agentSlug: 'closer', recommended: null, decision: 'approved', confidence: 0.9 });
 
-    const summary = (await getAgentAlignmentSummaries(ORG, 30, NOW)).get('closer');
+    const summary = (await getAgentAlignmentSummaries(ORG, lastDays(30))).get('closer');
 
     expect(summary).toMatchObject({ agreementRate: null, averageConfidence: null, recommendationsDecided: 0 });
   });
@@ -98,7 +103,7 @@ describe('average confidence and agreement per agent', () => {
   it('reports a real 0% when every scored recommendation was overruled', async () => {
     await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'rejected', confidence: 0.6 });
 
-    const summary = (await getAgentAlignmentSummaries(ORG, 30, NOW)).get('closer');
+    const summary = (await getAgentAlignmentSummaries(ORG, lastDays(30))).get('closer');
 
     expect(summary?.agreementRate).toBe(0);
   });
@@ -108,11 +113,55 @@ describe('average confidence and agreement per agent', () => {
     await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'rejected', confidence: 0.1, decidedAt: new Date(NOW.getTime() - 10 * DAY) });
     await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'rejected', confidence: 0.1, orgId: OTHER_ORG });
 
-    const lastWeek = (await getAgentAlignmentSummaries(ORG, 7, NOW)).get('closer');
-    const lastMonth = (await getAgentAlignmentSummaries(ORG, 30, NOW)).get('closer');
+    const lastWeek = (await getAgentAlignmentSummaries(ORG, lastDays(7))).get('closer');
+    const lastMonth = (await getAgentAlignmentSummaries(ORG, lastDays(30))).get('closer');
 
     expect(lastWeek).toMatchObject({ recommendationsDecided: 1, agreementRate: 1 });
     expect(lastMonth).toMatchObject({ recommendationsDecided: 2, agreementRate: 0.5 });
+  });
+
+  it('leaves out a decision made exactly at the end of the range — the end is exclusive', async () => {
+    await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'approved', confidence: 0.9, decidedAt: new Date(NOW.getTime() - DAY) });
+    await seedDecision({ agentSlug: 'closer', recommended: 'approved', decision: 'rejected', confidence: 0.1, decidedAt: NOW });
+
+    const summary = (await getAgentAlignmentSummaries(ORG, lastDays(30))).get('closer');
+
+    expect(summary).toMatchObject({ recommendationsDecided: 1, agreementRate: 1 });
+  });
+});
+
+describe('usage per agent over a range', () => {
+  async function seedEvent(values: { userId: string; eventType: string; agentSlug: string; decision?: string; createdAt: Date }) {
+    await db.insert(userActivityEventSchema).values({
+      orgId: ORG,
+      userId: values.userId,
+      agentSlug: values.agentSlug,
+      eventType: values.eventType,
+      metadata: values.decision ? { decision: values.decision } : null,
+      createdAt: values.createdAt,
+    });
+  }
+
+  it('counts people, conversations and review decisions inside the range, and nothing outside it', async () => {
+    const inside = new Date(NOW.getTime() - 2 * DAY);
+    await seedEvent({ userId: 'usr_a', eventType: 'chat.conversation_created', agentSlug: 'closer', createdAt: inside });
+    await seedEvent({ userId: 'usr_b', eventType: 'review.decided', agentSlug: 'closer', decision: 'approved', createdAt: inside });
+    await seedEvent({ userId: 'usr_b', eventType: 'review.decided', agentSlug: 'closer', decision: 'edited', createdAt: inside });
+    await seedEvent({ userId: 'usr_a', eventType: 'review.decided', agentSlug: 'closer', decision: 'rejected', createdAt: inside });
+    await seedEvent({ userId: 'usr_c', eventType: 'review.decided', agentSlug: 'closer', decision: 'approved', createdAt: new Date(NOW.getTime() - 40 * DAY) });
+
+    const usage = (await getAgentUsage(ORG, lastDays(30))).get('closer');
+
+    expect(usage).toMatchObject({ reach: 2, conversations: 1, approvals: 1, revisions: 1, rejections: 1 });
+    expect(usage?.approvalRate).toBeCloseTo(1 / 3, 5);
+  });
+
+  it('gives a null accepted-as-is rate, not zero, when the agent was used but nothing was reviewed', async () => {
+    await seedEvent({ userId: 'usr_a', eventType: 'chat.conversation_created', agentSlug: 'closer', createdAt: new Date(NOW.getTime() - DAY) });
+
+    const usage = (await getAgentUsage(ORG, lastDays(30))).get('closer');
+
+    expect(usage).toMatchObject({ conversations: 1, approvalRate: null });
   });
 });
 
@@ -122,7 +171,7 @@ describe('who gets a scorecard row', () => {
     await seedAgent('router', 'Store Router');
     await seedDecision({ agentSlug: 'screener', recommended: 'approved', decision: 'approved', confidence: 0.9 });
 
-    const { rows } = await getScorecard(ORG, 30, NOW);
+    const { rows } = await getScorecard(ORG, lastDays(30));
     const router = rows.find(row => row.agentSlug === 'router');
 
     expect(rows.map(row => row.agentSlug)).toEqual(['screener', 'router']);
