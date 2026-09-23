@@ -919,3 +919,39 @@ describe('one decision at a time', () => {
     expect(assembleFeatureReport(input()).phase).toBe('released');
   });
 });
+
+describe('a date is not a list marker', () => {
+  const goalOf = (body: string) => {
+    const base = input({});
+    return assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, summary: undefined, body } } }).goal;
+  };
+
+  it('keeps a date that ends the first sentence', () => {
+    // This rendered as "Correction, 2026-09-" under the title.
+    expect(goalOf('Correction, 2026-09-23. This was filed twice on a wrong premise.')).toBe('Correction, 2026-09-23.');
+  });
+
+  it('still drops a real list marker', () => {
+    expect(goalOf('Acceptance criteria, each checkable: 1. Every screen shows Stamp.')).toBeNull();
+  });
+});
+
+describe('which work this is', () => {
+  it('names the product, the size, the spend and the age — and only what is recorded', () => {
+    const r = assembleFeatureReport(input({}));
+
+    expect(r.context.some(b => b.endsWith('change'))).toBe(true);
+    expect(r.context.some(b => b.includes('spent'))).toBe(true);
+    expect(r.context.every(b => !b.includes('not recorded'))).toBe(true);
+  });
+
+  it('drops what is not recorded rather than padding the line with it', () => {
+    const base = input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] });
+    const r = assembleFeatureReport({ ...base, request: { ...base.request, meta: {} } });
+
+    // No product, no size, nothing spent. When the row was created is still a
+    // real fact, so it is the only thing the line carries.
+    expect(r.context).toHaveLength(1);
+    expect(r.context[0]).toMatch(/^asked /);
+  });
+});
