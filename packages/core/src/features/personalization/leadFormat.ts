@@ -30,6 +30,18 @@ export function shortDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : SHORT_DATE.format(d);
 }
 
+const SHORT_DATE_TIME = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
+
+/**
+ * "Sep 1, 10:00 AM UTC". For the moments a reviewer sorts and filters by,
+ * where the day alone does not separate two passes on the same day.
+ * @param iso - An ISO timestamp.
+ */
+export function shortDateTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : SHORT_DATE_TIME.format(d);
+}
+
 /**
  * "Sep 1, 2026".
  * @param iso - An ISO timestamp.
