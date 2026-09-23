@@ -10,7 +10,9 @@ export type ActionRevision = {
   discardedEdit?: string;
   at: string;
   by?: string;
-  kind?: 'proposed' | 'regenerated' | 'approved';
+  kind?: 'proposed' | 'regenerated' | 'approved' | 'failed';
+  /** Why a regeneration asked here did not land; only on a `failed` entry. */
+  failure?: string;
 };
 
 /**

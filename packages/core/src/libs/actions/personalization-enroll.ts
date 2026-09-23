@@ -409,6 +409,39 @@ async function regenerateSequenceCopy(opts: {
   return { done: true };
 }
 
+/**
+ * Which positions of `input.sends` are already on this contact's pending (or
+ * failed) card with the same subject and body. Those sends were not written by
+ * whoever is proposing now; they are being carried. Empty when there is no
+ * such card, which is the brand-new-proposal case.
+ * @param orgId
+ * @param input - The sends being proposed, in order.
+ */
+async function unchangedSends(orgId: string, input: z.infer<typeof enrollInput>): Promise<Set<number>> {
+  const { and, eq, inArray } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const [existing] = await db
+    .select({ input: actionRunSchema.input })
+    .from(actionRunSchema)
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.actionId, 'personalization.enroll'),
+      eq(actionRunSchema.dedupKey, `personalization.enroll:${input.contactRef}`),
+      inArray(actionRunSchema.status, ['pending', 'failed']),
+    ))
+    .limit(1);
+  const prior = (existing?.input as { sends?: Array<{ subject?: string; body?: string }> } | undefined)?.sends ?? [];
+  const out = new Set<number>();
+  input.sends.forEach((send, i) => {
+    const was = prior[i];
+    if (was && was.subject === send.subject && was.body === send.body) {
+      out.add(i);
+    }
+  });
+  return out;
+}
+
 export const personalizationEnrollAction: Action<typeof enrollInput> = {
   id: 'personalization.enroll',
   name: 'Enroll MQL in sequence',
@@ -436,7 +469,18 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
    */
   async precheck(ctx, input) {
     const rules = await voiceRulesFor(ctx.orgId);
-    const { ok, report, count } = lintSends(input.sends, rules);
+    // Only the sends that CHANGED are judged. A scoped regenerate rewrites one
+    // send and, by design, keeps the others word for word so a reviewer's
+    // approvals on them survive; it then re-proposes the whole sequence. A
+    // card drafted before the gate existed carries em dashes in the sends
+    // nobody touched, so judging all of them refused the clean send for its
+    // neighbours' sake, every time, and the reviewer could fix nothing
+    // (ticket 069, proposal 509, 2026-09-22). A send identical to what is
+    // already on the pending card was already on the card; refusing it now
+    // removes nothing. A brand-new card has no pending run, so every send is
+    // new and every send is judged: nothing with a dash gets IN through here.
+    const unchanged = await unchangedSends(ctx.orgId, input);
+    const { ok, report, count } = lintSends(input.sends.map((s, i) => ({ ...s, step: s.step ?? i + 1 })).filter((_, i) => !unchanged.has(i)), rules);
     if (ok) {
       return;
     }
