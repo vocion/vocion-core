@@ -7,8 +7,8 @@ describe('a value built once per sync', () => {
     const build = vi.fn(async () => 'rules for the lead');
 
     const answers = await Promise.all([
-      oncePerSync(cache, 'rules:event-ingestion-lead', build),
-      oncePerSync(cache, 'rules:event-ingestion-lead', build),
+      oncePerSync(cache, 'rules:lead', build),
+      oncePerSync(cache, 'rules:lead', build),
     ]);
 
     expect(build).toHaveBeenCalledTimes(1);
@@ -21,10 +21,10 @@ describe('a value built once per sync', () => {
       .mockRejectedValueOnce(new Error('database unavailable'))
       .mockResolvedValueOnce('rules for the lead');
 
-    await expect(oncePerSync(cache, 'rules:event-ingestion-lead', build)).rejects.toThrow('database unavailable');
+    await expect(oncePerSync(cache, 'rules:lead', build)).rejects.toThrow('database unavailable');
 
-    expect(cache.has('rules:event-ingestion-lead')).toBe(false);
-    await expect(oncePerSync(cache, 'rules:event-ingestion-lead', build)).resolves.toBe('rules for the lead');
+    expect(cache.has('rules:lead')).toBe(false);
+    await expect(oncePerSync(cache, 'rules:lead', build)).resolves.toBe('rules for the lead');
     expect(build).toHaveBeenCalledTimes(2);
   });
 });

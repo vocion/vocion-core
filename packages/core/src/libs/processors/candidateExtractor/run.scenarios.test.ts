@@ -368,7 +368,7 @@ describe('a document read again with its venue worded differently', () => {
     invoke.mockResolvedValueOnce(read('The Ember Room [and online]'));
     const second = await run({ ...context(), config: keeping });
 
-    expect(second.counts).toMatchObject({ already_decided: 1, identity_kept: 1 });
+    expect(second.counts).toMatchObject({ already_decided: 1, identity_kept: 1, identity_kept_decided: 1 });
     expect((await cards()).events).toHaveLength(1);
   });
 });

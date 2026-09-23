@@ -2,10 +2,8 @@ import type { ProcessorSyncContext } from '../types';
 import type { CandidateExtractorConfig } from './config';
 import type { ValidatedRecord } from './validate';
 import { candidateDedupKey, candidateKeySegments, normaliseForKey } from '@/libs/actions/objects-propose-candidate';
-import { defangText } from './knownCards';
+import { defangText, SCAN_LIMIT } from './knownCards';
 import { oncePerSync } from './oncePerSync';
-
-const SCAN_LIMIT = 5_000;
 
 // An open card first, so a rejected twin never takes the refresh from the card being kept.
 const ANCHOR_TIERS = [['pending', 'failed'], ['done'], ['rejected']] as const;
@@ -75,14 +73,21 @@ export function loadDocumentCards(opts: {
     queryDocumentCards(opts.orgId, opts.sourceSlug));
 }
 
-function chooseAnchor(matches: DocumentCard[]): DocumentCard | undefined {
+// Two different keys in the deciding tier cannot say which one this record is, so none is chosen.
+function chooseAnchor(matches: DocumentCard[]): DocumentCard | 'ambiguous' | undefined {
   for (const tier of ANCHOR_TIERS) {
     const inTier = matches.filter(card => (tier as readonly string[]).includes(card.status));
     if (inTier.length > 0) {
-      return inTier.reduce((lowest, card) => (card.runId < lowest.runId ? card : lowest));
+      return new Set(inTier.map(card => card.dedupKey)).size > 1
+        ? 'ambiguous'
+        : inTier.reduce((lowest, card) => (card.runId < lowest.runId ? card : lowest));
     }
   }
   return undefined;
+}
+
+function isBlankSlot(value: unknown): boolean {
+  return normaliseForKey(value) === normaliseForKey(undefined);
 }
 
 function noteValue(value: unknown): string {
@@ -127,18 +132,25 @@ export function keepIdentity(opts: {
 
   for (const [index, record] of opts.records.entries()) {
     const identity = identities[index] as string;
-    if (readsOf.get(identity) !== 1) {
+    if (readsOf.get(identity) !== 1 || rule.sameOn.some(field => isBlankSlot(record.fields[field]))) {
       continue;
     }
     const matches = stored.filter(entry => entry.identity === identity).map(entry => entry.card);
-    const anchor = chooseAnchor(matches);
     const readKey = keyOf(record.fields);
-    if (!anchor || readKey === anchor.dedupKey || matches.some(card => card.status !== 'rejected' && card.dedupKey === readKey)) {
+    if (matches.some(card => card.status !== 'rejected' && card.dedupKey === readKey)) {
+      continue;
+    }
+    const anchor = chooseAnchor(matches);
+    if (anchor === 'ambiguous') {
+      bump('identity_ambiguous');
+      continue;
+    }
+    if (!anchor || readKey === anchor.dedupKey) {
       continue;
     }
 
     const kept = Object.fromEntries(keptFields.map(field => [field, anchor.fields[field]]));
-    if (keyOf({ ...record.fields, ...kept }) !== anchor.dedupKey) {
+    if (keptFields.some(field => isBlankSlot(kept[field])) || keyOf({ ...record.fields, ...kept }) !== anchor.dedupKey) {
       bump('identity_not_kept');
       continue;
     }
@@ -157,8 +169,8 @@ export function keepIdentity(opts: {
       }
     }
     bump('identity_kept');
-    if (matches.length > 1) {
-      bump('identity_kept_ambiguous');
+    if (anchor.status === 'done' || anchor.status === 'rejected') {
+      bump('identity_kept_decided');
     }
   }
 

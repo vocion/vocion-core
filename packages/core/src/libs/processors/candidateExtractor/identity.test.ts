@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
@@ -138,12 +138,12 @@ describe('keeping a card\'s identity when its own document is read again', () =>
 
   it('leaves a record alone when the card it resembles came from another document of the source', async () => {
     await fileCard({
-      document: 'https://themarlow.example/events#3c1be07a91d4f2e6',
+      document: 'https://themarlow.example/events#1001~1002',
       fields: { title: 'Visual Mapping Workshop', startDate: '2026-09-25', venueName: 'Online (Virtual)' },
     });
     const reread = record({ title: 'Visual Mapping Workshop', startDate: '2026-09-25', venueName: 'Online (Microsoft Teams)' });
 
-    const counts = keepIdentity({ config: configWith(), records: [reread], stored: await storedFor('https://themarlow.example/events#61824470093316~61824477385788') });
+    const counts = keepIdentity({ config: configWith(), records: [reread], stored: await storedFor('https://themarlow.example/events#1003~1004') });
 
     expect(counts).toEqual({});
     expect(reread.fields.venueName).toBe('Online (Microsoft Teams)');
@@ -220,6 +220,17 @@ describe('keeping a card\'s identity when its own document is read again', () =>
     expect(reread.fields.venueName).toBe('Ashby Library [and online]');
   });
 
+  it('leaves a record alone when it and the stored card both lack a start date', async () => {
+    await fileCard({ fields: { title: 'Open Mic Night', venueName: 'Ashby Library' } });
+    const reread = record({ title: 'Open Mic Night', venueName: 'Ashby Library [and online]' });
+
+    const counts = keepIdentity({ config: configWith(), records: [reread], stored: await storedFor() });
+
+    expect(counts).toEqual({});
+    expect(reread.fields.venueName).toBe('Ashby Library [and online]');
+    expect(reread.issues).toEqual([]);
+  });
+
   it('ignores a card of another object type the document also filed', async () => {
     await fileCard({ objectType: 'venue-candidate', fields: { title: 'Open Mic Night', startDate: '2026-11-12', venueName: 'Ashby Library' } });
     const reread = record({ title: 'Open Mic Night', startDate: '2026-11-12', venueName: 'Ashby Library [and online]' });
@@ -241,6 +252,17 @@ describe('keeping a card\'s identity when its own document is read again', () =>
     expect(reread.issues).toEqual([]);
   });
 
+  it('leaves a record alone when the card it would refresh has no venue and this read found one', async () => {
+    await fileCard({ fields: { title: 'Open Mic Night', startDate: '2026-11-12' } });
+    const reread = record({ title: 'Open Mic Night', startDate: '2026-11-12', venueName: 'The Corvina' });
+
+    const counts = keepIdentity({ config: configWith(), records: [reread], stored: await storedFor() });
+
+    expect(counts).toEqual({ identity_not_kept: 1 });
+    expect(reread.fields.venueName).toBe('The Corvina');
+    expect(reread.issues).toEqual([]);
+  });
+
   describe('which card anchors the record', () => {
     const zoom = { title: 'Midweek Zoom Check-in', startDate: '2026-12-16' };
 
@@ -254,7 +276,7 @@ describe('keeping a card\'s identity when its own document is read again', () =>
 
       const counts = keepIdentity({ config: configWith(), records: [reread], stored: await storedFor() });
 
-      expect(counts).toEqual({ identity_kept: 1, identity_kept_ambiguous: 1 });
+      expect(counts).toEqual({ identity_kept: 1 });
       expect(reread.fields.venueName).toBe('Zoom (Virtual)');
       expect(keyOf(reread.fields)).toBe(open.dedupKey);
     });
@@ -270,12 +292,12 @@ describe('keeping a card\'s identity when its own document is read again', () =>
       expect(keyOf(reread.fields)).toBe(open.dedupKey);
     });
 
-    it('anchors on a done card when it is the only one, so the proposal stops at the decision', async () => {
-      const done = await fileCard({ status: 'done', fields: { title: 'Parents Book Circle', startDate: '2026-11-09', venueName: 'Ashby Library' } });
+    it.each(['done', 'rejected'])('anchors on a %s card when it is the only one, so the proposal stops at the decision', async (status) => {
+      const decided = await fileCard({ status, fields: { title: 'Parents Book Circle', startDate: '2026-11-09', venueName: 'Ashby Library' } });
       const reread = record({ title: 'Parents Book Circle', startDate: '2026-11-09', venueName: 'Ashby Library [and online]' });
 
-      expect(keepIdentity({ config: configWith(), records: [reread], stored: await storedFor() })).toEqual({ identity_kept: 1 });
-      expect(keyOf(reread.fields)).toBe(done.dedupKey);
+      expect(keepIdentity({ config: configWith(), records: [reread], stored: await storedFor() })).toEqual({ identity_kept: 1, identity_kept_decided: 1 });
+      expect(keyOf(reread.fields)).toBe(decided.dedupKey);
     });
 
     it('prefers the open twin over an older done card', async () => {
@@ -288,15 +310,19 @@ describe('keeping a card\'s identity when its own document is read again', () =>
       expect(keyOf(reread.fields)).toBe(open.dedupKey);
     });
 
-    it('takes the lowest run id when two open cards match', async () => {
-      const first = await fileCard({ fields: { title: 'Parents Book Circle', startDate: '2026-10-12', venueName: 'Ashby Library' } });
-      await fileCard({ fields: { title: 'Parents Book Circle', startDate: '2026-10-12', venueName: 'Ashby Library [and online]' } });
+    it.each([
+      ['open', 'pending'],
+      ['done', 'done'],
+    ])('leaves the record alone when two %s cards with different keys match', async (_label, status) => {
+      await fileCard({ status, fields: { title: 'Parents Book Circle', startDate: '2026-10-12', venueName: 'Ashby Library' } });
+      await fileCard({ status, fields: { title: 'Parents Book Circle', startDate: '2026-10-12', venueName: 'Mill Creek Library' } });
       const reread = record({ title: 'Parents Book Circle', startDate: '2026-10-12', venueName: 'Ashby Library (hybrid)' });
 
       const counts = keepIdentity({ config: configWith(), records: [reread], stored: await storedFor() });
 
-      expect(counts).toEqual({ identity_kept: 1, identity_kept_ambiguous: 1 });
-      expect(keyOf(reread.fields)).toBe(first.dedupKey);
+      expect(counts).toEqual({ identity_ambiguous: 1 });
+      expect(reread.fields.venueName).toBe('Ashby Library (hybrid)');
+      expect(reread.issues).toEqual([]);
     });
 
     it('never anchors on an approved, executing or undone card', async () => {
@@ -378,6 +404,7 @@ describe('keeping a card\'s identity when its own document is read again', () =>
     it('reads nothing and changes nothing without the knob', async () => {
       await fileCard({ fields: { title: 'Open Mic Night', startDate: '2026-11-12', venueName: 'Ashby Library' } });
       const select = vi.spyOn(db, 'select');
+      onTestFinished(() => select.mockRestore());
       const config = configWith({ keepIdentityOnReread: undefined });
       const reread = record({ title: 'Open Mic Night', startDate: '2026-11-12', venueName: 'Ashby Library [and online]' });
 
@@ -388,8 +415,6 @@ describe('keeping a card\'s identity when its own document is read again', () =>
       expect(select).not.toHaveBeenCalled();
       expect(keepIdentity({ config, records: [reread], stored })).toEqual({});
       expect(reread.fields.venueName).toBe('Ashby Library [and online]');
-
-      select.mockRestore();
     });
   });
 });
