@@ -703,6 +703,73 @@ Because the workflow id is the run group, a retried activity finds the rows it
 already created. A worker dying halfway through does not put a second point on
 your trend line for work that happened once.
 
+### More than one box: choose which ones run it
+
+A deployment with a dev box and a production box usually applies the same
+workspace to both, so both schedule `nightly-evals` and both run the whole
+suite. If the two boxes share one AWS account, they also share its Bedrock
+quotas. There are two kinds, and a second box hurts each one differently:
+
+- **Rate: tokens per minute (TPM) and requests per minute (RPM).** These are
+  set per model, per region, for the account. Boxes that fire at the same
+  minute add together. Each dataset runs eight cases at once, and every agent
+  turn re-sends the page it fetched, so two boxes running the suite on the
+  same cron can reach TPM when one box alone would not. When that happens,
+  calls fail with a `ThrottlingException` until the minute rolls over.
+  Staggering the two crons fixes this.
+- **Total: tokens per day (TPD).** This limit covers every model in the
+  account. Staggering does not help here, because a second run spends the
+  same tokens whenever it runs. One eval run has already used up an account's
+  daily quota in an afternoon (`ThrottlingException: Too many tokens per
+  day`), and that stopped the day's scheduled agent work. Running the suite on
+  one box is the only thing that halves this cost.
+
+Bedrock counts a Claude call against both kinds before it answers. It takes
+the input tokens plus the call's `max_tokens` up front, then settles to input
+plus five times the output tokens for Claude 4.7 and older. Later Claude
+models count output at 10x or 15x. See AWS's [How tokens are counted in Amazon
+Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/quotas-token-burndown.html).
+Prompt-cache reads are not counted. To see an account's per-model rate limits:
+
+```bash
+aws service-quotas list-service-quotas --service-code bedrock \
+  --query "Quotas[?contains(QuotaName,'<model name>')].[QuotaName,Value]" --output text
+```
+
+The daily limit may not appear in that list. You find it when a call is refused.
+
+Core has no per-box setting for this. It does not need one: workspace files
+resolve `{{env.NAME}}` tokens before they are parsed, so an automation's
+`status` can come from the box's environment:
+
+```yaml
+# automations/nightly-evals.yaml
+slug: nightly-evals
+status: '{{env.NIGHTLY_EVALS_STATUS}}'
+when: {schedule: '0 4 * * *'}
+do: {job: refresh-evals}
+```
+
+Then set this on each box, for both the app and the Temporal worker:
+
+```bash
+WORKSPACE_TEMPLATE_VARS=NIGHTLY_EVALS_STATUS   # append to the list if one exists
+NIGHTLY_EVALS_STATUS=active                    # or disabled
+```
+
+- `active` schedules the suite on that box. `disabled` applies the automation
+  without a schedule. The refresh button still works on that box either way.
+- To run on every box, set `active` everywhere. Changing your mind later is an
+  env change and a re-apply, with no YAML edit.
+- If the variable is unset or empty on a box, `workspace:apply` fails there and
+  names it. Any value other than `active` or `disabled` fails schema
+  validation. Neither case quietly picks a default for you.
+- Pick the hour away from the day's other scheduled agent work, so the two
+  never compete for the same minute's TPM. If more than one box runs the
+  suite, stagger them by putting the schedule behind a token the same way:
+  `schedule: '{{env.NIGHTLY_EVALS_CRON}}'`. That fixes the rate limit. The
+  daily total still doubles.
+
 ## Reading the result honestly
 
 Three things the UI does on purpose:
