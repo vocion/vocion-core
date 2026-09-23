@@ -356,6 +356,54 @@ describe('one flat template, every object type', () => {
     expect(regenerateAction.mock.calls[0]![0]).toMatchObject({ id: 501, feedback: 'Soften the ask.', contentId: 'send-2' });
   });
 
+  it('says when the last regenerate did not land, and why, instead of quietly showing the old copy', async () => {
+    await render(<ReviewSurface run={enrollment(3, { regenerateError: 'NOTHING WAS SAVED. body of send 3: em dash.' })} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('regenerate-failed-banner')).toBeVisible();
+    await expect.element(page.getByTestId('regenerate-failed-banner')).toHaveTextContent('The last regenerate did not land');
+    await expect.element(page.getByTestId('regenerate-failed-banner')).toHaveTextContent('body of send 3: em dash.');
+  });
+
+  it('shows the outcome under the ask in a send\'s history when the regenerate failed', async () => {
+    await render(
+      <ReviewSurface
+        run={enrollment(3, { revisions: [
+          { contentId: 'send-2', step: 2, version: 1, body: 'Body of send 2.', kind: 'proposed', at: '2026-09-22T10:00:00.000Z' },
+          { contentId: 'send-2', step: 2, version: 1, body: 'Body of send 2.', ask: 'take the dashes out', kind: 'failed', failure: 'body of send 3: em dash.', at: '2026-09-22T10:05:00.000Z' },
+        ] })}
+        crumbs={CRUMBS}
+      />,
+    );
+
+    await page.getByTestId('tab-item-send-2').click();
+
+    await expect.element(page.getByTestId('history-send-2')).toHaveTextContent('did not land');
+    await expect.element(page.getByTestId('history-failure-send-2')).toHaveTextContent('body of send 3: em dash.');
+  });
+
+  it('offers Regenerate all under the strip, keyed to no send, and only when there is more than one', async () => {
+    regenerateAction.mockClear();
+    await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
+
+    // Not on the bar, which keeps one Regenerate from meaning whichever item its author had in mind.
+    expect(page.getByTestId('sticky-action-bar').element().textContent).not.toContain('Regenerate');
+
+    await page.getByRole('textbox', { name: 'Instruction for regenerating all sends' }).fill('Replace every dash with a comma.');
+    await page.getByTestId('regenerate-all').click();
+
+    await vi.waitFor(() => expect(regenerateAction).toHaveBeenCalled());
+
+    expect(regenerateAction.mock.calls[0]![0]).toEqual({ id: 501, feedback: 'Replace every dash with a comma.' });
+  });
+
+  it('draws no Regenerate all on a card with one send: the send\'s own Regenerate is the whole card', async () => {
+    await render(<ReviewSurface run={enrollment(1)} crumbs={CRUMBS} />);
+
+    await expect.element(page.getByTestId('regenerate-send-1')).toBeVisible();
+
+    expect(page.getByTestId('regenerate-all-open').query()).toBeNull();
+  });
+
   it('keeps the copy and the instruction box on screen together', async () => {
     await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
 

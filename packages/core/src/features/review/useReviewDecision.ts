@@ -52,6 +52,14 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
   // row (a reload mid-regeneration shows the same disabled surface) and kept
   // current by the status poll below. `since` is an ISO string throughout.
   const [regen, setRegen] = useState<{ since: string; note: string | null } | null>(null);
+  /**
+   * Why the last regeneration did not land, as the server recorded it. Seeded
+   * from the run and refreshed by the poll that watches the stamp, so the
+   * moment a failed pass clears the stamp the reason arrives with it. Before
+   * this the card simply re-enabled with the old copy and said nothing
+   * (ticket 069).
+   */
+  const [regenError, setRegenError] = useState<string | null>(run.regenerateError ?? null);
   // The last execution failure: seeded from a `failed` run and set live when
   // an approve's execution comes back failed. The surface stays decidable
   // with the error on it; Approve becomes Retry.
@@ -80,6 +88,15 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
     setRegen(runStamp ? { since: runStamp, note: run.regenerateNote ?? null } : null);
   }, [run.id, runStamp]);
+  // Its own effect, on purpose: the failure arriving on a refetched run must
+  // not reset the in-flight state above. The banner stays until the poll
+  // sees the stamp gone, as it always did, and the failure notice takes its
+  // place then; folding both into one effect made a fast failure snatch the
+  // banner away before it had been seen.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setRegenError(run.regenerateError ?? null);
+  }, [run.id, run.regenerateError]);
 
   // While a regeneration is in flight, poll the run every 5s (and on window
   // focus): the stamp clearing is the completion edge — the surface refetches
@@ -97,6 +114,7 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
         }
         if (s.regeneratingSince == null) {
           setRegen(null);
+          setRegenError((s as { regenerateError?: string | null }).regenerateError ?? null);
           setNote('');
           onRegenerated?.();
         } else {
@@ -192,6 +210,7 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
       const feedback = (instruction ?? note).trim();
       await withMinimumPending(client.review.regenerateAction({ id: run.id, feedback, ...(contentId ? { contentId } : {}) }));
       setRegen({ since: new Date().toISOString(), note: feedback });
+      setRegenError(null);
       onDecided?.('regenerate');
     } finally {
       setBusy(false);
@@ -274,6 +293,7 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     regenerating,
     regenStale,
     regen,
+    regenError,
     execError,
     contentEdits,
     editContent,

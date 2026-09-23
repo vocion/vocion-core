@@ -142,6 +142,61 @@ export async function recordPreRegenerationCopy(opts: {
  * @param opts.by - Who approved it.
  * @returns The hash the check is drawn against.
  */
+/**
+ * The outcome of a regeneration that did not land, filed under the ask it was
+ * answering so the history reads "asked X, then: it failed because Y" instead
+ * of an ask with nothing after it. The body is the copy that stayed on the
+ * card. Best effort, like the pre-regeneration record: a failure must never
+ * fail on its audit trail.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.contentId - The send the instruction was about, if one was named.
+ * @param opts.ask - The reviewer's instruction.
+ * @param opts.failure - What went wrong, in the words the reviewer will read.
+ * @param opts.by
+ */
+export async function recordRegenerationFailure(opts: {
+  orgId: string;
+  runId: number;
+  contentId?: string;
+  ask: string;
+  failure: string;
+  by?: string;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ revisions: actionRunSchema.revisions })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
+      .limit(1)
+      .for('update');
+    if (!row) {
+      return;
+    }
+    const existing = (row.revisions ?? []) as ActionRevision[];
+    const prior = revisionsFor(existing, opts.contentId);
+    const last = prior[prior.length - 1];
+    const step = stepOf(opts.contentId);
+    await tx
+      .update(actionRunSchema)
+      .set({
+        revisions: [...existing, {
+          ...(opts.contentId ? { contentId: opts.contentId } : {}),
+          ...(step !== undefined ? { step } : {}),
+          version: last?.version ?? 1,
+          body: last?.body ?? '',
+          ask: opts.ask,
+          failure: opts.failure,
+          at: new Date().toISOString(),
+          ...(opts.by ? { by: opts.by } : {}),
+          kind: 'failed' as const,
+        }],
+      })
+      .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)));
+  });
+}
+
 export async function recordApprovedContent(opts: {
   orgId: string;
   runId: number;

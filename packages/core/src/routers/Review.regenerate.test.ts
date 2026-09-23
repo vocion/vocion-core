@@ -282,6 +282,39 @@ describe('regenerateAction route', () => {
 
     expect(stamp.regeneratingSince).toBeNull();
   });
+
+  it('puts the failure ON the run and under the ask in the history, so the card can say what happened', async () => {
+    const regenerate = vi.fn(async () => {
+      throw new Error('NOTHING WAS SAVED. 1 voice-rule violation(s) in the drafted sends.');
+    });
+    vi.mocked(getAction).mockReturnValue({ regenerate } as unknown as ReturnType<typeof getAction>);
+    const runId = await makeRun();
+
+    await call(regenerateActionRoute, { id: runId, feedback: 'take the dashes out', contentId: 'send-2' });
+    await drainAfter();
+
+    const { eq } = await import('drizzle-orm');
+    const [row] = await db
+      .select({ regenerateError: actionRunSchema.regenerateError, revisions: actionRunSchema.revisions })
+      .from(actionRunSchema)
+      .where(eq(actionRunSchema.id, runId))
+      .limit(1);
+
+    expect(row!.regenerateError).toBe('NOTHING WAS SAVED. 1 voice-rule violation(s) in the drafted sends.');
+    expect(row!.revisions).toEqual([expect.objectContaining({ kind: 'failed', contentId: 'send-2', step: 2, ask: 'take the dashes out', failure: 'NOTHING WAS SAVED. 1 voice-rule violation(s) in the drafted sends.', by: 'usr-1' })]);
+  });
+
+  it('clears the last failure when a new regeneration starts, so a stale reason never outlives its retry', async () => {
+    vi.mocked(getAction).mockReturnValue({ regenerate: vi.fn(async () => {}) } as unknown as ReturnType<typeof getAction>);
+    const runId = await makeRun({ regenerateError: 'an earlier refusal' });
+
+    await call(regenerateActionRoute, { id: runId, feedback: 'again' });
+
+    const { eq } = await import('drizzle-orm');
+    const [row] = await db.select({ regenerateError: actionRunSchema.regenerateError }).from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
+
+    expect(row!.regenerateError).toBeNull();
+  });
 });
 
 describe('decideAction route: the regenerating guard', () => {
