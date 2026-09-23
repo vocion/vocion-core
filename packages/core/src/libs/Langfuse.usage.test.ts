@@ -204,3 +204,13 @@ describe('onTurnEnd says whether the turn goes on', () => {
     expect(reported).toMatchObject({ askedForTools: false });
   });
 });
+
+describe('a callback that charges usage', () => {
+  // LangChain runs callbacks on a background queue unless told to wait; the
+  // charge and budget re-check must finish before the next model call starts.
+  it('is waited on before the turn moves on', () => {
+    const { handler } = createLangfuseCallback({ feature: 'agent.chat', slug: 'usage-test', orgId: 'org_usage_test', userId: 'user_usage_test', onTurnEnd: () => {} });
+
+    expect(handler.awaitHandlers).toBe(true);
+  });
+});

@@ -404,6 +404,11 @@ export function createLangfuseCallback(
 
   class Adapter extends BaseCallbackHandler {
     override name = 'LangfuseAdapter';
+    // With a usage hook, LangChain has to wait for this callback before the
+    // graph moves on. By default it runs callbacks on a background queue, so a
+    // charge and the budget re-check after it (#272) could land after the next
+    // model call had already started, letting a turn run past its cap.
+    override awaitHandlers: boolean = opts.onTurnEnd !== undefined || process.env.LANGCHAIN_CALLBACKS_BACKGROUND === 'false';
 
     override async handleChatModelStart(
       llm: Serialized,
