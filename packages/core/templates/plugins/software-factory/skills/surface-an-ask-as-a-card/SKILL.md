@@ -10,7 +10,7 @@ description: >-
 # The twenty-percent test is how you tell an ask that is work from an ask that
 # is a question; written-promises is what the card becomes once approved.
 playbooks: [the-twenty-percent, written-promises]
-version: 2
+version: 3
 ---
 
 # An ask in chat becomes a card, not a paragraph
@@ -32,12 +32,29 @@ conversation with one button on it.
 ```
 recommend_action(
   action_id: "objects.propose_candidate",
-  action_input: { objectType: "request", title: <the ask, as an outcome>, … },
+  action_input: {
+    objectType: "request",
+    title: <the ask, as an outcome>,
+    dedupOn: ["title"],
+    …
+  },
   label: "File this as a request",
   rationale: <what you understood, in one sentence they can correct>,
   suggested_decision: "approve",
 )
 ```
+
+`dedupOn` is mandatory and it is the one that gets forgotten. It names the
+fields that identify the thing, so the same ask made twice refreshes one
+pending item instead of stacking a second copy. For a request out of a
+conversation the identity is the outcome, so `["title"]`. It goes at the TOP
+LEVEL of `action_input`, never inside `fields` — it is bookkeeping about the
+record, not a value on it.
+
+Leave it out and the tool refuses the call. That is not theoretical: on
+2026-09-24 a request for a feature in chat produced no card at all, twice in
+one turn, because both attempts omitted it — and this page's own example was
+where that was learned from.
 
 The card is the answer. It says what will be recorded, the person approves it
 in one tap, and the run it creates is on the record with who decided and when.
