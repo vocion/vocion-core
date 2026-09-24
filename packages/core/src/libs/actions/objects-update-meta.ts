@@ -37,6 +37,7 @@
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { doneRefusal } from './doneGate';
+import { gapRefusal } from './gapGate';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
 
 const UPDATE_ACTION_ID = 'objects.update_meta';
@@ -224,10 +225,23 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (!row) {
       return `No ${objectType.label.toLowerCase()} #${input.id} in this workspace. Look the record up first; the id is the record's own, not a name.`;
     }
-    // A work item may not call itself done while its own contract is unmet.
-    // Refused here rather than asked for in a prompt: a worker cannot talk
-    // its way past a check it is never shown (`libs/actions/doneGate.ts`).
-    return doneRefusal((row.metadata ?? {}) as Record<string, unknown>, input.set);
+    // A work item may not call itself done while its own contract is unmet,
+    // and may not be planned until somebody has checked it is still missing
+    // from the running product. Refused here rather than asked for in a
+    // prompt: a worker cannot talk its way past a check it is never shown
+    // (`libs/actions/doneGate.ts`, `libs/actions/gapGate.ts`).
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    const done = doneRefusal(meta, input.set);
+    if (done) {
+      return done;
+    }
+    // The gap gate applies only where the workspace has MODELLED the check:
+    // this action is domain-free, and `in_scope` is not a reserved word — a
+    // type in some other workspace may use it for something that owes no
+    // check at all. A type that declares `gapCheck` is a type whose author
+    // asked for the gate; one that does not is untouched.
+    const declaresGapCheck = 'gapCheck' in ((objectType.schema?.properties ?? {}) as Record<string, unknown>);
+    return declaresGapCheck ? gapRefusal(meta, input.set) : undefined;
   },
   async reviewCard(ctx: ActionContext, input): Promise<ReviewCard> {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);

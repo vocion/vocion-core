@@ -10,7 +10,7 @@ description: >-
   the reply is itself a gated action. Read whenever a request is `new`, and
   before writing any task contract from one.
 playbooks: [the-twenty-percent, written-promises]
-version: 1
+version: 2
 ---
 
 # Triaging a request
@@ -45,6 +45,42 @@ tells the promoter the button matters.
 When it is a duplicate: set `duplicateOf`, tell the asker on their channel that
 it is known and where it stands (that reply is an answer, and it is gated like
 one), and stop.
+
+## Then check the gap is still there
+
+Dedupe asks whether another RECORD covers this. This asks whether the PRODUCT
+already does. They are different questions and both have to be answered before
+anyone plans anything, because a request describes what was true on the day it
+was asked and a product that ships most days makes that perishable.
+
+Go and look. The route, the screen, the endpoint, the file — whatever the ask
+names. Reading another request is not looking; neither is remembering.
+
+Record it in `gapCheck` as one of three findings, with `how` naming what you
+actually looked at and `checkedAt` stamped:
+
+- **`add`** — none of it exists. This is the only finding that lets work
+  start.
+- **`modify`** — part of it already ships. Narrow the request to the part that
+  does not: rename it and rewrite its story so it asks for that alone, then
+  check the narrowed ask and record the new finding. A half-true request
+  builds the wrong thing.
+- **`none`** — it all ships. Close it with an honest answer saying where it
+  landed and when, in the asker's own terms. Nobody wants it built twice.
+
+The check is good for fourteen days. A request that has sat longer than that
+is checked again before a worker is sent at it — which is what makes this part
+of a REPLAN and not only of a first plan.
+
+You will be refused at the write if you skip it: a request cannot enter
+`in_scope` or `building` without a fresh `add`. That refusal is structural
+(`libs/actions/gapGate.ts`) and it is not negotiable from inside a prompt.
+
+**This is not hypothetical.** On 2026-09-24 two of the first rows read off the
+production board had already shipped — an appearance setting that was in the
+account menu and on ⌘K, and a "send/share on the file page" request whose
+share half had landed six days earlier while only the send half was ever
+missing.
 
 ## Tag it
 

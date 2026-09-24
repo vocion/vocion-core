@@ -11,7 +11,7 @@ description: >-
   before writing any task contract, because the worker refuses a contract that
   needed a plan and carries none, before the repository is cloned.
 playbooks: [the-twenty-percent, written-promises, naming-the-work, designing-a-surface]
-version: 1
+version: 2
 ---
 
 # Writing an architecture plan
@@ -61,6 +61,22 @@ the approach is the change" is a reason; "small" is not.
 A plan is **not required** for `docs`, `marketing`, `deps`, and single-surface
 `ui` or `logic` changes. Do not write one. A plan on work that did not need one
 costs a person's attention, which is the scarcest thing the factory spends.
+
+## Before the plan: is the gap still there
+
+A plan is a commitment of somebody's time, so it begins where triage did —
+with the product, not the record. If `gapCheck` is missing, or older than
+fourteen days, or says anything but `add`, there is no plan to write yet: go
+and look at the running product, record the finding (`add`, `modify`, `none`)
+per `triage-request`, and act on it. A `modify` narrows the request; a `none`
+closes it with an answer.
+
+This is why a REPLAN is not cheaper than a plan. The world moved — that is
+usually why you are replanning — and the most likely thing to have moved is
+whether the gap is still there.
+
+The write is refused if you skip it (`libs/actions/gapGate.ts`), so this is a
+step, not advice.
 
 ## What a plan answers
 
