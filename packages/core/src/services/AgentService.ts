@@ -1059,14 +1059,23 @@ export async function runAgentDeep(opts: {
         [new SystemMessage(sys), new HumanMessage(finalText)],
         { signal: AbortSignal.timeout(45_000) },
       );
+      let emitted = 0;
       for (const call of res.tool_calls ?? []) {
         if (call.name === 'recommend_action') {
           await recTool.invoke(call.args as never);
+          emitted += 1;
         }
       }
-    } catch {
+      // Say what happened: a silent backstop cannot be told from one that
+      // never ran (2026-09-24: eight production turns, zero cards, no way to
+      // know which). One line per pass, in the app log.
+      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length, emitted, textChars: finalText.length });
+    } catch (err) {
       /* backstop is best-effort — never fails the turn */
+      console.warn('card backstop failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
     }
+  } else if (emittedCards.length === 0 && finalText.length > 300) {
+    console.warn('card backstop skipped', { orgId: opts.orgId, agentSlug: opts.agentSlug, backstopOn, textChars: finalText.length });
   }
 
   // End-of-turn guarantees (structural): a failed hand-off is stated in the
