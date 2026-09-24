@@ -787,9 +787,8 @@ function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked
   if (counts.queued > 0 && counts.ranked === 0) {
     parts.push(`nothing ranked, no reason recorded on ${counts.queued}`);
   }
-  if (counts.noVisual > 0) {
-    parts.push(`${counts.noVisual} without a visual`);
-  }
+  // "N without a visual" was a complaint in the heading; the gap is on each
+  // row's own badge where it can be acted on (Chris, 2026-09-24).
   if (hidden > 0) {
     parts.push(`${hidden} more queued`);
   }

@@ -328,7 +328,7 @@ describe('what a row cannot show', () => {
     expect(visualGap(row(14, 'n', { surface: 'ui', state: 'building' }), 'progress')).toBeNull();
   });
 
-  it('counts the gap once on the lane, the way it counts an unranked queue', () => {
+  it('names the gap on the row that has it, never as a complaint in the lane heading', () => {
     const rows = [
       row(20, 'needs a mock', { surface: 'ui', state: 'new' }),
       row(21, 'has one', { surface: 'ui', state: 'new', visuals: { beforeArtifactIds: [1] } }),
@@ -336,7 +336,7 @@ describe('what a row cannot show', () => {
     ];
     const out = deriveWorkQueue(rows, { now: NOW });
 
-    expect(out[0]!.meta.laneNote).toContain('1 without a visual');
+    expect(out[0]!.meta.laneNote ?? '').not.toContain('without a visual');
     expect(out.map(r => r.meta.visualGap)).toContain('no mock');
   });
 });
