@@ -66,26 +66,27 @@ function ConstantLine({ constants }: { constants: TableLayout['constants'] }) {
  * @param root0.field - The field holding the image URL.
  * @param root0.now - The instant a `relative` value is measured against.
  */
-function Thumb({ row, field, now }: { row: PageRow; field: PageField; now: number }) {
-  // On a phone the picture sits ABOVE the words at the card's full width;
-  // beside them from a medium container up. An empty frame beside the title
-  // is honest on a desktop and a third of the row on a phone (Chris,
-  // 2026-09-24: the card overflowed the screen), so a narrow card draws the
-  // frame only when there is a picture to put in it.
-  if (field.format === 'icon') {
-    // A mark, not a picture: a small tile beside the title at every width.
-    return (
-      <span className="block size-12 shrink-0 overflow-hidden rounded-lg border border-border">
-        <FieldValue row={row} field={field} now={now} />
-      </span>
-    );
-  }
-  if (fieldIsEmptyOn(row, field, now)) {
-    return <span aria-hidden className="hidden h-20 w-32 shrink-0 rounded border border-dashed border-border @md:block" />;
+/**
+ * The picture, or the mark in its place — a full-height strip on the card's
+ * LEFT EDGE at every width (Chris, 2026-09-24: "the thumbnail should be full
+ * height and left edge of the card"). A picture fills the strip; a named
+ * icon (`thumbFallback`) sits centred in it; a row with neither draws no
+ * strip at all — never an empty frame.
+ * @param root0 - Props.
+ * @param root0.row - The row.
+ * @param root0.field - The picture field.
+ * @param root0.fallback - The icon field drawn when the picture is missing.
+ * @param root0.now - The instant a `relative` value is measured against.
+ */
+function Thumb({ row, field, fallback, now }: { row: PageRow; field: PageField | null; fallback: PageField | null; now: number }) {
+  const picture = field && field.format !== 'icon' && !fieldIsEmptyOn(row, field, now) ? field : null;
+  const mark = picture ? null : (field?.format === 'icon' && !fieldIsEmptyOn(row, field, now) ? field : fallback && !fieldIsEmptyOn(row, fallback, now) ? fallback : null);
+  if (!picture && !mark) {
+    return null;
   }
   return (
-    <span className="block aspect-[8/5] w-full overflow-hidden rounded border border-border @md:h-20 @md:w-32 @md:shrink-0">
-      <FieldValue row={row} field={field} now={now} />
+    <span className="flex w-20 shrink-0 self-stretch overflow-hidden border-r border-border bg-muted @md:w-28" data-testid={picture ? 'block-thumb' : 'block-mark'}>
+      <FieldValue row={row} field={picture ?? mark!} now={now} />
     </span>
   );
 }
@@ -188,15 +189,15 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   // column nobody can scan. `shrink-0` because the drawing has one size —
   // it is 128 by 80 and letting the grid squeeze it would distort the one
   // thing on the card that is meant to be read as a shape.
-  const inner = layout.thumb === null
-    ? body
+  const inner = layout.thumb === null && layout.thumbFallback === null
+    ? <div className="p-4">{body}</div>
     : (
-        <div className={layout.thumb.format === 'icon' ? 'flex items-start gap-3' : 'flex flex-col gap-3 @md:flex-row @md:items-start'}>
-          <Thumb row={row} field={layout.thumb} now={now} />
-          <div className={`min-w-0 flex-1 ${menuItems.length > 0 ? 'pr-8' : ''}`}>{body}</div>
+        <div className="flex items-stretch">
+          <Thumb row={row} field={layout.thumb} fallback={layout.thumbFallback} now={now} />
+          <div className={`min-w-0 flex-1 p-4 ${menuItems.length > 0 ? 'pr-8' : ''}`}>{body}</div>
         </div>
       );
-  const className = 'block min-w-0 overflow-hidden rounded-lg border border-border bg-background p-4 text-left';
+  const className = 'block min-w-0 overflow-hidden rounded-lg border border-border bg-background text-left';
   const card = href
     ? <a href={href} className={`${className} transition-colors hover:bg-muted/40`}>{inner}</a>
     : <div className={className}>{inner}</div>;

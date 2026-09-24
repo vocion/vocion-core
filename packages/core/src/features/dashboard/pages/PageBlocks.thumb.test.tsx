@@ -26,11 +26,12 @@ function field(over: Partial<PageField> & Pick<PageField, 'key'>): PageField {
 const FIELDS: PageField[] = [
   field({ key: 'title', label: 'Outcome' }),
   field({ key: 'visual', label: 'Preview', from: 'meta.visual', format: 'image' }),
+  field({ key: 'kindIcon', label: 'Kind', from: 'meta.kindIcon', format: 'icon' }),
   field({ key: 'status', label: 'Status', from: 'meta.state', format: 'badge' }),
   field({ key: 'why', label: 'Why', from: 'meta.whyLine' }),
 ];
 
-const PRIMARY = { field: 'title', thumb: 'visual', subtitle: ['status', 'why'] };
+const PRIMARY = { field: 'title', thumb: 'visual', thumbFallback: 'kindIcon', subtitle: ['status', 'why'] };
 
 const DRAWN: PageRow = {
   id: 1,
@@ -45,7 +46,7 @@ const UNDRAWN: PageRow = {
   title: 'An admin cannot set somebody up before they sign up',
   status: null,
   createdAt: null,
-  meta: { state: 'Not triaged', whyLine: 'it removes manual toil' },
+  meta: { state: 'Not triaged', whyLine: 'it removes manual toil', kindIcon: 'puzzle' },
 };
 
 async function board(rows: PageRow[], primary: typeof PRIMARY | { field: string; subtitle: string[] } = PRIMARY) {
@@ -115,12 +116,13 @@ describe('the picture on a Work card', () => {
     expect(document.body.textContent).toContain('it removes manual toil');
   });
 
-  it('starts every card\'s words at the same edge, drawn or not', async () => {
-    // The one place this page keeps a slot nothing can fill: it is a GRID,
-    // and a hole costs less to look at than a ragged left edge costs to read.
+  it('starts every card\'s words at the same edge, drawn or not — a mark stands in for the picture, never an empty frame', async () => {
     await board([DRAWN, UNDRAWN]);
 
     expect(titleInset(DRAWN.title)).toBe(titleInset(UNDRAWN.title));
+    expect(document.querySelectorAll('[data-testid="block-thumb"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-testid="block-mark"]')).toHaveLength(1);
+    expect(document.querySelector('.border-dashed')).toBeNull();
   });
 
   it('reads as an ordinary labelled fact on a page that declared no thumb', async () => {

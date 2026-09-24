@@ -47,6 +47,16 @@ export type WorkspaceSwitcherProps = {
   collapsed?: boolean;
 };
 
+/**
+ * Radix's open-autofocus handler: let it focus on a pointer device, refuse on touch.
+ * @param e
+ */
+function keepKeyboardDownOnTouch(e: Event): void {
+  if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+    e.preventDefault();
+  }
+}
+
 export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const t = useTranslations('DashboardLayout');
   const pathname = usePathname();
@@ -132,7 +142,10 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       {trigger}
-      <PopoverContent align="start" side={props.collapsed ? 'right' : 'top'} className="w-72 p-0">
+      {/* On a touch device the popover must not hand focus to the search box:
+          that raises the keyboard over the list a person opened to TAP
+          (Chris, 2026-09-24). A pointer keeps keyboard-first. */}
+      <PopoverContent align="start" side={props.collapsed ? 'right' : 'top'} className="w-72 p-0" onOpenAutoFocus={keepKeyboardDownOnTouch}>
         <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
           <Search className="size-4 shrink-0 text-muted-foreground/60" aria-hidden />
           <input

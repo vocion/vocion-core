@@ -568,6 +568,13 @@ export const PageManifestSchema = z.object({
      * knows which one leads.
      */
     thumb: z.string().optional(),
+    /**
+     * The field drawn in the picture's place when the row has no picture — a
+     * named icon (`format: icon`), so every card has a mark at its left edge
+     * and none has an empty frame (Chris, 2026-09-24: "there is still no
+     * icon for almost every work item").
+     */
+    thumbFallback: z.string().optional(),
   }).optional(),
   /**
    * How a `list` page draws a row. `table` is the grid of columns. `block`
@@ -1494,6 +1501,8 @@ export type TableLayout = {
   subtitle: PageField[];
   /** The picture that leads the block, when the page declared one. */
   thumb: PageField | null;
+  /** Drawn where the thumb would be when the row has no picture. */
+  thumbFallback: PageField | null;
   /** The remaining columns, in declaration order. */
   columns: PageField[];
   /** Columns collapsed into the line above the table. */
@@ -1519,7 +1528,8 @@ export function tableLayout(rows: PageRow[], fields: PageField[], primary?: Page
   const lead = primary ? byKey(primary.field) : null;
   const sub = (primary?.subtitle ?? []).map(byKey).filter((f): f is PageField => f !== null && !f.detail);
   const thumb = primary?.thumb ? byKey(primary.thumb) : null;
-  const spoken = new Set([lead?.key, thumb?.key, ...sub.map(f => f.key)].filter(Boolean) as string[]);
+  const thumbFallback = primary?.thumbFallback ? byKey(primary.thumbFallback) : null;
+  const spoken = new Set([lead?.key, thumb?.key, thumbFallback?.key, ...sub.map(f => f.key)].filter(Boolean) as string[]);
   // A `detail` field is evidence the page deliberately kept out of the row,
   // so it never competes for width with the columns; it reads inside the
   // row's own disclosure instead.
@@ -1542,6 +1552,7 @@ export function tableLayout(rows: PageRow[], fields: PageField[], primary?: Page
     // at different left edges is harder to read than one with a hole in it —
     // the opposite of the usual rule, and only because this is a grid.
     thumb,
+    thumbFallback,
     subtitle: sub.filter(f => !gone.has(f.key)),
     columns: rest.filter(f => !gone.has(f.key)),
     constants,

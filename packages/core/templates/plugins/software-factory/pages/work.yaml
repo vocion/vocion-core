@@ -93,8 +93,12 @@ primary:
   # changes yet" and is the only card on the board that reports a missing
   # fact by being empty rather than by printing a complaint.
   thumb: visual
+  # No picture yet? The card still wears a mark — what kind of thing it is —
+  # at its left edge. Never an empty frame.
+  thumbFallback: kindIcon
 fields:
   - {key: title, label: Outcome}
+  - {key: kindIcon, label: Kind, from: meta.kindIcon, format: icon}
   # An artifact id, resolved to its served url by the page layer. The record
   # names the artifact; a url copied onto the record would be a second copy of
   # a fact that can quietly disagree with the first.

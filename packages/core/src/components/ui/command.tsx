@@ -30,7 +30,17 @@ function CommandDialog({
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
-      <DialogContent className={cn('top-[18%] translate-y-0 overflow-hidden p-0 sm:max-w-xl', className)} showCloseButton={false}>
+      {/* A touch device opens the palette to tap a result; focusing the input
+          would raise the keyboard over the list. A pointer keeps typing-first. */}
+      <DialogContent
+        className={cn('top-[18%] translate-y-0 overflow-hidden p-0 sm:max-w-xl', className)}
+        showCloseButton={false}
+        onOpenAutoFocus={(e) => {
+          if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+            e.preventDefault();
+          }
+        }}
+      >
         <Command {...commandProps} className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[12px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-1.5 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:size-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:size-4">
           {children}
         </Command>
