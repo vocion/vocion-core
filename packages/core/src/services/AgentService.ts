@@ -1,3 +1,4 @@
+import type { AnswerComposer } from './agents/answerBackstop';
 import type { TurnFailure } from './agents/deliverableBackstop';
 import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
@@ -16,6 +17,7 @@ import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostMicroCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
+import { composeAnswerWithModel, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
@@ -189,6 +191,8 @@ export type TurnGuaranteeInput = {
   emit: (event: AgentEvent) => void;
   /** Injected in tests; the harness passes the real gated pass. */
   compose?: Parameters<typeof runDeliverableBackstop>[0]['compose'];
+  /** The answer pass for a stalled turn; injected in tests. */
+  answer?: AnswerComposer;
 };
 
 /**
@@ -215,6 +219,25 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
     text = `${text}${delta}`;
     input.emit({ type: 'response_delta', delta });
   };
+
+  // A TURN THAT WORKED AND DID NOT ANSWER IS ANSWERED HERE — before anything
+  // else is appended, so what follows reads under an answer and not under a
+  // preamble (services/agents/answerBackstop.ts).
+  try {
+    const answered = await runAnswerBackstop({
+      orgId: input.orgId,
+      request: input.request,
+      finalText: text,
+      toolCalls: input.toolCalls,
+      systemPrompt: input.systemPrompt,
+      compose: input.answer ?? composeAnswerWithModel,
+    });
+    if (answered) {
+      append(answered);
+    }
+  } catch (err) {
+    console.warn(`answer backstop failed for org ${input.orgId} agent ${input.agentSlug}: ${(err as Error).message}`);
+  }
 
   const notice = delegationFailureNotice(input.failedDelegations, text);
   if (notice) {
