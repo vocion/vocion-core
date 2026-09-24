@@ -89,6 +89,31 @@ schema:
         urls: {type: array, items: {type: string}}
         videoUrl: {type: string}
         screenshotArtifactIds: {type: array, items: {type: integer}, description: 'Screenshots as core artifacts — versioned, previewable, one tap from the request.'}
+    gapCheck:
+      x-display: {label: Is the gap still there, role: prose, group: Triage, order: 4}
+      type: object
+      description: >-
+        Whether the thing being asked for is STILL missing from the running
+        product, read at the moment work was about to start rather than when
+        the ask arrived. A request records what was true the day somebody
+        asked; a product that ships most days makes that a perishable claim.
+        Required before a request may enter `in_scope` or `building`, refused
+        in code rather than asked for in a prompt
+        (`libs/actions/gapGate.ts`), and good for fourteen days — so a replan
+        re-reads it rather than trusting a month-old look.
+      properties:
+        finding:
+          type: string
+          description: >-
+            `add` — none of it exists; plan it. `modify` — part of it already
+            ships, so narrow the request to the part that does not and check
+            that. `none` — it all ships; close it with an honest answer
+            saying where it landed and when. Only `add` lets work start.
+          enum: [add, modify, none]
+        how:
+          type: string
+          description: What was actually looked at — the route, the screen, the endpoint, the file — so the next reader can repeat the check in one move rather than trusting it.
+        checkedAt: {type: string, format: date-time}
     surface:
       x-display: {label: Surface, format: badge, group: Triage, tones: {ui: info, flow: info, data: muted, infra: muted, none: muted}}
       type: string
