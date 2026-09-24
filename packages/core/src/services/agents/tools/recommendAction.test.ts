@@ -75,20 +75,19 @@ describe('recommend_action', () => {
     });
   });
 
-  it('refuses a recommendation that states no verdict, rather than letting core pick one', async () => {
+  it('a card is never lost to a missing sentence: no verdict means approve, no reason means the rationale', async () => {
+    // Reversed on 2026-09-24: a decline case in the reference run died on a
+    // missing `suggested_decision_reason`. The agent's own view still lands
+    // on the card when given; when it is not, the card still exists.
     const events: AgentEvent[] = [];
     const tool = recommendActionTool(ctxWithSink(events)) as unknown as Invokable;
 
-    await expect(tool.invoke({ ...baseArgs, suggested_decision_reason: 'It is time.' })).rejects.toThrow(/suggested_decision/);
-    expect(events).toHaveLength(0);
-  });
+    await tool.invoke({ ...baseArgs, suggested_decision_reason: 'It is time.' });
+    await tool.invoke({ ...baseArgs, suggested_decision: 'approve' });
 
-  it('refuses a verdict with no sentence a reviewer could check', async () => {
-    const events: AgentEvent[] = [];
-    const tool = recommendActionTool(ctxWithSink(events)) as unknown as Invokable;
-
-    await expect(tool.invoke({ ...baseArgs, suggested_decision: 'approve' })).rejects.toThrow(/suggested_decision_reason/);
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(2);
+    expect((events[0] as { recommendation: { suggestedDecision?: string } }).recommendation.suggestedDecision).toBe('approve');
+    expect((events[1] as { recommendation: { suggestedDecisionReason?: string } }).recommendation.suggestedDecisionReason).toBe(baseArgs.rationale);
   });
 
   it('refuses a verdict outside the three the queue understands', async () => {
