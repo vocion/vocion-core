@@ -1,0 +1,55 @@
+packages/core/src/interfaces/mcp/tools/chat-tools.test.ts
+  s_b6e5b648af90e7::t_452a0cce54d054 41
+packages/core/src/interfaces/mcp/http.ts
+  s_b6e5b648af90e7::t_c6491535ba9a99 36-49,61-64
+packages/core/src/interfaces/mcp/tools/agent-tools.test.ts
+  s_b6e5b648af90e7::t_452a0cce54d054 30
+packages/core/src/interfaces/mcp/tools/workflow-tools.test.ts
+  s_b6e5b648af90e7::t_452a0cce54d054 55
+packages/core/src/libs/Auth.ts
+  s_b6e5b648af90e7::t_c929234f2f9208 4
+  s_b6e5b648af90e7::t_0b72577a50a8df 216-220,225
+packages/core/src/services/ProjectService.ts
+  s_b6e5b648af90e7::t_c929234f2f9208 11,137-139,144
+packages/core/src/interfaces/mcp/server.test.ts
+  s_b6e5b648af90e7::t_452a0cce54d054 45
+packages/core/src/libs/tools/artifacts/serve.audience.test.ts
+  s_b6e5b648af90e7::t_e3f27cc720b1ef 1-80
+packages/core/src/interfaces/mcp/tools/workspace-tools.diskWorkspace.test.ts
+  s_b6e5b648af90e7::t_52c0d0d4f917f1 1-75
+packages/core/src/interfaces/mcp/tools/playbook-tools.test.ts
+  s_b6e5b648af90e7::t_452a0cce54d054 52
+packages/core/src/interfaces/mcp/tools/workspace-tools.ts
+  s_b6e5b648af90e7::t_4c924220961920 40-64,66
+packages/core/src/interfaces/mcp/config.ts
+  s_b6e5b648af90e7::t_e4fe45dc9db0d1 43-45
+  s_b6e5b648af90e7::t_e772be1ea64cc5 11-20
+packages/core/src/app/api/artifacts/[id]/_serve.ts
+  s_b6e5b648af90e7::t_7a30da9fea5049 62-64,67,70,73
+  s_b6e5b648af90e7::t_d4571b642b9dc3 32-34,45,48-58
+packages/core/src/services/ArtifactService.ts
+  s_b6e5b648af90e7::t_a9d4197c1d10d2 435-447,451
+  s_b6e5b648af90e7::t_0e26d487d0dbd9 24
+packages/core/src/libs/activeProject.ts
+  s_b6e5b648af90e7::t_eaf0e6fc9c1fa4 17-25,30
+packages/core/src/libs/tools/artifacts/serve.ts
+  s_b6e5b648af90e7::t_1b748ea92c5df1 12-14,16-21,24,29,33
+  s_b6e5b648af90e7::t_703d83e7f240f9 63-69,80-85
+  s_b6e5b648af90e7::t_fa08bf69db1dd5 86-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4ab08bba7954dc7a2c65f9c9a2090e96c30818d2",
+  "prompts": {},
+  "sessions": {
+    "s_b6e5b648af90e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08434c34-abe2-4067-aa41-83078d3fd279",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
