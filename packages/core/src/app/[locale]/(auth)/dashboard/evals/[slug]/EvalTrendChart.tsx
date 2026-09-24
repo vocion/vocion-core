@@ -219,6 +219,8 @@ export function EvalTrendChart(props: {
           {series.map(line => (
             <g key={line.key}>
               <path
+                data-testid="eval-trend-line"
+                data-series={line.key}
                 d={line.points.map((point, index) =>
                   `${index === 0 ? 'M' : 'L'} ${x(Date.parse(point.startedAt))} ${y(point.passRate)}`).join(' ')}
                 fill="none"

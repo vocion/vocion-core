@@ -56,6 +56,7 @@ type SeedFixtures = {
   inStepSlug: string;
   spreadOutSlug: string;
   failingSlug: string;
+  readableSlug: string;
 };
 
 function createBootstrapAdmin(): void {
@@ -138,6 +139,44 @@ function shownText(page: Page, text: string | RegExp, options?: { exact?: boolea
 function localDay(daysBack: number): string {
   const date = new Date(Date.now() - daysBack * 86_400_000);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/*
+ * The four functions below run inside the browser through `page.evaluate` or
+ * `addInitScript`, so each is self-contained: they read the browser's own
+ * timezone, which a `timezoneId` test can set apart from this process's.
+ */
+
+/**
+ * Whether an instant is midnight on the browser's clock.
+ * @param iso - An ISO timestamp from the page's URL.
+ */
+function isLocalMidnight(iso: string): boolean {
+  const date = new Date(iso);
+  return date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0;
+}
+
+/**
+ * A day some way back as `YYYY-MM-DD`, on the browser's clock.
+ * @param daysBack - Whole days before today.
+ */
+function browserLocalDay(daysBack: number): string {
+  const date = new Date(Date.now() - daysBack * 86_400_000);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * The browser-local `YYYY-MM-DD` an instant falls on.
+ * @param iso - An ISO timestamp.
+ */
+function browserLocalDayOf(iso: string): string {
+  const date = new Date(iso);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Choose the dark theme before the page loads; next-themes reads `theme` from localStorage. */
+function storeDarkTheme(): void {
+  localStorage.setItem('theme', 'dark');
 }
 
 /**
@@ -407,5 +446,108 @@ test.describe('the eval section, with more than one grader', () => {
 
     await expect(firstCase).toHaveAttribute('open');
     await expect(firstCase.getByText('Input', { exact: true })).toBeVisible();
+  });
+
+  test('Expand all opens every case and Collapse all closes them again', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.readableSlug}`);
+    const cases = page.getByTestId('eval-case');
+
+    await expect(cases).toHaveCount(3);
+
+    await page.getByRole('button', { name: 'Expand all' }).click();
+    for (const index of [0, 1, 2]) {
+      await expect(cases.nth(index)).toHaveAttribute('open');
+    }
+
+    await page.getByRole('button', { name: 'Collapse all' }).click();
+    for (const index of [0, 1, 2]) {
+      await expect(cases.nth(index)).not.toHaveAttribute('open');
+    }
+  });
+
+  test('a dataset with one case is not offered Expand all', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.spreadOutSlug}`);
+
+    await expect(page.getByTestId('eval-case')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Expand all' })).toHaveCount(0);
+  });
+
+  test('the evaluator breakdown gives each evaluator its latest score, average, and direction', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.readableSlug}`);
+    const breakdown = page.getByTestId('evaluator-breakdown');
+
+    await expect(breakdown).not.toHaveAttribute('open');
+    await expect(breakdown).toContainText('2 evaluators');
+
+    await breakdown.locator('summary').click();
+    const judge = breakdown.getByRole('row').filter({ hasText: 'llm-judge' });
+    const tone = breakdown.getByRole('row').filter({ hasText: 'tone' });
+
+    // llm-judge went 50% then 90%; tone went 80% then 60%. Both average 70%.
+    await expect(judge).toContainText('90%');
+    await expect(judge).toContainText('70%');
+    await expect(judge).toContainText('above its average (2 runs)');
+    await expect(tone).toContainText('60%');
+    await expect(tone).toContainText('below its average (2 runs)');
+    // One grader ran every evaluator, so the Grader column would say nothing.
+    await expect(breakdown.getByRole('columnheader', { name: 'Grader' })).toHaveCount(0);
+  });
+});
+
+test.describe('the eval period, for a viewer far from UTC', () => {
+  test.use({ timezoneId: 'Pacific/Auckland' });
+
+  test('a preset starts at the viewer\'s local midnight, and the API agrees on its runs', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.spreadOutSlug}`);
+    await page.getByLabel('Period', { exact: true }).selectOption('last7');
+    await page.waitForURL(/period=last7/);
+
+    const url = new URL(page.url());
+    const from = url.searchParams.get('from') ?? '';
+    const to = url.searchParams.get('to') ?? '';
+
+    expect(await page.evaluate(isLocalMidnight, from)).toBe(true);
+    expect(await page.evaluate(isLocalMidnight, to)).toBe(true);
+
+    const response = await page.request.get(`/api/v1/evals/${fixtures.spreadOutSlug}/runs?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    const body = await response.json();
+
+    expect(response.status()).toBe(200);
+    expect(body.summary.runCount).toBe(2);
+    await expect(page.getByTestId('eval-period-summary')).toContainText('2 runs ·');
+  });
+
+  test('a custom range covers the viewer\'s own days, not UTC days', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.spreadOutSlug}`);
+    const today = await page.evaluate(browserLocalDay, 0);
+    const lastWeek = await page.evaluate(browserLocalDay, 6);
+
+    await page.getByLabel('Period', { exact: true }).selectOption('custom');
+    await page.getByLabel('From', { exact: true }).fill(lastWeek);
+    await page.getByLabel('To', { exact: true }).fill(today);
+    await page.getByRole('button', { name: 'Apply' }).click();
+    await page.waitForURL(/period=custom/);
+
+    const from = new URL(page.url()).searchParams.get('from') ?? '';
+
+    expect(await page.evaluate(isLocalMidnight, from)).toBe(true);
+    expect(await page.evaluate(browserLocalDayOf, from)).toBe(lastWeek);
+  });
+});
+
+test.describe('the eval page in dark mode', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(storeDarkTheme);
+  });
+
+  test('grader lines switch to the dark palette so they stay readable', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.spreadOutSlug}`);
+
+    await expect(page.locator('html')).toHaveClass(/dark/);
+
+    const vocionLine = page.locator('[data-testid="eval-trend-line"][data-series="vocion"]');
+
+    // Vocion blue: #2a78d6 on light, #3987e5 on dark.
+    await expect(vocionLine).toHaveCSS('stroke', 'rgb(57, 135, 229)');
   });
 });
