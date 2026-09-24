@@ -378,6 +378,20 @@ const SMALL_CONTENT = [
   '{"@type":"Event","name":"N"}',
 ].join('\n');
 
+/**
+ * SMALL_HTML with the two things a site adds that are not the page: an SEO
+ * graph restamped on every request, and a widget listing other shows that
+ * rotates daily. Ignoring both must give back exactly SMALL_CONTENT.
+ * @param other - the show the widget lists today.
+ * @param stamp - the SEO graph's dateModified.
+ */
+function sidebarPage(other: string, stamp: string): string {
+  return SMALL_HTML
+    .replace('</head>', `<script type="application/ld+json" class="seo-graph">{"@graph":[{"@type":"WebPage","dateModified":"${stamp}"}]}</script></head>`)
+    .replace('</main>', `</main><div class="widget-area"><p>Upcoming: <a href="/other-${other}">${other}</a></p></div>`);
+}
+const SIDEBAR_IGNORE = ['.widget-area', 'script.seo-graph'];
+
 describe('extractFromHtml, the content contract', () => {
   it('returns exactly the text the ingest hashes', () => {
     const { content } = extractFromHtml(SMALL_HTML, SMALL_URL);
@@ -411,9 +425,55 @@ describe('extractFromHtml, the content contract', () => {
     expect(content).toBe('');
     expect(structure?.ogImage).toBe('https://ex.test/i.jpg');
   });
+
+  it('reads two fetches that differ only inside ignored elements as the same text', () => {
+    const first = extractFromHtml(sidebarPage('alpha', '2026-09-23T23:42:43+00:00'), SMALL_URL, SIDEBAR_IGNORE);
+    const second = extractFromHtml(sidebarPage('beta', '2026-09-24T02:18:32+00:00'), SMALL_URL, SIDEBAR_IGNORE);
+
+    expect(first.content).toBe(SMALL_CONTENT);
+    expect(second.content).toBe(SMALL_CONTENT);
+
+    const bare = (other: string): string => extractFromHtml(sidebarPage(other, other), SMALL_URL).content;
+
+    expect(bare('alpha')).not.toBe(bare('beta'));
+  });
+
+  it('is unchanged by an empty ignore list or a selector that matches nothing', () => {
+    const plain = extractFromHtml(SMALL_HTML, SMALL_URL);
+
+    for (const ignore of [[], ['#absent']]) {
+      const { content, structure } = extractFromHtml(SMALL_HTML, SMALL_URL, ignore);
+
+      expect(content).toBe(SMALL_CONTENT);
+      expect(structure).toStrictEqual(plain.structure);
+    }
+  });
+
+  it('never removes the page itself, whatever the selector matches', () => {
+    const classed = '<!doctype html><html class="home"><head><title>T</title></head>'
+      + '<body class="home page"><div class="kid">Kid</div><p>Keep me.</p></body></html>';
+
+    for (const ignore of [['.home'], ['[class]'], [':has(.kid)']]) {
+      const { content } = extractFromHtml(classed, SMALL_URL, ignore);
+
+      expect(content).toContain('Keep me.');
+    }
+
+    expect(extractFromHtml(classed, SMALL_URL, ['[class]']).content).not.toContain('Kid');
+  });
 });
 
 describe('extractFromHtml, the structure it returns', () => {
+  it('leaves out the URLs and JSON-LD inside an ignored element, which is not part of the page', () => {
+    const ignored = extractFromHtml(sidebarPage('alpha', 't1'), SMALL_URL, SIDEBAR_IGNORE);
+    const kept = extractFromHtml(sidebarPage('alpha', 't1'), SMALL_URL);
+
+    expect(ignored.structure?.links?.map(link => link.url)).toEqual(['https://ex.test/nav', 'https://ex.test/t']);
+    expect(ignored.structure?.jsonLd).toEqual([{ '@type': 'Event', 'name': 'N' }]);
+    expect(kept.structure?.links?.map(link => link.url)).toContain('https://ex.test/other-alpha');
+    expect(kept.structure?.jsonLd).toHaveLength(2);
+  });
+
   it('returns the JSON-LD parsed, not re-stringified into the text', () => {
     const { structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
 
