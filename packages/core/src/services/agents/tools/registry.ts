@@ -74,6 +74,7 @@ import { updateObjectTools } from './updateObject';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
 import { wikiTools } from './wiki';
+import { withdrawProposalTool } from './withdrawProposal';
 import { workspaceSourceTools } from './workspaceSource';
 import { zoomTools } from './zoomTranscript';
 
@@ -167,6 +168,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     fileAskTool(ctx),
     withdrawAskTool(ctx),
     proposeActionTool(ctx),
+    withdrawProposalTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),
     // Every interaction should teach the system something (design principle 11):

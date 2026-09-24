@@ -157,6 +157,17 @@ export const WorkspaceManifestSchema = z.object({
     agentBudget: z.object({
       dailyCents: z.number().int().min(0).nullable(),
     }).optional(),
+    /**
+     * The proposal budget every agent in this workspace is held to when its
+     * own YAML sets no `proposals:` — how many undecided items it may hold in
+     * Review at once when acting on its own schedule, and how many new ideas
+     * it may file a week. See `AgentSchema.proposals`. Omit and the built-in
+     * default applies (`ProposalBudgetService.DEFAULT_PROPOSAL_BUDGET`).
+     */
+    agentProposals: z.object({
+      openMax: z.number().int().min(0).optional(),
+      weeklyMax: z.number().int().min(0).optional(),
+    }).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -593,6 +604,25 @@ export const AgentManifestSchema = z.object({
   budget: z.object({
     dailyCents: z.number().int().min(0).optional(),
     monthlyCents: z.number().int().min(0).optional(),
+  }).optional(),
+  /**
+   * THE PROPOSAL BUDGET — no runaway queues (Chris, 2026-09-24: "700 items
+   * need attention is uselessly overwhelming").
+   *
+   * When this agent acts on its own schedule (a mission check, an automation,
+   * anything with no person in the conversation) it may hold at most
+   * `openMax` undecided items in Review — pending action runs and open asks
+   * it filed — and file at most `weeklyMax` new candidate records (ideas) in
+   * a rolling week. Past either, filing is refused with the list of its own
+   * open items and the instruction to withdraw one first
+   * (`withdraw_proposal`), so a better idea retires an older one instead of
+   * stacking on it. A proposal made inside a person's own chat turn never
+   * counts: the person asked. Omit for the workspace default
+   * (`defaults.agentProposals`), then the built-in one.
+   */
+  proposals: z.object({
+    openMax: z.number().int().min(0).optional(),
+    weeklyMax: z.number().int().min(0).optional(),
   }).optional(),
   /**
    * Slug of the primary agent this specialist reports to. Omit for

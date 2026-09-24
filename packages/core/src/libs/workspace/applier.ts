@@ -675,7 +675,7 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: Apply
 async function upsertAgent(
   orgId: string,
   agent: LoadedAgent,
-  defaults: { model?: string; temperature?: string },
+  defaults: { model?: string; temperature?: string; agentProposals?: { openMax?: number; weeklyMax?: number } },
   mode: ApplyMode,
   teams: LoadedTeam[] = [],
   warnings: ApplyResult['warnings'] = [],
@@ -692,7 +692,12 @@ async function upsertAgent(
     connectorSources: agent.connectorSources,
     objectTypeSlugs: agent.objectTypes,
     documentSetIds: agent.documentSetIds,
-    approvalPolicy: agent.approvalPolicy,
+    // The proposal budget rides in approvalPolicy (a jsonb the row already
+    // has): the agent's own `proposals:`, else the workspace default. A
+    // workspace that sets neither stores nothing and the built-in applies.
+    approvalPolicy: (agent.proposals ?? defaults.agentProposals)
+      ? { ...agent.approvalPolicy, proposals: { ...(defaults.agentProposals ?? {}), ...(agent.proposals ?? {}) } }
+      : agent.approvalPolicy,
     searchConfig: agent.searchConfig,
     harnessConfig: agent.harness,
     fewShotExamples: agent.fewShotExamples,
