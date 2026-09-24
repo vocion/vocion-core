@@ -200,6 +200,21 @@ describe('the deliverable contract', () => {
     expect(result.response).toMatch(/could not produce one/);
   });
 
+  it('a tool\'s name written as the last word is stripped, and the loop re-enters once to make the call', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockClear();
+    streamEvents.mockResolvedValue(narratedToolStream());
+    const { result } = await run({ message: 'Approve filing it.', deliverable: 'answer', conversationId: conv.id });
+
+    expect(streamEvents).toHaveBeenCalledTimes(2);
+
+    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
+
+    expect(second.messages.at(-1)?.content).toContain('Call recommend_action now');
+    expect(second.messages.at(-2)?.content).toBe('Filed. The build decision card is below.');
+    expect(result.response).not.toMatch(/recommend_action\s*$/);
+  });
+
   it('makes no artifact when the turn owed an answer — and continues ONCE when the turn ended on a promise', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     streamEvents.mockClear();
@@ -223,6 +238,18 @@ describe('the deliverable contract', () => {
  * A turn that makes one lookup_objects call returning this text.
  * @param output - What the tool returned.
  */
+/** A turn that answers in prose and ends with a tool's NAME as its last word. */
+function narratedToolStream(): AsyncIterable<unknown> {
+  const events = [
+    { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text('Filed. The build decision card is below.\n\nrecommend_action') } },
+  ];
+  return { async* [Symbol.asyncIterator]() {
+    for (const e of events) {
+      yield e;
+    }
+  } };
+}
+
 function lookupStream(output: string): AsyncIterable<unknown> {
   const events = [
     { event: 'on_tool_end', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:lookup-1' }, data: { input: { type_slug: 'event-candidate' }, output: { content: output } } },

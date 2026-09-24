@@ -28,6 +28,10 @@ import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { TurnRefusedError } from './agents/turnRefusal';
 
+/** A tool's name written as the turn's last word — narrated, not called. */
+const NARRATED_TOOL = /(?:^|[\s*_`])(recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal)[*_`]*\s*$/;
+const NARRATED_TOOL_TAIL = /[\s*_`]*(?:recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal)[*_`]*\s*$/;
+
 /* ------------------------------------------------------------------ */
 /* Load agent config                                                   */
 /* ------------------------------------------------------------------ */
@@ -953,16 +957,29 @@ export async function runAgentDeep(opts: {
         emit({ type: 'response_delta', delta: held.answer });
       }
       const soFar = normalizeAnswerHtml(finalText).trim();
-      if (soFar.length > 0 && preambleOnly(soFar)) {
-        console.warn('agent turn: ended on a promise, continuing once', { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
+      // The other way a turn ends without doing what it said: the model
+      // writes a tool's NAME as its last word instead of calling it —
+      // production turn 595 (2026-09-24) ended "…the card is below.
+      // recommend_action" and no card existed. That word is not an answer
+      // either; it is stripped, and the loop re-enters once to make the call.
+      const narrated = NARRATED_TOOL.exec(soFar);
+      if (soFar.length > 0 && (preambleOnly(soFar) || narrated)) {
+        const why = narrated ? `wrote the tool's name "${narrated[1]}" instead of calling it` : 'ended on a promise';
+        console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
+        if (narrated) {
+          finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
+        }
         finalText += '\n\n';
         emit({ type: 'response_delta', delta: '\n\n' });
+        const nudge = narrated
+          ? `You ended your last message with the word "${narrated[1]}" — the name of a tool — instead of calling it. Call ${narrated[1]} now with the arguments your message described, then reply in one sentence. Do not write the tool's name as text.`
+          : `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.`;
         await runGraph({
           ...input,
           messages: [
             ...input.messages,
-            { role: 'assistant', content: soFar },
-            { role: 'user', content: `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.` },
+            { role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar },
+            { role: 'user', content: nudge },
           ],
         } as typeof input);
       }
@@ -1021,6 +1038,12 @@ export async function runAgentDeep(opts: {
     emit({ type: 'response_delta', delta: tail.answer });
   }
   finalText = normalizeAnswerHtml(finalText).trim();
+  // Whatever happened above, a tool's bare name is never the last word of an
+  // answer: if the continuation narrated it again, it goes, and the log says so.
+  if (NARRATED_TOOL.test(finalText)) {
+    console.warn('agent turn: narrated tool name stripped from the answer', { orgId: opts.orgId, agentSlug: opts.agentSlug });
+    finalText = finalText.replace(NARRATED_TOOL_TAIL, '').trim();
+  }
   if (createdRecords.length > 0) {
     const linked = appendRecordLinks(finalText, createdRecords);
     if (linked !== finalText) {
