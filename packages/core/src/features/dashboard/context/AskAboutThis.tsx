@@ -1,10 +1,12 @@
 'use client';
 
+import type { ContextRef } from '@/features/dashboard/chat/types';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import { MessageSquareText, Pencil, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
+import { changeRef } from '@/features/dashboard/chat/composerTags';
 import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { useSelectionWatcher } from './useSelectionWatcher';
@@ -60,7 +62,7 @@ export function AskAboutThis(props: {
     return () => cancelAnimationFrame(id);
   }, []);
 
-  const open = useCallback((extra?: { selection?: string; prompt?: string; send?: boolean }) => {
+  const open = useCallback((extra?: { selection?: string; prompt?: string; send?: boolean; tags?: ContextRef[] }) => {
     const context: PageContext = {
       path: pathname,
       title: typeof document !== 'undefined' ? document.title : '',
@@ -68,10 +70,16 @@ export function AskAboutThis(props: {
       openedFrom: true,
       ...(extra?.selection ? { selection: { text: extra.selection, quote: true } } : {}),
     };
+    // NEVER paste human text into the composer (Chris, 2026-09-24): a prompt
+    // is carried only when it is SENT as an action ("Draft"); otherwise the
+    // record and the selection ride as typed context and the person types.
+    const send = extra?.send ?? props.send;
+    const prompt = extra?.prompt ?? props.prompt;
     openAgentSurface(
       {
-        prompt: extra?.prompt ?? props.prompt,
-        send: extra?.send ?? props.send,
+        prompt: send ? prompt : undefined,
+        send,
+        tags: extra?.tags,
         context,
         agentSlug: props.agentSlug,
         fallbackContext: props.fallbackContext,
@@ -129,7 +137,7 @@ export function AskAboutThis(props: {
                     props.onSelect(text);
                     return;
                   }
-                  open({ selection: text, prompt: props.prompt ?? '' });
+                  open({ selection: text });
                 },
               },
               ...(props.changeable
@@ -139,7 +147,7 @@ export function AskAboutThis(props: {
                     onClick: () => {
                       const text = hit.text;
                       clearHit();
-                      open({ selection: text, prompt: 'Change this: ' });
+                      open({ selection: text, tags: [changeRef()] });
                     },
                   }]
                 : []),
