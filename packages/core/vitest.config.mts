@@ -34,6 +34,15 @@ export default defineConfig({
           // than as the fixture cost it actually is.
           testTimeout: 30_000,
           hookTimeout: 30_000,
+          // Worker threads rather than the default child processes. Most of
+          // this project's time is module import — every file loads its own
+          // copy of the app's module graph — and threads load it faster. Three
+          // local runs of this project each: 35–38s on threads, 53–57s on
+          // forks, every file passing (#631). A test that needs its own
+          // process (process.chdir, a native addon that is not thread-safe)
+          // would fail here; none does today. `--pool=forks` on the command
+          // line switches back for one run.
+          pool: 'threads',
         },
       },
       {
