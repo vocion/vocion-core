@@ -10,7 +10,7 @@ description: >-
 # The twenty-percent test is how you tell an ask that is work from an ask that
 # is a question; written-promises is what the card becomes once approved.
 playbooks: [the-twenty-percent, written-promises]
-version: 1
+version: 2
 ---
 
 # An ask in chat becomes a card, not a paragraph
@@ -67,6 +67,43 @@ change for the person to be satisfied.
 
 ## When the work already exists
 
-Look it up first. If an open request already covers the ask, say so and link
-it rather than filing a second one — a duplicate costs more than a slow
-answer, because two people then build against two records.
+Look it up first. If an open request already covers the ask, do not file a
+second one — a duplicate costs more than a slow answer, because two people
+then build against two records.
+
+**But this branch still ends in a card.** Saying *"that's already on the board
+as request 124, in candidate state"* and stopping is the paragraph failure
+again, one level down: the person asked for something, and what they got back
+was a status report and no way to act on it. The ask is still live. What
+changed is which action the card carries — not whether there is one.
+
+So: link the record by id, say what state it is in, and recommend the move
+that state is waiting for.
+
+```
+recommend_action(
+  action_id: "objects.update_meta",
+  action_input: { id: 124, status: "triaged", … },
+  label: "Triage request 124 so it can be ranked",
+  rationale: "You asked for this in chat; it was captured on 12 Sep and has
+              been sitting in candidate ever since. Nothing has scoped it.",
+  suggested_decision: "approve",
+)
+```
+
+A record in `candidate` is waiting to be triaged. One already triaged is
+waiting to be ranked or planned. One already planned has a plan to open. Every
+state has a next move, and the person who just asked for the work is exactly
+the person who can authorise it.
+
+## Do not put questions where the card goes
+
+A question is not a substitute for a card, and asking two of them before
+offering anything is how an ask goes quiet. Most scoping questions are
+answered better by a card the person can correct than by a paragraph they have
+to reply to: the `rationale` says what you understood, and if you read it
+wrong they tell you so in one line instead of answering an interview.
+
+Ask at most one question, and only when a wrong answer would send the work
+somewhere genuinely different. Put it alongside the card, never instead of it
+— the person can approve, or answer, or both.
