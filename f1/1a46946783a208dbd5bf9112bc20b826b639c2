@@ -1,0 +1,38 @@
+packages/core/migrations/concurrent/0142_project_owner_user_idx.sql
+  s_b6e5b648af90e7::t_8c2d370145012b 1-13
+packages/core/migrations/0142_workspace_access.sql
+  s_b6e5b648af90e7::t_c04e551a60def9 1-32,34-36,38-50,52-57,59-76,78-80,82-103,105-107,109-113,115,117-123,125-127,129-135
+  s_b6e5b648af90e7::t_37c767882fa9e6 33,37,51,58,77,81,104,108,114,116,124,128
+packages/core/migrations/meta/_journal.json
+  s_b6e5b648af90e7::t_8c2d370145012b 998-1004
+packages/core/src/models/Schema.ts
+  s_b6e5b648af90e7::t_ca7f3a9f781b64 188-200,410-503
+  s_b6e5b648af90e7::t_c221eb8ec19fb1 5,55-62
+  s_b6e5b648af90e7::t_0e53b4ee8eb42f 63,504
+packages/core/src/services/WorkspaceAccessService.ts
+  s_b6e5b648af90e7::t_5a09d318930f54 1-33,36-243
+  s_b6e5b648af90e7::t_709411a28b7a09 35
+  s_b6e5b648af90e7::t_3c3055b5c857a8 34
+  s_b6e5b648af90e7::t_6e59abdcf3d529 244-247
+packages/core/src/services/WorkspaceAccessService.test.ts
+  s_b6e5b648af90e7::t_ec1feb4a395d1b 221-224,227-271
+  s_b6e5b648af90e7::t_dd577e69543396 219-220,225-226,272-273
+  s_b6e5b648af90e7::t_c515fe1f237255 1-218
+  s_b6e5b648af90e7::t_76e02938e9481f 274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f11a46946783a208dbd5bf9112bc20b826b639c2",
+  "prompts": {},
+  "sessions": {
+    "s_b6e5b648af90e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08434c34-abe2-4067-aa41-83078d3fd279",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
