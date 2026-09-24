@@ -114,6 +114,12 @@ describe('effective policy and the list', () => {
     expect(docs.minConfidence).toBe(0.95);
     // And a key that prefixes no registered action still reads as itself.
     expect((await svc.effectivePolicy(ORG, 'nothing.registered.here')).trustRule).toBeNull();
+
+    // The fallback is opt-in: a record write keeps each object type's ledger
+    // its own, so a bare objects.update_meta rule binds to no type.
+    await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: 'objects.update_meta', threshold: 0.9, enabled: 'true' });
+
+    expect((await svc.effectivePolicy(ORG, 'objects.update_meta.request')).trustRule).toBeNull();
   });
 
   it('reads an enabled trust rule with no policy row as Execute within bounds at the rule threshold', async () => {

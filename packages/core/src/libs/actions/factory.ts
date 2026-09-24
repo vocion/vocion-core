@@ -49,6 +49,8 @@ export const gitMergeAction = manualAction({
   },
   extraFields: input => [{ label: 'Risk class', value: input.riskClass }],
   policyKeyFor: input => `git.merge.${input.riskClass}`,
+  // One rule for git.merge governs every class until a class earns its own.
+  parentRuleGoverns: true,
 });
 
 export const deployReleaseAction = manualAction({
