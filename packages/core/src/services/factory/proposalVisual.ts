@@ -4,7 +4,7 @@
  * `libs/factory/proposalVisual.ts` decides what the picture looks like; this
  * is the half that knows the tables. It reads the request and its plan, draws
  * the SVG, files it as the artifact at role `proposal-visual`, and puts that
- * artifact's id on `visuals.beforeArtifactIds` so the Work board and the
+ * artifact's id on `visuals.drawnArtifactId` so the Work board and the
  * feature report both find it through the field they already read.
  *
  * WHEN IT RUNS. On every write to a request that could change what the
@@ -65,10 +65,6 @@ function bag(value: unknown): Record<string, unknown> {
 
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-}
-
-function ids(value: unknown): number[] {
-  return Array.isArray(value) ? value.filter((v): v is number => Number.isInteger(v)) : [];
 }
 
 /**
@@ -144,13 +140,16 @@ export async function ensureProposalVisual(input: {
     visibility: 'system',
   });
 
-  const before = ids(visuals.beforeArtifactIds);
-  if (before.includes(artifact.id)) {
+  // THE DRAWING IS NOT THE MOCKUP. It lands on its own key,
+  // `visuals.drawnArtifactId`, never on `beforeArtifactIds`: a diagram
+  // derived from the record is not evidence of a proposed experience, and
+  // filing it where Design's mockup goes made an unfinished proposal look
+  // decided — the row's `no mock` went quiet the moment the platform drew a
+  // frame (review, 2026-09-24). The card still shows it when nothing real
+  // exists (`workQueue.visualArtifactId` falls back to it); the gate does not.
+  const drawnBefore = typeof visuals.drawnArtifactId === 'number' ? visuals.drawnArtifactId : null;
+  if (drawnBefore === artifact.id) {
     return { status: 'drawn', artifactId: artifact.id, shape: drawn.shape, linked: true };
-  }
-  if (before.length > 0) {
-    // Somebody filed a real picture. It wins, and the card shows theirs.
-    return { status: 'drawn', artifactId: artifact.id, shape: drawn.shape, linked: false };
   }
   await linkVisual(input.orgId, input.requestId, artifact.id);
   return { status: 'drawn', artifactId: artifact.id, shape: drawn.shape, linked: true };
@@ -179,11 +178,8 @@ async function linkVisual(orgId: string, requestId: number, artifactId: number):
   }
   const meta = bag(row.metadata);
   const visuals = bag(meta.visuals);
-  if (ids(visuals.beforeArtifactIds).length > 0) {
-    return;
-  }
   await db
     .update(businessObjectSchema)
-    .set({ metadata: { ...meta, visuals: { ...visuals, beforeArtifactIds: [artifactId] } } })
+    .set({ metadata: { ...meta, visuals: { ...visuals, drawnArtifactId: artifactId } } })
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, requestId)));
 }

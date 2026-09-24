@@ -32,6 +32,7 @@ import {
   readWorkspacePageMethodology,
   resolveField,
 } from '@/libs/workspace/pages';
+import { deriveProductBoard } from '@/libs/workspace/productBoard';
 import { deriveReleaseOutcome } from '@/libs/workspace/releaseOutcome';
 import { deriveWorkQueue } from '@/libs/workspace/workQueue';
 import {
@@ -496,7 +497,9 @@ export default async function WorkspacePage(props: {
       ? deriveWorkQueue(loaded, { now: new Date(now) })
       : manifest.derive === 'releaseOutcome'
         ? deriveReleaseOutcome(loaded, { now: new Date(now) })
-        : loaded;
+        : manifest.derive === 'productBoard'
+          ? deriveProductBoard(loaded, { now: new Date(now) })
+          : loaded;
     // A picture a row names by id becomes a picture the page can draw. One
     // query for the whole page, after the derivation has chosen WHICH visual
     // each row shows (`services/workspace/pageImages.ts`).

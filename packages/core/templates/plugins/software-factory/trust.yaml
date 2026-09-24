@@ -20,11 +20,28 @@ rules:
     enabled: false
     rung: execute-with-approval
     risk: high
+  # Telling the asker is two different things, and the ladder should be able
+  # to tell them apart (review, 2026-09-24): a routine, evidenced completion
+  # ("shipped in v1.8, here is the release") may earn its way out under a
+  # policy the product owner turns on; a decline, an incident update or
+  # anything that touches a promise is read by a person every time. The PM
+  # names the kind on the proposal (notify.requester.<kind>); a kind with no
+  # rule of its own reads the parent's.
   - action: notify.requester
     autoApproveAbove: 0.95
     enabled: false
     rung: execute-with-approval
     risk: medium
+  - action: notify.requester.completion
+    autoApproveAbove: 0.9
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  - action: notify.requester.sensitive
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
   - action: release.announce
     autoApproveAbove: 0.95
     enabled: false

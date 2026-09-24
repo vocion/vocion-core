@@ -122,3 +122,40 @@ wrong they tell you so in one line instead of answering an interview.
 Ask at most one question, and only when a wrong answer would send the work
 somewhere genuinely different. Put it alongside the card, never instead of it
 — the person can approve, or answer, or both.
+
+## The build decision is a second card, and it has a minimum
+
+Filing the request is the first card. Asking a person to **commit** to building
+it is the second, and it is the most important screen in the system, so it is
+never a picture with a button under it. The picture supports the decision; it
+cannot carry it (review, 2026-09-24).
+
+Before this card exists, the commitment is written: the draft contract
+(`write-task-contract`), `mainRisk`, `expectedResult` and `howWeCheck` on the
+request, and the designer's mockup or a recorded `noVisualReason` for a `ui`
+or `flow` change. Then file ONE ask of kind `recommendation` for the product
+owner, whose body reads, in this order, in plain words:
+
+```
+**<the outcome, as the title>**
+<who asked, how many, on which channel — one line>
+**Recommendation:** <build it now / answer it / defer it> — <why, one sentence>
+**Change:** <what will be different, one sentence>
+**Done when:** <the acceptance criteria, as the person will check them>
+**Expected spend:** $<low>–$<high> · **Your review:** about <n> minutes
+**Main risk:** <one sentence>
+**Expected result:** <what should change for people> · **We will check:** <how, and after how long>
+```
+
+with `options: [{id: approve-build, label: Approve build}, {id: request-changes,
+label: Request changes}, {id: defer, label: Defer}]`, `object_refs` naming the
+request and the draft task, and `decision_cost` as the minutes above. **Defer
+is not reject.** "Not now" is a normal product decision; it carries a reason
+and a revisit date or condition, which you write on the request
+(`state: deferred`, `deferReason`, `deferredUntil`) when the decision lands.
+
+What the decision does is written the moment it lands
+(`factory-decision-landed`): approve freezes the acceptance criteria as the
+contract, moves the request to `in_scope` and queues the engineer;
+request-changes reopens the draft with the note; defer parks it until its
+date; a rejection stays rejected and is not asked again.

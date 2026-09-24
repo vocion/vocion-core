@@ -26,5 +26,8 @@ successCriteria:
   - A criterion in the frozen contract that is missing from the record is reported as dropped after approval, rather than silently omitted
   - The review states the count it is claiming — "4 of 6 proven" — so a reader can check the arithmetic against the list beneath it
   - Where nothing was frozen, the review says the contract was never agreed and stops, rather than inventing criteria to grade against
+  - The verdict is written on the task bound to the commit it was read at; a head that moved after review reads as STALE on the merge card until it is re-read
+  - For a schema, billing, auth or infra risk class the verdict names at least one check that ran on trusted CI or was reproduced independently; the worker's own report is not evidence for a migration
 desiredArtifacts:
-  - 'The contract review: each criterion, proven or not, with the link that settles it or the reason it could not be settled'
+  - >-
+    'The contract review: each criterion, proven or not, with the link that settles it or the reason it could not be settled'

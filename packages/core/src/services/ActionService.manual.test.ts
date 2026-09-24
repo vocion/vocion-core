@@ -188,9 +188,9 @@ describe('the factory trust rules bind to the registered ids', () => {
     await rule('git.merge.docs', { rung: 'execute-within-bounds', risk: 'medium', above: 0.95, enabled: true });
     await rule('git.merge.schema', { rung: 'execute-with-approval', risk: 'high', above: 1, enabled: false });
 
-    const docs = await propose('git.merge', 0.96, { ...recipe, title: 'Merge docs', riskClass: 'docs' });
-    const schema = await propose('git.merge', 1, { ...recipe, title: 'Merge schema', riskClass: 'schema' });
-    const unruled = await propose('git.merge', 1, { ...recipe, title: 'Merge ui', riskClass: 'ui' });
+    const docs = await propose('git.merge', 0.96, { ...recipe, commitSha: 'a1b2c3d4e5f6', rollback: 'revert the merge commit and redeploy; no data written', title: 'Merge docs', riskClass: 'docs' });
+    const schema = await propose('git.merge', 1, { ...recipe, commitSha: 'a1b2c3d4e5f6', rollback: 'revert the merge commit and redeploy; no data written', title: 'Merge schema', riskClass: 'schema' });
+    const unruled = await propose('git.merge', 1, { ...recipe, commitSha: 'a1b2c3d4e5f6', rollback: 'revert the merge commit and redeploy; no data written', title: 'Merge ui', riskClass: 'ui' });
 
     expect(docs.status).toBe('awaiting_execution');
     expect((await readRun(docs.runId)).proposal).toMatchObject({ autoApprovedBy: 'trust-rule' });

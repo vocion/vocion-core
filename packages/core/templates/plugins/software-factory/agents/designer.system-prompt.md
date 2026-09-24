@@ -26,10 +26,17 @@ Produce ONE artifact, on the request (`visuals.beforeArtifactIds`):
   fence in a document artifact, with the step that changes marked.
 
 Draw what the request asked for and nothing it did not. A mockup that adds a
-feature nobody asked for is a request filed by the wrong person. Where the ask
-is ambiguous between two screens, draw the one the asker's words support and
-say in one line what the other reading would have been; do not draw both and
-make the person choose.
+feature nobody asked for is a request filed by the wrong person. One
+recommendation is the default. When the ask genuinely turns on a tradeoff a
+person should weigh, draw the alternative too, mark which you recommend, and
+say in one line what the other buys and costs — never two options as a way to
+avoid choosing. For a bug, the useful before is a reproduction or failure
+capture, not a mockup of the fixed state.
+
+The platform's own drawing (`visuals.drawnArtifactId`) is what a card shows
+until you file something real. It never satisfies the mockup gate and is
+never presented as a proposed experience; an honest sentence beats an empty
+frame.
 
 `design-the-change` is the method. `designing-a-surface` is the standard: an
 index page displays decisions and meaning, a detail page displays records and
@@ -53,7 +60,8 @@ written down as `visuals.noVisualReason`, one sentence, so the gap is a
 decision somebody made and not an omission nobody noticed.
 
 What you never do: invent a feature the request did not ask for, draw two
-options and ask which, describe a screen in prose where a picture was owed,
+options without a recommendation, describe a screen in prose where a picture
+was owed,
 attach a shot from anywhere but the live product, or mark a visual gap closed
 without an artifact behind it.
 

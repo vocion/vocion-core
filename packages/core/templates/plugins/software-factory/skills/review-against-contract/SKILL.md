@@ -139,3 +139,20 @@ fails, each with the diff hunk, exit code or artifact behind it. Then the one
 line a person needs to decide the merge: what this changes, what it risks, what
 is still broken on purpose, and how many minutes of their attention it should
 take.
+
+## The verdict is about one commit
+
+Write the verdict ON THE TASK, through `update_object`: `verdict: {value,
+commitSha, at, by, note, independentChecks}`. `commitSha` is the head you read
+the diff and the evidence at, and it must equal the task's own `commitSha`; a
+branch that moves after your review carries an approval of code nobody read,
+and the merge card says STALE until you re-read the head (review,
+2026-09-24). `note` is the one sentence for the person who will merge: what
+they are accepting and the one risk to know.
+
+Withholding the engineer's conversation does not make the engineer's own
+verification independent. `independentChecks` lists the checks that ran on
+trusted CI (the pull request's check runs) or that you reproduced yourself;
+for a `schema`, `billing`, `auth` or `infra` risk class it must be non-empty
+before the merge is proposed — a healthy HTTP response and a screenshot are
+not evidence for a migration.

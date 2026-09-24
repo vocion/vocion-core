@@ -348,10 +348,12 @@ function Lifecycle({ steps }: { steps: LifecycleStep[] }) {
  * has not happened.
  */
 const PHASE_LEADS: Record<ReportPhase, readonly string[]> = {
-  proposed: ['visuals', 'today', 'plan'],
+  asked: ['visuals', 'today', 'result', 'plan'],
+  decided: ['visuals', 'today', 'result', 'plan'],
+  planned: ['plan', 'contract', 'visuals', 'result'],
   building: ['runs', 'plan'],
-  review: ['qa', 'change', 'visuals'],
-  released: ['release', 'qa'],
+  qa: ['qa', 'change', 'visuals'],
+  released: ['result', 'release', 'qa'],
 };
 
 /**
