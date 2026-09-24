@@ -27,6 +27,7 @@ function configFor(agentSlug?: string): McpConfig {
   return {
     orgId: ORG,
     contextPath: scratchDir,
+    diskWorkspace: true,
     autoCommit: false,
     autoApply: false,
     serverName: 'vocion-test',

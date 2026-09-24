@@ -49,6 +49,7 @@ async function setupClientServer(contextDir: string) {
   const config: McpConfig = {
     orgId: ORG,
     contextPath: contextDir,
+    diskWorkspace: true,
     autoCommit: true,
     autoApply: true,
     serverName: 'vocion-test',

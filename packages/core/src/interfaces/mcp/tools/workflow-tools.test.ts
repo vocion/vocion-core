@@ -52,6 +52,7 @@ function configFor(): McpConfig {
   return {
     orgId: ORG,
     contextPath: '/tmp/does-not-matter-for-this-test',
+    diskWorkspace: true,
     autoCommit: false,
     autoApply: false,
     serverName: 'vocion-test',
