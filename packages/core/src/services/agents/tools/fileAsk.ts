@@ -22,6 +22,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { ASK_KINDS, ASK_RISKS, getAsk } from '@/services/AskService';
+import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
 
 /**
  * The agent principal every tool-made proposal rides — working autonomy, judged by the ladder.
@@ -42,6 +43,15 @@ const KIND_GUIDE = 'approval (approve, reject or mark done), input (you need a v
 export function fileAskTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
+      // THE PROPOSAL BUDGET (see ProposalBudgetService): an agent on its own
+      // schedule with its share of Review already undecided files no new ask
+      // until it withdraws one of its own.
+      if (ctx.agentSlug && isAgentsOwnSchedule(ctx)) {
+        const verdict = await checkProposalBudget({ orgId: ctx.orgId, agentSlug: ctx.agentSlug });
+        if (!verdict.ok) {
+          return verdict.message;
+        }
+      }
       const args = raw as {
         title: string;
         body?: string;

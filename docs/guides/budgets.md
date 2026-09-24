@@ -128,6 +128,47 @@ Every agent is listed, including ones that have never spent anything:
 `manage_sources` capability. `GET /api/v1/budgets` still lists the raw stored
 rows, workspace-wide and per-feature rows included.
 
+## The proposal budget — how many things an agent may leave in Review
+
+Spend is one runaway; the other is the queue. An agent on its own schedule — a
+mission check every two hours, an automation on every event — files proposals
+and asks as fast as it can think of them, and each one waits for a person.
+When the person does not keep up, Review stops being a queue ("700 items need
+attention is uselessly overwhelming", 2026-09-24).
+
+So every agent has a **proposal budget**, in core, at the agent level:
+
+```yaml
+# agents/product-manager.yaml
+proposals:
+  openMax: 3 # undecided items it may hold in Review while acting on its own schedule
+  weeklyMax: 5 # new candidate records (ideas) it may file in a rolling week
+```
+
+```yaml
+# workspace.yaml — the default for every agent that sets none
+defaults:
+  agentProposals: {openMax: 5, weeklyMax: 10}
+```
+
+Set neither and the built-in applies (`ProposalBudgetService.DEFAULT_PROPOSAL_BUDGET`,
+5 open / 10 a week), so an agent nobody configured is still bounded.
+
+**What counts.** The agent's own pending action runs and open asks — nobody
+else's. **When it counts.** Only when the agent acts on its own schedule: a
+mission run, an automation, any turn with no person in the conversation. A
+proposal made inside a person's chat turn never counts; the person asked.
+**What happens at the cap.** `propose_action` and `file_ask` refuse, telling
+the agent the cap, what it is holding (oldest first) and the one move that
+frees a slot: `withdraw_proposal(kind, id, reason, superseded_by)`, which
+retires one of its own with the reason on the record — a better idea replaces
+an older one instead of stacking on it. The weekly cap applies to
+`objects.propose_candidate` only, whatever became of those records.
+
+The budget lives on the agent row as `approvalPolicy.proposals`, written by
+`workspace:apply`. `proposalBudgetLine(orgId, agentSlug)` renders
+`open 3/5 · ideas 4/10 this week` for a header or a receipt.
+
 ## Provider spend limits
 
 Your model provider may offer its own spend limits. They are worth setting as
