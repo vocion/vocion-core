@@ -164,13 +164,23 @@ export function isWaitingOnPerson(row: PageRow): boolean {
  * and has not started, so it is proposed.
  * @param row - The row.
  */
+/** Sources that mean an AGENT filed the request on its own schedule. */
+const AGENT_SOURCES = new Set(['product-manager', 'designer', 'task-planner', 'planner', 'mission', 'automation', 'agent']);
+
 /**
  * A request a person asked for, as opposed to one an agent proposed on its own schedule.
  * @param row
  */
 export function askedByPerson(row: PageRow): boolean {
-  const by = str(row, 'requestedBy') ?? str(row, 'requester') ?? '';
-  return by !== '' && !by.startsWith('agent:') && !by.startsWith('automation:') && !by.startsWith('mission:');
+  // Who asked: a name, or a person object (`askedBy: {name, email}`), never an agent handle.
+  const asked = meta(row).askedBy ?? meta(row).requestedBy ?? meta(row).requester;
+  const by = typeof asked === 'string' ? asked.trim() : asked && typeof asked === 'object' ? 'person' : '';
+  if (by !== '' && !by.startsWith('agent:') && !by.startsWith('automation:') && !by.startsWith('mission:')) {
+    return true;
+  }
+  // Where it came from: a chat, a form, an email is a person; a mission or an agent slug is not.
+  const source = (str(row, 'source') ?? '').toLowerCase();
+  return source !== '' && !AGENT_SOURCES.has(source) && !source.startsWith('agent:');
 }
 
 const SEVERITY_RANK: Record<string, number> = { p0: 4, critical: 4, blocker: 4, p1: 3, high: 3, major: 2, p2: 2, medium: 2, minor: 1, p3: 1, low: 1 };

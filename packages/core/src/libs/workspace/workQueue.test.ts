@@ -216,8 +216,8 @@ describe('the lanes carry what they could not draw', () => {
     const rows = [
       waiting(10),
       waiting(11, { severity: 'major' }),
-      waiting(12, { requestedBy: 'agent:product-manager', severity: 'p0' }),
-      waiting(13, { requestedBy: 'usr-1' }),
+      waiting(12, { source: 'product-manager', severity: 'p0' }),
+      waiting(13, { askedBy: { name: 'Ada Northwind', email: 'ada@northwind.example' }, source: 'chat' }),
       row(14, 'ranked', { state: 'triaged', priority: 70, why: ['user_request'], askedAt: '2026-09-01T00:00:00Z' }),
     ];
     const out = deriveWorkQueue(rows, { now: NOW, decideShown: 2 });
