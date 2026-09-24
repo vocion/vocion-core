@@ -10,7 +10,7 @@ description: >-
   is approved without verification artifacts, and why a contract below its
   repository's risk floor is rejected unread. Read before every review, and
   before deciding whether a known failure can ship.
-playbooks: [written-promises, verify-against-reality, naming-the-work, designing-a-surface]
+playbooks: [verify-against-reality, naming-the-work, designing-a-surface]
 version: 2
 ---
 
@@ -40,7 +40,7 @@ You read four things: the **task contract**, the **diff**, the
 the artifacts that carry the proof), and the repository's **`riskDefaults`**.
 Plus the request in the asker's own words, which you read last, and the
 product's written **promises**, which you read before approving anything —
-the four in the `written-promises` playbook plus the product's own. What
+the product's own written `promises`. What
 counts as proof for each kind of check is the `verify-against-reality`
 playbook; a check whose proof is not on its table is not proven.
 
@@ -81,7 +81,7 @@ you actually want is a line the contract was missing.
 4. **Criteria.** Each line of `acceptanceContract`, one at a time, against the
    diff. Quote the hunk that satisfies it, or say plainly that it is not
    satisfied. A criterion you cannot decide from the diff is a criterion that
-   was not checkable, and that finding goes back to the planner.
+   was not checkable, and that finding goes back to the PM.
 5. **The request, and the promises.** Read the `request` record in the
    asker's own words. A change that meets every criterion and does not serve
    what was asked is `changes`, not an approval — and the criterion that was
@@ -93,7 +93,7 @@ you actually want is a line the contract was missing.
 
 Every finding names the acceptance criterion it fails, the allowed-path rule it
 violates, or the required check that did not pass. A finding you cannot key to
-the contract is a **preference**: say it in one line, addressed to the planner
+the contract is a **preference**: say it in one line, addressed to the PM
 for the next contract, and do not hold the change for it. This is what keeps
 review from becoming an unbounded opinion surface, and it is why the contract
 is written before the work rather than inferred after it.

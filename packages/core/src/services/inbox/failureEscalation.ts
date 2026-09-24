@@ -4,7 +4,7 @@
  * Chris red-teamed Review on 2026-09-21 and found 45 rows of which the large
  * majority were things no person should ever see: a worker timed out, a clone
  * failed, a contract was refused, a check went red, a run produced no changes.
- * Those are OPERATIONAL EVENTS. They belong to the Factory log and the floor,
+ * Those are OPERATIONAL EVENTS. They belong on the run, inside the work item,
  * which already show them, and putting them in front of a person costs
  * attention and buys nothing, there is no decision to make, because the
  * factory's own next attempt is the answer.
@@ -272,7 +272,7 @@ function attemptsOf(run: FailedRun): number {
  * Runs are grouped by task. A group escalates when its class has no retry
  * policy (the first failure is already the decision) or when its attempts
  * have reached the class's limit. Everything else returns nothing: it is a
- * log line, and the Factory log already has it.
+ * log line, and the run record already has it.
  * @param runs - Failed and lost worker runs, any order.
  */
 export function escalationsFrom(runs: FailedRun[]): FailureException[] {

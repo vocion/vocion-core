@@ -12,7 +12,7 @@ goal: >-
   `announcedTo` are the people already told, and the difference is the loop
   still open. A request is not closed until the asker has been told; the
   reply is proposed, and a person releases it.
-agent: task-planner
+agent: product-manager
 autonomyPolicy:
   level: 2
 successCriteria:

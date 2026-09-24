@@ -1,10 +1,10 @@
 slug: tell-the-requester-check
 name: Two-hourly reply pass
 description: >-
-  Wakes the Task planner on the cadence of the `tell-the-requester` mission to check the
+  Wakes the PM on the cadence of the `tell-the-requester` mission to check the
   standing charter and do only what needs doing now.
 status: active
-agent: task-planner
+agent: product-manager
 when:
   schedule: '0 */2 * * *'
 do:
