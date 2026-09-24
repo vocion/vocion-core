@@ -269,6 +269,9 @@ export async function POST(request: Request): Promise<Response> {
             collector.onTraceNode(event as unknown as Record<string, unknown>);
           } else if (event.type === 'artifact' && !event.pending) {
             collector.onArtifact(event.artifact.id);
+          } else if (event.type === 'recommended_action') {
+            const r = event.recommendation as { label: string; actionId: string; input?: Record<string, unknown>; runId?: number };
+            collector.onCard({ label: r.label, actionId: r.actionId, input: r.input, runId: r.runId });
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));

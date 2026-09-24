@@ -37,7 +37,15 @@ export type ConversationRun
      * `done` for every stored step turned every failure into a success the
      * moment the page refreshed.
      */
-    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' };
+    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
+    /**
+     * A card the turn put up (a `recommended_action`): what it offered and
+     * the payload it carried. Persisted so the NEXT turn can be told which
+     * card it is being asked to approve — "approve filing it" bound to a
+     * lookup result three times on 2026-09-24 because the card lived only
+     * in the browser.
+     */
+    | { type: 'card'; label: string; actionId: string; input?: Record<string, unknown>; runId?: number };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
 export type ConversationTraceNode = {

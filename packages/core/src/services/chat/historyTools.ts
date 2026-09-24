@@ -11,7 +11,7 @@
  * the earlier turn's claims stand on their evidence.
  */
 
-type RunEntry = { type?: string; name?: string; input?: unknown; output?: unknown };
+type RunEntry = { type?: string; name?: string; input?: unknown; output?: unknown; label?: string; actionId?: string; runId?: number };
 
 const MAX_MARKER = 600;
 
@@ -55,11 +55,24 @@ export function toolsMarker(runs: unknown): string {
     return '';
   }
   const tools = (runs as RunEntry[]).filter(r => r && r.type === 'tool' && typeof r.name === 'string');
-  if (tools.length === 0) {
+  const cards = (runs as RunEntry[]).filter(r => r && r.type === 'card' && typeof r.label === 'string');
+  if (tools.length === 0 && cards.length === 0) {
     return '';
   }
-  const items = tools.map(r => `${r.name}${brief(r.input)}${came(r.output)}`);
-  let line = `[Earlier in this turn you ran: ${items.join('; ')}]`;
+  const parts: string[] = [];
+  if (tools.length > 0) {
+    parts.push(`you ran: ${tools.map(r => `${r.name}${brief(r.input)}${came(r.output)}`).join('; ')}`);
+  }
+  if (cards.length > 0) {
+    // The card IS the thing a person approves next: its label, the action it
+    // carries, the payload's title, and the proposal id when it was filed.
+    parts.push(`you put up ${cards.length === 1 ? 'a card' : `${cards.length} cards`}: ${cards.map((c) => {
+      const input = c.input && typeof c.input === 'object' ? c.input as Record<string, unknown> : {};
+      const title = typeof input.title === 'string' ? ` "${input.title.slice(0, 80)}"` : '';
+      return `"${c.label}" → ${c.actionId}${title}${c.runId ? ` (proposal #${c.runId})` : ''}`;
+    }).join('; ')}. "Approve", "file it" or "go ahead" means THAT card — decide it or make its call, never a different record`);
+  }
+  let line = `[Earlier in this turn ${parts.join('. And ')}]`;
   if (line.length > MAX_MARKER) {
     line = `${line.slice(0, MAX_MARKER - 2)}…]`;
   }

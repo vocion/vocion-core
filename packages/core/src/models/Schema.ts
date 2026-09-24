@@ -1651,7 +1651,8 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    */
   runsJson: jsonb('runs_json').$type<Array<
     | { type: 'text'; text: string }
-    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string }
+    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
+    | { type: 'card'; label: string; actionId: string; input?: Record<string, unknown>; runId?: number }
   >>(),
   /**
    * Cited/pulled source documents for this assistant turn — so inline `[n]`

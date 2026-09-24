@@ -22,4 +22,15 @@ describe('toolsMarker', () => {
     expect(toolsMarker(many).length).toBeLessThanOrEqual(602);
     expect(toolsMarker(many).endsWith('…]')).toBe(true);
   });
+
+  it('names the cards a turn put up, with the payload\'s title and the proposal id, so "approve" binds to them', () => {
+    const runs = [
+      { type: 'text', text: 'Seven customers lost files. Filing it now.' },
+      { type: 'tool', name: 'lookup_objects', input: { type_slug: 'request' }, output: '[]' },
+      { type: 'card', label: 'File this as a request', actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'Uploads drop on cellular and the file is gone' }, runId: 3691 },
+    ];
+
+    expect(toolsMarker(runs)).toBe('\n\n[Earlier in this turn you ran: lookup_objects{type_slug: request} → 0 rows. And you put up a card: "File this as a request" → objects.propose_candidate "Uploads drop on cellular and the file is gone" (proposal #3691). "Approve", "file it" or "go ahead" means THAT card — decide it or make its call, never a different record]');
+    expect(toolsMarker([{ type: 'card', label: 'Roll back 912e4be0', actionId: 'deploy.release' }])).toContain('you put up a card: "Roll back 912e4be0" → deploy.release.');
+  });
 });
