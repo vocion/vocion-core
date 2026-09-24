@@ -132,7 +132,7 @@ export default defineConfig<ChromaticConfig>({
       dependencies: ['setup'],
     },
     // The headless usage-video tour (F1 storyboard). Self-seeding: signs up
-    // the first-run admin on a FRESH PGlite DB, so no `setup` project
+    // the first-run admin on a FRESH database, so no `setup` project
     // dependency. One long cinematic spec — generous timeout.
     //
     // Defined only outside CI. It records a marketing video rather than
@@ -208,7 +208,7 @@ export default defineConfig<ChromaticConfig>({
         ]
       : []),
     // The API credentials matrix (platforms, validation, expiry rules).
-    // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
+    // Self-seeding like `tour`: bootstraps its own admin on a fresh database,
     // so no `setup` project dependency.
     // Run with: npx playwright test --project=credentials
     // The document loop by chat — draft, edit by chat, highlight → change,

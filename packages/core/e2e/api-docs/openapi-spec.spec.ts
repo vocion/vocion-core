@@ -139,7 +139,7 @@ test.describe('GET /api/v1/openapi', () => {
 });
 
 /**
- * The admin this spec signs in as. A fresh PGlite database has no users and
+ * The admin this spec signs in as. A fresh database has no users and
  * the signup route is invite-only, so the spec bootstraps its own the way the
  * credentials spec does.
  */
