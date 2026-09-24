@@ -1670,7 +1670,18 @@ function goalOf(request: ReportObject): string | null {
   if (trimmed === '' || trimmed.endsWith(':')) {
     return null;
   }
-  return trimmed.length > 180 ? `${trimmed.slice(0, 179).trimEnd()}…` : trimmed;
+  if (trimmed.length <= 180) {
+    return trimmed;
+  }
+  // AT A WORD, NOT A CHARACTER. A hard slice ends the only sentence under the
+  // outcome mid-word — "…and keep a record that it we…" — which reads as a
+  // rendering fault rather than as an abbreviation. Cut back to the last
+  // space, unless the first 180 characters contain no space at all (one
+  // enormous token), where a hard cut is the only cut available.
+  const hard = trimmed.slice(0, 179).trimEnd();
+  const lastSpace = hard.lastIndexOf(' ');
+  const body = lastSpace > 120 ? hard.slice(0, lastSpace) : hard;
+  return `${body.replace(/[,;:]$/, '')}…`;
 }
 
 /**
