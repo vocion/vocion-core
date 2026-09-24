@@ -246,6 +246,23 @@ describe('the deliverable contract', () => {
     expect(result.response).toContain('Found the cards.');
   });
 
+  it('an empty turn — no words, no tool call — continues once instead of being accepted', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockClear();
+    streamEvents
+      .mockResolvedValueOnce({ async* [Symbol.asyncIterator]() { /* nothing at all */ } })
+      .mockResolvedValueOnce(lookupStream('[{"id":41}]'));
+    const { result } = await run({ message: 'Is the credentials E2E flaky?', deliverable: 'answer', conversationId: conv.id });
+
+    expect(streamEvents).toHaveBeenCalledTimes(2);
+
+    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
+
+    expect(second.messages.at(-1)?.content).toContain('You returned nothing');
+    expect(second.messages.at(-2)?.role).toBe('user');
+    expect(result.response).toContain('Found the cards.');
+  });
+
   it('makes no artifact when the turn owed an answer — and continues ONCE when the turn ended on a promise', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     streamEvents.mockClear();
