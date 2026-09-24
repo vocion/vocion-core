@@ -547,6 +547,13 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     if (lead?.utmCampaign) {
       provenance.push({ label: 'Campaign', value: lead.utmCampaign });
     }
+    // The ad lead magnet they answered, from the CRM mirror (the ledger row
+    // does not carry it; see `contactUtmContentByRef`).
+    const { contactUtmContentByRef } = await import('@/services/CrmRecordsService');
+    const utmContent = (await contactUtmContentByRef(ctx.orgId, [input.contactRef]).catch(() => new Map<string, string>())).get(input.contactRef);
+    if (utmContent) {
+      provenance.push({ label: 'Lead magnet', value: utmContent });
+    }
     if (lead?.mqlAt) {
       provenance.push({ label: 'Became MQL', value: DATE_FORMAT.format(lead.mqlAt) });
     } else if (lead?.arrivedAt) {
@@ -741,11 +748,18 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // A ladder rung sends whatever the contact's nurture slots hold, so the
     // approved sends go onto the contact FIRST, and a failed write stops the
     // enrollment: an enrolled contact with empty slots receives empty emails.
-    const { isNurtureSequence, nurtureSlotProperties, readNurtureSlotsConfig, writeNurtureSlots } = await import('@/libs/hubspot/nurtureSlots');
+    const { ensureNurtureSlotProperties, isNurtureSequence, nurtureSlotProperties, readNurtureSlotsConfig, writeNurtureSlots } = await import('@/libs/hubspot/nurtureSlots');
     const slotsCfg = readNurtureSlotsConfig((await contactsSourceConfig(ctx.orgId)).nurtureSlots);
     let slotsWritten = 0;
     if (isNurtureSequence(input.sequenceName, slotsCfg)) {
       const properties = nurtureSlotProperties(input.sends, slotsCfg);
+      // The portal may not have a property for every slot yet (a fifth rung
+      // email, a new portal). Provision what is missing before the write, so
+      // raising `maxSlots` in the workspace is the whole platform-side change.
+      const ensured = await ensureNurtureSlotProperties(client, slotsCfg, input.sends.length);
+      if (!ensured.ok) {
+        throw new Error(`Not enrolled: the nurture slot properties could not be checked or created on the portal (${ensured.message})`);
+      }
       const written = await writeNurtureSlots(client, hubspotId, properties);
       if (!written.ok) {
         throw new Error(`Not enrolled: the nurture slots could not be written to the contact (${written.message}), and "${input.sequenceName}" would send empty emails`);

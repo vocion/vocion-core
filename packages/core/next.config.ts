@@ -50,6 +50,11 @@ const baseConfig: NextConfig = {
   devIndicators: false,
   poweredByHeader: false,
   reactStrictMode: true,
+  // CI type-checks core once, in the `static` job's `check:types`, and fails
+  // the pull request there. Without this, `next build` ran the same check
+  // again inside every build job (#629). Only CI skips it: a deploy or a
+  // local build still refuses to produce an app with a type error in it.
+  typescript: { ignoreBuildErrors: !!process.env.CI },
   // Temporal's client can't be webpack-bundled: its gRPC/proto data files
   // don't ride into the bundle, so Connection.connect() throws at runtime
   // (the dashboard then shows "not scheduled yet" for every schedule).

@@ -209,8 +209,14 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
           {(item.imageUrl !== null || item.body !== null) && (
             <figure className={`m-0 overflow-hidden rounded-xl border bg-surface-soft ${item.role === 'proposed' ? 'border-dashed border-border' : 'border-border'}`}>
               {item.imageUrl !== null && (
-              // A desktop mockup at 430px is a thumbnail. It opens.
-                <a href={item.url ?? undefined} aria-label={`Open ${item.title}`}>
+              // A desktop mockup at 430px is a thumbnail — the one thing on
+              // this page that has to be LOOKED at, and at phone width you
+              // cannot read a word of it. So the picture opens the picture,
+              // full size. It used to open `item.url`, the artifact's own
+              // record page, which is exactly what the "Open" link in the
+              // caption below it already does: two tap targets, one outcome,
+              // and no way at all to enlarge the mockup.
+                <a href={item.imageUrl} target="_blank" rel="noreferrer" aria-label={`Open ${item.title} full size`}>
                   <img src={item.imageUrl} alt={item.caption ?? item.title} loading="lazy" className="block w-full" />
                 </a>
               )}
@@ -556,6 +562,39 @@ function Timeline({ report }: { report: FeatureReport }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * WHICH WORK THIS IS — product, size, spend, age. The breadcrumb names the
+ * factory and a row id; neither of those is the product a person means.
+ *
+ * It renders inside the title block, under the goal, because that is where it
+ * belongs and because the alternative bit us: as the first child of the report
+ * column it needed a negative top margin to sit close to the title, and that
+ * column is a scroll container (`overflow-x-hidden` beside the shell's
+ * `overflow-y: auto`). A scrollport does not extend above its own top edge, so
+ * `-mt-4` put the line 16px above the origin and the browser clipped all but
+ * its bottom 3px. Production rendered two grey specks — the descenders of
+ * "change" and "ago" — while `getBoundingClientRect` still reported a full
+ * 398x19 box. Layout said it was there; paint said it was not.
+ * Chris, 2026-09-23.
+ * @param props - The context bits.
+ * @param props.bits - Short facts, in reading order.
+ */
+export function ReportContextLine({ bits }: { bits: readonly string[] }) {
+  if (bits.length === 0) {
+    return null;
+  }
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+      {bits.map((bit, i) => (
+        <span key={bit} className="flex items-center gap-2">
+          {i > 0 && <span aria-hidden className="text-border">·</span>}
+          {bit}
+        </span>
+      ))}
+    </p>
   );
 }
 

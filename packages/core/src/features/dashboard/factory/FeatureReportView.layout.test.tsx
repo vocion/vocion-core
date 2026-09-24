@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { assembleFeatureReport } from '@/services/factory/featureReport';
-import { FeatureReportView } from './FeatureReportView';
+import { FeatureReportView, ReportContextLine } from './FeatureReportView';
 import '@/styles/global.css';
 
 /**
@@ -196,6 +196,58 @@ describe('the feature report, drawn', () => {
 
     expect(document.body.textContent).toContain('9f2c1ab7d4e5f60918273645aabbccddeeff0011');
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  });
+
+  it('draws the context line inside the scrollport, never above its top edge', async () => {
+    // It lived at the top of the report column under a `-mt-4`, to sit close
+    // to the title. That column is a scroll container, and a scrollport does
+    // not extend above its own top edge: the line was clipped to its bottom
+    // 3px and production showed two grey specks where "Send · minor change ·
+    // asked 1d ago" should have been — while getBoundingClientRect still
+    // reported a full-width box. Measure the paint, not the class name.
+    await page.viewport(390, 844);
+    await render(
+      <div className="h-[200px] overflow-x-hidden overflow-y-auto">
+        <ReportContextLine bits={['Send', 'minor change', 'asked 1d ago']} />
+      </div>,
+    );
+
+    const line = document.querySelector('p')!;
+    const port = line.parentElement!;
+
+    expect(line.textContent).toContain('minor change');
+    expect(line.getBoundingClientRect().top).toBeGreaterThanOrEqual(port.getBoundingClientRect().top);
+  });
+
+  it('opens the mockup itself when the mockup is tapped, at any width', async () => {
+    // At 430px a desktop mockup is an illegible thumbnail, and it is the one
+    // thing on this page that has to be looked at rather than read. The tap
+    // used to open the artifact's record page — which is exactly what the
+    // caption's "Open" link already does — so the page offered two tap
+    // targets with one outcome and no way to enlarge the mockup.
+    await page.viewport(390, 844);
+    await draw(fixture({
+      artifacts: [{
+        id: 91,
+        kind: 'mockup',
+        title: 'The send dialog',
+        recordType: 'object',
+        recordId: '41',
+        recordRole: 'proposal-visual',
+        spec: { contentType: 'image/png' },
+        url: 'https://files.example.test/send-dialog.png',
+        createdAt: T('2026-09-20T09:00:00Z'),
+      }],
+    }));
+
+    const shot = document.querySelector('#report-visuals img');
+
+    expect(shot).not.toBeNull();
+
+    const link = shot!.closest('a')!;
+
+    expect(link.getAttribute('href')).toBe(shot!.getAttribute('src'));
+    expect(link.getAttribute('href')).not.toBe('');
   });
 
   it('does not scroll sideways at a desk either', async () => {

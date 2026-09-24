@@ -64,6 +64,8 @@ export type LeadRow = LeadDossier & {
   companyName: string | null;
   entranceSource: string | null;
   utmCampaign: string | null;
+  /** The ad lead magnet they answered (`utm_content`), read from the CRM mirror. */
+  utmContent?: string | null;
   engagementSent: number;
   engagementOpened: number;
   status: string;
@@ -260,6 +262,9 @@ export const LeadView = (props: {
   // loses how it arrived.
   const meta = [
     { label: 'Lane', value: <StatusDot tone={LANE_TONE[pill.status] ?? 'neutral'} label={run ? 'Ready for review' : pill.label} /> },
+    // Which ad lead magnet they answered. Shown with or without a card: it is
+    // the lead's own fact, and the first thing a reviewer reads the copy against.
+    lead.utmContent ? { label: 'Lead magnet', value: lead.utmContent } : null,
     ...(run
       ? []
       : [

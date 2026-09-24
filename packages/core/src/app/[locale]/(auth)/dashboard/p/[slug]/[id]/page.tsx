@@ -1,6 +1,6 @@
 import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
-import { FeatureReportView } from '@/features/dashboard/factory/FeatureReportView';
+import { FeatureReportView, ReportContextLine } from '@/features/dashboard/factory/FeatureReportView';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -55,9 +55,24 @@ export default async function WorkspaceReportPage(props: {
           internal documentation explaining your database."* The subtitle is
           now what this work is FOR, and falls back to nothing rather than to
           boilerplate — a page with no goal recorded should look like one. */}
+      {/* The goal, then which work this is — product, size, spend, age. Both
+          belong in the title block: a person reading the outcome needs to know
+          which product it is on before anything below the fold means anything,
+          and the breadcrumb ("Factory / 121") tells them neither. */}
       <TitleBar
         title={report ? report.title : manifest.title}
-        description={report ? (report.goal ?? undefined) : manifest.description}
+        description={report
+          ? (
+              (report.goal ?? null) === null && report.context.length === 0
+                ? undefined
+                : (
+                    <>
+                      {report.goal}
+                      <ReportContextLine bits={report.context} />
+                    </>
+                  )
+            )
+          : manifest.description}
       />
       {/* The workforce panel does NOT belong here. "5 measures · 4 agents · 14
           skills" is configuration for the whole factory, shown above one piece

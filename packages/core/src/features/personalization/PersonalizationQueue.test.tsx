@@ -107,6 +107,12 @@ describe('PersonalizationQueue', () => {
     ).toBeVisible();
   });
 
+  it('names the lead magnet they answered, and leaves it out when the CRM carries none', async () => {
+    await render(<PersonalizationQueue briefs={[brief({ id: 22, contactName: 'Ines Duarte', utmContent: 'Managed Services Industry eBook' })]} />);
+
+    await expect.element(page.getByText(/via LinkedIn · Managed Services Industry eBook · 2 sent/)).toBeVisible();
+  });
+
   it('leaves engagement out of the row when the CRM carries none', async () => {
     await render(<PersonalizationQueue briefs={[brief({ id: 21, contactName: 'Dee Nakamura', entranceSource: null, utmCampaign: null, engagementSent: 0, engagementOpened: 0 })]} />);
 

@@ -39,7 +39,15 @@ const SHORT_DATE_TIME = new Intl.DateTimeFormat('en-US', { month: 'short', day: 
  */
 export function shortDateTime(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : SHORT_DATE_TIME.format(d);
+  if (Number.isNaN(d.getTime())) {
+    return iso;
+  }
+  // Assembled from parts, not `format()`: engines join date and time
+  // differently (Node and Chromium write "Sep 3, 5:47 PM", Safari writes
+  // "Sep 3 at 5:47 PM"), and a server render that differs from the browser's
+  // is a hydration mismatch on every Safari load.
+  const part = (type: Intl.DateTimeFormatPartTypes) => SHORT_DATE_TIME.formatToParts(d).find(p => p.type === type)?.value ?? '';
+  return `${part('month')} ${part('day')}, ${part('hour')}:${part('minute')} ${part('dayPeriod')} ${part('timeZoneName')}`;
 }
 
 /**

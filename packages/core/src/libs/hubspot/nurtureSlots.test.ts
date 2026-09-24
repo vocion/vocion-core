@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isNurtureSequence, nurtureSlotProperties, readNurtureSlotsConfig } from './nurtureSlots';
+import { ensureNurtureSlotProperties, isNurtureSequence, nurtureSlotProperties, readNurtureSlotsConfig } from './nurtureSlots';
 
 describe('nurture slots', () => {
   it('recognises a ladder rung by its name prefix, case-insensitively', () => {
@@ -59,5 +59,66 @@ describe('nurture slots', () => {
     ]);
 
     expect(props.pn_email_1_body).toBe('<p>Hi</p>');
+  });
+});
+
+describe('ensureNurtureSlotProperties', () => {
+  type Call = { method: 'GET' | 'POST'; path: string; body?: unknown };
+  function fakeClient(existing: Set<string>, failOn?: string) {
+    const calls: Call[] = [];
+    const client = {
+      get: async (path: string) => {
+        calls.push({ method: 'GET', path });
+        const name = path.split('/').pop()!;
+        if (failOn && name === failOn) {
+          return { ok: false as const, error: 'hubspot_error' as const, status: 500, message: 'portal down' };
+        }
+        return existing.has(name)
+          ? { ok: true as const, data: { name } }
+          : { ok: false as const, error: 'hubspot_error' as const, status: 404, message: 'not found' };
+      },
+      post: async (path: string, body: unknown) => {
+        calls.push({ method: 'POST', path, body });
+        return { ok: true as const, data: {} };
+      },
+    } as unknown as import('./client').HubspotClient;
+    return { client, calls };
+  }
+
+  it('creates only the slot properties the portal lacks, and leaves the rest alone', async () => {
+    const { client, calls } = fakeClient(new Set(['pn_email_1_subject', 'pn_email_1_body', 'pn_email_2_subject', 'pn_email_2_body', 'pn_email_3_subject', 'pn_email_3_body', 'pn_email_4_subject', 'pn_email_4_body']));
+    const cfg = readNurtureSlotsConfig({ maxSlots: 5 });
+
+    const res = await ensureNurtureSlotProperties(client, cfg, 5);
+
+    expect(res).toEqual({ ok: true, data: { created: ['pn_email_5_subject', 'pn_email_5_body'] } });
+
+    const posts = calls.filter(c => c.method === 'POST');
+
+    expect(posts).toHaveLength(2);
+    expect(posts[0]!.body).toMatchObject({ name: 'pn_email_5_subject', type: 'string', fieldType: 'text', groupName: 'contactinformation' });
+    expect(posts[1]!.body).toMatchObject({ name: 'pn_email_5_body', type: 'string', fieldType: 'textarea' });
+  });
+
+  it('is two reads per slot and no writes when everything exists', async () => {
+    const all = new Set(Array.from({ length: 4 }, (_, i) => [`pn_email_${i + 1}_subject`, `pn_email_${i + 1}_body`]).flat());
+    const { client, calls } = fakeClient(all);
+
+    const res = await ensureNurtureSlotProperties(client, readNurtureSlotsConfig({}), 4);
+
+    expect(res).toEqual({ ok: true, data: { created: [] } });
+    expect(calls.filter(c => c.method === 'POST')).toHaveLength(0);
+    expect(calls.filter(c => c.method === 'GET')).toHaveLength(8);
+  });
+
+  it('never checks beyond maxSlots, and hands back a portal error that is not a missing property', async () => {
+    const { client, calls } = fakeClient(new Set(), 'pn_email_2_subject');
+
+    const res = await ensureNurtureSlotProperties(client, readNurtureSlotsConfig({ maxSlots: 2 }), 9);
+
+    expect(res).toMatchObject({ ok: false, status: 500 });
+    // Slot 1 was created (two POSTs) before slot 2's read failed.
+    expect(calls.filter(c => c.method === 'POST')).toHaveLength(2);
+    expect(calls.some(c => c.path.endsWith('pn_email_3_subject'))).toBe(false);
   });
 });

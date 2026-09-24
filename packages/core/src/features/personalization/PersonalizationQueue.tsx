@@ -32,6 +32,10 @@ export type BriefRow = {
   companyName: string | null;
   entranceSource: string | null;
   utmCampaign: string | null;
+  /** The ad lead magnet they answered (`utm_content`), read from the CRM mirror. */
+  utmContent?: string | null;
+  /** The sequence the drafting pass recommended, by name; null before a recommendation exists. */
+  recommendedSequence?: string | null;
   engagementSent: number;
   engagementOpened: number;
   status: string;
@@ -72,6 +76,8 @@ const BriefListRow = ({ row }: { row: BriefRow }) => {
             // "via", not "utm=": what the CRM carries is the source detail
             // (the ad network, the keyword), only sometimes a campaign tag.
             row.utmCampaign ? `via ${row.utmCampaign}` : null,
+            // What they downloaded, named as the portal names it.
+            row.utmContent || null,
             row.engagementSent > 0 ? `${row.engagementSent} sent` : null,
             row.engagementOpened > 0 ? `${row.engagementOpened} opened` : null,
           ]}

@@ -32,7 +32,7 @@ const FACET_KEYS: Record<CrmObjectType, string[]> = {
 
 /** Metadata keys projected onto a returned row, per object type. */
 const ROW_KEYS: Record<CrmObjectType, string[]> = {
-  contacts: ['primaryEmail', 'company', 'jobTitle', 'lifecycleStage', 'ownerId', 'createdAt', 'originalSource', 'originalSourceDetail', 'emailDelivered', 'emailOpened', 'mqlEnteredAt', 'handoffReplyAt', 'handoffMeeting'],
+  contacts: ['primaryEmail', 'company', 'jobTitle', 'lifecycleStage', 'ownerId', 'createdAt', 'originalSource', 'originalSourceDetail', 'utmContent', 'emailDelivered', 'emailOpened', 'mqlEnteredAt', 'handoffReplyAt', 'handoffMeeting'],
   deals: ['amount', 'dealStageLabel', 'pipelineLabel', 'dealClosed', 'closeDate', 'ownerId', 'createdAt'],
   companies: ['domain', 'industry', 'employees', 'ownerId', 'createdAt'],
 };
@@ -306,6 +306,49 @@ export async function hubspotSources(orgId: string, allowedSourceSlugs?: string[
       isHubspotSource,
     ));
   return allowedSourceSlugs ? rows.filter(r => allowedSourceSlugs.includes(r.slug)) : rows;
+}
+
+/**
+ * The ad lead magnet (`utm_content`) each contact answered, read from the
+ * mirror by ref. The queue and the lead page read it here rather than from a
+ * column on `lead_brief`, because the queue's insert never updates a row it
+ * already holds: a column would stay empty on every lead queued before the
+ * property was synced, while the mirror carries it for all of them after the
+ * config change's full sync. Refs with no value are absent from the map.
+ * @param orgId
+ * @param refs - Mirror refs, `contacts:<id>`.
+ * @param allowedSourceSlugs
+ */
+export async function contactUtmContentByRef(
+  orgId: string,
+  refs: string[],
+  allowedSourceSlugs?: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const unique = [...new Set(refs)];
+  if (unique.length === 0) {
+    return out;
+  }
+  const sources = await hubspotSources(orgId, allowedSourceSlugs);
+  if (sources.length === 0) {
+    return out;
+  }
+  const rows = await db
+    .select({ ref: knowledgeDocumentSchema.externalId, value: meta('utmContent') })
+    .from(knowledgeDocumentSchema)
+    .where(and(
+      eq(knowledgeDocumentSchema.orgId, orgId),
+      inArray(knowledgeDocumentSchema.sourceId, sources.map(s => s.id)),
+      sql`${meta('objectType')} = 'contacts'`,
+      inArray(knowledgeDocumentSchema.externalId, unique),
+    ));
+  for (const r of rows) {
+    const value = typeof r.value === 'string' ? r.value.trim() : '';
+    if (value) {
+      out.set(r.ref, value);
+    }
+  }
+  return out;
 }
 
 /**
