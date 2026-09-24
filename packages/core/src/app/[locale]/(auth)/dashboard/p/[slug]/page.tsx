@@ -525,7 +525,10 @@ export default async function WorkspacePage(props: {
     // A named derivation runs FIRST, over every row: it is what turns stored
     // states into the lanes and sentences the page is declared in, and it
     // needs the whole set to count what it then leaves out.
-    const loaded = await loadRows(manifest, orgId);
+    // A URL filter narrows the rows BEFORE the derivation counts them, so a
+    // lane note under "Send only" counts Send, not the whole factory (Chris,
+    // 2026-09-24: "3 to decide · 5 more queued" over four rows).
+    const loaded = applyQueryFilters(await loadRows(manifest, orgId), queryFilters);
     const derived = manifest.derive === 'workQueue'
       ? deriveWorkQueue(loaded, { now: new Date(now) })
       : manifest.derive === 'releaseOutcome'
@@ -538,7 +541,6 @@ export default async function WorkspacePage(props: {
     // each row shows (`services/workspace/pageImages.ts`).
     const drawn = await resolveRowImages(orgId, derived, manifest.fields ?? []);
     rows = applyFilter(drawn, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
-    rows = applyQueryFilters(rows, queryFilters);
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {
@@ -694,7 +696,7 @@ export default async function WorkspacePage(props: {
         <p className="mb-4 flex flex-wrap items-center gap-2 text-sm" data-testid="page-query-filters">
           {queryFilters.map(f => (
             <span key={f.param} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
-              <span className="text-foreground">{f.value}</span>
+              <span className="text-foreground">{f.value.charAt(0).toUpperCase() + f.value.slice(1)}</span>
               {' '}
               only
             </span>
@@ -808,6 +810,7 @@ export default async function WorkspacePage(props: {
             rowLink={manifest.rowLink}
             rowActions={manifest.rowActions}
             rowActionsAs={manifest.rowActionsAs}
+            omitConstants={queryFilters.map(f => f.field)}
             groupLabel={groupLabel}
             now={now}
             links={links}
