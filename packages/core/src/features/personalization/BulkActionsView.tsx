@@ -8,7 +8,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useRouter } from '@/libs/I18nNavigation';
 import { LANE_PILL, shortDateTime } from './leadFormat';
-import { BRIEFED_WINDOWS, BULK_NONE, distinctValues, filterBulkRows, QUEUE_LANES } from './queueFilter';
+import { BRIEFED_WINDOWS, BULK_NONE, distinctValues, ERROR_CHIP, filterBulkRows, QUEUE_LANES } from './queueFilter';
 
 const REVIEW = 'ready_for_review';
 
@@ -185,9 +185,9 @@ export const BulkActionsView = (props: { rows: BriefRow[]; initial: BulkFilter; 
             />
           </label>
           <div className="flex flex-col lg:col-span-3">
-            <span className={label}>Briefed</span>
+            <span className={label}>Narrow to</span>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {BRIEFED_WINDOWS.map((w) => {
+              {[...BRIEFED_WINDOWS, ERROR_CHIP].map((w) => {
                 const on = filter.chips.includes(w.key);
                 return (
                   <button
@@ -241,12 +241,13 @@ export const BulkActionsView = (props: { rows: BriefRow[]; initial: BulkFilter; 
                 <TableHead>Recommended sequence</TableHead>
                 <TableHead>Briefed</TableHead>
                 <TableHead>Lane</TableHead>
+                <TableHead>Last error</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {shown.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-muted-foreground">No leads match these filters.</TableCell>
+                  <TableCell colSpan={8} className="text-muted-foreground">No leads match these filters.</TableCell>
                 </TableRow>
               )}
               {shown.map((r) => {
@@ -270,6 +271,7 @@ export const BulkActionsView = (props: { rows: BriefRow[]; initial: BulkFilter; 
                     <TableCell className="max-w-64 truncate text-muted-foreground">{r.recommendedSequence ?? ''}</TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">{r.briefedAt ? shortDateTime(r.briefedAt) : ''}</TableCell>
                     <TableCell><StatusPill status={pill.status} label={pill.label} size="sm" /></TableCell>
+                    <TableCell className="max-w-72 truncate text-brand-fail" title={r.lastError ?? undefined}>{r.lastError ?? ''}</TableCell>
                   </TableRow>
                 );
               })}

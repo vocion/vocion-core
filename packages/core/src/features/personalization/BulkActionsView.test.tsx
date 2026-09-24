@@ -113,4 +113,13 @@ describe('BulkActionsView', () => {
     await expect.element(page.getByTestId('bulk-row-3')).toBeDisabled();
     await expect.element(page.getByTestId('bulk-count')).toHaveTextContent('1 of 1 selected');
   });
+
+  it('narrows to leads with an error, and shows why each failed', async () => {
+    await render(<BulkActionsView rows={[row({ id: 1, contactName: 'Ada', lastError: 'The last regenerate did not validate' }), row({ id: 2, contactName: 'Bo' })]} initial={REVIEW_ALL} now={NOW} />);
+    await page.getByTestId('bulk-filter-window-errored').click();
+
+    await expect.element(page.getByTestId('bulk-count')).toHaveTextContent('1 of 1 selected');
+    await expect.element(page.getByTestId('bulk-tr-2')).not.toBeInTheDocument();
+    await expect.element(page.getByTestId('bulk-tr-1')).toHaveTextContent('The last regenerate did not validate');
+  });
 });
