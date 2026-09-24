@@ -1,5 +1,6 @@
 import type { EvaluatorSummary } from './evalTrend';
 import { ChevronRight } from 'lucide-react';
+import { formatPassRate } from '@/libs/evals/formatPassRate';
 
 /**
  * Per-evaluator scores for the period, as a table under the pass-rate chart.
@@ -16,14 +17,6 @@ const DIRECTION_COPY: Record<EvaluatorSummary['direction'], { arrow: string; wor
   down: { arrow: '▼', words: 'below its average' },
   flat: { arrow: '–', words: 'about its average' },
 };
-
-/**
- * A 0–1 score as a whole percentage.
- * @param value - The score.
- */
-function percent(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
 
 /**
  * @param props - Props.
@@ -61,8 +54,8 @@ export function EvaluatorBreakdown(props: { rows: EvaluatorSummary[]; showGrader
               <tr key={`${row.provider}:${row.evaluatorSlug}`}>
                 <td className="px-4 py-2 font-mono text-foreground">{row.evaluatorSlug}</td>
                 {props.showGrader && <td className="px-4 py-2 text-muted-foreground">{row.providerLabel}</td>}
-                <td className="px-4 py-2 text-right font-mono text-foreground">{percent(row.latest)}</td>
-                <td className="px-4 py-2 text-right font-mono text-muted-foreground">{percent(row.average)}</td>
+                <td className="px-4 py-2 text-right font-mono text-foreground">{formatPassRate(row.latest)}</td>
+                <td className="px-4 py-2 text-right font-mono text-muted-foreground">{formatPassRate(row.average)}</td>
                 <td className="px-4 py-2 text-muted-foreground">
                   <span aria-hidden className="mr-1">{DIRECTION_COPY[row.direction].arrow}</span>
                   {`${DIRECTION_COPY[row.direction].words} (${row.runs} run${row.runs === 1 ? '' : 's'})`}

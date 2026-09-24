@@ -2105,7 +2105,7 @@ export const evalScoreSchema = pgTable('eval_score', {
   /** TOOL_CALL | TRACE | SESSION — the grain this evaluator judges at. */
   level: text('level').default('TRACE').notNull(),
   /** Numeric score, normally 0..1. NULL when the evaluator only returns a label. */
-  value: real('value'),
+  value: doublePrecision('value'),
   /**
    * The provider's own categorical verdict, stored exactly as it came back.
    * Never coerced to pass/fail: "Perfectly Correct" and "Yes" come from

@@ -63,7 +63,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
  * - `to` — runs that started before this, in the same forms. Left out means up to now.
  * - `outcome` — `errored` for runs that broke before they were scored, or
  *   `below_threshold` for scored runs under the dataset's pass threshold.
- *   Left out means every run. Narrows the list only, never the summary.
+ *   Only the dataset's current grader's runs match, the same runs the
+ *   summary counts. Left out means every run, from any grader. Narrows the
+ *   list only, never the summary.
  * - `page` — 1-based page of the run list; defaults to 1.
  *
  * A bad date, a backwards range, or a range with both ends longer than 366
@@ -72,7 +74,8 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
  *
  * Paged newest first, 20 to a page (`EVAL_RUNS_PAGE_SIZE`), with `hasMore`
  * saying whether to ask for the next — every run in the period is reachable.
- * The summary covers the whole period, not just the page.
+ * The summary covers the whole period, not just the page, and only the
+ * dataset's current grader.
  * @param req - The request.
  * @param context - Route context.
  * @param context.params - `slug`, the dataset.
@@ -109,6 +112,8 @@ export async function GET(req: Request, context: { params: Promise<{ slug: strin
       range: range.range,
       outcome: outcome.outcome,
       passThreshold: passThresholdFor(dataset.passThreshold),
+      // The summary counts only the current grader, so its filters do too.
+      provider: outcome.outcome ? dataset.provider : undefined,
     }),
     summariseRunPeriod(auth.orgId, dataset.id, dataset, range.range),
   ]);

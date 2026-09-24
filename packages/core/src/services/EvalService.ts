@@ -315,17 +315,17 @@ export async function listRunTrend(orgId: string, datasetId: number, range?: Run
 
 /** The headline numbers for one dataset over one period. */
 export type RunPeriodSummary = {
-  /** Every run that started in the period, whatever its status or grader. */
+  /** Every run the dataset's current grader started in the period, whatever its status. */
   runCount: number;
-  /** Finished runs, scored by the dataset's current grader, that have a pass rate. */
+  /** Of those, the finished runs that have a pass rate. */
   scoredCount: number;
   /** Mean pass rate of those scored runs, 0–1; null when there are none. */
   averagePassRate: number | null;
   /** The newest of those scored runs' pass rate, 0–1; null when there are none. */
   latestPassRate: number | null;
-  /** Runs that broke before they were scored (status `failed`), any grader. */
+  /** Of those, the runs that broke before they were scored (status `failed`). */
   erroredCount: number;
-  /** Finished runs, any grader, whose pass rate is under the dataset's bar. */
+  /** Of those, the finished runs whose pass rate is under the dataset's bar. */
   belowThresholdCount: number;
   /** The bar `belowThresholdCount` used, 0–1. */
   passThreshold: number;
@@ -334,15 +334,17 @@ export type RunPeriodSummary = {
 /**
  * The numbers above a dataset's chart, for one period, counted in SQL.
  *
- * The averages cover only runs scored by `provider`, the dataset's current
- * grader: two graders score the same answers differently, and a mean across
- * both is a number neither of them produced. The run count and the two
- * failure counts cover every run, because a run that broke or scored under
- * the bar is a problem whoever graded it.
+ * Every number covers only runs by `provider`, the dataset's current grader.
+ * Two graders score the same answers differently, so a mean across both is a
+ * number neither produced, and the counts follow the same grader so the cards
+ * describe one thing. A run from an earlier grader still shows in the run
+ * list under "All runs", tagged with who graded it; the outcome filters are
+ * narrowed to the current grader by their callers, so a card and the list it
+ * links to always agree.
  * @param orgId - Whose runs.
  * @param datasetId - Which dataset.
  * @param dataset - What the dataset says about its own runs.
- * @param dataset.provider - The grader whose pass rates to average.
+ * @param dataset.provider - The grader whose runs to count and average.
  * @param dataset.passThreshold - The dataset's bar, 0–1, or null for the runner's default.
  * @param range - The period. Omitted means all time.
  */
@@ -354,8 +356,13 @@ export async function summariseRunPeriod(
 ): Promise<RunPeriodSummary> {
   const passRate = RUN_PASS_RATE;
   const threshold = passThresholdFor(dataset.passThreshold);
-  const scored = and(eq(evalRunSchema.provider, dataset.provider), RUN_IS_SCORED);
-  const inPeriod = and(eq(evalRunSchema.orgId, orgId), eq(evalRunSchema.datasetId, datasetId), ...startedWithin(range));
+  const scored = RUN_IS_SCORED;
+  const inPeriod = and(
+    eq(evalRunSchema.orgId, orgId),
+    eq(evalRunSchema.datasetId, datasetId),
+    eq(evalRunSchema.provider, dataset.provider),
+    ...startedWithin(range),
+  );
 
   const [totals] = await db
     .select({

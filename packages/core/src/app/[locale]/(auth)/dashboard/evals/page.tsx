@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { formatPassRate } from '@/libs/evals/formatPassRate';
 import { Link } from '@/libs/I18nNavigation';
 import { EVAL_DATASETS_PAGE_SIZE, listDatasetsPage, summariseDatasetRuns } from '@/services/EvalService';
 import { summariseLastRun } from './lastRun';
@@ -132,7 +133,7 @@ export default async function EvalsPage(props: Props) {
                           <Fact label="Runs" value={String(facts?.runCount ?? 0)} mono />
                           <Fact
                             label="Pass rate"
-                            value={typeof passRate === 'number' ? `${Math.round(passRate * 100)}%` : 'not scored yet'}
+                            value={typeof passRate === 'number' ? formatPassRate(passRate) : 'not scored yet'}
                             mono={typeof passRate === 'number'}
                             tone={typeof passRate === 'number' && passRate < 0.8 ? 'warn' : undefined}
                           />

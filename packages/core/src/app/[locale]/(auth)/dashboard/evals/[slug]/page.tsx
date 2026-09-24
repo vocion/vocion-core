@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { formatPassRate } from '@/libs/evals/formatPassRate';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { describeDatasetSync } from '@/services/evals/publish';
@@ -99,7 +100,14 @@ export default async function EvalDatasetDetailPage(props: Props) {
   // threshold that the runner passed, or colours it green when it failed.
   const passThreshold = passThresholdFor(dataset.passThreshold);
   const [{ runs, page, hasMore }, trend, summary] = await Promise.all([
-    listRunsPage(orgId, dataset.id, { page: Number.isNaN(requestedPage) ? 1 : requestedPage, range: period.range, outcome, passThreshold }),
+    // The summary counts only the current grader, so the filters its cards link to do too.
+    listRunsPage(orgId, dataset.id, {
+      page: Number.isNaN(requestedPage) ? 1 : requestedPage,
+      range: period.range,
+      outcome,
+      passThreshold,
+      provider: outcome ? dataset.provider : undefined,
+    }),
     listRunTrend(orgId, dataset.id, period.range),
     summariseRunPeriod(orgId, dataset.id, dataset, period.range),
   ]);
@@ -361,8 +369,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
                           {typeof pass === 'number' && (
                             <RunFact label="Pass rate">
                               <span className={pass >= passThreshold ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
-                                {Math.round(pass * 100)}
-                                %
+                                {formatPassRate(pass)}
                               </span>
                             </RunFact>
                           )}
@@ -530,8 +537,8 @@ function RunsPager(props: { slug: string; page: number; shown: number; hasMore: 
  * 0%, which would read as "fails everything" about a period nobody measured.
  * @param rate - 0–1, or null.
  */
-function formatPassRate(rate: number | null): string {
-  return rate === null ? '—' : `${Math.round(rate * 100)}%`;
+function formatRateOrDash(rate: number | null): string {
+  return rate === null ? '—' : formatPassRate(rate);
 }
 
 /**
@@ -549,7 +556,7 @@ function formatPassRate(rate: number | null): string {
  */
 function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string; slug: string; periodQuery: string }) {
   const { summary } = props;
-  const threshold = `${Math.round(summary.passThreshold * 100)}%`;
+  const threshold = formatPassRate(summary.passThreshold);
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" data-testid="eval-period-summary">
       <SummaryStat label="Runs" value={summary.runCount.toLocaleString('en-US')} detail="Started in this period" />
@@ -567,8 +574,8 @@ function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string; 
         tone={summary.belowThresholdCount > 0 ? 'warning' : undefined}
         href={summary.belowThresholdCount > 0 ? outcomeHref(props.slug, props.periodQuery, 'below_threshold') : undefined}
       />
-      <SummaryStat label="Average pass rate" value={formatPassRate(summary.averagePassRate)} detail={`${summary.scoredCount.toLocaleString('en-US')} run${summary.scoredCount === 1 ? '' : 's'} · ${props.graderLabel}`} />
-      <SummaryStat label="Latest pass rate" value={formatPassRate(summary.latestPassRate)} detail="Most recent run" />
+      <SummaryStat label="Average pass rate" value={formatRateOrDash(summary.averagePassRate)} detail={`${summary.scoredCount.toLocaleString('en-US')} run${summary.scoredCount === 1 ? '' : 's'} · ${props.graderLabel}`} />
+      <SummaryStat label="Latest pass rate" value={formatRateOrDash(summary.latestPassRate)} detail="Most recent run" />
     </div>
   );
 }

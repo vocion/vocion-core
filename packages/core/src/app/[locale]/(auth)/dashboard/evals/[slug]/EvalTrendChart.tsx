@@ -2,6 +2,7 @@
 
 import type { EvalTrendPoint } from './evalTrend';
 import { useState } from 'react';
+import { formatPassRate } from '@/libs/evals/formatPassRate';
 import { buildSeries, chartSeries, versionBoundaries } from './evalTrend';
 
 const WIDTH = 880;
@@ -127,8 +128,8 @@ export function EvalTrendChart(props: {
         {hover && (
           <span className="ml-auto tabular-nums">
             {hover.evaluatorSlug
-              ? `#${hover.runId} · ${new Date(hover.startedAt).toLocaleString()} · ${hover.evaluatorSlug} ${Math.round(hover.passRate * 100)}%`
-              : `#${hover.runId} · ${new Date(hover.startedAt).toLocaleString()} · ${Math.round(hover.passRate * 100)}% pass`}
+              ? `#${hover.runId} · ${new Date(hover.startedAt).toLocaleString()} · ${hover.evaluatorSlug} ${formatPassRate(hover.passRate)}`
+              : `#${hover.runId} · ${new Date(hover.startedAt).toLocaleString()} · ${formatPassRate(hover.passRate)} pass`}
           </span>
         )}
       </div>
@@ -171,12 +172,12 @@ export function EvalTrendChart(props: {
               strokeOpacity="0.45"
               strokeDasharray="4 4"
             >
-              <title>{`Pass threshold: ${Math.round(props.passThreshold * 100)}%. Runs under this line fail the dataset's bar.`}</title>
+              <title>{`Pass threshold: ${formatPassRate(props.passThreshold)}. Runs under this line fail the dataset's bar.`}</title>
             </line>
           )}
           {props.passThreshold !== undefined && (
             <text x={WIDTH - PAD.right + 6} y={y(props.passThreshold) + 4} fontSize="12" fill="currentColor" fillOpacity="0.6">
-              {`${Math.round(props.passThreshold * 100)}% threshold`}
+              {`${formatPassRate(props.passThreshold)} threshold`}
             </text>
           )}
 
@@ -249,13 +250,13 @@ export function EvalTrendChart(props: {
                   fillOpacity="0.001"
                   className={slotClasses(line.colorSlot).fill}
                   tabIndex={0}
-                  aria-label={`${line.label}, run ${point.runId}, ${Math.round(point.passRate * 100)} percent pass`}
+                  aria-label={`${line.label}, run ${point.runId}, ${formatPassRate(point.passRate)} pass`}
                   onMouseEnter={() => setHover(point)}
                   onMouseLeave={() => setHover(null)}
                   onFocus={() => onPointFocus(point, setHover, setFocusedRunId)}
                   onBlur={() => onPointBlur(setHover, setFocusedRunId)}
                 >
-                  <title>{`${line.label} · #${point.runId} · ${Math.round(point.passRate * 100)}% pass`}</title>
+                  <title>{`${line.label} · #${point.runId} · ${formatPassRate(point.passRate)} pass`}</title>
                 </circle>
               ))}
             </g>

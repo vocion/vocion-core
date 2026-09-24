@@ -50,11 +50,12 @@ async function createDataset(orgId: string): Promise<number> {
   return dataset!.id;
 }
 
-async function createRun(orgId: string, datasetId: number, startedAt: string, passRate: number): Promise<void> {
+async function createRun(orgId: string, datasetId: number, startedAt: string, passRate: number, provider = 'vocion'): Promise<void> {
   await db.insert(evalRunSchema).values({
     orgId,
     datasetId,
     agentSlug: 'support-agent',
+    provider,
     status: 'succeeded',
     startedAt: new Date(startedAt),
     metrics: { passRate },
@@ -101,6 +102,20 @@ describe('GET /api/v1/evals/:slug/runs', () => {
     expect(body.runs.map((run: { metrics: { passRate: number } }) => run.metrics.passRate)).toEqual([0.5]);
     expect(body.outcome).toBe('below_threshold');
     expect(body.summary.runCount).toBe(2);
+  });
+
+  it('filters and counts only the dataset\'s current grader, so a card and its list agree', async () => {
+    const datasetId = await createDataset(ORG);
+    await createRun(ORG, datasetId, '2026-09-02T12:00:00Z', 0.5);
+    // An earlier grader's low score: still in "All runs", but not the current grader's problem.
+    await createRun(ORG, datasetId, '2026-09-03T12:00:00Z', 0.1, 'agentcore');
+
+    const filtered = await (await GET(get('?from=2026-09-01&outcome=below_threshold'), paramsFor(SLUG))).json();
+    const all = await (await GET(get('?from=2026-09-01'), paramsFor(SLUG))).json();
+
+    expect(filtered.runs.map((run: { metrics: { passRate: number } }) => run.metrics.passRate)).toEqual([0.5]);
+    expect(filtered.summary.belowThresholdCount).toBe(1);
+    expect(all.runs).toHaveLength(2);
   });
 
   it('pages inside the period', async () => {

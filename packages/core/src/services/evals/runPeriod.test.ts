@@ -144,12 +144,12 @@ describe('listRunTrend', () => {
 });
 
 describe('summariseRunPeriod', () => {
-  it('counts every run but averages only the dataset\'s own grader', async () => {
+  it('counts and averages only the dataset\'s own grader', async () => {
     const datasetId = await createDataset();
     await createRuns(datasetId, [
       { startedAt: new Date('2026-09-02T00:00:00Z'), passRate: 0.6 },
       { startedAt: new Date('2026-09-03T00:00:00Z'), passRate: 1 },
-      // Another grader's score and a failed run count as runs, never toward the average.
+      // Another grader's run counts toward nothing; a failed run counts as a run, not toward the average.
       { startedAt: new Date('2026-09-04T00:00:00Z'), passRate: 0, provider: 'agentcore' },
       { startedAt: new Date('2026-09-05T00:00:00Z'), status: 'failed' },
       // Outside the period altogether.
@@ -158,7 +158,7 @@ describe('summariseRunPeriod', () => {
 
     const summary = await summariseRunPeriod(ORG, datasetId, VOCION_DEFAULT_BAR, SEPT_WEEK);
 
-    expect(summary).toEqual({ runCount: 4, scoredCount: 2, averagePassRate: 0.8, latestPassRate: 1, erroredCount: 1, belowThresholdCount: 2, passThreshold: 0.8 });
+    expect(summary).toEqual({ runCount: 3, scoredCount: 2, averagePassRate: 0.8, latestPassRate: 1, erroredCount: 1, belowThresholdCount: 1, passThreshold: 0.8 });
   });
 
   it('reports no pass rate, not 0%, for a period nobody scored', async () => {
@@ -207,7 +207,7 @@ describe('summariseRunPeriod counting what went wrong', () => {
     expect(summary.belowThresholdCount).toBe(0);
   });
 
-  it('counts errors and low scores from every grader, not just the current one', async () => {
+  it('leaves an earlier grader\'s errors and low scores out of the current grader\'s counts', async () => {
     const datasetId = await createDataset();
     await createRuns(datasetId, [
       { startedAt: new Date('2026-09-02T00:00:00Z'), passRate: 0.1, provider: 'agentcore' },
@@ -216,7 +216,7 @@ describe('summariseRunPeriod counting what went wrong', () => {
 
     const summary = await summariseRunPeriod(ORG, datasetId, VOCION_DEFAULT_BAR, SEPT_WEEK);
 
-    expect(summary).toMatchObject({ erroredCount: 1, belowThresholdCount: 1, averagePassRate: null });
+    expect(summary).toMatchObject({ runCount: 0, erroredCount: 0, belowThresholdCount: 0, averagePassRate: null });
   });
 });
 
