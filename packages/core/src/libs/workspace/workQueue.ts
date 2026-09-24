@@ -467,9 +467,16 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
   }
   const returnedTo = str(row, 'returnedTo');
   if (lane !== 'done' && returnedTo) {
-    const gate = meta(row).gate as { name?: string; failed?: Array<{ field: string; why: string }> } | undefined;
+    const gate = meta(row).gate as { name?: string; failed?: Array<{ field: string; why: string }>; judged?: string; reasonCode?: string; example?: string; note?: string } | undefined;
     const first = gate?.failed?.[0];
-    return first ? `Gate "${gate?.name}": ${first.why}${(gate?.failed?.length ?? 0) > 1 ? ` (+${gate!.failed!.length - 1} more)` : ''}. No action needed from you.` : 'Sent back by a gate. No action needed from you.';
+    if (first) {
+      return `Gate "${gate?.name}": ${first.why}${(gate?.failed?.length ?? 0) > 1 ? ` (+${gate!.failed!.length - 1} more)` : ''}. No action needed from you.`;
+    }
+    if (gate?.judged === 'return') {
+      const what = gate.example || gate.note || gate.reasonCode || 'did not pass the rubric';
+      return `Gate "${gate.name}" sent it back: ${what}. No action needed from you.`;
+    }
+    return 'Sent back by a gate. No action needed from you.';
   }
   if (lane === 'progress') {
     const tasks = num(row, 'taskCount') ?? 0;

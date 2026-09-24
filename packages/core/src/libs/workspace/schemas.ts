@@ -168,6 +168,15 @@ export const WorkspaceManifestSchema = z.object({
       openMax: z.number().int().min(0).optional(),
       weeklyMax: z.number().int().min(0).optional(),
     }).optional(),
+    /**
+     * How strict the handoff judges are in THIS workspace: overrides every
+     * gate's `judge.sampleRate` / `judge.escalateBelow` at apply time. The
+     * plugin declares the gates; the workspace turns the dial.
+     */
+    gates: z.object({
+      sampleRate: z.number().min(0).max(1).optional(),
+      escalateBelow: z.number().min(0).max(1).optional(),
+    }).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -1333,11 +1342,29 @@ const GateRequirementSchema = z.object({
   message: z.string().optional(),
 }).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined, { message: 'a requirement needs present, minItems, oneOf or maxAgeDays' });
 
+/**
+ * The judgement half of a gate: after the deterministic checks pass, one
+ * model call reads the record against the seat's rubric (a skill) and, when
+ * named, the reference cases (an eval dataset), and says pass, return, or
+ * escalate to a person. The workspace steers the numbers (`defaults.gates`).
+ */
+export const GateJudgeSchema = z.object({
+  rubric: z.string().min(1).describe('skill slug — the seat\'s one-page rubric'),
+  cases: z.string().min(1).optional().describe('eval dataset slug — the reference cases the judge is calibrated on'),
+  /** Below this confidence in its own verdict, the judge escalates to a person instead of deciding. */
+  escalateBelow: z.number().min(0).max(1).default(0.6),
+  /** How often the judge runs at all; 1 = every crossing. Autonomy earned lowers it. */
+  sampleRate: z.number().min(0).max(1).default(1),
+  /** Field values that always go to a person whatever the judge says (e.g. riskClass: [schema, billing]). */
+  alwaysEscalate: z.record(z.string(), z.array(z.string())).optional(),
+});
+
 export const HandoffGateSchema = z.object({
   name: z.string().min(1),
   when: z.object({ field: z.string().min(1), becomes: z.array(z.string().min(1)).min(1) }),
   producedBy: z.string().min(1).describe('the agent slug whose work this is — where a failure is returned'),
   require: z.array(GateRequirementSchema).min(1),
+  judge: GateJudgeSchema.optional(),
 });
 
 export const ObjectTypeManifestSchema = z.object({

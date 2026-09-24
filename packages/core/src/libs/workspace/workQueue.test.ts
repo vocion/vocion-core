@@ -543,4 +543,12 @@ describe('which picture the card shows', () => {
     expect(out[0]!.meta.state).toBe('Returned to PM');
     expect(out[0]!.meta.workLine).toBe('Gate "decision-ready": acceptance has 1 item; at least 3 needed (+1 more). No action needed from you.');
   });
+
+  it('a row the judge sent back names the thing that failed', () => {
+    const rows = [row(51, 'judged back', { state: 'triaged', returnedTo: 'product-manager', gate: { name: 'decision-ready', judged: 'return', reasonCode: 'untestable-criteria', example: '"done when it works"' } })];
+    const out = deriveWorkQueue(rows, { now: NOW });
+
+    expect(out[0]!.meta.state).toBe('Returned to PM');
+    expect(out[0]!.meta.workLine).toBe('Gate "decision-ready" sent it back: "done when it works". No action needed from you.');
+  });
 });

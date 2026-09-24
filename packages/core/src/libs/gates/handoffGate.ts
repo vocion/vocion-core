@@ -37,6 +37,14 @@ export type HandoffGate = {
   /** The seat whose work this is — where a failure is returned to. */
   producedBy: string;
   require: GateRequirement[];
+  /** The judgement half — see `services/gates/handoffJudge.ts`. */
+  judge?: {
+    rubric: string;
+    cases?: string;
+    escalateBelow: number;
+    sampleRate: number;
+    alwaysEscalate?: Record<string, string[]>;
+  };
 };
 
 export type GateFailure = { gate: HandoffGate; failed: Array<{ field: string; why: string }>; to: string };
