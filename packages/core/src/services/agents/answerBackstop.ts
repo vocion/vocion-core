@@ -76,7 +76,7 @@ export function evidenceBlock(toolCalls: ReadonlyArray<AnswerBackstopToolCall>):
  * @param steps - How many tool steps ran.
  */
 export function answerPassSystem(systemPrompt: string | undefined, steps: number): string {
-  return `${systemPrompt ?? ''}\n\nANSWER PASS. You ran ${steps} tool step${steps === 1 ? '' : 's'} and ended your turn without answering the person; your reply so far is a sentence saying you would look. The results of those steps are below. Answer the person NOW, from those results, in your own voice and at the length the question deserves. Do not call tools and do not narrate what you are about to do. If the results do not settle something, say exactly what you could not establish and what would — never guess. If the person asked for something to be filed, decided or recommended and you did not do it, say so plainly and say what you need from them to do it.`.trim();
+  return `${systemPrompt ?? ''}\n\nANSWER PASS. You ran ${steps} tool step${steps === 1 ? '' : 's'} and ended your turn without answering the person; your reply so far is a sentence saying you would look. The results of those steps are below. Answer the person NOW, from those results, in your own voice. Phone-length: the one thing to do first, then at most one screen of why; detail belongs to a follow-up. Do not call tools and do not narrate what you are about to do. If the results do not settle something, say exactly what you could not establish and what would — never guess. If the person asked for something to be filed, decided or recommended and you did not do it, say so plainly and say what you need from them to do it.`.trim();
 }
 
 /**

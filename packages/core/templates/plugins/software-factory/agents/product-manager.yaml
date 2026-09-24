@@ -41,6 +41,13 @@ handles:
   - what have you built
   - releases
 initiative: high
+# CARDS EMERGE, they are not narrated. When an answer names things a person
+# should decide ("Lead action: tell me to…") and the turn emitted fewer than
+# three cards, the runtime runs one gated pass that emits the cards the answer
+# already names (harness.recommendActionBackstop — structural, not a prompt
+# line; Chris, 2026-09-24: "I would have expected action cards for this").
+harness:
+  recommendActionBackstop: true
 playbooks:
   - naming-the-work
   - designing-a-surface
