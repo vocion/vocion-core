@@ -191,6 +191,17 @@ describe('awsEvaluatorName', () => {
       .toBe(awsEvaluatorName(ORG, longDataset, 'tone-check-strict'));
   });
 
+  it('produces a legal name from slugs that start with a digit or hold no ASCII at all', () => {
+    expect(awsEvaluatorName('2024', '9-lives', '1st-pass')).toMatch(AWS_EVALUATOR_NAME);
+    expect(awsEvaluatorName('', '', '')).toMatch(AWS_EVALUATOR_NAME);
+    expect(awsEvaluatorName(ORG, 'qualité', 'ton-vérifié')).toMatch(AWS_EVALUATOR_NAME);
+  });
+
+  it('keeps apart slugs that differ only in characters AWS cannot hold', () => {
+    // Both collapse to the same readable text, so only the hash tells them apart.
+    expect(awsEvaluatorName(ORG, DATASET, 'tone.check')).not.toBe(awsEvaluatorName(ORG, DATASET, 'tone-check'));
+  });
+
   it('gives the same evaluator the same name every time', () => {
     expect(awsEvaluatorName(ORG, DATASET, 'tone-check')).toBe(awsEvaluatorName(ORG, DATASET, 'tone-check'));
   });

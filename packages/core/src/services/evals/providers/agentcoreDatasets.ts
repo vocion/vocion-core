@@ -419,8 +419,10 @@ export function awsDatasetName(orgId: string, datasetSlug: string): string {
  * AWS caps it at 200 characters, and an authored description is often longer.
  * Only AWS's copy is shortened: the full text stays in Vocion, which is where
  * people read it. The limit is measured in UTF-16 units, the stricter of the
- * two ways AWS could count, but the cut falls between whole characters, so an
- * emoji at the boundary is dropped whole instead of split in half.
+ * two ways AWS could count, but the cut falls between code points, so a
+ * surrogate pair at the boundary is never split into invalid UTF-16. A joined
+ * emoji sequence (a flag, a family) can still lose its tail, which only
+ * changes how the last glyph looks in AWS's copy.
  * @param description - The description as authored.
  */
 export function awsDatasetDescription(description: string): string {
