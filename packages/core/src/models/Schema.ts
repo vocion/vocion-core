@@ -2,7 +2,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
-import { bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -51,6 +51,15 @@ const tsvector = customType<{ data: string; driverData: string }>({
 /*   - `project` replaces today's `orgId` scope on business content.     */
 /*     Columns are added in a follow-up migration after callers migrate. */
 /* ==================================================================== */
+
+/**
+ * The role a person holds IN ONE WORKSPACE. Mirrors `WorkspaceRole` in
+ * `services/authz.ts`, which owns the grant model these map to; the DDL pins
+ * the same four with a CHECK. Declared here rather than imported so the schema
+ * stays free of service imports — `workspaceAccessRole.test.ts` fails if the
+ * two ever drift.
+ */
+type WorkspaceAccessRole = 'owner' | 'pm' | 'specialist' | 'client_reviewer';
 
 /** A person. Drizzle adapter shape for auth.js v5. */
 export const userSchema = pgTable('user', {
@@ -176,6 +185,19 @@ export const projectSchema = pgTable(
      * resolved to a user id at apply.
      */
     accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    /**
+     * `shared` — a workspace the team works in, the only kind before 0142.
+     * `personal` — one person's own workspace, holding their exec assistant.
+     *
+     * The distinction is load-bearing in two places that have nothing to do
+     * with the UI: a personal workspace is never a target of a group grant,
+     * and the deploy's stale-row sweep keys on this rather than on a list of
+     * known slugs (a slug list swept every personal workspace's agents,
+     * missions and ingested mail on every deploy).
+     */
+    kind: text('kind').$type<'shared' | 'personal'>().default('shared').notNull(),
+    /** Set iff `kind = 'personal'`: the person the workspace belongs to. */
+    ownerUserId: text('owner_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
     /**
      * Optional dashboard surfaces this workspace switched on, by registry id
      * (`features/navigation/surfaces.ts`). Authored as top-level `surfaces:`
@@ -382,6 +404,101 @@ export const inviteSchema = pgTable(
   },
   table => [
     index('invite_account_email_idx').on(table.accountId, table.email),
+  ],
+);
+
+/* ==================================================================== */
+/* Workspace access (0142)                                               */
+/*                                                                       */
+/* Account membership says a person is in the deployment. These say      */
+/* WHICH workspaces they reach and at what role:                         */
+/*                                                                       */
+/*   user_group ──< user_group_member >── user                           */
+/*        │                                                              */
+/*        └──< group_project_grant >── project     (role per workspace)   */
+/*                                                                       */
+/*   project_member                                 (a direct grant)     */
+/*                                                                       */
+/* `user_group`, never `team`: `team` above is an org chart of AGENTS.    */
+/* A group grant is resolved at READ time rather than expanded into      */
+/* project_member rows, so removing someone from a group takes effect on */
+/* their next request instead of waiting for a re-expansion.             */
+/* ==================================================================== */
+
+/** A named group of people, e.g. the sales team or the delivery team. */
+export const userGroupSchema = pgTable(
+  'user_group',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull().references(() => tenantAccountSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    /**
+     * 'yaml' | 'ui'. Provenance for display only. It never gates a write:
+     * `people:apply` is create-if-absent and never updates a row that exists,
+     * whichever door made it.
+     */
+    managedFrom: text('managed_from').$type<'yaml' | 'ui'>().default('ui').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('user_group_account_slug_idx').on(table.accountId, table.slug),
+  ],
+);
+
+/** Who is in a group. */
+export const userGroupMemberSchema = pgTable(
+  'user_group_member',
+  {
+    groupId: text('group_id').notNull().references(() => userGroupSchema.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    addedAt: timestamp('added_at', { mode: 'date' }).defaultNow().notNull(),
+    /** A user id, or 'yaml' when the seed applier put the row there. */
+    addedBy: text('added_by'),
+  },
+  table => [
+    primaryKey({ columns: [table.groupId, table.userId] }),
+    // The resolver asks what a PERSON may reach, and `user_id` trails the key.
+    index('user_group_member_user_idx').on(table.userId),
+  ],
+);
+
+/** What a group grants: one workspace, at one role. */
+export const groupProjectGrantSchema = pgTable(
+  'group_project_grant',
+  {
+    groupId: text('group_id').notNull().references(() => userGroupSchema.id, { onDelete: 'cascade' }),
+    projectId: text('project_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /** A `WorkspaceRole` (`services/authz.ts`), constrained in the DDL. */
+    role: text('role').$type<WorkspaceAccessRole>().notNull(),
+    grantedAt: timestamp('granted_at', { mode: 'date' }).defaultNow().notNull(),
+    grantedBy: text('granted_by'),
+  },
+  table => [
+    primaryKey({ columns: [table.groupId, table.projectId] }),
+    index('group_project_grant_project_idx').on(table.projectId),
+  ],
+);
+
+/** A person granted one workspace directly, outside any group. */
+export const projectMemberSchema = pgTable(
+  'project_member',
+  {
+    projectId: text('project_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    role: text('role').$type<WorkspaceAccessRole>().notNull(),
+    /**
+     * Why the row exists: 'direct' (someone granted it) or 'owner' (the person
+     * a personal workspace belongs to). Group grants never appear here.
+     */
+    source: text('source').$type<'direct' | 'owner'>().default('direct').notNull(),
+    addedAt: timestamp('added_at', { mode: 'date' }).defaultNow().notNull(),
+    addedBy: text('added_by'),
+  },
+  table => [
+    primaryKey({ columns: [table.projectId, table.userId] }),
+    index('project_member_user_idx').on(table.userId),
   ],
 );
 
