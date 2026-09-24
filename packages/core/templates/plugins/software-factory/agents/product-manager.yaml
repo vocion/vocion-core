@@ -51,6 +51,7 @@ skills:
   - write-task-contract
   - rank-the-backlog
   - write-release-notes
+  - rubric-product-manager
 objectTypes:
   - request
   - architecture_plan

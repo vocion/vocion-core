@@ -21,6 +21,7 @@ playbooks:
   - designing-a-surface
 skills:
   - review-against-contract
+  - rubric-qa
 objectTypes:
   - architecture_plan
   - engineering_task
