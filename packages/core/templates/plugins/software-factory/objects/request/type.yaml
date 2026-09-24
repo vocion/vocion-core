@@ -503,3 +503,13 @@ gates:
       - {field: expectedResult, present: true, message: say what will be different if this works}
       - {field: howWeCheck, present: true, message: say how we will know it worked}
       - {field: decisionCost, present: true, message: estimate the decision cost so the queue can carry it}
+    # The judgement half: the PM's own rubric reads the card, calibrated on
+    # the reference cases. Return goes back to the PM with a reason code and
+    # an example; a schema/billing/auth/infra risk, or a judge under the bar,
+    # goes to a person. The workspace turns the dials (`defaults.gates`).
+    judge:
+      rubric: rubric-product-manager
+      cases: factory-reference
+      escalateBelow: 0.6
+      sampleRate: 1
+      alwaysEscalate: {riskClass: [schema, billing, auth, infra]}

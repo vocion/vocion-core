@@ -344,9 +344,26 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     const previous = previousValues(row.metadata, keys);
     // A write that crosses a gated transition and passes clears the return:
     // the seat did the work the gate asked for.
-    const crossed = gatesOf(objectType.schema).some(g => typeof input.set[g.when.field] === 'string' && g.when.becomes.includes(input.set[g.when.field] as string));
+    const crossedGates = gatesOf(objectType.schema).filter(g => typeof input.set[g.when.field] === 'string' && g.when.becomes.includes(input.set[g.when.field] as string) && row.metadata[g.when.field] !== input.set[g.when.field]);
+    const crossed = crossedGates.length > 0;
     const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...input.set, returnedTo: null, gate: null } : input.set);
     await writeMetadata(ctx.orgId, row.id, next);
+    // THE JUDGE runs after the write, best-effort and off the request's
+    // critical path: the deterministic gate passed, and now the seat's
+    // rubric reads the record. Pass stamps it; return undoes the transition
+    // and marks the seat; escalate files an ask (services/gates/handoffJudge.ts).
+    for (const gate of crossedGates) {
+      if (!gate.judge) {
+        continue;
+      }
+      const judge = gate.judge;
+      void (async () => {
+        const { judgeHandoff, realJudgeDeps } = await import('@/services/gates/handoffJudge');
+        const deps = await realJudgeDeps(ctx.orgId, row.id, gate.producedBy);
+        const out = await judgeHandoff({ typeLabel: objectType.label, gate, judge, recordId: row.id, title: row.title, previous: row.metadata[gate.when.field], after: next }, deps);
+        console.warn('handoff judge', { gate: gate.name, recordId: row.id, ran: out.ran, outcome: out.outcome, confidence: out.verdict?.confidence, reasonCode: out.verdict?.reasonCode });
+      })().catch(err => console.warn('handoff judge crashed', { gate: gate.name, recordId: row.id, message: (err as Error).message }));
+    }
     // The picture the board draws this outcome as, redrawn from what the
     // record now says. It hangs off the write rather than being asked of an
     // agent, because a visual an agent has to remember is a visual sixteen of

@@ -165,7 +165,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // Object types first — agents and skills may reference them
   for (const ot of loaded.objectTypes) {
     try {
-      const outcome = await upsertObjectType(orgId, ot, mode);
+      const outcome = await upsertObjectType(orgId, ot, mode, loaded.manifest.defaults?.gates);
       bump(counts.objectTypes, outcome);
     } catch (err) {
       errors.push({ resource: 'objectType', slug: ot.slug, message: (err as Error).message });
@@ -631,7 +631,9 @@ async function reconcileSchedules(
   }
 }
 
-async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: ApplyMode): Promise<UpsertOutcome> {
+async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: ApplyMode, steer?: { sampleRate?: number; escalateBelow?: number }): Promise<UpsertOutcome> {
+  // The workspace turns the judges' dials: its numbers win over the plugin's.
+  const gates = (ot.gates ?? []).map(g => (g.judge && steer ? { ...g, judge: { ...g.judge, ...(steer.sampleRate !== undefined ? { sampleRate: steer.sampleRate } : {}), ...(steer.escalateBelow !== undefined ? { escalateBelow: steer.escalateBelow } : {}) } } : g));
   const payload = {
     orgId,
     slug: ot.slug,
@@ -640,7 +642,7 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: Apply
     icon: ot.icon ?? null,
     // Gates ride inside the stored schema (`x-gates`, beside `x-display`), so
     // the write path that already loads the schema sees them with no second read.
-    schema: ot.gates && ot.gates.length > 0 ? { ...(ot.schema ?? {}), 'x-gates': ot.gates } : (ot.schema ?? null),
+    schema: gates.length > 0 ? { ...(ot.schema ?? {}), 'x-gates': gates } : (ot.schema ?? null),
     sourceRelevance: ot.sourceRelevance ?? null,
     classificationPrompt: ot.resolvedClassificationPrompt,
     fewShotExamples: ot.fewShotExamples.length > 0 ? ot.fewShotExamples : null,
