@@ -1,5 +1,6 @@
 import type { DatasetSyncTone } from './datasetSync';
 import type { EvalDatasetItem } from '@/services/evals/types';
+import type { RunPeriodSummary } from '@/services/EvalService';
 import { ArrowLeft, ArrowRight, CheckCircle2, OctagonAlert, TestTube } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -7,12 +8,15 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { MAX_TREND_RUNS } from '@/libs/evals/runRange';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { describeDatasetSync } from '@/services/evals/publish';
-import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listEvaluatorTrend, listRuns, listRunsPage } from '@/services/EvalService';
+import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listEvaluatorTrend, listRuns, listRunsPage, listRunTrend, summariseRunPeriod } from '@/services/EvalService';
 import { ProviderChip } from '../ProviderChip';
 import { summariseDatasetSync } from './datasetSync';
+import { periodQuery, readEvalPeriod, runsPageHref } from './evalPeriod';
+import { EvalPeriodPicker } from './EvalPeriodPicker';
 import { EvalTrendChart } from './EvalTrendChart';
 import { RunDatasetButton } from './RunDatasetButton';
 
@@ -33,12 +37,15 @@ const SYNC_TONE_CLASSES: Record<DatasetSyncTone, string> = {
 
 type Props = {
   params: Promise<{ locale: string; slug: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; period?: string; from?: string; to?: string }>;
 };
 
 export default async function EvalDatasetDetailPage(props: Props) {
   const { locale, slug } = await props.params;
-  const { page: pageParam } = await props.searchParams;
+  const { page: pageParam, ...periodParams } = await props.searchParams;
+  // One period for the whole page: the chart, the numbers above it and the
+  // run list all read this, so none of them can show a different window.
+  const period = readEvalPeriod(periodParams);
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
@@ -82,15 +89,16 @@ export default async function EvalDatasetDetailPage(props: Props) {
   // is "what happened lately", the other is "which way is this going" — and a
   // trend line that redrew itself as you paged would be lying about the shape.
   const requestedPage = Number.parseInt(pageParam ?? '1', 10);
-  const { runs, page, hasMore } = await listRunsPage(orgId, dataset.id, {
-    page: Number.isNaN(requestedPage) ? 1 : requestedPage,
-  });
-  const chartRuns = allRuns;
+  const [{ runs, page, hasMore }, trend, summary, evaluatorTrend] = await Promise.all([
+    listRunsPage(orgId, dataset.id, { page: Number.isNaN(requestedPage) ? 1 : requestedPage, range: period.range }),
+    listRunTrend(orgId, dataset.id, period.range),
+    summariseRunPeriod(orgId, dataset.id, dataset.provider, period.range),
+    listEvaluatorTrend(orgId, dataset.id, period.range),
+  ]);
 
-  // Only finished runs carry a pass rate; a running or failed one has nothing
-  // to plot and must not be drawn as a zero.
-  const runTrendPoints = chartRuns
-    .filter(run => run.status === 'succeeded' && typeof run.metrics?.passRate === 'number')
+  // A run still in progress has no pass rate yet, and must not be drawn as a zero.
+  const runTrendPoints = trend.runs
+    .filter(run => typeof run.metrics?.passRate === 'number')
     .map(run => ({
       runId: run.id,
       provider: run.provider,
@@ -103,7 +111,10 @@ export default async function EvalDatasetDetailPage(props: Props) {
   // One line per evaluator under each grader's own. The pass rate says whether
   // the dataset is passing; these say which part of it moved, which is the
   // question a flat pass rate hides.
-  const evaluatorTrendPoints = (await listEvaluatorTrend(orgId, dataset.id)).map(row => ({
+  // When the run chart had to stop at its limit, the evaluator lines stop with
+  // it, so the two never cover different stretches of time.
+  const plottedRunIds = new Set(trend.runs.map(run => run.id));
+  const evaluatorTrendPoints = evaluatorTrend.filter(row => !trend.truncated || plottedRunIds.has(row.runId)).map(row => ({
     runId: row.runId,
     provider: row.provider,
     startedAt: new Date(row.startedAt).toISOString(),
@@ -112,6 +123,8 @@ export default async function EvalDatasetDetailPage(props: Props) {
     evaluatorSlug: row.evaluatorSlug,
   }));
   const trendPoints = [...runTrendPoints, ...evaluatorTrendPoints];
+  const filtered = period.period !== 'all';
+  const pagerQuery = periodQuery(period).toString();
   return (
     <>
       <div className="mb-4">
@@ -235,23 +248,58 @@ export default async function EvalDatasetDetailPage(props: Props) {
         run moves onto the same Temporal workflow the refresh uses.
       */}
 
-      {trendPoints.length > 1 && (
-        <section className="mb-8 rounded-xl border border-border bg-background p-4">
-          <h2 className="mb-1 font-display text-sm font-semibold">Pass rate over time</h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            A dashed line marks a version of the dataset ending — scores either side of it are measuring
-            different cases, so the step is the test changing, not the agent.
-          </p>
-          <EvalTrendChart
-            points={trendPoints}
-            providers={providers.map(p => ({ id: p.id, label: p.label }))}
-          />
+      {/* A dataset that has never run has no results to pick a period for; the
+          run list below already says so, and a row of dashes would only
+          repeat it. */}
+      {(filtered || summary.runCount > 0) && (
+        <section className="mb-8 space-y-4" aria-label="Results for the period">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-sm font-semibold">Results</h2>
+            <EvalPeriodPicker
+              period={period.period}
+              from={period.range.from?.toISOString() ?? null}
+              to={period.range.to?.toISOString() ?? null}
+            />
+          </div>
+
+          {period.problem && (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-800 dark:text-amber-200" role="alert">
+              {period.problem}
+            </p>
+          )}
+
+          <PeriodSummary summary={summary} graderLabel={graderLabel} />
+
+          {trendPoints.length > 1
+            ? (
+                <div className="rounded-xl border border-border bg-background p-4">
+                  <h3 className="mb-1 font-display text-sm font-semibold">Pass rate over time</h3>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    A dashed line marks a version of the dataset ending — scores either side of it are measuring
+                    different cases, so the step is the test changing, not the agent.
+                  </p>
+                  {trend.truncated && (
+                    <p className="mb-3 text-xs text-amber-700 dark:text-amber-300">
+                      {`Showing the newest ${MAX_TREND_RUNS.toLocaleString('en-US')} runs in this period. Pick a shorter period to see the ones before them.`}
+                    </p>
+                  )}
+                  <EvalTrendChart
+                    points={trendPoints}
+                    providers={providers.map(p => ({ id: p.id, label: p.label }))}
+                  />
+                </div>
+              )
+            : filtered && summary.runCount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Too few scored runs in this period to draw a trend. Pick a longer period to see one.
+              </p>
+            )}
         </section>
       )}
 
       <section className="mb-10">
         <div className="mb-3 flex flex-wrap items-center gap-3">
-          <h2 className="font-display text-sm font-semibold">Recent runs</h2>
+          <h2 className="font-display text-sm font-semibold">{filtered ? 'Runs in this period' : 'Recent runs'}</h2>
           {/* The dataset's grader, said once, with the explanation on hover. */}
           <ProviderChip providerId={dataset.provider} />
           {historicalProviders.length > 0 && (
@@ -263,7 +311,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
         {runs.length === 0
           ? (
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-                No runs yet. Press Run evals now to start one.
+                {filtered ? 'No runs in this period. Pick a longer one, or All time.' : 'No runs yet. Press Run evals now to start one.'}
               </div>
             )
           : (
@@ -329,7 +377,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
               </ul>
             )}
         {(page > 1 || hasMore) && (
-          <RunsPager slug={dataset.slug} page={page} shown={runs.length} hasMore={hasMore} />
+          <RunsPager slug={dataset.slug} page={page} shown={runs.length} hasMore={hasMore} query={pagerQuery} />
         )}
       </section>
 
@@ -424,15 +472,16 @@ function RunFact(props: { label: string; children: React.ReactNode }) {
  * @param props.page - The page being shown, 1-based.
  * @param props.shown - How many runs this page actually holds.
  * @param props.hasMore - Whether there is an older page after this one.
+ * @param props.query - The period's query string, kept on every page link.
  */
-function RunsPager(props: { slug: string; page: number; shown: number; hasMore: boolean }) {
+function RunsPager(props: { slug: string; page: number; shown: number; hasMore: boolean; query: string }) {
   const first = (props.page - 1) * EVAL_RUNS_PAGE_SIZE + 1;
   const linkClass = 'rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/60';
   return (
     <nav className="mt-3 flex items-center justify-between text-xs text-muted-foreground" aria-label="Run list pages">
       {props.page > 1
         ? (
-            <Link href={runsPageHref(props.slug, props.page - 1)} className={linkClass}>
+            <Link href={runsPageHref(props.slug, props.page - 1, props.query)} className={linkClass}>
               Newer runs
             </Link>
           )
@@ -442,7 +491,7 @@ function RunsPager(props: { slug: string; page: number; shown: number; hasMore: 
       </span>
       {props.hasMore
         ? (
-            <Link href={runsPageHref(props.slug, props.page + 1)} className={linkClass}>
+            <Link href={runsPageHref(props.slug, props.page + 1, props.query)} className={linkClass}>
               Older runs
             </Link>
           )
@@ -452,10 +501,43 @@ function RunsPager(props: { slug: string; page: number; shown: number; hasMore: 
 }
 
 /**
- * A run-list URL that drops a page number of 1.
- * @param slug - Which dataset.
- * @param page - The page to link to.
+ * A pass rate as a whole percentage, or a dash when nothing was scored — never
+ * 0%, which would read as "fails everything" about a period nobody measured.
+ * @param rate - 0–1, or null.
  */
-function runsPageHref(slug: string, page: number): string {
-  return page > 1 ? `/dashboard/evals/${slug}?page=${page}` : `/dashboard/evals/${slug}`;
+function formatPassRate(rate: number | null): string {
+  return rate === null ? '—' : `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * The headline numbers for the period on screen.
+ * @param props - Props.
+ * @param props.summary - What `summariseRunPeriod` counted.
+ * @param props.graderLabel - Who scored the runs the pass rates cover.
+ */
+function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string }) {
+  return (
+    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="eval-period-summary">
+      <SummaryStat label="Runs" value={props.summary.runCount.toLocaleString('en-US')} detail="Every run that started in this period." />
+      <SummaryStat label="Average pass rate" value={formatPassRate(props.summary.averagePassRate)} detail={`Across ${props.summary.scoredCount.toLocaleString('en-US')} finished run${props.summary.scoredCount === 1 ? '' : 's'} scored by ${props.graderLabel}.`} />
+      <SummaryStat label="Latest pass rate" value={formatPassRate(props.summary.latestPassRate)} detail="The newest finished run in this period." />
+    </dl>
+  );
+}
+
+/**
+ * One number in the period summary.
+ * @param props - Props.
+ * @param props.label - What it counts.
+ * @param props.value - The number, formatted.
+ * @param props.detail - What exactly went into it.
+ */
+function SummaryStat(props: { label: string; value: string; detail: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-background px-4 py-3">
+      <dt className="text-[10px] tracking-wide text-muted-foreground/70 uppercase">{props.label}</dt>
+      <dd className="mt-1 font-mono text-lg text-foreground">{props.value}</dd>
+      <dd className="mt-0.5 text-[11px] text-muted-foreground">{props.detail}</dd>
+    </div>
+  );
 }

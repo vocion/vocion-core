@@ -56,7 +56,9 @@ const CHANGED_GRADERS = 'e2e-changed-graders';
 const NOT_COPIED = 'e2e-not-copied';
 const COPY_FAILED = 'e2e-copy-failed';
 const IN_STEP = 'e2e-in-step';
-const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP];
+// Runs spread over six weeks, for the period picker (#647).
+const SPREAD_OUT = 'e2e-spread-out';
+const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP, SPREAD_OUT];
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
 
@@ -267,6 +269,14 @@ async function main(): Promise<void> {
     createdAt: daysAgo(1),
   });
 
+  // Two runs this week, one three weeks back, one six weeks back: "Last 7
+  // days" must keep exactly the first two, and the averages must follow.
+  const spreadOut = await createDataset(orgId, SPREAD_OUT, 1);
+  await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.9, datasetVersion: 1, startedAt: daysAgo(1) });
+  await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.7, datasetVersion: 1, startedAt: daysAgo(3) });
+  await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.5, datasetVersion: 1, startedAt: daysAgo(20) });
+  await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.3, datasetVersion: 1, startedAt: daysAgo(45) });
+
   console.error(`[seed-eval-provider-fixtures] org ${orgId}, agent ${AGENT_SLUG}`);
   process.stdout.write(`${JSON.stringify({
     orgId,
@@ -277,6 +287,7 @@ async function main(): Promise<void> {
     notCopiedSlug: NOT_COPIED,
     copyFailedSlug: COPY_FAILED,
     inStepSlug: IN_STEP,
+    spreadOutSlug: SPREAD_OUT,
   })}\n`);
 }
 

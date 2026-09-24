@@ -18,14 +18,17 @@
  * token usage and cost so that comparison is a read over stored rows.
  */
 
+import type { SQL } from 'drizzle-orm';
 import type { EvalScoreProvider } from './evals/providers/types';
 import type { ProviderRunResult, ScoreWithProviderOptions } from './evals/scoring';
 import type { CaseTranscript } from './evals/transcripts';
 import type { EvalDatasetItem } from './evals/types';
+import type { RunRange } from '@/libs/evals/runRange';
 import type { LangChainProvider } from '@/libs/llm';
 import process from 'node:process';
-import { and, asc, avg, desc, eq, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, avg, count, desc, eq, gte, ilike, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { MAX_TREND_RUNS } from '@/libs/evals/runRange';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalEvaluatorSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
 import { getProvider } from './evals/providers/registry';
@@ -153,6 +156,22 @@ export async function getDataset(orgId: string, slug: string) {
   return row ?? null;
 }
 
+/**
+ * The `started_at` conditions for a period: `from` inclusive, `to` exclusive.
+ * An end that is missing adds no condition, so an empty range is all time.
+ * @param range - The period, or undefined for all time.
+ */
+function startedWithin(range: RunRange | undefined): SQL[] {
+  const conditions: SQL[] = [];
+  if (range?.from) {
+    conditions.push(gte(evalRunSchema.startedAt, range.from));
+  }
+  if (range?.to) {
+    conditions.push(lt(evalRunSchema.startedAt, range.to));
+  }
+  return conditions;
+}
+
 /** How many runs one page of the dataset's run list shows. */
 export const EVAL_RUNS_PAGE_SIZE = 20;
 
@@ -167,19 +186,20 @@ export const EVAL_RUNS_PAGE_SIZE = 20;
  * costs nothing next to a second `count(*)` over the same rows.
  * @param orgId - Whose runs.
  * @param datasetId - Which dataset.
- * @param options - Page number (1-based), page size, and the grader filter.
+ * @param options - Page number (1-based), page size, the grader filter and the period.
  * @param options.page - 1-based page number; anything lower is treated as 1.
  * @param options.pageSize - Rows per page.
  * @param options.provider - Narrow to one grader, for the provider filter.
+ * @param options.range - Only runs that started inside this period. Omitted means all time.
  */
 export async function listRunsPage(
   orgId: string,
   datasetId: number,
-  options: { page?: number; pageSize?: number; provider?: string } = {},
+  options: { page?: number; pageSize?: number; provider?: string; range?: RunRange } = {},
 ): Promise<{ runs: Array<typeof evalRunSchema.$inferSelect>; page: number; hasMore: boolean }> {
   const pageSize = options.pageSize ?? EVAL_RUNS_PAGE_SIZE;
   const page = Math.max(1, Math.trunc(options.page ?? 1));
-  const filters = [eq(evalRunSchema.orgId, orgId), eq(evalRunSchema.datasetId, datasetId)];
+  const filters = [eq(evalRunSchema.orgId, orgId), eq(evalRunSchema.datasetId, datasetId), ...startedWithin(options.range)];
   if (options.provider) {
     filters.push(eq(evalRunSchema.provider, options.provider));
   }
@@ -218,6 +238,97 @@ export async function listRuns(orgId: string, datasetId?: number, provider?: str
     .where(and(...filters))
     .orderBy(desc(evalRunSchema.startedAt))
     .limit(50);
+}
+
+/**
+ * The finished runs a dataset's pass-rate chart plots, for one period.
+ *
+ * Every run in the period up to {@link MAX_TREND_RUNS}, newest kept first when
+ * there are more, and `truncated` says whether that happened so the page can
+ * say so. The chart used to read the fifty-run list, which quietly dropped the
+ * older half of a nightly dataset's history once it passed two months.
+ * @param orgId - Whose runs.
+ * @param datasetId - Which dataset.
+ * @param range - The period. Omitted means all time.
+ */
+export async function listRunTrend(orgId: string, datasetId: number, range?: RunRange) {
+  const rows = await db
+    .select({
+      id: evalRunSchema.id,
+      provider: evalRunSchema.provider,
+      startedAt: evalRunSchema.startedAt,
+      datasetVersion: evalRunSchema.datasetVersion,
+      metrics: evalRunSchema.metrics,
+    })
+    .from(evalRunSchema)
+    .where(and(
+      eq(evalRunSchema.orgId, orgId),
+      eq(evalRunSchema.datasetId, datasetId),
+      // Only finished runs carry a pass rate; a running or failed one has
+      // nothing to plot and must not be drawn as a zero.
+      eq(evalRunSchema.status, 'succeeded'),
+      ...startedWithin(range),
+    ))
+    .orderBy(desc(evalRunSchema.startedAt))
+    .limit(MAX_TREND_RUNS + 1);
+  return { runs: rows.slice(0, MAX_TREND_RUNS), truncated: rows.length > MAX_TREND_RUNS };
+}
+
+/** The headline numbers for one dataset over one period. */
+export type RunPeriodSummary = {
+  /** Every run that started in the period, whatever its status or grader. */
+  runCount: number;
+  /** Finished runs, scored by the dataset's current grader, that have a pass rate. */
+  scoredCount: number;
+  /** Mean pass rate of those scored runs, 0–1; null when there are none. */
+  averagePassRate: number | null;
+  /** The newest of those scored runs' pass rate, 0–1; null when there are none. */
+  latestPassRate: number | null;
+};
+
+/**
+ * The numbers above a dataset's chart, for one period, counted in SQL.
+ *
+ * The averages cover only runs scored by `provider`, the dataset's current
+ * grader: two graders score the same answers differently, and a mean across
+ * both is a number neither of them produced. The run count covers every run,
+ * because "how often did this run" does not depend on who graded it.
+ * @param orgId - Whose runs.
+ * @param datasetId - Which dataset.
+ * @param provider - The grader whose pass rates to average.
+ * @param range - The period. Omitted means all time.
+ */
+export async function summariseRunPeriod(orgId: string, datasetId: number, provider: string, range?: RunRange): Promise<RunPeriodSummary> {
+  const passRate = sql<number>`(${evalRunSchema.metrics}->>'passRate')::float8`;
+  const scored = and(
+    eq(evalRunSchema.provider, provider),
+    eq(evalRunSchema.status, 'succeeded'),
+    sql`jsonb_typeof(${evalRunSchema.metrics}->'passRate') = 'number'`,
+  );
+  const inPeriod = and(eq(evalRunSchema.orgId, orgId), eq(evalRunSchema.datasetId, datasetId), ...startedWithin(range));
+
+  const [totals] = await db
+    .select({
+      runCount: count(),
+      scoredCount: sql<number>`count(*) filter (where ${scored})`.mapWith(Number),
+      averagePassRate: sql<string | null>`avg(${passRate}) filter (where ${scored})`,
+    })
+    .from(evalRunSchema)
+    .where(inPeriod);
+  const [latest] = await db
+    .select({ passRate })
+    .from(evalRunSchema)
+    .where(and(inPeriod, scored))
+    .orderBy(desc(evalRunSchema.startedAt))
+    .limit(1);
+
+  // `avg` comes back as a string from both drivers.
+  return {
+    runCount: totals?.runCount ?? 0,
+    scoredCount: totals?.scoredCount ?? 0,
+    averagePassRate: totals?.averagePassRate === null || totals?.averagePassRate === undefined ? null : Number(totals.averagePassRate),
+    latestPassRate: latest ? Number(latest.passRate) : null,
+  };
 }
 
 /**
@@ -294,8 +405,9 @@ export async function listScoresForRun(runId: number) {
  * put a made-up number on a chart people read for trends.
  * @param orgId - Whose workspace.
  * @param datasetId - Which dataset.
+ * @param range - Only runs that started inside this period. Omitted means all time.
  */
-export async function listEvaluatorTrend(orgId: string, datasetId: number) {
+export async function listEvaluatorTrend(orgId: string, datasetId: number, range?: RunRange) {
   const rows = await db
     .select({
       runId: evalRunSchema.id,
@@ -312,6 +424,7 @@ export async function listEvaluatorTrend(orgId: string, datasetId: number) {
       eq(evalRunSchema.datasetId, datasetId),
       eq(evalRunSchema.status, 'succeeded'),
       isNotNull(evalScoreSchema.value),
+      ...startedWithin(range),
     ))
     .groupBy(
       evalRunSchema.id,

@@ -1747,6 +1747,99 @@
       }
     },
     "/api/v1/evals/{slug}/runs": {
+      "get": {
+        "operationId": "get_evals_slug_runs",
+        "summary": "`GET /api/v1/evals/:slug/runs?from=&to=&page=` — a dataset's runs and headline numbers for one period, the same ones its dashboard page shows.",
+        "tags": [
+          "evals"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`GET /api/v1/evals/:slug/runs?from=&to=&page=` — a dataset's runs and\nheadline numbers for one period, the same ones its dashboard page shows.\n\nQuery parameters:\n- `from` — runs that started at or after this: a `YYYY-MM-DD` (midnight\n  UTC) or an ISO timestamp with an offset. Left out means since the first run.\n- `to` — runs that started before this, in the same forms. Left out means up to now.\n- `page` — 1-based page of the run list; defaults to 1.\n\nA bad date or a backwards range is a 400, never an unfiltered list, because\na caller cannot tell a wrongly unfiltered answer from a right one.\n\nPaged newest first, 20 to a page (`EVAL_RUNS_PAGE_SIZE`), with `hasMore`\nsaying whether to ask for the next — every run in the period is reachable.\nThe summary covers the whole period, not just the page.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "runs that started at or after this: a `YYYY-MM-DD` (midnight UTC) or an ISO timestamp with an offset. Left out means since the first run.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "runs that started before this, in the same forms. Left out means up to now.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "1-based page of the run list; defaults to 1.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
       "post": {
         "operationId": "post_evals_slug_runs",
         "summary": "Kick off an eval run for a dataset.",

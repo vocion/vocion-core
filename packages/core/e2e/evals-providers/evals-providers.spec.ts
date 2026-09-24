@@ -20,6 +20,10 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  * them can be holding older ones than the workspace file does, and the page
  * has to say which without making an out-of-date copy look like a broken eval.
  *
+ * Plus the period picker (#647): choosing a period narrows the summary, the
+ * chart and the run list together, lives in the URL so a reload keeps it, and
+ * a period with no runs says so.
+ *
  * Plus the fourth thing the design asked for: the eval pass rate sitting
  * beside the agreement rate on the agent's adoption row.
  *
@@ -47,6 +51,7 @@ type SeedFixtures = {
   notCopiedSlug: string;
   copyFailedSlug: string;
   inStepSlug: string;
+  spreadOutSlug: string;
 };
 
 function createBootstrapAdmin(): void {
@@ -119,6 +124,16 @@ function seedFixtures(): SeedFixtures {
  */
 function shownText(page: Page, text: string | RegExp, options?: { exact?: boolean }) {
   return page.getByText(text, options).filter({ visible: true });
+}
+
+/**
+ * A day some way back, as the `YYYY-MM-DD` a date input takes, in the
+ * browser's own timezone — which Playwright shares with this process.
+ * @param daysBack - Whole days before today.
+ */
+function localDay(daysBack: number): string {
+  const date = new Date(Date.now() - daysBack * 86_400_000);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -294,5 +309,58 @@ test.describe('the eval section, with more than one grader', () => {
     // The newest finished run for this agent from its first grader by name,
     // which is AgentCore's 70% rather than Vocion's 80% on the other dataset.
     await expect(evalCard).toContainText('e2e-changed-graders');
+  });
+
+  test('a period narrows the summary and the run list together, and survives a reload', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.spreadOutSlug}`);
+    const summary = page.getByTestId('eval-period-summary');
+
+    await expect(page.getByTestId('eval-period-label')).toHaveText('All time');
+    await expect(summary).toContainText('4');
+    await expect(summary).toContainText('60%');
+
+    await page.getByLabel('Period', { exact: true }).selectOption('last7');
+    await page.waitForURL(/period=last7/);
+
+    // 0.9 and 0.7 are the only runs this week: two runs, averaging 80%.
+    await expect(summary).toContainText('80%');
+    await expect(summary).toContainText('Across 2 finished runs');
+    await expect(page.getByRole('heading', { name: 'Runs in this period' })).toBeVisible();
+    await expect(page.locator('a[href*="/runs/"]')).toHaveCount(2);
+
+    await page.reload();
+
+    await expect(page.getByLabel('Period', { exact: true })).toHaveValue('last7');
+    await expect(summary).toContainText('80%');
+  });
+
+  test('a custom range narrows to its days, and an empty one says so', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.spreadOutSlug}`);
+
+    // Only the run from 20 days ago falls between 25 and 15 days back.
+    await page.getByLabel('Period', { exact: true }).selectOption('custom');
+    await page.getByLabel('From', { exact: true }).fill(localDay(25));
+    await page.getByLabel('To', { exact: true }).fill(localDay(15));
+    await page.getByRole('button', { name: 'Apply' }).click();
+    await page.waitForURL(/period=custom/);
+
+    await expect(page.getByTestId('eval-period-summary')).toContainText('50%');
+    await expect(page.locator('a[href*="/runs/"]')).toHaveCount(1);
+
+    // A backwards range is refused in the form, before anything is fetched.
+    await page.getByRole('button', { name: 'Pick a custom date range' }).click();
+    await page.getByLabel('From', { exact: true }).fill(localDay(10));
+    await page.getByLabel('To', { exact: true }).fill(localDay(12));
+    await page.getByRole('button', { name: 'Apply' }).click();
+
+    await expect(page.getByRole('alert').filter({ hasText: 'The end date must be on or after the start date.' })).toBeVisible();
+
+    // Between 14 and 12 days back there are no runs at all.
+    await page.getByLabel('From', { exact: true }).fill(localDay(14));
+    await page.getByLabel('To', { exact: true }).fill(localDay(12));
+    await page.getByRole('button', { name: 'Apply' }).click();
+
+    await expect(shownText(page, 'No runs in this period', { exact: false })).toBeVisible();
+    await expect(shownText(page, '0%', { exact: true })).toHaveCount(0);
   });
 });

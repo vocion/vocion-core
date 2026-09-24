@@ -2021,7 +2021,12 @@ export const evalRunSchema = pgTable('eval_run', {
   }>().default({}).notNull(),
   startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { mode: 'date' }),
-});
+}, table => [
+  // Every read of a dataset's runs filters on org and dataset and then orders
+  // or ranges on start time: the paged list, the trend chart and the period
+  // summary. Built concurrently: migrations/concurrent/0016_*.
+  index('eval_run_org_dataset_started_idx').on(table.orgId, table.datasetId, table.startedAt),
+]);
 
 export const evalCaseResultSchema = pgTable('eval_case_result', {
   id: serial('id').primaryKey(),
