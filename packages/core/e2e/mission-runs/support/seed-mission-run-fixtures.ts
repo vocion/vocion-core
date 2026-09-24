@@ -5,7 +5,7 @@
  *
  * Builds, in the database the running app is actually pointed at:
  *   - its own tenant account + project ("e2e-mission-runs-primary"), so the
- *     spec runs against a fresh database (CI boots an empty PGlite) as well as
+ *     spec runs against a fresh database (each CI shard starts with an empty Postgres) as well as
  *     a developer's, and never competes with whatever else lives there
  *   - a mission belonging to that project
  *   - three runs on that mission: two completed runs with a populated

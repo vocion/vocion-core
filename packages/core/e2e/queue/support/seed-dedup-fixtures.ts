@@ -19,7 +19,7 @@
  *                      the number alone on stdout. This replaces the
  *                      `docker exec vocion-postgres psql` the spec used to
  *                      shell out to: CI has no docker daemon and its database
- *                      is an in-memory PGlite, and a developer's may be
+ *                      is a fresh Postgres service container, and a developer's may be
  *                      either. Reading through the app's own database client
  *                      keeps the point of the check, which is that a row the
  *                      API forgot to report still shows up.
