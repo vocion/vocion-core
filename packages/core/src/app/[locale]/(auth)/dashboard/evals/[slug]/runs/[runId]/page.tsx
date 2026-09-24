@@ -5,11 +5,13 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { formatPassRate } from '@/libs/evals/formatPassRate';
 import { Link } from '@/libs/I18nNavigation';
 import { langfuseConfig } from '@/libs/Langfuse';
 import { browserProjectId } from '@/libs/Langfuse/config';
 import { usd } from '@/services/evals/modelUpgradeTest';
 import { describeProviders } from '@/services/evals/providers/registry';
+import { passThresholdFor } from '@/services/evals/runOutcome';
 import { getDataset, getRun, listRunGroup, listScoresForRun } from '@/services/EvalService';
 import { RunAutoRefresh } from './RunAutoRefresh';
 
@@ -116,9 +118,8 @@ export default async function EvalRunDetailPage(props: Props) {
               {labelFor(run.provider)}
             </Badge>
             {typeof passRate === 'number' && (
-              <span className={passRate >= 0.8 ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
-                {Math.round(passRate * 100)}
-                % pass
+              <span className={passRate >= passThresholdFor(dataset.passThreshold) ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
+                {`${formatPassRate(passRate)} pass`}
               </span>
             )}
             <span>
@@ -182,7 +183,7 @@ export default async function EvalRunDetailPage(props: Props) {
               className="font-medium text-foreground underline-offset-2 hover:underline"
             >
               {labelFor(sibling.provider)}
-              {typeof sibling.metrics?.passRate === 'number' && ` (${Math.round(sibling.metrics.passRate * 100)}% pass)`}
+              {typeof sibling.metrics?.passRate === 'number' && ` (${formatPassRate(sibling.metrics.passRate)} pass)`}
             </Link>
           ))}
           <span>— same run, different grader.</span>
@@ -216,7 +217,7 @@ export default async function EvalRunDetailPage(props: Props) {
       <section className="mb-8">
         <h2 className="mb-3 font-display text-sm font-semibold">Metrics</h2>
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <Metric label="Pass rate" value={typeof passRate === 'number' ? `${Math.round(passRate * 100)}%` : '—'} />
+          <Metric label="Pass rate" value={typeof passRate === 'number' ? formatPassRate(passRate) : '—'} />
           <Metric label="Cases" value={String(sortedResults.length)} />
           <Metric label="Failed" value={String(run.metrics?.failed ?? sortedResults.filter(r => r.verdict === 'fail' || r.verdict === 'error').length)} />
           <Metric label="Median latency" value={typeof run.metrics?.medianLatencyMs === 'number' ? `${run.metrics.medianLatencyMs}ms` : '—'} />

@@ -42,6 +42,7 @@ import {
   evalDatasetRemoteSchema,
   evalDatasetSchema,
   evalRunSchema,
+  evalScoreSchema,
   projectSchema,
   userActivityEventSchema,
   userSchema,
@@ -56,7 +57,14 @@ const CHANGED_GRADERS = 'e2e-changed-graders';
 const NOT_COPIED = 'e2e-not-copied';
 const COPY_FAILED = 'e2e-copy-failed';
 const IN_STEP = 'e2e-in-step';
-const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP];
+// Runs spread over six weeks, for the period picker (#647).
+const SPREAD_OUT = 'e2e-spread-out';
+// One clean run, one that scored under the bar, one that errored.
+const FAILING = 'e2e-failing';
+const READABLE = 'e2e-readable';
+const SWITCHED_GRADER = 'e2e-switched-grader';
+const NEW_GRADER = 'e2e-new-grader';
+const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP, SPREAD_OUT, FAILING, READABLE, SWITCHED_GRADER, NEW_GRADER];
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
 
@@ -129,15 +137,22 @@ async function resetFixtures(orgId: string): Promise<void> {
  * @param slug - Dataset slug.
  * @param version - Which version the dataset is on now.
  * @param provider - The one grader this dataset is scored by.
+ * @param items - The dataset's cases; one plain question unless a test needs more.
  */
-async function createDataset(orgId: string, slug: string, version: number, provider = 'vocion'): Promise<number> {
+async function createDataset(
+  orgId: string,
+  slug: string,
+  version: number,
+  provider = 'vocion',
+  items: Array<{ input: string; expected?: string; rubric?: string }> = [{ input: 'Does the refund go through?' }],
+): Promise<number> {
   const [dataset] = await db.insert(evalDatasetSchema).values({
     orgId,
     slug,
     name: slug,
     agentSlug: AGENT_SLUG,
     provider,
-    items: [{ input: 'Does the refund go through?' }],
+    items,
     version,
   }).returning({ id: evalDatasetSchema.id });
   return dataset!.id;
@@ -153,6 +168,7 @@ async function createDataset(orgId: string, slug: string, version: number, provi
  * @param values.passRate - Share of cases that passed, 0 to 1.
  * @param values.datasetVersion - The dataset revision the run scored.
  * @param values.startedAt - When the run began, which orders it on the chart.
+ * @param values.errored - Write it as a run that broke before it was scored.
  */
 async function createRun(values: {
   orgId: string;
@@ -161,18 +177,30 @@ async function createRun(values: {
   passRate: number;
   datasetVersion: number;
   startedAt: Date;
-}): Promise<void> {
-  await db.insert(evalRunSchema).values({
+  errored?: boolean;
+}): Promise<number> {
+  const [run] = await db.insert(evalRunSchema).values({
     orgId: values.orgId,
     datasetId: values.datasetId,
     agentSlug: AGENT_SLUG,
     provider: values.provider,
-    status: 'succeeded',
+    status: values.errored ? 'failed' : 'succeeded',
     datasetVersion: values.datasetVersion,
-    metrics: { passRate: values.passRate, passed: 1, failed: 0 },
+    metrics: values.errored ? {} : { passRate: values.passRate, passed: 1, failed: 0 },
     startedAt: values.startedAt,
     completedAt: values.startedAt,
-  });
+  }).returning({ id: evalRunSchema.id });
+  return run!.id;
+}
+
+/**
+ * Record one run-level evaluator score, which feeds the evaluator breakdown table.
+ * @param runId - The run it scored.
+ * @param evaluatorSlug - Which evaluator gave it.
+ * @param value - The score, 0 to 1.
+ */
+async function createEvaluatorScore(runId: number, evaluatorSlug: string, value: number): Promise<void> {
+  await db.insert(evalScoreSchema).values({ runId, provider: 'vocion', evaluatorSlug, value });
 }
 
 /**
@@ -267,6 +295,53 @@ async function main(): Promise<void> {
     createdAt: daysAgo(1),
   });
 
+  // Two runs this week, one three weeks back, one six weeks back: "Last 7
+  // days" must keep exactly the first two, and the averages must follow.
+  const spreadOut = await createDataset(orgId, SPREAD_OUT, 1);
+  await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.9, datasetVersion: 1, startedAt: daysAgo(1) });
+  await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.7, datasetVersion: 1, startedAt: daysAgo(3) });
+  await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.5, datasetVersion: 1, startedAt: daysAgo(20) });
+  await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.3, datasetVersion: 1, startedAt: daysAgo(45) });
+
+  // Held to the default 80% bar: 0.9 passes, 0.4 is below it, and one run broke.
+  const failing = await createDataset(orgId, FAILING, 1);
+  await createRun({ orgId, datasetId: failing, provider: 'vocion', passRate: 0.9, datasetVersion: 1, startedAt: daysAgo(1) });
+  await createRun({ orgId, datasetId: failing, provider: 'vocion', passRate: 0, datasetVersion: 1, startedAt: daysAgo(2), errored: true });
+  await createRun({ orgId, datasetId: failing, provider: 'vocion', passRate: 0.4, datasetVersion: 1, startedAt: daysAgo(3) });
+
+  // Three cases and two runs scored by two evaluators: llm-judge climbs from
+  // 50% to 90% (average 70%, latest above it), tone falls from 80% to 60%
+  // (average 70%, latest below it).
+  const readable = await createDataset(orgId, READABLE, 1, 'vocion', [
+    { input: 'A customer wants a refund 45 days after buying a jacket with a broken zipper.', expected: 'Offer a repair under the defect warranty.' },
+    { input: 'Summarise the open tickets for Acme Corp.', rubric: 'Names the most urgent ticket first.' },
+    { input: 'Explain the Team and Enterprise plans in two sentences.' },
+  ]);
+  const olderRun = await createRun({ orgId, datasetId: readable, provider: 'vocion', passRate: 0.6, datasetVersion: 1, startedAt: daysAgo(2) });
+  const newerRun = await createRun({ orgId, datasetId: readable, provider: 'vocion', passRate: 0.8, datasetVersion: 1, startedAt: daysAgo(1) });
+  await createEvaluatorScore(olderRun, 'llm-judge', 0.5);
+  await createEvaluatorScore(newerRun, 'llm-judge', 0.9);
+  await createEvaluatorScore(olderRun, 'tone', 0.8);
+  await createEvaluatorScore(newerRun, 'tone', 0.6);
+
+  // Scored by AgentCore now, by Vocion before. Each grader has one errored run;
+  // only Vocion's scored run is under the bar. The cards and their filters must
+  // count AgentCore's alone (1 errored, 0 below), while All runs lists all four.
+  // Older than e2e-changed-graders' newest AgentCore run, which the adoption
+  // row reads as this agent's latest pass rate.
+  const switched = await createDataset(orgId, SWITCHED_GRADER, 1, 'agentcore');
+  await createRun({ orgId, datasetId: switched, provider: 'vocion', passRate: 0, datasetVersion: 1, startedAt: daysAgo(9), errored: true });
+  await createRun({ orgId, datasetId: switched, provider: 'vocion', passRate: 0.3, datasetVersion: 1, startedAt: daysAgo(8) });
+  await createRun({ orgId, datasetId: switched, provider: 'agentcore', passRate: 0, datasetVersion: 1, startedAt: daysAgo(7), errored: true });
+  await createRun({ orgId, datasetId: switched, provider: 'agentcore', passRate: 0.9, datasetVersion: 1, startedAt: daysAgo(6) });
+
+  // Just moved to AgentCore: every run so far is Vocion's, so the current
+  // grader has none, and the page must still show the history rather than
+  // reading as a dataset that never ran.
+  const newGrader = await createDataset(orgId, NEW_GRADER, 1, 'agentcore');
+  await createRun({ orgId, datasetId: newGrader, provider: 'vocion', passRate: 0.7, datasetVersion: 1, startedAt: daysAgo(3) });
+  await createRun({ orgId, datasetId: newGrader, provider: 'vocion', passRate: 0.8, datasetVersion: 1, startedAt: daysAgo(2) });
+
   console.error(`[seed-eval-provider-fixtures] org ${orgId}, agent ${AGENT_SLUG}`);
   process.stdout.write(`${JSON.stringify({
     orgId,
@@ -277,6 +352,11 @@ async function main(): Promise<void> {
     notCopiedSlug: NOT_COPIED,
     copyFailedSlug: COPY_FAILED,
     inStepSlug: IN_STEP,
+    spreadOutSlug: SPREAD_OUT,
+    failingSlug: FAILING,
+    readableSlug: READABLE,
+    switchedGraderSlug: SWITCHED_GRADER,
+    newGraderSlug: NEW_GRADER,
   })}\n`);
 }
 

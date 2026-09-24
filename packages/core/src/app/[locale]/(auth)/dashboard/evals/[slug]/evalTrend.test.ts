@@ -9,7 +9,7 @@
  * move from one provider to another when a grader has no runs yet.
  */
 import { describe, expect, it } from 'vitest';
-import { buildSeries, versionBoundaries } from './evalTrend';
+import { buildSeries, chartSeries, summariseEvaluators, versionBoundaries } from './evalTrend';
 
 const PROVIDERS = [{ id: 'vocion', label: 'Vocion' }, { id: 'agentcore', label: 'AgentCore' }];
 
@@ -100,7 +100,7 @@ describe('buildSeries', () => {
       point({ runId: 1, provider: 'vocion', startedAt: '2026-09-01T00:00:00.000Z' }),
     ], PROVIDERS);
 
-    expect(onlyVocion[0]?.color).toBe(both[0]?.color);
+    expect(onlyVocion[0]?.colorSlot).toBe(both[0]?.colorSlot);
   });
 });
 
@@ -139,5 +139,57 @@ describe('buildSeries, per evaluator', () => {
     ]);
 
     expect(boundaries).toEqual([{ at: Date.parse('2026-09-02T00:00:00.000Z'), version: 2 }]);
+  });
+});
+
+describe('chartSeries', () => {
+  it('draws one line per grader and moves the evaluators off the chart', () => {
+    const series = buildSeries([
+      point({ runId: 1, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.5 }),
+      point({ runId: 1, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.9, evaluatorSlug: 'trajectory' }),
+      point({ runId: 2, provider: 'vocion', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.7 }),
+      point({ runId: 2, provider: 'vocion', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.7, evaluatorSlug: 'llm-judge' }),
+    ], PROVIDERS);
+
+    expect(chartSeries(series).map(line => line.key)).toEqual(['vocion', 'agentcore']);
+  });
+
+  it('keeps the evaluator lines of a grader that has no pass rate, so it never vanishes from the chart', () => {
+    const series = buildSeries([
+      point({ runId: 7, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', evaluatorSlug: 'trajectory' }),
+      point({ runId: 8, provider: 'vocion', startedAt: '2026-09-01T00:00:00.000Z' }),
+    ], PROVIDERS);
+
+    expect(chartSeries(series).map(line => line.key)).toEqual(['vocion', 'agentcore:trajectory']);
+  });
+});
+
+describe('grader colours', () => {
+  it('follow the grader, not its place in the list', () => {
+    const vocionFirst = buildSeries([point({ runId: 1, provider: 'vocion', startedAt: '2026-09-01T00:00:00.000Z' })], PROVIDERS);
+    const agentcoreFirst = buildSeries([point({ runId: 1, provider: 'vocion', startedAt: '2026-09-01T00:00:00.000Z' })], [...PROVIDERS].reverse());
+
+    expect(vocionFirst[0]?.colorSlot).toBe(agentcoreFirst[0]?.colorSlot);
+  });
+});
+
+describe('summariseEvaluators', () => {
+  it('gives each evaluator its latest score, its average, and which way the latest sits', () => {
+    const rows = summariseEvaluators([
+      point({ runId: 1, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.4, evaluatorSlug: 'trajectory' }),
+      point({ runId: 2, provider: 'agentcore', startedAt: '2026-09-02T00:00:00.000Z', passRate: 0.8, evaluatorSlug: 'trajectory' }),
+      point({ runId: 1, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.6, evaluatorSlug: 'helpfulness' }),
+      point({ runId: 2, provider: 'agentcore', startedAt: '2026-09-02T00:00:00.000Z', passRate: 0.61, evaluatorSlug: 'helpfulness' }),
+    ], PROVIDERS);
+
+    expect(rows).toEqual([
+      expect.objectContaining({ evaluatorSlug: 'helpfulness', latest: 0.61, direction: 'flat', runs: 2 }),
+      expect.objectContaining({ evaluatorSlug: 'trajectory', latest: 0.8, direction: 'up', providerLabel: 'AgentCore' }),
+    ]);
+    expect(rows[1]!.average).toBeCloseTo(0.6);
+  });
+
+  it('leaves the graders\' own pass rates out of the table', () => {
+    expect(summariseEvaluators([point({ runId: 1, provider: 'vocion', startedAt: '2026-09-01T00:00:00.000Z' })], PROVIDERS)).toEqual([]);
   });
 });
