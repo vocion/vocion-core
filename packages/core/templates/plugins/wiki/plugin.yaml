@@ -27,7 +27,7 @@ name: Wiki
 # 1.3.0 — the index reads as pages rather than as a grid: the title leads
 # with its first paragraph under it, and the version and last author drop
 # first when the screen is narrow.
-version: 1.3.0
+version: 1.4.0
 description: The workspace's long-term memory — voice, standing rules, who is who, decisions that hold — seeded from the repo, written by the agents (done for you, with undo), mounted into every agent's context, searchable, answered from by a researcher, curated weekly.
 recommend:
   when:

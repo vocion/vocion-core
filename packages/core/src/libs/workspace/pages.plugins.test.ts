@@ -48,8 +48,10 @@ describe('plugin pages', () => {
 
     expect(issues).toEqual([]);
     expect(wiki?.origin).toBe('plugin:wiki');
-    expect(wiki?.archetype).toBe('list');
+    // Read as a wiki, not as a table of artifacts (2026-09-24).
+    expect(wiki?.archetype).toBe('wiki');
     expect(wiki?.source).toMatchObject({ kind: 'artifacts', folder: 'wiki' });
+    expect(wiki?.fields ?? []).toEqual([]);
     expect(guide?.nav.hidden).toBe(true);
     expect(readWorkspacePageContent(guide!)).toContain('# How the wiki works');
   });
