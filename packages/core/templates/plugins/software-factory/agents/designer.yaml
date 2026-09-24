@@ -29,6 +29,7 @@ playbooks:
   - house-voice
 skills:
   - design-the-change
+  - rubric-designer
 objectTypes:
   - request
   - product
