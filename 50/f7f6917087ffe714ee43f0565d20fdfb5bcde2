@@ -1,0 +1,28 @@
+packages/core/src/app/api/artifacts/[id]/_serve.ts
+  s_b6e5b648af90e7::t_a2053c7d1826bc 2,75-85
+  s_b6e5b648af90e7::t_40a6aee5b262e3 86
+packages/core/src/services/ArtifactService.ts
+  s_b6e5b648af90e7::t_4b613445236292 444-448,450-451
+packages/core/src/libs/tools/artifacts/serve.ts
+  s_b6e5b648af90e7::t_e8fd98d012cd09 70-77,154-163
+  s_b6e5b648af90e7::t_3ddb95d62c560d 164
+packages/core/src/libs/tools/artifacts/serve.audience.test.ts
+  s_b6e5b648af90e7::t_b50a06830f5f50 84-89,94-96,108-114,116-118,126-137,144-146,149-150,152-153,155-164,166-171
+  s_b6e5b648af90e7::t_57c6ba566bc4e5 11-14,90-93,97-107,115,119-125,138-143,147-148,151,154,165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "50f7f6917087ffe714ee43f0565d20fdfb5bcde2",
+  "prompts": {},
+  "sessions": {
+    "s_b6e5b648af90e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08434c34-abe2-4067-aa41-83078d3fd279",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
