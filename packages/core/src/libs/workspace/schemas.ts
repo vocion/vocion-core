@@ -1324,6 +1324,22 @@ export const RollupSchema = z.object({
 }).refine(r => [r.sum, r.min, r.max].filter(v => v !== undefined).length <= 1, { message: 'a rollup is a sum, a min, a max or a count of children, not two of them' });
 export type Rollup = z.infer<typeof RollupSchema>;
 
+const GateRequirementSchema = z.object({
+  field: z.string().min(1),
+  present: z.boolean().optional(),
+  minItems: z.number().int().min(0).optional(),
+  oneOf: z.array(z.string()).min(1).optional(),
+  maxAgeDays: z.number().min(0).optional(),
+  message: z.string().optional(),
+}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined, { message: 'a requirement needs present, minItems, oneOf or maxAgeDays' });
+
+export const HandoffGateSchema = z.object({
+  name: z.string().min(1),
+  when: z.object({ field: z.string().min(1), becomes: z.array(z.string().min(1)).min(1) }),
+  producedBy: z.string().min(1).describe('the agent slug whose work this is — where a failure is returned'),
+  require: z.array(GateRequirementSchema).min(1),
+});
+
 export const ObjectTypeManifestSchema = z.object({
   slug: SlugSchema,
   label: z.string(),
@@ -1336,6 +1352,13 @@ export const ObjectTypeManifestSchema = z.object({
   fewShotExamples: z.array(FewShotExampleSchema).default([]),
   /** Figures computed from another type's rows — see {@link RollupSchema}. */
   rollups: z.array(RollupSchema).optional(),
+  /**
+   * HANDOFF GATES: what must be on a record before it may cross a transition,
+   * and which seat the record goes back to when it is not
+   * (`libs/gates/handoffGate.ts`). Declared here by the plugin, steered by
+   * the workspace, enforced where the record is written — never a prompt.
+   */
+  gates: z.array(HandoffGateSchema).optional(),
 });
 export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
 

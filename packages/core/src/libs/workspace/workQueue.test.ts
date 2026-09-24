@@ -535,4 +535,12 @@ describe('which picture the card shows', () => {
 
     expect(drawn!.meta.visual).toBe(11);
   });
+
+  it('a row a gate sent back reads Returned to the seat, with the first missing thing, and is not waiting on a person', () => {
+    const rows = [row(50, 'sent back', { state: 'triaged', recommendationState: 'proposed', returnedTo: 'product-manager', gate: { name: 'decision-ready', failed: [{ field: 'acceptance', why: 'acceptance has 1 item; at least 3 needed' }, { field: 'why', why: 'why is not on the record' }] } })];
+    const out = deriveWorkQueue(rows, { now: NOW });
+
+    expect(out[0]!.meta.state).toBe('Returned to PM');
+    expect(out[0]!.meta.workLine).toBe('Gate "decision-ready": acceptance has 1 item; at least 3 needed (+1 more). No action needed from you.');
+  });
 });
