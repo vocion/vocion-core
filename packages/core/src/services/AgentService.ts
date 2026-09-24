@@ -35,6 +35,15 @@ import { TurnRefusedError } from './agents/turnRefusal';
  * `recommend_action id: …`. Either way the person saw words where a card
  * should have been.
  */
+/**
+ * A tool call the tool itself refused for its arguments — retryable, not fatal.
+ * @param err
+ */
+function isToolInputError(err: unknown): boolean {
+  const m = err instanceof Error ? err.message : String(err ?? '');
+  return /did not match expected schema|Received tool input|invalid arguments/i.test(m);
+}
+
 const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal';
 const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|(?:^|[\\s*_\`])(${TOOL_NAMES})[*_\`]*\\s*$`);
 const NARRATED_TOOL_TAIL = new RegExp(`\\n\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(?:${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|[\\s*_\`]*(?:${TOOL_NAMES})[*_\`]*\\s*$`);
@@ -754,6 +763,8 @@ export async function runAgentDeep(opts: {
   // (production turn 579, 2026-09-24: six lookups after a self-correction,
   // then silence) owes an answer whatever its length says.
   let answeredSinceTool = true;
+  // A malformed tool call is retried once, not fatal — see the catch below.
+  let toolErrorRetried = false;
   // The lead's most recent model-turn namespace, so a scratch tail released
   // at flush lands on the reasoning node of the turn that wrote it.
   let leadNs = '';
@@ -998,42 +1009,70 @@ export async function runAgentDeep(opts: {
     if (labelJobs.length > 0) {
       await Promise.race([Promise.allSettled(labelJobs), new Promise(r => setTimeout(r, 1500))]);
     }
-  } catch (err) {
+  } catch (caught) {
+    let err: unknown = caught;
+    let recovered = false;
+    // A MALFORMED TOOL CALL IS NOT THE END OF THE TURN. deepagents' own tools
+    // throw on a schema miss and the throw leaves the graph (verified live,
+    // harness.ts); production turn 614 (2026-09-24) died on `read_file`
+    // called with no arguments — the person saw one preamble and "incomplete".
+    // The error goes back to the model once, as the instruction, tools on.
+    if (isToolInputError(caught) && !toolErrorRetried) {
+      toolErrorRetried = true;
+      const detail = (caught as Error).message.replace(/\s+/g, ' ').slice(0, 300);
+      console.warn('agent turn: malformed tool call, continuing once', { orgId: opts.orgId, agentSlug: opts.agentSlug, detail });
+      try {
+        const soFar = normalizeAnswerHtml(finalText).trim();
+        await runGraph({
+          ...input,
+          messages: [
+            ...input.messages,
+            ...(soFar ? [{ role: 'assistant', content: soFar }] : []),
+            { role: 'user', content: `Your last tool call was rejected: ${detail}. Call it again with valid arguments, or do without it — and answer. Do not stop.` },
+          ],
+        } as typeof input);
+        recovered = true;
+      } catch (again) {
+        err = again;
+      }
+    }
+    if (!recovered) {
     // A budget stop ends the turn as a refusal carrying the cap that was hit —
     // whatever the aborted stream threw on its way out. A step-limit stop is
     // reworded for the person; anything else keeps its own message.
-    const budgetStop = budgetGuard.stopError();
-    if (budgetStop) {
+      const budgetStop = budgetGuard.stopError();
+      if (budgetStop) {
       // Almost always the abort itself; logged in case something else broke
       // as the stop landed, since the person only sees the budget message.
-      console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
-    }
-    const { message, rethrow } = budgetStop
-      ? { message: budgetStop.message, rethrow: budgetStop }
-      : describeTurnFailure(err, maxSteps);
-    // The run died. Close anything still open as a FAILURE first, so the
-    // persisted trace carries a terminal node instead of stopping at
-    // "Delegating to <specialist>" — the exact trace this turn used to leave.
-    const stillDelegating = tracer.openDelegationNames();
-    for (const node of tracer.closeDelegations(message)) {
-      emit(node);
-    }
-    for (const name of stillDelegating) {
-      if (!failedDelegations.some(f => f.name === name)) {
-        failedDelegations.push({ name, message });
+        console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
       }
-      emit({ type: 'tool_error', tool: 'task', message });
+      const { message, rethrow } = budgetStop
+        ? { message: budgetStop.message, rethrow: budgetStop }
+        : describeTurnFailure(err, maxSteps);
+      // The run died. Close anything still open as a FAILURE first, so the
+      // persisted trace carries a terminal node instead of stopping at
+      // "Delegating to <specialist>" — the exact trace this turn used to leave.
+      const stillDelegating = tracer.openDelegationNames();
+      for (const node of tracer.closeDelegations(message)) {
+        emit(node);
+      }
+      for (const name of stillDelegating) {
+        if (!failedDelegations.some(f => f.name === name)) {
+          failedDelegations.push({ name, message });
+        }
+        emit({ type: 'tool_error', tool: 'task', message });
+      }
+      // There will be no answer, so the words have to go into the transcript
+      // here — a badge in the trace is not the person being told.
+      const notice = delegationFailureNotice(failedDelegations, finalText);
+      if (notice) {
+        emit({ type: 'response_delta', delta: `${finalText.trim().length > 0 ? '\n\n' : ''}${notice}` });
+      }
+      emit({ type: 'error', message });
+      trace.update({ output: { error: message } });
+      await flushTraces();
+      throw rethrow;
     }
-    // There will be no answer, so the words have to go into the transcript
-    // here — a badge in the trace is not the person being told.
-    const notice = delegationFailureNotice(failedDelegations, finalText);
-    if (notice) {
-      emit({ type: 'response_delta', delta: `${finalText.trim().length > 0 ? '\n\n' : ''}${notice}` });
-    }
-    emit({ type: 'error', message });
-    trace.update({ output: { error: message } });
-    await flushTraces();
-    throw rethrow;
   }
 
   // Release any held-back tail (partial-tag boundary) from the streamer. A

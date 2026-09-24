@@ -230,6 +230,22 @@ describe('the deliverable contract', () => {
     expect(result.response).not.toContain('```');
   });
 
+  it('a malformed tool call does not end the turn: the error goes back once and the answer still lands', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockClear();
+    streamEvents
+      .mockRejectedValueOnce(new Error('Error invoking tool \'read_file\' with kwargs {} with error: Error: Received tool input did not match expected schema'))
+      .mockResolvedValueOnce(lookupStream('[{"id":41,"title":"Retry uploads"}]'));
+    const { result } = await run({ message: 'Approve filing it.', deliverable: 'answer', conversationId: conv.id });
+
+    expect(streamEvents).toHaveBeenCalledTimes(2);
+
+    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
+
+    expect(second.messages.at(-1)?.content).toContain('Your last tool call was rejected');
+    expect(result.response).toContain('Found the cards.');
+  });
+
   it('makes no artifact when the turn owed an answer — and continues ONCE when the turn ended on a promise', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     streamEvents.mockClear();
