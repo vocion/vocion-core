@@ -122,11 +122,13 @@ const ANSWER_FLOOR = 120;
  * @returns True when the turn worked and never said what it found.
  */
 export function stoppedShort(turn: { text: string; toolCalls: number }): boolean {
-  if (turn.toolCalls === 0) {
-    return false;
-  }
   const text = turn.text.trim();
-  return text.length < ANSWER_FLOOR || preambleOnly(text);
+  // "Let me look" with NO tool call behind it is the emptiest stall of all
+  // (production turn 577, 2026-09-24): a promise, then silence.
+  if (text.length > 0 && preambleOnly(text)) {
+    return true;
+  }
+  return turn.toolCalls > 0 && text.length < ANSWER_FLOOR;
 }
 
 /**

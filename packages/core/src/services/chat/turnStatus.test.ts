@@ -110,7 +110,10 @@ describe('a turn that did work and never answered', () => {
     expect(twoPreambles.length).toBeGreaterThan(120);
     expect(preambleOnly(twoPreambles)).toBe(true);
     expect(stoppedShort({ text: twoPreambles, toolCalls: 2 })).toBe(true);
-    expect(stoppedShort({ text: twoPreambles, toolCalls: 0 })).toBe(false);
+    // No tool call behind the promise is the emptiest stall of all (turn 577).
+    expect(stoppedShort({ text: twoPreambles, toolCalls: 0 })).toBe(true);
+    expect(stoppedShort({ text: 'Let me look', toolCalls: 0 })).toBe(true);
+    expect(stoppedShort({ text: 'Yes.', toolCalls: 0 })).toBe(false);
   });
 
   it('a short real answer after a preamble is an answer', () => {
