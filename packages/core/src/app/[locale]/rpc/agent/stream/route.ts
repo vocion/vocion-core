@@ -23,6 +23,7 @@ import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
+import { toolsMarker } from '@/services/chat/historyTools';
 import { RunCollector } from '@/services/chat/runCollector';
 import { stoppedShort } from '@/services/chat/turnStatus';
 import {
@@ -185,7 +186,10 @@ export async function POST(request: Request): Promise<Response> {
     // not the contents — so the agent asks rather than guesses.
     // Stamped with when each turn was sent, so the model can tell yesterday's
     // question from one asked a minute ago (`toHistoryTurns`).
-    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })), { timeZone });
+    // …and what each of the agent's own turns actually DID (the tools it
+    // ran, what came back), so it does not disbelieve its earlier self and
+    // start over — see `services/chat/historyTools.ts`.
+    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}${m.role === 'assistant' ? toolsMarker(m.runsJson) : ''}` })), { timeZone });
     const userMsg = await appendMessage({
       orgId,
       conversationId,
