@@ -227,20 +227,30 @@ jobs:
         uses: docker://mcr.microsoft.com/playwright:v1.58.2
         with:
           # The workspace script, as in the E2E job: through the root script,
-          # npm keeps anything after `--` as its own config flag, so vitest
-          # never sees it. That is also why `--coverage` here never produced
-          # coverage (Codecov logs "No coverage reports found"). This keeps
-          # that behaviour, coverage off, and turning it on is left for #631's
-          # follow-ups.
-          args: sh -c "npm run test --workspace @vocion/core -- --shard=${{ matrix.shard }}/3"
+          # npm kept anything after `--` as its own config flag, so vitest never
+          # saw `--coverage` and Codecov logged "No coverage reports found" on
+          # every run until #631. Each shard covers its own third of the files;
+          # Codecov merges the three uploads for the commit (codecov.yml waits
+          # for all three). Coverage costs about 12% on a shard, measured
+          # locally.
+          args: sh -c "npm run test --workspace @vocion/core -- --shard=${{ matrix.shard }}/3 --coverage"
         env:
           # T3 env validation needs these present; unit tests mock the DB +
           # LLM clients (vitest stubs the API keys), values are never dialed.
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_test
           AUTH_SECRET: ci-only-secret-not-used-by-unit-tests
 
+      # A shard that wrote no report fails here, loudly. Before #631 the
+      # report was silently missing on every run for months.
+      - name: Check the coverage report exists
+        run: test -s packages/core/coverage/coverage-final.json
+
+      # One upload per shard. An outage at Codecov doesn't fail the build
+      # (the action's default); the check above covers the case that matters.
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
+        with:
+          files: packages/core/coverage/coverage-final.json
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
