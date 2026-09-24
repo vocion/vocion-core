@@ -35,6 +35,7 @@ const STORY_SESSION = {
     accountId: 'acct-story',
     projectId: 'proj-story',
     role: 'admin' as const,
+    workspaceRole: 'owner' as const,
   },
   expires: '2999-01-01T00:00:00.000Z',
 };

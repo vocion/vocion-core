@@ -132,7 +132,7 @@ describe('GET /api/v1/missions/:slug/runs', () => {
     const missionId = await makeMission('larkfield-event-ingestion');
     await makeRun(missionId);
     mockBearer.mockResolvedValue(null);
-    mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', has: () => true } as never);
+    mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', workspaceRole: 'owner' as const, has: () => true } as never);
 
     const res = await GET(new Request(`https://vocion.test/api/v1/missions/larkfield-event-ingestion/runs`), paramsFor('larkfield-event-ingestion'));
 

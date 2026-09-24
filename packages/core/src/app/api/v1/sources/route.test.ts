@@ -195,7 +195,7 @@ describe('GET /api/v1/sources', () => {
 
   it('accepts a dashboard session with no bearer token', async () => {
     mockBearer.mockResolvedValue(null);
-    mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', has: () => true } as never);
+    mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', workspaceRole: 'owner' as const, has: () => true } as never);
 
     const res = await GET(new Request('https://vocion.test/api/v1/sources'));
 
