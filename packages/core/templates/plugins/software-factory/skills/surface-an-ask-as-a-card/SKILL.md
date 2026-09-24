@@ -8,7 +8,7 @@ description: >-
   conversation the person can approve to start the work, or open to argue
   with. Read whenever a chat turn contains a request for work.
 playbooks: [naming-the-work]
-version: 3
+version: 4
 ---
 
 # An ask in chat becomes a card, not a paragraph
@@ -24,23 +24,25 @@ happened and go looking for it later. They usually do not.
 the board and the person who asked never saw what was recorded, so the first
 time they read it is when it is already being built from the wrong reading.
 
-**What to do instead**: recommend the action, so the ask becomes a card in the
-conversation with one button on it.
+**What to do instead**: CALL the `recommend_action` tool, so the ask becomes a
+card in the conversation with one button on it. It is a tool call, not a
+message. Never write the word `recommend_action`, a `CARD` label, or a code
+block shaped like a call into your reply — text is not a card, and on
+2026-09-24 three turns did exactly that (the person saw a block of YAML, no
+button, and nothing filed). The arguments:
 
-```
-recommend_action(
-  action_id: "objects.propose_candidate",
-  action_input: {
-    objectType: "request",
-    title: <the ask, as an outcome>,
-    dedupOn: ["title"],
-    …
-  },
-  label: "File this as a request",
-  rationale: <what you understood, in one sentence they can correct>,
-  suggested_decision: "approve",
-)
-```
+- `action_id`: `objects.propose_candidate`
+- `action_input`: `objectType: request`, `title` (the ask as an outcome),
+  `dedupOn: ["title"]` at the top level, and the fields you know — product,
+  kind, severity, why, body in the asker's words
+- `label`: "File this as a request"
+- `rationale`: what you understood, in one sentence they can correct
+- `suggested_decision`: `approve`
+
+When the person then says "file it", "approve filing it" or "go ahead", that
+is the same call again — the one you drafted, for the same ask, not a search
+for an existing record that might be it. Reply in one sentence after the
+call; the card carries the rest.
 
 `dedupOn` is mandatory and it is the one that gets forgotten. It names the
 fields that identify the thing, so the same ask made twice refreshes one
