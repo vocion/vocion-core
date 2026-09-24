@@ -139,7 +139,7 @@ export async function judgeTranscript(request: JudgeRequest): Promise<JudgeOutpu
   const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripped);
+    parsed = JSON.parse(firstJsonObject(stripped) ?? stripped);
   } catch (error) {
     console.error(`[evals] judge returned non-JSON for ${request.datasetSlug} case ${request.transcript.itemIndex}`, error);
     const fallback = { verdict: 'error' as const, score: 0, rationale: 'judge returned non-JSON' };
@@ -156,4 +156,45 @@ export async function judgeTranscript(request: JudgeRequest): Promise<JudgeOutpu
   }
   trace.update({ output: validated.data });
   return validated.data;
+}
+
+/**
+ * The first complete JSON object in a text, or null. A judge that appends a
+ * sentence after its verdict ("…} Hope that helps") used to score the case
+ * as an error (factory-reference cases 4, 7 and 8, 2026-09-24): the verdict
+ * was there, the parser stopped at the first character after it.
+ * @param text - The model's output, fences already stripped.
+ */
+export function firstJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start === -1) {
+    return null;
+  }
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
 }
