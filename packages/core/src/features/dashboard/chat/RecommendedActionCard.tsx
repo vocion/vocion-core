@@ -1,12 +1,13 @@
 'use client';
 
 import type { RecommendedAction } from './types';
-import { ArrowRight, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { deferredLine, deferUntil } from './deferral';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
 /**
@@ -53,8 +54,9 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   autoPropose?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
-  const [deciding, setDeciding] = useState<'approve' | 'reject' | 'undo' | null>(null);
+  const [deciding, setDeciding] = useState<'approve' | 'reject' | 'defer' | 'undo' | null>(null);
   const [decideError, setDecideError] = useState<string | null>(null);
+  const [deferredUntil, setDeferredUntil] = useState<Date | null>(null);
   const live = useActionRunStatus(phase.runId);
   const autoFiredRef = useRef(rec.runId !== undefined);
 
@@ -133,6 +135,56 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       setDeciding(null);
     }
   };
+
+  /**
+   * Defer: "not now" without it reading as "no". The proposal is filed if it
+   * is not yet, then snoozed in review until a week out (`deferral.ts`) — the
+   * queue's own snooze, so the card and the queue say the same thing.
+   */
+  const defer = async () => {
+    setDeciding('defer');
+    setDecideError(null);
+    try {
+      let runId = phase.runId;
+      if (runId === undefined) {
+        if (!rec.actionId) {
+          setDecideError('This recommendation named no action, so there is nothing to defer.');
+          return;
+        }
+        const res = await client.review.propose({
+          actionId: rec.actionId,
+          input: rec.input,
+          agentSlug: rec.agentSlug,
+          rationale: rec.rationale,
+          confidence: rec.confidence,
+          ...recommendedActionAdvice(rec),
+        }) as { runId: number; status: string };
+        runId = res.runId;
+        setPhase({ status: 'proposed', runId });
+        onProposed?.(runId);
+      }
+      const until = deferUntil();
+      await client.review.snoozeAction({ id: runId, until: until.toISOString(), note: 'Deferred from chat' });
+      setDeferredUntil(until);
+    } catch (err) {
+      setDecideError((err as Error).message);
+    } finally {
+      setDeciding(null);
+    }
+  };
+
+  const deferButton = (
+    <button
+      type="button"
+      onClick={() => void defer()}
+      disabled={deciding !== null || phase.status === 'working'}
+      data-testid="recommended-defer"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
+    >
+      {deciding === 'defer' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <CalendarClock className="size-4" aria-hidden />}
+      {deciding === 'defer' ? 'Deferring…' : 'Defer'}
+    </button>
+  );
 
   // Done for you → Undo, from the card that said it was done (principle 10:
   // one move from where the claim is read).
@@ -278,7 +330,21 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
 
       {/* CTA */}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
-        {phase.status === 'proposed'
+        {deferredUntil && (
+          <>
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <CalendarClock className="size-4" aria-hidden />
+              {deferredLine(deferredUntil)}
+            </span>
+            {phase.runId !== undefined && (
+              <Link href={inboxHref('proposal', phase.runId)} className="inline-flex items-center gap-1 text-sm text-brand-amber-deep hover:opacity-90">
+                Open in review
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            )}
+          </>
+        )}
+        {!deferredUntil && phase.status === 'proposed'
           ? (
               <>
                 {status === 'pending' && canApprove && (
@@ -300,6 +366,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
                     >
                       Reject
                     </button>
+                    {deferButton}
                   </>
                 )}
                 <Link
@@ -318,40 +385,43 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
                 )}
               </>
             )
-          : (
-              <>
-                {/* One click when the suggestion is already right. Approving
+          : deferredUntil
+            ? null
+            : (
+                <>
+                  {/* One click when the suggestion is already right. Approving
                     used to mean "Prepare for review", then find the card again,
                     then "Approve" — two clicks and a context switch to agree
                     with something you had already read. Chris, 2026-09-17:
                     *"I wanted to approve. I shouldn't have to click twice."*
                     Preparing is still offered, for when you want to look first
                     or edit the draft. */}
-                {canApprove && !isDraft && (
+                  {canApprove && !isDraft && (
+                    <button
+                      type="button"
+                      onClick={() => void prepareAndApprove()}
+                      disabled={busy || deciding !== null}
+                      data-testid="recommended-approve-now"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                    >
+                      {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
+                      {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => void prepareAndApprove()}
-                    disabled={busy || deciding !== null}
-                    data-testid="recommended-approve-now"
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                    onClick={prepare}
+                    disabled={busy}
+                    className={canApprove && !isDraft
+                      ? 'inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition hover:bg-surface-hover disabled:opacity-60'
+                      : 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60'}
                   >
-                    {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
-                    {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
+                    {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                    {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={prepare}
-                  disabled={busy}
-                  className={canApprove && !isDraft
-                    ? 'inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition hover:bg-surface-hover disabled:opacity-60'
-                    : 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60'}
-                >
-                  {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
-                  {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
-                </button>
-              </>
-            )}
+                  {canApprove && deferButton}
+                </>
+              )}
         {isDraft && phase.status !== 'proposed' && (
           <span className="text-[11px] text-muted-foreground">saves to Gmail Drafts — nothing sends without you</span>
         )}
