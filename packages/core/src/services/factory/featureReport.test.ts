@@ -48,6 +48,14 @@ const request: ReportObject = {
     decisionReason: 'Worth the week. Ship it behind the existing share menu.',
     estimateCents: 900,
     actualCents: 1450,
+    // The outcome, not just the delivery (review, 2026-09-24).
+    expectedResult: 'A room owner can hand their board a PDF of the room without a screenshot.',
+    howWeCheck: 'Dogfood notes asking for a PDF stop; export count in PostHog over 14 days.',
+    checkAfter: '2026-09-20T00:00:00Z',
+    result: 'helped',
+    resultNote: '14 exports in the first week; no new dogfood note asked for a PDF.',
+    resultCheckedAt: '2026-09-21T09:00:00Z',
+    told: { at: '2026-09-07T10:00:00Z', channel: 'dogfood', what: 'shipped in 1.4', status: 'sent' },
   },
 };
 
@@ -328,7 +336,7 @@ describe('the sections', () => {
     const report = assembleFeatureReport(input());
 
     expect(report.sections.map(s => s.key)).toEqual([...REPORT_SECTION_KEYS]);
-    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'visuals', 'today', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
+    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'visuals', 'today', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'result', 'money']);
   });
 
   it('a complete feature has every stage present and none of them absent', () => {
@@ -933,15 +941,18 @@ describe('one decision at a time', () => {
   it('is proposed while nothing has been contracted, and the lifecycle says where it is', () => {
     const r = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
 
-    expect(r.phase).toBe('proposed');
-    expect(r.lifecycle.map(l => `${l.label}:${l.state}`)).toEqual(['Plan:now', 'Build:todo', 'QA:todo', 'Release:todo']);
+    // The fixture's request is `shipped` on the record with nothing carrying
+    // it; with no plan or task written, the records say "decided" at most.
+    expect(['asked', 'decided']).toContain(r.phase);
+    expect(r.lifecycle.map(l => l.label)).toEqual(['Asked', 'Decided', 'Planned', 'Building', 'QA', 'Released']);
+    expect(r.lifecycle.filter(l => l.state === 'now')).toHaveLength(1);
   });
 
   it('moves to building once there is work to watch', () => {
     const r = assembleFeatureReport(input({ releases: [], artifacts: [] }));
 
-    expect(r.phase).toBe('review');
-    expect(r.lifecycle.find(l => l.label === 'Build')?.state).toBe('done');
+    expect(r.phase).toBe('qa');
+    expect(r.lifecycle.find(l => l.label === 'Building')?.state).toBe('done');
   });
 
   it('is released once something carried it to people', () => {

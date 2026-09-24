@@ -255,6 +255,27 @@ schema:
         count of askers, the run that lost the work, the promise at risk.
         Carried onto the merge ask, so the person deciding reads why before
         they read the diff.
+    verdict:
+      x-display: {label: QA verdict, group: Review}
+      type: object
+      description: >-
+        QA's verdict, BOUND TO THE COMMIT it was read against. A verdict is
+        evidence about one diff; when the branch moves after the review, the
+        verdict is stale and the merge ask says so rather than carrying an
+        approval of code nobody read. Written by QA through update_object
+        (review-against-contract); the merge ask copies `commitSha` into
+        `verdictCommitSha` so the card can compare.
+      properties:
+        value: {type: string, enum: [approve, changes, reject]}
+        commitSha: {type: string, description: The head commit the diff and the verification were read at. Must equal `commitSha` on this task for the verdict to stand.}
+        at: {type: string, format: date-time}
+        by: {type: string, description: 'The reviewer — an agent slug, or a person.'}
+        note: {type: string, description: 'The one sentence for the person who will merge: what they are accepting and the one risk to know.'}
+        independentChecks: {type: array, items: {type: string}, description: 'Checks that ran on trusted CI or were reproduced by QA rather than reported by the worker. Required to be non-empty for a schema, billing, auth or infra risk class before the merge ask is filed.'}
+    rollback:
+      x-display: {label: If the health check fails, group: Review}
+      type: string
+      description: 'How this change is put back, in one or two lines a person can follow at 2am: "revert the merge commit and redeploy; no data written", or "run down-migration 0042 first, then revert". Written by the PM before the merge ask; a merge that is a deploy is not proposed without it.'
 classificationPrompt: >-
   Given a request — a review item, an ask, a support thread, a message —
   decide whether it is one engineering task or several. One task changes one

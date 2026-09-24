@@ -10,10 +10,17 @@ description: >-
   waiting, never on how many workers ran.
 goal: Every request is a released change or an honest written answer within a week, and a person can run the loop from a phone.
 lead: product-manager
-# No accountableUser: inherits the workspace default. A plugin cannot know who
-# owns a merge in someone else's deployment — the workspace names the person
-# (`accountableUser:` in workspace.yaml, or on this file with `extends: core`),
-# and Vocion refuses to let the merge be unowned either way.
+# TWO OWNERS, TWO DECISIONS (review, 2026-09-24). The workspace's
+# `accountableUser` is the PRODUCT OWNER: they approve the commitment — the
+# build card, with its contract, cost and risk. This team's `accountableUser`
+# is the ENGINEERING OWNER: they approve the merge, which on most repositories
+# is the deploy. A plugin cannot know who either is in someone else's
+# deployment, so no default is shipped here; the workspace sets the team's on
+# this file with `extends: core`. Where one person holds both (a one-person
+# shop), they set both to themselves and the cards still say which hat is
+# being asked for. A routine completion reply may go out under a policy the
+# product owner turns on (`notify.requester.completion` in trust.yaml); a
+# decline or an incident update is read by a person every time.
 #
 # THE SEATS. The team schema has no discipline field and the org chart shows
 # an agent's name and icon, so each agent carries its seat in its `eyebrow`

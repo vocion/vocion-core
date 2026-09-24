@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { acceptanceLine, acceptanceOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, visualArtifactId, visualGap, whyLine, workLine } from './workQueue';
+import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stageOf, stateOf, visualArtifactId, visualGap, whyLine, workLine } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -41,26 +41,76 @@ describe('lanes', () => {
     expect(flagsOf(building, 'progress')).toContain('waiting on you');
   });
 
-  it('reads a building outcome with no task running as blocked, whatever the state says', () => {
-    const stalled = row(20, 'Nightly deploy run', { state: 'building', taskCount: 3, runningTaskCount: 0 });
+  it('tells waiting from blocked: no running task is a wait with a name, Blocked needs an obstacle somebody wrote down', () => {
+    // Review, 2026-09-24: "zero running tasks with tasks written reads as
+    // Blocked" mislabelled work awaiting dispatch, awaiting QA and ready to
+    // merge as failure. Stage, activity and blocker are three facts.
+    const dispatch = row(20, 'Nightly deploy run', { state: 'building', taskCount: 3, runningTaskCount: 0 });
+    const qa = row(23, 'Retry uploads', { state: 'building', taskCount: 1, runningTaskCount: 0, awaitingReviewTaskCount: 1 });
+    const merge = row(24, 'Retry uploads', { state: 'building', taskCount: 1, runningTaskCount: 0, acceptedTaskCount: 1 });
     const moving = row(21, 'Rename Send', { state: 'building', taskCount: 3, runningTaskCount: 1 });
     const starting = row(22, 'Just claimed', { state: 'building', taskCount: 0 });
+    const blocked = row(25, 'Connect staging', { state: 'building', taskCount: 2, runningTaskCount: 0, blocker: { what: 'The staging account is not connected', owner: 'chris@example.test', next: 'connect it on /dashboard/connectors' } });
 
-    expect(isBlocked(stalled)).toBe(true);
-    expect(stateOf(stalled, 'progress')).toBe('Blocked');
-    expect(workLine(stalled, 'progress', NOW)).toBe('3 tasks written, none running');
+    expect(isBlocked(dispatch)).toBe(false);
+    expect(stateOf(dispatch, 'progress')).toBe('Awaiting dispatch');
+    expect(workLine(dispatch, 'progress', NOW)).toBe('3 tasks written, none picked up yet. No action needed from you.');
+    expect(stateOf(qa, 'progress')).toBe('Awaiting QA');
+    expect(workLine(qa, 'progress', NOW)).toBe('Engineering finished. Awaiting QA; no action needed from you.');
+    expect(stageOf(qa)).toBe('qa');
+    expect(stateOf(merge, 'progress')).toBe('Ready to merge');
+    expect(workLine(merge, 'progress', NOW)).toBe('QA approved. The merge is waiting on a person.');
     expect(isBlocked(moving)).toBe(false);
-    // No tasks written yet is starting, not stopped.
+    expect(stateOf(moving, 'progress')).toBe('Building');
     expect(isBlocked(starting)).toBe(false);
+    // Blocked: an obstacle, its owner and the one move — nothing derived.
+    expect(isBlocked(blocked)).toBe(true);
+    expect(blockerOf(blocked)).toEqual({ what: 'The staging account is not connected', owner: 'chris@example.test', next: 'connect it on /dashboard/connectors' });
+    expect(stateOf(blocked, 'progress')).toBe('Blocked');
+    expect(workLine(blocked, 'progress', NOW)).toBe('The staging account is not connected. chris@example.test to connect it on /dashboard/connectors.');
+    // A blocker on finished work is history, not a state.
+    expect(isBlocked(row(26, 'done', { state: 'shipped', blocker: { what: 'was stuck once' } }))).toBe(false);
+  });
+
+  it('reads the stage off the records, six steps and two exits', () => {
+    expect(stageOf(row(1, 'a', { state: 'new' }))).toBe('asked');
+    expect(stageOf(row(2, 'b', { state: 'triaged' }))).toBe('asked');
+    expect(stageOf(row(3, 'c', { state: 'in_scope' }))).toBe('decided');
+    expect(stageOf(row(4, 'd', { state: 'in_scope', taskCount: 2 }))).toBe('planned');
+    expect(stageOf(row(5, 'e', { state: 'building', taskCount: 2, runningTaskCount: 1 }))).toBe('building');
+    expect(stageOf(row(6, 'f', { state: 'building', taskCount: 2, acceptedTaskCount: 2 }))).toBe('qa');
+    expect(stageOf(row(7, 'g', { state: 'shipped' }))).toBe('released');
+    expect(stageOf(row(8, 'h', { state: 'answered' }))).toBe('answered');
+    expect(stageOf(row(9, 'i', { state: 'deferred' }))).toBe('deferred');
+    expect(deriveWorkQueue([row(6, 'f', { state: 'building', taskCount: 2, acceptedTaskCount: 2 })], { now: NOW })[0]?.meta?.stage).toBe('qa');
+  });
+
+  it('a deferred outcome is a decision, not a rejection: kept, badged, last in Proposed, with its reason and date', () => {
+    const deferred = row(40, 'Dark mode', { state: 'deferred', deferReason: 'Not until Send is in dogfood. Revisit when two customers ask.', deferredUntil: '2026-10-15T00:00:00Z', askedAt: '2026-09-01T00:00:00Z' });
+    const queued = row(41, 'Fix uploads', { state: 'triaged', why: ['user_asks'], priority: 80, askedAt: '2026-09-20T00:00:00Z' });
+
+    expect(laneOf(deferred)).toBe('proposed');
+    expect(stateOf(deferred, 'proposed')).toBe('Deferred');
+    expect(workLine(deferred, 'proposed', NOW)).toBe('Deferred until 2026-10-15: Not until Send is in dogfood.');
+    expect(deriveWorkQueue([deferred, queued], { now: NOW }).map(r => r.id)).toEqual([41, 40]);
+  });
+
+  it('a shipped outcome says whether it helped, or when that will be known', () => {
+    expect(stateOf(row(50, 'a', { state: 'shipped', result: 'helped' }), 'done')).toBe('Shipped · helped');
+    expect(stateOf(row(51, 'b', { state: 'shipped', result: 'did_not_help' }), 'done')).toBe('Shipped · did not help');
+    expect(stateOf(row(52, 'c', { state: 'shipped' }), 'done')).toBe('Shipped');
+    expect(workLine(row(53, 'd', { state: 'shipped', result: 'helped', resultNote: 'Upload failures fell from 4.1% to 0.3% (PostHog, 7 days). Nobody has reported a lost upload since.', answeredAt: '2026-09-20T16:00:00Z' }), 'done', NOW)).toBe('Upload failures fell from 4.1% to 0.3% (PostHog, 7 days).');
+    expect(workLine(row(54, 'e', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z', checkAfter: '2026-09-28T00:00:00Z' }), 'done', NOW)).toBe('yesterday · result checked 2026-09-28');
+    expect(workLine(row(55, 'f', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z', checkAfter: '2026-09-10T00:00:00Z' }), 'done', NOW)).toBe('yesterday · result not checked yet');
   });
 
   it('sorts what has stopped above what is running', () => {
     const rows = [
       row(30, 'moving', { state: 'building', taskCount: 2, runningTaskCount: 1, askedAt: '2026-09-01T00:00:00Z' }),
-      row(31, 'stopped', { state: 'building', taskCount: 2, runningTaskCount: 0, askedAt: '2026-09-20T00:00:00Z' }),
+      row(31, 'stopped', { state: 'building', taskCount: 2, runningTaskCount: 0, askedAt: '2026-09-20T00:00:00Z', blocker: { what: 'checks fail on the shared helper three attempts running', owner: 'product-manager', next: 'revise the contract' } }),
     ];
 
-    // Newer, but stopped — so it leads regardless of age.
+    // Newer, but blocked — so it leads regardless of age.
     expect(deriveWorkQueue(rows, { now: NOW }).map(r => r.id)).toEqual([31, 30]);
   });
 
@@ -234,6 +284,10 @@ describe('what a row cannot show', () => {
 
   it('is closed by the picture itself', () => {
     expect(visualGap(row(9, 'i', { surface: 'ui', visuals: { beforeArtifactIds: [12] } }), 'proposed')).toBeNull();
+    // The platform's drawing is not a mockup: the gap stays until Design files one.
+    expect(visualGap(row(10, 'j', { surface: 'ui', state: 'new', visuals: { drawnArtifactId: 77 } }), 'proposed')).toBe('no mock');
+    expect(visualArtifactId(row(10, 'j', { surface: 'ui', state: 'new', visuals: { drawnArtifactId: 77 } }), 'proposed')).toBe(77);
+    expect(visualArtifactId(row(11, 'k', { surface: 'ui', state: 'new', visuals: { drawnArtifactId: 77, beforeArtifactIds: [12] } }), 'proposed')).toBe(12);
     expect(visualGap(row(10, 'j', { surface: 'ui', state: 'shipped', visuals: { afterArtifactIds: [13] } }), 'done')).toBeNull();
     // A before does not close a done row: the question there is what shipped.
     expect(visualGap(row(11, 'k', { surface: 'ui', state: 'shipped', visuals: { beforeArtifactIds: [14] } }), 'done')).toBe('no after');
@@ -386,7 +440,7 @@ describe('the sentences on a row', () => {
     expect(stateOf(row(1, 'a', { state: 'new' }), 'proposed')).toBe('Not triaged');
     expect(workLine(row(1, 'a', { state: 'new' }), 'proposed', NOW)).toBeNull();
     expect(workLine(row(2, 'b', { state: 'in_scope' }), 'proposed', NOW)).toBeNull();
-    expect(workLine(row(3, 'c', { state: 'building', taskCount: 5, runningTaskCount: 2 }), 'progress', NOW)).toBe('5 tasks underway');
+    expect(workLine(row(3, 'c', { state: 'building', taskCount: 5, runningTaskCount: 2 }), 'progress', NOW)).toBe('5 tasks underway. No action needed from you.');
     expect(workLine(row(4, 'd', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z' }), 'done', NOW)).toBe('yesterday');
   });
 

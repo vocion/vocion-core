@@ -93,20 +93,23 @@ describe('what it refuses to draw over', () => {
     const out = await ensureProposalVisual({ orgId: 'org', requestId: 5, meta: { surface: 'ui' } });
 
     expect(out).toMatchObject({ status: 'drawn', artifactId: 77, linked: true });
-    expect(written).toEqual([{ visuals: { beforeArtifactIds: [77] } }]);
+    expect(written).toEqual([{ visuals: { drawnArtifactId: 77 } }]);
   });
 
-  it('keeps its drawing current but does not name it when somebody filed a real mockup', async () => {
+  it('keeps its drawing on its own key beside a real mockup, and never on the mockup\'s', async () => {
+    // The drawing is not the mockup (review, 2026-09-24): it lands on
+    // `drawnArtifactId`, so `beforeArtifactIds` still says whether Design
+    // filed anything and the board's `no mock` stays honest.
     rowIs({ visuals: { beforeArtifactIds: [42] } });
     const out = await ensureProposalVisual({ orgId: 'org', requestId: 5, meta: { surface: 'ui', visuals: { beforeArtifactIds: [42] } } });
 
     expect(upsertRecordArtifact).toHaveBeenCalledTimes(1);
-    expect(out).toMatchObject({ status: 'drawn', linked: false });
-    expect(written).toEqual([]);
+    expect(out).toMatchObject({ status: 'drawn', linked: true });
+    expect(written).toEqual([{ visuals: { beforeArtifactIds: [42], drawnArtifactId: 77 } }]);
   });
 
   it('writes nothing twice when its own drawing is already named', async () => {
-    const out = await ensureProposalVisual({ orgId: 'org', requestId: 5, meta: { surface: 'ui', visuals: { beforeArtifactIds: [77] } } });
+    const out = await ensureProposalVisual({ orgId: 'org', requestId: 5, meta: { surface: 'ui', visuals: { drawnArtifactId: 77 } } });
 
     expect(out).toMatchObject({ linked: true });
     expect(written).toEqual([]);
@@ -116,7 +119,7 @@ describe('what it refuses to draw over', () => {
     rowIs({ priority: 3, visuals: { surfaceUrl: '/work' } });
     await ensureProposalVisual({ orgId: 'org', requestId: 5, meta: { surface: 'ui' } });
 
-    expect(written).toEqual([{ priority: 3, visuals: { surfaceUrl: '/work', beforeArtifactIds: [77] } }]);
+    expect(written).toEqual([{ priority: 3, visuals: { surfaceUrl: '/work', drawnArtifactId: 77 } }]);
   });
 
   it('files the drawing against the request, at the one role it owns', async () => {

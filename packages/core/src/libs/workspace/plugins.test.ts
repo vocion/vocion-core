@@ -60,7 +60,7 @@ describe('the shipped catalogue', () => {
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'product', 'release', 'repo', 'request']);
     // Three missions carry the loop; the eight reporting and hygiene missions are gone.
     expect(factory.missions).toEqual(['close-the-gap', 'prove-the-contract', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-change', 'contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-request-intake', 'product-debrief', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['contract-red-team-change', 'contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['feature', 'products', 'releases', 'work']);
     expect(factory.hasTrust).toBe(true);
@@ -264,9 +264,19 @@ describe('loadWorkspace with the software factory', () => {
 
     // The board's counters are on the product record, each described as agent-maintained.
     const product = ws.objectTypes.find(o => o.slug === 'product')?.schema as { properties: Record<string, { description?: string }> };
-    for (const key of ['openRequests', 'p1Open', 'shippedThisMonth', 'medianDaysToShip', 'lastReleaseAt', 'health']) {
+    for (const key of ['p1Open', 'shippedThisMonth', 'medianDaysToShip', 'health']) {
       expect(product.properties[key]?.description).toContain('AGENT-MAINTAINED');
     }
+    // Open work, in-flight and the last release are rollups over the request
+    // and release records now, joined by slug (2026-09-24) — never stale.
+    for (const key of ['openRequests', 'inFlight', 'lastReleaseAt']) {
+      expect(product.properties[key]?.description).toContain('COUNTED FROM THE RECORDS');
+    }
+    const productType = ws.objectTypes.find(o => o.slug === 'product');
+
+    expect(productType?.rollups?.map(r => r.field)).toEqual(['openRequests', 'inFlight', 'awaitingDecision', 'lastReleaseAt']);
+    expect(productType?.rollups?.[0]?.from).toEqual({ type: 'request', by: 'product', match: 'slug' });
+    expect(productType?.rollups?.[3]).toMatchObject({ from: { type: 'release', by: 'product', match: 'slug' }, max: 'releasedAt' });
 
     // Playbooks a plugin ships are active and attached: through a skill's
     // frontmatter for the PM and QA, through `playbooks:` on the engineer,
@@ -284,7 +294,10 @@ describe('loadWorkspace with the software factory', () => {
     // The trust ladder covers the eight actions core registers and nothing
     // else. A push runs on its own; a merge is a person's at the high bar;
     // every other rule ships disabled for the workspace to turn on.
-    expect(ws.trust?.rules.map(r => r.action)).toEqual(['git.push_branch', 'git.merge', 'notify.requester', 'release.announce', 'deploy.release', 'deploy.provision', 'aws.mutate', 'credentials.write']);
+    expect(ws.trust?.rules.map(r => r.action)).toEqual(['git.push_branch', 'git.merge', 'notify.requester', 'notify.requester.completion', 'notify.requester.sensitive', 'release.announce', 'deploy.release', 'deploy.provision', 'aws.mutate', 'credentials.write']);
+    // A routine completion may earn its way; a decline or an incident is a person's every time.
+    expect(ws.trust?.rules.find(r => r.action === 'notify.requester.completion')).toMatchObject({ enabled: false, risk: 'medium', autoApproveAbove: 0.9 });
+    expect(ws.trust?.rules.find(r => r.action === 'notify.requester.sensitive')).toMatchObject({ enabled: false, risk: 'high', autoApproveAbove: 1 });
     expect(ws.trust?.rules.find(r => r.action === 'git.push_branch')).toMatchObject({ enabled: true, autoApproveAbove: 0.7 });
     expect(ws.trust?.rules.find(r => r.action === 'git.merge')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'high', autoApproveAbove: 1 });
     // Telling an asker and announcing a release are gated, medium-tier: they may earn their way, never start there.
@@ -293,7 +306,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.0.0');
+    expect(ws.sha).toContain('+software-factory@2.1.0');
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {
@@ -379,7 +392,9 @@ describe('loadWorkspace with the software factory', () => {
     // The loop is named in the prompt, in the order a person sees it.
     expect(pm?.resolvedSystemPrompt).toContain('asked → decided → planned → building → QA → released');
     // A ui or flow request owes a mockup before it is decided; the PM hands it to the designer.
-    expect(pm?.resolvedSystemPrompt).toContain('owes a mockup before it is decided');
+    expect(pm?.resolvedSystemPrompt).toContain('Prepare the commitment BEFORE you ask anyone to approve it');
+    expect(pm?.resolvedSystemPrompt).toContain('Approve build**,\n   **Request changes**, **Defer**');
+    expect(pm?.resolvedSystemPrompt).toContain('Blocked is only what you write');
     // The runs, not the task list, answer "what have you built" (2026-09-20).
     expect(pm?.resolvedSystemPrompt).toContain('list_recent_runs');
     expect(pm?.initiative).toBe('high');
@@ -408,7 +423,10 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.missions.find(m => m.slug === 'close-the-gap')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'tell-the-requester')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'prove-the-contract')?.agent).toBe('change-reviewer');
-    expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-ci-failure', 'factory-daily-plan', 'factory-request-intake', 'product-debrief', 'tell-the-requester-check']);
+    expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'tell-the-requester-check']);
+    // The decision landing is what makes the card the commitment: approve freezes and queues, defer parks.
+    expect(ws.automations.find(a => a.slug === 'factory-decision-landed')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
+    expect(ws.automations.find(a => a.slug === 'factory-result-check')?.when.schedule).toBe('30 15 * * 1-5');
     expect(ws.automations.filter(a => a.agent === 'change-reviewer').map(a => a.slug).sort()).toEqual(['contract-red-team-change', 'contract-red-team-evidence', 'contract-red-team-proposal']);
     expect(ws.automations.every(a => ws.missions.some(m => m.slug === a.do.checkMission))).toBe(true);
 

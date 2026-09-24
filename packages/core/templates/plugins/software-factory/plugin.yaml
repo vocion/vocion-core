@@ -35,6 +35,41 @@
 #             merge ladder and product.authorize.* were rules for actions that
 #             did not exist.
 #
+# 2.1.0 — the decisions, not just the navigation. A design review of 2.0.0
+# (2026-09-24): "you have simplified the navigation more than the decisions".
+# Five changes it required before this ships, all in:
+#   1. The commitment before the approval. The PM drafts the contract, the
+#      main risk, the expected result and how it will be checked, and gets the
+#      mockup, BEFORE the card; approving the card freezes the acceptance
+#      criteria (`factory-decision-landed`). Nothing executes on a draft.
+#   2. The decision card has a minimum (outcome, who asked, recommendation,
+#      change, done when, spend range and review minutes, main risk, expected
+#      result) and Defer is a decision with a reason and a revisit date
+#      (`state: deferred`), distinct from reject.
+#   3. Gates are conditional and owned: the product owner (workspace
+#      `accountableUser`) approves the commitment, the engineering owner (team
+#      `accountableUser`) approves the merge; a routine evidenced completion
+#      reply may go out under a policy (`notify.requester.completion`) while a
+#      decline or incident update is a person's every time
+#      (`notify.requester.sensitive`). Answers and duplicates never take the
+#      build path. A typical bug is two decisions by two people.
+#   4. Waiting, blocked, deployed, notified and outcome verified are five
+#      facts: Blocked is only `request.blocker` (what, owner, next); awaiting
+#      dispatch / QA / merge have their own names; `told` on the request is
+#      separate from the release's announcement; `result` (helped / did not
+#      help / not enough evidence) is written after `checkAfter` by
+#      `factory-result-check`. Three failed attempts escalate with a revised
+#      recommendation, never an automatic no.
+#   5. QA's verdict is bound to a commit (`engineering_task.verdict.commitSha`),
+#      the merge ask names its head, the verdict's commit and `rollback`, and
+#      the card says STALE when the branch moved; schema/billing/auth/infra
+#      need an independently run check.
+#   And: the platform's drawn thumbnail moves to `visuals.drawnArtifactId`,
+#   so it no longer satisfies the mockup gate; Design may draw an alternative
+#   when a real tradeoff needs a decision; a bug wants a reproduction, not a
+#   mockup; Products gets one derived sentence per product (`derive:
+#   productBoard`) over rollups that join `by: product, match: slug`.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -45,7 +80,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.0.0
+version: 2.1.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and four seats — PM, Design, Eng, QA.
 depends: []
 surfaces: []

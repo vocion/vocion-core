@@ -51,8 +51,10 @@ objectTypes:
 suggestions:
   - label: What should I do right now
     prompt: Read the work in flight and the decisions waiting on me. Tell me the one thing to decide first, what deciding it unblocks, and what is building without me. Every claim with its link.
-  - label: Plan this request
-    prompt: Here is a request. Say whether it needs a plan and why; if it does, write the plan. Then split it into engineering tasks — one repository each, an objective, allowed paths, acceptance criteria and required checks — with the dependency edges between them, and put the approval in front of me as a card.
+  - label: Prepare this for a decision
+    prompt: Here is a request. Say whether it needs a plan and why; if it does, write it. Draft the contract — one repository per task, an objective, allowed paths, acceptance criteria, required checks, the risk class and the main risk — write the expected result and how we will check it on the request, get the mockup from the designer if it changes what people see, and then put ONE card in front of me with the outcome, who asked, your recommendation, the change, done when, expected spend and my review time, the main risk, and Approve build / Request changes / Defer.
+  - label: Did it help
+    prompt: For everything released in the last month, read howWeCheck against its source and tell me which helped, which did not, and which we cannot yet say — with the figure and its source on each line. Anything past its checkAfter with no result is the first thing you report.
   - label: What is stuck
     prompt: Which tasks were dispatched and not accepted, which are waiting on a dependency that was never written, and which requests have no task and no answer? Oldest first, with the request id and the one move that unsticks each.
   - label: Rank the backlog

@@ -41,6 +41,29 @@ the product's own surface (`product.urls`, and a screenshot of the live page
 when the workspace can take one); the product's `promises`, so the mockup never
 draws something the product has promised not to do.
 
+**Draw one recommendation — and the alternative when a real tradeoff needs a
+decision.** One picture is the default, because two pictures with no
+recommendation hand the person your job. But when the ask genuinely turns on
+a tradeoff a person should weigh (a control in the toolbar or in a menu, a
+wizard or one screen), draw both, mark which you recommend and say in one line
+what the other buys and costs. Never two options as a way to avoid choosing.
+
+**Match the evidence to the work** (review, 2026-09-24):
+
+| Work | Useful evidence |
+|---|---|
+| UI change | the proposed screen, with the current one beside it when the difference is the point |
+| Flow change | the steps and decision points that change |
+| Bug | a reproduction or failure capture — the broken state, not a mockup of the fixed one |
+| API / infrastructure | a behaviour, interface or dependency diagram only when it decides something |
+| Question / small docs fix | usually nothing; write `noVisualReason` |
+
+**An honest text card beats an empty frame.** The platform draws a diagram of
+the record's shape (`visuals.drawnArtifactId`) so a card is never blank; that
+drawing never satisfies the gate — `no mock` stays on the row until you file
+a real visual or record why there is none — and it must never be presented as
+a proposed experience.
+
 **Draw one thing.**
 
 - A mockup is **one screen**, the change obvious, everything else as it is
