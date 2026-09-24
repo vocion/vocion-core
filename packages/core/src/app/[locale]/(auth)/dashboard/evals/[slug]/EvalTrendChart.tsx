@@ -48,11 +48,17 @@ const PAD = { top: 14, right: 10, bottom: 22, left: 34 };
  * @param props.points - Finished runs that have a pass rate.
  * @param props.providers - Who grades this dataset, in display order.
  * @param props.height - Chart height in viewBox units.
+ * @param props.failures - Runs that errored before they were scored. Marked
+ *   along the bottom edge, never plotted as a zero: nothing was scored, and a
+ *   zero would claim the agent failed every case.
+ * @param props.passThreshold - The dataset's pass bar, 0–1, drawn as a dashed line.
  */
 export function EvalTrendChart(props: {
   points: EvalTrendPoint[];
   providers: Array<{ id: string; label: string }>;
   height?: number;
+  failures?: Array<{ runId: number; startedAt: string }>;
+  passThreshold?: number;
 }) {
   const [hover, setHover] = useState<EvalTrendPoint | null>(null);
   // Separate from hover so a keyboard user gets a ring on the dot they are
@@ -67,7 +73,10 @@ export function EvalTrendChart(props: {
     return null;
   }
 
-  const times = props.points.map(point => Date.parse(point.startedAt));
+  const failures = props.failures ?? [];
+  // Errored runs share the time axis, so a failure after the last scored run
+  // still lands on the chart instead of past its right edge.
+  const times = [...props.points, ...failures].map(point => Date.parse(point.startedAt));
   const minTime = Math.min(...times);
   const maxTime = Math.max(...times);
   const span = maxTime - minTime;
@@ -91,6 +100,18 @@ export function EvalTrendChart(props: {
             {line.label}
           </span>
         ))}
+        {props.passThreshold !== undefined && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-0 w-3 border-t border-dashed border-emerald-600 dark:border-emerald-400" />
+            {`pass threshold (${Math.round(props.passThreshold * 100)}%)`}
+          </span>
+        )}
+        {failures.length > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-red-700 dark:text-red-300">
+            <span aria-hidden className="font-mono leading-none">×</span>
+            {`errored run${failures.length === 1 ? '' : 's'} (${failures.length}), not scored`}
+          </span>
+        )}
         {boundaries.length > 0 && (
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block h-3 w-0 border-l border-dashed border-current opacity-60" />
@@ -133,6 +154,37 @@ export function EvalTrendChart(props: {
               </g>
             );
           })}
+
+          {props.passThreshold !== undefined && (
+            <line
+              x1={PAD.left}
+              y1={y(props.passThreshold)}
+              x2={WIDTH - PAD.right}
+              y2={y(props.passThreshold)}
+              className="stroke-emerald-600 dark:stroke-emerald-400"
+              strokeOpacity="0.6"
+              strokeDasharray="4 4"
+            >
+              <title>{`Pass threshold: ${Math.round(props.passThreshold * 100)}%. Runs under this line fail the dataset's bar.`}</title>
+            </line>
+          )}
+
+          {failures.map(failure => (
+            <text
+              key={`failed-${failure.runId}`}
+              x={x(Date.parse(failure.startedAt))}
+              y={PAD.top + innerH + 4}
+              textAnchor="middle"
+              fontSize="14"
+              className="fill-red-600 dark:fill-red-400"
+              tabIndex={0}
+              aria-label={`Run ${failure.runId} errored before it was scored`}
+              data-testid="eval-trend-failure"
+            >
+              ×
+              <title>{`#${failure.runId} · ${new Date(failure.startedAt).toLocaleString()} · errored before it was scored`}</title>
+            </text>
+          ))}
 
           {boundaries.map(boundary => (
             <g key={`v${boundary.version}-${boundary.at}`}>

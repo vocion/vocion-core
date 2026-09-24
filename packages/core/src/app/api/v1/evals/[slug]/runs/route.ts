@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { parseRunRange } from '@/libs/evals/runRange';
+import { parseRunOutcome, passThresholdFor } from '@/services/evals/runOutcome';
 import { getDataset, listRunsPage, runDataset, summariseRunPeriod } from '@/services/EvalService';
 import { authApi, jsonError } from '../../../_shared';
 
@@ -57,6 +58,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
  * - `from` — runs that started at or after this: a `YYYY-MM-DD` (midnight
  *   UTC) or an ISO timestamp with an offset. Left out means since the first run.
  * - `to` — runs that started before this, in the same forms. Left out means up to now.
+ * - `outcome` — `errored` for runs that broke before they were scored, or
+ *   `below_threshold` for scored runs under the dataset's pass threshold.
+ *   Left out means every run. Narrows the list only, never the summary.
  * - `page` — 1-based page of the run list; defaults to 1.
  *
  * A bad date, a backwards range, or a range with both ends longer than 366
@@ -80,6 +84,10 @@ export async function GET(req: Request, context: { params: Promise<{ slug: strin
   if (!range.ok) {
     return jsonError('VALIDATION_FAILED', range.message, 400);
   }
+  const outcome = parseRunOutcome(url.searchParams.get('outcome'));
+  if (!outcome.ok) {
+    return jsonError('VALIDATION_FAILED', outcome.message, 400);
+  }
   const rawPage = url.searchParams.get('page');
   // Strict, like `readIdParam`: parseInt would read "2abc" as page 2.
   if (rawPage !== null && !/^[1-9]\d*$/.test(rawPage)) {
@@ -93,12 +101,18 @@ export async function GET(req: Request, context: { params: Promise<{ slug: strin
   }
 
   const [page, summary] = await Promise.all([
-    listRunsPage(auth.orgId, dataset.id, { page: rawPage === null ? 1 : Number(rawPage), range: range.range }),
-    summariseRunPeriod(auth.orgId, dataset.id, dataset.provider, range.range),
+    listRunsPage(auth.orgId, dataset.id, {
+      page: rawPage === null ? 1 : Number(rawPage),
+      range: range.range,
+      outcome: outcome.outcome,
+      passThreshold: passThresholdFor(dataset.passThreshold),
+    }),
+    summariseRunPeriod(auth.orgId, dataset.id, dataset, range.range),
   ]);
   return NextResponse.json({
     dataset: { slug: dataset.slug, provider: dataset.provider },
     period: { from: range.range.from?.toISOString() ?? null, to: range.range.to?.toISOString() ?? null },
+    outcome: outcome.outcome ?? null,
     summary,
     runs: page.runs,
     page: page.page,

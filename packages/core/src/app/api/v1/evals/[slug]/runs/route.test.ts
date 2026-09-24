@@ -87,8 +87,20 @@ describe('GET /api/v1/evals/:slug/runs', () => {
     const body = await res.json();
 
     expect(body.runs.map((run: { startedAt: string }) => run.startedAt)).toEqual(['2026-09-05T12:00:00.000Z', '2026-09-02T12:00:00.000Z']);
-    expect(body.summary).toEqual({ runCount: 2, scoredCount: 2, averagePassRate: 0.8, latestPassRate: 1 });
+    expect(body.summary).toEqual({ runCount: 2, scoredCount: 2, averagePassRate: 0.8, latestPassRate: 1, erroredCount: 0, belowThresholdCount: 1, passThreshold: 0.8 });
     expect(body.period).toEqual({ from: '2026-09-01T00:00:00.000Z', to: '2026-09-08T00:00:00.000Z' });
+  });
+
+  it('narrows the list to one outcome while the summary still covers every run', async () => {
+    const datasetId = await createDataset(ORG);
+    await createRun(ORG, datasetId, '2026-09-02T12:00:00Z', 0.5);
+    await createRun(ORG, datasetId, '2026-09-03T12:00:00Z', 0.95);
+
+    const body = await (await GET(get('?from=2026-09-01&outcome=below_threshold'), paramsFor(SLUG))).json();
+
+    expect(body.runs.map((run: { metrics: { passRate: number } }) => run.metrics.passRate)).toEqual([0.5]);
+    expect(body.outcome).toBe('below_threshold');
+    expect(body.summary.runCount).toBe(2);
   });
 
   it('pages inside the period', async () => {
@@ -112,6 +124,7 @@ describe('GET /api/v1/evals/:slug/runs', () => {
     ['a range that runs backwards', '?from=2026-09-08&to=2026-09-01'],
     ['a range longer than a year', '?from=2024-09-01&to=2026-09-01'],
     ['a page that is not a number', '?page=2abc'],
+    ['an outcome the API does not know', '?outcome=broken'],
     ['page zero', '?page=0'],
   ])('refuses %s with a 400 instead of listing every run', async (_, query) => {
     await createDataset(ORG);

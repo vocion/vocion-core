@@ -24,6 +24,9 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  * chart and the run list together, lives in the URL so a reload keeps it, and
  * a period with no runs says so.
  *
+ * Plus failures being visible (#647): errored and below-threshold runs are
+ * counted, marked on the chart, and one click filters the list to them.
+ *
  * Plus the fourth thing the design asked for: the eval pass rate sitting
  * beside the agreement rate on the agent's adoption row.
  *
@@ -52,6 +55,7 @@ type SeedFixtures = {
   copyFailedSlug: string;
   inStepSlug: string;
   spreadOutSlug: string;
+  failingSlug: string;
 };
 
 function createBootstrapAdmin(): void {
@@ -362,5 +366,33 @@ test.describe('the eval section, with more than one grader', () => {
 
     await expect(shownText(page, 'No runs in this period', { exact: false })).toBeVisible();
     await expect(shownText(page, '0%', { exact: true })).toHaveCount(0);
+  });
+
+  test('errored and below-threshold runs are counted, marked, and one click away', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.failingSlug}`);
+
+    await expect(page.getByTestId('eval-stat-Errored')).toContainText('1');
+    await expect(page.getByTestId('eval-stat-Below threshold')).toContainText('1');
+    // The errored run is marked on the chart, not drawn as a zero.
+    await expect(page.getByTestId('eval-trend-failure')).toHaveCount(1);
+    await expect(shownText(page, 'pass threshold (80%)')).toBeVisible();
+
+    await page.getByTestId('eval-stat-Errored').click();
+    await page.waitForURL(/outcome=errored/);
+
+    await expect(page.locator('a[href*="/runs/"]')).toHaveCount(1);
+    await expect(shownText(page, 'failed', { exact: true })).toBeVisible();
+
+    await page.getByRole('link', { name: 'Below threshold (1)' }).click();
+    await page.waitForURL(/outcome=below_threshold/);
+
+    await expect(page.locator('a[href*="/runs/"]')).toHaveCount(1);
+    await expect(shownText(page, '40%', { exact: true })).toBeVisible();
+
+    // The filter survives a period change.
+    await page.getByLabel('Period', { exact: true }).selectOption('last7');
+    await page.waitForURL(/period=last7/);
+
+    expect(page.url()).toContain('outcome=below_threshold');
   });
 });

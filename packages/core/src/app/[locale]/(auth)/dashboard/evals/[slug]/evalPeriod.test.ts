@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { rangeForPreset } from '@/features/scorecard/periods';
-import { initialCustomRange, isStalePreset, periodHref, periodQuery, readEvalPeriod, runsPageHref } from './evalPeriod';
+import { initialCustomRange, isStalePreset, outcomeHref, periodHref, periodQuery, readEvalPeriod, runsPageHref, withOutcome } from './evalPeriod';
 
 const NOW = new Date(2026, 8, 24, 15, 30);
 
@@ -77,6 +77,28 @@ describe('runsPageHref', () => {
 
   it('drops page 1 and an all-time period from the URL', () => {
     expect(runsPageHref('refunds', 1, periodQuery(readEvalPeriod({})).toString())).toBe('/dashboard/evals/refunds');
+  });
+});
+
+describe('outcome links', () => {
+  const lastWeek = periodQuery(readEvalPeriod({ period: 'custom', from: '2026-09-01', to: '2026-09-08' })).toString();
+
+  it('keep the period and start on page 1', () => {
+    expect(outcomeHref('refunds', lastWeek, 'errored')).toBe('/dashboard/evals/refunds?period=custom&from=2026-09-01T00%3A00%3A00.000Z&to=2026-09-08T00%3A00%3A00.000Z&outcome=errored');
+  });
+
+  it('go back to every run when the filter is cleared', () => {
+    expect(outcomeHref('refunds', '', undefined)).toBe('/dashboard/evals/refunds');
+  });
+
+  it('stay on the pager, so page 2 of errored runs is still errored runs', () => {
+    expect(runsPageHref('refunds', 2, withOutcome('', 'below_threshold'))).toBe('/dashboard/evals/refunds?outcome=below_threshold&page=2');
+  });
+
+  it('survive changing the period', () => {
+    const href = periodHref('/dashboard/evals/refunds', new URLSearchParams('outcome=errored&page=3'), 'all', null);
+
+    expect(href).toBe('/dashboard/evals/refunds?outcome=errored');
   });
 });
 

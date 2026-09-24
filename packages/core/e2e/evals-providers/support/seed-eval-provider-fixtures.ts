@@ -58,7 +58,9 @@ const COPY_FAILED = 'e2e-copy-failed';
 const IN_STEP = 'e2e-in-step';
 // Runs spread over six weeks, for the period picker (#647).
 const SPREAD_OUT = 'e2e-spread-out';
-const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP, SPREAD_OUT];
+// One clean run, one that scored under the bar, one that errored.
+const FAILING = 'e2e-failing';
+const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP, SPREAD_OUT, FAILING];
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
 
@@ -155,6 +157,7 @@ async function createDataset(orgId: string, slug: string, version: number, provi
  * @param values.passRate - Share of cases that passed, 0 to 1.
  * @param values.datasetVersion - The dataset revision the run scored.
  * @param values.startedAt - When the run began, which orders it on the chart.
+ * @param values.errored - Write it as a run that broke before it was scored.
  */
 async function createRun(values: {
   orgId: string;
@@ -163,15 +166,16 @@ async function createRun(values: {
   passRate: number;
   datasetVersion: number;
   startedAt: Date;
+  errored?: boolean;
 }): Promise<void> {
   await db.insert(evalRunSchema).values({
     orgId: values.orgId,
     datasetId: values.datasetId,
     agentSlug: AGENT_SLUG,
     provider: values.provider,
-    status: 'succeeded',
+    status: values.errored ? 'failed' : 'succeeded',
     datasetVersion: values.datasetVersion,
-    metrics: { passRate: values.passRate, passed: 1, failed: 0 },
+    metrics: values.errored ? {} : { passRate: values.passRate, passed: 1, failed: 0 },
     startedAt: values.startedAt,
     completedAt: values.startedAt,
   });
@@ -277,6 +281,12 @@ async function main(): Promise<void> {
   await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.5, datasetVersion: 1, startedAt: daysAgo(20) });
   await createRun({ orgId, datasetId: spreadOut, provider: 'vocion', passRate: 0.3, datasetVersion: 1, startedAt: daysAgo(45) });
 
+  // Held to the default 80% bar: 0.9 passes, 0.4 is below it, and one run broke.
+  const failing = await createDataset(orgId, FAILING, 1);
+  await createRun({ orgId, datasetId: failing, provider: 'vocion', passRate: 0.9, datasetVersion: 1, startedAt: daysAgo(1) });
+  await createRun({ orgId, datasetId: failing, provider: 'vocion', passRate: 0, datasetVersion: 1, startedAt: daysAgo(2), errored: true });
+  await createRun({ orgId, datasetId: failing, provider: 'vocion', passRate: 0.4, datasetVersion: 1, startedAt: daysAgo(3) });
+
   console.error(`[seed-eval-provider-fixtures] org ${orgId}, agent ${AGENT_SLUG}`);
   process.stdout.write(`${JSON.stringify({
     orgId,
@@ -288,6 +298,7 @@ async function main(): Promise<void> {
     copyFailedSlug: COPY_FAILED,
     inStepSlug: IN_STEP,
     spreadOutSlug: SPREAD_OUT,
+    failingSlug: FAILING,
   })}\n`);
 }
 

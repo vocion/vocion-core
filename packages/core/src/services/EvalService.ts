@@ -20,19 +20,21 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { EvalScoreProvider } from './evals/providers/types';
+import type { RunOutcomeFilter } from './evals/runOutcome';
 import type { ProviderRunResult, ScoreWithProviderOptions } from './evals/scoring';
 import type { CaseTranscript } from './evals/transcripts';
 import type { EvalDatasetItem } from './evals/types';
 import type { RunRange } from '@/libs/evals/runRange';
 import type { LangChainProvider } from '@/libs/llm';
 import process from 'node:process';
-import { and, asc, avg, count, desc, eq, gte, ilike, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, avg, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { MAX_TREND_RUNS } from '@/libs/evals/runRange';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalEvaluatorSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
 import { getProvider } from './evals/providers/registry';
 import { syncDatasetToProvider } from './evals/publish';
+import { passThresholdFor } from './evals/runOutcome';
 import { scoreWithProvider } from './evals/scoring';
 import { persistTranscripts, produceTranscripts } from './evals/transcripts';
 
@@ -172,6 +174,27 @@ function startedWithin(range: RunRange | undefined): SQL[] {
   return conditions;
 }
 
+/** A run's pass rate as a number, for SQL that compares or averages it. */
+const RUN_PASS_RATE = sql<number>`(${evalRunSchema.metrics}->>'passRate')::float8`;
+
+/** True when a run finished and carries a numeric pass rate. */
+const RUN_IS_SCORED = and(
+  eq(evalRunSchema.status, 'succeeded'),
+  sql`jsonb_typeof(${evalRunSchema.metrics}->'passRate') = 'number'`,
+)!;
+
+/**
+ * The condition for one outcome filter; see `RunOutcomeFilter` for what each means.
+ * @param outcome - Which runs to keep.
+ * @param passThreshold - The bar `below_threshold` compares against, 0–1.
+ */
+function outcomeCondition(outcome: RunOutcomeFilter, passThreshold: number): SQL {
+  if (outcome === 'errored') {
+    return eq(evalRunSchema.status, 'failed');
+  }
+  return and(RUN_IS_SCORED, sql`${RUN_PASS_RATE} < ${passThreshold}`)!;
+}
+
 /** How many runs one page of the dataset's run list shows. */
 export const EVAL_RUNS_PAGE_SIZE = 20;
 
@@ -191,17 +214,25 @@ export const EVAL_RUNS_PAGE_SIZE = 20;
  * @param options.pageSize - Rows per page.
  * @param options.provider - Narrow to one grader, for the provider filter.
  * @param options.range - Only runs that started inside this period. Omitted means all time.
+ * @param options.outcome - Only errored runs, or only runs scored below `passThreshold`.
+ * @param options.passThreshold - The bar for `below_threshold`, 0–1. Required with it.
  */
 export async function listRunsPage(
   orgId: string,
   datasetId: number,
-  options: { page?: number; pageSize?: number; provider?: string; range?: RunRange } = {},
+  options: { page?: number; pageSize?: number; provider?: string; range?: RunRange; outcome?: RunOutcomeFilter; passThreshold?: number } = {},
 ): Promise<{ runs: Array<typeof evalRunSchema.$inferSelect>; page: number; hasMore: boolean }> {
   const pageSize = options.pageSize ?? EVAL_RUNS_PAGE_SIZE;
   const page = Math.max(1, Math.trunc(options.page ?? 1));
   const filters = [eq(evalRunSchema.orgId, orgId), eq(evalRunSchema.datasetId, datasetId), ...startedWithin(options.range)];
   if (options.provider) {
     filters.push(eq(evalRunSchema.provider, options.provider));
+  }
+  if (options.outcome) {
+    if (options.outcome === 'below_threshold' && options.passThreshold === undefined) {
+      throw new Error('listRunsPage: `below_threshold` needs the dataset\'s passThreshold');
+    }
+    filters.push(outcomeCondition(options.outcome, options.passThreshold ?? 0));
   }
   const rows = await db
     .select()
@@ -241,12 +272,20 @@ export async function listRuns(orgId: string, datasetId?: number, provider?: str
 }
 
 /**
- * The finished runs a dataset's pass-rate chart plots, for one period.
+ * The runs a dataset's pass-rate chart draws, for one period.
  *
- * Every run in the period up to {@link MAX_TREND_RUNS}, newest kept first when
- * there are more, and `truncated` says whether that happened so the page can
- * say so. The chart used to read the fifty-run list, which quietly dropped the
- * older half of a nightly dataset's history once it passed two months.
+ * `runs` are the finished ones, which carry the pass rates the lines plot.
+ * `failures` are the ones that errored: they have no pass rate, so they are
+ * not points on a line — drawing them as zero would claim the agent failed
+ * every case, when nothing was scored at all — but they are marked on the
+ * chart, because a dataset that stopped running cleanly has to look different
+ * from one that is fine.
+ *
+ * Every run in the period up to {@link MAX_TREND_RUNS} across both lists,
+ * newest kept first when there are more, and `truncated` says whether that
+ * happened so the page can say so. The chart used to read the fifty-run list,
+ * which quietly dropped the older half of a nightly dataset's history once it
+ * passed two months.
  * @param orgId - Whose runs.
  * @param datasetId - Which dataset.
  * @param range - The period. Omitted means all time.
@@ -259,19 +298,24 @@ export async function listRunTrend(orgId: string, datasetId: number, range?: Run
       startedAt: evalRunSchema.startedAt,
       datasetVersion: evalRunSchema.datasetVersion,
       metrics: evalRunSchema.metrics,
+      status: evalRunSchema.status,
     })
     .from(evalRunSchema)
     .where(and(
       eq(evalRunSchema.orgId, orgId),
       eq(evalRunSchema.datasetId, datasetId),
-      // Only finished runs carry a pass rate; a running or failed one has
-      // nothing to plot and must not be drawn as a zero.
-      eq(evalRunSchema.status, 'succeeded'),
+      // A running run has not finished either way, so it is on neither list.
+      inArray(evalRunSchema.status, ['succeeded', 'failed']),
       ...startedWithin(range),
     ))
     .orderBy(desc(evalRunSchema.startedAt))
     .limit(MAX_TREND_RUNS + 1);
-  return { runs: rows.slice(0, MAX_TREND_RUNS), truncated: rows.length > MAX_TREND_RUNS };
+  const kept = rows.slice(0, MAX_TREND_RUNS);
+  return {
+    runs: kept.filter(row => row.status === 'succeeded'),
+    failures: kept.filter(row => row.status === 'failed').map(row => ({ id: row.id, startedAt: row.startedAt })),
+    truncated: rows.length > MAX_TREND_RUNS,
+  };
 }
 
 /** The headline numbers for one dataset over one period. */
@@ -284,6 +328,12 @@ export type RunPeriodSummary = {
   averagePassRate: number | null;
   /** The newest of those scored runs' pass rate, 0–1; null when there are none. */
   latestPassRate: number | null;
+  /** Runs that broke before they were scored (status `failed`), any grader. */
+  erroredCount: number;
+  /** Finished runs, any grader, whose pass rate is under the dataset's bar. */
+  belowThresholdCount: number;
+  /** The bar `belowThresholdCount` used, 0–1. */
+  passThreshold: number;
 };
 
 /**
@@ -291,20 +341,25 @@ export type RunPeriodSummary = {
  *
  * The averages cover only runs scored by `provider`, the dataset's current
  * grader: two graders score the same answers differently, and a mean across
- * both is a number neither of them produced. The run count covers every run,
- * because "how often did this run" does not depend on who graded it.
+ * both is a number neither of them produced. The run count and the two
+ * failure counts cover every run, because a run that broke or scored under
+ * the bar is a problem whoever graded it.
  * @param orgId - Whose runs.
  * @param datasetId - Which dataset.
- * @param provider - The grader whose pass rates to average.
+ * @param dataset - What the dataset says about its own runs.
+ * @param dataset.provider - The grader whose pass rates to average.
+ * @param dataset.passThreshold - The dataset's bar, 0–1, or null for the runner's default.
  * @param range - The period. Omitted means all time.
  */
-export async function summariseRunPeriod(orgId: string, datasetId: number, provider: string, range?: RunRange): Promise<RunPeriodSummary> {
-  const passRate = sql<number>`(${evalRunSchema.metrics}->>'passRate')::float8`;
-  const scored = and(
-    eq(evalRunSchema.provider, provider),
-    eq(evalRunSchema.status, 'succeeded'),
-    sql`jsonb_typeof(${evalRunSchema.metrics}->'passRate') = 'number'`,
-  );
+export async function summariseRunPeriod(
+  orgId: string,
+  datasetId: number,
+  dataset: { provider: string; passThreshold: number | null },
+  range?: RunRange,
+): Promise<RunPeriodSummary> {
+  const passRate = RUN_PASS_RATE;
+  const threshold = passThresholdFor(dataset.passThreshold);
+  const scored = and(eq(evalRunSchema.provider, dataset.provider), RUN_IS_SCORED);
   const inPeriod = and(eq(evalRunSchema.orgId, orgId), eq(evalRunSchema.datasetId, datasetId), ...startedWithin(range));
 
   const [totals] = await db
@@ -312,6 +367,8 @@ export async function summariseRunPeriod(orgId: string, datasetId: number, provi
       runCount: count(),
       scoredCount: sql<number>`count(*) filter (where ${scored})`.mapWith(Number),
       averagePassRate: sql<string | null>`avg(${passRate}) filter (where ${scored})`,
+      erroredCount: sql<number>`count(*) filter (where ${outcomeCondition('errored', threshold)})`.mapWith(Number),
+      belowThresholdCount: sql<number>`count(*) filter (where ${outcomeCondition('below_threshold', threshold)})`.mapWith(Number),
     })
     .from(evalRunSchema)
     .where(inPeriod);
@@ -328,6 +385,9 @@ export async function summariseRunPeriod(orgId: string, datasetId: number, provi
     scoredCount: totals?.scoredCount ?? 0,
     averagePassRate: totals?.averagePassRate === null || totals?.averagePassRate === undefined ? null : Number(totals.averagePassRate),
     latestPassRate: latest ? Number(latest.passRate) : null,
+    erroredCount: totals?.erroredCount ?? 0,
+    belowThresholdCount: totals?.belowThresholdCount ?? 0,
+    passThreshold: threshold,
   };
 }
 

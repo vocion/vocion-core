@@ -16,6 +16,7 @@
  */
 import type { DateRange, ScorecardPreset } from '@/features/scorecard/periods';
 import type { RunRange } from '@/libs/evals/runRange';
+import type { RunOutcomeFilter } from '@/services/evals/runOutcome';
 import { rangeForPreset, SCORECARD_PRESETS } from '@/features/scorecard/periods';
 import { parseRunRange } from '@/libs/evals/runRange';
 
@@ -82,6 +83,8 @@ export function readEvalPeriod(params: { period?: string; from?: string; to?: st
  * @param range - Its range; ignored for `all`.
  */
 export function periodHref(pathname: string, current: URLSearchParams, period: EvalPeriodId, range: DateRange | null): string {
+  // The outcome filter is kept: "errored runs, last 7 days" is a question
+  // someone asks while flipping between periods.
   const next = new URLSearchParams(current);
   next.delete('page');
   next.delete('period');
@@ -160,4 +163,29 @@ export function runsPageHref(slug: string, page: number, periodQueryString = '')
   }
   const search = query.toString();
   return search ? `/dashboard/evals/${slug}?${search}` : `/dashboard/evals/${slug}`;
+}
+
+/**
+ * A dataset page URL showing one outcome filter inside the current period,
+ * always on page 1 — page 3 of every run is not page 3 of the errored ones.
+ * @param slug - Which dataset.
+ * @param periodQueryString - The period's query string; empty for all time.
+ * @param outcome - The filter, or undefined for every run.
+ */
+export function outcomeHref(slug: string, periodQueryString: string, outcome: RunOutcomeFilter | undefined): string {
+  return runsPageHref(slug, 1, withOutcome(periodQueryString, outcome));
+}
+
+/**
+ * A query string with the outcome filter added, for links that keep it — the
+ * run list's pager.
+ * @param periodQueryString - The period's query string; empty for all time.
+ * @param outcome - The filter, or undefined for every run.
+ */
+export function withOutcome(periodQueryString: string, outcome: RunOutcomeFilter | undefined): string {
+  const query = new URLSearchParams(periodQueryString);
+  if (outcome) {
+    query.set('outcome', outcome);
+  }
+  return query.toString();
 }

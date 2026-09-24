@@ -22,6 +22,8 @@ const OTHER_ORG = 'org_run_period_other';
 const SEPT_1 = new Date('2026-09-01T00:00:00Z');
 const SEPT_8 = new Date('2026-09-08T00:00:00Z');
 const SEPT_WEEK = { from: SEPT_1, to: SEPT_8 };
+// Graded by Vocion, held to the runner's default bar of 80%.
+const VOCION_DEFAULT_BAR = { provider: 'vocion', passThreshold: null };
 
 type SeedRun = { startedAt: Date; passRate?: number; provider?: string; status?: string; orgId?: string };
 
@@ -129,6 +131,20 @@ describe('listRunTrend', () => {
 
     expect(trend.runs.map(run => run.metrics.passRate)).toEqual([0.9]);
   });
+
+  it('hands back errored runs separately, so the chart can mark them without plotting a zero', async () => {
+    const datasetId = await createDataset();
+    const [, errored] = await createRuns(datasetId, [
+      { startedAt: new Date('2026-09-02T00:00:00Z'), passRate: 0.9 },
+      { startedAt: new Date('2026-09-03T00:00:00Z'), status: 'failed' },
+      { startedAt: new Date('2026-09-04T00:00:00Z'), status: 'running' },
+    ]);
+
+    const trend = await listRunTrend(ORG, datasetId, SEPT_WEEK);
+
+    expect(trend.failures).toEqual([{ id: errored, startedAt: new Date('2026-09-03T00:00:00Z') }]);
+    expect(trend.runs).toHaveLength(1);
+  });
 });
 
 describe('summariseRunPeriod', () => {
@@ -144,18 +160,18 @@ describe('summariseRunPeriod', () => {
       { startedAt: new Date('2026-08-01T00:00:00Z'), passRate: 0 },
     ]);
 
-    const summary = await summariseRunPeriod(ORG, datasetId, 'vocion', SEPT_WEEK);
+    const summary = await summariseRunPeriod(ORG, datasetId, VOCION_DEFAULT_BAR, SEPT_WEEK);
 
-    expect(summary).toEqual({ runCount: 4, scoredCount: 2, averagePassRate: 0.8, latestPassRate: 1 });
+    expect(summary).toEqual({ runCount: 4, scoredCount: 2, averagePassRate: 0.8, latestPassRate: 1, erroredCount: 1, belowThresholdCount: 2, passThreshold: 0.8 });
   });
 
   it('reports no pass rate, not 0%, for a period nobody scored', async () => {
     const datasetId = await createDataset();
     await createRuns(datasetId, [{ startedAt: new Date('2026-09-02T00:00:00Z'), status: 'running' }]);
 
-    const summary = await summariseRunPeriod(ORG, datasetId, 'vocion', SEPT_WEEK);
+    const summary = await summariseRunPeriod(ORG, datasetId, VOCION_DEFAULT_BAR, SEPT_WEEK);
 
-    expect(summary).toEqual({ runCount: 1, scoredCount: 0, averagePassRate: null, latestPassRate: null });
+    expect(summary).toEqual({ runCount: 1, scoredCount: 0, averagePassRate: null, latestPassRate: null, erroredCount: 0, belowThresholdCount: 0, passThreshold: 0.8 });
   });
 
   it('never counts another org\'s runs', async () => {
@@ -164,10 +180,72 @@ describe('summariseRunPeriod', () => {
     await createRuns(otherDatasetId, [{ startedAt: new Date('2026-09-02T00:00:00Z'), passRate: 0.2, orgId: OTHER_ORG }]);
 
     // Asking for the other org's dataset id under this org still finds nothing.
-    const summary = await summariseRunPeriod(ORG, otherDatasetId, 'vocion', SEPT_WEEK);
+    const summary = await summariseRunPeriod(ORG, otherDatasetId, VOCION_DEFAULT_BAR, SEPT_WEEK);
 
     expect(summary.runCount).toBe(0);
-    expect((await summariseRunPeriod(ORG, datasetId, 'vocion')).runCount).toBe(0);
+    expect((await summariseRunPeriod(ORG, datasetId, VOCION_DEFAULT_BAR)).runCount).toBe(0);
+  });
+});
+
+describe('summariseRunPeriod counting what went wrong', () => {
+  it('holds runs to the dataset\'s own bar when it names one, not the default', async () => {
+    const datasetId = await createDataset();
+    await createRuns(datasetId, [
+      { startedAt: new Date('2026-09-02T00:00:00Z'), passRate: 0.6 },
+      { startedAt: new Date('2026-09-03T00:00:00Z'), passRate: 0.75 },
+    ]);
+
+    const summary = await summariseRunPeriod(ORG, datasetId, { provider: 'vocion', passThreshold: 0.7 }, SEPT_WEEK);
+
+    // 0.75 clears a 70% bar but not the default 80% one.
+    expect(summary.belowThresholdCount).toBe(1);
+    expect(summary.passThreshold).toBe(0.7);
+  });
+
+  it('counts a run exactly on the bar as passing, the same as the runner\'s gate', async () => {
+    const datasetId = await createDataset();
+    await createRuns(datasetId, [{ startedAt: new Date('2026-09-02T00:00:00Z'), passRate: 0.8 }]);
+
+    const summary = await summariseRunPeriod(ORG, datasetId, VOCION_DEFAULT_BAR, SEPT_WEEK);
+
+    expect(summary.belowThresholdCount).toBe(0);
+  });
+
+  it('counts errors and low scores from every grader, not just the current one', async () => {
+    const datasetId = await createDataset();
+    await createRuns(datasetId, [
+      { startedAt: new Date('2026-09-02T00:00:00Z'), passRate: 0.1, provider: 'agentcore' },
+      { startedAt: new Date('2026-09-03T00:00:00Z'), status: 'failed', provider: 'agentcore' },
+    ]);
+
+    const summary = await summariseRunPeriod(ORG, datasetId, VOCION_DEFAULT_BAR, SEPT_WEEK);
+
+    expect(summary).toMatchObject({ erroredCount: 1, belowThresholdCount: 1, averagePassRate: null });
+  });
+});
+
+describe('listRunsPage with an outcome filter', () => {
+  it('lists only errored runs, or only scored runs under the bar', async () => {
+    const datasetId = await createDataset();
+    await createRuns(datasetId, [
+      { startedAt: new Date('2026-09-02T00:00:00Z'), passRate: 0.9 },
+      { startedAt: new Date('2026-09-03T00:00:00Z'), passRate: 0.5 },
+      { startedAt: new Date('2026-09-04T00:00:00Z'), status: 'failed' },
+      // Still going: neither errored nor scored, so on neither list.
+      { startedAt: new Date('2026-09-05T00:00:00Z'), status: 'running' },
+    ]);
+
+    const errored = await listRunsPage(ORG, datasetId, { range: SEPT_WEEK, outcome: 'errored' });
+    const below = await listRunsPage(ORG, datasetId, { range: SEPT_WEEK, outcome: 'below_threshold', passThreshold: 0.8 });
+
+    expect(errored.runs.map(run => run.status)).toEqual(['failed']);
+    expect(below.runs.map(run => run.metrics.passRate)).toEqual([0.5]);
+  });
+
+  it('refuses below_threshold without a bar rather than guessing one', async () => {
+    const datasetId = await createDataset();
+
+    await expect(listRunsPage(ORG, datasetId, { outcome: 'below_threshold' })).rejects.toThrow('passThreshold');
   });
 });
 

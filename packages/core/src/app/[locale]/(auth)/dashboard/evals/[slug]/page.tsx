@@ -1,4 +1,5 @@
 import type { DatasetSyncTone } from './datasetSync';
+import type { RunOutcomeFilter } from '@/services/evals/runOutcome';
 import type { EvalDatasetItem } from '@/services/evals/types';
 import type { RunPeriodSummary } from '@/services/EvalService';
 import { ArrowLeft, ArrowRight, CheckCircle2, OctagonAlert, TestTube } from 'lucide-react';
@@ -12,10 +13,11 @@ import { MAX_TREND_RUNS } from '@/libs/evals/runRange';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { describeDatasetSync } from '@/services/evals/publish';
+import { parseRunOutcome, passThresholdFor, RUN_OUTCOME_FILTERS } from '@/services/evals/runOutcome';
 import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listEvaluatorTrend, listRunsPage, listRunTrend, summariseRunPeriod } from '@/services/EvalService';
 import { ProviderChip } from '../ProviderChip';
 import { summariseDatasetSync } from './datasetSync';
-import { periodQuery, readEvalPeriod, runsPageHref } from './evalPeriod';
+import { outcomeHref, periodQuery, readEvalPeriod, runsPageHref, withOutcome } from './evalPeriod';
 import { EvalPeriodPicker } from './EvalPeriodPicker';
 import { EvalTrendChart } from './EvalTrendChart';
 import { RunDatasetButton } from './RunDatasetButton';
@@ -37,15 +39,19 @@ const SYNC_TONE_CLASSES: Record<DatasetSyncTone, string> = {
 
 type Props = {
   params: Promise<{ locale: string; slug: string }>;
-  searchParams: Promise<{ page?: string; period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ page?: string; period?: string; from?: string; to?: string; outcome?: string }>;
 };
 
 export default async function EvalDatasetDetailPage(props: Props) {
   const { locale, slug } = await props.params;
-  const { page: pageParam, ...periodParams } = await props.searchParams;
+  const { page: pageParam, outcome: outcomeParam, ...periodParams } = await props.searchParams;
   // One period for the whole page: the chart, the numbers above it and the
   // run list all read this, so none of them can show a different window.
   const period = readEvalPeriod(periodParams);
+  // An outcome the page does not know is ignored rather than refused: it came
+  // from a hand-edited link, and every run is the honest fallback.
+  const parsedOutcome = parseRunOutcome(outcomeParam);
+  const outcome = parsedOutcome.ok ? parsedOutcome.outcome : undefined;
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
@@ -87,10 +93,13 @@ export default async function EvalDatasetDetailPage(props: Props) {
   // is "what happened lately", the other is "which way is this going" — and a
   // trend line that redrew itself as you paged would be lying about the shape.
   const requestedPage = Number.parseInt(pageParam ?? '1', 10);
+  // The bar the runner gates on, so the page never calls a run below
+  // threshold that the runner passed, or colours it green when it failed.
+  const passThreshold = passThresholdFor(dataset.passThreshold);
   const [{ runs, page, hasMore }, trend, summary] = await Promise.all([
-    listRunsPage(orgId, dataset.id, { page: Number.isNaN(requestedPage) ? 1 : requestedPage, range: period.range }),
+    listRunsPage(orgId, dataset.id, { page: Number.isNaN(requestedPage) ? 1 : requestedPage, range: period.range, outcome, passThreshold }),
     listRunTrend(orgId, dataset.id, period.range),
-    summariseRunPeriod(orgId, dataset.id, dataset.provider, period.range),
+    summariseRunPeriod(orgId, dataset.id, dataset, period.range),
   ]);
   // When the run chart had to stop at its limit, the evaluator lines start
   // where it does, so the two never cover different stretches of time and the
@@ -127,7 +136,8 @@ export default async function EvalDatasetDetailPage(props: Props) {
   // grader never claims some are here.
   const historicalProviders = [...new Set(runs.map(run => run.provider))].filter(id => id !== dataset.provider);
   const filtered = period.period !== 'all';
-  const pagerQuery = periodQuery(period).toString();
+  const periodQueryString = periodQuery(period).toString();
+  const pagerQuery = withOutcome(periodQueryString, outcome);
   return (
     <>
       <div className="mb-4">
@@ -271,7 +281,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
             </p>
           )}
 
-          <PeriodSummary summary={summary} graderLabel={graderLabel} />
+          <PeriodSummary summary={summary} graderLabel={graderLabel} slug={dataset.slug} periodQuery={periodQueryString} />
 
           {trendPoints.length > 1
             ? (
@@ -289,6 +299,8 @@ export default async function EvalDatasetDetailPage(props: Props) {
                   <EvalTrendChart
                     points={trendPoints}
                     providers={providers.map(p => ({ id: p.id, label: p.label }))}
+                    failures={trend.failures.map(run => ({ runId: run.id, startedAt: run.startedAt.toISOString() }))}
+                    passThreshold={passThreshold}
                   />
                 </div>
               )
@@ -303,6 +315,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
       <section className="mb-10">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <h2 className="font-display text-sm font-semibold">{filtered ? 'Runs in this period' : 'Recent runs'}</h2>
+          <OutcomeFilter slug={dataset.slug} periodQuery={periodQueryString} current={outcome} summary={summary} />
           {/* The dataset's grader, said once, with the explanation on hover. */}
           <ProviderChip providerId={dataset.provider} />
           {historicalProviders.length > 0 && (
@@ -314,7 +327,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
         {runs.length === 0
           ? (
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-                {filtered ? 'No runs in this period. Pick a longer one, or All time.' : 'No runs yet. Press Run evals now to start one.'}
+                {emptyRunsMessage(outcome, filtered)}
               </div>
             )
           : (
@@ -355,7 +368,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
                           <RunFact label="Started">{new Date(run.startedAt).toLocaleString()}</RunFact>
                           {typeof pass === 'number' && (
                             <RunFact label="Pass rate">
-                              <span className={pass >= 0.8 ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
+                              <span className={pass >= passThreshold ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
                                 {Math.round(pass * 100)}
                                 %
                               </span>
@@ -514,33 +527,120 @@ function formatPassRate(rate: number | null): string {
 
 /**
  * The headline numbers for the period on screen.
+ *
+ * Errored and below-threshold runs get their own numbers, coloured when they
+ * are not zero and linking to the list filtered to them: an average pass rate
+ * can look fine over a week in which half the runs never finished, and those
+ * runs are exactly the ones nobody would otherwise go looking for.
  * @param props - Props.
  * @param props.summary - What `summariseRunPeriod` counted.
  * @param props.graderLabel - Who scored the runs the pass rates cover.
+ * @param props.slug - Which dataset, for the filter links.
+ * @param props.periodQuery - The period's query string, kept on the filter links.
  */
-function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string }) {
+function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string; slug: string; periodQuery: string }) {
+  const { summary } = props;
+  const threshold = `${Math.round(summary.passThreshold * 100)}%`;
   return (
-    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="eval-period-summary">
-      <SummaryStat label="Runs" value={props.summary.runCount.toLocaleString('en-US')} detail="Every run that started in this period." />
-      <SummaryStat label="Average pass rate" value={formatPassRate(props.summary.averagePassRate)} detail={`Across ${props.summary.scoredCount.toLocaleString('en-US')} finished run${props.summary.scoredCount === 1 ? '' : 's'} scored by ${props.graderLabel}.`} />
-      <SummaryStat label="Latest pass rate" value={formatPassRate(props.summary.latestPassRate)} detail="The newest finished run in this period." />
+    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5" data-testid="eval-period-summary">
+      <SummaryStat label="Runs" value={summary.runCount.toLocaleString('en-US')} detail="Every run that started in this period." />
+      <SummaryStat
+        label="Errored"
+        value={summary.erroredCount.toLocaleString('en-US')}
+        detail="Runs that broke before they were scored. No pass rate, so they are not in the averages."
+        tone={summary.erroredCount > 0 ? 'danger' : undefined}
+        href={summary.erroredCount > 0 ? outcomeHref(props.slug, props.periodQuery, 'errored') : undefined}
+      />
+      <SummaryStat
+        label="Below threshold"
+        value={summary.belowThresholdCount.toLocaleString('en-US')}
+        detail={`Finished runs that scored under this dataset's ${threshold} bar.`}
+        tone={summary.belowThresholdCount > 0 ? 'warning' : undefined}
+        href={summary.belowThresholdCount > 0 ? outcomeHref(props.slug, props.periodQuery, 'below_threshold') : undefined}
+      />
+      <SummaryStat label="Average pass rate" value={formatPassRate(summary.averagePassRate)} detail={`Across ${summary.scoredCount.toLocaleString('en-US')} finished run${summary.scoredCount === 1 ? '' : 's'} scored by ${props.graderLabel}.`} />
+      <SummaryStat label="Latest pass rate" value={formatPassRate(summary.latestPassRate)} detail="The newest finished run in this period." />
     </dl>
   );
 }
 
+const STAT_TONE_CLASSES = {
+  danger: 'border-red-500/40 bg-red-500/5 text-red-700 dark:text-red-300',
+  warning: 'border-amber-500/40 bg-amber-500/5 text-amber-800 dark:text-amber-200',
+} as const;
+
 /**
- * One number in the period summary.
+ * One number in the period summary. With `href` the whole card is a link to
+ * the runs it counts.
  * @param props - Props.
  * @param props.label - What it counts.
  * @param props.value - The number, formatted.
  * @param props.detail - What exactly went into it.
+ * @param props.tone - Colour it as a problem; left out when there is none.
+ * @param props.href - Where the card links, for a count worth drilling into.
  */
-function SummaryStat(props: { label: string; value: string; detail: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-background px-4 py-3">
-      <dt className="text-[10px] tracking-wide text-muted-foreground/70 uppercase">{props.label}</dt>
-      <dd className="mt-1 font-mono text-lg text-foreground">{props.value}</dd>
-      <dd className="mt-0.5 text-[11px] text-muted-foreground">{props.detail}</dd>
-    </div>
+function SummaryStat(props: { label: string; value: string; detail: string; tone?: keyof typeof STAT_TONE_CLASSES; href?: string }) {
+  const toneClass = props.tone ? STAT_TONE_CLASSES[props.tone] : 'border-border bg-background text-foreground';
+  const body = (
+    <>
+      <dt className="text-[10px] tracking-wide uppercase opacity-70">{props.label}</dt>
+      <dd className="mt-1 font-mono text-lg">{props.value}</dd>
+      <dd className="mt-0.5 text-[11px] opacity-80">{props.detail}</dd>
+    </>
   );
+  return props.href
+    ? (
+        <Link href={props.href} className={`block rounded-lg border px-4 py-3 hover:opacity-90 ${toneClass}`} data-testid={`eval-stat-${props.label}`}>
+          {body}
+        </Link>
+      )
+    : <div className={`rounded-lg border px-4 py-3 ${toneClass}`} data-testid={`eval-stat-${props.label}`}>{body}</div>;
+}
+
+/**
+ * All runs, errored ones, or ones under the bar — links, so the filter is in
+ * the URL beside the period and survives a reload the same way.
+ * @param props - Props.
+ * @param props.slug - Which dataset.
+ * @param props.periodQuery - The period's query string, kept on every link.
+ * @param props.current - The filter on screen, or undefined for every run.
+ * @param props.summary - Counts to show beside each filter.
+ */
+function OutcomeFilter(props: { slug: string; periodQuery: string; current: RunOutcomeFilter | undefined; summary: RunPeriodSummary }) {
+  const counts: Record<RunOutcomeFilter, number> = { errored: props.summary.erroredCount, below_threshold: props.summary.belowThresholdCount };
+  const pillClass = 'rounded-full border px-2.5 py-0.5 text-xs';
+  const activeClass = 'border-foreground bg-foreground text-background';
+  const idleClass = 'border-border text-muted-foreground hover:bg-muted/50';
+  return (
+    <nav className="flex flex-wrap items-center gap-1.5" aria-label="Filter runs by outcome">
+      <Link href={outcomeHref(props.slug, props.periodQuery, undefined)} className={`${pillClass} ${props.current ? idleClass : activeClass}`} aria-current={props.current ? undefined : 'page'}>
+        All runs
+      </Link>
+      {RUN_OUTCOME_FILTERS.map(filter => (
+        <Link
+          key={filter.id}
+          href={outcomeHref(props.slug, props.periodQuery, filter.id)}
+          className={`${pillClass} ${props.current === filter.id ? activeClass : idleClass}`}
+          aria-current={props.current === filter.id ? 'page' : undefined}
+        >
+          {`${filter.label} (${counts[filter.id].toLocaleString('en-US')})`}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+/**
+ * What an empty run list says, which depends on why it is empty.
+ * @param outcome - The outcome filter on screen.
+ * @param filtered - Whether a period other than all time is on screen.
+ */
+function emptyRunsMessage(outcome: RunOutcomeFilter | undefined, filtered: boolean): string {
+  if (outcome === 'errored') {
+    return filtered ? 'No errored runs in this period.' : 'No run of this dataset has errored.';
+  }
+  if (outcome === 'below_threshold') {
+    return filtered ? 'No runs scored below the threshold in this period.' : 'No run of this dataset has scored below the threshold.';
+  }
+  return filtered ? 'No runs in this period. Pick a longer one, or All time.' : 'No runs yet. Press Run evals now to start one.';
 }
