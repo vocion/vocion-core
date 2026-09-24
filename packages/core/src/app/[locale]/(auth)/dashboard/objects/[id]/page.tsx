@@ -5,7 +5,6 @@ import { ArrowLeft, ExternalLink, FileText, Link2, Sparkles } from 'lucide-react
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
-import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { InspectionPhoto } from '@/features/dashboard/InspectionPhoto';
 import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
@@ -135,7 +134,6 @@ export default async function ObjectDetailPage(props: {
             </div>
           </div>
         )}
-        actions={<AskAboutThis record={recordRef('object', obj.id, obj.title)} />}
       />
       <RecordContext record={recordRef('object', obj.id, obj.title)} />
 
