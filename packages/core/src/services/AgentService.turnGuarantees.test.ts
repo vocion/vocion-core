@@ -215,6 +215,21 @@ describe('the deliverable contract', () => {
     expect(result.response).not.toMatch(/recommend_action\s*$/);
   });
 
+  it('a whole call imitated as a fenced block at the end of the message is stripped and called too', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockClear();
+    streamEvents.mockResolvedValue(narratedToolStream('Should I reuse id 124?\n\nCARD\n```\nrecommend_action\nid: clarify-124\nquestion: which one?\n```'));
+    const { result } = await run({ message: 'Approve filing it.', deliverable: 'answer', conversationId: conv.id });
+
+    expect(streamEvents).toHaveBeenCalledTimes(2);
+
+    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
+
+    expect(second.messages.at(-1)?.content).toContain('Call recommend_action now');
+    expect(second.messages.at(-2)?.content).toBe('Should I reuse id 124?');
+    expect(result.response).not.toContain('```');
+  });
+
   it('makes no artifact when the turn owed an answer — and continues ONCE when the turn ended on a promise', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     streamEvents.mockClear();
@@ -238,10 +253,13 @@ describe('the deliverable contract', () => {
  * A turn that makes one lookup_objects call returning this text.
  * @param output - What the tool returned.
  */
-/** A turn that answers in prose and ends with a tool's NAME as its last word. */
-function narratedToolStream(): AsyncIterable<unknown> {
+/**
+ * A turn that answers in prose and ends with a tool's NAME as its last word.
+ * @param body
+ */
+function narratedToolStream(body = 'Filed. The build decision card is below.\n\nrecommend_action'): AsyncIterable<unknown> {
   const events = [
-    { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text('Filed. The build decision card is below.\n\nrecommend_action') } },
+    { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(body) } },
   ];
   return { async* [Symbol.asyncIterator]() {
     for (const e of events) {

@@ -28,9 +28,16 @@ import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { TurnRefusedError } from './agents/turnRefusal';
 
-/** A tool's name written as the turn's last word — narrated, not called. */
-const NARRATED_TOOL = /(?:^|[\s*_`])(recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal)[*_`]*\s*$/;
-const NARRATED_TOOL_TAIL = /[\s*_`]*(?:recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal)[*_`]*\s*$/;
+/**
+ * A tool's name written as the turn's last word — narrated, not called — or a
+ * whole call imitated as text at the end of the message: production turn 608
+ * (2026-09-24) ended with "CARD" and a fenced block beginning
+ * `recommend_action id: …`. Either way the person saw words where a card
+ * should have been.
+ */
+const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal';
+const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|(?:^|[\\s*_\`])(${TOOL_NAMES})[*_\`]*\\s*$`);
+const NARRATED_TOOL_TAIL = new RegExp(`\\n\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(?:${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|[\\s*_\`]*(?:${TOOL_NAMES})[*_\`]*\\s*$`);
 
 /* ------------------------------------------------------------------ */
 /* Load agent config                                                   */
@@ -964,7 +971,8 @@ export async function runAgentDeep(opts: {
       // either; it is stripped, and the loop re-enters once to make the call.
       const narrated = NARRATED_TOOL.exec(soFar);
       if (soFar.length > 0 && (preambleOnly(soFar) || narrated)) {
-        const why = narrated ? `wrote the tool's name "${narrated[1]}" instead of calling it` : 'ended on a promise';
+        const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? 'a tool') : null;
+        const why = narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
         if (narrated) {
           finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
@@ -972,7 +980,7 @@ export async function runAgentDeep(opts: {
         finalText += '\n\n';
         emit({ type: 'response_delta', delta: '\n\n' });
         const nudge = narrated
-          ? `You ended your last message with the word "${narrated[1]}" — the name of a tool — instead of calling it. Call ${narrated[1]} now with the arguments your message described, then reply in one sentence. Do not write the tool's name as text.`
+          ? `Your last message wrote "${narratedName}" as text — the name of a tool, or a block shaped like a call — instead of calling it. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
           : `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.`;
         await runGraph({
           ...input,
