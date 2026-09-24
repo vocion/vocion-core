@@ -186,6 +186,8 @@ export type TurnGuaranteeInput = {
   /** The answer the turn produced. */
   response: string;
   toolCalls: ReadonlyArray<{ tool: string; input?: Record<string, unknown>; output?: string }>;
+  /** The turn's last event was a tool result, not words — it owes an answer whatever its length. */
+  endedOnTool?: boolean;
   failures: ReadonlyArray<TurnFailure>;
   failedDelegations: ReadonlyArray<FailedDelegation>;
   systemPrompt?: string;
@@ -230,6 +232,7 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
       request: input.request,
       finalText: text,
       toolCalls: input.toolCalls,
+      endedOnTool: input.endedOnTool === true,
       systemPrompt: input.systemPrompt,
       compose: input.answer ?? composeAnswerWithModel,
     });
@@ -735,6 +738,11 @@ export async function runAgentDeep(opts: {
   // post-run buffering.
   const answerStreamer = new AnswerStreamer();
   let answering = false;
+  // THE INVARIANT: a turn ends with words after its last tool call. False
+  // from a tool result until the next answer text; a turn that ends false
+  // (production turn 579, 2026-09-24: six lookups after a self-correction,
+  // then silence) owes an answer whatever its length says.
+  let answeredSinceTool = true;
   // The lead's most recent model-turn namespace, so a scratch tail released
   // at flush lands on the reasoning node of the turn that wrote it.
   let leadNs = '';
@@ -844,6 +852,7 @@ export async function runAgentDeep(opts: {
             const { answer, thinking: scratch, closed } = answerStreamer.push(text);
             routeScratch(scratch, closed);
             if (answer) {
+              answeredSinceTool = true;
               if (!answering) {
                 answering = true;
                 emit({ type: 'answering' });
@@ -895,6 +904,7 @@ export async function runAgentDeep(opts: {
             const outputStr = outputFull.slice(0, 2000);
             emit({ type: 'tool_end', tool, input, output: outputStr });
             toolCallLog.push({ tool, input, output: outputFull });
+            answeredSinceTool = false;
           }
           break;
         }
@@ -1070,6 +1080,7 @@ export async function runAgentDeep(opts: {
     request: opts.message,
     response: finalText,
     toolCalls: toolCallLog,
+    endedOnTool: toolCallLog.length > 0 && !answeredSinceTool,
     failures,
     failedDelegations,
     systemPrompt: compiled.agentRow.systemPrompt ?? undefined,

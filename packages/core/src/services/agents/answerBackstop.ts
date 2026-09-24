@@ -41,9 +41,12 @@ export type AnswerComposer = (input: { orgId: string; system: string; human: str
  * shorter than an answer — the same rule the route classifies `stalled` with.
  * @param text - The turn's finished text.
  * @param toolCalls - The turn's tool calls.
+ * @param endedOnTool
  */
-export function owesAnswer(text: string, toolCalls: ReadonlyArray<AnswerBackstopToolCall>): boolean {
-  return stoppedShort({ text, toolCalls: toolCalls.length });
+export function owesAnswer(text: string, toolCalls: ReadonlyArray<AnswerBackstopToolCall>, endedOnTool = false): boolean {
+  // A turn whose LAST event was a tool result owes an answer whatever its
+  // length: the words it has are the words from before it went looking.
+  return (endedOnTool && toolCalls.length > 0) || stoppedShort({ text, toolCalls: toolCalls.length });
 }
 
 /**
@@ -88,6 +91,7 @@ export function answerPassSystem(systemPrompt: string | undefined, steps: number
  * @param input.toolCalls - The turn's tool calls, with their outputs.
  * @param input.systemPrompt - The agent's system prompt.
  * @param input.compose - The model call (injected in tests).
+ * @param input.endedOnTool
  * @returns The text to append, or null when the turn already answered or the pass could not.
  */
 export async function runAnswerBackstop(input: {
@@ -97,8 +101,9 @@ export async function runAnswerBackstop(input: {
   toolCalls: ReadonlyArray<AnswerBackstopToolCall>;
   systemPrompt?: string;
   compose: AnswerComposer;
+  endedOnTool?: boolean;
 }): Promise<string | null> {
-  if (!owesAnswer(input.finalText, input.toolCalls)) {
+  if (!owesAnswer(input.finalText, input.toolCalls, input.endedOnTool)) {
     return null;
   }
   const human = [
