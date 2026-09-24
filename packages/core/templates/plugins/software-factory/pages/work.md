@@ -13,6 +13,15 @@ nobody has decided is not moving, and it leads the Proposed tab wherever its
 state sits. The decisions themselves are still taken in
 [Review](/dashboard/inbox), one batch at a time, never here.
 
+**Every card carries a picture, and the platform draws it.** Not a mockup
+somebody remembered to file — a drawing made from what the record says, at the
+moment it says it: a page and the rows this contract changes, or the
+components the plan touches and the direction between them. A card whose
+surface nobody has classified gets an empty frame, which is the honest drawing
+of "nobody has said what this changes yet". A real mockup filed against the
+outcome replaces it, because a picture of the real screen beats a true diagram
+of its shape.
+
 **Proposed is ordered**, and only work whose reason was recorded is ranked. A
 request with no recorded reason cannot be argued to be the second most
 important thing we do, so it queues unnumbered and the tab's note says how

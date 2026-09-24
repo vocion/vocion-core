@@ -97,11 +97,15 @@ describe('plugin pages', () => {
 
     // The outcome, why it is here, what is happening to it, which product,
     // what it costs. Plus the rank and the conditional facts, both of which
-    // draw nothing when there is nothing to say.
-    expect(keys).toEqual(['title', 'status', 'gap', 'unmet', 'contract', 'flags', 'detail', 'why', 'cost', 'product', 'rank']);
+    // draw nothing when there is nothing to say — and the picture, which is
+    // drawn rather than said.
+    expect(keys).toEqual(['title', 'visual', 'status', 'gap', 'unmet', 'contract', 'flags', 'detail', 'why', 'cost', 'product', 'rank']);
     // Every field sits in the subtitle so the uppercase fact list never
-    // draws: five labels a person reads past to reach five values.
-    expect(work?.primary).toEqual({ field: 'title', subtitle: ['status', 'gap', 'unmet', 'contract', 'flags', 'rank', 'detail', 'why', 'cost', 'product'] });
+    // draws: five labels a person reads past to reach five values. The
+    // picture is the one exception, and it is not in the fact list either —
+    // it leads the block, because "PREVIEW" over a thumbnail is a caption
+    // saying what a person can already see.
+    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', subtitle: ['status', 'gap', 'unmet', 'contract', 'flags', 'rank', 'detail', 'why', 'cost', 'product'] });
 
     // Sixteen fields became these. The record's own vocabulary is gone.
     // `status` is the derived badge — "Blocked", "Decide" — never the

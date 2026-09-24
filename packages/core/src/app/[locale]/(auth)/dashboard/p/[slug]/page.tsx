@@ -50,6 +50,7 @@ import { readPageForOrg } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
 import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
+import { resolveRowImages } from '@/services/workspace/pageImages';
 
 /**
  * Workspace page renderer — `/dashboard/p/<slug>`.
@@ -499,7 +500,11 @@ export default async function WorkspacePage(props: {
       : manifest.derive === 'releaseOutcome'
         ? deriveReleaseOutcome(loaded, { now: new Date(now) })
         : loaded;
-    rows = applyFilter(derived, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
+    // A picture a row names by id becomes a picture the page can draw. One
+    // query for the whole page, after the derivation has chosen WHICH visual
+    // each row shows (`services/workspace/pageImages.ts`).
+    const drawn = await resolveRowImages(orgId, derived, manifest.fields ?? []);
+    rows = applyFilter(drawn, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {

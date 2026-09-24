@@ -54,6 +54,29 @@ function ConstantLine({ constants }: { constants: TableLayout['constants'] }) {
 }
 
 /**
+ * The picture that leads a block, or the space one would have taken.
+ *
+ * An empty slot rather than no slot: this is a GRID, and a card whose text
+ * starts at a different left edge from the one beside it costs more to read
+ * than a hole costs to look at. The hole is also the honest drawing of a row
+ * nothing has been recorded about, which is the only way to be in it.
+ * @param root0 - Props.
+ * @param root0.row - The row.
+ * @param root0.field - The field holding the image URL.
+ * @param root0.now - The instant a `relative` value is measured against.
+ */
+function Thumb({ row, field, now }: { row: PageRow; field: PageField; now: number }) {
+  if (fieldIsEmptyOn(row, field, now)) {
+    return <span aria-hidden className="h-20 w-32 shrink-0 rounded border border-dashed border-border" />;
+  }
+  return (
+    <span className="h-20 w-32 shrink-0 overflow-hidden rounded border border-border">
+      <FieldValue row={row} field={field} now={now} />
+    </span>
+  );
+}
+
+/**
  * One row as a block.
  * @param root0 - Props.
  * @param root0.row - The row.
@@ -76,7 +99,7 @@ function Block({ row, layout, now, links, href, rowActions }: {
   const badges = layout.subtitle.filter(f => f.format === 'badge');
   const rest = layout.subtitle.filter(f => f.format !== 'badge');
   const facts = factsFor(row, layout.columns, now);
-  const inner = (
+  const body = (
     <>
       {/* The headline and its state, on one line that does NOT wrap between
           them. They used to share a `flex-wrap` row, so where the badge
@@ -136,6 +159,20 @@ function Block({ row, layout, now, links, href, rowActions }: {
       )}
     </>
   );
+  // The picture leads, and the words sit beside it rather than under it: a
+  // thumbnail above the headline pushes every row's title down by its own
+  // height, and a column of titles that do not start at the same place is a
+  // column nobody can scan. `shrink-0` because the drawing has one size —
+  // it is 128 by 80 and letting the grid squeeze it would distort the one
+  // thing on the card that is meant to be read as a shape.
+  const inner = layout.thumb === null
+    ? body
+    : (
+        <div className="flex items-start gap-3">
+          <Thumb row={row} field={layout.thumb} now={now} />
+          <div className="min-w-0 flex-1">{body}</div>
+        </div>
+      );
   const className = 'block rounded-lg border border-border bg-background p-4 text-left';
   return href
     ? <a href={href} className={`${className} transition-colors hover:bg-muted/40`}>{inner}</a>

@@ -119,6 +119,42 @@ async function writeMetadata(orgId: string, id: number, metadata: Record<string,
 }
 
 /**
+ * Whether this object type asked for a picture of itself.
+ *
+ * Same gate as the gap check: `visuals` is a field a type DECLARES, and a
+ * type that never modelled it is a type whose author wants nothing drawn.
+ * @param schema - The object type's JSON schema.
+ */
+function declaresVisuals(schema: { properties?: Record<string, unknown> } | null | undefined): boolean {
+  return 'visuals' in ((schema?.properties ?? {}) as Record<string, unknown>);
+}
+
+/**
+ * Redraw this record's picture, when the write could have changed what it
+ * says (`services/factory/proposalVisual.ts`).
+ *
+ * Imported here rather than at the top of the file, for the reason `readRow`
+ * is: this module reaches the database handle, which validates the whole
+ * environment at import, and the action registry is loaded by tests that
+ * configure none.
+ *
+ * Never throws. This hangs off a write that has already landed, and a picture
+ * that could not be drawn must not fail the turn that was the point of.
+ * @param orgId - The workspace.
+ * @param id - The record.
+ * @param meta - Its metadata after the write.
+ * @param written - The field keys the write touched.
+ */
+async function redraw(orgId: string, id: number, meta: Record<string, unknown>, written: string[]) {
+  const { ensureProposalVisual, redrawNeeded } = await import('@/services/factory/proposalVisual');
+  if (!redrawNeeded(written)) {
+    return null;
+  }
+  return ensureProposalVisual({ orgId, requestId: id, meta, author: { kind: 'system' } })
+    .catch((err: unknown) => ({ status: 'skipped' as const, reason: (err as Error).message ?? 'unknown error' }));
+}
+
+/**
  * The next metadata: the current bag with `set` applied, `null` deleting.
  * @param current
  * @param set
@@ -288,7 +324,15 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // history should read the same however it was stored.
     const keys = Object.keys(input.set).sort();
     const previous = previousValues(row.metadata, keys);
-    await writeMetadata(ctx.orgId, row.id, applySet(row.metadata, input.set));
+    const next = applySet(row.metadata, input.set);
+    await writeMetadata(ctx.orgId, row.id, next);
+    // The picture the board draws this outcome as, redrawn from what the
+    // record now says. It hangs off the write rather than being asked of an
+    // agent, because a visual an agent has to remember is a visual sixteen of
+    // twenty-five rows did not have. Gated on the type DECLARING `visuals`,
+    // the same way the gap gate is gated on `gapCheck`: this action is
+    // domain-free and must stay so.
+    const visual = declaresVisuals(objectType.schema) ? await redraw(ctx.orgId, row.id, next, keys) : null;
     // The run is the record's history: who wrote what, why, and what was
     // there before — in one place, queryable by the dedup key's prefix.
     return {
@@ -298,6 +342,7 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       updated: keys,
       set: input.set,
       previous,
+      ...(visual === null ? {} : { visual }),
       reason: input.reason,
       writtenBy: ctx.invokedBy ?? null,
       reviewedBy: ctx.reviewedBy ?? null,

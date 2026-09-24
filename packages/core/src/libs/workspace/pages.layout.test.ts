@@ -197,3 +197,33 @@ describe('a URL as a column', () => {
     expect(shortUrlLabel('not a url at all')).toBe('not a url at all');
   });
 });
+
+describe('the picture that leads a block', () => {
+  const fields = [field({ key: 'title' }), field({ key: 'shot', format: 'image', from: 'meta.shot' }), field({ key: 'cost' })];
+  const primary = { field: 'title', subtitle: [], thumb: 'shot' };
+
+  it('is pulled out of the facts, so it is drawn rather than labelled', () => {
+    const layout = tableLayout([row(1, { shot: '/a.svg', cost: '$4' })], fields, primary);
+
+    expect(layout.thumb?.key).toBe('shot');
+    expect(layout.columns.map(c => c.key)).toEqual(['cost']);
+  });
+
+  it('keeps the slot when no row has a picture yet', () => {
+    // The opposite of the usual rule, and only because this is a GRID: a card
+    // whose text starts at a different left edge from the one beside it costs
+    // more to read than a hole costs to look at.
+    const layout = tableLayout([row(1, { cost: '$4' }), row(2, { cost: '$9' })], fields, primary);
+
+    expect(layout.thumb?.key).toBe('shot');
+  });
+
+  it('is nothing on a page that declared none', () => {
+    expect(tableLayout([row(1, {})], fields, { field: 'title', subtitle: [] }).thumb).toBeNull();
+    expect(tableLayout([row(1, {})], fields).thumb).toBeNull();
+  });
+
+  it('is nothing when the page names a field it does not have', () => {
+    expect(tableLayout([row(1, {})], fields, { field: 'title', subtitle: [], thumb: 'nope' }).thumb).toBeNull();
+  });
+});
