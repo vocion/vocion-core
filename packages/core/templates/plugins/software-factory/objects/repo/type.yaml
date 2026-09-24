@@ -3,9 +3,9 @@ label: Repository
 description: >-
   The registry a task contract is written against. A contract names a
   repository by slug, cites checks by the names written here, and takes its
-  risk class from the paths it will touch — so the planner never invents a
+  risk class from the paths it will touch — so the PM never invents a
   check command, a worker never runs one nobody agreed to, and a change to
-  `policy/**` is at least `logic` whatever the planner called it. One record
+  `policy/**` is at least `logic` whatever the PM called it. One record
   per repository the factory may open a pull request in; a repository with no
   record is one the factory does not touch.
 icon: git-branch

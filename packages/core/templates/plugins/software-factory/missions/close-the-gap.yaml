@@ -1,7 +1,7 @@
 slug: close-the-gap
 name: No request waits more than a week
 description: >-
-  The standing responsibility of the Task planner — the lead's mission tick.
+  The standing responsibility of the PM — the lead's mission tick.
   Not a one-off run: each check reads the backlog, ranks it, and promotes only
   what the three WIP limits allow.
 goal: >-
@@ -16,7 +16,7 @@ goal: >-
   minutes open against the day's budget of sixty, workers and spend against
   the budgets core already holds, and never a second initiative while one is
   in flight.
-agent: task-planner
+agent: product-manager
 autonomyPolicy:
   level: 2
 successCriteria:

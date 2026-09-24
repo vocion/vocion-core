@@ -8,11 +8,11 @@ description: >-
   criteria and required checks have to say, how risk class and budgets are
   chosen, why every task carries the id of the request that asked for it and
   the slug of the repository it lands in, how the repository's risk floor
-  overrides the planner's guess, what the task's own title has to say and
+  overrides the PM's guess, what the task's own title has to say and
   what fails review for one, and the three WIP limits that decide whether
   a task is dispatched at all. Read before writing or dispatching any task,
   and when a returned task shows assumptions the contract should have carried.
-playbooks: [the-twenty-percent, written-promises, naming-the-work, designing-a-surface]
+playbooks: [naming-the-work, designing-a-surface]
 version: 3
 ---
 

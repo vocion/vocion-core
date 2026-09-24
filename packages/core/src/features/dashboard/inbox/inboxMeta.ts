@@ -28,7 +28,7 @@ export const INBOX_KIND_META: Record<InboxKind, { label: string; plural: string;
   // Chris, 2026-09-21: a failure is a log line, not a decision. What reaches
   // Review is the one the factory cannot recover, a third attempt, or a
   // failure class nothing retries, and it arrives as a decision with a
-  // recommendation. Plain failures live in the Factory log and on the floor.
+  // recommendation. Plain failures live on the run, inside the work item.
   exception: { label: 'Exception', plural: 'Exceptions', blurb: 'Automation could not recover. The system says what it thinks you should do; you decide.', icon: AlertTriangle },
   learning: { label: 'Suggested rule', plural: 'Suggested rules', blurb: 'Rules proposed from your feedback, waiting to be adopted.', icon: Sparkles },
 };

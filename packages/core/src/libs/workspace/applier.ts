@@ -256,6 +256,74 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       errors.push({ resource: 'automation', slug: automation.slug, message: (err as Error).message });
     }
   }
+
+  // WHAT THE WORKSPACE NO LONGER SHIPS IS RETIRED, NOT LEFT RUNNING.
+  //
+  // Until 2026-09-24 the applier only ever added and updated: an agent, a
+  // mission or an automation deleted from the YAML kept its row, kept its
+  // `active`/`status`, kept waking on its schedule and kept appearing on the
+  // org chart. Deleting a file changed nothing on the box, so "delete" was
+  // not a verb the workspace had. The workflow sweep above already had the
+  // right shape; these three follow it. Rows are retired, never deleted —
+  // run history, tool calls and worker runs still point at the slug.
+  //
+  // Scoped to this org, and to rows the applier itself wrote: an agent a
+  // person hired from chat is committed to the workspace too (auto-commit),
+  // so an unauthored active row is a leftover, not somebody's work.
+  if (!dryRun) {
+    const { ne, notInArray } = await import('drizzle-orm');
+    const authoredAgents = loaded.agents.map(a => a.slug);
+    const authoredMissions = loaded.missions.map(m => m.slug);
+    const authoredAutomations = loaded.automations.map(a => a.slug);
+    try {
+      const retired = await db
+        .update(agentSchema)
+        .set({ active: 'false' })
+        .where(and(
+          eq(agentSchema.orgId, orgId),
+          ne(agentSchema.active, 'false'),
+          authoredAgents.length > 0 ? notInArray(agentSchema.slug, authoredAgents) : undefined,
+        ))
+        .returning({ slug: agentSchema.slug });
+      for (const row of retired) {
+        warnings.push({ resource: 'agent', slug: row.slug, message: 'not in the workspace any more — deactivated (row kept; runs and tool calls still point at it)' });
+      }
+    } catch (err) {
+      errors.push({ resource: 'agent', slug: '(retire sweep)', message: (err as Error).message });
+    }
+    try {
+      const retired = await db
+        .update(missionSchema)
+        .set({ status: 'disabled', updatedAt: new Date() })
+        .where(and(
+          eq(missionSchema.orgId, orgId),
+          ne(missionSchema.status, 'disabled'),
+          authoredMissions.length > 0 ? notInArray(missionSchema.slug, authoredMissions) : undefined,
+        ))
+        .returning({ slug: missionSchema.slug });
+      for (const row of retired) {
+        warnings.push({ resource: 'mission', slug: row.slug, message: 'not in the workspace any more — disabled' });
+      }
+    } catch (err) {
+      errors.push({ resource: 'mission', slug: '(retire sweep)', message: (err as Error).message });
+    }
+    try {
+      const retired = await db
+        .update(automationSchema)
+        .set({ status: 'disabled', updatedAt: new Date() })
+        .where(and(
+          eq(automationSchema.orgId, orgId),
+          ne(automationSchema.status, 'disabled'),
+          authoredAutomations.length > 0 ? notInArray(automationSchema.slug, authoredAutomations) : undefined,
+        ))
+        .returning({ slug: automationSchema.slug });
+      for (const row of retired) {
+        warnings.push({ resource: 'automation', slug: row.slug, message: 'not in the workspace any more — disabled' });
+      }
+    } catch (err) {
+      errors.push({ resource: 'automation', slug: '(retire sweep)', message: (err as Error).message });
+    }
+  }
   if (!mode.offline) {
     await reportPausedAutomations(orgId, loaded, warnings);
   }
@@ -501,6 +569,31 @@ async function reconcileSchedules(
     } catch (err) {
       errors.push({ resource: 'workflowSchedule', slug: workflow.slug, message: (err as Error).message });
     }
+  }
+
+  // A mission or automation the workspace no longer ships was just disabled
+  // above; its Schedule has to go with it, or Temporal keeps firing a row
+  // whose status says it must not.
+  try {
+    const { notInArray } = await import('drizzle-orm');
+    const authoredAutomations = loaded.automations.map(a => a.slug);
+    const staleAutomations = await db
+      .select({ slug: automationSchema.slug })
+      .from(automationSchema)
+      .where(and(eq(automationSchema.orgId, orgId), eq(automationSchema.status, 'disabled'), authoredAutomations.length > 0 ? notInArray(automationSchema.slug, authoredAutomations) : undefined));
+    for (const row of staleAutomations) {
+      await removeAutomationSchedule(orgId, row.slug);
+    }
+    const authoredMissions = loaded.missions.map(m => m.slug);
+    const staleMissions = await db
+      .select({ slug: missionSchema.slug })
+      .from(missionSchema)
+      .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.status, 'disabled'), authoredMissions.length > 0 ? notInArray(missionSchema.slug, authoredMissions) : undefined));
+    for (const row of staleMissions) {
+      await removeMissionSchedule(orgId, row.slug);
+    }
+  } catch (err) {
+    errors.push({ resource: 'missionSchedule', slug: '(retire sweep)', message: (err as Error).message });
   }
 
   for (const mission of loaded.missions) {

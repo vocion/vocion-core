@@ -21,7 +21,7 @@ schema:
         `gap` — something expected is missing. `idea` — something new. `incident`
         — something is down or wrong for people right now. `question` — the
         asker wants to know, not to change. Decides the default route: bugs and
-        incidents go to severity and a repo; ideas go to the twenty-percent test.
+        incidents go to severity and a repo; ideas go to the scope decision.
       enum: [bug, gap, idea, incident, question]
     channel:
       x-display: {label: Channel, format: badge, group: Where it came from, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
@@ -84,7 +84,7 @@ schema:
     evidence:
       x-display: {label: Evidence, role: prose, format: steps, order: 3}
       type: object
-      description: What the asker gave us to go on. Kept as links and artifact ids so the planner and the reviewer read the same thing the asker saw.
+      description: What the asker gave us to go on. Kept as links and artifact ids so the PM and QA read the same thing the asker saw.
       properties:
         urls: {type: array, items: {type: string}}
         videoUrl: {type: string}
@@ -312,7 +312,7 @@ schema:
     priority:
       x-display: {label: Priority, group: Ranking}
       type: integer
-      description: 'Where it ranks, 0–100, against four inputs and nothing else: the product''s written promises, the twenty-percent test, how many real people asked (duplicates count) and analytics evidence when a source exists. Written by the product manager with its reasons beside it; never a severity, never an effort.'
+      description: 'Where it ranks, 0–100, against four inputs and nothing else: the product''s written promises, the operating intent, how many real people asked (duplicates count) and analytics evidence when a source exists. Written by the product manager with its reasons beside it; never a severity, never an effort.'
       minimum: 0
       maximum: 100
     priorityReason:
@@ -332,16 +332,16 @@ schema:
     recommendationBatch:
       x-display: {label: Batch, format: mono, group: Ranking}
       type: string
-      description: The ask group key the recommendation was filed under — `software-factory:batch/<date>` — so a batch reads as one thing on the page and the ten-then-pause rule can be checked from the record.
+      description: The ask group key the recommendation was filed under so the asks a person decided together read as one thing on the page.
     recommendedOutcome:
       x-display: {label: Proposed, format: badge, group: Ranking, tones: {build: ok, answer: info, decline: warn, merge: muted}}
       type: string
-      description: 'What the product manager proposed a person do with it: `build` (the planner writes a contract), `answer` (an honest reply, it will not be built), `decline` (the same, when the reason is the twenty-percent rule or a promise), `merge` (it duplicates an open request).'
+      description: 'What the product manager proposed a person do with it: `build` (the PM writes a contract), `answer` (an honest reply, it will not be built), `decline` (the same, when the reason is scope or a promise), `merge` (it duplicates an open request).'
       enum: [build, answer, decline, merge]
     recommendationState:
       x-display: {label: Decision, format: badge, group: Ranking, tones: {proposed: warn, approved: ok, rejected: bad}}
       type: string
-      description: '`proposed` — the ask is open and waiting on a person. `approved` — a person chose an outcome. `rejected` — a person said no; the request stays open and out of the next batch.'
+      description: '`proposed` — the ask is open and waiting on a person. `approved` — a person chose an outcome. `rejected` — a person said no; the request stays open and is not recommended again.'
       enum: [proposed, approved, rejected]
     decidedAt:
       x-display: {label: Decided}

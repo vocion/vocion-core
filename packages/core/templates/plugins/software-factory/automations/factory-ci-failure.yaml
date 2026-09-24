@@ -2,13 +2,13 @@ slug: factory-ci-failure
 name: A failed check reopens the task
 description: >-
   The intake shape, as the smallest useful case: an event says a check failed
-  on a branch the factory pushed, and the planner turns that into the next
+  on a branch the factory pushed, and the PM turns that into the next
   attempt rather than waiting for a person to notice.
   The event name is whatever the deployment's intake emits — core ships no CI
   adapter, so a workspace overrides this file by slug to name its own event and
-  filter. The planner still decides; the event only wakes it.
+  filter. The PM still decides; the event only wakes it.
 status: active
-agent: task-planner
+agent: product-manager
 when:
   event: ci.check_failed
   filter:

@@ -112,7 +112,6 @@ describe('the software factory declares the page rather than core hard-coding it
     const { pages, issues } = readWorkspacePages();
     const feature = pages.find(p => p.slug === 'feature');
     const work = pages.find(p => p.slug === 'work');
-    const performance = pages.find(p => p.slug === 'performance');
 
     expect(issues).toEqual([]);
     expect(feature?.origin).toBe('plugin:software-factory');
@@ -120,17 +119,12 @@ describe('the software factory declares the page rather than core hard-coding it
     expect(feature?.report).toEqual({ subject: 'request' });
     // A report is about one record, so it is reached from a row, not the nav.
     expect(feature?.nav.hidden).toBe(true);
-    // Work and Performance are both lists of requests, so both reach the
-    // same report by the request's own id. On Work the ROW is the drill
+    // Work reaches the report by the request's own id. The ROW is the drill
     // target, because the thing it opens is the outcome the row names, and a
-    // second affordance beside it was never a second meaning.
+    // second affordance beside it was never a second meaning. Work is the
+    // one list of requests left (Performance went on 2026-09-24), so it is
+    // the one place a report is reached from.
     expect(work?.rowLink).toBe('/dashboard/p/feature/{id}');
     expect(work?.rowActions).toEqual([]);
-    // Performance stopped listing requests: it is its figures, and listing
-    // them under those figures made it a second Backlog. With no rows there
-    // is no row to reach a report from, which is why the drill target lives
-    // on Work — the page whose rows ARE the outcomes.
-    expect(performance?.showRows).toBe(false);
-    expect(performance?.rowActions ?? []).toEqual([]);
   });
 });

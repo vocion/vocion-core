@@ -6,10 +6,10 @@ description: >-
   message, an incident, a dogfood note — is read once and ends in exactly one
   of three places: an engineering task, an honest written answer, or a link to
   the open request it duplicates. Covers deduping against open requests,
-  tagging product, kind, severity and risk, the twenty-percent test, and why
+  tagging product, kind, severity and risk, the scope decision, and why
   the reply is itself a gated action. Read whenever a request is `new`, and
   before writing any task contract from one.
-playbooks: [the-twenty-percent, written-promises]
+playbooks: [naming-the-work]
 version: 2
 ---
 
@@ -18,7 +18,7 @@ version: 2
 Every request is answered. Not every request is built. Triage is the one pass
 that decides which, and it ends in **exactly one** of three outcomes:
 
-1. **A task** — the request is in scope; hand it to the planner with its id.
+1. **A task** — the request is in scope; the PM puts the build in front of a person with its id.
 2. **An honest answer** — it will not be built, or it is a question; draft the
    reply in the asker's terms.
 3. **A duplicate link** — an open request already covers it; link, tell the
@@ -104,9 +104,9 @@ missing.
 - **`product`** — the slug. A request that fits no product is the first sign
   it is out of scope; do not invent a product to hold it.
 - **`severity`** — bugs and incidents only. `p1` means people cannot use what
-  was promised; it goes straight to the planner tonight, no twenty-percent test.
+  was promised; it goes straight to a contract tonight, no scope decision.
 - **Risk** — read the product's `repos` and their `riskDefaults`: where would a
-  fix land, and what class does that path demand? This is what the planner
+  fix land, and what class does that path demand? This is what the contract
   will start from, and it is what decides whether the eventual merge is a
   minute of someone's day or a real decision.
 - **`sizeClass`** — in release terms, not effort: `major` is a new capability
@@ -118,23 +118,23 @@ missing.
   merge of a logic change, 5. Anything that touches a price, a plan limit, a
   promise or an architecture, 60.
 
-## The twenty-percent test
+## In scope or not
 
-One question, answered honestly, against the `the-twenty-percent` playbook:
-**is this in the twenty percent of asks that carry most of the value against
-the standing goals?** Value is measured
-against the product's promises and the workspace goal, not against how easy it
-is or how nicely it was asked.
+One question, answered honestly: **does this serve the job the product does
+for people, inside the promises it has made and the operating intent the
+workspace states?** Value is measured against the product's `promises` and the
+workspace goal, not against how easy it is or how nicely it was asked. The
+operating intent's constraints are refusals, not preferences.
 
-- **Yes** → `state: in_scope`. Hand to the planner with the request id AND
-  its `why`; the planner writes the contract, never you, and the task inherits
-  the reason.
+- **Yes** → `state: in_scope`, and the build goes in front of a person as a
+  card with the request id AND its `why`; the contract is written once they
+  say yes, and the task inherits the reason.
 - **No** → `state: out_of_scope`. Draft the honest answer.
 - **Cannot tell** → it is a question for a person, with the request, your
   reading and the two ways it could go. Do not park it as `triaged` and move
   on; that is the gap the mission exists to close.
 
-A P1 bug skips the test. An incident skips the test. Everything else takes it.
+A P1 bug skips the decision. An incident skips it. Everything else is decided.
 
 ## The honest answer
 

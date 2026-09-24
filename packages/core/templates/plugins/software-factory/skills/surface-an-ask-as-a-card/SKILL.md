@@ -7,9 +7,7 @@ description: >-
   promising to file it and never a silent write: it is a card in the
   conversation the person can approve to start the work, or open to argue
   with. Read whenever a chat turn contains a request for work.
-# The twenty-percent test is how you tell an ask that is work from an ask that
-# is a question; written-promises is what the card becomes once approved.
-playbooks: [the-twenty-percent, written-promises]
+playbooks: [naming-the-work]
 version: 3
 ---
 
@@ -72,7 +70,7 @@ is an outcome, and it is also the acceptance criterion.
 
 `rationale` is where a person catches you having heard the wrong thing, before
 it costs a build. One sentence, in their language: what you think they want
-and what you think done looks like. Not a plan — a plan is the planner's job
+and what you think done looks like. Not a plan — a plan is the PM's job
 and comes after a person has agreed this is the work.
 
 ## When it is a question, not work

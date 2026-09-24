@@ -5,7 +5,7 @@ description: >-
   starts and approved by a person before the contract is written. It sits
   between triage and the contract because a plan reviewed after the run is a
   record, not a gate: by then the approach has already been chosen by whoever
-  typed first. The solution architect writes it, which here is the Task planner
+  typed first. The PM writes it
   agent, and a person approves it in Review, because direction and tradeoffs are
   exactly what a person should decide. A plan is required when the work is
   irreversible, trust bearing or externally visible, when it crosses a package
@@ -66,7 +66,7 @@ schema:
     writtenBy:
       x-display: {label: Written by, group: Review}
       type: string
-      description: Who wrote it, agent or person. The solution architect discipline owns this, which in this team is the Task planner.
+      description: Who wrote it, agent or person. The PM owns this.
     status:
       x-display: {label: Status, format: badge, group: Review, tones: {draft: muted, in_review: warn, approved: ok, rejected: bad, superseded: muted}}
       type: string
