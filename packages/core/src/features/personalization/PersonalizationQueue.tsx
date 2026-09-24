@@ -34,6 +34,8 @@ export type BriefRow = {
   utmCampaign: string | null;
   /** The ad lead magnet they answered (`utm_content`), read from the CRM mirror. */
   utmContent?: string | null;
+  /** The sequence the drafting pass recommended, by name; null before a recommendation exists. */
+  recommendedSequence?: string | null;
   engagementSent: number;
   engagementOpened: number;
   status: string;

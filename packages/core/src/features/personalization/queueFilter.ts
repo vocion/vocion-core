@@ -134,3 +134,51 @@ export function describeQueueView(view: QueueView): string {
   }
   return parts.join(' · ');
 }
+
+/** A filter value meaning "leads with no value here" (no recommendation, no lead magnet). */
+export const BULK_NONE = '__none';
+
+/**
+ * What the bulk actions page filters on (Metacto ticket 076): the queue's
+ * lane, search and briefed windows, plus the recommended sequence, the lead
+ * magnet, and a "briefed before" moment. `rung` and `magnet` are an exact
+ * value, `BULK_NONE`, or '' for any. `before` is an ISO timestamp or ''.
+ */
+export type BulkFilter = QueueView & { rung: string; magnet: string; before: string };
+
+/**
+ * The rows the bulk page shows for a filter. Lane, search and windows are the
+ * queue's own rule, so a view opened from the queue shows the same rows.
+ * @param rows - Every brief row the page loaded.
+ * @param filter - The page's filters.
+ * @param now - The moment to bucket the briefed windows against.
+ */
+export function filterBulkRows(rows: readonly BriefRow[], filter: BulkFilter, now: number): BriefRow[] {
+  const before = filter.before ? new Date(filter.before).getTime() : Number.NaN;
+  const matches = (value: string | null | undefined, want: string) => want === '' || (want === BULK_NONE ? !value : value === want);
+  return filterQueueRows(rows, filter, now)
+    .filter(r => matches(r.recommendedSequence, filter.rung))
+    .filter(r => matches(r.utmContent, filter.magnet))
+    .filter((r) => {
+      if (Number.isNaN(before)) {
+        return true;
+      }
+      const t = r.briefedAt ? new Date(r.briefedAt).getTime() : Number.NaN;
+      return !Number.isNaN(t) && t < before;
+    });
+}
+
+/**
+ * The distinct values a column holds across the loaded rows, sorted, for a
+ * filter's options. Empty values are left out; `BULK_NONE` stands for them.
+ * @param rows - Every brief row the page loaded.
+ * @param pick - The column to read.
+ */
+export function distinctValues(rows: readonly BriefRow[], pick: (r: BriefRow) => string | null | undefined): string[] {
+  return [...new Set(rows.map(pick).filter((v): v is string => Boolean(v)))].sort((a, b) => a.localeCompare(b));
+}
+
+/** The server's clock, for a page that must hand the view a `now` (a component may not read one during render). */
+export function queueNow(): number {
+  return Date.now();
+}
