@@ -31,6 +31,7 @@ export async function loadQueueBriefRows(orgId: string): Promise<BriefRow[]> {
     entranceSource: r.entranceSource,
     utmCampaign: r.utmCampaign,
     utmContent: magnets.get(r.contactRef) ?? null,
+    recommendedSequence: r.recommendedSequence?.name ?? null,
     engagementSent: r.engagementSent,
     engagementOpened: r.engagementOpened,
     status: r.status,
