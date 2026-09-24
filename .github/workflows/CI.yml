@@ -39,6 +39,11 @@ jobs:
             packages/core/.next/cache
           # Generate a new cache whenever packages or source files change.
           key: nextjs-22.x-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
+          # A change under src/ misses the exact key; start from the newest
+          # cache with the same lockfile instead of an empty one, so webpack
+          # rebuilds only what changed.
+          restore-keys: |
+            nextjs-22.x-${{ hashFiles('**/package-lock.json') }}-
 
       - name: Build Next.js
         # build-local lives in the @vocion/core workspace, not the repo root.
@@ -83,6 +88,11 @@ jobs:
           path: |
             packages/core/.next/cache
           key: nextjs-20.x-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
+          # A change under src/ misses the exact key; start from the newest
+          # cache with the same lockfile instead of an empty one, so webpack
+          # rebuilds only what changed.
+          restore-keys: |
+            nextjs-20.x-${{ hashFiles('**/package-lock.json') }}-
 
       # Proves the app builds on the oldest Node a deployment runs. Its output
       # is thrown away; E2E runs against the 22.x build. Same env as above.
