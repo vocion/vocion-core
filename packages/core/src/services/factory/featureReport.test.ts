@@ -695,6 +695,35 @@ describe('the goal, as a subtitle', () => {
     expect(goal.endsWith('…')).toBe(true);
   });
 
+  it('cuts a capped sentence at a word, not mid-word', () => {
+    // A hard slice ended the only sentence under the outcome mid-word —
+    // "…and keep a record that it we…" — which reads as a rendering fault
+    // rather than as an abbreviation.
+    // A 9-character cycle, so the 179th character lands INSIDE a word rather
+    // than on a space — which is the only case the cut has to get right, and
+    // the case a prettier-looking fixture silently misses.
+    const long = `Do ${'abcdefgh '.repeat(40)}end.`;
+    const goal = withBody(long).goal!;
+
+    expect(goal.length).toBeLessThanOrEqual(180);
+    expect(goal.endsWith('…')).toBe(true);
+
+    // What was kept is a whole-word prefix of the body: the source continues
+    // with a space, so no word was cut through.
+    const kept = goal.slice(0, -1);
+    const oneLine = long.replace(/\s+/g, ' ');
+
+    expect(oneLine.startsWith(kept)).toBe(true);
+    expect(oneLine.charAt(kept.length)).toBe(' ');
+  });
+
+  it('still cuts hard when the sentence has no space to cut at', () => {
+    const goal = withBody(`${'z'.repeat(400)}.`).goal!;
+
+    expect(goal.length).toBeLessThanOrEqual(180);
+    expect(goal.endsWith('…')).toBe(true);
+  });
+
   it('is null when nobody wrote one', () => {
     expect(withBody('   ').goal).toBeNull();
   });
