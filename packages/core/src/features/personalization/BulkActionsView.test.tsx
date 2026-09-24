@@ -83,7 +83,7 @@ describe('BulkActionsView', () => {
 
   it('selects exactly what a filter shows when the filter changes', async () => {
     const rows = [
-      row({ id: 1, contactName: 'Ada', utmContent: 'Marketing Industry eBook', recommendedSequence: 'Personalized Nurture · 5 Full Court v2' }),
+      row({ id: 1, contactName: 'Ada', utmContent: 'Marketing Industry eBook', recommendedSequence: 'Personalized Nurture · 4 Assertive v2' }),
       row({ id: 2, contactName: 'Bo', utmContent: 'Construction Industry eBook', recommendedSequence: 'Personalized Nurture · 1 Ambient v2' }),
       row({ id: 3, contactName: 'Cy', utmContent: null, recommendedSequence: null }),
     ];

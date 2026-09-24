@@ -70,7 +70,7 @@ describe('filterBulkRows', () => {
   const now = Date.parse('2026-09-24T12:00:00.000Z');
   const base = { lane: 'ready_for_review', q: '', chips: [] as string[], rung: '', magnet: '', before: '' };
   const rows = [
-    row({ id: 1, contactName: 'Ada', utmContent: 'Marketing Industry eBook', recommendedSequence: 'Personalized Nurture · 5 Full Court v2', briefedAt: '2026-09-24T01:00:00.000Z' }),
+    row({ id: 1, contactName: 'Ada', utmContent: 'Marketing Industry eBook', recommendedSequence: 'Personalized Nurture · 4 Assertive v2', briefedAt: '2026-09-24T01:00:00.000Z' }),
     row({ id: 2, contactName: 'Bo', utmContent: null, recommendedSequence: 'Personalized Nurture · 1 Ambient v2', briefedAt: '2026-09-23T18:00:00.000Z' }),
     row({ id: 3, contactName: 'Cy', utmContent: 'Marketing Industry eBook', recommendedSequence: null, briefedAt: null }),
   ];

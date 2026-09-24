@@ -71,7 +71,7 @@ test('the bulk page opens on the queue\'s view selected, and filters and ticks l
   await expect(page.getByTestId('bulk-count')).toHaveText('1 of 2 selected');
   await expect(page.getByTestId('bulk-submit')).toHaveText('Regenerate 1 brief');
 
-  await page.getByTestId('bulk-filter-rung').selectOption('Personalized Nurture · 5 Full Court v2');
+  await page.getByTestId('bulk-filter-rung').selectOption('Personalized Nurture · 4 Assertive v2');
 
   await expect(page.getByTestId('bulk-count')).toHaveText('1 of 1 selected');
   await expect(page.getByLabel('Select Wren Bulkfixture')).toBeChecked();

@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   await db.delete(leadBriefSchema).where(and(eq(leadBriefSchema.orgId, orgId), like(leadBriefSchema.contactRef, `${REF_PREFIX}%`)));
   const briefedAt = new Date(Date.now() - 2 * 60 * 60 * 1000);
   await db.insert(leadBriefSchema).values([
-    { orgId, contactRef: `${REF_PREFIX}1`, contactName: 'Wren Bulkfixture', companyName: 'Tideline Studio', triggerType: 'mql', status: 'ready_for_review', briefedAt, recommendedSequence: { id: 'e2e-seq-5', name: 'Personalized Nurture · 5 Full Court v2' } },
+    { orgId, contactRef: `${REF_PREFIX}1`, contactName: 'Wren Bulkfixture', companyName: 'Tideline Studio', triggerType: 'mql', status: 'ready_for_review', briefedAt, recommendedSequence: { id: 'e2e-seq-5', name: 'Personalized Nurture · 4 Assertive v2' } },
     { orgId, contactRef: `${REF_PREFIX}2`, contactName: 'Ossie Bulkfixture', companyName: 'Quarry Lane', triggerType: 'mql', status: 'ready_for_review', briefedAt, recommendedSequence: { id: 'e2e-seq-1', name: 'Personalized Nurture · 1 Ambient v2' } },
     { orgId, contactRef: `${REF_PREFIX}3`, contactName: 'Pim Bulkfixture', companyName: 'Harbor Row', triggerType: 'mql', status: 'handed_off', briefedAt },
   ]);
