@@ -49,6 +49,12 @@ type AuthoredConfig = {
 /** What a judge grades on when the dataset does not say. */
 const DEFAULT_JUDGE_MODEL = 'global.anthropic.claude-sonnet-4-6';
 
+/** The longest evaluator name AWS accepts. */
+const MAX_EVALUATOR_NAME_LENGTH = 48;
+
+/** How much of the identity hash ends every evaluator name, to keep it unique. */
+const EVALUATOR_NAME_HASH_LENGTH = 8;
+
 /**
  * A built-in is named by AWS, so we pass the name through untouched.
  * @param row - The stored evaluator.
@@ -97,10 +103,24 @@ function clientTokenFor(orgId: string, datasetSlug: string, slug: string): strin
  * Namespaced by org and dataset because AWS requires evaluator names to be
  * unique per account, and two Vocion workspaces in one AWS account authoring
  * `tone-check` is an ordinary thing to do, not a mistake.
- * @param row - The stored evaluator.
+ *
+ * AWS accepts `[a-zA-Z][a-zA-Z0-9_]{0,47}`: no hyphens, at most 48
+ * characters. An org id plus two slugs is often longer than that, and cutting
+ * it short alone would let two evaluators whose names share a long prefix
+ * land on the same AWS name. So the readable part is cut to fit and the name
+ * always ends with a short hash of the full identity, which keeps it unique.
+ * @param orgId - Whose workspace.
+ * @param datasetSlug - The dataset that declares the evaluator.
+ * @param slug - The evaluator's own slug.
  */
-function remoteNameFor(row: EvaluatorRow): string {
-  return `vocion-${row.orgId}-${row.datasetSlug}-${row.slug}`.replace(/[^\w-]/g, '-').slice(0, 96);
+export function awsEvaluatorName(orgId: string, datasetSlug: string, slug: string): string {
+  const hash = clientTokenFor(orgId, datasetSlug, slug).slice(0, EVALUATOR_NAME_HASH_LENGTH);
+  const readableLength = MAX_EVALUATOR_NAME_LENGTH - EVALUATOR_NAME_HASH_LENGTH - 1;
+  const readable = `vocion_${orgId}_${datasetSlug}_${slug}`
+    .replace(/[^a-z0-9]+/gi, '_')
+    .slice(0, readableLength)
+    .replace(/_+$/, '');
+  return `${readable}_${hash}`;
 }
 
 /**
@@ -199,7 +219,7 @@ async function pushEvaluator(client: BedrockAgentCoreControlClient, row: Evaluat
     }
 
     const created = await client.send(new CreateEvaluatorCommand({
-      evaluatorName: remoteNameFor(row),
+      evaluatorName: awsEvaluatorName(row.orgId, row.datasetSlug, row.slug),
       evaluatorConfig: config,
       level,
       clientToken: clientTokenFor(row.orgId, row.datasetSlug, row.slug),
