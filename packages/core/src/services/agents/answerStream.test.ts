@@ -146,4 +146,13 @@ describe('answerStreamer', () => {
       expect(tail.closed).toBe(false);
     });
   });
+
+  it('drops a partial open tag left at the very end of the stream, instead of storing "<sc"', () => {
+    const s = new AnswerStreamer();
+    const a = s.push('I\'ll get the state of things before answering. <sc');
+    const b = s.flush();
+
+    expect(a.answer + b.answer).toBe('I\'ll get the state of things before answering. ');
+    expect(b.thinking).toBe('');
+  });
 });
