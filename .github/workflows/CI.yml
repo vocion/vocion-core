@@ -249,8 +249,9 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [22.x]
-        # The shards share nothing at runtime. Each boots its own `next start`
-        # and in-memory PGlite from `webServer`, runs the `setup`/`teardown`
+        # The shards share nothing at runtime. Each has its own Postgres
+        # service container, boots its own `next start` from `webServer`,
+        # runs the `setup`/`teardown`
         # projects its tests depend on, and the self-seeding projects make
         # their own admin. Each also repeats checkout, install, the build
         # restore and the server boot, a minute or two apiece, so more shards
@@ -267,6 +268,26 @@ jobs:
     # Playwright could print its summary.
     timeout-minutes: 15
     needs: [build]
+
+    # A real Postgres, not the in-memory PGlite the suite boots locally.
+    # PGlite accepts one connection, which made every seed script a spec
+    # spawned wait about 10s for the app's pool to let go of it, and caused
+    # the `Connection terminated unexpectedly` flake in e2e/credentials
+    # (#631). pgvector because a migration creates the `vector` extension.
+    # The test step runs in a container action, which joins this job's
+    # network, so it reaches the database by the service name, `postgres`.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vocion_e2e
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vocion_e2e"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
 
     steps:
       - uses: actions/checkout@v6
@@ -287,10 +308,10 @@ jobs:
           args: sh -c "HOME=/root npm run test:e2e --workspace @vocion/core -- --shard=${{ matrix.shard }}/3"
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-          # Playwright boots `next start` next to a throwaway in-memory PGlite on
-          # 5432, and Env.ts validates on import, so the server needs these to
-          # come up at all. Same values the unit and build jobs use.
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_e2e
+          # Playwright migrates the `postgres` service's database and then
+          # boots `next start` against it. The seed scripts the specs spawn
+          # read this same variable, so they reach the same database.
+          DATABASE_URL: postgresql://postgres:postgres@postgres:5432/vocion_e2e
           AUTH_SECRET: ci-only-secret-not-used-outside-ci
 
       # Playwright's outputDir is relative to its config, so the traces land in

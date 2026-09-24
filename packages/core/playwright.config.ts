@@ -58,10 +58,17 @@ export default defineConfig<ChromaticConfig>({
   // running against a real Postgres, where the command below cannot be used —
   // `db-server:memory` starts pglite on 5432, the port that Postgres already
   // holds, and `--race` then takes the Next process down with it.
+  //
+  // CI runs against the Postgres service container each E2E shard gets
+  // (.github/workflows/CI.yml), not PGlite: PGlite accepts one connection,
+  // and the app's pool holds it for 10s after its last query, so every seed
+  // script a spec spawned waited those 10s to connect (#631). Locally the
+  // command still boots in-memory PGlite, so a plain `npx playwright test`
+  // needs no database of its own.
   webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER
     ? undefined
     : {
-        command: process.env.CI ? 'npx run-p db-server:memory start --race' : 'npx run-p db-server:memory dev:next --race',
+        command: process.env.CI ? 'npm run db:migrate && npm run start' : 'npx run-p db-server:memory dev:next --race',
         url: baseURL,
         timeout: 60 * 1000,
         reuseExistingServer: !process.env.CI,
@@ -125,7 +132,7 @@ export default defineConfig<ChromaticConfig>({
       dependencies: ['setup'],
     },
     // The headless usage-video tour (F1 storyboard). Self-seeding: signs up
-    // the first-run admin on a FRESH PGlite DB, so no `setup` project
+    // the first-run admin on a FRESH database, so no `setup` project
     // dependency. One long cinematic spec — generous timeout.
     //
     // Defined only outside CI. It records a marketing video rather than
@@ -201,7 +208,7 @@ export default defineConfig<ChromaticConfig>({
         ]
       : []),
     // The API credentials matrix (platforms, validation, expiry rules).
-    // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
+    // Self-seeding like `tour`: bootstraps its own admin on a fresh database,
     // so no `setup` project dependency.
     // Run with: npx playwright test --project=credentials
     // The document loop by chat — draft, edit by chat, highlight → change,
