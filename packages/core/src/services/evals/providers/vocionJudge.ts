@@ -15,7 +15,7 @@
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { CaseTranscript } from '../transcripts';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
@@ -136,10 +136,25 @@ export async function judgeTranscript(request: JudgeRequest): Promise<JudgeOutpu
     response,
   });
 
-  const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
+  let stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
   let parsed: unknown;
   try {
     parsed = JSON.parse(firstJsonObject(stripped) ?? stripped);
+  } catch {
+    // ONE more ask, JSON only. A judge that opens with "I'm ready" or breaks
+    // a quote (reference run 3, cases 9 and 12) is a retry, not a scored
+    // error — an unscored case is a hole in the number the run exists for.
+    const again = await judge.invoke([
+      new SystemMessage(JUDGE_SYSTEM),
+      new HumanMessage(user),
+      new AIMessage(raw),
+      new HumanMessage('That was not a JSON object. Reply with ONLY the JSON object — no words before or after it.'),
+    ]);
+    await chargeModelCall({ orgId: request.orgId, feature: FEATURES.EVAL_JUDGE, role: 'classifier', response: again });
+    stripped = textOf(again.content).replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
+  }
+  try {
+    parsed = parsed ?? JSON.parse(firstJsonObject(stripped) ?? stripped);
   } catch (error) {
     console.error(`[evals] judge returned non-JSON for ${request.datasetSlug} case ${request.transcript.itemIndex}`, error);
     const fallback = { verdict: 'error' as const, score: 0, rationale: 'judge returned non-JSON' };
