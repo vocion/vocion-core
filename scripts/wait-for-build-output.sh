@@ -37,13 +37,19 @@ readonly timeout_seconds="${WAIT_TIMEOUT_SECONDS:-900}"
 listing_rounds=0
 api_failures=0
 
-# Prints "yes" when the build output is already in the cache for this ref.
+# Prints "yes" when the build output is already in the cache for this ref,
+# "no" when it isn't, and "error" when the cache list could not be read. The
+# error's own message goes to stderr, so it lands in the job log.
 build_output_is_cached() {
   local key="$1"
   local ref="$2"
   local found
-  found=$(gh cache list --repo "$GITHUB_REPOSITORY" --key "$key" --ref "$ref" --json key --jq \
-    "map(select(.key == \"$key\")) | length" 2>/dev/null || echo 0)
+  if ! found=$(gh cache list --repo "$GITHUB_REPOSITORY" --key "$key" --ref "$ref" --limit 100 --json key --jq \
+    "map(select(.key == \"$key\")) | length"); then
+    echo "::warning::Could not read the cache list; will look at the build job instead." >&2
+    echo error
+    return
+  fi
   if [ "$found" != "0" ]; then echo yes; else echo no; fi
 }
 
@@ -74,7 +80,9 @@ while true; do
     api_failures=$((api_failures + 1))
     state="unknown"
     if [ "$api_failures" -ge "$MAX_API_FAILURES" ]; then
-      echo "::error::Could not read this run's jobs from the GitHub API $api_failures times in a row."
+      # gh has already printed the API's own message (a 404, a 403, a rate
+      # limit) above this line, which is what tells a reader what to fix.
+      echo "::error::Could not read this run's jobs from the GitHub API $api_failures times in a row; the gh error above says why."
       exit 1
     fi
   fi
