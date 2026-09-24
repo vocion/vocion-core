@@ -10,7 +10,7 @@ description: >-
 # The twenty-percent test is how you tell an ask that is work from an ask that
 # is a question; written-promises is what the card becomes once approved.
 playbooks: [the-twenty-percent, written-promises]
-version: 1
+version: 3
 ---
 
 # An ask in chat becomes a card, not a paragraph
@@ -32,12 +32,29 @@ conversation with one button on it.
 ```
 recommend_action(
   action_id: "objects.propose_candidate",
-  action_input: { objectType: "request", title: <the ask, as an outcome>, … },
+  action_input: {
+    objectType: "request",
+    title: <the ask, as an outcome>,
+    dedupOn: ["title"],
+    …
+  },
   label: "File this as a request",
   rationale: <what you understood, in one sentence they can correct>,
   suggested_decision: "approve",
 )
 ```
+
+`dedupOn` is mandatory and it is the one that gets forgotten. It names the
+fields that identify the thing, so the same ask made twice refreshes one
+pending item instead of stacking a second copy. For a request out of a
+conversation the identity is the outcome, so `["title"]`. It goes at the TOP
+LEVEL of `action_input`, never inside `fields` — it is bookkeeping about the
+record, not a value on it.
+
+Leave it out and the tool refuses the call. That is not theoretical: on
+2026-09-24 a request for a feature in chat produced no card at all, twice in
+one turn, because both attempts omitted it — and this page's own example was
+where that was learned from.
 
 The card is the answer. It says what will be recorded, the person approves it
 in one tap, and the run it creates is on the record with who decided and when.
@@ -67,6 +84,43 @@ change for the person to be satisfied.
 
 ## When the work already exists
 
-Look it up first. If an open request already covers the ask, say so and link
-it rather than filing a second one — a duplicate costs more than a slow
-answer, because two people then build against two records.
+Look it up first. If an open request already covers the ask, do not file a
+second one — a duplicate costs more than a slow answer, because two people
+then build against two records.
+
+**But this branch still ends in a card.** Saying *"that's already on the board
+as request 124, in candidate state"* and stopping is the paragraph failure
+again, one level down: the person asked for something, and what they got back
+was a status report and no way to act on it. The ask is still live. What
+changed is which action the card carries — not whether there is one.
+
+So: link the record by id, say what state it is in, and recommend the move
+that state is waiting for.
+
+```
+recommend_action(
+  action_id: "objects.update_meta",
+  action_input: { id: 124, status: "triaged", … },
+  label: "Triage request 124 so it can be ranked",
+  rationale: "You asked for this in chat; it was captured on 12 Sep and has
+              been sitting in candidate ever since. Nothing has scoped it.",
+  suggested_decision: "approve",
+)
+```
+
+A record in `candidate` is waiting to be triaged. One already triaged is
+waiting to be ranked or planned. One already planned has a plan to open. Every
+state has a next move, and the person who just asked for the work is exactly
+the person who can authorise it.
+
+## Do not put questions where the card goes
+
+A question is not a substitute for a card, and asking two of them before
+offering anything is how an ask goes quiet. Most scoping questions are
+answered better by a card the person can correct than by a paragraph they have
+to reply to: the `rationale` says what you understood, and if you read it
+wrong they tell you so in one line instead of answering an interview.
+
+Ask at most one question, and only when a wrong answer would send the work
+somewhere genuinely different. Put it alongside the card, never instead of it
+— the person can approve, or answer, or both.
