@@ -298,6 +298,8 @@ export type FeatureReport = {
   timeline: TimelineEntry[];
   /** Disagreements between records, stated rather than resolved. */
   contradictions: string[];
+  /** The picture that leads the page — the first mock or after-shot with an image — or null. */
+  hero: ReportEvidence | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -464,6 +466,30 @@ function evidenceUrl(artifact: ReportArtifact): string | null {
 // ---------------------------------------------------------------------------
 
 const TERMINAL_BAD = new Set(['failed', 'cancelled', 'lost']);
+
+/** The recommended outcome, as a verb a person reads on the decision card. */
+const OUTCOME_VERBS: Record<string, string> = { build: 'build it', answer: 'answer it', decline: 'decline it', merge: 'merge it into another request', defer: 'defer it' };
+
+/**
+ * An age in a person's words — "2 days", "5 hours", "just now" — for the
+ * context line. `formatDuration`'s "1d 21h" is a stopwatch reading; nobody
+ * decides differently at 1d 21h than at 2 days (Chris, 2026-09-24).
+ * @param ms - How long ago.
+ */
+export function formatAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 60_000) {
+    return 'just now';
+  }
+  const days = Math.round(ms / 86_400_000);
+  if (ms >= 36 * 3_600_000) {
+    return `${days} day${days === 1 ? '' : 's'} ago`;
+  }
+  const hours = Math.round(ms / 3_600_000);
+  if (hours >= 1) {
+    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  }
+  return `${Math.round(ms / 60_000)} min ago`;
+}
 
 /**
  * What a run reported about the change. A completed run writes `pr_url`,
@@ -1626,6 +1652,20 @@ export type ReportState = {
   question: string | null;
   /** The one thing to do about it, and where. */
   action: { label: string; href: string } | null;
+  /**
+   * The decision itself, when one is open — enough to decide HERE: what is
+   * asked, what is recommended and why, the risk, the cost — and the id to
+   * decide it by. A "Review decision" button that leaves the page is not a
+   * decision card (Chris, 2026-09-24).
+   */
+  decision: {
+    kind: 'ask' | 'proposal';
+    id: number;
+    actionId: string | null;
+    recommendation: string | null;
+    risk: string | null;
+    cost: string | null;
+  } | null;
 };
 
 /**
@@ -1648,8 +1688,15 @@ function buildState(input: FeatureReportInput): ReportState {
       needsYou: true,
       question: blocker.what,
       action: { label: 'See what is blocking it', href: '#report-approvals' },
+      decision: null,
     };
   }
+  const meta = input.request.meta;
+  const risk = str(meta, 'mainRisk');
+  const verb = OUTCOME_VERBS[str(meta, 'recommendedOutcome') ?? ''] ?? null;
+  const whyNote = str(meta, 'whyNote');
+  const recommendation = verb ? `Vocion recommends we ${verb}${whyNote ? ` — ${whyNote}` : ''}` : whyNote;
+  const estimate = num(meta, 'estimateCents');
   const openAsk = input.asks.find(a => a.decidedAt === null);
   if (openAsk) {
     return {
@@ -1659,6 +1706,14 @@ function buildState(input: FeatureReportInput): ReportState {
       needsYou: true,
       question: openAsk.title,
       action: { label: 'Review decision', href: '#report-approvals' },
+      decision: {
+        kind: 'ask',
+        id: openAsk.id,
+        actionId: null,
+        recommendation: openAsk.body?.trim() || recommendation,
+        risk,
+        cost: estimate !== null && estimate > 0 ? `about ${money(estimate)}` : openAsk.decisionCost !== null ? `about ${openAsk.decisionCost} min to decide` : null,
+      },
     };
   }
   const pendingAction = input.actionRuns.find(a => a.decidedAt === null && a.approvedByAgent === false);
@@ -1670,26 +1725,34 @@ function buildState(input: FeatureReportInput): ReportState {
       needsYou: true,
       question: pendingAction.actionId === 'git.merge' ? 'QA approved; the merge is the deploy.' : `Approve ${pendingAction.actionId}?`,
       action: { label: 'Review & approve', href: '#report-approvals' },
+      decision: {
+        kind: 'proposal',
+        id: pendingAction.id,
+        actionId: pendingAction.actionId,
+        recommendation: pendingAction.note?.trim() || recommendation,
+        risk,
+        cost: estimate !== null && estimate > 0 ? `about ${money(estimate)}` : null,
+      },
     };
   }
   if (input.releases.length > 0) {
     const result = str(input.request.meta, 'result');
     const told = input.request.meta.told !== null && typeof input.request.meta.told === 'object' ? (input.request.meta.told as Record<string, unknown>).status : null;
     const detail = result === 'helped' ? 'live, and it helped' : result === 'did_not_help' ? 'live, and it did not help' : told === 'sent' ? 'live; the asker has been told; result not checked yet' : 'live for people; result not checked yet';
-    return { key: 'released', label: 'Released', detail, needsYou: false, question: null, action: { label: 'See the release', href: '#report-release' } };
+    return { key: 'released', label: 'Released', detail, needsYou: false, question: null, action: { label: 'See the release', href: '#report-release' }, decision: null };
   }
   const running = input.workerRuns.filter(r => !TERMINAL_BAD.has(r.status) && r.status !== 'completed');
   if (running.length > 0) {
-    return { key: 'building', label: 'Building', detail: 'no action needed from you', needsYou: false, question: null, action: { label: 'View progress', href: '#report-runs' } };
+    return { key: 'building', label: 'Building', detail: 'no action needed from you', needsYou: false, question: null, action: { label: 'View progress', href: '#report-runs' }, decision: null };
   }
   const accepted = input.tasks.filter(t => t.status === 'accepted');
   if (accepted.length > 0) {
-    return { key: 'merge', label: 'Ready to merge', detail: 'QA approved; the merge is waiting on a person', needsYou: true, question: null, action: { label: 'Review the merge', href: '#report-qa' } };
+    return { key: 'merge', label: 'Ready to merge', detail: 'QA approved; the merge is waiting on a person', needsYou: true, question: null, action: { label: 'Review the merge', href: '#report-qa' }, decision: null };
   }
   const awaitingReview = input.tasks.filter(t => t.status === 'awaiting_review');
   if (awaitingReview.length > 0) {
     const last = input.workerRuns.map(r => r.completedAt ?? r.createdAt).filter((d): d is Date => d instanceof Date).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    return { key: 'qa', label: 'Awaiting QA', detail: last ? `engineering finished ${formatStamp(last)}; no action needed from you` : 'engineering finished; no action needed from you', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' } };
+    return { key: 'qa', label: 'Awaiting QA', detail: last ? `engineering finished ${formatStamp(last)}; no action needed from you` : 'engineering finished; no action needed from you', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
   }
   // "NOT STARTED" IS A CLAIM TOO.
   //
@@ -1707,11 +1770,12 @@ function buildState(input: FeatureReportInput): ReportState {
       label: 'Unreadable',
       detail: 'the records disagree',
       needsYou: false,
+      decision: null,
       question: `This work says ${written} task${written === 1 ? ' was' : 's were'} written for it and none of them is linked here.`,
       action: null,
     };
   }
-  return { key: 'waiting', label: 'Not started', detail: 'nothing has run yet', needsYou: false, question: null, action: null };
+  return { key: 'waiting', label: 'Not started', detail: 'nothing has run yet', needsYou: false, question: null, action: null, decision: null };
 }
 
 /**
@@ -1980,7 +2044,7 @@ function buildContext(request: ReportObject, summary: FeatureReportSummary, now:
     out.push(`${money(summary.totalCents)} spent`);
   }
   if (summary.askedAt !== null) {
-    out.push(`asked ${formatDuration(now.getTime() - summary.askedAt.getTime())} ago`);
+    out.push(`asked ${formatAge(now.getTime() - summary.askedAt.getTime())}`);
   }
   return out;
 }
@@ -2157,5 +2221,6 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     ],
     timeline: buildTimeline(normalised, mergedPrs),
     contradictions: findContradictions(normalised, mergedPrs, line),
+    hero: visualsSection(input.request, input.artifacts).evidence.find(e => e.imageUrl !== null) ?? null,
   };
 }

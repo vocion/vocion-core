@@ -4,6 +4,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
 import { formatStamp, money } from '@/services/factory/featureReport';
+import { DecisionCard } from './DecisionCard';
 
 /**
  * The feature report, drawn — one request's whole story in one column.
@@ -250,7 +251,7 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
 function Section({ section }: { section: ReportSection }) {
   return (
     <section id={`report-${section.key}`} data-section={section.key} className="border-t border-border/60 pt-8">
-      <h3 className="mb-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{section.title}</h3>
+      <h3 className="mb-3 text-sm font-semibold text-foreground">{section.title}</h3>
       {section.absence
         ? <p data-absence className="max-w-prose text-[15px] leading-relaxed text-muted-foreground">{section.absence}</p>
         : (
@@ -322,9 +323,40 @@ function Story({ story }: { story: string }) {
  * @param props
  * @param props.steps - The four steps and where the work has got to.
  */
+/**
+ * The stage, one line on a phone: dots and the current step's name, with
+ * "your decision next" when a person holds it. The full labelled strip below
+ * wrapped into two rows at 390px and orphaned "QA → Released" (Chris,
+ * 2026-09-24).
+ * @param props
+ * @param props.steps - The lifecycle.
+ * @param props.needsYou - Whether a person is the one holding it up.
+ */
+function LifecycleDots({ steps, needsYou }: { steps: LifecycleStep[]; needsYou: boolean }) {
+  const nowIndex = steps.findIndex(s => s.state === 'now');
+  const current = steps[nowIndex] ?? steps.find(s => s.state === 'todo') ?? steps[steps.length - 1];
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground sm:hidden" aria-label="Where this work has got to" data-testid="lifecycle-dots">
+      <span className="flex items-center gap-1" aria-hidden>
+        {steps.map(step => (
+          <span key={step.key} className={`inline-block size-1.5 rounded-full ${step.state === 'done' ? 'bg-brand-ok' : step.state === 'now' ? 'bg-brand-amber' : 'bg-border'}`} />
+        ))}
+      </span>
+      <span>
+        <span className="font-medium text-foreground">{current?.label}</span>
+        {' · '}
+        {(nowIndex >= 0 ? nowIndex : 0) + 1}
+        {' of '}
+        {steps.length}
+        {needsYou && <span className="text-brand-amber-deep"> · your decision next</span>}
+      </span>
+    </div>
+  );
+}
+
 function Lifecycle({ steps }: { steps: LifecycleStep[] }) {
   return (
-    <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" aria-label="Where this work has got to">
+    <ol className="hidden flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground sm:flex" aria-label="Where this work has got to">
       {steps.map((step, i) => (
         <li key={step.key} className="flex items-center gap-2">
           <span className="flex items-center gap-1.5">
@@ -608,8 +640,20 @@ export function ReportContextLine({ bits }: { bits: readonly string[] }) {
 export function FeatureReportView({ report }: { report: FeatureReport }) {
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
-      <StateHeader state={report.state} />
-      <Lifecycle steps={report.lifecycle} />
+      {/* ABOVE THE FOLD ON A PHONE: the decision, decidable; where it stands,
+          one line; the picture. On a desk the picture sits beside them. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-5">
+        {report.hero?.imageUrl && (
+          <a href="#report-visuals" className="order-3 block w-full shrink-0 overflow-hidden rounded-lg border border-border bg-muted sm:order-1 sm:w-64" data-testid="report-hero">
+            <img src={report.hero.imageUrl} alt={report.hero.role === 'after' ? 'How it looks now' : 'The proposed change'} className="aspect-[8/5] w-full object-cover object-top" loading="eager" />
+          </a>
+        )}
+        <div className="order-1 min-w-0 flex-1 space-y-3 sm:order-2">
+          {report.state.decision ? <DecisionCard state={report.state} /> : <StateHeader state={report.state} />}
+          <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
+          <Lifecycle steps={report.lifecycle} />
+        </div>
+      </div>
 
       {report.contradictions.length > 0 && (
         <section id="report-contradictions" className="rounded-lg border border-[var(--brand-fail)]/40 bg-[var(--brand-fail-bg)] p-3">
