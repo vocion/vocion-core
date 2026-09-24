@@ -12,7 +12,7 @@ import { MAX_TREND_RUNS } from '@/libs/evals/runRange';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { describeDatasetSync } from '@/services/evals/publish';
-import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listEvaluatorTrend, listRuns, listRunsPage, listRunTrend, summariseRunPeriod } from '@/services/EvalService';
+import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listEvaluatorTrend, listRunsPage, listRunTrend, summariseRunPeriod } from '@/services/EvalService';
 import { ProviderChip } from '../ProviderChip';
 import { summariseDatasetSync } from './datasetSync';
 import { periodQuery, readEvalPeriod, runsPageHref } from './evalPeriod';
@@ -57,8 +57,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
     notFound();
   }
 
-  const [allRuns, providers, evaluatorProblems, syncState] = await Promise.all([
-    listRuns(orgId, dataset.id),
+  const [providers, evaluatorProblems, syncState] = await Promise.all([
     describeProviders(orgId),
     listEvaluatorProblems(orgId, dataset.slug),
     // The column's declared shape is looser than the one the eval code reads;
@@ -73,7 +72,6 @@ export default async function EvalDatasetDetailPage(props: Props) {
   const graderLabel = grader?.label ?? dataset.provider;
   const graderProblem = grader && !grader.available ? grader.reason : null;
   const labelFor = (id: string) => providers.find(p => p.id === id)?.label ?? id;
-  const historicalProviders = [...new Set(allRuns.map(run => run.provider))].filter(id => id !== dataset.provider);
 
   // Where the cases themselves live. A grader that holds its own copy of them
   // can be holding older ones than the workspace file does, and a score means
@@ -89,12 +87,17 @@ export default async function EvalDatasetDetailPage(props: Props) {
   // is "what happened lately", the other is "which way is this going" — and a
   // trend line that redrew itself as you paged would be lying about the shape.
   const requestedPage = Number.parseInt(pageParam ?? '1', 10);
-  const [{ runs, page, hasMore }, trend, summary, evaluatorTrend] = await Promise.all([
+  const [{ runs, page, hasMore }, trend, summary] = await Promise.all([
     listRunsPage(orgId, dataset.id, { page: Number.isNaN(requestedPage) ? 1 : requestedPage, range: period.range }),
     listRunTrend(orgId, dataset.id, period.range),
     summariseRunPeriod(orgId, dataset.id, dataset.provider, period.range),
-    listEvaluatorTrend(orgId, dataset.id, period.range),
   ]);
+  // When the run chart had to stop at its limit, the evaluator lines start
+  // where it does, so the two never cover different stretches of time and the
+  // query never reads scores for runs nobody will see.
+  const oldestPlotted = trend.runs.at(-1);
+  const evaluatorRange = trend.truncated && oldestPlotted ? { ...period.range, from: oldestPlotted.startedAt } : period.range;
+  const evaluatorTrend = await listEvaluatorTrend(orgId, dataset.id, evaluatorRange);
 
   // A run still in progress has no pass rate yet, and must not be drawn as a zero.
   const runTrendPoints = trend.runs
@@ -111,10 +114,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
   // One line per evaluator under each grader's own. The pass rate says whether
   // the dataset is passing; these say which part of it moved, which is the
   // question a flat pass rate hides.
-  // When the run chart had to stop at its limit, the evaluator lines stop with
-  // it, so the two never cover different stretches of time.
-  const plottedRunIds = new Set(trend.runs.map(run => run.id));
-  const evaluatorTrendPoints = evaluatorTrend.filter(row => !trend.truncated || plottedRunIds.has(row.runId)).map(row => ({
+  const evaluatorTrendPoints = evaluatorTrend.map(row => ({
     runId: row.runId,
     provider: row.provider,
     startedAt: new Date(row.startedAt).toISOString(),
@@ -123,6 +123,9 @@ export default async function EvalDatasetDetailPage(props: Props) {
     evaluatorSlug: row.evaluatorSlug,
   }));
   const trendPoints = [...runTrendPoints, ...evaluatorTrendPoints];
+  // Said about the runs actually listed, so a period with none from an older
+  // grader never claims some are here.
+  const historicalProviders = [...new Set(runs.map(run => run.provider))].filter(id => id !== dataset.provider);
   const filtered = period.period !== 'all';
   const pagerQuery = periodQuery(period).toString();
   return (
