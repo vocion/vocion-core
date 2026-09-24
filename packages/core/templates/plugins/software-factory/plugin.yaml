@@ -168,7 +168,20 @@ name: Software factory
 # the task names no request of its own (a probe, a smoke test), and draws
 # nothing when neither can be named. `rowActions.href` takes this ordered
 # fallback chain wherever a page needs it.
-version: 1.14.1
+#
+# 1.15.0 - Every Work card carries a picture, and the platform draws it. The
+# `visuals` field and its "no mock" badge had been on the board since the
+# evidence gate shipped; on 2026-09-24 sixteen of twenty-five proposed
+# outcomes carried the badge and none carried a picture, because filing one
+# was a thing an agent had to remember. So it stopped being asked for and
+# became something the platform does, on every write that could change what
+# the picture says. It is a drawing, not a mockup: a page and the rows this
+# contract changes, or the components the plan touches and the direction
+# between them, in code and deterministic — an image model would have cost a
+# paid call per plan, drawn differently from the same facts, and rendered
+# invented screen text that would make the mock a claim about a product we
+# have not built. A real mockup filed against the outcome still wins.
+version: 1.15.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

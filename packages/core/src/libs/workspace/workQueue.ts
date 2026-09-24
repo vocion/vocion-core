@@ -475,6 +475,32 @@ export function visualGap(row: PageRow, lane: WorkLane): string | null {
 }
 
 /**
+ * WHICH PICTURE this row shows, as an artifact id.
+ *
+ * One card, one picture, and which one depends on where the work is. A row
+ * that has shipped shows what it looks like NOW — an after-shot beats a
+ * mockup of it the moment there is one, because the mockup has stopped being
+ * a proposal and become a historical claim. Everywhere else the row shows
+ * what is proposed, which is the thing a decision is taken against.
+ *
+ * The id rather than a URL: the record names an artifact, and the page layer
+ * resolves it once for the whole page (`services/workspace/pageImages.ts`).
+ * Nothing is stored here that could disagree with the artifact.
+ * @param row - The row.
+ * @param lane - The lane it landed in.
+ */
+export function visualArtifactId(row: PageRow, lane: WorkLane): number | null {
+  const raw = meta(row).visuals;
+  const v = raw !== null && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const first = (key: string): number | null => {
+    const list = v[key];
+    const id = Array.isArray(list) ? list[0] : undefined;
+    return Number.isInteger(id) && (id as number) > 0 ? id as number : null;
+  };
+  return lane === 'done' ? first('afterArtifactIds') ?? first('beforeArtifactIds') : first('beforeArtifactIds');
+}
+
+/**
  * The conditional facts, which appear only when they are true. A flag the
  * lane heading already states is not repeated on the row.
  * @param row - The row.
@@ -681,6 +707,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           rank: rank === null ? undefined : String(rank),
           state,
           visualGap: visualGap(row, lane) ?? undefined,
+          visual: visualArtifactId(row, lane) ?? undefined,
           acceptanceLine: acceptanceLine(row, lane) ?? undefined,
           contractGap: contractGap(row, lane) ?? undefined,
           whyLine: whyLine(row) ?? undefined,

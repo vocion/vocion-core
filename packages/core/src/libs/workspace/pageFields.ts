@@ -828,6 +828,18 @@ export const PageManifestSchema = z.object({
   primary: z.object({
     field: z.string(),
     subtitle: z.array(z.string()).default([]),
+    /**
+     * The field holding this row's PICTURE, drawn leading the block rather
+     * than as one more labelled fact.
+     *
+     * A fact list puts an uppercase label above its value, which is the right
+     * shape for a figure and the wrong one for an image: "PREVIEW" above a
+     * thumbnail is a caption saying what a person can already see. Named
+     * here rather than inferred from `format: image` because a page may draw
+     * an image that is a column — an avatar in a table — and only `primary`
+     * knows which one leads.
+     */
+    thumb: z.string().optional(),
   }).optional(),
   /**
    * How a `list` page draws a row. `table` is the grid of columns. `block`
@@ -1706,6 +1718,8 @@ export type TableLayout = {
   primary: PageField | null;
   /** The fields that read as the primary's muted second line, in order. */
   subtitle: PageField[];
+  /** The picture that leads the block, when the page declared one. */
+  thumb: PageField | null;
   /** The remaining columns, in declaration order. */
   columns: PageField[];
   /** Columns collapsed into the line above the table. */
@@ -1730,7 +1744,8 @@ export function tableLayout(rows: PageRow[], fields: PageField[], primary?: Page
   const byKey = (k: string) => fields.find(f => f.key === k) ?? null;
   const lead = primary ? byKey(primary.field) : null;
   const sub = (primary?.subtitle ?? []).map(byKey).filter((f): f is PageField => f !== null && !f.detail);
-  const spoken = new Set([lead?.key, ...sub.map(f => f.key)].filter(Boolean) as string[]);
+  const thumb = primary?.thumb ? byKey(primary.thumb) : null;
+  const spoken = new Set([lead?.key, thumb?.key, ...sub.map(f => f.key)].filter(Boolean) as string[]);
   // A `detail` field is evidence the page deliberately kept out of the row,
   // so it never competes for width with the columns; it reads inside the
   // row's own disclosure instead.
@@ -1748,6 +1763,11 @@ export function tableLayout(rows: PageRow[], fields: PageField[], primary?: Page
   const gone = new Set([...droppedKeys, ...constants.map(c => c.field.key)]);
   return {
     primary: lead,
+    // The picture is NOT dropped when some rows lack it. A row with no
+    // drawing yet leaves a gap the size of one, and a grid whose tiles start
+    // at different left edges is harder to read than one with a hole in it —
+    // the opposite of the usual rule, and only because this is a grid.
+    thumb,
     subtitle: sub.filter(f => !gone.has(f.key)),
     columns: rest.filter(f => !gone.has(f.key)),
     constants,

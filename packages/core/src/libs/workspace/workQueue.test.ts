@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { acceptanceLine, acceptanceOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, visualGap, whyLine, workLine } from './workQueue';
+import { acceptanceLine, acceptanceOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, visualArtifactId, visualGap, whyLine, workLine } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -419,5 +419,41 @@ describe('the sentences on a row', () => {
     expect(only!.meta.whyLine).toBeUndefined();
     expect(only!.meta.costLine).toBeUndefined();
     expect(only!.meta.flags).toBeUndefined();
+  });
+});
+
+describe('which picture the card shows', () => {
+  it('shows what is proposed while the outcome is still being decided or built', () => {
+    const meta = { visuals: { beforeArtifactIds: [11], afterArtifactIds: [22] } };
+
+    expect(visualArtifactId(row(1, 'a', meta), 'proposed')).toBe(11);
+    expect(visualArtifactId(row(2, 'b', meta), 'progress')).toBe(11);
+  });
+
+  it('shows what it looks like NOW once it has shipped', () => {
+    // The mockup has stopped being a proposal and become a historical claim;
+    // the after-shot is the thing a person can check against the product.
+    const meta = { visuals: { beforeArtifactIds: [11], afterArtifactIds: [22] } };
+
+    expect(visualArtifactId(row(3, 'c', meta), 'done')).toBe(22);
+  });
+
+  it('falls back to the mockup on a shipped outcome nobody captured', () => {
+    expect(visualArtifactId(row(4, 'd', { visuals: { beforeArtifactIds: [11] } }), 'done')).toBe(11);
+  });
+
+  it('has no picture for a row that names none', () => {
+    expect(visualArtifactId(row(5, 'e', {}), 'proposed')).toBeNull();
+    expect(visualArtifactId(row(6, 'f', { visuals: { beforeArtifactIds: [] } }), 'proposed')).toBeNull();
+  });
+
+  it('ignores an id that is not one', () => {
+    expect(visualArtifactId(row(7, 'g', { visuals: { beforeArtifactIds: ['nope'] } }), 'proposed')).toBeNull();
+  });
+
+  it('puts the chosen picture on the row the page draws', () => {
+    const [drawn] = deriveWorkQueue([row(8, 'h', { state: 'new', visuals: { beforeArtifactIds: [11] } })], { now: NOW });
+
+    expect(drawn!.meta.visual).toBe(11);
   });
 });

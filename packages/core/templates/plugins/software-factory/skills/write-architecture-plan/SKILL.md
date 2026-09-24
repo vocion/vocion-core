@@ -11,7 +11,7 @@ description: >-
   before writing any task contract, because the worker refuses a contract that
   needed a plan and carries none, before the repository is cloned.
 playbooks: [the-twenty-percent, written-promises, naming-the-work, designing-a-surface]
-version: 2
+version: 3
 ---
 
 # Writing an architecture plan
@@ -125,6 +125,37 @@ was believed at the time.
 On **nothing**: the work does not start. That is the point of a gate. Say so in
 the decision, in those words, so nobody is waiting on something that is waiting
 on them.
+
+## The picture: do not write one, and do not skip one
+
+The platform draws the proposal visual itself, from the record, every time the
+record changes what the picture would say — the surface it lands on, the
+criteria it carries, this plan's `components` and `interfaces`
+(`services/factory/proposalVisual.ts`). You do not have to file one, and you
+must not treat `visuals.beforeArtifactIds` as an empty box to fill with a
+screenshot of something else.
+
+Two things follow for you.
+
+**Write `components` as a subject and a sentence**, one per line, subject
+first: `packages/core: the page layer resolves artifact ids to served urls`.
+The drawing takes the subject for the box and drops the rest, so a line that
+begins with prose draws a box labelled with prose. This was already the right
+way to write the list; now it is also visible.
+
+**`noVisualReason` still means something, and it stops the drawing too.** It is
+the recorded way out for a user-facing change that genuinely has nothing to
+show. It is not the way to say a mockup would have been nicer.
+
+A real mockup — a designed picture of the real screen — still wins over the
+drawing wherever somebody files one against the request. The platform keeps
+its own drawing current underneath, so removing the mockup brings the drawing
+back rather than leaving the card empty. The drawing is the floor, not the
+ceiling.
+
+The after-shot is NOT drawn and never will be: what the running product
+actually looks like has to be captured from the running product, which is why
+`no after` is the gate that still bites on everything that ships.
 
 ## What the worker does with it
 
