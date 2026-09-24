@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { BookOpen, Box, Cpu, Database, FileText, FolderOpen, GitBranch, Globe, Layers, LayoutDashboard, ListChecks, Mail, Package, PanelsTopLeft, Puzzle, Radar, Rocket, Send, Server, Shapes, Shield, Sparkles, Zap } from 'lucide-react';
+import { AlertTriangle, BookOpen, Box, Bug, CircleHelp, Cpu, Database, FileText, FolderOpen, GitBranch, Globe, Layers, LayoutDashboard, Lightbulb, ListChecks, Mail, Package, PanelsTopLeft, Puzzle, Radar, Rocket, Send, Server, Shapes, Shield, Siren, Sparkles, Video, Zap } from 'lucide-react';
 
 /**
  * lucide icon NAMES a workspace row may carry — a plugin, a page, a product
@@ -9,8 +9,11 @@ import { BookOpen, Box, Cpu, Database, FileText, FolderOpen, GitBranch, Globe, L
  * a crash: a typo in a workspace file is not a reason for a page to fail.
  */
 export const ICONS_BY_NAME: Record<string, LucideIcon> = {
+  'alert-triangle': AlertTriangle,
   'book-open': BookOpen,
   'box': Box,
+  'bug': Bug,
+  'circle-help': CircleHelp,
   'cpu': Cpu,
   'database': Database,
   'file-text': FileText,
@@ -19,6 +22,7 @@ export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'globe': Globe,
   'layers': Layers,
   'layout-dashboard': LayoutDashboard,
+  'lightbulb': Lightbulb,
   'list-checks': ListChecks,
   'mail': Mail,
   'package': Package,
@@ -29,7 +33,9 @@ export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'send': Send,
   'server': Server,
   'shield': Shield,
+  'siren': Siren,
   'sparkles': Sparkles,
+  'video': Video,
   'zap': Zap,
 };
 

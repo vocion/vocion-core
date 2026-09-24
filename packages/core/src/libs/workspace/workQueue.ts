@@ -52,7 +52,7 @@ export const WORK_LANES = ['progress', 'proposed', 'done'] as const;
 export type WorkLane = typeof WORK_LANES[number];
 
 /** How many rows each lane draws before the heading carries the remainder. */
-export const PROPOSED_SHOWN = 12;
+export const PROPOSED_SHOWN = 6;
 export const DONE_SHOWN = 5;
 /**
  * How many undecided recommendations read "Decide" at once. Twenty-five
@@ -62,7 +62,19 @@ export const DONE_SHOWN = 5;
  * still undecided, drawn after the ranked work with a muted badge, and they
  * move up as decisions land. Nothing is stored: staging is a reading.
  */
-export const DECIDE_SHOWN = 5;
+export const DECIDE_SHOWN = 3;
+
+/** The mark a row wears when it has no picture: what KIND of thing it is. */
+const KIND_ICON: Record<string, string> = { bug: 'bug', gap: 'puzzle', idea: 'lightbulb', incident: 'siren', question: 'circle-help' };
+
+/**
+ * The icon for a row's kind, so every card has a mark at its left edge even
+ * before anyone has drawn it a picture.
+ * @param row
+ */
+export function kindIconOf(row: PageRow): string {
+  return KIND_ICON[(str(row, 'kind') ?? '').toLowerCase()] ?? 'list-checks';
+}
 /** How far back "done recently" reaches. Older work is Activity's. */
 export const DONE_WITHIN_DAYS = 14;
 
@@ -913,6 +925,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           blockerLine: blockerOf(row) && lane !== 'done' ? blockerOf(row)!.what : undefined,
           visualGap: visualGap(row, lane) ?? undefined,
           visual: visualArtifactId(row, lane) ?? undefined,
+          kindIcon: kindIconOf(row),
           acceptanceLine: acceptanceLine(row, lane) ?? undefined,
           contractGap: contractGap(row, lane) ?? undefined,
           whyLine: whyLine(row) ?? undefined,
