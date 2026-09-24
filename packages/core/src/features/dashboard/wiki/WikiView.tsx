@@ -37,7 +37,8 @@ type Props = {
   /** The agent that answers from the wiki (the wiki researcher), for "Ask about this page". */
   askAgentSlug?: string | null;
   /** Where a page is edited and its versions restored — the artifact route. */
-  editHref: (page: WikiReadingPage) => string;
+  /** Where a page is edited — the artifact route; the page id is appended. A string, because this crosses the server → client boundary. */
+  editBase: string;
 };
 
 function formatDate(d: Date): string {
@@ -48,7 +49,8 @@ function authorLabel(kind: string): string {
   return kind === 'agent' ? 'an agent' : kind === 'human' ? 'a person' : kind === 'system' ? 'the workspace' : kind;
 }
 
-export function WikiView({ base, pages, current, guideHref, askAgentSlug, editHref }: Props) {
+export function WikiView({ base, pages, current, guideHref, askAgentSlug, editBase }: Props) {
+  const editHref = (page: WikiReadingPage) => `${editBase}/${page.id}`;
   const [query, setQuery] = useState('');
   const [railOpen, setRailOpen] = useState(false);
   const ordered = useMemo(() => orderWikiPages(pages), [pages]);

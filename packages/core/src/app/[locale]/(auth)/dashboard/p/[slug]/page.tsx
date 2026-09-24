@@ -500,7 +500,7 @@ export default async function WorkspacePage(props: {
           current={home}
           guideHref={guide ? `/dashboard/p/${guide.slug}` : null}
           askAgentSlug="wiki-researcher"
-          editHref={page => `/dashboard/artifacts/${page.id}`}
+          editBase="/dashboard/artifacts"
         />
       </>
     );
