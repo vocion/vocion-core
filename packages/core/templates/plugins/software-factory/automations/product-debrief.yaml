@@ -5,7 +5,7 @@ description: >-
   fails, a pull request merges — so the Product manager writes it where a
   person will look: the request's state and what answered it, the actual cost
   beside the estimate, the recommendation refreshed with the outcome, draft
-  release notes on the release if one exists; the `product-debrief` mission's
+  release notes on the release if one exists; the close-the-gap mission's
   "no request is answered by work its record does not know about", made a
   trigger rather than a nightly pass. Authorizes nothing, announces nothing —
   `tell-the-requester` closes the loop with the asker.
@@ -17,7 +17,7 @@ when:
     - worker_run.failed
     - pr.merged
 do:
-  checkMission: product-debrief
+  checkMission: close-the-gap
   prompt: >-
     The factory just finished something; the event says which kind
     (worker_run.completed, worker_run.failed or pr.merged) and carries its

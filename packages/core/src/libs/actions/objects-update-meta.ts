@@ -37,6 +37,7 @@
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { doneRefusal } from './doneGate';
+import { gapRefusal } from './gapGate';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
 
 const UPDATE_ACTION_ID = 'objects.update_meta';
@@ -115,6 +116,42 @@ async function writeMetadata(orgId: string, id: number, metadata: Record<string,
     .update(businessObjectSchema)
     .set({ metadata })
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
+}
+
+/**
+ * Whether this object type asked for a picture of itself.
+ *
+ * Same gate as the gap check: `visuals` is a field a type DECLARES, and a
+ * type that never modelled it is a type whose author wants nothing drawn.
+ * @param schema - The object type's JSON schema.
+ */
+function declaresVisuals(schema: { properties?: Record<string, unknown> } | null | undefined): boolean {
+  return 'visuals' in ((schema?.properties ?? {}) as Record<string, unknown>);
+}
+
+/**
+ * Redraw this record's picture, when the write could have changed what it
+ * says (`services/factory/proposalVisual.ts`).
+ *
+ * Imported here rather than at the top of the file, for the reason `readRow`
+ * is: this module reaches the database handle, which validates the whole
+ * environment at import, and the action registry is loaded by tests that
+ * configure none.
+ *
+ * Never throws. This hangs off a write that has already landed, and a picture
+ * that could not be drawn must not fail the turn that was the point of.
+ * @param orgId - The workspace.
+ * @param id - The record.
+ * @param meta - Its metadata after the write.
+ * @param written - The field keys the write touched.
+ */
+async function redraw(orgId: string, id: number, meta: Record<string, unknown>, written: string[]) {
+  const { ensureProposalVisual, redrawNeeded } = await import('@/services/factory/proposalVisual');
+  if (!redrawNeeded(written)) {
+    return null;
+  }
+  return ensureProposalVisual({ orgId, requestId: id, meta, author: { kind: 'system' } })
+    .catch((err: unknown) => ({ status: 'skipped' as const, reason: (err as Error).message ?? 'unknown error' }));
 }
 
 /**
@@ -224,10 +261,23 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (!row) {
       return `No ${objectType.label.toLowerCase()} #${input.id} in this workspace. Look the record up first; the id is the record's own, not a name.`;
     }
-    // A work item may not call itself done while its own contract is unmet.
-    // Refused here rather than asked for in a prompt: a worker cannot talk
-    // its way past a check it is never shown (`libs/actions/doneGate.ts`).
-    return doneRefusal((row.metadata ?? {}) as Record<string, unknown>, input.set);
+    // A work item may not call itself done while its own contract is unmet,
+    // and may not be planned until somebody has checked it is still missing
+    // from the running product. Refused here rather than asked for in a
+    // prompt: a worker cannot talk its way past a check it is never shown
+    // (`libs/actions/doneGate.ts`, `libs/actions/gapGate.ts`).
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    const done = doneRefusal(meta, input.set);
+    if (done) {
+      return done;
+    }
+    // The gap gate applies only where the workspace has MODELLED the check:
+    // this action is domain-free, and `in_scope` is not a reserved word — a
+    // type in some other workspace may use it for something that owes no
+    // check at all. A type that declares `gapCheck` is a type whose author
+    // asked for the gate; one that does not is untouched.
+    const declaresGapCheck = 'gapCheck' in ((objectType.schema?.properties ?? {}) as Record<string, unknown>);
+    return declaresGapCheck ? gapRefusal(meta, input.set) : undefined;
   },
   async reviewCard(ctx: ActionContext, input): Promise<ReviewCard> {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
@@ -274,7 +324,15 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // history should read the same however it was stored.
     const keys = Object.keys(input.set).sort();
     const previous = previousValues(row.metadata, keys);
-    await writeMetadata(ctx.orgId, row.id, applySet(row.metadata, input.set));
+    const next = applySet(row.metadata, input.set);
+    await writeMetadata(ctx.orgId, row.id, next);
+    // The picture the board draws this outcome as, redrawn from what the
+    // record now says. It hangs off the write rather than being asked of an
+    // agent, because a visual an agent has to remember is a visual sixteen of
+    // twenty-five rows did not have. Gated on the type DECLARING `visuals`,
+    // the same way the gap gate is gated on `gapCheck`: this action is
+    // domain-free and must stay so.
+    const visual = declaresVisuals(objectType.schema) ? await redraw(ctx.orgId, row.id, next, keys) : null;
     // The run is the record's history: who wrote what, why, and what was
     // there before — in one place, queryable by the dedup key's prefix.
     return {
@@ -284,6 +342,7 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       updated: keys,
       set: input.set,
       previous,
+      ...(visual === null ? {} : { visual }),
       reason: input.reason,
       writtenBy: ctx.invokedBy ?? null,
       reviewedBy: ctx.reviewedBy ?? null,

@@ -1273,14 +1273,25 @@ export const RollupSchema = z.object({
     ids: MetaKeySchema.optional(),
     /** The child's metadata key whose list of ids contains this record's. */
     inList: MetaKeySchema.optional(),
-  }).refine(l => [l.by, l.ids, l.inList].filter(v => v !== undefined).length === 1, { message: 'a rollup link names exactly one of `by` (the child points here), `ids` (this record lists its children) or `inList` (the child lists this record)' }),
-  /** The child's metadata key to sum. Omitted with no `min`, the rollup is a count of children. */
+    /**
+     * With `by`: THIS record's metadata key the child's `by` value names,
+     * instead of this record's id. A request names its product by slug
+     * (`product: send`), not by row id, so the product's rollups over its
+     * requests join `by: product` to `match: slug` (2026-09-24).
+     */
+    match: MetaKeySchema.optional(),
+  })
+    .refine(l => [l.by, l.ids, l.inList].filter(v => v !== undefined).length === 1, { message: 'a rollup link names exactly one of `by` (the child points here), `ids` (this record lists its children) or `inList` (the child lists this record)' })
+    .refine(l => l.match === undefined || l.by !== undefined, { message: '`match` only makes sense with `by`: the child names this record by the value under `match`' }),
+  /** The child's metadata key to sum. Omitted with no `min`/`max`, the rollup is a count of children. */
   sum: MetaKeySchema.optional(),
   /** The child's date key whose EARLIEST value is written, as an ISO string. */
   min: MetaKeySchema.optional(),
+  /** The child's date key whose LATEST value is written, as an ISO string. */
+  max: MetaKeySchema.optional(),
   /** Which children count; see {@link RollupWhereSchema}. */
   where: RollupWhereSchema.optional(),
-}).refine(r => !(r.sum !== undefined && r.min !== undefined), { message: 'a rollup is a sum, a min or a count of children, not two of them' });
+}).refine(r => [r.sum, r.min, r.max].filter(v => v !== undefined).length <= 1, { message: 'a rollup is a sum, a min, a max or a count of children, not two of them' });
 export type Rollup = z.infer<typeof RollupSchema>;
 
 export const ObjectTypeManifestSchema = z.object({

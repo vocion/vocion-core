@@ -82,6 +82,20 @@ async function finishes(opts: RunOpts): Promise<RunResult> {
   return finishedRun;
 }
 
+/**
+ * A run that does work and then ends the turn without answering — the exact
+ * shape of production turn 533: an intention, two tool calls, nothing after.
+ * @param opts - What the route hands the runtime; only `onEvent` is used here.
+ */
+async function stalls(opts: RunOpts): Promise<RunResult> {
+  opts.onEvent?.({ type: 'response_delta', delta: 'I\'ll look at what\'s already known about this before writing a contract.' });
+  opts.onEvent?.({ type: 'tool_start', tool: 'search_knowledge', input: { query: 'send history' } });
+  opts.onEvent?.({ type: 'tool_end', tool: 'search_knowledge', input: { query: 'send history' }, output: '[1] a pull request' });
+  opts.onEvent?.({ type: 'tool_start', tool: 'lookup_objects', input: { type_slug: 'request' } });
+  opts.onEvent?.({ type: 'tool_end', tool: 'lookup_objects', input: { type_slug: 'request' }, output: '[{"id":124}]' });
+  return finishedRun;
+}
+
 async function postTurn(conversationId: number, message: string) {
   const res = await POST(new Request('http://localhost/rpc/agent/stream', {
     method: 'POST',
@@ -141,6 +155,37 @@ describe('agent stream route — a turn that dies part-way', () => {
     expect(assistant?.content).toBe('Four deals closed last month.');
     expect(assistant?.status).toBe('complete');
     expect(assistant?.statusReason).toBeNull();
+  });
+
+  it('marks a turn that worked and never answered `stalled`, not complete', async () => {
+    // Production turn 533 (2026-09-24): "I'll look at what's already known
+    // about this before writing a contract.", two tool calls, nothing else —
+    // stored `complete`, so the person got a blank answer under a spinner
+    // that stopped, with no notice and no reason. `workspaceTurn` has
+    // classified this since #114; this route, the one a browser uses, never
+    // did.
+    vi.mocked(runAgentDeep).mockImplementation(stalls);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+
+    await postTurn(conv.id, 'add a keyboard shortcut to the file page');
+
+    const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
+
+    expect(assistant?.status).toBe('stalled');
+    expect(assistant?.statusReason).toBe('the turn ran 2 steps and ended without answering');
+  });
+
+  it('keeps a stalled turn out of the history, so an intention is never replayed as an answer', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(stalls);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+    await postTurn(conv.id, 'add a keyboard shortcut to the file page');
+
+    vi.mocked(runAgentDeep).mockImplementation(finishes);
+    await postTurn(conv.id, 'well?');
+
+    const replayed = vi.mocked(runAgentDeep).mock.calls.at(-1)?.[0].conversationHistory ?? [];
+
+    expect(JSON.stringify(replayed)).not.toContain('before writing a contract');
   });
 
   it('marks a turn that threw before speaking `failed`, and still writes the row so it does not vanish on reload', async () => {

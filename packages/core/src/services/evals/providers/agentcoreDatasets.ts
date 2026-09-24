@@ -55,6 +55,9 @@ const MAX_EXAMPLES_PER_REQUEST = 1000;
 /** AWS refuses more than 5 MB of inline examples in one request. */
 const MAX_INLINE_BYTES = 5 * 1024 * 1024;
 
+/** AWS refuses a dataset description longer than this many characters. */
+const MAX_DESCRIPTION_LENGTH = 200;
+
 /** How long to wait for an asynchronous mutation to settle, and how often to look. */
 const POLL_ATTEMPTS = 60;
 const POLL_INTERVAL_MS = 2000;
@@ -375,7 +378,7 @@ async function createWithCases(
   const created = await client.send(new CreateDatasetCommand({
     clientToken: clientTokenFor('create', request.orgId, request.datasetSlug),
     datasetName: awsDatasetName(request.orgId, request.datasetSlug),
-    ...(request.description ? { description: request.description } : {}),
+    ...(request.description ? { description: awsDatasetDescription(request.description) } : {}),
     schemaType: SCHEMA_TYPE,
     source: { inlineExamples: { examples: first } },
   }));
@@ -408,6 +411,33 @@ async function createWithCases(
 export function awsDatasetName(orgId: string, datasetSlug: string): string {
   const safe = `${orgId}_${datasetSlug}`.replace(/[^a-z0-9]+/gi, '_').replace(/^[^a-z]+/i, '');
   return safe.slice(0, 48) || `eval_${clientTokenFor(orgId, datasetSlug).slice(0, 8)}`;
+}
+
+/**
+ * The description AWS keeps for the dataset.
+ *
+ * AWS caps it at 200 characters, and an authored description is often longer.
+ * Only AWS's copy is shortened: the full text stays in Vocion, which is where
+ * people read it. The limit is measured in UTF-16 units, the stricter of the
+ * two ways AWS could count, but the cut falls between code points, so a
+ * surrogate pair at the boundary is never split into invalid UTF-16. A joined
+ * emoji sequence (a flag, a family) can still lose its tail, which only
+ * changes how the last glyph looks in AWS's copy.
+ * @param description - The description as authored.
+ */
+export function awsDatasetDescription(description: string): string {
+  if (description.length <= MAX_DESCRIPTION_LENGTH) {
+    return description;
+  }
+  const ellipsis = '…';
+  let kept = '';
+  for (const character of description) {
+    if (kept.length + character.length + ellipsis.length > MAX_DESCRIPTION_LENGTH) {
+      break;
+    }
+    kept += character;
+  }
+  return `${kept.trimEnd()}${ellipsis}`;
 }
 
 /**

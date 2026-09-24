@@ -1,44 +1,39 @@
 name: Software factory
 description: >-
-  Turns named requests into merged changes, with a person on every merge. Five
-  disciplines, one team: Product (the product manager — tags, ranks,
-  recommends ten at a time, ideates, authorizes nothing), Architecture (the
-  task planner — the contract, the dependency edges, the risk floor),
-  Engineering (the task engineer — the change, in its own checkout), QA (the
-  change reviewer — the verdict against the contract and the evidence) and
-  Design (no agent yet; the seat is declared empty below rather than
-  missing). Graded on what was accepted, what people are still waiting for,
-  and what they decided — never on how many workers ran.
-goal: Every named request is a shipped change or an honest written answer, within a week — and the ten things most worth deciding are in front of the person who decides them.
-lead: task-planner
-# No accountableUser: inherits the workspace default. A plugin cannot know who
-# owns a merge in someone else's deployment — the workspace names the person
-# (`accountableUser:` in workspace.yaml, or on this file with `extends: core`),
-# and Vocion refuses to let the merge be unowned either way.
+  Turns requests into released changes, with a person on every merge. Four
+  seats, one team: PM (the product manager — reads the request, decides in
+  scope or not, writes the plan and the task contract, keeps the loop moving,
+  authorizes nothing), Design (the designer — what it will look like before a
+  person decides, what it looks like after it ships), Eng (the engineer — the
+  change, in its own checkout) and QA (the reviewer — the verdict against the
+  contract and the evidence). Graded on what was accepted and who is still
+  waiting, never on how many workers ran.
+goal: Every request is a released change or an honest written answer within a week, and a person can run the loop from a phone.
+lead: product-manager
+# TWO OWNERS, TWO DECISIONS (review, 2026-09-24). The workspace's
+# `accountableUser` is the PRODUCT OWNER: they approve the commitment — the
+# build card, with its contract, cost and risk. This team's `accountableUser`
+# is the ENGINEERING OWNER: they approve the merge, which on most repositories
+# is the deploy. A plugin cannot know who either is in someone else's
+# deployment, so no default is shipped here; the workspace sets the team's on
+# this file with `extends: core`. Where one person holds both (a one-person
+# shop), they set both to themselves and the cards still say which hat is
+# being asked for. A routine completion reply may go out under a policy the
+# product owner turns on (`notify.requester.completion` in trust.yaml); a
+# decline or an incident update is read by a person every time.
 #
 # THE SEATS. The team schema has no discipline field and the org chart shows
-# an agent's name and icon, so each agent carries its discipline in its
-# `eyebrow` ("Software factory · QA · Reviewer") and in the first word of its
-# description; this block is the roster a person reads to know who does what.
-# A rendered discipline label on the org chart and the team report is named
-# as the core follow-up in the README.
+# an agent's name and icon, so each agent carries its seat in its `eyebrow`
+# ("Software factory · QA") and in the first word of its description.
 #
-#   Product       product-manager   tags, ranks, recommends in batches of ten,
-#                                   ideates as requests; never authorizes
-#   Architecture  task-planner      triage, the task contract, dependency edges,
-#                                   the risk floor; the team's lead
-#   Engineering   task-engineer     the change in an isolated checkout, the
-#                                   checks, the pull request; no merge authority
-#   QA            change-reviewer   the verdict against the contract and the
-#                                   verification artifacts; never merges.
-#                                   End-to-end and screenshot QA against the
-#                                   deployed product is a NAMED GAP — the
-#                                   green-every-night mission asks for it and
-#                                   no agent owns it yet.
-#   Design        (no agent)        the seat is empty, on purpose and visibly:
-#                                   nothing in the factory today reads a
-#                                   request for what it should look like
-#                                   before the planner writes what it should do.
+#   PM      product-manager   triage, in scope or not, the plan, the contract,
+#                             what to build next; the team's lead; never merges
+#   Design  designer          the mockup before a decision, the after-shot
+#                             before a close; never builds
+#   Eng     task-engineer     the change in an isolated checkout, the checks,
+#                             the pull request; no merge authority
+#   QA      change-reviewer   the verdict against the contract and the
+#                             verification artifacts; never merges
 measures:
   # The outcome. A task counts as accepted when a PERSON decided its merge ask
   # with anything but a reject — human-confirmed, because "accepted" is a
@@ -53,8 +48,7 @@ measures:
     source: {kind: human-confirmed, askKinds: [merge]}
   # The seven-day promise the close-the-gap mission carries, as a flow count
   # rather than a level: requests that were shipped or honestly answered inside
-  # a week. Agent-reported, and the report says so — the planner is counting
-  # its own work.
+  # a week. Agent-reported, and the report says so.
   - key: answered_within_seven_days
     label: Requests answered within seven days
     dimension: quality
@@ -63,41 +57,3 @@ measures:
     unit: requests
     window: 7d
     source: {kind: agent-reported, counts: answeredWithinSevenDays}
-  # The product manager's throttle, read from the other side: recommendation
-  # asks a PERSON decided this week with anything but a reject. Human-confirmed
-  # by construction — the ask's answer is the decision — and bounded by the
-  # ten-then-pause rule, so ten a week is the ceiling and the target sits under
-  # it. A week with zero here and a batch open is the person as the bottleneck,
-  # which the daily check says in so many words.
-  - key: recommendations_decided
-    label: Recommendations decided
-    dimension: outcome
-    target: 8
-    baseline: 0
-    unit: decisions
-    window: 7d
-    source: {kind: human-confirmed, askKinds: [recommendation]}
-  # What the workers did, from their own `counts` (docs/entities/worker-run.md).
-  # Deliberately beside `tasks_accepted` rather than instead of it: pull
-  # requests opened that nobody accepts is exactly the failure this pair makes
-  # visible, and it is the weakest provenance the report shows.
-  - key: prs_opened
-    label: Pull requests opened
-    dimension: velocity
-    target: 5
-    baseline: 0
-    unit: PRs
-    window: 7d
-    source: {kind: agent-reported, counts: prsOpened}
-  # Total worker spend in the window. Cost PER accepted task is derived by the
-  # report from this and `tasks_accepted` — a ratio is not authored, because a
-  # measure that sums per-task costs would be arithmetic nobody can check.
-  - key: worker_cents
-    label: Worker spend
-    dimension: economics
-    target: 2000
-    baseline: 6000
-    unit: cents
-    window: 7d
-    direction: lower
-    source: {kind: agent-reported, counts: centsSpent}

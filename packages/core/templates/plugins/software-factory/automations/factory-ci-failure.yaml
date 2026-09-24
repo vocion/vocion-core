@@ -2,13 +2,13 @@ slug: factory-ci-failure
 name: A failed check reopens the task
 description: >-
   The intake shape, as the smallest useful case: an event says a check failed
-  on a branch the factory pushed, and the planner turns that into the next
+  on a branch the factory pushed, and the PM turns that into the next
   attempt rather than waiting for a person to notice.
   The event name is whatever the deployment's intake emits — core ships no CI
   adapter, so a workspace overrides this file by slug to name its own event and
-  filter. The planner still decides; the event only wakes it.
+  filter. The PM still decides; the event only wakes it.
 status: active
-agent: task-planner
+agent: product-manager
 when:
   event: ci.check_failed
   filter:
@@ -19,8 +19,13 @@ do:
     A required check failed. Find the engineering task whose branch or pull
     request carries it, read the check's output, and decide: dispatch the next
     attempt with the failing check named in the contract and what you now know
-    written into it, or — if this is the third attempt, or the failure says the
-    contract was wrong rather than the work — stop dispatching and write the
-    honest answer for the person who asked, with the contract line that turned
-    out to be wrong. Never raise the attempt without adding something the
-    previous contract did not say.
+    written into it — never raising the attempt without adding something the
+    previous contract did not say — or, on the third failed attempt, or when
+    the failure says the contract was wrong rather than the work, STOP
+    dispatching and escalate: write `blocker` on the request (what is failing,
+    owner: the product owner, next: decide), and file ONE ask for the product
+    owner carrying what failed and why, what each attempt tried, and your
+    revised recommendation — narrow the scope, change the approach, or answer
+    the asker honestly instead. An approved commitment is never turned into a
+    no by the factory on its own (review, 2026-09-24). Report: PR, task,
+    failing checks, attempt, what you did.

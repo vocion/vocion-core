@@ -551,6 +551,25 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       ? [{ key: 'pointer', afterIndex: -1, node: <SequencePointer run={run} guided={guided} /> }]
       : [];
 
+  // The approval gate joins the transcript blocks instead of sitting above the
+  // composer (Chris, 2026-09-24: "show inline instead of sticky to the compose
+  // bar"). It goes last so a guided card and a gate raised in the same turn
+  // read in the order they happened.
+  const blocks = session.pendingHitl
+    ? [...cardBlocks, {
+        key: 'hitl-gate',
+        afterIndex: session.messages.length,
+        node: (
+          <HitlGate
+            gate={session.pendingHitl}
+            onApprove={session.handleApproveHitl}
+            onReject={session.handleRejectHitl}
+            disabled={session.isStreaming}
+          />
+        ),
+      }]
+    : cardBlocks;
+
   const autonomyCopy = {
     ask: t('autonomy_ask'),
     act: t('autonomy_act'),
@@ -638,9 +657,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             mounted after a decision so the outcome card can state what
             happened — hiding the flow the moment it is decided would drop the
             one card that says so. */}
-        {session.messages.length === 0 && cardBlocks.length === 0 && !workspaceHasAgents
+        {session.messages.length === 0 && blocks.length === 0 && !workspaceHasAgents
           ? <NoAgentsState />
-          : session.messages.length === 0 && cardBlocks.length === 0
+          : session.messages.length === 0 && blocks.length === 0
             ? (
                 <EmptyState
                   greeting={session.emptyGreeting}
@@ -656,21 +675,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   agentName={session.workspaceName}
                   streaming={session.isStreaming}
                   activity={session.activity}
-                  blocks={cardBlocks}
+                  blocks={blocks}
                   onFeedback={session.handleFeedback}
                   autonomy={session.autonomy}
                   conversationId={session.conversationId}
                 />
               )}
-
-        {session.pendingHitl && (
-          <HitlGate
-            gate={session.pendingHitl}
-            onApprove={session.handleApproveHitl}
-            onReject={session.handleRejectHitl}
-            disabled={session.isStreaming}
-          />
-        )}
 
         {/* The cards have scrolled up behind newer turns: one click brings
             them back to the bottom, the same as asking for them (058). */}
