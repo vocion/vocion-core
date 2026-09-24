@@ -1099,7 +1099,28 @@ export async function runAgentDeep(opts: {
     }
   }
 
-  // Card backstop (structural, workspace-opt-in): prompt compliance for
+  // End-of-turn guarantees (structural): a failed hand-off is stated in the
+  // answer, and a turn sent with `deliverable: 'artifact'` ends with one.
+  finalText = await applyTurnGuarantees({
+    orgId: opts.orgId,
+    agentSlug: opts.agentSlug,
+    userId: opts.userId,
+    conversationId: opts.conversationId,
+    deliverable: opts.deliverable,
+    request: opts.message,
+    response: finalText,
+    toolCalls: toolCallLog,
+    endedOnTool: toolCallLog.length > 0 && !answeredSinceTool,
+    failures,
+    failedDelegations,
+    systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
+    emit,
+  });
+
+  // Card backstop (structural, workspace-opt-in) — AFTER the guarantees, so
+  // it reads the answer the person actually got. It used to run before the
+  // answer pass, saw only a short preamble, and never fired on a turn the
+  // pass had answered (three PM turns on 2026-09-24, zero cards, no log).: prompt compliance for
   // recommend_action proved unreliable — a long tool output (the daily brief)
   // anchors the model into prose mode and cards drop from 3 to 0. When the
   // agent's harness sets recommendActionBackstop and this turn emitted ZERO
@@ -1147,24 +1168,6 @@ export async function runAgentDeep(opts: {
   } else if (emittedCards.length === 0 && finalText.length > 300) {
     console.warn('card backstop skipped', { orgId: opts.orgId, agentSlug: opts.agentSlug, backstopOn, textChars: finalText.length });
   }
-
-  // End-of-turn guarantees (structural): a failed hand-off is stated in the
-  // answer, and a turn sent with `deliverable: 'artifact'` ends with one.
-  finalText = await applyTurnGuarantees({
-    orgId: opts.orgId,
-    agentSlug: opts.agentSlug,
-    userId: opts.userId,
-    conversationId: opts.conversationId,
-    deliverable: opts.deliverable,
-    request: opts.message,
-    response: finalText,
-    toolCalls: toolCallLog,
-    endedOnTool: toolCallLog.length > 0 && !answeredSinceTool,
-    failures,
-    failedDelegations,
-    systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
-    emit,
-  });
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
 
