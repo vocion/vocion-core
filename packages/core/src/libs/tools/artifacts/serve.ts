@@ -67,6 +67,14 @@ export async function resolveArtifactFile(opts: {
    * artifact was presented.
    */
   viewer: Omit<ShareViewer, 'isMember'>;
+  /**
+   * The share state of whichever row claims this stored FILE, for the
+   * content-addressed branch below, which has an id and no row.
+   *
+   * `null` means no row claims it: a genuine pre-0095 orphan, which has no
+   * audience to honour and keeps the org-prefix rule it always had.
+   */
+  lookupShareByFile?: (filename: string) => Promise<{ audience: ShareAudience; ownerId: string | null } | null>;
 }): Promise<ServeResult> {
   const dir = opts.dir ?? artifactsDir();
   let filename: string | null = null;
@@ -142,6 +150,17 @@ export async function resolveArtifactFile(opts: {
 
   if (!filename) {
     return { status: 404 };
+  }
+  // The content-addressed branch reaches here with a filename and no row, so
+  // the audience check above never ran for it. A `me` FILE artifact stores
+  // exactly this kind of URL, which left it readable by any member of the org
+  // through the legacy path while the numeric path refused them. Ask the row
+  // that claims the file.
+  if (!/^\d+$/.test(opts.id) && opts.lookupShareByFile) {
+    const share = await opts.lookupShareByFile(filename);
+    if (share && !canOpenArtifact(share, { ...opts.viewer, isMember: true })) {
+      return { status: 404 };
+    }
   }
   const found = await fileIn(dir, filename);
   if (!found) {

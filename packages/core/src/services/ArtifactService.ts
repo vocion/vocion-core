@@ -441,9 +441,14 @@ export async function setArtifactShare(opts: { orgId: string; id: number; audien
   // member, which is exactly what they already were, so nobody loses a
   // capability they had. A caller with no user id (an API token) can never
   // satisfy the owner match, so it cannot re-share a private artifact either.
+  // `me` with no owner is nobody's: it cannot happen through this function,
+  // which always stamps the chooser, but a row that reached that state some
+  // other way has no owner to protect and must not become unchangeable by
+  // everyone. So the refusal needs an owner to point at.
+  const unowned = or(ne(artifactSchema.shareAudience, 'me'), isNull(artifactSchema.shareOwnerId));
   const ownerGate = opts.userId
-    ? or(ne(artifactSchema.shareAudience, 'me'), eq(artifactSchema.shareOwnerId, opts.userId))
-    : ne(artifactSchema.shareAudience, 'me');
+    ? or(unowned, eq(artifactSchema.shareOwnerId, opts.userId))
+    : unowned;
 
   const [row] = await db
     .update(artifactSchema)

@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { authApi } from '@/app/api/v1/_shared';
 import { db } from '@/libs/DB';
@@ -71,6 +71,18 @@ export async function serveArtifact(req: NextRequest, id: string, filename?: str
     lookupRow: async (rowId) => {
       const [row] = await db.select().from(artifactSchema).where(eq(artifactSchema.id, rowId));
       return row ? { orgId: row.orgId, kind: row.kind, url: row.url, spec: row.spec, title: row.title, payload: toPayload(row), shareAudience: row.shareAudience, shareOwnerId: row.shareOwnerId } : null;
+    },
+    // For the content-addressed id, which names a stored file rather than a
+    // row. A file artifact's row URL ends in that filename, so the row that
+    // claims it is the row whose audience applies. Scoped to the caller's org,
+    // so a filename collision across tenants cannot widen anything.
+    lookupShareByFile: async (filename) => {
+      const [row] = await db
+        .select({ shareAudience: artifactSchema.shareAudience, shareOwnerId: artifactSchema.shareOwnerId })
+        .from(artifactSchema)
+        .where(and(eq(artifactSchema.orgId, caller.orgId), like(artifactSchema.url, `%${filename}`)))
+        .limit(1);
+      return row ? { audience: row.shareAudience, ownerId: row.shareOwnerId } : null;
     },
   });
   if (result.status !== 200) {
