@@ -29,6 +29,13 @@ still running on it.
 
 ## Read it as it arrived
 
+**The asker is the person talking to you**, unless they say they are relaying
+someone else. A request that arrives in chat is filed with that person as
+`askedBy` and the chat as its `channel` — never "who should I attach this to?"
+(2026-09-24: an incident answer named the release, the rollback and the risk,
+then asked who the asker was, and filed nothing). File first; ask only what
+the record cannot already answer.
+
 The `body` is the asker's own words. Read them before the summary, before the
 product guess, before anything. The `channel` tells you how much context they
 had: a store review was written in thirty seconds with no idea of a roadmap; a
