@@ -27,9 +27,15 @@ export function recommendActionTool(ctx: RuntimeContext) {
         label: string;
         rationale?: string;
         confidence?: number;
-        suggested_decision: SuggestedDecision;
-        suggested_decision_reason: string;
+        suggested_decision?: SuggestedDecision;
+        suggested_decision_reason?: string;
       };
+      // A card is never lost to a missing sentence: the reviewer's suggested
+      // decision defaults to approve — the tool is recommending — and its
+      // reason to the rationale (2026-09-24: a decline case died in the
+      // reference run on exactly this field).
+      const suggestedDecision: SuggestedDecision = suggested_decision ?? 'approve';
+      const suggestedDecisionReason = suggested_decision_reason?.trim() || rationale?.trim() || `Recommended: ${label}`;
       // The card's Approve calls the action with this payload, so a payload the
       // action rejects is a card that can only fail — on 2026-09-18 one reached
       // production as "Couldn't prepare it: Internal server error". Validate
@@ -54,8 +60,8 @@ export function recommendActionTool(ctx: RuntimeContext) {
           rationale,
           confidence,
           agentSlug: ctx.agentSlug,
-          suggestedDecision: suggested_decision,
-          suggestedDecisionReason: suggested_decision_reason,
+          suggestedDecision,
+          suggestedDecisionReason,
         },
       });
       return `Surfaced a one-tap recommendation to the user: "${label}". They can prepare it for review with a single tap. Do NOT also paste the full draft as text — the card carries it.`;
@@ -74,8 +80,8 @@ export function recommendActionTool(ctx: RuntimeContext) {
         // on it, and whatever stands there is scored against what the reviewer
         // then does. Core used to fill this in — an "approve" on every card,
         // which the agreement rate read as the agent's own view.
-        suggested_decision: z.enum(SUGGESTED_DECISIONS).describe('What you think the reviewer should do with this once it reaches the queue: "approve", "reject" or "snooze". Almost always "approve" for something you are recommending — say "snooze" when it should wait for something you name, and "reject" when you are surfacing it for a person to turn down.'),
-        suggested_decision_reason: z.string().describe('ONE short sentence for why that recommendation, in your own words — "the renewal is 11 days out and nobody has replied", "worth doing, but not until the contract is signed". Not the same as `rationale`: that argues the payload is right, this argues what should happen to the card.'),
+        suggested_decision: z.enum(SUGGESTED_DECISIONS).optional().describe('What you think the reviewer should do with this once it reaches the queue: "approve", "reject" or "snooze". Almost always "approve" for something you are recommending — say "snooze" when it should wait for something you name, and "reject" when you are surfacing it for a person to turn down. Omitted means approve.'),
+        suggested_decision_reason: z.string().optional().describe('ONE short sentence for why that recommendation, in your own words — "the renewal is 11 days out and nobody has replied", "worth doing, but not until the contract is signed". Not the same as `rationale`: that argues the payload is right, this argues what should happen to the card. Omitted means the rationale.'),
       }),
     },
   );
