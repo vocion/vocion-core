@@ -15,6 +15,7 @@ import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
+import { objectsRenameAction } from './objects-rename';
 import { objectsUpdateMetaAction } from './objects-update-meta';
 import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
@@ -49,6 +50,7 @@ registerAction(objectProposeCandidateAction);
 // previous values ride the run), low-risk, done-for-you above the bar. The
 // record's write history is these runs.
 registerAction(objectsUpdateMetaAction);
+registerAction(objectsRenameAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.
