@@ -57,6 +57,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
  * Query parameters:
  * - `from` — runs that started at or after this: a `YYYY-MM-DD` (midnight
  *   UTC) or an ISO timestamp with an offset. Left out means since the first run.
+ *   A plain date is a UTC day, not the caller's: to filter on local days, send
+ *   local midnight with its offset, e.g. `2026-09-19T00:00:00+12:00` for
+ *   Auckland. The dashboard always sends exact instants, so it never hits this.
  * - `to` — runs that started before this, in the same forms. Left out means up to now.
  * - `outcome` — `errored` for runs that broke before they were scored, or
  *   `below_threshold` for scored runs under the dataset's pass threshold.

@@ -1800,7 +1800,7 @@
             }
           }
         },
-        "description": "`GET /api/v1/evals/:slug/runs?from=&to=&page=` — a dataset's runs and\nheadline numbers for one period, the same ones its dashboard page shows.\n\nQuery parameters:\n- `from` — runs that started at or after this: a `YYYY-MM-DD` (midnight\n  UTC) or an ISO timestamp with an offset. Left out means since the first run.\n- `to` — runs that started before this, in the same forms. Left out means up to now.\n- `outcome` — `errored` for runs that broke before they were scored, or\n  `below_threshold` for scored runs under the dataset's pass threshold.\n  Left out means every run. Narrows the list only, never the summary.\n- `page` — 1-based page of the run list; defaults to 1.\n\nA bad date, a backwards range, or a range with both ends longer than 366\ndays is a 400, never an unfiltered list, because\na caller cannot tell a wrongly unfiltered answer from a right one.\n\nPaged newest first, 20 to a page (`EVAL_RUNS_PAGE_SIZE`), with `hasMore`\nsaying whether to ask for the next — every run in the period is reachable.\nThe summary covers the whole period, not just the page.",
+        "description": "`GET /api/v1/evals/:slug/runs?from=&to=&page=` — a dataset's runs and\nheadline numbers for one period, the same ones its dashboard page shows.\n\nQuery parameters:\n- `from` — runs that started at or after this: a `YYYY-MM-DD` (midnight\n  UTC) or an ISO timestamp with an offset. Left out means since the first run.\n  A plain date is a UTC day, not the caller's: to filter on local days, send\n  local midnight with its offset, e.g. `2026-09-19T00:00:00+12:00` for\n  Auckland. The dashboard always sends exact instants, so it never hits this.\n- `to` — runs that started before this, in the same forms. Left out means up to now.\n- `outcome` — `errored` for runs that broke before they were scored, or\n  `below_threshold` for scored runs under the dataset's pass threshold.\n  Left out means every run. Narrows the list only, never the summary.\n- `page` — 1-based page of the run list; defaults to 1.\n\nA bad date, a backwards range, or a range with both ends longer than 366\ndays is a 400, never an unfiltered list, because\na caller cannot tell a wrongly unfiltered answer from a right one.\n\nPaged newest first, 20 to a page (`EVAL_RUNS_PAGE_SIZE`), with `hasMore`\nsaying whether to ask for the next — every run in the period is reachable.\nThe summary covers the whole period, not just the page.",
         "parameters": [
           {
             "name": "slug",
@@ -1815,7 +1815,7 @@
             "name": "from",
             "in": "query",
             "required": false,
-            "description": "runs that started at or after this: a `YYYY-MM-DD` (midnight UTC) or an ISO timestamp with an offset. Left out means since the first run.",
+            "description": "runs that started at or after this: a `YYYY-MM-DD` (midnight UTC) or an ISO timestamp with an offset. Left out means since the first run. A plain date is a UTC day, not the caller's: to filter on local days, send local midnight with its offset, e.g. `2026-09-19T00:00:00+12:00` for Auckland. The dashboard always sends exact instants, so it never hits this.",
             "schema": {
               "type": "string"
             }
