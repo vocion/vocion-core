@@ -77,7 +77,8 @@ jobs:
           node-version: 20.x
 
       # Proves the app builds on the oldest Node a deployment runs. Its output
-      # is thrown away; E2E runs against the 22.x build. Same env as above.
+      # is thrown away; E2E runs against the 22.x build. Same env as above,
+      # and no build-cache restore, for the same reason as the 22.x build.
       - name: Build Next.js
         run: npm run build-local --workspace @vocion/core
         env:
