@@ -11,16 +11,6 @@ import { z } from 'zod';
 export type RunRange = { from?: Date; to?: Date };
 
 /**
- * The most runs one trend chart reads.
- *
- * Nothing about a period stops a dataset on an online schedule from holding
- * thousands of runs in it, and every one is a point in the SVG. Past this the
- * chart shows the newest ones and says so, rather than cutting the history off
- * without a word the way the old fifty-run list did.
- */
-export const MAX_TREND_RUNS = 1000;
-
-/**
  * The longest period, in days, a range with both ends may cover. Shared by the
  * server, which refuses anything longer, and the date picker, which says so
  * before the request is sent. The scorecard uses the same year.

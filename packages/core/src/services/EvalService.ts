@@ -29,7 +29,6 @@ import type { LangChainProvider } from '@/libs/llm';
 import process from 'node:process';
 import { and, asc, avg, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { MAX_TREND_RUNS } from '@/libs/evals/runRange';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalEvaluatorSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
 import { getProvider } from './evals/providers/registry';
@@ -281,11 +280,10 @@ export async function listRuns(orgId: string, datasetId?: number, provider?: str
  * chart, because a dataset that stopped running cleanly has to look different
  * from one that is fine.
  *
- * Every run in the period up to {@link MAX_TREND_RUNS} across both lists,
- * newest kept first when there are more, and `truncated` says whether that
- * happened so the page can say so. The chart used to read the fifty-run list,
- * which quietly dropped the older half of a nightly dataset's history once it
- * passed two months.
+ * Every run in the period, with no cap: the chart used to read the fifty-run
+ * list, which quietly dropped the older half of a nightly dataset's history
+ * once it passed two months. A long period on a busy dataset is a big query
+ * and a dense chart; the date picker is how a viewer narrows it.
  * @param orgId - Whose runs.
  * @param datasetId - Which dataset.
  * @param range - The period. Omitted means all time.
@@ -308,13 +306,10 @@ export async function listRunTrend(orgId: string, datasetId: number, range?: Run
       inArray(evalRunSchema.status, ['succeeded', 'failed']),
       ...startedWithin(range),
     ))
-    .orderBy(desc(evalRunSchema.startedAt))
-    .limit(MAX_TREND_RUNS + 1);
-  const kept = rows.slice(0, MAX_TREND_RUNS);
+    .orderBy(desc(evalRunSchema.startedAt));
   return {
-    runs: kept.filter(row => row.status === 'succeeded'),
-    failures: kept.filter(row => row.status === 'failed').map(row => ({ id: row.id, startedAt: row.startedAt })),
-    truncated: rows.length > MAX_TREND_RUNS,
+    runs: rows.filter(row => row.status === 'succeeded'),
+    failures: rows.filter(row => row.status === 'failed').map(row => ({ id: row.id, startedAt: row.startedAt })),
   };
 }
 

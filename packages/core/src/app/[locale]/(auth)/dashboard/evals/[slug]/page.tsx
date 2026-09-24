@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { MAX_TREND_RUNS } from '@/libs/evals/runRange';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { describeDatasetSync } from '@/services/evals/publish';
@@ -104,12 +103,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
     listRunTrend(orgId, dataset.id, period.range),
     summariseRunPeriod(orgId, dataset.id, dataset, period.range),
   ]);
-  // When the run chart had to stop at its limit, the evaluator lines start
-  // where it does, so the two never cover different stretches of time and the
-  // query never reads scores for runs nobody will see.
-  const oldestPlotted = trend.runs.at(-1);
-  const evaluatorRange = trend.truncated && oldestPlotted ? { ...period.range, from: oldestPlotted.startedAt } : period.range;
-  const evaluatorTrend = await listEvaluatorTrend(orgId, dataset.id, evaluatorRange);
+  const evaluatorTrend = await listEvaluatorTrend(orgId, dataset.id, period.range);
 
   // A run still in progress has no pass rate yet, and must not be drawn as a zero.
   const runTrendPoints = trend.runs
@@ -292,11 +286,6 @@ export default async function EvalDatasetDetailPage(props: Props) {
             ? (
                 <div className="rounded-xl border border-border bg-background p-4">
                   <h3 className="mb-3 font-display text-sm font-semibold">Pass rate over time</h3>
-                  {trend.truncated && (
-                    <p className="mb-3 text-xs text-amber-700 dark:text-amber-300">
-                      {`Showing the newest ${MAX_TREND_RUNS.toLocaleString('en-US')} runs in this period. Pick a shorter period to see the ones before them.`}
-                    </p>
-                  )}
                   <EvalTrendChart
                     points={trendPoints}
                     providers={chartProviders}

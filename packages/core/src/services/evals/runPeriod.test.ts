@@ -14,7 +14,6 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { evalDatasetSchema, evalRunSchema, evalScoreSchema } = await import('@/models/Schema');
-const { MAX_TREND_RUNS } = await import('@/libs/evals/runRange');
 const { listEvaluatorTrend, listRunsPage, listRunTrend, summariseRunPeriod } = await import('@/services/EvalService');
 
 const ORG = 'org_run_period';
@@ -101,20 +100,17 @@ describe('listRunTrend', () => {
     const trend = await listRunTrend(ORG, datasetId, SEPT_WEEK);
 
     expect(trend.runs).toHaveLength(60);
-    expect(trend.truncated).toBe(false);
   });
 
-  it('keeps the newest runs and says so when the period holds more than the chart draws', async () => {
+  it('reads every run in the period, however many, so no history is cut off', async () => {
     const datasetId = await createDataset();
-    const count = MAX_TREND_RUNS + 1;
-    await createRuns(datasetId, Array.from({ length: count }, (_, i) => ({ startedAt: new Date(SEPT_1.getTime() + i * 60_000), passRate: 0.5 })));
+    await createRuns(datasetId, Array.from({ length: 1001 }, (_, i) => ({ startedAt: new Date(SEPT_1.getTime() + i * 60_000), passRate: 0.5 })));
 
     const trend = await listRunTrend(ORG, datasetId, SEPT_WEEK);
 
-    expect(trend.runs).toHaveLength(MAX_TREND_RUNS);
-    expect(trend.truncated).toBe(true);
-    // The one dropped is the oldest, so the chart still ends at today.
-    expect(trend.runs.at(-1)!.startedAt.getTime()).toBe(SEPT_1.getTime() + 60_000);
+    expect(trend.runs).toHaveLength(1001);
+    // The oldest run is still there, so the chart starts where the period does.
+    expect(trend.runs.at(-1)!.startedAt.getTime()).toBe(SEPT_1.getTime());
   });
 
   it('plots only finished runs, and none from another org', async () => {
