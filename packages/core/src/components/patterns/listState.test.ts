@@ -9,12 +9,14 @@ describe('the pure list-state helpers', () => {
     // with parseListState on the server and crashed on every load while the
     // helper sat beside the hook in a client module.
     const src = readFileSync(resolve(__dirname, 'listState.ts'), 'utf8');
+
     expect(src).not.toMatch(/^\s*['"]use client['"]/m);
   });
 
   it('are exported from the patterns index by way of that module', () => {
     const index = readFileSync(resolve(__dirname, 'index.ts'), 'utf8');
     const line = index.split('\n').find(l => /\bparseListState\b/.test(l)) ?? '';
+
     expect(line).toMatch(/from '\.\/listState'/);
   });
 });
