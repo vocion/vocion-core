@@ -2,7 +2,7 @@ import type { DatasetSyncTone } from './datasetSync';
 import type { RunOutcomeFilter } from '@/services/evals/runOutcome';
 import type { EvalDatasetItem } from '@/services/evals/types';
 import type { RunPeriodSummary } from '@/services/EvalService';
-import { ArrowLeft, ArrowRight, CheckCircle2, OctagonAlert, TestTube } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, OctagonAlert, TestTube } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,10 @@ import { ProviderChip } from '../ProviderChip';
 import { summariseDatasetSync } from './datasetSync';
 import { outcomeHref, periodQuery, readEvalPeriod, runsPageHref, withOutcome } from './evalPeriod';
 import { EvalPeriodPicker } from './EvalPeriodPicker';
+import { summariseEvaluators } from './evalTrend';
 import { EvalTrendChart } from './EvalTrendChart';
+import { EvaluatorBreakdown } from './EvaluatorBreakdown';
+import { ExpandAllCases } from './ExpandAllCases';
 import { RunDatasetButton } from './RunDatasetButton';
 
 /**
@@ -132,6 +135,8 @@ export default async function EvalDatasetDetailPage(props: Props) {
     evaluatorSlug: row.evaluatorSlug,
   }));
   const trendPoints = [...runTrendPoints, ...evaluatorTrendPoints];
+  const chartProviders = providers.map(p => ({ id: p.id, label: p.label }));
+  const evaluatorRows = summariseEvaluators(evaluatorTrendPoints, chartProviders);
   // Said about the runs actually listed, so a period with none from an older
   // grader never claims some are here.
   const historicalProviders = [...new Set(runs.map(run => run.provider))].filter(id => id !== dataset.provider);
@@ -286,11 +291,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
           {trendPoints.length > 1
             ? (
                 <div className="rounded-xl border border-border bg-background p-4">
-                  <h3 className="mb-1 font-display text-sm font-semibold">Pass rate over time</h3>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    A dashed line marks a version of the dataset ending — scores either side of it are measuring
-                    different cases, so the step is the test changing, not the agent.
-                  </p>
+                  <h3 className="mb-3 font-display text-sm font-semibold">Pass rate over time</h3>
                   {trend.truncated && (
                     <p className="mb-3 text-xs text-amber-700 dark:text-amber-300">
                       {`Showing the newest ${MAX_TREND_RUNS.toLocaleString('en-US')} runs in this period. Pick a shorter period to see the ones before them.`}
@@ -298,7 +299,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
                   )}
                   <EvalTrendChart
                     points={trendPoints}
-                    providers={providers.map(p => ({ id: p.id, label: p.label }))}
+                    providers={chartProviders}
                     failures={trend.failures.map(run => ({ runId: run.id, startedAt: run.startedAt.toISOString() }))}
                     passThreshold={passThreshold}
                   />
@@ -309,6 +310,8 @@ export default async function EvalDatasetDetailPage(props: Props) {
                 Too few scored runs in this period to draw a trend. Pick a longer period to see one.
               </p>
             )}
+
+          <EvaluatorBreakdown rows={evaluatorRows} showGrader={new Set(evaluatorRows.map(row => row.provider)).size > 1} />
         </section>
       )}
 
@@ -397,40 +400,57 @@ export default async function EvalDatasetDetailPage(props: Props) {
         )}
       </section>
 
-      <section>
-        <h2 className="mb-3 font-display text-sm font-semibold">
-          Cases (
-          {dataset.items.length}
-          )
-        </h2>
-        <ol className="space-y-3">
+      {/*
+        Collapsed by default: a dataset's cases are reference material, and
+        with every input, expected answer and rubric open the page became a
+        wall of text below the results people came for. Each summary line says
+        enough to find a case; opening it shows the rest.
+      */}
+      <section data-case-list>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-sm font-semibold">{`Cases (${dataset.items.length})`}</h2>
+          {dataset.items.length > 1 && <ExpandAllCases />}
+        </div>
+        <ol className="space-y-2">
           {dataset.items.map((item, i) => (
-            <li key={i} className="rounded-xl border border-border bg-background p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="font-mono text-xs text-muted-foreground">
-                  #
-                  {i + 1}
-                </span>
-                {item.tags?.map(tag => (
-                  <Badge key={tag} variant="outline" className="text-[10px]">{tag}</Badge>
-                ))}
-              </div>
-              <div className="mb-3">
-                <div className="mb-1 text-xs font-medium text-muted-foreground">Input</div>
-                <div className="text-sm whitespace-pre-wrap">{item.input}</div>
-              </div>
-              {item.expectedOutput && (
-                <div className="mb-3">
-                  <div className="mb-1 text-xs font-medium text-muted-foreground">Expected</div>
-                  <div className="text-sm whitespace-pre-wrap text-muted-foreground">{item.expectedOutput}</div>
+            <li key={i}>
+              <details className="group rounded-xl border border-border bg-background" data-testid="eval-case">
+                <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 hover:bg-muted/40">
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">{`#${i + 1}`}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm">{item.input}</span>
+                  <span className="hidden shrink-0 items-center gap-1 sm:flex">
+                    {item.tags?.map(tag => (
+                      <Badge key={tag} variant="outline" className="text-[10px]">{tag}</Badge>
+                    ))}
+                    {item.expectedOutput && <Badge variant="secondary" className="text-[10px]" title="Has an expected answer">Expected</Badge>}
+                    {item.rubric && <Badge variant="secondary" className="text-[10px]" title="Has a rubric">Rubric</Badge>}
+                  </span>
+                  <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+                </summary>
+                <div className="space-y-3 border-t border-border px-4 py-3">
+                  {item.tags && item.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 sm:hidden">
+                      {item.tags.map(tag => <Badge key={tag} variant="outline" className="text-[10px]">{tag}</Badge>)}
+                    </div>
+                  )}
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-muted-foreground">Input</div>
+                    <div className="text-sm whitespace-pre-wrap">{item.input}</div>
+                  </div>
+                  {item.expectedOutput && (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">Expected</div>
+                      <div className="text-sm whitespace-pre-wrap text-muted-foreground">{item.expectedOutput}</div>
+                    </div>
+                  )}
+                  {item.rubric && (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">Rubric</div>
+                      <div className="text-sm whitespace-pre-wrap text-muted-foreground italic">{item.rubric}</div>
+                    </div>
+                  )}
                 </div>
-              )}
-              {item.rubric && (
-                <div>
-                  <div className="mb-1 text-xs font-medium text-muted-foreground">Rubric</div>
-                  <div className="text-sm whitespace-pre-wrap text-muted-foreground italic">{item.rubric}</div>
-                </div>
-              )}
+              </details>
             </li>
           ))}
         </ol>
@@ -542,24 +562,24 @@ function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string; 
   const { summary } = props;
   const threshold = `${Math.round(summary.passThreshold * 100)}%`;
   return (
-    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5" data-testid="eval-period-summary">
-      <SummaryStat label="Runs" value={summary.runCount.toLocaleString('en-US')} detail="Every run that started in this period." />
+    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" data-testid="eval-period-summary">
+      <SummaryStat label="Runs" value={summary.runCount.toLocaleString('en-US')} detail="Started in this period" />
       <SummaryStat
         label="Errored"
         value={summary.erroredCount.toLocaleString('en-US')}
-        detail="Runs that broke before they were scored. No pass rate, so they are not in the averages."
+        detail="Broke before scoring"
         tone={summary.erroredCount > 0 ? 'danger' : undefined}
         href={summary.erroredCount > 0 ? outcomeHref(props.slug, props.periodQuery, 'errored') : undefined}
       />
       <SummaryStat
         label="Below threshold"
         value={summary.belowThresholdCount.toLocaleString('en-US')}
-        detail={`Finished runs that scored under this dataset's ${threshold} bar.`}
+        detail={`Scored under ${threshold}`}
         tone={summary.belowThresholdCount > 0 ? 'warning' : undefined}
         href={summary.belowThresholdCount > 0 ? outcomeHref(props.slug, props.periodQuery, 'below_threshold') : undefined}
       />
-      <SummaryStat label="Average pass rate" value={formatPassRate(summary.averagePassRate)} detail={`Across ${summary.scoredCount.toLocaleString('en-US')} finished run${summary.scoredCount === 1 ? '' : 's'} scored by ${props.graderLabel}.`} />
-      <SummaryStat label="Latest pass rate" value={formatPassRate(summary.latestPassRate)} detail="The newest finished run in this period." />
+      <SummaryStat label="Average pass rate" value={formatPassRate(summary.averagePassRate)} detail={`${summary.scoredCount.toLocaleString('en-US')} run${summary.scoredCount === 1 ? '' : 's'} · ${props.graderLabel}`} />
+      <SummaryStat label="Latest pass rate" value={formatPassRate(summary.latestPassRate)} detail="Most recent run" />
     </dl>
   );
 }

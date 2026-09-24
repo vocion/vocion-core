@@ -328,7 +328,7 @@ test.describe('the eval section, with more than one grader', () => {
 
     // 0.9 and 0.7 are the only runs this week: two runs, averaging 80%.
     await expect(summary).toContainText('80%');
-    await expect(summary).toContainText('Across 2 finished runs');
+    await expect(summary).toContainText('2 runs ·');
     await expect(page.getByRole('heading', { name: 'Runs in this period' })).toBeVisible();
     await expect(page.locator('a[href*="/runs/"]')).toHaveCount(2);
 
@@ -375,7 +375,7 @@ test.describe('the eval section, with more than one grader', () => {
     await expect(page.getByTestId('eval-stat-Below threshold')).toContainText('1');
     // The errored run is marked on the chart, not drawn as a zero.
     await expect(page.getByTestId('eval-trend-failure')).toHaveCount(1);
-    await expect(shownText(page, 'pass threshold (80%)')).toBeVisible();
+    await expect(shownText(page, '80% threshold')).toBeVisible();
 
     await page.getByTestId('eval-stat-Errored').click();
     await page.waitForURL(/outcome=errored/);
@@ -394,5 +394,18 @@ test.describe('the eval section, with more than one grader', () => {
     await page.waitForURL(/period=last7/);
 
     expect(page.url()).toContain('outcome=below_threshold');
+  });
+
+  test('cases start collapsed and open when asked', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.spreadOutSlug}`);
+    const firstCase = page.getByTestId('eval-case').first();
+
+    await expect(firstCase).not.toHaveAttribute('open');
+    await expect(firstCase.getByText('Input', { exact: true })).toBeHidden();
+
+    await firstCase.locator('summary').click();
+
+    await expect(firstCase).toHaveAttribute('open');
+    await expect(firstCase.getByText('Input', { exact: true })).toBeVisible();
   });
 });
