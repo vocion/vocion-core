@@ -177,6 +177,27 @@ function ChatShellInner({
     focusAgentComposer(null);
   }, []);
   const onCommand = useChatCommands(startNewChat);
+
+  // The approval gate, as a transcript block pinned to the end. `afterIndex`
+  // past the last message is how `MessageList` says "after whatever is last"
+  // without the caller tracking the index itself.
+  const gateBlocks = useMemo(
+    () => (session.pendingHitl
+      ? [{
+          key: 'hitl-gate',
+          afterIndex: session.messages.length,
+          node: (
+            <HitlGate
+              gate={session.pendingHitl}
+              onApprove={session.handleApproveHitl}
+              onReject={session.handleRejectHitl}
+              disabled={session.isStreaming}
+            />
+          ),
+        }]
+      : []),
+    [session.pendingHitl, session.messages.length, session.handleApproveHitl, session.handleRejectHitl, session.isStreaming],
+  );
   // Arriving on the page (⌘⇧L, the sidebar, a link) focuses the composer once
   // the saved thread has settled; keyboard-only never has to click the box.
   useEffect(() => {
@@ -270,6 +291,12 @@ function ChatShellInner({
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col">
+          {/* The approval gate is a BLOCK IN THE TRANSCRIPT (058's mechanism,
+              the same one the dock's review cards use), after the turn that
+              raised it — not a strip pinned above the composer. `afterIndex`
+              past the last message pins it to the end, and `MessageList`
+              re-pins the view when a block moves, as it does for a new
+              message. */}
           {!session.booted || (session.resuming && session.messages.length === 0)
             ? (
                 // One stable skeleton until the restore + resume settles, so a
@@ -283,7 +310,7 @@ function ChatShellInner({
                   ))}
                 </div>
               )
-            : session.messages.length === 0
+            : session.messages.length === 0 && !session.pendingHitl
               ? (
                   hasWorkspaceAgents(agents)
                     ? (
@@ -307,17 +334,9 @@ function ChatShellInner({
                     onFeedback={session.handleFeedback}
                     autonomy={session.autonomy}
                     conversationId={session.conversationId}
+                    blocks={gateBlocks}
                   />
                 )}
-
-          {session.pendingHitl && (
-            <HitlGate
-              gate={session.pendingHitl}
-              onApprove={session.handleApproveHitl}
-              onReject={session.handleRejectHitl}
-              disabled={session.isStreaming}
-            />
-          )}
 
           <ChatComposer
             above={intent?.context?.selection || intent?.context?.record
