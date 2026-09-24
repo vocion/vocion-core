@@ -211,6 +211,31 @@ describe('next is visibly ordered', () => {
 });
 
 describe('the lanes carry what they could not draw', () => {
+  it('stages the decisions: the first few read Decide, in the order a person should read them; the rest are Staged behind the ranked work', () => {
+    const waiting = (id: number, extra: Record<string, unknown> = {}) => row(id, `ask ${id}`, { state: 'new', recommendationState: 'proposed', recommendedOutcome: 'build', askedAt: `2026-09-${String(id).padStart(2, '0')}T00:00:00Z`, ...extra });
+    const rows = [
+      waiting(10),
+      waiting(11, { severity: 'major' }),
+      waiting(12, { requestedBy: 'agent:product-manager', severity: 'p0' }),
+      waiting(13, { requestedBy: 'usr-1' }),
+      row(14, 'ranked', { state: 'triaged', priority: 70, why: ['user_request'], askedAt: '2026-09-01T00:00:00Z' }),
+    ];
+    const out = deriveWorkQueue(rows, { now: NOW, decideShown: 2 });
+
+    expect(out.map(r => [r.id, r.meta.state])).toEqual([
+      [13, 'Decide'],
+      [12, 'Decide'],
+      [14, 'Triaged'],
+      [11, 'Staged'],
+      [10, 'Staged'],
+    ]);
+    expect(out[3]!.meta.workLine).toBe('Behind 2 decisions — moves up as they land.');
+    expect(out[4]!.meta.workLine).toBe('Behind 3 decisions — moves up as they land.');
+    expect(out[0]!.meta.laneNote).toBe('2 to decide · 2 staged behind them');
+    expect(out[0]!.meta.decidingCount).toBe(2);
+    expect(out[0]!.meta.stagedCount).toBe(2);
+  });
+
   it('attaches the decision minutes to Proposed', () => {
     const rows = [
       row(30, 'Send has no admin panel', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build', decisionCost: 15 }),
@@ -221,7 +246,7 @@ describe('the lanes carry what they could not draw', () => {
 
     expect(out).toHaveLength(3);
     expect(out[0]!.meta.lane).toBe('Proposed');
-    expect(out[0]!.meta.laneNote).toBe('about 19 min to decide');
+    expect(out[0]!.meta.laneNote).toBe('3 to decide · about 19 min');
     expect(out[0]!.meta.waitingCount).toBe(3);
   });
 

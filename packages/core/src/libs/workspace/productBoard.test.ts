@@ -32,4 +32,16 @@ describe('the one line a product gets', () => {
     expect(row?.meta?.boardLine).toMatch(/^Needs attention: degraded/);
     expect(row?.meta?.boardTone).toBe('bad');
   });
+
+  it('says what a product is built on, and what is built on it, from the board itself', () => {
+    const core = { ...product(1, { slug: 'core' }), title: 'Squatch Core' };
+    const send = { ...product(2, { slug: 'send', dependsOn: ['core'] }), title: 'Send' };
+    const slate = { ...product(3, { slug: 'slate', dependsOn: ['core'] }), title: 'Slate' };
+    const alone = { ...product(4, { slug: 'alone' }), title: 'Alone' };
+    const out = deriveProductBoard([core, send, slate, alone], { now: NOW });
+
+    expect(out[0]!.meta.dependencyLine).toBe('Send and Slate build on it');
+    expect(out[1]!.meta.dependencyLine).toBe('Built on Squatch Core');
+    expect(out[3]!.meta.dependencyLine).toBeUndefined();
+  });
 });

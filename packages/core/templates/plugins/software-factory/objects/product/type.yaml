@@ -27,6 +27,23 @@ schema:
       x-display: {label: Launch name, group: Product}
       type: string
       description: The name it ships under. Empty until it is decided; a product may reach `dogfood` without one.
+    tagline:
+      x-display: {label: Tagline, group: Product}
+      type: string
+      description: One line saying what it is FOR, in the words a customer would use — the line under the name on the Products board. "Send big files and know when they were opened", not a feature list.
+    icon:
+      x-display: {label: Icon, format: mono, group: Identity}
+      type: string
+      description: 'The product''s mark on the board: a lucide icon name (`send`, `package`, `layers`, `cpu`). Until it has a logo, this is how a person tells the cards apart at a glance.'
+    dependsOn:
+      x-display: {label: Built on, format: link, to: product}
+      type: array
+      items: {type: string}
+      description: >-
+        The product slugs this one is built on. A product app (Send, Slate) is
+        built on the core platform; a request filed against the core moves
+        every product on it, and the board says so in both directions — "built
+        on Squatch Core" on the app, "Send and Slate build on it" on the core.
     stage:
       x-display: {label: Stage, format: badge, group: Product, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
       type: string

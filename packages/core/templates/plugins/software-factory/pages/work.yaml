@@ -109,7 +109,7 @@ fields:
   # happening and whether it needs the reader; `blocked` is only ever an
   # obstacle somebody wrote down. Normal waiting — dispatch, QA, merge — has
   # its own name and is never painted as failure.
-  - {key: status, label: Status, from: meta.state, format: badge, tones: {Blocked: bad, Building: info, Awaiting dispatch: muted, Awaiting QA: info, Ready to merge: warn, Decide: warn, Deferred: muted, Shipped: ok, Shipped · helped: ok, Shipped · did not help: bad, Answered: muted, Queued: muted, Triaged: muted, In scope: muted, Not triaged: muted}}
+  - {key: status, label: Status, from: meta.state, format: badge, tones: {Blocked: bad, Building: info, Awaiting dispatch: muted, Awaiting QA: info, Ready to merge: warn, Decide: warn, Staged: muted, Deferred: muted, Shipped: ok, Shipped · helped: ok, Shipped · did not help: bad, Answered: muted, Queued: muted, Triaged: muted, In scope: muted, Not triaged: muted}}
   - {key: blocked, label: Blocked on, from: meta.blockerLine, format: badge, tones: {}}
   # What this row cannot show. A `ui` or `flow` outcome owes a mockup before
   # it is decided and an after-shot before it closes; the row says which is
@@ -153,3 +153,7 @@ fields:
 # was never a report, it was the outcome, and a row that opens somewhere else
 # than the thing it names is a second place to click for no second meaning.
 rowLink: /dashboard/p/feature/{id}
+# A product card opens THIS page as that product's work: `?product=send`
+# narrows every lane to Send and the page says so, with a way back.
+queryFilters:
+  - {param: product, field: meta.product, label: Product}

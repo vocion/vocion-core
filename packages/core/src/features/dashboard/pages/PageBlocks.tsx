@@ -3,6 +3,7 @@ import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from
 import { Badge } from '@/components/ui/badge';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
 import { fieldIsEmptyOn, interpolateHref, resolveRowActionHref, tableLayout } from '@/libs/workspace/pageFields';
+import { RowMenu } from './RowMenu';
 
 /**
  * A list page's rows drawn as BLOCKS rather than as a grid: `layout: block`.
@@ -66,11 +67,24 @@ function ConstantLine({ constants }: { constants: TableLayout['constants'] }) {
  * @param root0.now - The instant a `relative` value is measured against.
  */
 function Thumb({ row, field, now }: { row: PageRow; field: PageField; now: number }) {
+  // On a phone the picture sits ABOVE the words at the card's full width;
+  // beside them from a medium container up. An empty frame beside the title
+  // is honest on a desktop and a third of the row on a phone (Chris,
+  // 2026-09-24: the card overflowed the screen), so a narrow card draws the
+  // frame only when there is a picture to put in it.
+  if (field.format === 'icon') {
+    // A mark, not a picture: a small tile beside the title at every width.
+    return (
+      <span className="block size-12 shrink-0 overflow-hidden rounded-lg border border-border">
+        <FieldValue row={row} field={field} now={now} />
+      </span>
+    );
+  }
   if (fieldIsEmptyOn(row, field, now)) {
-    return <span aria-hidden className="h-20 w-32 shrink-0 rounded border border-dashed border-border" />;
+    return <span aria-hidden className="hidden h-20 w-32 shrink-0 rounded border border-dashed border-border @md:block" />;
   }
   return (
-    <span className="h-20 w-32 shrink-0 overflow-hidden rounded border border-border">
+    <span className="block aspect-[8/5] w-full overflow-hidden rounded border border-border @md:h-20 @md:w-32 @md:shrink-0">
       <FieldValue row={row} field={field} now={now} />
     </span>
   );
@@ -85,15 +99,24 @@ function Thumb({ row, field, now }: { row: PageRow; field: PageField; now: numbe
  * @param root0.links - Resolved record references, by key.
  * @param root0.href - Where the block opens, already interpolated.
  * @param root0.rowActions - Trailing links, interpolated per row.
+ * @param root0.rowActionsAs
  */
-function Block({ row, layout, now, links, href, rowActions }: {
+function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   row: PageRow;
   layout: TableLayout;
   now: number;
   links?: LinkMap;
   href: string | null;
   rowActions: PageRowAction[];
+  rowActionsAs: 'links' | 'menu';
 }) {
+  const menu = rowActionsAs === 'menu';
+  const menuItems = menu
+    ? rowActions.flatMap((a) => {
+        const to = resolveRowActionHref(row, a.href);
+        return to ? [{ label: a.label, href: to }] : [];
+      })
+    : [];
   // Status reads beside the name, not in a column of its own: "Send ·
   // dogfood · healthy" is the line a person came for.
   const badges = layout.subtitle.filter(f => f.format === 'badge');
@@ -108,14 +131,14 @@ function Block({ row, layout, now, links, href, rowActions }: {
           put their status somewhere different is a column you cannot scan.
           The title takes the space it can (`min-w-0`) and wraps inside
           itself; the badges hold the top right on every row. */}
-      <div className="flex items-start justify-between gap-x-3">
+      <div className="flex flex-col gap-1 @md:flex-row @md:items-start @md:justify-between @md:gap-x-3">
         <span className="min-w-0 text-base font-semibold text-foreground">
           {layout.primary
             ? <FieldValue row={row} field={layout.primary} now={now} links={links} />
             : row.title}
         </span>
         {badges.some(f => !fieldIsEmptyOn(row, f, now)) && (
-          <span className="flex shrink-0 items-center gap-1.5">
+          <span className="flex flex-wrap items-center gap-1.5 @md:shrink-0">
             {badges.filter(f => !fieldIsEmptyOn(row, f, now)).map(f => (
               <FieldValue key={f.key} row={row} field={f} now={now} links={links} />
             ))}
@@ -147,7 +170,7 @@ function Block({ row, layout, now, links, href, rowActions }: {
           ))}
         </dl>
       )}
-      {rowActions.length > 0 && (
+      {!menu && rowActions.length > 0 && (
         <p className="mt-3 flex flex-wrap gap-x-4 text-xs">
           {rowActions.map((a) => {
             const to = resolveRowActionHref(row, a.href);
@@ -168,15 +191,27 @@ function Block({ row, layout, now, links, href, rowActions }: {
   const inner = layout.thumb === null
     ? body
     : (
-        <div className="flex items-start gap-3">
+        <div className={layout.thumb.format === 'icon' ? 'flex items-start gap-3' : 'flex flex-col gap-3 @md:flex-row @md:items-start'}>
           <Thumb row={row} field={layout.thumb} now={now} />
-          <div className="min-w-0 flex-1">{body}</div>
+          <div className={`min-w-0 flex-1 ${menuItems.length > 0 ? 'pr-8' : ''}`}>{body}</div>
         </div>
       );
-  const className = 'block rounded-lg border border-border bg-background p-4 text-left';
-  return href
+  const className = 'block min-w-0 overflow-hidden rounded-lg border border-border bg-background p-4 text-left';
+  const card = href
     ? <a href={href} className={`${className} transition-colors hover:bg-muted/40`}>{inner}</a>
     : <div className={className}>{inner}</div>;
+  // The menu sits OUTSIDE the anchor — a button inside a link is a tap that
+  // does two things — at the card's corner, over the room the body left it.
+  return menuItems.length > 0
+    ? (
+        <div className="relative min-w-0">
+          {card}
+          <div className="absolute top-2 right-2">
+            <RowMenu items={menuItems} label={`More about ${row.title}`} />
+          </div>
+        </div>
+      )
+    : card;
 }
 
 /**
@@ -187,17 +222,19 @@ function Block({ row, layout, now, links, href, rowActions }: {
  * @param root0.primary - The page's `primary` block, if it declared one.
  * @param root0.rowLink - Where a block opens, with `{id}` interpolated.
  * @param root0.rowActions - Trailing links on each block.
+ * @param root0.rowActionsAs
  * @param root0.now - The instant a `relative` value is measured against.
  * @param root0.links - Resolved record references, by key.
  * @param root0.groupLabel - The group heading, on a grouped page.
  * @param root0.id - DOM id for the section.
  */
-export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], now, links, groupLabel, id }: {
+export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], rowActionsAs = 'links', now, links, groupLabel, id }: {
   rows: PageRow[];
   fields: PageField[];
   primary?: PagePrimary;
   rowLink?: string;
   rowActions?: PageRowAction[];
+  rowActionsAs?: 'links' | 'menu';
   now: number;
   links?: LinkMap;
   groupLabel?: string | null;
@@ -218,7 +255,7 @@ export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], no
             <p className="rounded-lg border border-border px-4 py-8 text-center text-sm text-muted-foreground">Nothing here yet.</p>
           )
         : (
-            <div className="grid gap-3 @3xl:grid-cols-2">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-3 @3xl:grid-cols-2">
               {rows.map(row => (
                 <Block
                   key={row.id}
@@ -228,6 +265,7 @@ export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], no
                   links={links}
                   href={rowLink ? interpolateHref(row, rowLink) : null}
                   rowActions={rowActions}
+                  rowActionsAs={rowActionsAs}
                 />
               ))}
             </div>

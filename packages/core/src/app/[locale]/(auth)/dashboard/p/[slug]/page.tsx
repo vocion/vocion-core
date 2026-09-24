@@ -19,6 +19,7 @@ import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
+import { activeQueryFilters, applyQueryFilters } from '@/libs/workspace/pageFields';
 import {
   applyFilter,
   applyWindow,
@@ -514,6 +515,7 @@ export default async function WorkspacePage(props: {
   // The view in force. A `?view=` naming a view that links elsewhere, or no
   // view at all, falls back to the first one declared, which is the default
   // by construction.
+  const queryFilters = activeQueryFilters(manifest.queryFilters, searchParams);
   const views = manifest.views ?? null;
   const asked = typeof searchParams.view === 'string' ? searchParams.view : undefined;
   const activeView = views ? (views.find(v => v.key === asked && v.href === undefined) ?? views[0]!) : null;
@@ -536,6 +538,7 @@ export default async function WorkspacePage(props: {
     // each row shows (`services/workspace/pageImages.ts`).
     const drawn = await resolveRowImages(orgId, derived, manifest.fields ?? []);
     rows = applyFilter(drawn, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
+    rows = applyQueryFilters(rows, queryFilters);
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {
@@ -687,6 +690,18 @@ export default async function WorkspacePage(props: {
       {!rowsLead && about}
 
       {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} />}
+      {queryFilters.length > 0 && (
+        <p className="mb-4 flex flex-wrap items-center gap-2 text-sm" data-testid="page-query-filters">
+          {queryFilters.map(f => (
+            <span key={f.param} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
+              <span className="text-foreground">{f.value}</span>
+              {' '}
+              only
+            </span>
+          ))}
+          <Link href={`/dashboard/p/${manifest.slug}`} className="text-xs text-muted-foreground underline-offset-2 hover:underline">Show all</Link>
+        </p>
+      )}
       {activeView?.note && <p className="mb-4 max-w-3xl text-sm text-muted-foreground">{activeView.note}</p>}
 
       {manifest.window && (
@@ -792,6 +807,7 @@ export default async function WorkspacePage(props: {
             primary={manifest.primary}
             rowLink={manifest.rowLink}
             rowActions={manifest.rowActions}
+            rowActionsAs={manifest.rowActionsAs}
             groupLabel={groupLabel}
             now={now}
             links={links}
