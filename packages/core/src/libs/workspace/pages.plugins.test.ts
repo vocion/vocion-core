@@ -177,12 +177,18 @@ describe('plugin pages', () => {
     const drawn = (products?.fields ?? []).filter(f => !f.detail).map(f => f.key);
     const subtitle = products?.primary?.subtitle ?? [];
 
-    // The one derived sentence leads (review, 2026-09-24); price lives on the record now.
-    expect(subtitle).toEqual(['line', 'stage', 'health', 'owner', 'lastRelease', 'open']);
+    // The card (Chris, 2026-09-24): a mark, the name, one line saying what it
+    // is for, then the least a person needs to decide whether to open it.
+    expect(products?.primary?.thumb).toBe('icon');
+    expect(subtitle).toEqual(['tagline', 'stage', 'health', 'line', 'deps', 'open', 'lastRelease']);
     expect(products?.derive).toBe('productBoard');
+    // Tapping the card opens WORK as this product's work; the rest is one ⋯ away.
+    expect(products?.rowLink).toBe('/dashboard/p/work?product={meta.slug}');
+    expect(products?.rowActionsAs).toBe('menu');
+    expect(products?.rowActions.map(a => a.label)).toEqual(['Open work', 'Releases', 'Product record', 'Wiki']);
 
     for (const key of drawn) {
-      expect(key === products?.primary?.field || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
+      expect(key === products?.primary?.field || key === products?.primary?.thumb || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
     }
 
     // "Last shipped" is internal factory language; a person running a product

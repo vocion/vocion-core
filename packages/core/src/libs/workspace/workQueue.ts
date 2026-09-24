@@ -52,8 +52,17 @@ export const WORK_LANES = ['progress', 'proposed', 'done'] as const;
 export type WorkLane = typeof WORK_LANES[number];
 
 /** How many rows each lane draws before the heading carries the remainder. */
-export const PROPOSED_SHOWN = 25;
+export const PROPOSED_SHOWN = 12;
 export const DONE_SHOWN = 5;
+/**
+ * How many undecided recommendations read "Decide" at once. Twenty-five
+ * Decide badges down one phone screen is not a queue of decisions, it is a
+ * wall (Chris, 2026-09-24: "700 items need attention is uselessly
+ * overwhelming"). The first few lead; the rest are STAGED — still owed,
+ * still undecided, drawn after the ranked work with a muted badge, and they
+ * move up as decisions land. Nothing is stored: staging is a reading.
+ */
+export const DECIDE_SHOWN = 5;
 /** How far back "done recently" reaches. Older work is Activity's. */
 export const DONE_WITHIN_DAYS = 14;
 
@@ -75,6 +84,7 @@ export type WorkQueueOptions = {
   proposedShown?: number;
   doneShown?: number;
   doneWithinDays?: number;
+  decideShown?: number;
 };
 
 function meta(row: PageRow): Record<string, unknown> {
@@ -154,6 +164,42 @@ export function isWaitingOnPerson(row: PageRow): boolean {
  * and has not started, so it is proposed.
  * @param row - The row.
  */
+/** Sources that mean an AGENT filed the request on its own schedule. */
+const AGENT_SOURCES = new Set(['product-manager', 'designer', 'task-planner', 'planner', 'mission', 'automation', 'agent']);
+
+/**
+ * A request a person asked for, as opposed to one an agent proposed on its own schedule.
+ * @param row
+ */
+export function askedByPerson(row: PageRow): boolean {
+  // Who asked: a name, or a person object (`askedBy: {name, email}`), never an agent handle.
+  const asked = meta(row).askedBy ?? meta(row).requestedBy ?? meta(row).requester;
+  const by = typeof asked === 'string' ? asked.trim() : asked && typeof asked === 'object' ? 'person' : '';
+  if (by !== '' && !by.startsWith('agent:') && !by.startsWith('automation:') && !by.startsWith('mission:')) {
+    return true;
+  }
+  // Where it came from: a chat, a form, an email is a person; a mission or an agent slug is not.
+  const source = (str(row, 'source') ?? '').toLowerCase();
+  return source !== '' && !AGENT_SOURCES.has(source) && !source.startsWith('agent:');
+}
+
+const SEVERITY_RANK: Record<string, number> = { p0: 4, critical: 4, blocker: 4, p1: 3, high: 3, major: 2, p2: 2, medium: 2, minor: 1, p3: 1, low: 1 };
+
+/**
+ * Which undecided recommendation a person should read first: what a person
+ * asked for over what an agent proposed, the more severe over the less, the
+ * higher priority over the lower, the older over the newer.
+ * @param a
+ * @param b
+ * @param time - When each was asked.
+ */
+function decideOrder(a: PageRow, b: PageRow, time: (r: PageRow) => number): number {
+  return Number(askedByPerson(b)) - Number(askedByPerson(a))
+    || (SEVERITY_RANK[(str(b, 'severity') ?? '').toLowerCase()] ?? 0) - (SEVERITY_RANK[(str(a, 'severity') ?? '').toLowerCase()] ?? 0)
+    || (num(b, 'priority') ?? 0) - (num(a, 'priority') ?? 0)
+    || time(a) - time(b);
+}
+
 export function laneOf(row: PageRow): WorkLane {
   const state = str(row, 'state');
   if (state && DONE_STATES.has(state)) {
@@ -270,8 +316,10 @@ const PROPOSED_STATE_LABEL: Record<string, string> = {
  * badged field on every other page does.
  * @param row - The row.
  * @param lane - The lane it landed in.
+ * @param opts
+ * @param opts.staged
  */
-export function stateOf(row: PageRow, lane: WorkLane): string {
+export function stateOf(row: PageRow, lane: WorkLane, opts: { staged?: boolean } = {}): string {
   if (lane !== 'done' && isBlocked(row)) {
     return 'Blocked';
   }
@@ -298,7 +346,7 @@ export function stateOf(row: PageRow, lane: WorkLane): string {
     return 'Deferred';
   }
   if (isWaitingOnPerson(row)) {
-    return 'Decide';
+    return opts.staged ? 'Staged' : 'Decide';
   }
   return PROPOSED_STATE_LABEL[str(row, 'state') ?? ''] ?? 'Queued';
 }
@@ -385,8 +433,11 @@ export function whyLine(row: PageRow): string | null {
  * @param row - The row.
  * @param lane - The lane it landed in.
  * @param now - The clock.
+ * @param opts
+ * @param opts.staged
+ * @param opts.ahead
  */
-export function workLine(row: PageRow, lane: WorkLane, now: Date): string | null {
+export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged?: boolean; ahead?: number } = {}): string | null {
   // A PLAIN SENTENCE: what is happening, and whether it needs the reader.
   // "Awaiting QA. Engineering finished; no action needed from you." — not a
   // count that the reader has to turn into a state (review, 2026-09-24).
@@ -437,6 +488,10 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date): string | null
   }
   if (isWaitingOnPerson(row)) {
     const verb = OUTCOME_VERB[str(row, 'recommendedOutcome') ?? ''] ?? null;
+    if (opts.staged) {
+      const ahead = opts.ahead ?? 0;
+      return `Behind ${ahead} decision${ahead === 1 ? '' : 's'} — moves up as they land.`;
+    }
     return verb ? `Vocion recommends we ${verb}` : null;
   }
   // A queued row's state is already on its badge. Saying "queued" underneath
@@ -679,8 +734,10 @@ function laneLabel(lane: WorkLane): string {
  * @param counts.minutes - Decision minutes the lane is holding.
  * @param counts.blocked - Rows that have stopped.
  * @param counts.noVisual - Rows that owe a picture and have none.
+ * @param counts.deciding
+ * @param counts.staged
  */
-function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked: number; queued: number; minutes: number; blocked: number; noVisual: number }): string | null {
+function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked: number; queued: number; minutes: number; blocked: number; noVisual: number; deciding: number; staged: number }): string | null {
   const hidden = counts.total - counts.shown;
   if (lane === 'progress') {
     return counts.blocked > 0 ? `${counts.blocked} blocked` : null;
@@ -696,8 +753,11 @@ function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked
     return shipped.length > 0 ? shipped.join(' · ') : null;
   }
   const parts: string[] = [];
-  if (counts.minutes > 0) {
-    parts.push(`about ${counts.minutes} min to decide`);
+  if (counts.deciding > 0) {
+    parts.push(`${counts.deciding} to decide${counts.minutes > 0 ? ` · about ${counts.minutes} min` : ''}`);
+  }
+  if (counts.staged > 0) {
+    parts.push(`${counts.staged} staged behind them`);
   }
   if (counts.queued > 0 && counts.ranked === 0) {
     parts.push(`nothing ranked, no reason recorded on ${counts.queued}`);
@@ -711,7 +771,7 @@ function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-type Ordered = { row: PageRow; lane: WorkLane; rank: number | null };
+type Ordered = { row: PageRow; lane: WorkLane; rank: number | null; staged?: boolean; ahead?: number };
 
 /**
  * Order one lane's rows and hand the ranked ones their number.
@@ -723,8 +783,9 @@ type Ordered = { row: PageRow; lane: WorkLane; rank: number | null };
  * @param lane - The lane.
  * @param rows - Its rows.
  * @param now - The clock.
+ * @param decideShown
  */
-function orderLane(lane: WorkLane, rows: PageRow[], now: Date): Ordered[] {
+function orderLane(lane: WorkLane, rows: PageRow[], now: Date, decideShown = DECIDE_SHOWN): Ordered[] {
   const time = (r: PageRow) => (lane === 'done' ? finishedAt(r) : askedAt(r))?.getTime() ?? now.getTime();
   if (lane === 'done') {
     return [...rows].sort((a, b) => time(b) - time(a)).map(row => ({ row, lane, rank: null }));
@@ -746,12 +807,17 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date): Ordered[] {
   const queued = live.filter(r => !isWaitingOnPerson(r));
   const rankable = queued.filter(r => readReasons(meta(r)).recorded);
   const rest = queued.filter(r => !readReasons(meta(r)).recorded);
-  waiting.sort((a, b) => time(a) - time(b));
+  waiting.sort((a, b) => decideOrder(a, b, time));
   rankable.sort((a, b) => (num(b, 'priority') ?? 0) - (num(a, 'priority') ?? 0) || time(a) - time(b));
   rest.sort((a, b) => time(a) - time(b));
+  // The first few decisions lead. The rest are staged: after the ranked
+  // queue, muted, each saying how many decisions stand ahead of it.
+  const deciding = waiting.slice(0, decideShown);
+  const staged = waiting.slice(decideShown);
   return [
-    ...waiting.map(row => ({ row, lane, rank: null })),
+    ...deciding.map(row => ({ row, lane, rank: null })),
     ...rankable.map((row, i) => ({ row, lane, rank: i + 1 })),
+    ...staged.map((row, i) => ({ row, lane, rank: null, staged: true, ahead: deciding.length + i })),
     ...rest.map(row => ({ row, lane, rank: null })),
     // Not now, by a person's decision: last, unranked, and back at the top when the date passes.
     ...deferred.sort((a, b) => time(a) - time(b)).map(row => ({ row, lane, rank: null })),
@@ -773,6 +839,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
   const now = options.now ?? new Date();
   const proposedShown = options.proposedShown ?? PROPOSED_SHOWN;
   const doneShown = options.doneShown ?? DONE_SHOWN;
+  const decideShown = options.decideShown ?? DECIDE_SHOWN;
   const withinMs = (options.doneWithinDays ?? DONE_WITHIN_DAYS) * 86_400_000;
 
   const kept = rows.filter((r) => {
@@ -805,6 +872,8 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
     doneCount: byLane.get('done')!.length,
     blockedCount: progressRows.filter(r => isBlocked(r)).length,
     waitingCount: waitingRows.length,
+    decidingCount: Math.min(waitingRows.length, decideShown),
+    stagedCount: Math.max(0, waitingRows.length - decideShown),
     urgentCount: kept.filter(r => flagsOf(r, laneOf(r)).includes('urgent')).length,
     unreasonedCount: queuedRows.filter(r => !readReasons(meta(r)).recorded).length,
     waitingMinutes: waitingRows.reduce((a, r) => a + (num(r, 'decisionCost') ?? 0), 0),
@@ -812,7 +881,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
 
   const out: PageRow[] = [];
   WORK_LANES.forEach((lane, laneIndex) => {
-    const ordered = orderLane(lane, byLane.get(lane)!, now);
+    const ordered = orderLane(lane, byLane.get(lane)!, now, decideShown);
     const cap = lane === 'proposed' ? proposedShown : lane === 'done' ? doneShown : ordered.length;
     const shown = ordered.slice(0, cap);
     const note = laneNote(lane, {
@@ -823,10 +892,12 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
       noVisual: ordered.filter(o => visualGap(o.row, lane) !== null).length,
       minutes: figures.waitingMinutes,
       blocked: figures.blockedCount,
+      deciding: lane === 'proposed' ? figures.decidingCount : 0,
+      staged: lane === 'proposed' ? figures.stagedCount : 0,
     });
-    for (const [i, { row, rank }] of shown.entries()) {
+    for (const [i, { row, rank, staged, ahead }] of shown.entries()) {
       const flags = flagsOf(row, lane);
-      const state = stateOf(row, lane);
+      const state = stateOf(row, lane, { staged });
       out.push({
         ...row,
         meta: {
@@ -845,7 +916,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           acceptanceLine: acceptanceLine(row, lane) ?? undefined,
           contractGap: contractGap(row, lane) ?? undefined,
           whyLine: whyLine(row) ?? undefined,
-          workLine: workLine(row, lane, now) ?? undefined,
+          workLine: workLine(row, lane, now, { staged, ahead }) ?? undefined,
           costLine: costLine(row, lane) ?? undefined,
           flags: flags.length > 0 ? flags : undefined,
         },

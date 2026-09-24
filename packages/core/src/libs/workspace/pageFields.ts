@@ -67,7 +67,7 @@ const FieldSchema = z.object({
    * `duration` reads an integer number of seconds as "18m 25s", because a
    * run's length is the thing being compared and `1105` is not.
    */
-  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link', 'relative', 'progress', 'steps', 'duration', 'compare', 'workload']).default('text'),
+  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'icon', 'money', 'link', 'relative', 'progress', 'steps', 'duration', 'compare', 'workload']).default('text'),
   /**
    * For `format: compare`, the figure ours is read against and who it
    * belongs to. Our price beside the incumbent's is one fact, not four
@@ -660,6 +660,19 @@ export const PageManifestSchema = z.object({
   rowLink: z.string().optional(),
   /** Trailing links on each row — see {@link RowActionSchema}. */
   rowActions: z.array(RowActionSchema).default([]),
+  /**
+   * How a block draws its row actions: `links` under the facts, or `menu` —
+   * one quiet ⋯ control at the card's corner holding the places the row can
+   * ALSO go, so the card itself stays one tap to one place.
+   */
+  rowActionsAs: z.enum(['links', 'menu']).default('links'),
+  /**
+   * Filters a URL may switch on: `?product=send` narrows the page to rows
+   * whose `field` equals the value, and the page says so with a way back.
+   * This is how one card on Products opens Work AS that product's work
+   * rather than a second page — see {@link applyQueryFilters}.
+   */
+  queryFilters: z.array(z.object({ param: z.string().min(1), field: z.string().min(1), label: z.string().optional() })).optional(),
   /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
   live: LiveSchema.optional(),
 
@@ -862,6 +875,40 @@ export function sinceStart(value: string, now: Date): Date {
   }
   const days = Number.parseInt(value, 10);
   return new Date(now.getTime() - (Number.isFinite(days) ? days : 0) * 86_400_000);
+}
+
+/** One filter a URL switched on, with the words the page uses to say so. */
+export type ActiveQueryFilter = { param: string; field: string; label: string; value: string };
+
+/**
+ * The query filters a URL actually names, read off its search params. A
+ * param that is absent or empty switches nothing on; a repeated param takes
+ * its first value.
+ * @param declared - The page's `queryFilters`.
+ * @param searchParams - The request's search params.
+ */
+export function activeQueryFilters(declared: Array<{ param: string; field: string; label?: string }> | undefined, searchParams: Record<string, string | string[] | undefined>): ActiveQueryFilter[] {
+  return (declared ?? []).flatMap((q) => {
+    const raw = searchParams[q.param];
+    const value = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? '';
+    return value === '' ? [] : [{ param: q.param, field: q.field, label: q.label ?? q.param, value }];
+  });
+}
+
+/**
+ * Rows narrowed to the filters a URL switched on. Equality, case-insensitive
+ * on strings, because a slug in a URL is typed by people and pasted by links.
+ * @param rows - The page's rows.
+ * @param active - From {@link activeQueryFilters}.
+ */
+export function applyQueryFilters(rows: PageRow[], active: ActiveQueryFilter[]): PageRow[] {
+  if (active.length === 0) {
+    return rows;
+  }
+  return rows.filter(r => active.every((f) => {
+    const v = resolveField(r, f.field);
+    return v !== undefined && v !== null && String(v).toLowerCase() === f.value.toLowerCase();
+  }));
 }
 
 export function applyFilter(rows: PageRow[], filters: z.infer<typeof FilterSchema>[] | undefined, now: Date = new Date()): PageRow[] {

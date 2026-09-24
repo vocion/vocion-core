@@ -84,11 +84,44 @@ export function boardLine(row: PageRow, now: Date): { line: string; tone: 'bad' 
  * @param rows - Product records.
  * @param options - The clock.
  * @param options.now
+ * @param row
+ * @param key
  */
+function list(row: PageRow, key: string): string[] {
+  const v = (row.meta ?? {})[key];
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.trim()) : [];
+}
+
+function names(items: string[]): string {
+  return items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/**
+ * What this product stands on, and what stands on it — read from the board's
+ * own rows, so nothing is stored twice. "Built on Squatch Core" on an app;
+ * "Send and Slate build on it" on the core. Nothing when neither is true.
+ * @param row - The product.
+ * @param all - Every product on the board.
+ */
+export function dependencyLine(row: PageRow, all: PageRow[]): string | null {
+  const slug = str(row, 'slug');
+  const nameOf = (s: string) => all.find(r => str(r, 'slug') === s)?.title ?? s;
+  const on = list(row, 'dependsOn').map(nameOf);
+  const dependents = slug ? all.filter(r => r !== row && list(r, 'dependsOn').includes(slug)).map(r => r.title) : [];
+  const parts: string[] = [];
+  if (on.length > 0) {
+    parts.push(`Built on ${names(on)}`);
+  }
+  if (dependents.length > 0) {
+    parts.push(`${names(dependents)} build${dependents.length === 1 ? 's' : ''} on it`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 export function deriveProductBoard(rows: PageRow[], options: { now?: Date } = {}): PageRow[] {
   const now = options.now ?? new Date();
   return rows.map((row) => {
     const { line, tone } = boardLine(row, now);
-    return { ...row, meta: { ...row.meta, boardLine: line, boardTone: tone } };
+    return { ...row, meta: { ...row.meta, boardLine: line, boardTone: tone, dependencyLine: dependencyLine(row, rows) ?? undefined } };
   });
 }
