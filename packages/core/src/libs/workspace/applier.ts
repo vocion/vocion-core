@@ -638,7 +638,9 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: Apply
     label: ot.label,
     description: ot.description ?? null,
     icon: ot.icon ?? null,
-    schema: ot.schema ?? null,
+    // Gates ride inside the stored schema (`x-gates`, beside `x-display`), so
+    // the write path that already loads the schema sees them with no second read.
+    schema: ot.gates && ot.gates.length > 0 ? { ...(ot.schema ?? {}), 'x-gates': ot.gates } : (ot.schema ?? null),
     sourceRelevance: ot.sourceRelevance ?? null,
     classificationPrompt: ot.resolvedClassificationPrompt,
     fewShotExamples: ot.fewShotExamples.length > 0 ? ot.fewShotExamples : null,

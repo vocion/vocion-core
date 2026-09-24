@@ -1,4 +1,5 @@
 import type { PageRow } from './pageFields';
+import { seatLabel } from '@/libs/gates/handoffGate';
 import { readReasons, reasonPhrase } from './reasonCodes';
 
 /**
@@ -335,6 +336,12 @@ export function stateOf(row: PageRow, lane: WorkLane, opts: { staged?: boolean }
   if (lane !== 'done' && isBlocked(row)) {
     return 'Blocked';
   }
+  // A gate sent it back: the seat named owes the fix, and the row says so
+  // before anything else — a returned outcome is not waiting on a person.
+  const returnedTo = str(row, 'returnedTo');
+  if (lane !== 'done' && returnedTo) {
+    return `Returned to ${seatLabel(returnedTo)}`;
+  }
   if (lane === 'progress') {
     switch (waitOf(row)) {
       case 'merge':
@@ -457,6 +464,12 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
   if (blocker) {
     const who = blocker.owner ? `${blocker.owner} to ${blocker.next ?? 'clear it'}` : blocker.next ?? 'nobody is named to clear it';
     return `${blocker.what}. ${who}.`;
+  }
+  const returnedTo = str(row, 'returnedTo');
+  if (lane !== 'done' && returnedTo) {
+    const gate = meta(row).gate as { name?: string; failed?: Array<{ field: string; why: string }> } | undefined;
+    const first = gate?.failed?.[0];
+    return first ? `Gate "${gate?.name}": ${first.why}${(gate?.failed?.length ?? 0) > 1 ? ` (+${gate!.failed!.length - 1} more)` : ''}. No action needed from you.` : 'Sent back by a gate. No action needed from you.';
   }
   if (lane === 'progress') {
     const tasks = num(row, 'taskCount') ?? 0;

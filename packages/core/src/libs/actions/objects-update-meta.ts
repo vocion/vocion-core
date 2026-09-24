@@ -36,6 +36,7 @@
 
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
+import { evaluateGates, gateRefusal, gatesOf } from '@/libs/gates/handoffGate';
 import { doneRefusal } from './doneGate';
 import { gapRefusal } from './gapGate';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
@@ -277,7 +278,24 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // check at all. A type that declares `gapCheck` is a type whose author
     // asked for the gate; one that does not is untouched.
     const declaresGapCheck = 'gapCheck' in ((objectType.schema?.properties ?? {}) as Record<string, unknown>);
-    return declaresGapCheck ? gapRefusal(meta, input.set) : undefined;
+    const gap = declaresGapCheck ? gapRefusal(meta, input.set) : undefined;
+    if (gap) {
+      return gap;
+    }
+    // DECLARED gates (`gates:` on the type): the deterministic half of the
+    // handoff check. A failing transition is refused, and the record is
+    // marked returned to the seat that produced it so Work says so — the
+    // seat fixes the work; nobody is interrupted (libs/gates/handoffGate.ts).
+    const failure = evaluateGates(gatesOf(objectType.schema), meta, input.set);
+    if (failure) {
+      await writeMetadata(ctx.orgId, row.id, {
+        ...meta,
+        returnedTo: failure.gate.producedBy,
+        gate: { name: failure.gate.name, to: failure.to, failed: failure.failed, at: new Date().toISOString() },
+      }).catch(() => undefined);
+      return gateRefusal(failure, objectType.label);
+    }
+    return undefined;
   },
   async reviewCard(ctx: ActionContext, input): Promise<ReviewCard> {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
@@ -324,7 +342,10 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // history should read the same however it was stored.
     const keys = Object.keys(input.set).sort();
     const previous = previousValues(row.metadata, keys);
-    const next = applySet(row.metadata, input.set);
+    // A write that crosses a gated transition and passes clears the return:
+    // the seat did the work the gate asked for.
+    const crossed = gatesOf(objectType.schema).some(g => typeof input.set[g.when.field] === 'string' && g.when.becomes.includes(input.set[g.when.field] as string));
+    const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...input.set, returnedTo: null, gate: null } : input.set);
     await writeMetadata(ctx.orgId, row.id, next);
     // The picture the board draws this outcome as, redrawn from what the
     // record now says. It hangs off the write rather than being asked of an

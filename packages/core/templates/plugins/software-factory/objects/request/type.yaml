@@ -486,3 +486,20 @@ classificationPrompt: >-
   about and, for a bug or incident, a severity. Compute a dedupe key from the
   product and the thing that is broken or asked for. Report a confidence and
   the words you matched on; when the product is unclear, ask rather than file.
+# HANDOFF GATES (core: libs/gates/handoffGate.ts). The deterministic half of
+# "the next seat rejects weak work without repairing it": a request may not
+# be committed to (`in_scope`) until the PM's card is decision-ready. A write
+# that fails is refused, the record reads "Returned to PM" on Work with the
+# missing things named, and nobody is interrupted. The judge half (rubric +
+# reference cases, escalation to a person) runs only after this passes.
+gates:
+  - name: decision-ready
+    when: {field: state, becomes: [in_scope]}
+    producedBy: product-manager
+    require:
+      - {field: product, present: true, message: name the product this is for}
+      - {field: why, present: true, message: record the reason from the closed list, so it can be ranked}
+      - {field: acceptance, minItems: 3, message: 'write at least three criteria a person can check — "done when it works" is not a contract'}
+      - {field: expectedResult, present: true, message: say what will be different if this works}
+      - {field: howWeCheck, present: true, message: say how we will know it worked}
+      - {field: decisionCost, present: true, message: estimate the decision cost so the queue can carry it}

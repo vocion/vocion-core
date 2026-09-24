@@ -286,3 +286,21 @@ classificationPrompt: >-
   the request onto every task you write. If the request cannot be made
   checkable, do not write a task: write the question that would make it
   checkable and put it on the queue.
+# HANDOFF GATE (core: libs/gates/handoffGate.ts). A contract may not be made
+# `ready` for a worker until it is complete: one objective, a pinned base
+# commit, allowed paths, required checks, and criteria. A worker sent an
+# incomplete contract pays for it in attempts; the gate refuses it here and
+# returns the task to the PM with the missing pieces named. Whether the paths
+# and checks EXIST at base_sha is the worker's check at dispatch — core cannot
+# read the repository.
+gates:
+  - name: contract-complete
+    when: {field: status, becomes: [ready, dispatched]}
+    producedBy: product-manager
+    require:
+      - {field: objective, present: true}
+      - {field: baseSha, present: true, message: pin the base commit the worker starts from}
+      - {field: allowedPaths, minItems: 1, message: fence the change to the paths it may touch}
+      - {field: requiredChecks, minItems: 1, message: name the checks that must pass}
+      - {field: acceptanceContract, minItems: 1, message: carry the criteria a reviewer can check}
+      - {field: riskClass, present: true}
