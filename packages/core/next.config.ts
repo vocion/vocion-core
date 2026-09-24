@@ -44,26 +44,6 @@ const baseConfig: NextConfig = {
   output: 'standalone',
   // Capture monorepo root one level up so node_modules tracing works.
   outputFileTracingRoot: join(__dirname, '../..'),
-  // Next turns its webpack build worker off by itself whenever the config has
-  // a `webpack` function, which ours does (the @wsx/registry alias above).
-  // Without the worker, `next build` compiles server and edge one after the
-  // other and collects the standalone build traces only after static
-  // generation, serially, and on a CI runner that tracing step alone was about
-  // 64s. Named on here, the traces are collected while the client bundle
-  // compiles. Measured locally, the build went from 88–93s to 51–62s (#631).
-  //
-  // CI only. The worker and the parallel server compile run in separate
-  // processes, and the Dockerfile's build caps each Node process at 6 GiB on
-  // a box that also runs Postgres, Temporal and Langfuse — the 2026-09-10
-  // heap crash it documents happened there. Until a production image build
-  // is measured with these on, a deploy builds the way it always has. The
-  // flags change how the build runs, not what it outputs.
-  experimental: process.env.CI
-    ? {
-        webpackBuildWorker: true,
-        parallelServerBuildTraces: true,
-      }
-    : {},
   // Hide the floating Next.js dev indicator ("N" FAB) — it overlaps the
   // chat composer's thumb zone on a 390px viewport. `false` disables it
   // entirely in Next 16 (the object form only repositions it).
