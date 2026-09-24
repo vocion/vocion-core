@@ -224,6 +224,22 @@ describe('summariseRunPeriod counting what went wrong', () => {
   });
 });
 
+describe('summariseRunPeriod with a grader that gives no pass rate', () => {
+  it('counts a finished ratings-only run as neither errored nor below the bar', async () => {
+    const datasetId = await createDataset();
+    // AgentCore grading only on its own scales: the run succeeded, with no pass rate.
+    await createRuns(datasetId, [{ startedAt: new Date('2026-09-02T00:00:00Z'), provider: 'agentcore' }]);
+
+    const summary = await summariseRunPeriod(ORG, datasetId, { provider: 'agentcore', passThreshold: null }, SEPT_WEEK);
+    const errored = await listRunsPage(ORG, datasetId, { range: SEPT_WEEK, outcome: 'errored' });
+    const below = await listRunsPage(ORG, datasetId, { range: SEPT_WEEK, outcome: 'below_threshold', passThreshold: 0.8 });
+
+    expect(summary).toMatchObject({ runCount: 1, erroredCount: 0, belowThresholdCount: 0, scoredCount: 0 });
+    expect(errored.runs).toHaveLength(0);
+    expect(below.runs).toHaveLength(0);
+  });
+});
+
 describe('listRunsPage with an outcome filter', () => {
   it('lists only errored runs, or only scored runs under the bar', async () => {
     const datasetId = await createDataset();

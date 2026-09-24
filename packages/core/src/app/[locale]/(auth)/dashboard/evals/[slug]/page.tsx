@@ -562,7 +562,7 @@ function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string; 
   const { summary } = props;
   const threshold = `${Math.round(summary.passThreshold * 100)}%`;
   return (
-    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" data-testid="eval-period-summary">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" data-testid="eval-period-summary">
       <SummaryStat label="Runs" value={summary.runCount.toLocaleString('en-US')} detail="Started in this period" />
       <SummaryStat
         label="Errored"
@@ -580,7 +580,7 @@ function PeriodSummary(props: { summary: RunPeriodSummary; graderLabel: string; 
       />
       <SummaryStat label="Average pass rate" value={formatPassRate(summary.averagePassRate)} detail={`${summary.scoredCount.toLocaleString('en-US')} run${summary.scoredCount === 1 ? '' : 's'} · ${props.graderLabel}`} />
       <SummaryStat label="Latest pass rate" value={formatPassRate(summary.latestPassRate)} detail="Most recent run" />
-    </dl>
+    </div>
   );
 }
 
@@ -603,9 +603,11 @@ function SummaryStat(props: { label: string; value: string; detail: string; tone
   const toneClass = props.tone ? STAT_TONE_CLASSES[props.tone] : 'border-border bg-background text-foreground';
   const body = (
     <>
-      <dt className="text-[10px] tracking-wide uppercase opacity-70">{props.label}</dt>
-      <dd className="mt-1 font-mono text-lg">{props.value}</dd>
-      <dd className="mt-0.5 text-[11px] opacity-80">{props.detail}</dd>
+      {/* Plain elements rather than a <dl>: a card that is a link would put
+          an <a> between <dl> and its <dt>, which the list's semantics forbid. */}
+      <p className="text-[10px] tracking-wide uppercase opacity-70">{props.label}</p>
+      <p className="mt-1 font-mono text-lg">{props.value}</p>
+      <p className="mt-0.5 text-[11px] opacity-80">{props.detail}</p>
     </>
   );
   return props.href
@@ -633,7 +635,7 @@ function OutcomeFilter(props: { slug: string; periodQuery: string; current: RunO
   const idleClass = 'border-border text-muted-foreground hover:bg-muted/50';
   return (
     <nav className="flex flex-wrap items-center gap-1.5" aria-label="Filter runs by outcome">
-      <Link href={outcomeHref(props.slug, props.periodQuery, undefined)} className={`${pillClass} ${props.current ? idleClass : activeClass}`} aria-current={props.current ? undefined : 'page'}>
+      <Link href={outcomeHref(props.slug, props.periodQuery, undefined)} className={`${pillClass} ${props.current ? idleClass : activeClass}`} aria-current={props.current ? undefined : 'true'}>
         All runs
       </Link>
       {RUN_OUTCOME_FILTERS.map(filter => (
@@ -641,7 +643,7 @@ function OutcomeFilter(props: { slug: string; periodQuery: string; current: RunO
           key={filter.id}
           href={outcomeHref(props.slug, props.periodQuery, filter.id)}
           className={`${pillClass} ${props.current === filter.id ? activeClass : idleClass}`}
-          aria-current={props.current === filter.id ? 'page' : undefined}
+          aria-current={props.current === filter.id ? 'true' : undefined}
         >
           {`${filter.label} (${counts[filter.id].toLocaleString('en-US')})`}
         </Link>
