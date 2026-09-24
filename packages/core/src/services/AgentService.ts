@@ -17,6 +17,7 @@ import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostMicroCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
+import { preambleOnly } from '@/services/chat/turnStatus';
 import { composeAnswerWithModel, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
@@ -757,8 +758,10 @@ export async function runAgentDeep(opts: {
   // Unset leaves deepagents' own recursionLimit in charge — see stepLimit.ts.
   const maxSteps = compiled.agentRow.harnessConfig?.maxSteps;
 
-  try {
-    const stream = await compiled.graph.streamEvents(input as never, {
+  // The loop, as a function, so a turn that ended on a promise can re-enter
+  // it ONCE with the promise as the assistant's own last words (see below).
+  const runGraph = async (graphInput: typeof input): Promise<void> => {
+    const stream = await compiled.graph.streamEvents(graphInput as never, {
       version: 'v2',
       callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard)],
       signal: budgetGuard.signal,
@@ -919,6 +922,41 @@ export async function runAgentDeep(opts: {
     // Note: per-actor citations ride on the `trace_node` events (so the trace
     // can show "found by <specialist>"); the Sources drawer keeps using the
     // richer `documents` event the search tool emits via ctx.emit.
+  };
+
+  try {
+    await runGraph(input);
+
+    // A TURN THAT ENDED ON A PROMISE CONTINUES, ONCE. "Let me look" — and the
+    // model ended its turn, zero tool calls (production turn 577, 2026-09-24,
+    // Chris: "I see lookup happen. Then end!?!"). The answer pass can only
+    // compose from what the tools found, and here nothing was found. So the
+    // loop re-enters with the promise as the assistant's own last words and
+    // one instruction: do what you said, now, and answer. Tools are on.
+    // Bounded to one continuation; after that the answer pass says what it
+    // honestly can.
+    {
+      const held = answerStreamer.flush();
+      routeScratch(held.thinking, false);
+      if (held.answer) {
+        finalText += held.answer;
+        emit({ type: 'response_delta', delta: held.answer });
+      }
+      const soFar = normalizeAnswerHtml(finalText).trim();
+      if (soFar.length > 0 && preambleOnly(soFar)) {
+        console.warn('agent turn: ended on a promise, continuing once', { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
+        finalText += '\n\n';
+        emit({ type: 'response_delta', delta: '\n\n' });
+        await runGraph({
+          ...input,
+          messages: [
+            ...input.messages,
+            { role: 'assistant', content: soFar },
+            { role: 'user', content: `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.` },
+          ],
+        } as typeof input);
+      }
+    }
 
     // Give late step names a moment to land before the turn closes, so the
     // persisted trace reads like the live one did. Never more than a beat.

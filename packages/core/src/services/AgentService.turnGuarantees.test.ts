@@ -200,13 +200,22 @@ describe('the deliverable contract', () => {
     expect(result.response).toMatch(/could not produce one/);
   });
 
-  it('does nothing at all when the turn owed an answer', async () => {
+  it('makes no artifact when the turn owed an answer — and continues ONCE when the turn ended on a promise', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockClear();
     streamEvents.mockResolvedValue(narrationStream());
     const { result } = await run({ message: 'what should I do right now?', deliverable: 'answer', conversationId: conv.id });
 
     expect(await listArtifactsForConversation({ orgId: ORG, conversationId: conv.id })).toHaveLength(0);
-    expect(result.response).toBe('Let me check the right structure first.');
+    // "Let me check…" with no tool call is a promise, not an answer (production
+    // turn 577): the loop re-enters once with the promise as its own last words.
+    expect(streamEvents).toHaveBeenCalledTimes(2);
+
+    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
+
+    expect(second.messages.at(-2)).toEqual({ role: 'assistant', content: 'Let me check the right structure first.' });
+    expect(second.messages.at(-1)?.content).toContain('That is a promise, not an answer');
+    expect(result.response.startsWith('Let me check the right structure first.')).toBe(true);
   });
 });
 
