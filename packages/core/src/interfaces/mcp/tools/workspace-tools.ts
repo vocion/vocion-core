@@ -37,17 +37,33 @@ type ToolModule = {
 };
 
 export function workspaceTools(config: McpConfig, identity?: { userId: string }): ToolModule[] {
+  // Everything below `versionHistoryTool` reads the workspace CHECKOUT at
+  // `config.contextPath`. That path is a property of the process, not of the
+  // caller, so on a transport where one process serves many orgs it names one
+  // org's folder for all of them — in production it is pinned to
+  // `/workspace/metacto-revenue` for every request. Offering these tools there
+  // handed any bearer token the revenue workspace's agent prompts, skills and
+  // its org id. They are therefore absent unless the transport says its
+  // contextPath belongs to the caller, which only stdio/CI can say.
+  //
+  // `versionHistoryTool` and the off switch stay: both are pure database reads
+  // scoped by `config.orgId`, which IS the caller's.
+  const diskBacked = config.diskWorkspace
+    ? [
+        listTool(config),
+        getTool(config),
+        writeSkillTool(config),
+        writePlaybookTool(config),
+        writeMissionTool(config),
+        writeAgentTool(config),
+        writeObjectTypeTool(config),
+        deleteTool(config),
+        applyTool(config),
+        diffTool(config),
+      ]
+    : [];
   return [
-    listTool(config),
-    getTool(config),
-    writeSkillTool(config),
-    writePlaybookTool(config),
-    writeMissionTool(config),
-    writeAgentTool(config),
-    writeObjectTypeTool(config),
-    deleteTool(config),
-    applyTool(config),
-    diffTool(config),
+    ...diskBacked,
     versionHistoryTool(config),
     ...offSwitchTools(config, identity),
   ];

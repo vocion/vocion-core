@@ -1,7 +1,7 @@
 import type { DefaultSession } from 'next-auth';
 import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import bcrypt from 'bcrypt';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { cookies, headers } from 'next/headers';
@@ -213,10 +213,16 @@ async function resolveTenancyForUser(userId: string): Promise<{
     }
   }
 
+  // Ordered, because "the first project" with no ORDER BY is whatever Postgres
+  // hands back. With four company workspaces that is stable enough to look
+  // deliberate; it is not. Once an account holds many projects, an unordered
+  // pick drops a person into an arbitrary one, and a person's landing workspace
+  // should not change between requests.
   const [proj] = await db
     .select({ id: projectSchema.id })
     .from(projectSchema)
     .where(eq(projectSchema.accountId, membership.accountId))
+    .orderBy(asc(projectSchema.createdAt), asc(projectSchema.id))
     .limit(1);
 
   return {

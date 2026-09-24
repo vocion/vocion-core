@@ -14,9 +14,18 @@ export const ACTIVE_PROJECT_COOKIE = 'vocion_active_project';
 /** One year, in seconds — the switch should outlive the session. */
 export const ACTIVE_PROJECT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
-/** Attributes for `cookies().set()` / `response.cookies.set()` on the server. */
+/**
+ * Attributes for `cookies().set()` / `response.cookies.set()` on the server.
+ *
+ * `httpOnly` because this cookie SELECTS A TENANT: `resolveTenancyForUser`
+ * reads it as a candidate for the active project, so script that can write it
+ * can move the session between workspaces. Only the server writes it (the
+ * `/w/[workspace]` route); the switcher navigates through that route rather
+ * than setting the cookie itself, so nothing client-side reads or writes it.
+ */
 export const ACTIVE_PROJECT_COOKIE_OPTIONS = {
   path: '/',
   maxAge: ACTIVE_PROJECT_COOKIE_MAX_AGE,
   sameSite: 'lax',
+  httpOnly: true,
 } as const;

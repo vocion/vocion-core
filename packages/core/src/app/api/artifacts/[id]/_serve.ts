@@ -29,7 +29,9 @@ const notFound = () => NextResponse.json({ error: { code: 'NOT_FOUND', message: 
  * @param req
  * @param id
  */
-async function callerOrgFor(req: NextRequest, id: string): Promise<string | NextResponse> {
+type Caller = { orgId: string; userId: string | null; hasToken: boolean };
+
+async function callerOrgFor(req: NextRequest, id: string): Promise<Caller | NextResponse> {
   const token = req.nextUrl.searchParams.get('share');
   if (token) {
     const claim = verifyArtifactShare(token);
@@ -40,24 +42,35 @@ async function callerOrgFor(req: NextRequest, id: string): Promise<string | Next
     if (!row || row.orgId !== claim.orgId || row.shareAudience !== 'anyone') {
       return notFound();
     }
-    return row.orgId;
+    return { orgId: row.orgId, userId: null, hasToken: true };
   }
   const caller = await authApi(req);
-  return caller instanceof NextResponse ? caller : caller.orgId;
+  if (caller instanceof NextResponse) {
+    return caller;
+  }
+  // `actorId` is the bare user id for a session and `token:<id>` for a bearer
+  // token. Only a person can satisfy the `me` audience, so a token resolves to
+  // no user rather than to a string that could never match an owner anyway.
+  return {
+    orgId: caller.orgId,
+    userId: caller.source === 'session' ? caller.actorId : null,
+    hasToken: false,
+  };
 }
 
 export async function serveArtifact(req: NextRequest, id: string, filename?: string): Promise<Response> {
-  const callerOrgId = await callerOrgFor(req, id);
-  if (callerOrgId instanceof NextResponse) {
-    return callerOrgId;
+  const caller = await callerOrgFor(req, id);
+  if (caller instanceof NextResponse) {
+    return caller;
   }
   const result = await resolveArtifactFile({
-    callerOrgId,
+    callerOrgId: caller.orgId,
     id,
     filename,
+    viewer: { userId: caller.userId, hasToken: caller.hasToken },
     lookupRow: async (rowId) => {
       const [row] = await db.select().from(artifactSchema).where(eq(artifactSchema.id, rowId));
-      return row ? { orgId: row.orgId, kind: row.kind, url: row.url, spec: row.spec, title: row.title, payload: toPayload(row) } : null;
+      return row ? { orgId: row.orgId, kind: row.kind, url: row.url, spec: row.spec, title: row.title, payload: toPayload(row), shareAudience: row.shareAudience, shareOwnerId: row.shareOwnerId } : null;
     },
   });
   if (result.status !== 200) {

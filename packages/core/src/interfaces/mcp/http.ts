@@ -33,9 +33,20 @@ export class McpHttpError extends Error {
 
 /**
  * Derive a per-tenant MCP config from an `Authorization: Bearer …` header, or
- * throw `McpHttpError(401)`. Over HTTP the workspace-authoring tools are off by
- * default (`autoCommit`/`autoApply` false) — HTTP is the runtime/data/search
- * plane; authoring stays on stdio/CI where a per-org git workspace lives.
+ * throw `McpHttpError(401)`. Over HTTP the workspace-authoring tools are off
+ * (`autoCommit`/`autoApply` false, and `diskWorkspace` false) — HTTP is the
+ * runtime/data/search plane; authoring stays on stdio/CI where a per-org git
+ * workspace lives.
+ *
+ * `diskWorkspace: false` is the part that matters for isolation. One HTTP
+ * process serves every org, and `WORKSPACE_PATH` is set per PROCESS: in
+ * production it is `/workspace/metacto-revenue` on the app container. Reading
+ * it here handed a token scoped to any org the revenue workspace's agent
+ * prompts, skills and mission goals through `workspace_list` / `workspace_get`,
+ * plus that workspace's org id. There is also no mapping from an org id to a
+ * workspace FOLDER (`proj-revenue-<hash>` is not `metacto-revenue`), so the
+ * fallback path never resolved to anything either. The tools are dropped
+ * rather than repointed, which is what the paragraph above always intended.
  * @param authHeader
  */
 export async function mcpConfigForBearer(
@@ -47,7 +58,10 @@ export async function mcpConfigForBearer(
   }
   const config = {
     orgId: identity.orgId,
-    contextPath: resolve(process.env.WORKSPACE_PATH ?? `workspace/${identity.orgId}`),
+    // Never read: `diskWorkspace: false` removes every tool that would use it.
+    // Kept non-empty so nothing downstream has to special-case an empty path.
+    contextPath: resolve(`workspace/${identity.orgId}`),
+    diskWorkspace: false,
     autoCommit: false,
     autoApply: false,
     serverName: 'vocion',

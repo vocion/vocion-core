@@ -8,7 +8,7 @@
  * membership rule.
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
 
@@ -134,10 +134,14 @@ export async function activeWorkspaceForUser(userId: string, preferredProjectId?
       return { ...chosen, accountId };
     }
   }
+  // Ordered for the same reason as `resolveTenancyForUser`: an unordered
+  // "first project" is whatever the planner returns, which stops being a
+  // harmless detail as soon as an account holds more than a handful.
   const [first] = await db
     .select(columns)
     .from(projectSchema)
     .where(eq(projectSchema.accountId, accountId))
+    .orderBy(asc(projectSchema.createdAt), asc(projectSchema.id))
     .limit(1);
   return first ? { ...first, accountId } : null;
 }
