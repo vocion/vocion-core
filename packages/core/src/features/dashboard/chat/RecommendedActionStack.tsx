@@ -2,7 +2,7 @@
 
 import type { RecommendedAction } from './types';
 import { ArrowRight, Bookmark, Check, Layers, Loader2, SkipForward } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
@@ -25,18 +25,14 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [bulkDone, setBulkDone] = useState(false);
 
-  if (recs.length <= 1 || autoPropose) {
-    // At `act-within-bounds` every recommendation proposes itself, so the
-    // one-at-a-time triage has nothing to triage — show the cards as a list.
+  const touchX = useRef<number | null>(null);
+  if (recs.length <= 1) {
     return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} autoPropose={autoPropose} />)}</>;
   }
-  // Everything the server already filed (act-within-bounds) is a card with a
-  // live status, not a stepper item — show those first, step through the rest.
-  const filed = recs.filter(r => r.runId !== undefined);
-  const open = recs.filter(r => r.runId === undefined);
-  if (open.length <= 1 && filed.length > 0) {
-    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} />)}</>;
-  }
+  // Several cards are ALWAYS one at a time — filed or not. A person on a phone
+  // answers one decision, swipes, answers the next; a column of cards is the
+  // wall this stack exists to avoid (Chris, 2026-09-24). Cards the server
+  // already filed carry their live status inside the same stepper.
 
   const propose = async (rec: RecommendedAction): Promise<void> => {
     // Same refusal as the card's: a recommendation with no action id cannot
@@ -111,8 +107,24 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
   }
 
   const current = recs[idx]!;
+  const go = (delta: number) => setIdx(i => Math.min(recs.length - 1, Math.max(0, i + delta)));
   return (
-    <div className="mt-3" data-testid="recommended-action-stack">
+    <div
+      className="mt-3"
+      data-testid="recommended-action-stack"
+      onTouchStart={(e) => {
+        touchX.current = e.touches[0]?.clientX ?? null;
+      }}
+      onTouchEnd={(e) => {
+        const start = touchX.current;
+        touchX.current = null;
+        const end = e.changedTouches[0]?.clientX;
+        if (start === null || end === undefined || Math.abs(end - start) < 48) {
+          return;
+        }
+        go(end < start ? 1 : -1);
+      }}
+    >
       <div className="flex items-center justify-between px-1">
         <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
           <Layers className="size-3.5" aria-hidden />
@@ -125,7 +137,22 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
         </span>
       </div>
 
-      <RecommendedActionCard key={idx} rec={current} />
+      <RecommendedActionCard key={idx} rec={current} autoPropose={autoPropose && current.runId === undefined} />
+
+      {/* Dots: where you are, and a tap to any card. Swipe does the same on touch. */}
+      <div className="mt-2 flex items-center justify-center gap-1.5" role="tablist" aria-label="Suggested actions">
+        {recs.map((r, i) => (
+          <button
+            key={i}
+            type="button"
+            role="tab"
+            aria-selected={i === idx}
+            aria-label={`Card ${i + 1} of ${recs.length}: ${r.label}`}
+            onClick={() => setIdx(i)}
+            className={`size-2 rounded-full transition-colors ${i === idx ? 'bg-foreground' : 'bg-border hover:bg-muted-foreground/50'}`}
+          />
+        ))}
+      </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
         <button

@@ -1,12 +1,14 @@
 'use client';
 
 import type { RecommendedAction } from './types';
-import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, MessageSquare, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { requestAgentSurface } from './agentSurface';
 import { deferredLine, deferUntil } from './deferral';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
@@ -244,6 +246,27 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
           <div className="text-sm font-semibold break-words">{rec.label}</div>
           {rec.rationale && <p className="mt-0.5 line-clamp-2 text-xs break-words text-muted-foreground">{rec.rationale}</p>}
         </div>
+        {/* Talk about THIS card: the surface opens with the card as typed
+            context — its label, rationale and run id — so "what's the risk
+            here?" binds to it. Not composer text (Chris, 2026-09-24). */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Discuss this card"
+              data-testid="recommended-discuss"
+              onClick={() => requestAgentSurface({
+                scope: { label: rec.label },
+                fallbackContext: [`Proposal card: ${rec.label}`, rec.rationale ? `Why: ${rec.rationale}` : null, phase.runId !== undefined ? `Proposal id: ${phase.runId}` : null, rec.actionId ? `Action: ${rec.actionId}` : null].filter(Boolean).join('\n'),
+                agentSlug: rec.agentSlug,
+              })}
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+            >
+              <MessageSquare className="size-3.5" aria-hidden />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Discuss this card</TooltipContent>
+        </Tooltip>
         {pct !== null && (
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
