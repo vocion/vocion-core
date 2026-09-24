@@ -11,6 +11,7 @@ import { langfuseConfig } from '@/libs/Langfuse';
 import { browserProjectId } from '@/libs/Langfuse/config';
 import { usd } from '@/services/evals/modelUpgradeTest';
 import { describeProviders } from '@/services/evals/providers/registry';
+import { passThresholdFor } from '@/services/evals/runOutcome';
 import { getDataset, getRun, listRunGroup, listScoresForRun } from '@/services/EvalService';
 import { RunAutoRefresh } from './RunAutoRefresh';
 
@@ -117,7 +118,7 @@ export default async function EvalRunDetailPage(props: Props) {
               {labelFor(run.provider)}
             </Badge>
             {typeof passRate === 'number' && (
-              <span className={passRate >= 0.8 ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
+              <span className={passRate >= passThresholdFor(dataset.passThreshold) ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
                 {`${formatPassRate(passRate)} pass`}
               </span>
             )}

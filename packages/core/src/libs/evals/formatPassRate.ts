@@ -13,9 +13,15 @@
  * rate has from the bar. Every rate this formats is stored as a 64-bit number;
  * `eval_score.value` was a 32-bit `real` until migration 0143, whose six-digit
  * noise no nudge this small could absorb.
+ *
+ * A value that is not a number at all (NaN, Infinity) shows as a dash, the
+ * same as a rate that is not there, rather than printing "NaN%".
  * @param rate - A pass rate from 0 to 1.
  */
 export function formatPassRate(rate: number): string {
+  if (!Number.isFinite(rate)) {
+    return '—';
+  }
   const hundredthsOfAPercent = Math.floor(rate * 10_000 + 1e-6);
   return `${hundredthsOfAPercent / 100}%`;
 }

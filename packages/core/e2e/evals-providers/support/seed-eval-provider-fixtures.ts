@@ -62,7 +62,9 @@ const SPREAD_OUT = 'e2e-spread-out';
 // One clean run, one that scored under the bar, one that errored.
 const FAILING = 'e2e-failing';
 const READABLE = 'e2e-readable';
-const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP, SPREAD_OUT, FAILING, READABLE];
+const SWITCHED_GRADER = 'e2e-switched-grader';
+const NEW_GRADER = 'e2e-new-grader';
+const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP, SPREAD_OUT, FAILING, READABLE, SWITCHED_GRADER, NEW_GRADER];
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
 
@@ -322,6 +324,24 @@ async function main(): Promise<void> {
   await createEvaluatorScore(olderRun, 'tone', 0.8);
   await createEvaluatorScore(newerRun, 'tone', 0.6);
 
+  // Scored by AgentCore now, by Vocion before. Each grader has one errored run;
+  // only Vocion's scored run is under the bar. The cards and their filters must
+  // count AgentCore's alone (1 errored, 0 below), while All runs lists all four.
+  // Older than e2e-changed-graders' newest AgentCore run, which the adoption
+  // row reads as this agent's latest pass rate.
+  const switched = await createDataset(orgId, SWITCHED_GRADER, 1, 'agentcore');
+  await createRun({ orgId, datasetId: switched, provider: 'vocion', passRate: 0, datasetVersion: 1, startedAt: daysAgo(9), errored: true });
+  await createRun({ orgId, datasetId: switched, provider: 'vocion', passRate: 0.3, datasetVersion: 1, startedAt: daysAgo(8) });
+  await createRun({ orgId, datasetId: switched, provider: 'agentcore', passRate: 0, datasetVersion: 1, startedAt: daysAgo(7), errored: true });
+  await createRun({ orgId, datasetId: switched, provider: 'agentcore', passRate: 0.9, datasetVersion: 1, startedAt: daysAgo(6) });
+
+  // Just moved to AgentCore: every run so far is Vocion's, so the current
+  // grader has none, and the page must still show the history rather than
+  // reading as a dataset that never ran.
+  const newGrader = await createDataset(orgId, NEW_GRADER, 1, 'agentcore');
+  await createRun({ orgId, datasetId: newGrader, provider: 'vocion', passRate: 0.7, datasetVersion: 1, startedAt: daysAgo(3) });
+  await createRun({ orgId, datasetId: newGrader, provider: 'vocion', passRate: 0.8, datasetVersion: 1, startedAt: daysAgo(2) });
+
   console.error(`[seed-eval-provider-fixtures] org ${orgId}, agent ${AGENT_SLUG}`);
   process.stdout.write(`${JSON.stringify({
     orgId,
@@ -335,6 +355,8 @@ async function main(): Promise<void> {
     spreadOutSlug: SPREAD_OUT,
     failingSlug: FAILING,
     readableSlug: READABLE,
+    switchedGraderSlug: SWITCHED_GRADER,
+    newGraderSlug: NEW_GRADER,
   })}\n`);
 }
 

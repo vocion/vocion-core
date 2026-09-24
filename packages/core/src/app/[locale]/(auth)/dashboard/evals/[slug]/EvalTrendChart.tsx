@@ -36,7 +36,8 @@ function onPointBlur(
 }
 // Top padding clears the "100%" label's ascenders, which the SVG edge clipped
 // at 14. Right padding leaves room for the threshold's label.
-const PAD = { top: 24, right: 100, bottom: 22, left: 40 };
+// `right` fits the threshold label at its widest, e.g. "79.55% threshold".
+const PAD = { top: 24, right: 120, bottom: 22, left: 40 };
 
 /**
  * The validated categorical palette, one entry per colour slot, as literal

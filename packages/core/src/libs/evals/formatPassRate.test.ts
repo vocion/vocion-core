@@ -22,6 +22,11 @@ describe('formatPassRate', () => {
     expect(formatPassRate(0.3 - 0.1)).toBe('20%');
   });
 
+  it('shows a value that is not a number as missing, never as "NaN%"', () => {
+    expect(formatPassRate(Number.NaN)).toBe('—');
+    expect(formatPassRate(Number.POSITIVE_INFINITY)).toBe('—');
+  });
+
   it('shows the ends of the scale plainly', () => {
     expect(formatPassRate(0)).toBe('0%');
     expect(formatPassRate(1)).toBe('100%');

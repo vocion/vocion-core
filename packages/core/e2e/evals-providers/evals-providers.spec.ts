@@ -57,6 +57,8 @@ type SeedFixtures = {
   spreadOutSlug: string;
   failingSlug: string;
   readableSlug: string;
+  switchedGraderSlug: string;
+  newGraderSlug: string;
 };
 
 function createBootstrapAdmin(): void {
@@ -491,6 +493,38 @@ test.describe('the eval section, with more than one grader', () => {
     await expect(tone).toContainText('below its average (2 runs)');
     // One grader ran every evaluator, so the Grader column would say nothing.
     await expect(breakdown.getByRole('columnheader', { name: 'Grader' })).toHaveCount(0);
+  });
+});
+
+test.describe('a dataset that changed graders', () => {
+  test('the cards and their filters count only the current grader, while All runs keeps the older one', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.switchedGraderSlug}`);
+    const runLinks = page.locator('a[href*="/runs/"]');
+
+    // Vocion's errored run and its 0.3 are left out: AgentCore has one of each kind of run.
+    await expect(page.getByTestId('eval-stat-Errored').locator('p').nth(1)).toHaveText('1');
+    await expect(page.getByTestId('eval-stat-Below threshold').locator('p').nth(1)).toHaveText('0');
+    await expect(page.getByTestId('eval-summary-grader-note')).toContainText('count only AgentCore runs');
+    await expect(runLinks).toHaveCount(4);
+
+    await page.getByTestId('eval-stat-Errored').click();
+    await page.waitForURL(/outcome=errored/);
+
+    await expect(runLinks).toHaveCount(1);
+
+    await page.getByRole('link', { name: 'All runs' }).click();
+    await page.waitForURL(url => !url.searchParams.has('outcome'));
+
+    await expect(runLinks).toHaveCount(4);
+  });
+
+  test('one whose new grader has not run yet still shows its history', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.newGraderSlug}`);
+
+    await expect(page.getByRole('region', { name: 'Results for the period' })).toBeVisible();
+    await expect(page.getByTestId('eval-stat-Runs').locator('p').nth(1)).toHaveText('0');
+    await expect(page.getByRole('heading', { name: 'Pass rate over time' })).toBeVisible();
+    await expect(page.getByTestId('eval-summary-grader-note')).toContainText('Runs scored by Vocion');
   });
 });
 

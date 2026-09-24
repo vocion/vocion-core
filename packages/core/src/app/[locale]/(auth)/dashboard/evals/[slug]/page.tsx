@@ -143,6 +143,9 @@ export default async function EvalDatasetDetailPage(props: Props) {
   // grader never claims some are here.
   const historicalProviders = [...new Set(runs.map(run => run.provider))].filter(id => id !== dataset.provider);
   const filtered = period.period !== 'all';
+  // Read from the chart's runs, which cover the whole period and every grader,
+  // so the note under the cards is right however the list below is paged.
+  const olderGradersInPeriod = [...new Set(trend.runs.map(run => run.provider))].filter(id => id !== dataset.provider);
   const periodQueryString = periodQuery(period).toString();
   const pagerQuery = withOutcome(periodQueryString, outcome);
   return (
@@ -270,8 +273,10 @@ export default async function EvalDatasetDetailPage(props: Props) {
 
       {/* A dataset that has never run has no results to pick a period for; the
           run list below already says so, and a row of dashes would only
-          repeat it. */}
-      {(filtered || summary.runCount > 0) && (
+          repeat it. The summary counts only the current grader, so the chart's
+          runs, which include earlier graders, decide whether there is history:
+          a dataset that just changed graders still shows it. */}
+      {(filtered || summary.runCount > 0 || trend.runs.length > 0 || trend.failures.length > 0) && (
         <section className="mb-8 space-y-4" aria-label="Results for the period">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-sm font-semibold">Results</h2>
@@ -289,6 +294,11 @@ export default async function EvalDatasetDetailPage(props: Props) {
           )}
 
           <PeriodSummary summary={summary} graderLabel={graderLabel} slug={dataset.slug} periodQuery={periodQueryString} />
+          {olderGradersInPeriod.length > 0 && (
+            <p className="text-xs text-muted-foreground" data-testid="eval-summary-grader-note">
+              {`These numbers count only ${graderLabel} runs, the grader this dataset uses now. Runs scored by ${olderGradersInPeriod.map(labelFor).join(' and ')} are still on the chart and under All runs.`}
+            </p>
+          )}
 
           {trendPoints.length > 1
             ? (
