@@ -32,3 +32,5 @@ playbooks:
 harness:
   runsOn: external-worker
 systemPromptFile: ./task-engineer.system-prompt.md
+skills:
+  - rubric-engineer

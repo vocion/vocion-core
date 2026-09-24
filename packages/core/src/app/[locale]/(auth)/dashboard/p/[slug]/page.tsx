@@ -15,9 +15,11 @@ import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
+import { activeQueryFilters, applyQueryFilters } from '@/libs/workspace/pageFields';
 import {
   applyFilter,
   applyWindow,
@@ -475,6 +477,36 @@ export default async function WorkspacePage(props: {
     redirect(manifest.href);
   }
 
+  // A WIKI IS READ AS PAGES, not as a table of the artifacts behind them: a
+  // rail of pages in reading order, the home, one page open at a time
+  // (`/dashboard/p/<slug>/<page>`), links between pages that open pages.
+  // Chris, 2026-09-24: "make it look more like a wiki than a collection of
+  // artifacts table." The folder comes from the manifest; the plugin's guide
+  // page, when it ships one beside it, is linked from the rail.
+  if (manifest.archetype === 'wiki' && manifest.source?.kind === 'artifacts' && manifest.source.folder) {
+    const { loadWikiReadingPages } = await import('@/services/wiki/wikiReading');
+    const { WIKI_HOME_SLUGS } = await import('@/libs/wiki/reading');
+    // The home's body rides in full; every other page's arrives when opened.
+    const all = await loadWikiReadingPages(orgId, manifest.source.folder, { withBodyFor: null });
+    const homeSlug = (WIKI_HOME_SLUGS as readonly string[]).find(h => all.some(p => p.slug === h)) ?? null;
+    const pages = homeSlug ? await loadWikiReadingPages(orgId, manifest.source.folder, { withBodyFor: homeSlug }) : all;
+    const home = homeSlug ? pages.find(p => p.slug === homeSlug) ?? null : null;
+    const guide = await readPageForOrg(`${manifest.slug}-guide`, orgId);
+    return (
+      <>
+        <TitleBar title={manifest.title} description={manifest.description} />
+        <WikiView
+          base={`/dashboard/p/${manifest.slug}`}
+          pages={pages}
+          current={home}
+          guideHref={guide ? `/dashboard/p/${guide.slug}` : null}
+          askAgentSlug="wiki-researcher"
+          editBase="/dashboard/artifacts"
+        />
+      </>
+    );
+  }
+
   const content = readWorkspacePageContent(manifest);
   const methodology = readWorkspacePageMethodology(manifest);
   const now = await currentTime();
@@ -483,6 +515,7 @@ export default async function WorkspacePage(props: {
   // The view in force. A `?view=` naming a view that links elsewhere, or no
   // view at all, falls back to the first one declared, which is the default
   // by construction.
+  const queryFilters = activeQueryFilters(manifest.queryFilters, searchParams);
   const views = manifest.views ?? null;
   const asked = typeof searchParams.view === 'string' ? searchParams.view : undefined;
   const activeView = views ? (views.find(v => v.key === asked && v.href === undefined) ?? views[0]!) : null;
@@ -505,6 +538,7 @@ export default async function WorkspacePage(props: {
     // each row shows (`services/workspace/pageImages.ts`).
     const drawn = await resolveRowImages(orgId, derived, manifest.fields ?? []);
     rows = applyFilter(drawn, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
+    rows = applyQueryFilters(rows, queryFilters);
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {
@@ -656,6 +690,18 @@ export default async function WorkspacePage(props: {
       {!rowsLead && about}
 
       {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} />}
+      {queryFilters.length > 0 && (
+        <p className="mb-4 flex flex-wrap items-center gap-2 text-sm" data-testid="page-query-filters">
+          {queryFilters.map(f => (
+            <span key={f.param} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
+              <span className="text-foreground">{f.value}</span>
+              {' '}
+              only
+            </span>
+          ))}
+          <Link href={`/dashboard/p/${manifest.slug}`} className="text-xs text-muted-foreground underline-offset-2 hover:underline">Show all</Link>
+        </p>
+      )}
       {activeView?.note && <p className="mb-4 max-w-3xl text-sm text-muted-foreground">{activeView.note}</p>}
 
       {manifest.window && (
@@ -761,6 +807,7 @@ export default async function WorkspacePage(props: {
             primary={manifest.primary}
             rowLink={manifest.rowLink}
             rowActions={manifest.rowActions}
+            rowActionsAs={manifest.rowActionsAs}
             groupLabel={groupLabel}
             now={now}
             links={links}

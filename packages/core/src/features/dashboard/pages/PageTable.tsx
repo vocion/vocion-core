@@ -122,6 +122,7 @@ function TotalsRow({ rows, fields, layout, extra }: { rows: PageRow[]; fields: P
  * a grouped page can collapse a column inside one group and keep it in
  * another.
  * @param root0 - Props.
+ * @param root0.rowActionsAs
  * @param root0.rows - The rows under this table, filtered and sorted.
  * @param root0.fields - The page's declared fields.
  * @param root0.primary - The page's `primary` block, if it declared one.
@@ -133,6 +134,8 @@ function TotalsRow({ rows, fields, layout, extra }: { rows: PageRow[]; fields: P
  * @param root0.id - DOM id for the section.
  */
 export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now, links, groupLabel, id }: {
+  /** Accepted for parity with `PageBlocks`; a table draws its actions as a column either way. */
+  rowActionsAs?: 'links' | 'menu';
   rows: PageRow[];
   fields: PageField[];
   primary?: PagePrimary;

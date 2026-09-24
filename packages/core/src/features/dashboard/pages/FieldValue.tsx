@@ -1,7 +1,9 @@
 import type React from 'react';
 import type { PageField, PageRow } from '@/libs/workspace/pageFields';
+import { createElement } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
+import { iconByName } from '@/features/dashboard/iconByName';
 import { relativeLabel } from '@/libs/timeAgo';
 import { fieldHasSource, fieldIsFresh, formatDuration, formatMoney, formatProgress, isEmptyValue, resolveField, shortUrlLabel, toDate } from '@/libs/workspace/pageFields';
 
@@ -328,6 +330,15 @@ function FieldBody({ row, field, now, links }: { row: PageRow; field: PageField;
             </li>
           ))}
         </ul>
+      );
+    }
+    case 'icon': {
+      // A NAMED icon as the row's picture: a product's mark, a page's glyph.
+      // Fills its tile the way `image` fills its frame.
+      return (
+        <span className="flex size-full items-center justify-center bg-muted text-foreground/70">
+          {createElement(iconByName(s), { 'className': 'size-1/2', 'aria-hidden': true })}
+        </span>
       );
     }
     case 'image':

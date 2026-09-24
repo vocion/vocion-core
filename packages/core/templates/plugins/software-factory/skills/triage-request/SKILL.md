@@ -120,6 +120,11 @@ missing.
 
 ## In scope or not
 
+Before deciding, read the wiki pages tagged `principles` (`read_wiki_page`;
+the index names them) — the design principles, the written promises and the
+AI-first requirement are the tie-breakers, and a scope decision that never
+read them is a guess.
+
 One question, answered honestly: **does this serve the job the product does
 for people, inside the promises it has made and the operating intent the
 workspace states?** Value is measured against the product's `promises` and the

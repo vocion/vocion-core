@@ -55,7 +55,7 @@ describe('the shipped catalogue', () => {
     // Four seats, one team: PM, Design, Eng, QA (2026-09-24). The planner's
     // work is the PM's; Design has an agent instead of an empty-seat comment.
     expect(factory.agents).toEqual(['change-reviewer', 'designer', 'product-manager', 'task-engineer']);
-    expect(factory.skills).toEqual(['design-the-change', 'rank-the-backlog', 'review-against-contract', 'surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
+    expect(factory.skills).toEqual(['design-the-change', 'rank-the-backlog', 'review-against-contract', 'rubric-designer', 'rubric-engineer', 'rubric-product-manager', 'rubric-qa', 'surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['designing-a-surface', 'house-voice', 'naming-the-work', 'verify-against-reality']);
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'product', 'release', 'repo', 'request']);
     // Three missions carry the loop; the eight reporting and hygiene missions are gone.
@@ -123,7 +123,7 @@ describe('loadWorkspace with plugins', () => {
     expect(ws.automations.map(a => a.slug)).toEqual(expect.arrayContaining(['wiki-index', 'wiki-weekly-curation']));
     expect(ws.teams.map(t => t.slug)).toContain('wiki');
     expect(ws.trust?.rules.find(r => r.action === 'wiki.write_page')?.autoApproveAbove).toBe(0.6);
-    expect(ws.sha).toContain('+wiki@1.3.0');
+    expect(ws.sha).toContain('+wiki@1.4.0');
   });
 
   it('the wiki team pairs the researcher (lead, chat-facing, own ledger) with the curator (operational, shared bar)', () => {
@@ -306,7 +306,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.1.0');
+    expect(ws.sha).toContain('+software-factory@2.2.0');
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {
@@ -387,7 +387,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(pm?.team).toBe('software-factory');
     expect(ws.teams.find(t => t.slug === 'software-factory')?.lead).toBe('product-manager');
     expect(pm?.harness?.runsOn).toBeUndefined();
-    expect(pm?.skills).toEqual(['surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-task-contract', 'rank-the-backlog', 'write-release-notes']);
+    expect(pm?.skills).toEqual(['surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-task-contract', 'rank-the-backlog', 'write-release-notes', 'rubric-product-manager']);
     expect(pm?.objectTypes).toEqual(['request', 'architecture_plan', 'engineering_task', 'release', 'product', 'repo']);
     // The loop is named in the prompt, in the order a person sees it.
     expect(pm?.resolvedSystemPrompt).toContain('asked → decided → planned → building → QA → released');
@@ -412,7 +412,7 @@ describe('loadWorkspace with the software factory', () => {
     // Design is a seat with an agent: the before visual on the request, the after-shot when it ships.
     const designer = ws.agents.find(a => a.slug === 'designer');
 
-    expect(designer?.skills).toEqual(['design-the-change']);
+    expect(designer?.skills).toEqual(['design-the-change', 'rubric-designer']);
     expect(designer?.objectTypes).toEqual(['request', 'product']);
     expect(designer?.resolvedSystemPrompt).toContain('visuals.beforeArtifactIds');
     expect(designer?.resolvedSystemPrompt).toContain('visuals.afterArtifactIds');

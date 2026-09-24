@@ -339,6 +339,26 @@ jobs:
           --health-timeout 5s
           --health-retries 30
 
+    # A real Postgres, not the in-memory PGlite the suite boots locally.
+    # PGlite accepts one connection, which made every seed script a spec
+    # spawned wait about 10s for the app's pool to let go of it, and caused
+    # the `Connection terminated unexpectedly` flake in e2e/credentials
+    # (#631). pgvector because a migration creates the `vector` extension.
+    # The test step runs in a container action, which joins this job's
+    # network, so it reaches the database by the service name, `postgres`.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vocion_e2e
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vocion_e2e"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+
     steps:
       - uses: actions/checkout@v6
 

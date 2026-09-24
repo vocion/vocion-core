@@ -21,6 +21,7 @@ import { listActions } from '@/libs/actions/registry';
 import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
+import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
 import { emitSelfUpdate } from '../selfUpdateEvent';
 
 export function proposeActionTool(ctx: RuntimeContext) {
@@ -45,6 +46,15 @@ export function proposeActionTool(ctx: RuntimeContext) {
       const reason = parseSuggestedDecisionReason(suggested_decision_reason);
       if (reason === undefined) {
         return `Proposal refused: suggested_decision_reason is required. Send ONE short sentence for why you recommended "${suggested_decision}", in words a reviewer can check against the record.`;
+      }
+      // THE PROPOSAL BUDGET. An agent on its own schedule may hold only so
+      // many undecided items in Review; past that it withdraws one of its
+      // own before it files another. A person's own turn is never counted.
+      if (ctx.agentSlug && isAgentsOwnSchedule(ctx)) {
+        const verdict = await checkProposalBudget({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, actionId: action_id });
+        if (!verdict.ok) {
+          return verdict.message;
+        }
       }
       try {
         const res = await proposeAction({

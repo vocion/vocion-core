@@ -19,6 +19,16 @@ handles:
   - backlog
   - priorities
   - requests
+  - bug
+  - bug report
+  - customers reported
+  - store review
+  - support email
+  - incident
+  - is down
+  - returning 500
+  - feature request
+  - idea
   - what should we build
   - plan this request
   - task contract
@@ -41,6 +51,7 @@ skills:
   - write-task-contract
   - rank-the-backlog
   - write-release-notes
+  - rubric-product-manager
 objectTypes:
   - request
   - architecture_plan
