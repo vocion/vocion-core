@@ -37,6 +37,13 @@ describe('readEvalPeriod', () => {
     expect(selection.problem).toContain('could not be read');
   });
 
+  it('falls back to all time when a link\'s custom range is longer than the picker allows', () => {
+    const selection = readEvalPeriod({ period: 'custom', from: '2020-01-01', to: '2026-01-01' });
+
+    expect(selection.period).toBe('all');
+    expect(selection.problem).toContain('366 days');
+  });
+
   it('treats a range with an unknown period name as custom, not as all time', () => {
     const selection = readEvalPeriod({ period: 'fortnight', from: '2026-09-01', to: '2026-09-08' });
 

@@ -110,6 +110,7 @@ describe('GET /api/v1/evals/:slug/runs', () => {
   it.each([
     ['a date that is not one', '?from=last-week'],
     ['a range that runs backwards', '?from=2026-09-08&to=2026-09-01'],
+    ['a range longer than a year', '?from=2024-09-01&to=2026-09-01'],
     ['a page that is not a number', '?page=2abc'],
     ['page zero', '?page=0'],
   ])('refuses %s with a 400 instead of listing every run', async (_, query) => {

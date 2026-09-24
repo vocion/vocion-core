@@ -59,7 +59,8 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
  * - `to` — runs that started before this, in the same forms. Left out means up to now.
  * - `page` — 1-based page of the run list; defaults to 1.
  *
- * A bad date or a backwards range is a 400, never an unfiltered list, because
+ * A bad date, a backwards range, or a range with both ends longer than 366
+ * days is a 400, never an unfiltered list, because
  * a caller cannot tell a wrongly unfiltered answer from a right one.
  *
  * Paged newest first, 20 to a page (`EVAL_RUNS_PAGE_SIZE`), with `hasMore`

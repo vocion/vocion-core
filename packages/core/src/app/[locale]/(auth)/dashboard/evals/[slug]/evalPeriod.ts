@@ -26,9 +26,6 @@ export const EVAL_PERIOD_PRESETS: ReadonlyArray<{ id: 'all' | ScorecardPreset; l
   ...SCORECARD_PRESETS,
 ];
 
-/** The longest custom range the picker offers; "All time" covers anything longer. */
-export const MAX_EVAL_CUSTOM_RANGE_DAYS = 366;
-
 export type EvalPeriodSelection = {
   period: EvalPeriodId;
   /** The runs to show. Empty means all time. */

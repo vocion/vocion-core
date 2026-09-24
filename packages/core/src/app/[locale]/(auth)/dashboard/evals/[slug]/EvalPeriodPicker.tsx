@@ -8,8 +8,9 @@ import { useEffect, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CustomRangeForm } from '@/features/scorecard/CustomRangeForm';
 import { describeRange, rangeForPreset } from '@/features/scorecard/periods';
+import { MAX_RUN_RANGE_DAYS } from '@/libs/evals/runRange';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
-import { EVAL_PERIOD_PRESETS, initialCustomRange, isStalePreset, MAX_EVAL_CUSTOM_RANGE_DAYS, periodHref } from './evalPeriod';
+import { EVAL_PERIOD_PRESETS, initialCustomRange, isStalePreset, periodHref } from './evalPeriod';
 
 /**
  * The dataset page's period picker: the scorecard's preset dropdown and
@@ -143,7 +144,7 @@ export function EvalPeriodPicker(props: { period: EvalPeriodId; from: string | n
         <PopoverContent className="w-72 p-3">
           <CustomRangeForm
             initial={initialCustomRange(props.from, props.to)}
-            maxDays={MAX_EVAL_CUSTOM_RANGE_DAYS}
+            maxDays={MAX_RUN_RANGE_DAYS}
             onApply={range => applyCustomPeriod(range, setCustomOpen, navigation)}
           />
         </PopoverContent>

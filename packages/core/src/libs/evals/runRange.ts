@@ -20,6 +20,21 @@ export type RunRange = { from?: Date; to?: Date };
  */
 export const MAX_TREND_RUNS = 1000;
 
+/**
+ * The longest period, in days, a range with both ends may cover. Shared by the
+ * server, which refuses anything longer, and the date picker, which says so
+ * before the request is sent. The scorecard uses the same year.
+ *
+ * Only a range with both ends is held to it: "all time" and "since September"
+ * are real questions, and paging plus the trend chart's own limit bound what
+ * they cost. A closed range longer than a year is almost always a typo in a
+ * year, and saying so beats quietly answering a different question.
+ */
+export const MAX_RUN_RANGE_DAYS = 366;
+
+const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
+
 export type RunRangeResult = { ok: true; range: RunRange } | { ok: false; message: string };
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -51,7 +66,8 @@ function parseRangeEnd(value: string | null | undefined, name: string): { ok: tr
 /**
  * Read a run range from untrusted input — a URL's query string or an API call.
  *
- * Refuses rather than guesses: a bad date or a backwards range is an error,
+ * Refuses rather than guesses: a bad date, a backwards range or one longer
+ * than {@link MAX_RUN_RANGE_DAYS} is an error,
  * never quietly widened to "all time", because an unfiltered list that looks
  * filtered is the one answer a caller cannot tell is wrong.
  * @param input - The raw `from` and `to`, either of which may be missing.
@@ -69,6 +85,11 @@ export function parseRunRange(input: { from?: string | null; to?: string | null 
   }
   if (from.date && to.date && to.date.getTime() <= from.date.getTime()) {
     return { ok: false, message: '`to` must be after `from`.' };
+  }
+  // An hour of slack: a range of whole local days that crosses a
+  // daylight-saving change is an hour longer than its day count.
+  if (from.date && to.date && to.date.getTime() - from.date.getTime() > MAX_RUN_RANGE_DAYS * DAY_MS + HOUR_MS) {
+    return { ok: false, message: `A period can be at most ${MAX_RUN_RANGE_DAYS} days. Leave out \`from\` or \`to\` to ask for everything since or before a date.` };
   }
   return { ok: true, range: { from: from.date, to: to.date } };
 }

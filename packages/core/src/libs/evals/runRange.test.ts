@@ -44,6 +44,23 @@ describe('parseRunRange', () => {
     expect(parseRunRange({ from: '2026-09-08', to: '2026-09-08' }).ok).toBe(false);
   });
 
+  it('refuses a closed range longer than a year, the usual sign of a mistyped year', () => {
+    const result = parseRunRange({ from: '2025-09-01', to: '2026-09-03' });
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.message).toContain('366 days');
+  });
+
+  it('accepts a full leap year, and an hour over for a daylight-saving change', () => {
+    expect(parseRunRange({ from: '2028-01-01', to: '2029-01-01' }).ok).toBe(true);
+    expect(parseRunRange({ from: '2028-01-01T00:00:00Z', to: '2029-01-01T01:00:00Z' }).ok).toBe(true);
+  });
+
+  it('holds only a closed range to the limit, so "since" and "before" still reach every run', () => {
+    expect(parseRunRange({ from: '2020-01-01' }).ok).toBe(true);
+    expect(parseRunRange({ to: '2026-09-01' }).ok).toBe(true);
+  });
+
   it('refuses words where a date should be', () => {
     const result = parseRunRange({ from: 'last-week' });
 
