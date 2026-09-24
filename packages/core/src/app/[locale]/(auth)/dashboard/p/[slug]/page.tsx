@@ -8,7 +8,6 @@ import { notFound, redirect } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
-import { OverviewView } from '@/features/dashboard/factory/OverviewView';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PageBlocks } from '@/features/dashboard/pages/PageBlocks';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
@@ -33,6 +32,7 @@ import {
   readWorkspacePageMethodology,
   resolveField,
 } from '@/libs/workspace/pages';
+import { deriveProductBoard } from '@/libs/workspace/productBoard';
 import { deriveReleaseOutcome } from '@/libs/workspace/releaseOutcome';
 import { deriveWorkQueue } from '@/libs/workspace/workQueue';
 import {
@@ -43,13 +43,13 @@ import {
   knowledgeSourceSchema,
   toolCallSchema,
 } from '@/models/Schema';
-import { loadFactoryOverview } from '@/services/factory/overviewData';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
 import { readPageForOrg } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
 import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
+import { resolveRowImages } from '@/services/workspace/pageImages';
 
 /**
  * Workspace page renderer — `/dashboard/p/<slug>`.
@@ -59,8 +59,7 @@ import { listWorkflowRuns } from '@/services/WorkflowService';
  * `list`/`queue` query data core already owns (business objects, tool calls,
  * knowledge documents), `markdown` renders prose, `report` tells one
  * record's whole story (at `/dashboard/p/<slug>/<id>` — this route is its
- * index), `overview` computes an ordered list of typed panels over the same
- * records, and custom widgets come from the workspace's own component
+ * index), and custom widgets come from the workspace's own component
  * registry via the `@wsx/registry` alias.
  */
 
@@ -457,7 +456,7 @@ export default async function WorkspacePage(props: {
   const { locale, slug } = await props.params;
   const searchParams = await props.searchParams;
   setRequestLocale(locale);
-  const { orgId, userId } = await auth();
+  const { orgId } = await auth();
   if (!orgId) {
     // A valid session with no organization here — typically a cookie from a
     // sibling localhost app (shared AUTH_SECRET). A bare 404 hides the cause;
@@ -489,7 +488,7 @@ export default async function WorkspacePage(props: {
   const activeView = views ? (views.find(v => v.key === asked && v.href === undefined) ?? views[0]!) : null;
 
   let rows: PageRow[] = [];
-  if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && manifest.source) {
+  if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.source) {
     // A named derivation runs FIRST, over every row: it is what turns stored
     // states into the lanes and sentences the page is declared in, and it
     // needs the whole set to count what it then leaves out.
@@ -498,8 +497,14 @@ export default async function WorkspacePage(props: {
       ? deriveWorkQueue(loaded, { now: new Date(now) })
       : manifest.derive === 'releaseOutcome'
         ? deriveReleaseOutcome(loaded, { now: new Date(now) })
-        : loaded;
-    rows = applyFilter(derived, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
+        : manifest.derive === 'productBoard'
+          ? deriveProductBoard(loaded, { now: new Date(now) })
+          : loaded;
+    // A picture a row names by id becomes a picture the page can draw. One
+    // query for the whole page, after the derivation has chosen WHICH visual
+    // each row shows (`services/workspace/pageImages.ts`).
+    const drawn = await resolveRowImages(orgId, derived, manifest.fields ?? []);
+    rows = applyFilter(drawn, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {
@@ -537,14 +542,6 @@ export default async function WorkspacePage(props: {
       pausedWorkflowRuns = await listWorkflowRuns(orgId, { status: 'paused', limit: 50 });
     }
   }
-
-  // The overview archetype computes itself server-side: the panels are the
-  // page, so there are no rows, no stats and no table above them. The visit is
-  // recorded here (per viewer, per slug) so the digest has a "since" to
-  // measure from next time.
-  const overview = manifest.archetype === 'overview' && manifest.panels
-    ? await loadFactoryOverview({ orgId, userId: userId ?? null, slug: manifest.slug, panels: manifest.panels, now: new Date(now) })
-    : null;
 
   // One window, obeyed by the rows and by every stat that has not marked
   // itself lifetime. A page whose figures run on different periods cannot be
@@ -732,8 +729,6 @@ export default async function WorkspacePage(props: {
 
       <Widgets manifest={manifest} position="above" rows={windowed} stats={stats} />
 
-      {overview && <OverviewView overview={overview} />}
-
       {manifest.archetype === 'report' && (
         <p className="max-w-2xl text-sm text-muted-foreground">
           A report is about one record. Open it from a row on
@@ -751,7 +746,7 @@ export default async function WorkspacePage(props: {
         </p>
       )}
 
-      {manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && (() => {
+      {manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && (() => {
         const Rows = manifest.layout === 'block' ? PageBlocks : PageTable;
         // Tabs are the groups, so the panel never draws the group's heading
         // again inside itself, and the lane's note rides on the panel rather

@@ -1,233 +1,69 @@
-# Where each of the factory's action kinds starts on the autonomy ladder, and
-# why. Ordered by what is on the other side of a mistake — not by how often
-# the action is taken.
+# The trust ladder for the factory, over the eight actions core registers
+# (`libs/actions/factory.ts`). Every rule ships DISABLED except the branch
+# push: a plugin cannot know who owns a merge in someone else's deployment,
+# and Vocion refuses to let one be unowned. The workspace turns a rung on by
+# slug with `extends: core`.
 #
-# EARNED SPEED. The ladder promotes an action kind on evidence — decisions
-# where a person agreed with the recommendation, over a window, with no
-# rejections — and the merge is where that matters. A merge is not one action
-# kind: merging a docs change and merging a billing change are different
-# decisions with different blast radii, so they are different action ids here,
-# one per risk class (`git.merge.<riskClass>`), and each earns or never earns
-# on its own ledger.
-#
-# What this file CAN carry is the starting rung and a risk tier; the tier picks
-# the platform's evidence rule (`services/autonomy/rungs.ts` TIER_RULES):
-#   low    — n≥20,  90%, no rejection in 14d,           ceiling autonomous
-#   medium — n≥40,  95%, no high-confidence reject 30d, ceiling execute-within-bounds
-#   high   — never earns past execute-with-approval
-# What it CANNOT carry is a per-kind n or agreement rate. The thresholds the
-# factory actually holds itself to — docs and deps n≥30 at 95%, marketing n≥50
-# at 95%, ui n≥100 at 97% — are therefore the convention in the README, graded
-# against the ledger by the person who clicks promote, and a per-rule
-# `minN` / `minAgreement` is named there as the core follow-up. `medium` is
-# the nearest tier: stricter than the convention on n for docs and deps,
-# looser than it for ui, which is why the README says ui is not promoted on
-# the page's word alone.
-#
-# A note on "forbidden": the ladder has no such rung. `execute-with-approval`
-# with `enabled: false` is the most restrictive bar that still describes what
-# happens (the agent proposes, a person decides, only then does anything run),
-# and `autoApproveAbove: 1` means even a confidence of 1.0 releases nothing if
-# a workspace later flips `enabled` without thinking. `risk: high` is what
-# makes "never" true on the ladder itself: the high tier's ceiling is approval.
-#
-# These action ids are the factory's own, registered in core as hand-off
-# actions (`libs/actions/factory.ts`): a proposal lands here with a recipe, a
-# person releases it, and whoever does the work marks it done. `git.merge` is
-# one registered id carrying a `riskClass`; the rules below key on the derived
-# `git.merge.<riskClass>`, which is what the gate and the ledger read.
+# The shape: a branch is reversible and visible, so a worker pushes one on
+# its own. A merge is the production deploy on most repositories, so it is a
+# person's, however small the diff. Telling an asker or announcing a release
+# reaches a real person, so a person releases it. Provisioning, anything on a
+# cloud account and a credential are the floor.
 rules:
-  # Pushing a branch is the cheapest write in the system: it creates nothing a
-  # person has to live with, it is deleted with one command, and nothing
-  # downstream runs because of it. Holding it for review would put a person in
-  # front of every attempt while buying no safety at all — so it runs on its
-  # own at 0.7, above the reversible-write bar the wiki uses, because a push
-  # carries a worker's whole diff rather than one page.
   - action: git.push_branch
     autoApproveAbove: 0.7
     enabled: true
     rung: execute-within-bounds
     risk: low
-
-  # Merges that MAY earn their way to running within bounds. Each starts at
-  # approval — trust is demonstrated, not switched on — and climbs only on its
-  # own ledger. `docs` and `deps` are reversible text and lockfiles with a
-  # failing-before / passing-after check behind them; `marketing` is prose on a
-  # surface people read but do not rely on; `ui` is visible and testable but
-  # is where a promise is most often broken by accident, hence the stricter
-  # convention. `medium` is the tier that can reach execute-within-bounds and
-  # no further — autonomous is not on offer for a merge of any class.
-  - action: git.merge.docs
-    autoApproveAbove: 0.95
-    enabled: false
-    rung: execute-with-approval
-    risk: medium
-  - action: git.merge.deps
-    autoApproveAbove: 0.95
-    enabled: false
-    rung: execute-with-approval
-    risk: medium
-  - action: git.merge.marketing
-    autoApproveAbove: 0.95
-    enabled: false
-    rung: execute-with-approval
-    risk: medium
-  - action: git.merge.ui
-    autoApproveAbove: 0.97
-    enabled: false
-    rung: execute-with-approval
-    risk: medium
-
-  # Merges that NEVER earn it — not this year, not on any ledger. `promise` is
-  # a diff that nears one of the product's written promises (the
-  # `written-promises` playbook) — pricing, plan limits, seats, the free plan —
-  # and is the one class a person decides whatever the files say. `logic` is
-  # where a promise is broken on purpose by a change that meant well; `auth`,
-  # `billing` and `schema` are where a mistake reaches people who never asked
-  # for the change and cannot undo it from where they stand; `infra` is the
-  # ground the rest runs on. Anything touching a product's written promises
-  # is in this group whatever its class. `risk: high` is what makes the ceiling
-  # approval on the ladder itself, so no evidence count ever reads as earned.
-  - action: git.merge.promise
+  - action: git.merge
     autoApproveAbove: 1
     enabled: false
     rung: execute-with-approval
     risk: high
-  - action: git.merge.logic
-    autoApproveAbove: 1
-    enabled: false
-    rung: execute-with-approval
-    risk: high
-  - action: git.merge.auth
-    autoApproveAbove: 1
-    enabled: false
-    rung: execute-with-approval
-    risk: high
-  - action: git.merge.billing
-    autoApproveAbove: 1
-    enabled: false
-    rung: execute-with-approval
-    risk: high
-  - action: git.merge.schema
-    autoApproveAbove: 1
-    enabled: false
-    rung: execute-with-approval
-    risk: high
-  - action: git.merge.infra
-    autoApproveAbove: 1
-    enabled: false
-    rung: execute-with-approval
-    risk: high
-
-  # Telling the person who asked — the honest "no", or that their request
-  # shipped in a release. One action kind for both, because it is one act: a
-  # reply on the channel they used, under the company's name, that cannot be
-  # unsent. Asked, every time, at the medium tier: it may earn its way to
-  # running within bounds once the ledger shows people approving replies
-  # unchanged, because the words are the agent's and a person can read fifty
-  # of them in an afternoon.
+  # Telling the asker is two different things, and the ladder should be able
+  # to tell them apart (review, 2026-09-24): a routine, evidenced completion
+  # ("shipped in v1.8, here is the release") may earn its way out under a
+  # policy the product owner turns on; a decline, an incident update or
+  # anything that touches a promise is read by a person every time. The PM
+  # names the kind on the proposal (notify.requester.<kind>); a kind with no
+  # rule of its own reads the parent's.
   - action: notify.requester
     autoApproveAbove: 0.95
     enabled: false
     rung: execute-with-approval
     risk: medium
-
-  # Announcing a release — the short public text on a store listing, a status
-  # page, a channel. Marketing copy by another name, so it sits where
-  # `git.merge.marketing` sits: approval to start, the medium tier, and the
-  # same road to running within bounds once people stop editing it. The notes
-  # it is written from are a person's before it goes out (`notesSource:
-  # human`); the announcement is the act that closes the loop.
+  - action: notify.requester.completion
+    autoApproveAbove: 0.9
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  - action: notify.requester.sensitive
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
   - action: release.announce
     autoApproveAbove: 0.95
     enabled: false
     rung: execute-with-approval
     risk: medium
-
-  # A deploy reaches people who never asked for the change and cannot undo it
-  # from where they are standing. Asked, every time, at the high tier so the
-  # ladder demands high-tier evidence before it will even offer to promote it.
   - action: deploy.release
     autoApproveAbove: 1
     enabled: false
     rung: execute-with-approval
     risk: high
-
-  # Anything touching credentials: the worker runs on a machine we do not host,
-  # so a credential it can read is a credential that has left the building. The
-  # agent may say what it needs and why; a person does it. That is `recommend`
-  # rather than `execute-with-approval` on purpose — there is nothing here for
-  # an approval to release, because the action itself is a person's.
+  - action: deploy.provision
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: aws.mutate
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
   - action: credentials.write
     autoApproveAbove: 1
     enabled: false
     rung: recommend
-    risk: high
-
-  # THE PRODUCT MANAGER'S TWO ACTS. Recommending and authorizing are different
-  # decisions and sit on different rungs.
-  #
-  # `product.recommend` is putting a request in front of the accountable
-  # person with a proposed outcome — today an ask of kind `recommendation`,
-  # graded on the alignment ledger by ask kind. It is `recommend` rather than
-  # `execute-with-approval` for the same reason `credentials.write` is: there
-  # is nothing for an approval to release, because the recommendation IS the
-  # ask. `risk: low` because the blast radius of a wrong recommendation is a
-  # person's minute.
-  - action: product.recommend
-    autoApproveAbove: 1
-    enabled: false
-    rung: recommend
-    risk: low
-
-  # `product.authorize.<class>` is the person's "yes, build it" — one action
-  # id per class, on the model of `git.merge.<class>`, because authorizing a
-  # docs fix and authorizing a feature are different decisions with different
-  # blast radii. Each starts at approval and earns or never earns on its own
-  # ledger: `docs`, `copy` and `deps` are `low` — a wrong yes costs a
-  # reversible pull request the merge gate still holds — so they may earn
-  # their way to running within bounds and, on the low tier's evidence, past
-  # it, which is what "auto-authorization" means here: an approved-class
-  # recommendation released to the planner without a person's click. `fix`
-  # and `feature` are `medium` and stop at running within bounds. `major` and
-  # `promise` are `high`: a new capability counts against the initiative limit
-  # and a promise is a person's whatever the ledger says.
-  #
-  # Until core registers these actions the recommendation is an ask and every
-  # class is a person's answer; these rules set the bar and the autonomy page
-  # shows it, so the day core registers them nothing here changes.
-  - action: product.authorize.docs
-    autoApproveAbove: 0.9
-    enabled: false
-    rung: execute-with-approval
-    risk: low
-  - action: product.authorize.copy
-    autoApproveAbove: 0.9
-    enabled: false
-    rung: execute-with-approval
-    risk: low
-  - action: product.authorize.deps
-    autoApproveAbove: 0.9
-    enabled: false
-    rung: execute-with-approval
-    risk: low
-  - action: product.authorize.fix
-    autoApproveAbove: 0.95
-    enabled: false
-    rung: execute-with-approval
-    risk: medium
-  - action: product.authorize.feature
-    autoApproveAbove: 0.95
-    enabled: false
-    rung: execute-with-approval
-    risk: medium
-  - action: product.authorize.major
-    autoApproveAbove: 1
-    enabled: false
-    rung: execute-with-approval
-    risk: high
-  - action: product.authorize.promise
-    autoApproveAbove: 1
-    enabled: false
-    rung: execute-with-approval
     risk: high

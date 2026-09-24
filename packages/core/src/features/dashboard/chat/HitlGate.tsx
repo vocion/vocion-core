@@ -7,10 +7,22 @@ import { useEffect, useState } from 'react';
 /**
  * Human-in-the-loop approval gate (Phase C).
  *
- * Rendered above the composer when the agent emits a `hitl_gate`
- * SSE event. Shows the question + optional payload preview + two
- * actions. Approve/reject sends a follow-up turn carrying the
- * decision (no checkpointer; matches v0.2 design).
+ * Emitted by the agent as a `hitl_gate` SSE event. Shows the question +
+ * optional payload preview + two actions. Approve/reject sends a follow-up
+ * turn carrying the decision (no checkpointer; matches v0.2 design).
+ *
+ * IT RENDERS IN THE TRANSCRIPT, as a block after the turn that raised it —
+ * not pinned above the composer, which is where it used to sit. Chris,
+ * 2026-09-24: *"refactor those to show inline instead of sticky to the
+ * compose bar"*. A decision anchored to the bottom of the pane is detached
+ * from the turn that asked for it: scroll up to read why you are being asked
+ * and the question follows you down the page, still saying "approve" about
+ * something no longer on screen. As a block it sits where it happened, scrolls
+ * with the conversation, and stays in the record once decided.
+ *
+ * So this component owns NO layout of its own — no centring, no measure, no
+ * page padding. The transcript supplies all three (`mx-auto w-full max-w-3xl`
+ * on the message column), the same as for a message.
  *
  * The parent shell decides what "approve" / "reject" actually puts
  * in the next user message (e.g. `"approve"` / `"reject: bad scope"`).
@@ -54,7 +66,7 @@ function useElapsed(since: number | undefined) {
 export function HitlGate({ gate, onApprove, onReject, disabled = false, pausedAt, approverRole = 'org:admin' }: HitlGateProps) {
   const elapsed = useElapsed(pausedAt);
   return (
-    <div className="mx-auto max-w-3xl px-6">
+    <div data-testid="hitl-gate">
       <div className="rounded-2xl border-2 border-brand-amber/40 bg-brand-amber-tint p-5">
         <div className="flex items-start gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-amber/15 text-brand-amber-deep">

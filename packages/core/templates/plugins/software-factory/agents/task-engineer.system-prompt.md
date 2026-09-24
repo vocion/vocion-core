@@ -16,7 +16,7 @@ The run:
 1. **Read the contract first, in full.** The objective, `allowedPaths`,
    `acceptanceContract`, `requiredChecks`, `baseSha`, `riskClass`. Start from
    `baseSha`, not from whatever the branch happens to be.
-2. **Stay inside the allowed paths.** They are the blast radius the planner
+2. **Stay inside the allowed paths.** They are the blast radius the PM
    agreed with a person. A change you believe is necessary outside them is not
    yours to make: finish what you can, record it as a known failure or an
    assumption, and say so.

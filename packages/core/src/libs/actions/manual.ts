@@ -257,6 +257,8 @@ export type ManualActionSpec<Extra extends Z.ZodRawShape = Record<never, never>>
   extraFields?: (input: ManualInput & Z.infer<Z.ZodObject<Extra>>) => Array<{ label: string; value: string }>;
   /** The ladder key for this input, when one id serves several ledgers. */
   policyKeyFor?: (input: ManualInput & Z.infer<Z.ZodObject<Extra>>) => string;
+  /** Whether a rule on the bare id governs derived keys with no rule of their own; see `Action.parentRuleGoverns`. */
+  parentRuleGoverns?: boolean;
 };
 
 /**
@@ -291,6 +293,7 @@ export function manualAction<Extra extends Z.ZodRawShape = Record<never, never>>
       return input.externalRef ? `${spec.id}:${input.externalRef.system}:${input.externalRef.id}`.toLowerCase() : undefined;
     },
     ...(spec.policyKeyFor ? { policyKeyFor: (raw: unknown) => spec.policyKeyFor!(raw as Input) } : {}),
+    ...(spec.parentRuleGoverns ? { parentRuleGoverns: true } : {}),
     async reviewCard(_ctx, raw) {
       const input = raw as Input;
       return manualReviewCard({

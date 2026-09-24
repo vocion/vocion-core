@@ -52,6 +52,10 @@ nav: {section: Software factory, order: 1}
 archetype: list
 layout: block
 source: {kind: objects, objectType: product}
+# One sentence per product, derived from its rollups and its health: what a
+# person should do about it, or that it is too early to say (review,
+# 2026-09-24: "Products is missing the executive recommendation").
+derive: productBoard
 sort: {field: meta.stage, dir: asc}
 # Drawn once the portfolio is big enough that reading every row is the slower
 # way to answer these. At two products the rows already say all of it.
@@ -72,9 +76,10 @@ stats:
 # last reach production, and how much is queued.
 primary:
   field: title
-  subtitle: [stage, health, owner, price, lastRelease, open]
+  subtitle: [line, stage, health, owner, lastRelease, open]
 fields:
   - {key: title, label: Product}
+  - {key: line, label: Where it stands, from: meta.boardLine}
   - {key: stage, label: Stage, from: meta.stage, format: badge, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
   # `source` is what keeps a degraded product and an unmonitored one from
   # reading the same. With nothing checking it, the row says "monitoring not
@@ -89,11 +94,14 @@ fields:
   - {key: owner, label: Accountable, from: meta.accountableUser}
   # Core to the thesis, so it is the one place on the row that keeps detail
   # and the one that carries visual weight.
+  # Our price beside the incumbent's lives on the record now; it is rarely
+  # the fact a daily portfolio read turns on.
   - key: price
     label: Our price
     from: meta.ourPrice
     format: compare
     beside: {from: meta.incumbent.listPrice, labelFrom: meta.incumbent.name, checkedFrom: meta.incumbent.checkedOn}
+    detail: true
   # "Last shipped" is internal factory language. "Last release" is what a
   # person running a product says, and the release itself is the thing they
   # would open to see what changed.
@@ -105,7 +113,7 @@ fields:
     label: Open work
     from: meta.openRequests
     format: workload
-    workload: {noun: open request, inFlightFrom: meta.inFlight, urgentFrom: meta.p1Open, urgentLabel: urgent}
+    workload: {noun: open request, inFlightFrom: meta.inFlight, urgentFrom: meta.awaitingDecision, urgentLabel: to decide}
   # Only on a row whose figures have gone STALE. "Counters last recomputed"
   # is never primary card content: on a healthy row it is noise competing
   # with the figures it describes, so when nothing is stale the field is

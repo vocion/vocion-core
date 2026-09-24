@@ -1,13 +1,32 @@
 slug: tell-the-requester-check
 name: Two-hourly reply pass
 description: >-
-  Wakes the Task planner on the cadence of the `tell-the-requester` mission to check the
+  Wakes the PM on the cadence of the `tell-the-requester` mission to check the
   standing charter and do only what needs doing now.
 status: active
-agent: task-planner
+agent: product-manager
 when:
   schedule: '0 */2 * * *'
 do:
   checkMission: tell-the-requester
   prompt: >-
-    First: any release with notes and no announcedAt. If its notes are the agent's draft, ask a person to own them, and file every such ask in one pass under the shared group_key `software-factory:release-notes-ownership` with a group_title naming the question, because who owns release notes is one ruling however many releases are waiting on it; if they are a person's, propose the announcement (release.announce) from them. Any release with no notes gets them drafted (write-release-notes) before anything else about it. Then read every release since the last pass: each request id in its requestIds and not in its announcedTo.requestIds is a person to tell (notify.requester), unless the release's healthAfter is down, in which case wait and say so. Add every request whose answer was decided since the last pass and has no reply yet. For each, propose the reply on the channel the request came from (the store, the mailbox, the issue, the chat), written for the asker in their terms, saying what changed or was decided and why. A reply about a release names its version. Say nothing is done that is still waiting on a person. When a reply is released, add the request id to the release's announcedTo.requestIds; when an announcement is, set announcedAt and its channels. Report: proposed, released since last pass, still waiting.
+    First: any release with notes and no announcedAt. If its notes are the
+    agent's draft, ask a person to own them, and file every such ask in one
+    pass under the shared group_key `software-factory:release-notes-ownership`
+    with a group_title naming the question; if they are a person's, propose
+    the announcement (release.announce) from them — unless the release's
+    healthAfter is down or degraded, in which case the SUCCESS announcement
+    waits and you say so. Any release with no notes gets them drafted
+    (write-release-notes) first. Then read every request whose told.status is
+    not sent: for each one shipped in a release, or whose answer or deferral
+    was decided since the last pass, propose the reply on the channel the
+    request came from, written for the asker in their terms, saying what
+    changed or was decided and why. Name the kind on the proposal:
+    completion for a shipped change (it may go out under the policy the
+    product owner turned on); decline, question or incident otherwise (a
+    person releases it). A failing health check blocks completions only; an
+    incident update to the same askers goes out precisely then. When a reply
+    is released, write told {at, channel, what, status: sent} on the request;
+    when a channel refuses it, status failed and say so. Set the release's
+    announcedAt when its announcement is released — a separate fact. Report:
+    proposed, released since last pass, still waiting, and any failed.

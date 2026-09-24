@@ -24,6 +24,7 @@ import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
 import { RunCollector } from '@/services/chat/runCollector';
+import { stoppedShort } from '@/services/chat/turnStatus';
 import {
   appendMessage,
   createConversation,
@@ -398,6 +399,28 @@ export async function POST(request: Request): Promise<Response> {
           // because someone gave up on it.
           if (ending === 'complete' && wasStopped(streamId)) {
             ending = 'stopped';
+          }
+          // A TURN THAT DID WORK AND NEVER ANSWERED IS NOT COMPLETE.
+          //
+          // `stalled` and the notice that renders it have existed since #114,
+          // and `workspaceTurn` has classified it since — but that is the MCP
+          // path. THIS is the route a person in a browser uses, and it stored
+          // every one of these as `complete`: a silent empty answer under a
+          // spinner that stopped, no notice, no reason, and the stalled
+          // sentence replayed to the model next turn as though it had been an
+          // answer. Production turn 533 (2026-09-24) is the specimen — "I'll
+          // look at what's already known about this before writing a
+          // contract.", two tool calls, nothing else, stored `complete`.
+          //
+          // Detection only. The turn is NOT re-run: a stalled turn's text is
+          // dropped from history, so asking again would replay its tool calls
+          // too, which is the side-effect replay the catch above refuses for
+          // exactly the same reason. Continuing from the results already in
+          // context has to happen inside the loop, not here.
+          const toolCalls = runs.filter(r => r.type === 'tool').length;
+          if (ending === 'complete' && stoppedShort({ text, toolCalls })) {
+            ending = 'stalled';
+            endingReason = `the turn ran ${toolCalls} step${toolCalls === 1 ? '' : 's'} and ended without answering`;
           }
           // A turn that threw before it spoke has nothing to show, but it still
           // happened: without a row the whole turn disappears on reload and the

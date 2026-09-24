@@ -155,7 +155,7 @@ export type Inbox = {
 
 /**
  * How far back the escalation rule looks for failures of the same task. A
- * plain failure NEVER appears here, it is a log line, and the Factory log
+ * plain failure NEVER appears here, it is a log line, and the run record
  * and the floor already show it (Chris, 2026-09-21). This window exists only
  * so `escalationsFrom` can see a task's third attempt.
  */

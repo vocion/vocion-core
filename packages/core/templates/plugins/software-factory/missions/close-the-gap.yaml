@@ -1,7 +1,7 @@
 slug: close-the-gap
 name: No request waits more than a week
 description: >-
-  The standing responsibility of the Task planner — the lead's mission tick.
+  The standing responsibility of the PM — the lead's mission tick.
   Not a one-off run: each check reads the backlog, ranks it, and promotes only
   what the three WIP limits allow.
 goal: >-
@@ -16,7 +16,7 @@ goal: >-
   minutes open against the day's budget of sixty, workers and spend against
   the budgets core already holds, and never a second initiative while one is
   in flight.
-agent: task-planner
+agent: product-manager
 autonomyPolicy:
   level: 2
 successCriteria:
@@ -27,6 +27,11 @@ successCriteria:
   - The sum of decisionCost over open asks stays under sixty minutes a day; when it would not, the next task waits and the check says so
   - At most one initiative is in flight; a second is an ask naming both, never a decomposition
   - Every task that could not be made checkable is a question on the review queue, naming what would make it checkable
+  - No build is put in front of a person before its commitment is written — the draft contract, the main risk, the expected result and how it will be checked, and the mockup or the recorded reason for none; the card carries all of it, and approving it is what freezes the acceptance criteria
+  - Defer is a decision with a reason and a revisit date, written on the request and honoured; a rejection is not asked again
+  - Blocked means an obstacle somebody wrote down, with an owner and a next action; work awaiting dispatch, QA or a merge is never called blocked
+  - Three failed attempts are an escalation to a person with a revised recommendation, never an automatic no
+  - Every shipped request carries a result — helped, did not help, or not enough evidence — within its check window, with the figure or observation and its source; did not help is a new request
 desiredArtifacts:
   - A task contract per request that will be built
   - A written answer per request that will not be, in the asker's own terms, proposed for a person to release

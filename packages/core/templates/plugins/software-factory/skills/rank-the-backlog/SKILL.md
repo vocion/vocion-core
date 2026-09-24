@@ -3,21 +3,21 @@ slug: rank-the-backlog
 name: Ranking the backlog
 description: >-
   How a product's open requests are scored and ordered: against the product's
-  written promises, the twenty-percent test, how many real people asked, and
+  written promises, the operating intent, how many real people asked, and
   evidence from an analytics source when one exists — with the score and its
   reasons written on the request (`priority`, `priorityReason`, `rankedAt`).
   Covers what counts as evidence and what does not, how ties break, and when a
-  ranking is stale. Read before assembling a recommendation batch, and on
-  every weekly review.
-playbooks: [the-twenty-percent, written-promises]
+  ranking is stale. Read before recommending anything to a person, and
+  whenever a person asks what to build next.
+playbooks: [naming-the-work]
 version: 1
 ---
 
 # Ranking the backlog
 
-The backlog is unbounded and cheap; the ten asks in front of a person are
-bounded and expensive. Ranking is what decides which ten, and it is only
-worth doing if the reasons are written where the next reader can check them.
+The backlog is unbounded and cheap; the asks in front of a person are bounded
+and expensive. Ranking is what decides which few, and it is only worth doing
+if the reasons are written where the next reader can check them.
 A score without a reason is a feeling with a number on it.
 
 ## What is ranked
@@ -25,7 +25,7 @@ A score without a reason is a feeling with a number on it.
 Every `request` in an open state — `new`, `triaged`, `in_scope` — for one
 product at a time. A request with no `product` is not ranked; it is a question
 for a person. A `p1` bug or an `incident` is not ranked either: it is already
-the planner's tonight, and putting a score beside it would only suggest it
+a contract tonight, and putting a score beside it would only suggest it
 could wait.
 
 ## The four inputs, and nothing else
@@ -39,19 +39,18 @@ could wait.
    advises and is not enforced, so never report a request as blocked by it.
    Where no intent is stated, say you are ranking without one.
 
-1. **The product's promises** (`product.promises`, plus the four in the
-   `written-promises` playbook). A request that would *keep* a promise people
+1. **The product's promises** (`product.promises`). A request that would *keep* a promise people
    are currently finding broken ranks first. A request that would *strain* one
    ranks last, whatever else is true, and its reason says which promise.
-2. **The twenty-percent test** (`the-twenty-percent`). Does this serve the
-   core job the product does really well? Yes is worth a lot; no is worth
+2. **The job the product does.** Does this serve the core job the product
+   does for people, or something beside it? Yes is worth a lot; no is worth
    nothing, and the honest answer to the request is the recommendation, not a
    low score that leaves it in the queue.
 3. **How many real people asked.** Count the request and every request whose
    `duplicateOf` points at it. The same person asking twice counts twice. A
    store review counts the same as a dogfood note. A comparison chart, a
-   competitor's feature list and "the incumbent has it" count zero — the
-   playbook says why.
+   competitor's feature list and "the incumbent has it" count zero: nobody
+   who uses the product asked.
 4. **Analytics evidence — only when a source exists.** If the workspace has a
    PostHog or Sentry source, read it: how many people reach the surface the
    request is about, how often the error it describes fires, dated. Cite the

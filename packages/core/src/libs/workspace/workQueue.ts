@@ -162,24 +162,91 @@ export function laneOf(row: PageRow): WorkLane {
   return state === 'building' ? 'progress' : 'proposed';
 }
 
+/** The stages of the loop, in the order a person sees them. `answered` and `deferred` are the two exits. */
+export const WORK_STAGES = ['asked', 'decided', 'planned', 'building', 'qa', 'released', 'answered', 'deferred'] as const;
+export type WorkStage = typeof WORK_STAGES[number];
+
+/** An actual obstacle, as the record wrote it: what, who clears it, the one move. */
+export type Blocker = { what: string; owner: string | null; next: string | null };
+
 /**
- * Whether a building outcome has actually stopped.
+ * The obstacle on a row, if the record names one.
  *
- * The state field says a worker is on it; the tasks say whether one is. A
- * request with tasks written and none of them dispatched or running is
- * stalled, whatever the state claims, and a page that draws it as "building"
- * is lying about what is happening — the same argument
- * {@link isWaitingOnPerson} makes about an undecided recommendation. No new
- * state is stored for this: `runningTaskCount` is a rollup over the tasks,
- * so the queue cannot disagree with them.
+ * STAGE, ACTIVITY AND BLOCKER ARE THREE FACTS (review, 2026-09-24). Until
+ * now "tasks written, none running" read as Blocked, which mislabelled work
+ * awaiting dispatch, awaiting QA, ready to merge and waiting on an approved
+ * dependency — normal waiting reported as failure. Blocked now means an
+ * obstacle somebody wrote down (`request.blocker`: what, owner, next), and
+ * nothing else; the waits are states of their own ({@link stateOf}).
+ * @param row - The row.
+ */
+export function blockerOf(row: PageRow): Blocker | null {
+  const raw = meta(row).blocker;
+  if (raw === null || typeof raw !== 'object') {
+    return null;
+  }
+  const b = raw as Record<string, unknown>;
+  const what = typeof b.what === 'string' && b.what.trim() !== '' ? b.what.trim() : null;
+  if (what === null) {
+    return null;
+  }
+  const text = (k: string) => (typeof b[k] === 'string' && (b[k] as string).trim() !== '' ? (b[k] as string).trim() : null);
+  return { what, owner: text('owner'), next: text('next') };
+}
+
+/**
+ * Is there an actual obstacle on this outcome? Only when the record names
+ * one, and never on finished work.
  * @param row - The row.
  */
 export function isBlocked(row: PageRow): boolean {
-  if (laneOf(row) !== 'progress') {
-    return false;
+  return laneOf(row) !== 'done' && blockerOf(row) !== null;
+}
+
+/**
+ * Where in the loop this outcome is, read off the records and never stored:
+ * the request's state, the tasks under it and what they are waiting on.
+ * @param row - The row.
+ */
+export function stageOf(row: PageRow): WorkStage {
+  const state = str(row, 'state');
+  if (state === 'answered') {
+    return 'answered';
   }
+  if (state === 'shipped') {
+    return 'released';
+  }
+  if (state === 'deferred') {
+    return 'deferred';
+  }
+  if (state === 'building') {
+    return (num(row, 'awaitingReviewTaskCount') ?? 0) > 0 || (num(row, 'acceptedTaskCount') ?? 0) > 0 ? 'qa' : 'building';
+  }
+  if (state === 'in_scope' || state === 'out_of_scope') {
+    return (num(row, 'taskCount') ?? 0) > 0 ? 'planned' : 'decided';
+  }
+  return 'asked';
+}
+
+/**
+ * Which wait a building outcome is in, when it is not actually running.
+ * @param row - The row.
+ */
+function waitOf(row: PageRow): 'merge' | 'qa' | 'dispatch' | null {
   const tasks = num(row, 'taskCount') ?? 0;
-  return tasks > 0 && (num(row, 'runningTaskCount') ?? 0) === 0;
+  const running = num(row, 'runningTaskCount') ?? 0;
+  const review = num(row, 'awaitingReviewTaskCount') ?? 0;
+  const accepted = num(row, 'acceptedTaskCount') ?? 0;
+  if (running > 0) {
+    return null;
+  }
+  if (accepted > 0 && accepted >= tasks) {
+    return 'merge';
+  }
+  if (review > 0) {
+    return 'qa';
+  }
+  return tasks > 0 ? 'dispatch' : null;
 }
 
 /** What a queued outcome is called before anyone has started it. */
@@ -205,11 +272,30 @@ const PROPOSED_STATE_LABEL: Record<string, string> = {
  * @param lane - The lane it landed in.
  */
 export function stateOf(row: PageRow, lane: WorkLane): string {
+  if (lane !== 'done' && isBlocked(row)) {
+    return 'Blocked';
+  }
   if (lane === 'progress') {
-    return isBlocked(row) ? 'Blocked' : 'Building';
+    switch (waitOf(row)) {
+      case 'merge':
+        return 'Ready to merge';
+      case 'qa':
+        return 'Awaiting QA';
+      case 'dispatch':
+        return 'Awaiting dispatch';
+      default:
+        return 'Building';
+    }
   }
   if (lane === 'done') {
-    return str(row, 'state') === 'answered' ? 'Answered' : 'Shipped';
+    if (str(row, 'state') === 'answered') {
+      return 'Answered';
+    }
+    const result = str(row, 'result');
+    return result === 'helped' ? 'Shipped · helped' : result === 'did_not_help' ? 'Shipped · did not help' : 'Shipped';
+  }
+  if (str(row, 'state') === 'deferred') {
+    return 'Deferred';
   }
   if (isWaitingOnPerson(row)) {
     return 'Decide';
@@ -301,16 +387,53 @@ export function whyLine(row: PageRow): string | null {
  * @param now - The clock.
  */
 export function workLine(row: PageRow, lane: WorkLane, now: Date): string | null {
+  // A PLAIN SENTENCE: what is happening, and whether it needs the reader.
+  // "Awaiting QA. Engineering finished; no action needed from you." — not a
+  // count that the reader has to turn into a state (review, 2026-09-24).
+  const blocker = lane !== 'done' ? blockerOf(row) : null;
+  if (blocker) {
+    const who = blocker.owner ? `${blocker.owner} to ${blocker.next ?? 'clear it'}` : blocker.next ?? 'nobody is named to clear it';
+    return `${blocker.what}. ${who}.`;
+  }
   if (lane === 'progress') {
     const tasks = num(row, 'taskCount') ?? 0;
-    if (isBlocked(row)) {
-      return `${tasks} ${tasks === 1 ? 'task' : 'tasks'} written, none running`;
+    const noun = tasks === 1 ? 'task' : 'tasks';
+    switch (waitOf(row)) {
+      case 'merge':
+        return 'QA approved. The merge is waiting on a person.';
+      case 'qa':
+        return 'Engineering finished. Awaiting QA; no action needed from you.';
+      case 'dispatch':
+        return `${tasks} ${noun} written, none picked up yet. No action needed from you.`;
+      default:
+        return tasks ? `${tasks} ${noun} underway. No action needed from you.` : null;
     }
-    return tasks ? `${tasks} ${tasks === 1 ? 'task' : 'tasks'} underway` : null;
   }
   if (lane === 'done') {
     const when = finishedAt(row);
-    return when ? daysAgoLabel(when, now) : null;
+    const ago = when ? daysAgoLabel(when, now) : null;
+    if (str(row, 'state') === 'answered') {
+      return ago;
+    }
+    const result = str(row, 'result');
+    if (result === 'helped' || result === 'did_not_help') {
+      const note = str(row, 'resultNote');
+      return note ? firstSentence(note) : ago;
+    }
+    if (result === 'not_enough_evidence') {
+      return `${ago ?? 'Shipped'} · result: not enough evidence yet`;
+    }
+    const check = date(meta(row).checkAfter);
+    if (check) {
+      return check.getTime() > now.getTime() ? `${ago ?? 'Shipped'} · result checked ${check.toISOString().slice(0, 10)}` : `${ago ?? 'Shipped'} · result not checked yet`;
+    }
+    return ago;
+  }
+  if (str(row, 'state') === 'deferred') {
+    const until = date(meta(row).deferredUntil);
+    const reason = str(row, 'deferReason');
+    const head = until ? `Deferred until ${until.toISOString().slice(0, 10)}` : 'Deferred';
+    return reason ? `${head}: ${firstSentence(reason)}` : head;
   }
   if (isWaitingOnPerson(row)) {
     const verb = OUTCOME_VERB[str(row, 'recommendedOutcome') ?? ''] ?? null;
@@ -475,6 +598,37 @@ export function visualGap(row: PageRow, lane: WorkLane): string | null {
 }
 
 /**
+ * WHICH PICTURE this row shows, as an artifact id.
+ *
+ * One card, one picture, and which one depends on where the work is. A row
+ * that has shipped shows what it looks like NOW — an after-shot beats a
+ * mockup of it the moment there is one, because the mockup has stopped being
+ * a proposal and become a historical claim. Everywhere else the row shows
+ * what is proposed, which is the thing a decision is taken against.
+ *
+ * The id rather than a URL: the record names an artifact, and the page layer
+ * resolves it once for the whole page (`services/workspace/pageImages.ts`).
+ * Nothing is stored here that could disagree with the artifact.
+ * @param row - The row.
+ * @param lane - The lane it landed in.
+ */
+export function visualArtifactId(row: PageRow, lane: WorkLane): number | null {
+  const raw = meta(row).visuals;
+  const v = raw !== null && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const first = (key: string): number | null => {
+    const list = v[key];
+    const id = Array.isArray(list) ? list[0] : undefined;
+    return Number.isInteger(id) && (id as number) > 0 ? id as number : null;
+  };
+  // The platform's own drawing is the floor under the picture, never the
+  // gate: the card shows it when nothing real exists, and `visualGap` keeps
+  // saying `no mock` until Design files one (review, 2026-09-24).
+  const drawn = Number.isInteger(v.drawnArtifactId) && (v.drawnArtifactId as number) > 0 ? v.drawnArtifactId as number : null;
+  const proposed = first('beforeArtifactIds') ?? drawn;
+  return lane === 'done' ? first('afterArtifactIds') ?? proposed : proposed;
+}
+
+/**
  * The conditional facts, which appear only when they are true. A flag the
  * lane heading already states is not repeated on the row.
  * @param row - The row.
@@ -529,7 +683,7 @@ function laneLabel(lane: WorkLane): string {
 function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked: number; queued: number; minutes: number; blocked: number; noVisual: number }): string | null {
   const hidden = counts.total - counts.shown;
   if (lane === 'progress') {
-    return counts.blocked > 0 ? `${counts.blocked} of ${counts.total} stopped` : null;
+    return counts.blocked > 0 ? `${counts.blocked} blocked` : null;
   }
   if (lane === 'done') {
     const shipped: string[] = [];
@@ -586,8 +740,10 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date): Ordered[] {
   // person: an outcome whose recommendation nobody has decided sits above the
   // queue whatever its reason or age, because it is the only work here that
   // moves the moment it is read.
-  const waiting = rows.filter(r => isWaitingOnPerson(r));
-  const queued = rows.filter(r => !isWaitingOnPerson(r));
+  const deferred = rows.filter(r => str(r, 'state') === 'deferred');
+  const live = rows.filter(r => str(r, 'state') !== 'deferred');
+  const waiting = live.filter(r => isWaitingOnPerson(r));
+  const queued = live.filter(r => !isWaitingOnPerson(r));
   const rankable = queued.filter(r => readReasons(meta(r)).recorded);
   const rest = queued.filter(r => !readReasons(meta(r)).recorded);
   waiting.sort((a, b) => time(a) - time(b));
@@ -597,6 +753,8 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date): Ordered[] {
     ...waiting.map(row => ({ row, lane, rank: null })),
     ...rankable.map((row, i) => ({ row, lane, rank: i + 1 })),
     ...rest.map(row => ({ row, lane, rank: null })),
+    // Not now, by a person's decision: last, unranked, and back at the top when the date passes.
+    ...deferred.sort((a, b) => time(a) - time(b)).map(row => ({ row, lane, rank: null })),
   ];
 }
 
@@ -680,7 +838,10 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           order: laneIndex * 1000 + i,
           rank: rank === null ? undefined : String(rank),
           state,
+          stage: stageOf(row),
+          blockerLine: blockerOf(row) && lane !== 'done' ? blockerOf(row)!.what : undefined,
           visualGap: visualGap(row, lane) ?? undefined,
+          visual: visualArtifactId(row, lane) ?? undefined,
           acceptanceLine: acceptanceLine(row, lane) ?? undefined,
           contractGap: contractGap(row, lane) ?? undefined,
           whyLine: whyLine(row) ?? undefined,
