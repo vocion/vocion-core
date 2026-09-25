@@ -277,6 +277,107 @@ describe('link order', () => {
   });
 });
 
+describe('ignore, the parts of a page that are not the page', () => {
+  const widget = (other: string): string =>
+    `<div class="widget-area"><p>Upcoming: <a href="/events/${other}">${other}</a></p></div>`;
+  const listing = (other: string): Response =>
+    page(`<p><a href="/events/opening">Opening</a></p>${widget(other)}`);
+
+  it('does not follow a link held only by an ignored element on the listing', async () => {
+    const fetched = stubFetch(url => url === LISTING_URL ? listing('other') : page('<p>A show.</p>'));
+
+    const { docs } = await run({ crawl: { startUrl: LISTING_URL }, ignore: ['.widget-area'] });
+
+    expect(fetched.mock.calls.map(c => String(c[0]))).toEqual([LISTING_URL, 'https://venue.test/events/opening']);
+    expect(docs.map(d => d.externalId)).toEqual([LISTING_URL, 'https://venue.test/events/opening']);
+    expect(docs[0]!.content).not.toContain('Upcoming');
+  });
+
+  it('does not follow a link held only by an ignored element on a listing that redirected within its site', async () => {
+    const fetched = stubFetch(url => url === LISTING_URL
+      ? redirectedTo(listing('other'), 'https://www.venue.test/shows/')
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: LISTING_URL }, ignore: ['.widget-area'] });
+
+    expect(fetched.mock.calls.map(c => String(c[0]))).toEqual([LISTING_URL, 'https://www.venue.test/events/opening']);
+  });
+
+  it('reads a detail page the same on two runs when only its ignored widget changed', async () => {
+    const detail = async (other: string): Promise<string> => {
+      stubFetch(url => url === LISTING_URL ? listing('x') : page(`<p>A show.</p>${widget(other)}`));
+      const { docs } = await run({ crawl: { startUrl: LISTING_URL }, ignore: ['.widget-area'] });
+      return docs.find(d => d.externalId.endsWith('/opening'))!.content;
+    };
+
+    expect(await detail('alpha')).toBe(await detail('beta'));
+  });
+
+  it('applies to a listed URL without a crawl block', async () => {
+    stubFetch(() => page(`<p>A show.</p>${widget('alpha')}`));
+
+    const { docs } = await run({ urls: [LISTING_URL], ignore: ['.widget-area'] });
+
+    expect(docs[0]!.content).toContain('A show.');
+    expect(docs[0]!.content).not.toContain('Upcoming');
+  });
+
+  it.each([
+    '#eventJustAnnounced',
+    'script.yoast-schema-graph',
+    'div.sidebar > ul li:not(.keep)',
+    '[data-widget="just-announced"]',
+    'aside ~ div + p',
+    '.a, .b',
+    'a[href$=">"]',
+  ])('accepts %s', (selector) => {
+    const parsed = webConnector.configSchema.safeParse({ urls: [LISTING_URL], ignore: [selector] });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it('trims a selector', () => {
+    const parsed = webConnector.configSchema.safeParse({ urls: [LISTING_URL], ignore: ['  #x  '] });
+
+    expect(parsed.success && parsed.data.ignore).toEqual(['#x']);
+  });
+
+  it.each([
+    ['', 1],
+    ['   ', 1],
+    ['div[', 1],
+    ['<div>', 1],
+    ['div[title="<b>"]', 1],
+    ['p:frobnicate', 1],
+    ['a::before', 1],
+    ['div >', 1],
+    ['> div', 1],
+    ['*', 1],
+    ['body', 1],
+    [':root', 1],
+    ['div, html', 1],
+    ['x'.repeat(201), 1],
+  ])('refuses %j with one issue', (selector, issues) => {
+    const parsed = webConnector.configSchema.safeParse({ urls: [LISTING_URL], ignore: [selector] });
+
+    expect(parsed.success).toBe(false);
+    expect(!parsed.success && parsed.error.issues).toHaveLength(issues);
+  });
+
+  it('refuses more than twenty selectors', () => {
+    const parsed = webConnector.configSchema.safeParse({ urls: [LISTING_URL], ignore: Array.from({ length: 21 }, (_, i) => `#s${i}`) });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it('refuses to sync a config whose selector does not compile, before any fetch', async () => {
+    const fetched = stubFetch(() => undefined);
+
+    await expect(run({ urls: [LISTING_URL], ignore: ['div['] })).rejects.toThrow(/cheerio can read/);
+    expect(fetched).not.toHaveBeenCalled();
+  });
+});
+
 describe('a seed that redirects within its site', () => {
   const WWW_LISTING_URL = 'https://www.venue.test/shows/';
 

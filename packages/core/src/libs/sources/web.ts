@@ -12,6 +12,9 @@
  *     listing, when someone already knows the site has one
  *   - `crawl: { startUrl, maxDepth?, maxPages?, include?, exclude? }`,
  *     same-origin BFS with optional path filters
+ *   - `ignore: string[]`, CSS selectors for the parts of a page that are not
+ *     the page (a rotating sidebar, a script restamped on every request),
+ *     removed before its text, JSON-LD and links are read
  *
  * With `crawl` and no `feedUrl`, the connector picks the SMALLEST complete
  * source it can find, per listing seed: a feed if the listing advertises one,
@@ -63,11 +66,55 @@ const crawlSchema = z.object({
   exclude: z.array(z.string()).optional(),
 });
 
+const IGNORE_MAX_SELECTORS = 20;
+const IGNORE_SELECTOR_MAX_CHARS = 200;
+
+/**
+ * Why a string cannot be an `ignore` selector, or null when it can. cheerio
+ * reads a string holding `<` as markup and removes nothing, a trailing
+ * combinator matches every child of what it names, a leading one matches
+ * nothing, and a selector that matches the page's own skeleton would remove
+ * the whole page. The rest is compiled against a one-paragraph page, where a
+ * selector cheerio cannot read throws.
+ * @param selector - one trimmed entry from the config.
+ */
+function ignoreSelectorProblem(selector: string): string | null {
+  if (!selector) {
+    return null;
+  }
+  if (selector.includes('<')) {
+    return 'holds `<`, which cheerio reads as markup, not as a selector';
+  }
+  if (/[>+~,]$/.test(selector)) {
+    return 'ends in a combinator, which would match far more than it names';
+  }
+  if (/^[>+~]/.test(selector)) {
+    return 'starts with a combinator and matches nothing';
+  }
+  try {
+    if (load('<p></p>')(selector).is('html, head, body')) {
+      return 'matches html, head or body, which is the whole page';
+    }
+  } catch (err) {
+    return `is not a CSS selector cheerio can read (${(err as Error).message})`;
+  }
+  return null;
+}
+
+const ignoreSelectorSchema = z.string().trim().min(1).max(IGNORE_SELECTOR_MAX_CHARS).superRefine((selector, ctx) => {
+  const problem = ignoreSelectorProblem(selector);
+  if (problem) {
+    ctx.addIssue({ code: 'custom', message: `ignore selector "${selector}" ${problem}` });
+  }
+});
+
 const webConfigSchema = z.object({
   urls: z.array(z.string().url()).optional(),
   urlsFrom: urlsFromSchema.optional(),
   feedUrl: z.string().url().optional(),
   crawl: crawlSchema.optional(),
+  /** CSS selectors for the parts of a page that are not the page, removed before anything is read. HTML pages only. */
+  ignore: z.array(ignoreSelectorSchema).max(IGNORE_MAX_SELECTORS).optional(),
 }).refine(c => c.urls?.length || c.urlsFrom || c.crawl, {
   message: 'Provide `urls`, `urlsFrom` or `crawl`.',
 });
@@ -96,6 +143,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
   configSchema: webConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = webConfigSchema.parse(ctx.config);
+    const ignore = cfg.ignore ?? [];
 
     const listed = [...(cfg.urls ?? [])];
     if (cfg.urlsFrom) {
@@ -114,7 +162,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
       }
       runNote(ctx, urls[0], `source: ${urls.length} listed URL${urls.length === 1 ? '' : 's'}`);
       for (const url of urls) {
-        yield* fetchDocs(url, ctx);
+        yield* fetchDocs(url, ctx, ignore);
       }
       return;
     }
@@ -124,7 +172,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
     if (cfg.feedUrl) {
       const url = httpUrl(cfg.feedUrl);
       runNote(ctx, url, 'source: configured feed');
-      yield* fetchDocs(url, ctx);
+      yield* fetchDocs(url, ctx, ignore);
       return;
     }
 
@@ -146,7 +194,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
     // seeds each allowed their own 60 pages is 300 requests, every run.
     const pages: PageBudget = { attempted: 0 };
     for (const seed of seeds) {
-      yield* smallestSource(seed, cfg.crawl, ctx, pages);
+      yield* smallestSource(seed, cfg.crawl, ctx, pages, ignore);
     }
   },
 };
@@ -178,6 +226,7 @@ type PageBudget = { attempted: number };
  * @param cfg - the crawl config, whose `startUrl` is only the default seed.
  * @param ctx - the sync context.
  * @param pages - the sync's shared page budget, spent across every seed.
+ * @param ignore - the source's `ignore` selectors, applied to every page read.
  * @yields {IngestDoc} one document per page or per event, from whichever source won.
  */
 async function* smallestSource(
@@ -185,6 +234,7 @@ async function* smallestSource(
   cfg: CrawlConfig,
   ctx: SourceContext,
   pages: PageBudget,
+  ignore: readonly string[],
 ): AsyncIterable<IngestDoc> {
   if (pages.attempted >= cfg.maxPages) {
     runNote(ctx, seedUrl, `source: page budget spent (${cfg.maxPages} pages), seed not read`);
@@ -193,13 +243,13 @@ async function* smallestSource(
   // Counted before the fetch, and NOT counted again by `crawl`: the listing is
   // one request whoever ends up reading it.
   pages.attempted += 1;
-  const listing = await fetchPage(httpUrl(seedUrl), ctx);
+  const listing = await fetchPage(httpUrl(seedUrl), ctx, { ignore });
   if (!listing) {
     return;
   }
 
   for (const candidate of discoverFeeds(listing, ctx)) {
-    const docs = await readFeed(candidate, ctx);
+    const docs = await readFeed(candidate, ctx, ignore);
     if (!docs) {
       continue;
     }
@@ -211,7 +261,7 @@ async function* smallestSource(
   const jsonLdNote = hasEventJsonLd(listing) ? '; listing carries Event JSON-LD' : '';
   runNote(ctx, listing.url, `source: listing + depth-${cfg.maxDepth} crawl${jsonLdNote}`);
   // The listing body is handed to the crawl so the seed is not fetched twice.
-  yield* crawl(cfg, ctx, listing, pages);
+  yield* crawl(cfg, ctx, listing, pages, ignore);
 }
 
 /**
@@ -220,9 +270,10 @@ async function* smallestSource(
  * site that never had a feed costs the run nothing.
  * @param candidate - the feed URL and the kind the page claimed it is.
  * @param ctx - the sync context.
+ * @param ignore - the source's `ignore` selectors, for a feed that turns out to be a page.
  */
-async function readFeed(candidate: FeedCandidate, ctx: SourceContext): Promise<IngestDoc[] | null> {
-  const page = await fetchPage(candidate.url, ctx, { probe: true, timeoutMs: PROBE_TIMEOUT_MS });
+async function readFeed(candidate: FeedCandidate, ctx: SourceContext, ignore: readonly string[]): Promise<IngestDoc[] | null> {
+  const page = await fetchPage(candidate.url, ctx, { ignore, probe: true, timeoutMs: PROBE_TIMEOUT_MS });
   if (!page) {
     return null;
   }
@@ -404,23 +455,24 @@ type FetchedPage = {
  * URL would quietly break deletion on an otherwise healthy source.
  * @param url - the URL to fetch; `webcal:` is rewritten to `https:` first.
  * @param ctx - the sync context.
- * @param opts - discovery options.
+ * @param opts - what this source ignores, and the discovery options.
+ * @param opts.ignore - the source's `ignore` selectors, removed from an HTML body before it is read.
  * @param opts.probe - report failures as `skipped` rather than `error`.
  * @param opts.timeoutMs - a shorter leash than the default page timeout.
  */
 async function fetchPage(
   url: string,
   ctx: SourceContext,
-  opts?: { probe?: boolean; timeoutMs?: number },
+  opts: { ignore: readonly string[]; probe?: boolean; timeoutMs?: number },
 ): Promise<FetchedPage | null> {
   const target = httpUrl(url);
   const report = (message: string): void => {
-    ctx.onProgress?.({ kind: opts?.probe ? 'skipped' : 'error', uri: target, message });
+    ctx.onProgress?.({ kind: opts.probe ? 'skipped' : 'error', uri: target, message });
   };
   try {
     const res = await fetch(target, {
       headers: { 'User-Agent': USER_AGENT },
-      signal: AbortSignal.timeout(opts?.timeoutMs ?? PAGE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? PAGE_TIMEOUT_MS),
     });
     if (!res.ok) {
       report(`HTTP ${res.status}`);
@@ -441,7 +493,7 @@ async function fetchPage(
     }
     const raw = await res.text();
     const base = res.redirected && HTTP_URL_RE.test(res.url) ? sameSiteUrl(target, res.url) : target;
-    const extracted = isHtml ? extractFromHtml(raw, target) : { title: undefined, content: raw, structure: undefined };
+    const extracted = isHtml ? extractFromHtml(raw, target, opts.ignore) : { title: undefined, content: raw, structure: undefined };
     const lastModifiedHeader = res.headers.get('last-modified');
     return {
       url: target,
@@ -501,10 +553,11 @@ function docsFromPage(page: FetchedPage, ctx: SourceContext): IngestDoc[] {
  * Fetch one URL and yield whatever it holds.
  * @param url - the URL to fetch.
  * @param ctx - the sync context.
+ * @param ignore - the source's `ignore` selectors, applied when the body is a page.
  * @yields {IngestDoc} one document per page, or one per event when the body is a feed.
  */
-async function* fetchDocs(url: string, ctx: SourceContext): AsyncIterable<IngestDoc> {
-  const page = await fetchPage(url, ctx);
+async function* fetchDocs(url: string, ctx: SourceContext, ignore: readonly string[]): AsyncIterable<IngestDoc> {
+  const page = await fetchPage(url, ctx, { ignore });
   if (!page) {
     return;
   }
@@ -1699,12 +1752,23 @@ const JSON_LD_TRUNCATED = '[structured data truncated]';
  * plenty of sites version that URL by the day they served it, which turns an
  * unchanged page into a changed document every morning. A reader that wants
  * the image reads `structure.ogImage`, which is where it always was.
+ *
+ * `ignore` is the one exception to "every URL the page published". An element
+ * a source names there is not part of the page: it comes out before the
+ * title, JSON-LD, links and text are read, so none of it reaches `content` or
+ * `structure`, and a crawl never follows a link only it held. It exists for
+ * the parts of one site no default can name, a sidebar listing other shows
+ * that rotates daily or an SEO script restamped on every request, which would
+ * otherwise make an unchanged page read as edited on every fetch. Feed
+ * declarations in the head are read from the raw markup and are not affected.
  * @param html - raw HTML as fetched
  * @param baseUrl - the URL the HTML came from, used to make hrefs and image
  * sources absolute. Relative URLs are left as written when it is omitted.
+ * @param ignore - CSS selectors the source's config names, already validated
+ * by the config schema. Omitted, nothing extra is removed.
  */
-export function extractFromHtml(html: string, baseUrl?: string): { title?: string; content: string; structure?: PageStructure } {
-  const $ = load(html.replace(OWN_MARKS, ' '));
+export function extractFromHtml(html: string, baseUrl?: string, ignore: readonly string[] = []): { title?: string; content: string; structure?: PageStructure } {
+  const $ = loadPage(html, ignore);
 
   // Read the metadata before the chrome comes out: on plenty of pages the
   // only h1 is the one sitting in the site header.
@@ -1713,7 +1777,8 @@ export function extractFromHtml(html: string, baseUrl?: string): { title?: strin
   const blocks = structuredBlocks($);
   // Collected here for the same reason, and one more: the gate a later stage
   // uses to check a model-returned URL wants every URL the page published,
-  // not only the ones that survive chrome removal.
+  // not only the ones that survive chrome removal. An ignored element is not
+  // chrome; it was removed above and publishes nothing.
   const published = collectLinks($, baseUrl);
   const structured = structuredText(blocks.serialised);
 
@@ -2044,6 +2109,7 @@ function collapse(text: string): string {
  * @param ctx - the sync context.
  * @param seed - the start page, already fetched (and already counted) by the caller.
  * @param pages - the sync's shared page budget.
+ * @param ignore - the source's `ignore` selectors, applied to every page the crawl reads.
  * @yields {IngestDoc} one document per page the crawl reaches.
  */
 async function* crawl(
@@ -2051,6 +2117,7 @@ async function* crawl(
   ctx: SourceContext,
   seed: FetchedPage,
   pages: PageBudget,
+  ignore: readonly string[],
 ): AsyncIterable<IngestDoc> {
   const startUrl = seed.url;
   const start = listingAsLanded(seed);
@@ -2069,7 +2136,7 @@ async function* crawl(
     if (!prefetched) {
       pages.attempted += 1;
     }
-    const page = prefetched ?? await fetchPage(url, ctx);
+    const page = prefetched ?? await fetchPage(url, ctx, { ignore });
     if (page) {
       visited.add(page.base);
       for (const doc of docsFromPage(page, ctx)) {
@@ -2104,7 +2171,7 @@ async function* crawl(
     const ownPath: QueueEntry[] = [];
     const elsewhere: QueueEntry[] = [];
     const base = new URL(page.base).origin === startOrigin ? page.base : page.url;
-    for (const href of pageLinks(page, base)) {
+    for (const href of pageLinks(page, base, ignore)) {
       try {
         const next = new URL(href, base);
         // Strip fragments so #section links don't blow up the queue.
@@ -2131,13 +2198,30 @@ async function* crawl(
 type QueueEntry = { url: string; depth: number };
 
 /**
+ * An HTML page as cheerio reads it, without the elements its source ignores.
+ * An ignored element is not part of the page: its text, JSON-LD and links
+ * reach neither `content` nor `structure`, and no crawl follows a link only it
+ * held. The page itself can never be ignored away.
+ * @param html - raw HTML as fetched.
+ * @param ignore - the source's `ignore` selectors.
+ */
+function loadPage(html: string, ignore: readonly string[]): CheerioAPI {
+  const $ = load(html.replace(OWN_MARKS, ' '));
+  for (const selector of ignore) {
+    $(selector).not('html, head, body').remove();
+  }
+  return $;
+}
+
+/**
  * The links to consider following out of a fetched page.
  * @param page - the fetched page.
  * @param base - the URL its relative links resolve against.
+ * @param ignore - the source's `ignore` selectors, for a page re-read against where it landed.
  */
-function pageLinks(page: FetchedPage, base: string): string[] {
+function pageLinks(page: FetchedPage, base: string, ignore: readonly string[]): string[] {
   if (page.structure && base !== page.url) {
-    return collectLinks(load(page.raw.replace(OWN_MARKS, ' ')), base).map(link => link.url);
+    return collectLinks(loadPage(page.raw, ignore), base).map(link => link.url);
   }
   if (page.structure) {
     return page.structure.links?.map(link => link.url) ?? [];
