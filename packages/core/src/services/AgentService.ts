@@ -77,6 +77,11 @@ function readToolResult(raw: unknown): { ok: boolean; error?: string } {
  * card is on screen, so a turn is never left with neither.
  */
 const NARRATED_CARD = /\n\s*(?:\*\*|#{1,4}\s*)?CARD\s*(?:[—–:-]|\*\*)[\s\S]*$/i;
+/** How long one turn may run before it is stopped: `VOCION_TURN_DEADLINE_MS`, default eight minutes. Read per turn so a test can shorten it. */
+function turnDeadlineMs(): number {
+  const raw = Number(process.env.VOCION_TURN_DEADLINE_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 8 * 60 * 1000;
+}
 const NARRATED_TOOL_TAIL = new RegExp(`\\n\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(?:${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|[\\s*_\`]*(?:${TOOL_NAMES})[*_\`]*\\s*$|\\n\\s*(?:\\*\\*|#{1,4}\\s*)?\`?(?:${TOOL_NAMES})\\b[^\\n]*\\n\\s*\`\`\`[a-z]*\\n[\\s\\S]*$`);
 
 /* ------------------------------------------------------------------ */
@@ -678,6 +683,14 @@ export async function runAgentDeep(opts: {
   // only sees the turn's start, and a long turn used to spend past its cap
   // until it finished (#272). A turn that crossed on its final answer keeps it.
   const budgetGuard = new TurnBudgetGuard(opts.orgId, opts.agentSlug);
+  // A TURN ENDS. Walk 15's third turn (2026-09-25, conversation 217) never
+  // persisted: a model call that never returned held the route's finally,
+  // and the row, for as long as the process lived (finding 22). The graph
+  // runs under the budget signal AND a wall-clock deadline; past it the turn
+  // ends incomplete with what it said so far, and says why.
+  const deadlineMs = turnDeadlineMs();
+  const deadline = AbortSignal.timeout(deadlineMs);
+  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline]);
 
   // What this run cost, summed over every model turn the callback sees.
   const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
@@ -838,7 +851,7 @@ export async function runAgentDeep(opts: {
     const stream = await compiled.graph.streamEvents(graphInput as never, {
       version: 'v2',
       callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard)],
-      signal: budgetGuard.signal,
+      signal: turnSignal,
       ...stepLimitStreamConfig(maxSteps),
     } as never);
 
@@ -1128,9 +1141,14 @@ export async function runAgentDeep(opts: {
       // as the stop landed, since the person only sees the budget message.
         console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
       }
+      if (!budgetStop && deadline.aborted) {
+        console.warn('agent turn: ran past the deadline and was stopped', { orgId: opts.orgId, agentSlug: opts.agentSlug, deadlineMs, toolCalls: toolCallLog.length, textChars: finalText.length });
+      }
       const { message, rethrow } = budgetStop
         ? { message: budgetStop.message, rethrow: budgetStop }
-        : describeTurnFailure(err, maxSteps);
+        : deadline.aborted
+          ? { message: `the turn ran past the ${Math.round(deadlineMs / 60_000)}-minute limit and was stopped; what it said so far is kept`, rethrow: new Error(`the turn ran past the ${Math.round(deadlineMs / 60_000)}-minute limit and was stopped`) }
+          : describeTurnFailure(err, maxSteps);
       // The run died. Close anything still open as a FAILURE first, so the
       // persisted trace carries a terminal node instead of stopping at
       // "Delegating to <specialist>" — the exact trace this turn used to leave.

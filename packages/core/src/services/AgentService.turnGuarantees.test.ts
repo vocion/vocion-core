@@ -416,4 +416,24 @@ describe('the tool-call log an eval reads', () => {
     expect(vi.mocked(compileAgentForRequest).mock.calls[1]?.[3]).toMatchObject({ modelOverride: { thinking: 'off' } });
     expect(result.response).toContain('Four deals closed');
   });
+
+  it('a turn that never returns is stopped at the deadline, incomplete, with a reason (finding 22)', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    process.env.VOCION_TURN_DEADLINE_MS = '300';
+    streamEvents.mockClear();
+    streamEvents.mockImplementation(async (_input: unknown, config: { signal?: AbortSignal }) => ({
+      async* [Symbol.asyncIterator]() {
+        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text('Reading the request') } };
+        await new Promise((_resolve, reject) => {
+          config.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
+      },
+    }));
+    try {
+      await expect(run({ message: 'Approve filing it.', deliverable: 'answer', conversationId: conv.id })).rejects.toThrow(/ran past the 0-minute limit/);
+    } finally {
+      delete process.env.VOCION_TURN_DEADLINE_MS;
+      streamEvents.mockReset();
+    }
+  });
 });
