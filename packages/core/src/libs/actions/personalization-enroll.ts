@@ -68,7 +68,7 @@ const DATE_FORMAT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'num
  * slot names. Absent source, absent keys, both read as defaults.
  * @param orgId
  */
-async function contactsSourceConfig(orgId: string): Promise<{ portalId?: string | number; nurtureSlots?: unknown }> {
+async function contactsSourceConfig(orgId: string): Promise<{ portalId?: string | number; nurtureSlots?: unknown; defaultSender?: string }> {
   const { and, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { knowledgeSourceSchema } = await import('@/models/Schema');
@@ -80,7 +80,7 @@ async function contactsSourceConfig(orgId: string): Promise<{ portalId?: string 
       eq(knowledgeSourceSchema.slug, 'hubspot-contacts'),
     ))
     .limit(1);
-  return (source?.configJson as { portalId?: string | number; nurtureSlots?: unknown } | null) ?? {};
+  return (source?.configJson as { portalId?: string | number; nurtureSlots?: unknown; defaultSender?: string } | null) ?? {};
 }
 
 /**
@@ -554,6 +554,15 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     if (utmContent) {
       provenance.push({ label: 'Lead magnet', value: utmContent });
     }
+    // Who the emails go out as. The workspace's configured sender wins over
+    // whatever the card carries, and the card says so when they differ.
+    const effectiveSender = sourceCfg.defaultSender ?? input.senderEmail;
+    provenance.push({
+      label: 'Sender',
+      value: sourceCfg.defaultSender && sourceCfg.defaultSender.toLowerCase() !== input.senderEmail.toLowerCase()
+        ? `${sourceCfg.defaultSender} (the card named ${input.senderEmail})`
+        : effectiveSender,
+    });
     if (lead?.mqlAt) {
       provenance.push({ label: 'Became MQL', value: DATE_FORMAT.format(lead.mqlAt) });
     } else if (lead?.arrivedAt) {
@@ -722,6 +731,25 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       client = resolved.client;
     }
 
+    // The sender is workspace config when the workspace names one. The card
+    // still carries a sender (the library the draft read), but a redraft can
+    // read another user's library, and on 2026-09-25 that enrolled contacts
+    // as the founder with his inbox sending and his name on every task. A
+    // configured sender the portal cannot resolve stops the enrollment
+    // rather than falling back to the card's.
+    const sourceCfg = await contactsSourceConfig(ctx.orgId);
+    let senderEmail = input.senderEmail;
+    let hubspotUserId = input.hubspotUserId;
+    if (sourceCfg.defaultSender && sourceCfg.defaultSender.toLowerCase() !== input.senderEmail.toLowerCase()) {
+      const { resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
+      const user = await resolveHubspotUserId(client, sourceCfg.defaultSender);
+      if (!user.ok) {
+        throw new Error(`Not enrolled: the workspace's sender ${sourceCfg.defaultSender} could not be resolved on the portal (${user.message}), and the card's sender ${input.senderEmail} is not used in its place`);
+      }
+      senderEmail = sourceCfg.defaultSender;
+      hubspotUserId = user.data.userId;
+    }
+
     // HubSpot allows ONE active sequence per contact, and the portal's own
     // automations race this review flow (observed 2026-09-14: a workflow
     // auto-enrolled the lead hours before the human approved, and the approved
@@ -734,7 +762,7 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       // Best-effort detail for the result; the sender's library may not see a
       // foreign enrollment, and the replace proceeds either way.
       const { getContactEnrollment } = await import('@/libs/hubspot/sequences');
-      const detail = await getContactEnrollment(client, hubspotId, input.hubspotUserId);
+      const detail = await getContactEnrollment(client, hubspotId, hubspotUserId);
       replacedSequence = {
         sequenceId: (detail.ok && detail.data.sequenceId) || enrollmentState.data.latestSequenceId,
         sequenceName: detail.ok ? detail.data.sequenceName ?? null : null,
@@ -749,7 +777,7 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // approved sends go onto the contact FIRST, and a failed write stops the
     // enrollment: an enrolled contact with empty slots receives empty emails.
     const { ensureNurtureSlotProperties, isNurtureSequence, nurtureSlotProperties, readNurtureSlotsConfig, writeNurtureSlots } = await import('@/libs/hubspot/nurtureSlots');
-    const slotsCfg = readNurtureSlotsConfig((await contactsSourceConfig(ctx.orgId)).nurtureSlots);
+    const slotsCfg = readNurtureSlotsConfig(sourceCfg.nurtureSlots);
     let slotsWritten = 0;
     if (isNurtureSequence(input.sequenceName, slotsCfg)) {
       const properties = nurtureSlotProperties(input.sends, slotsCfg);
@@ -773,8 +801,8 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     const enrolled = await enrollContact(client, {
       sequenceId: input.sequenceId,
       contactId: hubspotId,
-      senderEmail: input.senderEmail,
-      userId: input.hubspotUserId,
+      senderEmail,
+      userId: hubspotUserId,
     });
     if (!enrolled.ok) {
       throw new Error(`HubSpot sequence enrollment failed: ${enrolled.message}`);
@@ -819,7 +847,9 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       sequenceId: input.sequenceId,
       sequenceName: input.sequenceName,
       contactRef: input.contactRef,
-      senderEmail: input.senderEmail,
+      senderEmail,
+      // The sender the card carried, when the workspace's own won over it.
+      cardSenderEmail: senderEmail.toLowerCase() === input.senderEmail.toLowerCase() ? null : input.senderEmail,
       sendCount: input.sends.length,
       nurtureSlotsWritten: slotsWritten,
       sendsStagedAsNote: note.ok,
