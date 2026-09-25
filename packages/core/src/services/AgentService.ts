@@ -21,7 +21,7 @@ import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
 import { flatHistory, historyMessages } from '@/services/chat/historyTools';
 import { preambleOnly } from '@/services/chat/turnStatus';
-import { composeAnswerWithModel, runAnswerBackstop } from './agents/answerBackstop';
+import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
@@ -898,6 +898,16 @@ export async function runAgentDeep(opts: {
   let thoughtOnlyRetried = false;
   // The late narrated-call re-entry runs at most once (see below).
   let narratedNudged = false;
+  // A RE-ENTRY CARRIES WHAT THE TOOLS RETURNED. `runGraph` starts a fresh
+  // graph from text messages, so the previous pass's tool calls and results
+  // were not in the new pass's context at all: mission run 5081 (2026-09-25,
+  // backlog 006) — "no read ever returned — my context holds the mission
+  // brief and nothing from the record" — read the same record four times
+  // across passes and never wrote. Every re-entry's instruction now ends with
+  // the turn's tool results, capped the way the answer pass caps them.
+  const withResults = (instruction: string): string => (toolCallLog.length === 0
+    ? instruction
+    : `${instruction}\n\nWhat your tool calls in this turn returned (they ran; do not repeat them):\n\n${evidenceBlock(toolCallLog)}`);
   // The lead's most recent model-turn namespace, so a scratch tail released
   // at flush lands on the reasoning node of the turn that wrote it.
   let leadNs = '';
@@ -1140,7 +1150,7 @@ export async function runAgentDeep(opts: {
           messages: [
             ...input.messages,
             ...(empty ? [] : [{ role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar }]),
-            { role: 'user', content: nudge },
+            { role: 'user', content: withResults(nudge) },
           ],
         } as typeof input);
       }
@@ -1167,7 +1177,7 @@ export async function runAgentDeep(opts: {
             messages: [
               ...input.messages,
               ...(normalizeAnswerHtml(finalText).trim() ? [{ role: 'assistant', content: normalizeAnswerHtml(finalText).trim() }] : []),
-              { role: 'user', content: 'You have the results of the reads you just made. Now do what the person asked — make the write (call the tool) if one is owed — and then answer in one screen. Do not read again what you already read. Never write a tool call as text.' },
+              { role: 'user', content: withResults('You have the results of the reads you just made. Now do what the person asked — make the write (call the tool) if one is owed — and then answer in one screen. Do not read again what you already read. Never write a tool call as text.') },
             ],
           } as typeof input);
         }
@@ -1194,7 +1204,7 @@ export async function runAgentDeep(opts: {
             messages: [
               ...input.messages,
               { role: 'assistant', content: tail },
-              { role: 'user', content: `Your last message wrote a ${lateName} call out as text instead of calling it, so nothing was written. Call ${lateName} now with exactly the arguments your message described, then reply in one sentence. Never write a tool call as text.` },
+              { role: 'user', content: withResults(`Your last message wrote a ${lateName} call out as text instead of calling it, so nothing was written. Call ${lateName} now with exactly the arguments your message described, then reply in one sentence. Never write a tool call as text.`) },
             ],
           } as typeof input);
         }
@@ -1230,7 +1240,7 @@ export async function runAgentDeep(opts: {
           ...input,
           messages: [
             ...input.messages,
-            { role: 'user', content: 'Your last two attempts produced no words and no tool calls. Answer now in plain text, or make the tool calls you need — say what you found and what you did.' },
+            { role: 'user', content: withResults('Your last two attempts produced no words and no tool calls. Answer now in plain text, or make the tool calls you need — say what you found and what you did.') },
           ],
         } as typeof input);
       }
@@ -1260,7 +1270,7 @@ export async function runAgentDeep(opts: {
           messages: [
             ...input.messages,
             ...(soFar ? [{ role: 'assistant', content: soFar }] : []),
-            { role: 'user', content: `Your last tool call was rejected: ${detail}. Call it again with valid arguments, or do without it — and answer. Do not stop.` },
+            { role: 'user', content: withResults(`Your last tool call was rejected: ${detail}. Call it again with valid arguments, or do without it — and answer. Do not stop.`) },
           ],
         } as typeof input);
         recovered = true;
