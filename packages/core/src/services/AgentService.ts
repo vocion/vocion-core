@@ -981,23 +981,29 @@ export async function runAgentDeep(opts: {
       // recommend_action" and no card existed. That word is not an answer
       // either; it is stripped, and the loop re-enters once to make the call.
       const narrated = NARRATED_TOOL.exec(soFar);
-      if (soFar.length > 0 && (preambleOnly(soFar) || narrated)) {
+      // The seventh shape: NOTHING — no words, no tool call, no error
+      // (reference run 4, cases 1, 8 and 13: an empty completion the loop
+      // accepted). An empty turn is not an answer either.
+      const empty = soFar.length === 0 && toolCallLog.length === 0;
+      if (empty || (soFar.length > 0 && (preambleOnly(soFar) || narrated))) {
         const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? 'a tool') : null;
-        const why = narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
+        const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
         if (narrated) {
           finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
         }
         finalText += '\n\n';
         emit({ type: 'response_delta', delta: '\n\n' });
-        const nudge = narrated
-          ? `Your last message wrote "${narratedName}" as text — the name of a tool, or a block shaped like a call — instead of calling it. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
-          : `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.`;
+        const nudge = empty
+          ? 'You returned nothing — no words and no tool call. Answer the person now: run the lookups you need and reply in one screen.'
+          : narrated
+            ? `Your last message wrote "${narratedName}" as text — the name of a tool, or a block shaped like a call — instead of calling it. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
+            : `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.`;
         await runGraph({
           ...input,
           messages: [
             ...input.messages,
-            { role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar },
+            ...(empty ? [] : [{ role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar }]),
             { role: 'user', content: nudge },
           ],
         } as typeof input);
