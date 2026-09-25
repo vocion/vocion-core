@@ -414,6 +414,9 @@ describe('the tool-call log an eval reads', () => {
     expect(streamEvents).toHaveBeenCalledTimes(3);
     expect(vi.mocked(compileAgentForRequest)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(compileAgentForRequest).mock.calls[1]?.[3]).toMatchObject({ modelOverride: { thinking: 'off' } });
+    // …and it names a model: without one the provider lookup crashed the turn (finding 25).
+    expect(typeof (vi.mocked(compileAgentForRequest).mock.calls[1]?.[3] as { modelOverride: { model?: string } }).modelOverride.model).toBe('string');
+    expect((vi.mocked(compileAgentForRequest).mock.calls[1]?.[3] as { modelOverride: { model?: string } }).modelOverride.model?.length).toBeGreaterThan(0);
     expect(result.response).toContain('Four deals closed');
   });
 

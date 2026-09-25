@@ -1117,7 +1117,10 @@ export async function runAgentDeep(opts: {
             pageContext: opts.pageContext,
             timeZone: opts.timeZone,
           },
-          { modelOverride: { ...(modelOverride ?? {}), thinking: 'off' } as typeof modelOverride },
+          // A ModelOverride names its model; without one the provider lookup
+          // trims undefined and the turn dies (MCP turn, 2026-09-25 04:26Z,
+          // finding 25). The retry keeps the model the turn already chose.
+          { modelOverride: { ...(modelOverride ?? {}), model: modelOverride?.model ?? chatModelOptionsFor(harness ?? {}).model ?? resolvedModelId('main'), ...((modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider) ? { provider: modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider } : {}), thinking: 'off' } },
         );
         await runGraph({
           ...input,
