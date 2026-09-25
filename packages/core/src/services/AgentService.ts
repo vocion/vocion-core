@@ -1,3 +1,4 @@
+import type { BaseMessage } from '@langchain/core/messages';
 import type { AnswerComposer } from './agents/answerBackstop';
 import type { TurnFailure } from './agents/deliverableBackstop';
 import type { HarnessTarget } from './agents/harnessTarget';
@@ -5,6 +6,7 @@ import type { RawStreamEvent } from './agents/traceEmitter';
 import type { AgentEvent } from './agents/types';
 import type { Deliverable } from '@/libs/chat/deliverable';
 import type { LangfuseTurnUsage } from '@/libs/Langfuse';
+import type { HistoryTurn } from '@/services/chat/historyTools';
 import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
@@ -17,6 +19,7 @@ import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostMicroCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
+import { flatHistory, historyMessages } from '@/services/chat/historyTools';
 import { preambleOnly } from '@/services/chat/turnStatus';
 import { composeAnswerWithModel, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
@@ -46,6 +49,12 @@ function isToolInputError(err: unknown): boolean {
 
 const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal';
 const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|(?:^|[\\s*_\`])(${TOOL_NAMES})[*_\`]*\\s*$`);
+/**
+ * A card written out as prose: a heading line beginning "CARD —" (or "Card:")
+ * and everything under it to the end of the answer. Stripped only when a real
+ * card is on screen, so a turn is never left with neither.
+ */
+const NARRATED_CARD = /\n\s*(?:\*\*|#{1,4}\s*)?CARD\s*(?:[—–:-]|\*\*)[\s\S]*$/i;
 const NARRATED_TOOL_TAIL = new RegExp(`\\n\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(?:${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|[\\s*_\`]*(?:${TOOL_NAMES})[*_\`]*\\s*$`);
 
 /* ------------------------------------------------------------------ */
@@ -438,7 +447,7 @@ export async function runAgentDeep(opts: {
    * graded as that one thing. See `services/evals/sessionIds.ts`.
    */
   sessionId?: string;
-  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  conversationHistory?: HistoryTurn[];
   /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
   pageContext?: import('./chat/pageContext').PageContext;
   /** The person's IANA time zone for this turn (from the browser); the workspace's when absent. */
@@ -589,7 +598,7 @@ export async function runAgentDeep(opts: {
       ?? defaultHarnessTargetFor(harness?.modelProvider);
   if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
-    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, onEvent: run }));
+    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, conversationHistory: flatHistory(opts.conversationHistory), onEvent: run }));
   }
   if (target === 'external-worker') {
     // ADR 0004: Vocion is the control plane, a process it does not host does the
@@ -600,7 +609,7 @@ export async function runAgentDeep(opts: {
   }
   if (target === 'aws-managed-harness' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
-    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, onEvent: run }));
+    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, conversationHistory: flatHistory(opts.conversationHistory), onEvent: run }));
   }
 
   // The person's per-thread choice of model and thinking, mapped onto the
@@ -706,9 +715,21 @@ export async function runAgentDeep(opts: {
     emit({ type: 'memories_mounted', paths: memoryPaths });
   }
 
+  // A past agent turn is replayed as what it DID — its tool calls, each
+  // result, the card it put up — then what it said, so the model binds
+  // "approve" to a call it made and never re-plans a lookup it already ran
+  // (`services/chat/historyTools.ts`). A person's turn is their words.
+  const { AIMessage, HumanMessage, ToolMessage } = await import('@langchain/core/messages');
   const history = (opts.conversationHistory ?? [])
-    .filter(t => t.content.trim().length > 0)
-    .map(t => ({ role: t.role, content: t.content }));
+    .filter(t => t.content.trim().length > 0 || t.runs)
+    .flatMap((t): BaseMessage[] => {
+      if (t.role === 'user') {
+        return [new HumanMessage(t.content)];
+      }
+      return historyMessages(t).map(m => m.role === 'tool'
+        ? new ToolMessage({ content: m.content, tool_call_id: m.toolCallId, name: m.name })
+        : new AIMessage({ content: m.content, tool_calls: m.toolCalls.map(c => ({ id: c.id, name: c.name, args: c.args, type: 'tool_call' as const })) }));
+    });
 
   // The agent's system prompt is supplied to the graph via createDeepAgent's
   // `systemPrompt` (see runtime.ts). It must NOT also appear here — deepagents
@@ -1131,6 +1152,7 @@ export async function runAgentDeep(opts: {
   // suppress the pass when the answer names several owed touches. The pass
   // sees what's already carded and only tops up the missing ones.
   const backstopOn = (compiled.agentRow.harnessConfig as { recommendActionBackstop?: boolean } | null)?.recommendActionBackstop === true;
+  let cardsOnScreen = emittedCards.length;
   if (backstopOn && emittedCards.length < 3 && finalText.length > 300) {
     try {
       const { recommendActionTool } = await import('./agents/tools/recommendAction');
@@ -1160,6 +1182,7 @@ export async function runAgentDeep(opts: {
       // Say what happened: a silent backstop cannot be told from one that
       // never ran (2026-09-24: eight production turns, zero cards, no way to
       // know which). One line per pass, in the app log.
+      cardsOnScreen += emitted;
       console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length, emitted, textChars: finalText.length });
     } catch (err) {
       /* backstop is best-effort — never fails the turn */
@@ -1167,6 +1190,14 @@ export async function runAgentDeep(opts: {
     }
   } else if (emittedCards.length === 0 && finalText.length > 300) {
     console.warn('card backstop skipped', { orgId: opts.orgId, agentSlug: opts.agentSlug, backstopOn, textChars: finalText.length });
+  }
+  // A card is a tool call, never prose. With a real card on screen, a "CARD —
+  // Approve build: …" block the model wrote out by hand (production turn 642,
+  // 2026-09-24: the whole card as markdown, then the real one under it) is
+  // the same card twice, once un-pressable. It goes; `done` carries the text.
+  if (cardsOnScreen > 0 && NARRATED_CARD.test(finalText)) {
+    console.warn('agent turn: narrated card stripped from the answer', { orgId: opts.orgId, agentSlug: opts.agentSlug, cardsOnScreen });
+    finalText = finalText.replace(NARRATED_CARD, '').trim();
   }
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
