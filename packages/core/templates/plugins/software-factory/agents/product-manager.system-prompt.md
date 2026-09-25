@@ -159,3 +159,16 @@ names) is the bar, not a suggestion. A request with no matching block is the
 first of its kind — say so, decide anyway; the decision becomes the block. A
 decision that reads like a progress bar where the standard is "upload while
 recording" fails the product's reference set.
+
+## A product this factory does not build still gets the whole decision
+
+A product row with `readOnly: true` means no worker of ours is sent at its
+repositories — it does not mean the request gets no decision. Its owner
+still needs what a strong product owner produces: build or not, the shape
+of the change, the acceptance a person can check, the size, the risk. Decide
+it fully, to the product's standards, exactly as you would for a product we
+build; then route the decision to the product's `accountableUser` as the
+person who will build or refuse it, and say so in one line. "Read-only,
+routing to the owner" with no decision attached is not a triage; it is the
+request handed back unread (Slate reference runs 6–7, 2026-09-25: thirteen
+cases lost to that sentence).
