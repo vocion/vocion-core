@@ -7,6 +7,7 @@ import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { formatStamp, money } from '@/services/factory/featureReport';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { FeatureActivity } from './FeatureActivity';
+import { MediaCarousel } from './MediaCarousel';
 
 /**
  * The feature report, drawn — one request's whole story in one column.
@@ -649,16 +650,14 @@ function ActionStrip({ state }: { state: ReportState }) {
 }
 
 /**
- * WHAT IT LOOKS LIKE: one large picture and the supporting views under it —
- * the media hierarchy of a product page, without the decoration. With no
- * picture yet it says so, honestly, instead of stretching an icon.
+ * WHAT IT LOOKS LIKE: every picture in one swipeable carousel, tap to zoom.
+ * With no picture yet it says so, honestly, instead of stretching an icon.
  * @param props
- * @param props.hero - The main picture.
- * @param props.more - The other pictures.
+ * @param props.pictures - The pictures, ranked.
  * @param props.docs - Mockups that are documents rather than pictures.
  */
-function HeroMedia({ hero, more, docs }: { hero: ReportEvidence | null; more: ReportEvidence[]; docs: ReportEvidence[] }) {
-  if (!hero?.imageUrl) {
+function HeroMedia({ pictures, docs }: { pictures: ReportEvidence[]; docs: ReportEvidence[] }) {
+  if (pictures.length === 0) {
     return (
       <div id="report-visuals" data-section="visuals">
         {docs.length > 0
@@ -671,23 +670,10 @@ function HeroMedia({ hero, more, docs }: { hero: ReportEvidence | null; more: Re
       </div>
     );
   }
+  const word = (e: ReportEvidence) => (e.role === 'today' ? 'Today' : ROLE_WORD[e.role] ?? e.role);
   return (
-    <div id="report-visuals" data-section="visuals" className="space-y-2">
-      <a href={hero.imageUrl} target="_blank" rel="noreferrer" data-testid="report-hero" className="block overflow-hidden rounded-xl border border-border bg-muted">
-        <img src={hero.imageUrl} alt={hero.caption ?? hero.title} className="max-h-[440px] w-full object-cover object-top" loading="eager" />
-      </a>
-      {more.length > 0 && (
-        <ul className="flex gap-2 overflow-x-auto pb-1" data-testid="report-gallery">
-          {more.map(m => (
-            <li key={m.id} className="shrink-0">
-              <a href={m.imageUrl!} target="_blank" rel="noreferrer" className="block w-40 overflow-hidden rounded-lg border border-border bg-muted">
-                <img src={m.imageUrl!} alt={m.caption ?? m.title} className="aspect-[8/5] w-full object-cover object-top" loading="lazy" />
-              </a>
-              <p className="mt-1 w-40 truncate text-xs text-muted-foreground">{m.title}</p>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div id="report-visuals" data-section="visuals" className="space-y-4">
+      <MediaCarousel slides={pictures.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption }))} />
       {docs.length > 0 && <Gallery items={docs} />}
     </div>
   );
@@ -701,16 +687,20 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
   // is nothing else. The drawing led on request 87 (2026-09-25) as a broken
   // image while the real Share dialog sat in a thumbnail beside it, and a real
   // screenshot of today sat below the fold on 105 under "Preview pending".
+  //
+  // Before it is built, the PROPOSAL leads: the mockup, then its flow and
+  // diagram, then the screen as it is today for comparison. A screenshot of
+  // today leading a proposal (2026-09-25) showed the thing being replaced
+  // first. The platform's own drawing only appears when nothing else does.
   const drawn = (e: ReportEvidence) => e.role === 'proposed' && e.title === 'Proposed change';
-  const rank = (e: ReportEvidence) => (e.role === 'shipped' ? 0 : e.role === 'today' ? 1 : drawn(e) ? 3 : 2);
-  const pictures = [...(visuals?.evidence ?? []), ...(today?.evidence ?? [])]
-    .filter((e, i, all) => e.imageUrl !== null && all.findIndex(x => x.id === e.id) === i)
-    .sort((a, b) => rank(a) - rank(b));
-  const hero = pictures[0] ?? null;
-  const more = pictures.filter(p => p.id !== hero?.id && !drawn(p));
-  const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
   // Once the work has landed, how it was made is Activity, not the page.
   const landed = report.phase === 'released' || report.phase === 'qa';
+  const rank = (e: ReportEvidence) => (e.role === 'shipped' ? 0 : drawn(e) ? 4 : e.role === 'today' ? (landed ? 1 : 3) : 2);
+  const ranked = [...(visuals?.evidence ?? []), ...(today?.evidence ?? [])]
+    .filter((e, i, all) => e.imageUrl !== null && all.findIndex(x => x.id === e.id) === i)
+    .sort((a, b) => rank(a) - rank(b));
+  const pictures = ranked.some(p => !drawn(p)) ? ranked.filter(p => !drawn(p)) : ranked;
+  const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
   const onTop = (x: ReportSection) => showsOnPage(x, report.phase) && x.key !== 'visuals' && !(landed && BUILD_DETAIL_KEYS.has(x.key));
   const buildDetails = landed ? report.sections.filter(x => BUILD_DETAIL_KEYS.has(x.key) && showsOnPage(x, report.phase)) : [];
   return (
@@ -725,7 +715,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
             <Markdown remarkPlugins={[remarkGfm]}>{report.story}</Markdown>
           </div>
         )}
-        <HeroMedia hero={hero} more={more} docs={docs} />
+        <HeroMedia pictures={pictures} docs={docs} />
         <ActionStrip state={report.state} />
         <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
         {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} />}

@@ -219,7 +219,7 @@ describe('the feature report, drawn', () => {
     expect(line.getBoundingClientRect().top).toBeGreaterThanOrEqual(port.getBoundingClientRect().top);
   });
 
-  it('opens the mockup itself when the mockup is tapped, at any width', async () => {
+  it('opens the mockup full screen when it is tapped, at any width', async () => {
     // At 430px a desktop mockup is an illegible thumbnail, and it is the one
     // thing on this page that has to be looked at rather than read. The tap
     // used to open the artifact's record page — which is exactly what the
@@ -240,14 +240,19 @@ describe('the feature report, drawn', () => {
       }],
     }));
 
-    const shot = document.querySelector('#report-visuals img');
+    // Since 2026-09-25 the tap opens the full-screen viewer (swipe, tap to
+    // zoom) on the same picture rather than the raw file in a new tab.
+    const slide = document.querySelector<HTMLButtonElement>('[data-testid="report-slide"]');
 
-    expect(shot).not.toBeNull();
+    expect(slide).not.toBeNull();
 
-    const link = shot!.closest('a')!;
+    slide!.click();
+    await new Promise(r => setTimeout(r, 50));
+    const big = document.querySelector('[data-testid="report-lightbox-image"]');
 
-    expect(link.getAttribute('href')).toBe(shot!.getAttribute('src'));
-    expect(link.getAttribute('href')).not.toBe('');
+    expect(big).not.toBeNull();
+    expect(big!.getAttribute('src')).toBe(slide!.querySelector('img')!.getAttribute('src'));
+    expect(big!.getAttribute('src')).not.toBe('');
   });
 
   it('does not scroll sideways at a desk either', async () => {
