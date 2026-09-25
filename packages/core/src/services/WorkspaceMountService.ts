@@ -1,11 +1,12 @@
 import type { MountVerdict } from '@/libs/workspace/mounted-project';
 import { existsSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { getCurrentWorkspaceVersion } from '@/libs/workspace/current-version';
 import { judgeMountedFolder, readManifestOrgId } from '@/libs/workspace/mounted-project';
+import { workspaceFolderForProject } from '@/libs/workspace/project-path';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { projectSchema, workspaceVersionSchema } from '@/models/Schema';
 
@@ -72,4 +73,38 @@ export async function folderOwner(path: string, manifestOrgId: string | null): P
     .where(eq(projectSchema.id, id))
     .limit(1);
   return project ?? null;
+}
+
+/**
+ * The folder whose pages this project reads, when it is not the mounted one.
+ *
+ * A shared host mounts every workspace side by side (`/workspace/<slug>`) and
+ * names one on `WORKSPACE_PATH`. The other projects used to get only their
+ * plugins' pages, so a second project could not override a plugin page by
+ * slug — Squatch Factory's Work page opening on Stamp Send (2026-09-25) was
+ * written, deployed and never read. The folder is found the way ownership is
+ * already judged: named for the project in `VOCION_WORKSPACE_MAP`, else the
+ * sibling named for the project's slug, and only when the applier's record
+ * (or its workspace.yaml) says it is this project's. Null otherwise, which
+ * leaves the caller's `mounted` rule in charge.
+ * @param orgId - The project asking.
+ */
+export async function projectPagesFolder(orgId: string): Promise<string | null> {
+  const mapped = await workspaceFolderForProject(orgId).catch(() => null);
+  if (mapped?.explicit) {
+    return fromRepoRoot(mapped.path);
+  }
+  const mountedPath = getWorkspacePath();
+  if (!mountedPath) {
+    return null;
+  }
+  const [project] = await db.select({ slug: projectSchema.slug }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
+  if (!project?.slug) {
+    return null;
+  }
+  const sibling = join(dirname(fromRepoRoot(mountedPath)), project.slug);
+  if (resolve(sibling) === resolve(fromRepoRoot(mountedPath)) || !existsSync(join(sibling, 'workspace.yaml'))) {
+    return null;
+  }
+  return (await mountOwnership(orgId, { path: sibling })).own ? sibling : null;
 }
