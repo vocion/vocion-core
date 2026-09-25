@@ -174,7 +174,10 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
 
 export const config = {
   matcher: [
-    // Skip Next internals + assets + App Router metadata + API auth handler
-    '/((?!_next|_vercel|monitoring|api/auth|icon|apple-icon|opengraph-image|twitter-image|manifest|robots|sitemap|.*\\..*).*)',
+    // Skip Next internals + assets + App Router metadata + API auth handler.
+    // `api/mobile/share` too: a request the proxy matches has its body cut at
+    // Next's 10 MB clone limit (`proxyClientMaxBodySize`), and a shared phone
+    // video is larger than that. The proxy passes `/api/*` through untouched.
+    '/((?!_next|_vercel|monitoring|api/auth|api/mobile/share|icon|apple-icon|opengraph-image|twitter-image|manifest|robots|sitemap|.*\\..*).*)',
   ],
 };
