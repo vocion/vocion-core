@@ -11,19 +11,11 @@ import '@/styles/global.css';
  * is stubbed — this file is about the strip. Fixtures are fictional.
  */
 
-const proposed: string[] = [];
 vi.mock('./RecommendedActionCard', () => ({
-  RecommendedActionCard: ({ rec, autoPropose }: { rec: RecommendedAction; autoPropose?: boolean }) => {
-    if (autoPropose) {
-      proposed.push(rec.label);
-    }
+  RecommendedActionCard: ({ rec }: { rec: RecommendedAction }) => {
     return <div className="h-40 rounded-2xl border p-4" data-testid="card">{rec.label}</div>;
   },
 }));
-vi.mock('@/libs/I18nNavigation', () => ({
-  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
-}));
-vi.mock('@/libs/Orpc', () => ({ client: { review: { propose: vi.fn(async () => ({})) } } }));
 
 const { RecommendedActionStack } = await import('./RecommendedActionStack');
 
@@ -54,20 +46,16 @@ describe('the card strip', () => {
     await expect.element(page.getByText('2 of 3')).toBeInTheDocument();
   });
 
-  it('a dot or Skip moves the strip, and only the card in view proposes itself', async () => {
-    proposed.length = 0;
-    await render(<div style={{ width: 360 }}><RecommendedActionStack recs={recs} autoPropose /></div>);
-
-    expect(proposed).toEqual(['Approve the Kestrel upload fix']);
+  it('a dot moves the strip, and nothing sits under the strip', async () => {
+    await render(<div style={{ width: 360 }}><RecommendedActionStack recs={recs} /></div>);
 
     await userEvent.click(page.getByRole('tab', { name: /Card 3 of 3/ }));
 
     await expect.element(page.getByText('3 of 3')).toBeInTheDocument();
-    expect(proposed).toContain('File the SSO question');
-    expect(proposed).not.toContain('Defer the admin panel');
 
-    await userEvent.click(page.getByRole('button', { name: 'Skip' }));
-
-    await expect.element(page.getByText(/All set/)).toBeInTheDocument();
+    // Add by subtracting (Chris, 2026-09-25): the card decides; the strip adds nothing.
+    for (const gone of ['Skip', 'Save for later', /Queue all/]) {
+      expect(page.getByRole('button', { name: gone }).elements()).toHaveLength(0);
+    }
   });
 });

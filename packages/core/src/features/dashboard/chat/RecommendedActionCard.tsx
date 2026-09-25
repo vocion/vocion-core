@@ -1,17 +1,16 @@
 'use client';
 
 import type { RecommendedAction } from './types';
-import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, MessageSquare, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cardDedupKey } from '@/libs/actions/cardDedupKey';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { inboxHref } from '@/services/inbox/inboxRef';
-import { requestAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
-import { deferredLine, deferUntil } from './deferral';
+import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
 /**
@@ -30,6 +29,9 @@ import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './u
  * and starts in the status view.
  */
 
+/** A secondary control on a card: an icon, no border, a tint on hover. */
+const QUIET_ICON = 'inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-60';
+
 type Phase = { status: 'idle' | 'working' | 'proposed' | 'error'; runId?: number; message?: string };
 
 function str(v: unknown): string {
@@ -43,19 +45,12 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export function RecommendedActionCard({ rec, canApprove = true, onProposed, autoPropose = false }: {
+export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   rec: RecommendedAction;
   /** Whether to offer the inline Approve. The server still authorizes the decision. */
   canApprove?: boolean;
   /** Fired once the run exists (tap or server-filed) so a stack can count it. */
   onProposed?: (runId: number) => void;
-  /**
-   * The thread runs at `act-within-bounds` (0094): propose into the review
-   * queue as soon as the card appears, and say so. Still nothing executes —
-   * the queue and trust rules gate every outward step. A card that already
-   * arrived with a server-filed `runId` (R4) has nothing left to propose.
-   */
-  autoPropose?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
   // The decision goes into the conversation as a typed user turn (backlog
@@ -70,7 +65,6 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   const [decideError, setDecideError] = useState<string | null>(null);
   const [deferredUntil, setDeferredUntil] = useState<Date | null>(null);
   const live = useActionRunStatus(phase.runId);
-  const autoFiredRef = useRef(rec.runId !== undefined);
 
   const prepare = async () => {
     // Belt and braces behind `readRecommendedAction` (the event boundary): a
@@ -190,17 +184,25 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
     }
   };
 
+  // Icon only, no border: one labelled button on a card — the one you came to
+  // press — and the rest quiet, named on hover and to a screen reader
+  // (Chris, 2026-09-25: "turn the review and defer buttons into icon only").
   const deferButton = (
-    <button
-      type="button"
-      onClick={() => void defer()}
-      disabled={deciding !== null || phase.status === 'working'}
-      data-testid="recommended-defer"
-      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
-    >
-      {deciding === 'defer' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <CalendarClock className="size-4" aria-hidden />}
-      {deciding === 'defer' ? 'Deferring…' : 'Defer'}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => void defer()}
+          disabled={deciding !== null || phase.status === 'working'}
+          data-testid="recommended-defer"
+          aria-label={deciding === 'defer' ? 'Deferring…' : 'Defer'}
+          className={QUIET_ICON}
+        >
+          {deciding === 'defer' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <CalendarClock className="size-4" aria-hidden />}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{`Defer ${DEFER_DAYS} days`}</TooltipContent>
+    </Tooltip>
   );
 
   // Done for you → Undo, from the card that said it was done (principle 10:
@@ -220,16 +222,16 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
     }
   };
 
+  // The server files a card under done-for-you and sends its run id after
+  // the card (`card_update`); the card adopts it and shows the run. It used to
+  // file ITSELF on mount as well, which was a second filing of the same card
+  // (walk 20, finding 27: every done-for-you card filed its ask twice).
   useEffect(() => {
-    if (autoPropose && !autoFiredRef.current && rec.actionId) {
-      autoFiredRef.current = true;
-      // Proposing IS the effect here: the thread runs at act-within-bounds,
-      // so the card fires its one network call the moment it appears.
-
-      void prepare();
+    if (rec.runId !== undefined && phase.runId === undefined) {
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+      setPhase({ status: 'proposed', runId: rec.runId });
     }
-    // `prepare` closes over `rec`, which is stable for the card's life.
-  }, [autoPropose]);
+  }, [rec.runId, phase.runId]);
 
   const pct = rec.confidence !== undefined ? Math.round(rec.confidence * 100) : null;
   const isEmail = rec.actionId === 'gmail.send';
@@ -261,27 +263,6 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
           <div className="text-sm font-semibold break-words">{rec.label}</div>
           {rec.rationale && <p className="mt-0.5 line-clamp-2 text-xs break-words text-muted-foreground">{rec.rationale}</p>}
         </div>
-        {/* Talk about THIS card: the surface opens with the card as typed
-            context — its label, rationale and run id — so "what's the risk
-            here?" binds to it. Not composer text (Chris, 2026-09-24). */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="Discuss this card"
-              data-testid="recommended-discuss"
-              onClick={() => requestAgentSurface({
-                scope: { label: rec.label },
-                fallbackContext: [`Proposal card: ${rec.label}`, rec.rationale ? `Why: ${rec.rationale}` : null, phase.runId !== undefined ? `Proposal id: ${phase.runId}` : null, rec.actionId ? `Action: ${rec.actionId}` : null].filter(Boolean).join('\n'),
-                agentSlug: rec.agentSlug,
-              })}
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-            >
-              <MessageSquare className="size-3.5" aria-hidden />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Discuss this card</TooltipContent>
-        </Tooltip>
         {pct !== null && (
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -446,17 +427,29 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
                       {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={prepare}
-                    disabled={busy}
-                    className={canApprove && !isDraft
-                      ? 'inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition hover:bg-surface-hover disabled:opacity-60'
-                      : 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60'}
-                  >
-                    {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
-                    {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
-                  </button>
+                  {canApprove && !isDraft
+                    ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" onClick={prepare} disabled={busy} aria-label={busy ? 'Preparing…' : 'Review first'} className={QUIET_ICON}>
+                              {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Review first</TooltipContent>
+                        </Tooltip>
+                      )
+                    : (
+                        // The only way forward on this card, so it keeps its words.
+                        <button
+                          type="button"
+                          onClick={prepare}
+                          disabled={busy}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                        >
+                          {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                          {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
+                        </button>
+                      )}
                   {canApprove && deferButton}
                 </>
               )}
