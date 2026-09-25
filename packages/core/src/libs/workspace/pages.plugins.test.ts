@@ -326,6 +326,20 @@ describe('plugin pages', () => {
       expect(readWorkspacePages().pages.map(p => p.slug)).toEqual(expect.arrayContaining(['ours', 'wiki']));
     });
 
+    it('reads the project\'s own folder instead, so it can override a plugin page by slug', () => {
+      workspace('plugins: [wiki]\n', { 'pages/ours.yaml': 'slug: ours\ntitle: Ours\narchetype: markdown\n' });
+      const mine = mkdtempSync(join(tmpdir(), 'pages-own-'));
+      dirs.push(mine);
+      writeFileSync(join(mine, 'workspace.yaml'), 'version: 1\norgId: u\nname: u\nplugins: [software-factory]\n');
+      mkdirSync(join(mine, 'pages'));
+      writeFileSync(join(mine, 'pages', 'work.yaml'), 'slug: work\ntitle: Work\narchetype: markdown\n');
+      const { pages } = readWorkspacePages({ enabledPlugins: ['software-factory'], mounted: false, dir: mine });
+
+      expect(pages.map(p => p.slug)).not.toContain('ours');
+      expect(pages.find(p => p.slug === 'work')?.origin).toBe('workspace');
+      expect(pages.find(p => p.slug === 'work')?.sourceDir).toBe(join(mine, 'pages'));
+    });
+
     it('a project with no plugins of its own sees nothing under a foreign mount', () => {
       workspace('plugins: [wiki]\n', { 'pages/ours.yaml': 'slug: ours\ntitle: Ours\narchetype: markdown\n' });
 

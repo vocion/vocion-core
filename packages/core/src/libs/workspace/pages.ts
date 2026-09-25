@@ -73,6 +73,15 @@ export type ReadPagesOptions = {
    * are another project's; only `enabledPlugins` contribute.
    */
   mounted?: boolean;
+  /**
+   * The asking project's OWN workspace folder, when it is not the one on
+   * `WORKSPACE_PATH` — a second project on a shared host whose folder sits
+   * beside the mounted one (`services/WorkspaceMountService.ts`
+   * `projectPagesFolder` proves it is that project's). Given, its pages and
+   * its plugins' are read instead of the mounted folder's, so a project can
+   * override a plugin page by slug the way the primary project can.
+   */
+  dir?: string | null;
 };
 
 /**
@@ -81,7 +90,8 @@ export type ReadPagesOptions = {
  * @param opts - See {@link ReadPagesOptions}.
  */
 export function readWorkspacePages(opts: ReadPagesOptions = {}): { pages: LoadedPage[]; issues: PageLoadIssue[] } {
-  const ws = workspaceDir();
+  const own = typeof opts.dir === 'string' && opts.dir !== '';
+  const ws = own ? opts.dir! : workspaceDir();
   const pages: LoadedPage[] = [];
   const issues: PageLoadIssue[] = [];
   const seen = new Set<string>();
@@ -121,7 +131,7 @@ export function readWorkspacePages(opts: ReadPagesOptions = {}): { pages: Loaded
   };
 
   // The mounted folder speaks only for the project it belongs to.
-  if (ws && (opts.mounted ?? true)) {
+  if (ws && (own || (opts.mounted ?? true))) {
     readDir(join(ws, 'pages'), 'workspace', true);
     for (const plugin of enabledPluginsFromWorkspaceDir(ws)) {
       readPlugin(plugin);

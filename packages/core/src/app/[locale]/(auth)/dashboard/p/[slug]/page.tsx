@@ -11,6 +11,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PageBlocks } from '@/features/dashboard/pages/PageBlocks';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
+import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
@@ -692,6 +693,7 @@ export default async function WorkspacePage(props: {
       {!rowsLead && about}
 
       {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} />}
+      {manifest.prompts && manifest.prompts.length > 0 && <PagePrompts prompts={manifest.prompts} page={manifest.title} />}
       {queryFilters.length > 0 && (
         <p className="mb-4 flex flex-wrap items-center gap-2 text-sm" data-testid="page-query-filters">
           {queryFilters.map(f => (

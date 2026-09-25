@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /** One picture on a feature page, with what it is for in the reader's words. */
@@ -92,24 +93,27 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
           <span className="text-foreground">{current.title}</span>
           {current.caption && <span className="block text-muted-foreground">{current.caption}</span>}
         </p>
-        {many && (
-          <div className="flex shrink-0 items-center gap-1.5 pt-1" role="tablist" aria-label="Pictures">
-            {slides.map((s, i) => (
-              <button
-                key={s.id}
-                type="button"
-                role="tab"
-                aria-selected={i === idx}
-                aria-label={`Picture ${i + 1} of ${slides.length}: ${s.title}`}
-                onClick={() => go(i)}
-                className="flex size-6 items-center justify-center"
-              >
-                <span className={`block rounded-full transition-all ${i === idx ? 'h-2 w-4 bg-foreground' : 'size-2 bg-muted-foreground/40'}`} />
-              </button>
-            ))}
-          </div>
-        )}
+        {many && <span className="shrink-0 pt-0.5 font-mono text-xs text-muted-foreground tabular-nums">{`${idx + 1} / ${slides.length}`}</span>}
       </div>
+      {/* THUMBNAILS (Chris, 2026-09-25: "show thumbnails on the gallery"):
+          every picture at a glance, the one in view outlined, a tap goes to it. */}
+      {many && (
+        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Pictures" data-testid="report-thumbs">
+          {slides.map((s, i) => (
+            <button
+              key={s.id}
+              type="button"
+              role="tab"
+              aria-selected={i === idx}
+              aria-label={`Picture ${i + 1} of ${slides.length}: ${s.title}`}
+              onClick={() => go(i)}
+              className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border bg-muted transition sm:h-16 sm:w-24 ${i === idx ? 'border-foreground ring-1 ring-foreground' : 'border-border opacity-70 hover:opacity-100'}`}
+            >
+              <img src={s.src} alt="" loading="lazy" className="size-full object-cover object-top" />
+            </button>
+          ))}
+        </div>
+      )}
       {open !== null && (
         <Lightbox
           slides={slides}
@@ -195,8 +199,8 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
   }, [idx, go, onClose]);
 
   const current = slides[idx]!;
-  return (
-    <div role="dialog" aria-modal="true" aria-label={current.title} data-testid="report-lightbox" className="fixed inset-0 z-50 flex flex-col bg-black/95 text-white">
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label={current.title} data-testid="report-lightbox" className="fixed inset-0 z-[100] flex flex-col bg-[#09090b] text-white">
       <div className="flex h-14 shrink-0 items-center gap-3 px-3 pt-[env(safe-area-inset-top)]">
         <span className="font-mono text-xs tabular-nums opacity-70">{`${idx + 1} / ${slides.length}`}</span>
         <span className="min-w-0 flex-1 truncate text-sm">{current.title}</span>
@@ -247,6 +251,7 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
         {current.caption ?? current.title}
         <span className="mt-1 block text-[11px] opacity-50">{zoomed ? 'Tap to fit' : 'Tap to zoom · swipe for the next'}</span>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

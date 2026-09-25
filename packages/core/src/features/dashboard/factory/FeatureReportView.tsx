@@ -7,6 +7,7 @@ import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { formatStamp, money } from '@/services/factory/featureReport';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { FeatureActivity } from './FeatureActivity';
+import { FeatureDismiss } from './FeatureDismiss';
 import { MediaCarousel } from './MediaCarousel';
 
 /**
@@ -717,6 +718,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         )}
         <HeroMedia pictures={pictures} docs={docs} />
         <ActionStrip state={report.state} />
+        {(report.phase === 'asked' || report.phase === 'decided') && <FeatureDismiss requestId={report.requestId} />}
         <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
         {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} />}
         {report.contradictions.length > 0 && (
