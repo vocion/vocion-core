@@ -266,6 +266,7 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                     <MessageList
                       messages={messages}
                       agentName={session.agent.name}
+                      ownAgentSlug={session.agent.slug}
                       streaming={session.isStreaming}
                       activity={session.activity}
                       onShowSources={session.handleShowSources}

@@ -5,6 +5,7 @@ import { Quote } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef } from 'react';
 import { AgentMessage } from './AgentMessage';
+import { turnAttribution } from './routing';
 import { SelectionToolbar } from './SelectionToolbar';
 import { UserMessage } from './UserMessage';
 import { useSelectionReply } from './useSelectionReply';
@@ -28,6 +29,12 @@ export type MessageListProps = {
   messages: ChatMessage[];
   /** Speaker label rendered above each agent message. Passed through to AgentMessage. */
   agentName: string;
+  /**
+   * The surface's own agent — the workspace lead on the full-page chat, the
+   * conversation's agent beside a document. A turn this agent spoke carries no
+   * "via"; any other agent's turn is attributed to it (backlog 009).
+   */
+  ownAgentSlug?: string;
   /** Provided when streaming so the latest message scrolls into view. */
   streaming?: boolean;
   /** Live status line while streaming — rendered in the last agent message's work timeline. */
@@ -56,7 +63,7 @@ export type MessageListProps = {
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId }: MessageListProps) {
+export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId }: MessageListProps) {
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -134,8 +141,12 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
                     message={msg}
                     agentName={agentName}
                     // A routed turn (`@agent`, `/search`, a delegation) is
-                    // attributed, never re-identified: "via <specialist>" (§9.10).
-                    via={msg.agentName && msg.agentName !== agentName ? t('via', { name: msg.agentName }) : undefined}
+                    // attributed, never re-identified: "via <specialist>" (§9.10)
+                    // — from the turn's stamped agent, not a guess (backlog 009).
+                    via={(() => {
+                      const who = turnAttribution(msg, { slug: ownAgentSlug, name: agentName });
+                      return who ? t('via', { name: who }) : undefined;
+                    })()}
                     viaReason={msg.routing?.reason}
                     streaming={streaming && i === lastIdx}
                     activity={i === lastIdx ? activity : undefined}

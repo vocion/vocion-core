@@ -1,6 +1,6 @@
 import type { AgentOption } from './types';
 import { describe, expect, it } from 'vitest';
-import { defaultAgentSlug, parseSearchCommand, routeTurn, workspaceChips } from './routing';
+import { agentDisplayName, defaultAgentSlug, parseSearchCommand, routeTurn, turnAttribution, workspaceChips } from './routing';
 
 const AGENTS: AgentOption[] = [
   { slug: 'revenue-director', name: 'Revenue Director', icon: 'bot', placeholder: '', role: 'lead' },
@@ -55,5 +55,45 @@ describe('parseSearchCommand', () => {
     expect(parseSearchCommand('  /SEARCH  MSA unsigned ')).toEqual({ text: 'MSA unsigned', searchOnly: true });
     expect(parseSearchCommand('search the deal')).toEqual({ text: 'search the deal', searchOnly: false });
     expect(parseSearchCommand('/search')).toEqual({ text: '/search', searchOnly: false });
+  });
+});
+
+describe('agentDisplayName — the roster\'s name, or the slug read as words', () => {
+  it('prefers the roster', () => {
+    expect(agentDisplayName('proposal-writer', AGENTS)).toBe('Proposal Writer');
+    // The virtual search entry is on the client roster only; the server sends the slug back as its name.
+    expect(agentDisplayName('__search__', AGENTS, '__search__')).toBe('Search only');
+  });
+
+  it('takes a fallback the roster cannot improve on, and humanises a bare slug', () => {
+    expect(agentDisplayName('product-manager', AGENTS, 'Product manager')).toBe('Product manager');
+    expect(agentDisplayName('product-manager', AGENTS)).toBe('Product manager');
+    expect(agentDisplayName('product-manager', AGENTS, 'product-manager')).toBe('Product manager');
+    expect(agentDisplayName('__search__', [])).toBe('Search');
+  });
+});
+
+describe('turnAttribution — "via" reads the turn\'s stamped agent, never a guess (backlog 009)', () => {
+  const own = { slug: 'product-manager', name: 'Revenue' };
+
+  it('is nobody\'s to attribute when the turn carries no agent', () => {
+    expect(turnAttribution({}, own)).toBeNull();
+  });
+
+  it('is silent for the surface\'s own agent, by slug', () => {
+    expect(turnAttribution({ agentSlug: 'product-manager', agentName: 'Product manager' }, own)).toBeNull();
+  });
+
+  it('names any other agent, however the composer was tagged', () => {
+    // Conversation 176: the row says the product manager spoke; the label says so.
+    expect(turnAttribution({ agentSlug: 'product-manager', agentName: 'Product manager' }, { slug: 'revenue-lead', name: 'Revenue' })).toBe('Product manager');
+    expect(turnAttribution({ agentSlug: 'qa', agentName: 'QA' }, own)).toBe('QA');
+    // A slug stamped without a name still says who spoke.
+    expect(turnAttribution({ agentSlug: 'wiki-researcher' }, own)).toBe('Wiki researcher');
+  });
+
+  it('falls back to names only for a turn stamped before slugs travelled', () => {
+    expect(turnAttribution({ agentName: 'Revenue' }, { name: 'Revenue' })).toBeNull();
+    expect(turnAttribution({ agentName: 'Proposal Writer' }, { name: 'Revenue' })).toBe('Proposal Writer');
   });
 });

@@ -94,8 +94,9 @@ export async function POST(request: Request): Promise<Response> {
   // agent; absent, the lead answers as before.
   let agentSlug = body.agent_slug as string | undefined;
   let routing: import('@/services/agents/router').RoutingDecision | null = null;
+  const roster = await listAgents(orgId);
   if (!agentSlug || body.route === true) {
-    const agents = await listAgents(orgId);
+    const agents = roster;
     if (agents.length === 0) {
       return new Response(
         JSON.stringify({ error: 'No agents authored for this project. See /dashboard/chat for setup.' }),
@@ -111,7 +112,12 @@ export async function POST(request: Request): Promise<Response> {
     agentSlug = routing?.chosen
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
   }
-  const routedAgent = routing ? (await listAgents(orgId)).find(a => a.slug === routing!.chosen) ?? null : null;
+  const routedAgent = routing ? roster.find(a => a.slug === routing!.chosen) ?? null : null;
+  // Who speaks this turn, as a fact the client renders and the row records —
+  // never a guess the composer made from its tags before the turn ran
+  // (backlog 009). The name is the roster's; a slug the roster no longer
+  // knows is sent as itself and the client says so rather than inventing one.
+  const turnAgent = { slug: agentSlug, name: roster.find(a => a.slug === agentSlug)?.name ?? agentSlug };
   const clientHistory = (body.conversation_history as HistoryTurn[]) ?? [];
   // Optional persistence — when the client supplies a conversation_id
   // we replay server-side history (authoritative) and persist the new
@@ -332,6 +338,9 @@ export async function POST(request: Request): Promise<Response> {
       if (routing && routedAgent) {
         writeEvent({ type: 'routed', routing, agent: { slug: routedAgent.slug, name: routedAgent.name } });
       }
+      // Always, routed or named: the turn's speaker is a typed frame the
+      // transcript consumes, the same fact the assistant row is stamped with.
+      writeEvent({ type: 'turn_agent', agent: turnAgent });
 
       try {
         await runAgentDeep({
@@ -472,6 +481,7 @@ export async function POST(request: Request): Promise<Response> {
                 trace,
                 status: ending,
                 ...(endingReason ? { statusReason: endingReason } : {}),
+                agentSlug,
               });
               const touched = collector.touchedArtifactIds;
               if (touched.length > 0) {
@@ -493,7 +503,7 @@ export async function POST(request: Request): Promise<Response> {
                   void learnFromWorkCorrection({ orgId, agentSlug, userId, correction })
                     .then(async ({ receipt }) => {
                       if (receipt) {
-                        await appendMessage({ orgId, conversationId, role: 'assistant', content: receipt });
+                        await appendMessage({ orgId, conversationId, role: 'assistant', content: receipt, agentSlug });
                       }
                     })
                     .catch(() => {});

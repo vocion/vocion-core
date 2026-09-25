@@ -246,7 +246,16 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <AgentMark name={agentName} />
           {via && (
-            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case" title={viaReason}>{via}</span>
+            viaReason
+              ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="start" collisionPadding={8}>{viaReason}</TooltipContent>
+                  </Tooltip>
+                )
+              : <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
           )}
           {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (

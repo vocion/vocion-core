@@ -343,3 +343,25 @@ describe('agent stream route — a card is never lost', () => {
     expect((assistant?.runsJson ?? []).filter(r => r.type === 'card')).toHaveLength(1);
   });
 });
+
+describe('agent stream route — who spoke is a fact, not a guess (backlog 009)', () => {
+  it('sends the turn\'s agent as a typed frame before the first token and stamps it on the row', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(putsUpACard);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+
+    const events = await eventsFromTurn(conv.id, 'what closed this week?');
+
+    const spoken = events.find(e => e.type === 'turn_agent');
+
+    expect(spoken).toMatchObject({ agent: { slug: 'revenue-lead' } });
+    // Before anything the model said: the transcript attributes the turn from the start.
+    expect(events.findIndex(e => e.type === 'turn_agent')).toBeLessThan(events.findIndex(e => e.type === 'response_delta'));
+
+    const rows = await listMessages({ orgId: ORG, conversationId: conv.id });
+    const assistant = rows.find(r => r.role === 'assistant');
+    const person = rows.find(r => r.role === 'user');
+
+    expect(assistant?.agentSlug).toBe('revenue-lead');
+    expect(person?.agentSlug).toBeNull();
+  });
+});

@@ -302,6 +302,14 @@ export type AgentEvent
      * the decision — candidates, pick, reason — is on the message row.
      */
     | { type: 'routed'; routing: import('./router').RoutingDecision; agent: { slug: string; name: string } }
+    /**
+     * Who speaks this turn — the agent the runtime is about to run, whether a
+     * person named it, the workspace chose it, or it is the conversation's
+     * own. Sent on every turn, before the first token, and stamped on the
+     * assistant row as `agent_slug`, so the live transcript and the reloaded
+     * one attribute the turn from the same fact (backlog 009).
+     */
+    | { type: 'turn_agent'; agent: { slug: string; name: string } }
     | { type: 'done'; response: string; traceId?: string }
     /**
      * The turn ended badly. `ending` says HOW, in the same words the row will
