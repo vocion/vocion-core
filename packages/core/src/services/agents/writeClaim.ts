@@ -66,12 +66,15 @@ const STATUS_LABEL = new RegExp(`(?:\\*\\*|^\\s*(?:[-*]\\s+)?)(?:${DONE_WORDS})(
 /** "I filed", "I've filed", "I have created", "I just logged". */
 const FIRST_PERSON = new RegExp(`\\bI(?:'ve|\\s+have)?(?:\\s+(?:just|now|already))?\\s+(?:${DONE_WORDS})\\b`, 'i');
 
+/** "The call returned", "Fields written on request #30" — mission run 5074 (2026-09-25). */
+const REPORTED_WRITE = /\b(?:the (?:call|update|write) (?:returned|succeeded|went through)|fields? (?:written|updated|saved))\b/i;
+
 /**
  * The sentence in the answer that claims a write, or null.
  * @param text - The answer as it stands.
  */
 export function writeClaim(text: string): string | null {
-  for (const pattern of [STATUS_LABEL, FIRST_PERSON]) {
+  for (const pattern of [STATUS_LABEL, FIRST_PERSON, REPORTED_WRITE]) {
     const match = pattern.exec(text ?? '');
     if (match) {
       return match[0].trim();
