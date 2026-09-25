@@ -47,7 +47,11 @@ test.describe('phone shell', () => {
   for (const path of PAGES) {
     test(`${path} fits the phone`, async ({ page }) => {
       await page.goto(path);
-      await page.getByRole('main').first().waitFor();
+      // Settled: a heading is on screen (settings redirects to its first tab
+      // and has no <main> landmark) and fonts have loaded, so widths are final.
+      await page.getByRole('heading').first().waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(300);
 
       const o = await overflow(page);
 
