@@ -92,3 +92,6 @@ recommend:
     - a person asks what is in flight, what is stuck, and what nobody has answered for a week
     - bug reports, store reviews and support emails about the same product are tracked in different places, or nowhere
   connectors: []
+# The plugin's rows sit under their own heading (its pages already say so); a core
+# route it offers — Evals, the reference sets — sits under that heading's "More ›".
+nav: {section: Software factory, order: 0}

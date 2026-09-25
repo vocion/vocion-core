@@ -111,6 +111,13 @@ export type DashboardRoute = {
    * the route itself stays reachable, so a deep link never 404s.
    */
   plugin?: string;
+  /**
+   * A plugin that ALSO lists this core route in its own section, under
+   * "More ›", without owning it — the row stays where it is for every other
+   * workspace. Chris, 2026-09-24: the factory's reference sets "visible
+   * inside the SF UI — for now a menu item unpinned under More".
+   */
+  offeredBy?: string;
 };
 
 export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
@@ -154,7 +161,7 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/skills', title: 'Skills & tools', tabTitle: 'Skills', tabI18nKey: 'skills', group: 'Build', icon: Zap, i18nKey: 'skills_tools', keywords: ['playbooks', 'skills'] },
   { url: '/dashboard/tools', title: 'Tools', group: 'Build', icon: Wrench, i18nKey: 'tools', tabOf: '/dashboard/skills', keywords: ['capabilities', 'web search', 'keys'] },
   { url: '/dashboard/models', title: 'Vision models', group: 'Build', icon: Cpu, i18nKey: 'vision_models', tabOf: '/dashboard/skills', keywords: ['rekognition', 'classifier', 'analyze'] },
-  { url: '/dashboard/evals', title: 'Evals', group: 'Build', icon: TestTube, i18nKey: 'evals', keywords: ['tests', 'datasets'] },
+  { url: '/dashboard/evals', title: 'Evals', group: 'Build', icon: TestTube, i18nKey: 'evals', offeredBy: 'software-factory', keywords: ['tests', 'datasets', 'reference sets', 'gold standards'] },
   // Where you go to ADD capability, as against Teams & agents, which is what
   // you already have (Chris, 2026-09-19: "Teams/Agents = where you go to see
   // your agents and capabilities. Marketplace = where you go to add capability
