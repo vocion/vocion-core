@@ -1,3 +1,4 @@
+import type { PgTable } from 'drizzle-orm/pg-core';
 import { clerkAuth as auth } from '@/libs/Auth';
 
 type ServiceCheck = {
@@ -42,20 +43,31 @@ async function checkService(name: string, healthUrl: string, externalUrl: string
   }
 }
 
+/**
+ * COUNTS, NOT ROWS. These used to `select()` every row of each table — every
+ * org's agents, skills, objects, and every knowledge chunk WITH its embedding
+ * — only to read `.length`. The status panel polls this every 15s; each call
+ * outlived the interval, calls piled up, and on 2026-09-25 (20:12Z and again
+ * at 20:18Z) the app ran out of heap and stopped serving production.
+ * @param table - The table to count.
+ */
+async function countOf(table: PgTable): Promise<number> {
+  const { db } = await import('@/libs/DB');
+  const { sql } = await import('drizzle-orm');
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(table);
+  return Number((row as { n: number } | undefined)?.n ?? 0);
+}
+
 async function getDbStats(): Promise<Record<string, unknown>> {
   try {
-    const { db } = await import('@/libs/DB');
     const { agentSchema, playbookSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
-    const agents = await db.select().from(agentSchema);
-    const skills = await db.select().from(playbookSchema);
-    const objects = await db.select().from(businessObjectSchema);
-    const types = await db.select().from(businessObjectTypeSchema);
-    return {
-      agents: agents.length,
-      skills: skills.length,
-      objectTypes: types.length,
-      objects: objects.length,
-    };
+    const [agents, skills, objects, objectTypes] = await Promise.all([
+      countOf(agentSchema),
+      countOf(playbookSchema),
+      countOf(businessObjectSchema),
+      countOf(businessObjectTypeSchema),
+    ]);
+    return { agents, skills, objectTypes, objects };
   } catch {
     return { error: 'Could not connect to Vocion DB' };
   }
@@ -63,16 +75,13 @@ async function getDbStats(): Promise<Record<string, unknown>> {
 
 async function getRetrievalStats(): Promise<Record<string, unknown>> {
   try {
-    const { db } = await import('@/libs/DB');
     const { knowledgeSourceSchema, knowledgeDocumentSchema, knowledgeChunkSchema } = await import('@/models/Schema');
-    const sources = await db.select().from(knowledgeSourceSchema);
-    const docs = await db.select().from(knowledgeDocumentSchema);
-    const chunks = await db.select().from(knowledgeChunkSchema);
-    return {
-      sources: sources.length,
-      documents: docs.length,
-      chunks: chunks.length,
-    };
+    const [sources, documents, chunks] = await Promise.all([
+      countOf(knowledgeSourceSchema),
+      countOf(knowledgeDocumentSchema),
+      countOf(knowledgeChunkSchema),
+    ]);
+    return { sources, documents, chunks };
   } catch {
     return { error: 'Could not query retrieval tables' };
   }
@@ -86,7 +95,7 @@ export async function GET() {
 
   const [services, dbStats, retrievalStats] = await Promise.all([
     Promise.all([
-      checkService('Vocion App', 'http://localhost:3000', 'http://localhost:3000'),
+      checkService('Vocion App', 'http://localhost:3000/version.txt', 'http://localhost:3000'),
       checkService('Langfuse', 'http://localhost:3200/api/public/health', 'http://localhost:3200'),
       checkService('Temporal UI', 'http://localhost:8233', 'http://localhost:8233'),
     ]),
