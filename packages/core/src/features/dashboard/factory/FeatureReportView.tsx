@@ -718,7 +718,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         )}
         <HeroMedia pictures={pictures} docs={docs} />
         <ActionStrip state={report.state} />
-        {(report.phase === 'asked' || report.phase === 'decided') && <FeatureDismiss requestId={report.requestId} />}
+        {(report.phase === 'asked' || report.phase === 'decided' || report.phase === 'planned') && <FeatureDismiss requestId={report.requestId} />}
         <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
         {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} />}
         {report.contradictions.length > 0 && (

@@ -25,6 +25,8 @@ export type PluginPageInput = {
   icon?: string;
   nav: { section: string; order: number; hidden: boolean };
   origin: string;
+  /** Set when a workspace page replaces this plugin's page by slug. */
+  overrides?: string;
   /** A `link` page's route — the row opens it directly instead of `/dashboard/p/<slug>`. */
   href?: string;
 };
@@ -90,7 +92,7 @@ export function pluginNav(input: {
     // Its pages — a page's own nav.section wins when it names one (the page
     // schema's default is Workspace, which for a plugin page means "with the plugin").
     for (const page of input.pages) {
-      if (page.origin !== `plugin:${plugin.slug}` || page.nav.hidden) {
+      if ((page.origin !== `plugin:${plugin.slug}` && page.overrides !== `plugin:${plugin.slug}`) || page.nav.hidden) {
         continue;
       }
       claimedPages.push(page.slug);
