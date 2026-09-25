@@ -83,7 +83,12 @@ layout: block
 # muted line under it. Anything more about this outcome is on its own page.
 primary:
   field: title
-  subtitle: [status, blocked, gap, unmet, contract, flags, rank, detail, why, cost, product]
+  # A row answers: what is it and for which product (the title), the user
+  # problem in one sentence (`summary`), and what it needs — decide, review,
+  # or where it stands, with how long it has waited (`detail`). Internal
+  # status that helps nobody decide (`no criteria`, `no mock`, a rank) is on
+  # the feature page, not repeated on every row (Chris, 2026-09-25).
+  subtitle: [status, blocked, unmet, summary, detail, why, cost, product]
   # THE PICTURE LEADS. What this outcome changes, drawn by the platform from
   # what the record says, at the moment the record says it
   # (`services/factory/proposalVisual.ts`). It is a shape, not a screenshot:
@@ -93,9 +98,8 @@ primary:
   # changes yet" and is the only card on the board that reports a missing
   # fact by being empty rather than by printing a complaint.
   thumb: visual
-  # No picture yet? The card still wears a mark — what kind of thing it is —
-  # at its left edge. Never an empty frame.
-  thumbFallback: kindIcon
+  # No fallback mark: a generic icon stretched into the media slot is
+  # decoration. A row with no real picture has no slot at all.
 fields:
   - {key: title, label: Outcome}
   - {key: kindIcon, label: Kind, from: meta.kindIcon, format: icon}
@@ -142,6 +146,7 @@ fields:
   # What is happening, minus whatever the badge already said. A queued row's
   # line is empty on purpose: "Queued" under a badge reading "Queued" is the
   # repetition this page was redrawn to lose.
+  - {key: summary, label: Problem, from: meta.summary}
   - {key: detail, label: What is happening, from: meta.workLine}
   # One human sentence, built from the closed reason list. Never `manual_toil`.
   - {key: why, label: Why, from: meta.whyLine}

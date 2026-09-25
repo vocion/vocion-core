@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { assembleFeatureReport } from '@/services/factory/featureReport';
-import { FeatureReportView, ReportContextLine } from './FeatureReportView';
+import { FeatureReportView, plainWarning, ReportContextLine } from './FeatureReportView';
 import '@/styles/global.css';
 
 /**
@@ -255,5 +255,26 @@ describe('the feature report, drawn', () => {
     await draw(fixture());
 
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
+  });
+});
+
+describe('the first screen leads with the feature (Chris, 2026-09-25)', () => {
+  it('says "Preview pending" rather than stretching an icon, and keeps a process warning to one line', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    await expect.element(page.getByTestId('report-preview-pending')).toBeInTheDocument();
+
+    // The fixture has a worker run and no plan: the warning is one plain line, the evidence behind a tap.
+    const warning = document.querySelector('#report-contradictions summary');
+    if (warning) {
+      expect(warning.textContent).not.toMatch(/THE RECORDS DISAGREE/i);
+      expect((document.querySelector('#report-contradictions') as HTMLDetailsElement).open).toBe(false);
+    }
+  });
+
+  it('says a missing plan in plain words', () => {
+    expect(plainWarning('The plan rule required a plan for this work and none is on the record. 1 worker run ran anyway.')).toBe('This feature was built without the required plan.');
+    expect(plainWarning('Two releases claim this request. The second has no commit.')).toBe('Two releases claim this request.');
   });
 });

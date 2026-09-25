@@ -101,13 +101,14 @@ describe('plugin pages', () => {
     // what it costs. Plus the rank and the conditional facts, both of which
     // draw nothing when there is nothing to say — and the picture, which is
     // drawn rather than said.
-    expect(keys).toEqual(['title', 'kindIcon', 'visual', 'status', 'blocked', 'gap', 'unmet', 'contract', 'flags', 'detail', 'why', 'cost', 'product', 'rank']);
+    expect(keys).toEqual(['title', 'kindIcon', 'visual', 'status', 'blocked', 'gap', 'unmet', 'contract', 'flags', 'summary', 'detail', 'why', 'cost', 'product', 'rank']);
     // Every field sits in the subtitle so the uppercase fact list never
     // draws: five labels a person reads past to reach five values. The
     // picture is the one exception, and it is not in the fact list either —
     // it leads the block, because "PREVIEW" over a thumbnail is a caption
     // saying what a person can already see.
-    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', thumbFallback: 'kindIcon', subtitle: ['status', 'blocked', 'gap', 'unmet', 'contract', 'flags', 'rank', 'detail', 'why', 'cost', 'product'] });
+    // What it is, the user problem, and what it needs — nothing else on the row (Chris, 2026-09-25).
+    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', subtitle: ['status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product'] });
 
     // Sixteen fields became these. The record's own vocabulary is gone.
     // `status` is the derived badge — "Blocked", "Decide" — never the
