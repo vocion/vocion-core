@@ -13,6 +13,7 @@ const { db } = await import('@/libs/DB');
 const { actionRunSchema } = await import('@/models/Schema');
 const { registerAction } = await import('@/libs/actions/registry');
 const { proposeAction, executeAction, rejectAction } = await import('@/services/ActionService');
+const { cardDedupKey } = await import('@/libs/actions/cardDedupKey');
 const { eq } = await import('drizzle-orm');
 
 // Register a side-effect-free external action for the test.
@@ -366,6 +367,21 @@ describe('proposing against an already-decided run', () => {
     expect(again.outcome).toBe('created');
     expect(again.runId).not.toBe(first.runId);
     expect(await db.select().from(actionRunSchema)).toHaveLength(2);
+  });
+
+  it('a chat card is one run however many times it mounts: its card key returns the run that happened (walk 20)', async () => {
+    const key = cardDedupKey({ actionId: 'test.write', label: 'File the Kestrel upload bug', input: { value: 'x' } });
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'x' }, principal: agent(2), dedupKey: key });
+    await executeAction(first.runId, ORG);
+
+    // The streamed turn is swapped for the stored one, the card mounts again and proposes again.
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'x' }, principal: agent(2), dedupKey: key });
+
+    expect(again.outcome).toBe('already_decided');
+    expect(again.runId).toBe(first.runId);
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+    // Same card, same key, whichever order its payload's keys arrive in.
+    expect(cardDedupKey({ actionId: 'a.b', label: ' L ', input: { y: 1, x: [2, { b: 1, a: 2 }] } })).toBe(cardDedupKey({ actionId: 'a.b', label: 'L', input: { x: [2, { a: 2, b: 1 }], y: 1 } }));
   });
 
   it('honours an action that blocks on done but lets a rejection be re-proposed', async () => {

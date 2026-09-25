@@ -4,6 +4,7 @@ import type { RecommendedAction } from './types';
 import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, MessageSquare, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cardDedupKey } from '@/libs/actions/cardDedupKey';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
@@ -88,6 +89,9 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
         agentSlug: rec.agentSlug,
         rationale: rec.rationale,
         confidence: rec.confidence,
+        // One card, one run: a remount proposes under the same key and gets
+        // the run that already exists back (`cardDedupKey`).
+        dedupKey: cardDedupKey({ actionId: rec.actionId, label: rec.label, input: rec.input }),
         ...recommendedActionAdvice(rec),
       }) as { runId: number; status: string };
       setPhase({ status: 'proposed', runId: res.runId });
