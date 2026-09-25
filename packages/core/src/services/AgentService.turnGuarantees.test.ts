@@ -317,6 +317,10 @@ describe('the deliverable contract', () => {
       const third = streamEvents.mock.calls[2]![0] as { messages: Array<{ role: string; content: string }> };
 
       expect(third.messages.at(-1)?.content).toContain('make the write');
+      // …and it can SEE what the reads returned: a fresh graph starts from
+      // text, so without this the pass re-reads blind (mission run 5081).
+      expect(third.messages.at(-1)?.content).toContain('What your tool calls in this turn returned');
+      expect(third.messages.at(-1)?.content).toContain('### read_object');
       expect(warn.mock.calls.some(c => String(c[0]).includes('worked and stopped on a tool result'))).toBe(true);
     } finally {
       warn.mockRestore();
