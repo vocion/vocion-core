@@ -223,6 +223,8 @@ export type AgentEvent
     | { type: 'subagent_start'; name: string }
     | { type: 'subagent_end'; name: string }
     | { type: 'answering' }
+    /** What the turn is doing right now, in words, for the live status line ("Writing the decision cards"). */
+    | { type: 'status'; label: string }
     | { type: 'response_delta'; delta: string }
     | { type: 'documents'; documents: SearchDocument[] }
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }

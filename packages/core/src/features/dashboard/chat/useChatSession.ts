@@ -613,6 +613,10 @@ export function useChatSession({
       case 'answering':
         setPhase('answering');
         return;
+      case 'status':
+        // The server says what it is doing, in words; the line shows exactly that.
+        setActivity(String((evt as { label?: string }).label ?? '') || null);
+        return;
       case 'retrieval_progress': {
         const stage = String(evt.stage ?? 'searching');
         const meta = (evt.meta as { candidates?: number }) ?? {};

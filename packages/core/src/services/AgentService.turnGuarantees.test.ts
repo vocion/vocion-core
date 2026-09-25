@@ -624,3 +624,38 @@ describe('the card pass streams (2026-09-25: "waiting like 40 seconds for the ca
     }
   });
 });
+
+describe('the live line says what is happening (2026-09-25: "Working is such a lazy progress label")', () => {
+  it('names the card pass and each card as it lands', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    backstop.on = true;
+    backstop.calls.length = 0;
+    backstop.calls.push(
+      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Approve the Kestrel upload fix', rationale: 'seven reports' } },
+      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Defer the admin panel', rationale: 'no demand yet' } },
+    );
+    streamEvents.mockClear();
+    streamEvents.mockResolvedValue(longAnswerStream());
+    const statuses: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await runAgentDeep({
+        orgId: ORG,
+        agentSlug: 'lead',
+        message: 'What should I do right now?',
+        deliverable: 'answer',
+        conversationId: conv.id,
+        onEvent: (e) => {
+          if (e.type === 'status') {
+            statuses.push(e.label);
+          }
+        },
+      });
+
+      expect(statuses).toEqual(['Writing the decision cards', 'Card 1 ready · writing the next', 'Card 2 ready · writing the next']);
+    } finally {
+      warn.mockRestore();
+      backstop.on = false;
+    }
+  });
+});
