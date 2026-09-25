@@ -18,7 +18,7 @@ vi.mock('@/services/SourceAccessService', () => ({ allowedSourceSlugsForUser: vi
 // it silently did on the live walk of 2026-09-25 (finding 18).
 vi.mock('@/services/chat/autoPropose', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@/services/chat/autoPropose')>();
-  return { ...mod, autoProposeRecommendation: vi.fn(async () => {
+  return { ...mod, autoProposeRecommendationDetailed: vi.fn(async () => {
     throw new Error('proposal store unavailable');
   }) };
 });
@@ -345,8 +345,8 @@ describe('agent stream route — a card is never lost', () => {
   });
 
   it('a card that files gets its proposal id as an update, after it is already on screen and on the row', async () => {
-    const { autoProposeRecommendation } = await import('@/services/chat/autoPropose');
-    vi.mocked(autoProposeRecommendation).mockResolvedValueOnce(3691);
+    const { autoProposeRecommendationDetailed } = await import('@/services/chat/autoPropose');
+    vi.mocked(autoProposeRecommendationDetailed).mockResolvedValueOnce({ runId: 3691, status: 'done', ref: { type: 'request', id: 126 } });
     vi.mocked(runAgentDeep).mockImplementation(putsUpACard);
     const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
 
@@ -355,11 +355,12 @@ describe('agent stream route — a card is never lost', () => {
     const order = events.filter(e => e.type === 'card' || e.type === 'card_update' || e.type === 'done').map(e => e.type);
 
     expect(order).toEqual(['card', 'card_update', 'done']);
-    expect(events.find(e => e.type === 'card_update')).toMatchObject({ runId: 3691, state: 'filed' });
+    // Done-for-you: it ran, and the record it created rides with it (finding 24).
+    expect(events.find(e => e.type === 'card_update')).toMatchObject({ runId: 3691, state: 'decided', ref: { type: 'request', id: 126 } });
 
     const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
 
-    expect((assistant?.runsJson ?? []).find(r => r.type === 'card')).toMatchObject({ kind: 'action', label: 'File this as a request', runId: 3691, state: 'filed' });
+    expect((assistant?.runsJson ?? []).find(r => r.type === 'card')).toMatchObject({ kind: 'action', label: 'File this as a request', runId: 3691, state: 'decided', ref: { type: 'request', id: 126 } });
   });
 });
 

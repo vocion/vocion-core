@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<Response> {
   // record page sends it; the model reads it under the message, the log
   // keeps the message as typed.
   const { mergeScopeRef, readContextRefs, readPageContext, withPageContext } = await import('@/services/chat/pageContext');
-  const { autoProposeRecommendation, readAutonomy } = await import('@/services/chat/autoPropose');
+  const { autoProposeRecommendationDetailed, readAutonomy } = await import('@/services/chat/autoPropose');
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
   const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
@@ -302,7 +302,7 @@ export async function POST(request: Request): Promise<Response> {
             collector,
             where: { conversationId, agentSlug },
             ...(autonomy === 'act-within-bounds'
-              ? { file: (c: Card) => autoProposeRecommendation({ orgId, userId, rec: cardAsRecommendation(c) }) }
+              ? { file: (c: Card) => autoProposeRecommendationDetailed({ orgId, userId, rec: cardAsRecommendation(c) }) }
               : {}),
           }));
           return;

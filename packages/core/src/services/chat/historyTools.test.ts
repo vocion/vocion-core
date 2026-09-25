@@ -87,4 +87,11 @@ describe('historyMessages', () => {
     expect(flat[0]).toEqual({ role: 'user', content: 'what is up' });
     expect(flat[1]?.content).toBe('Filed.\n\n[Earlier in this turn you put up a card: "File it" → objects.propose_candidate (proposal #7). "Approve", "file it" or "go ahead" means THAT card — decide it or make its call, never a different record]');
   });
+
+  it('a card that ran says what it created, so the next turn reads the record instead of asking for its id', () => {
+    const out = historyMessages({ id: 'm7', role: 'assistant', content: 'Filed.', runs: [{ type: 'card', label: 'File P1 request', actionId: 'objects.propose_candidate', runId: 3722, state: 'decided', ref: { type: 'request', id: 126 } }] });
+
+    expect((out[1] as { content: string }).content).toContain('created request #126');
+    expect((out[1] as { content: string }).content).toContain('do not file it again');
+  });
 });

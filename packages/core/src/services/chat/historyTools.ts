@@ -21,7 +21,7 @@
  * `{role, content}` only; it is the prompt-shaped fallback, used nowhere else.
  */
 
-export type RunEntry = { type?: string; name?: string; input?: unknown; output?: unknown; state?: string; label?: string; actionId?: string; runId?: number };
+export type RunEntry = { type?: string; name?: string; input?: unknown; output?: unknown; state?: string; label?: string; actionId?: string; runId?: number; ref?: { type: string; id: number } };
 
 /** One stored turn as the loop replays it — a person's or the agent's words, plus what the agent's turn did. */
 export type HistoryTurn = { role: 'user' | 'assistant'; content: string; id?: string | number; runs?: unknown };
@@ -67,7 +67,9 @@ export function historyMessages(turn: HistoryTurn): HistoryMessage[] {
         role: 'tool',
         toolCallId: id,
         name: 'recommend_action',
-        content: `Card "${r.label}" is on the person's screen${r.runId ? ` as proposal #${r.runId}` : ''}. If they say "approve", "file it" or "go ahead", they mean this card: decide it${r.runId ? ` (decide_proposal ${r.runId})` : ''} or make its call — never a different record.`,
+        content: r.ref
+          ? `Card "${r.label}" ran (proposal #${r.runId ?? '?'} executed) and created ${r.ref.type} #${r.ref.id}. That record exists now — read it by id; do not file it again or ask for its id.`
+          : `Card "${r.label}" is on the person's screen${r.runId ? ` as proposal #${r.runId}` : ''}. If they say "approve", "file it" or "go ahead", they mean this card: decide it${r.runId ? ` (decide_proposal ${r.runId})` : ''} or make its call — never a different record.`,
       });
     }
   });

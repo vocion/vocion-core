@@ -11,6 +11,7 @@
  */
 import type { Card } from '@/libs/cards/card';
 import type { AgentEvent } from '@/services/agents/types';
+import type { FiledCard } from '@/services/chat/autoPropose';
 import type { RunCollector } from '@/services/chat/runCollector';
 import { recommendationFromCard } from '@/libs/cards/card';
 
@@ -22,8 +23,8 @@ export type SurfaceDeps = {
   write: (event: AgentEvent) => void;
   /** The turn's ledger; absent on a surface with no persisted conversation. */
   collector?: RunCollector | null;
-  /** Files the card as a proposal and returns its id, or null when it could not. Absent under ask-before-acting. */
-  file?: (card: Card) => Promise<number | null>;
+  /** Files the card as a proposal and says what came of it, or null when it could not. Absent under ask-before-acting. */
+  file?: (card: Card) => Promise<FiledCard | null>;
   /** For the log line. */
   where: { conversationId: number | null; agentSlug: string };
 };
@@ -44,10 +45,10 @@ export async function surfaceCard(card: Card, deps: SurfaceDeps): Promise<void> 
   if (!deps.file || card.runId !== undefined) {
     return;
   }
-  let runId: number | null = null;
+  let filed: FiledCard | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    runId = await Promise.race([
+    filed = await Promise.race([
       deps.file(card),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => {
@@ -61,10 +62,14 @@ export async function surfaceCard(card: Card, deps: SurfaceDeps): Promise<void> 
   } finally {
     clearTimeout(timer);
   }
-  if (runId !== null) {
-    deps.collector?.onCardFiled(card.title, card.actions[0]?.actionId ?? '', runId);
-    deps.write({ type: 'card_update', cardId: card.id, runId, state: 'filed' });
-    console.warn('card: filed', { ...deps.where, cardId: card.id, runId });
+  if (filed !== null) {
+    // A card that ran on the spot (done-for-you) is decided, and the record
+    // it created rides with it — so the next turn's replay says "created
+    // request #126", not "filed as proposal #3722" (finding 24).
+    const state = filed.status === 'done' ? 'decided' : 'filed';
+    deps.collector?.onCardFiled(card.title, card.actions[0]?.actionId ?? '', filed.runId, { state, ref: filed.ref });
+    deps.write({ type: 'card_update', cardId: card.id, runId: filed.runId, state, ...(filed.ref ? { ref: filed.ref } : {}) });
+    console.warn('card: filed', { ...deps.where, cardId: card.id, runId: filed.runId, state, ref: filed.ref ?? null });
   }
 }
 

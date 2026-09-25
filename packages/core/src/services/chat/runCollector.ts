@@ -124,12 +124,20 @@ export class RunCollector {
    * @param label
    * @param actionId
    * @param runId
+   * @param outcome
+   * @param outcome.state
+   * @param outcome.ref
+   * @param outcome.ref.type
+   * @param outcome.ref.id
    */
-  onCardFiled(label: string, actionId: string, runId: number): void {
+  onCardFiled(label: string, actionId: string, runId: number, outcome: { state?: string; ref?: { type: string; id: number } } = {}): void {
     for (const r of this.runs) {
       if (r.type === 'card' && r.label === label && r.actionId === actionId) {
         r.runId = runId;
-        r.state = 'filed';
+        r.state = outcome.state ?? 'filed';
+        if (outcome.ref) {
+          r.ref = outcome.ref;
+        }
       }
     }
   }

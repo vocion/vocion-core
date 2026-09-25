@@ -40,6 +40,8 @@ export const CardSchema = z.object({
   source: z.object({ agentSlug: z.string().optional(), tool: z.string().optional() }).default({}),
   /** The proposal this card was filed as, once it was. */
   runId: z.number().int().optional(),
+  /** The record the card's action created when it ran — the id the next turn needs. */
+  ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),
   /** How the person decided, once they did. */
   decision: z.object({ action: z.string(), at: z.string(), by: z.string().optional() }).optional(),
