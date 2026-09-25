@@ -10,9 +10,11 @@ import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { client } from '@/libs/Orpc';
 import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
+import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -166,6 +168,15 @@ function ChatShellInner({
     };
   }, [intent, pathname]);
   const session = useChatSession({ agents, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId, pageContext });
+  // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
+  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+    if (session.conversationId === null) {
+      return;
+    }
+    void client.conversations.recordCardDecision({ id: session.conversationId, ...d }).catch((err: unknown) => {
+      console.warn('card decision was not written to the conversation', err);
+    });
+  }, [session.conversationId]);
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;
@@ -324,20 +335,22 @@ function ChatShellInner({
                     : <NoAgentsState />
                 )
               : (
-                  <MessageList
-                    messages={session.messages}
-                    agentName={session.workspaceName}
-                    // The workspace speaks through its lead; a specialist's turn is attributed.
-                    ownAgentSlug={defaultAgentSlug(agents)}
-                    streaming={session.isStreaming}
-                    activity={session.activity}
-                    onShowSources={session.handleShowSources}
-                    onCitationClick={session.handleCitationClick}
-                    onFeedback={session.handleFeedback}
-                    autonomy={session.autonomy}
-                    conversationId={session.conversationId}
-                    blocks={gateBlocks}
-                  />
+                  <CardDecisionProvider value={recordCardDecision}>
+                    <MessageList
+                      messages={session.messages}
+                      agentName={session.workspaceName}
+                      // The workspace speaks through its lead; a specialist's turn is attributed.
+                      ownAgentSlug={defaultAgentSlug(agents)}
+                      streaming={session.isStreaming}
+                      activity={session.activity}
+                      onShowSources={session.handleShowSources}
+                      onCitationClick={session.handleCitationClick}
+                      onFeedback={session.handleFeedback}
+                      autonomy={session.autonomy}
+                      conversationId={session.conversationId}
+                      blocks={gateBlocks}
+                    />
+                  </CardDecisionProvider>
                 )}
 
           <ChatComposer

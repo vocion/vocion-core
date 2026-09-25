@@ -329,10 +329,11 @@ describe('agent stream route — a card is never lost', () => {
 
     const events = await eventsFromTurn(conv.id, 'seven customers lost uploads');
 
-    const card = events.find(e => e.type === 'recommended_action') as { recommendation: { label: string; runId?: number } } | undefined;
+    const card = events.find(e => e.type === 'card') as { card: { title: string; kind: string; runId?: number; state: string } } | undefined;
 
-    expect(card?.recommendation.label).toBe('File this as a request');
-    expect(card?.recommendation.runId).toBeUndefined();
+    expect(card?.card).toMatchObject({ title: 'File this as a request', kind: 'action', state: 'proposed' });
+    expect(card?.card.runId).toBeUndefined();
+    expect(events.some(e => e.type === 'card_update')).toBe(false);
 
     const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
 
@@ -341,6 +342,24 @@ describe('agent stream route — a card is never lost', () => {
     ]));
     // Written down once, not once per path.
     expect((assistant?.runsJson ?? []).filter(r => r.type === 'card')).toHaveLength(1);
+  });
+
+  it('a card that files gets its proposal id as an update, after it is already on screen and on the row', async () => {
+    const { autoProposeRecommendation } = await import('@/services/chat/autoPropose');
+    vi.mocked(autoProposeRecommendation).mockResolvedValueOnce(3691);
+    vi.mocked(runAgentDeep).mockImplementation(putsUpACard);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+
+    const events = await eventsFromTurn(conv.id, 'seven customers lost uploads');
+
+    const order = events.filter(e => e.type === 'card' || e.type === 'card_update' || e.type === 'done').map(e => e.type);
+
+    expect(order).toEqual(['card', 'card_update', 'done']);
+    expect(events.find(e => e.type === 'card_update')).toMatchObject({ runId: 3691, state: 'filed' });
+
+    const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
+
+    expect((assistant?.runsJson ?? []).find(r => r.type === 'card')).toMatchObject({ kind: 'action', label: 'File this as a request', runId: 3691, state: 'filed' });
   });
 });
 

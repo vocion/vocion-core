@@ -13,16 +13,19 @@
  * `runAgent` engine until we flip the default.
  */
 
+import type { Card } from '@/libs/cards/card';
 import type { AgentEvent } from '@/services/agents/types';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { cardFromRecommendation } from '@/libs/cards/card';
 import { openStream, wasStopped } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
 import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
+import { cardAsRecommendation, surfaceCard } from '@/services/cards/surface';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
 import { RunCollector } from '@/services/chat/runCollector';
 import { stoppedShort } from '@/services/chat/turnStatus';
@@ -35,8 +38,6 @@ import {
   toHistoryTurns,
 } from '@/services/ConversationService';
 
-/** How long a card waits to be filed before it is shown unfiled — a card the person can press beats a filed one they never see. */
-const AUTO_FILE_MS = 8_000;
 const KEEPALIVE_INTERVAL_MS = 15_000;
 
 export async function POST(request: Request): Promise<Response> {
@@ -290,37 +291,20 @@ export async function POST(request: Request): Promise<Response> {
       // finaliser waits for them before closing the stream.
       const pending: Promise<void>[] = [];
       const sendEvent = (event: AgentEvent) => {
-        if (event.type === 'recommended_action' && autonomy === 'act-within-bounds' && event.recommendation.runId === undefined) {
-          // THE CARD IS WRITTEN DOWN BEFORE IT IS FILED. Under done-for-you the
-          // card used to reach the stream and the row only after the auto-file
-          // round trip — and on the live walk of 2026-09-25 (turns 646, 648)
-          // it reached neither: the backstop's card was emitted, the proposal
-          // was never filed, the person saw "Filing the request now." and no
-          // card, and the next turn went looking for a record that did not
-          // exist (finding 18). Whatever happens in the round trip, the card
-          // is on the ledger now and on the screen within `AUTO_FILE_MS`.
-          const r = event.recommendation;
-          collector?.onCard({ label: r.label, actionId: r.actionId, input: r.input });
-          pending.push((async () => {
-            let runId: number | null = null;
-            let timer: ReturnType<typeof setTimeout> | undefined;
-            try {
-              runId = await Promise.race([
-                autoProposeRecommendation({ orgId, userId, rec: r }),
-                new Promise<null>((resolve) => {
-                  timer = setTimeout(() => {
-                    console.warn('agent stream: auto-filing the card is taking too long; showing it unfiled', { conversationId, agentSlug, label: r.label, actionId: r.actionId });
-                    resolve(null);
-                  }, AUTO_FILE_MS);
-                }),
-              ]);
-            } catch (err) {
-              console.warn('agent stream: auto-filing the card failed; showing it unfiled', { conversationId, agentSlug, label: r.label, actionId: r.actionId }, err);
-            } finally {
-              clearTimeout(timer);
-            }
-            writeEvent(runId === null ? event : { ...event, recommendation: { ...r, runId } });
-          })());
+        if (event.type === 'recommended_action') {
+          // Every recommendation becomes a CARD at this door (backlog 025):
+          // on the ledger and on the wire first, filed second under
+          // done-for-you, with the proposal id arriving as a `card_update`.
+          // The reverse order lost cards on 2026-09-25 (finding 18).
+          const card = cardFromRecommendation(event.recommendation);
+          pending.push(surfaceCard(card, {
+            write: writeEvent,
+            collector,
+            where: { conversationId, agentSlug },
+            ...(autonomy === 'act-within-bounds'
+              ? { file: (c: Card) => autoProposeRecommendation({ orgId, userId, rec: cardAsRecommendation(c) }) }
+              : {}),
+          }));
           return;
         }
         writeEvent(event);

@@ -9,6 +9,7 @@ import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { requestAgentSurface } from './agentSurface';
+import { useRecordCardDecision } from './cards/CardDecisions';
 import { deferredLine, deferUntil } from './deferral';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
@@ -56,6 +57,14 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   autoPropose?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
+  // The decision goes into the conversation as a typed user turn (backlog
+  // 025), so the next turn binds "approve" to THIS card, never to words.
+  const recordDecision = useRecordCardDecision();
+  const record = (action: 'approve' | 'reject' | 'defer' | 'undo', runId?: number) => {
+    if (rec.id) {
+      recordDecision({ cardId: rec.id, label: rec.label, action, runId });
+    }
+  };
   const [deciding, setDeciding] = useState<'approve' | 'reject' | 'defer' | 'undo' | null>(null);
   const [decideError, setDecideError] = useState<string | null>(null);
   const [deferredUntil, setDeferredUntil] = useState<Date | null>(null);
@@ -116,6 +125,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       onProposed?.(res.runId);
       setDeciding('approve');
       await client.review.decideAction({ id: res.runId, decision: 'approve' });
+      record('approve', res.runId);
     } catch (err) {
       setDecideError((err as Error).message);
     } finally {
@@ -131,6 +141,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
     setDecideError(null);
     try {
       await client.review.decideAction({ id: phase.runId, decision });
+      record(decision, phase.runId);
     } catch (err) {
       setDecideError((err as Error).message);
     } finally {

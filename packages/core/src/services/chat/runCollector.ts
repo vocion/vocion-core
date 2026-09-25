@@ -97,7 +97,7 @@ export class RunCollector {
     this.runs.push({ type: 'tool', name, input });
   }
 
-  onCard(card: { label: string; actionId: string; input?: Record<string, unknown>; runId?: number }): void {
+  onCard(card: { id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string }): void {
     // Written once: the route tees a card when it is first seen AND again
     // when the auto-filed copy is written to the stream (finding 18).
     if (this.hasCard(card.label, card.actionId)) {
@@ -107,7 +107,7 @@ export class RunCollector {
       return;
     }
     this.flushText();
-    this.runs.push({ type: 'card', label: card.label, actionId: card.actionId, input: card.input, runId: card.runId });
+    this.runs.push({ type: 'card', ...(card.id ? { id: card.id } : {}), ...(card.kind ? { kind: card.kind } : {}), label: card.label, actionId: card.actionId, input: card.input, runId: card.runId, ...(card.state ? { state: card.state } : {}) });
   }
 
   /**
@@ -129,6 +129,7 @@ export class RunCollector {
     for (const r of this.runs) {
       if (r.type === 'card' && r.label === label && r.actionId === actionId) {
         r.runId = runId;
+        r.state = 'filed';
       }
     }
   }
