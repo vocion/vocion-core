@@ -645,7 +645,7 @@ export async function runAgentDeep(opts: {
   // The graph and its tools are compiled for THIS turn, on this person's
   // context. Nothing here is shared with a turn running beside it — which is
   // what a shared, overwritten context cost us (harness.ts, issue #109).
-  const compiled = await compileAgentForRequest(
+  let compiled = await compileAgentForRequest(
     opts.orgId,
     opts.agentSlug,
     {
@@ -808,6 +808,7 @@ export async function runAgentDeep(opts: {
   let answeredSinceTool = true;
   // A malformed tool call is retried once, not fatal — see the catch below.
   let toolErrorRetried = false;
+  let thoughtOnlyRetried = false;
   // The lead's most recent model-turn namespace, so a scratch tail released
   // at flush lands on the reasoning node of the turn that wrote it.
   let leadNs = '';
@@ -1048,6 +1049,38 @@ export async function runAgentDeep(opts: {
             ...input.messages,
             ...(empty ? [] : [{ role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar }]),
             { role: 'user', content: nudge },
+          ],
+        } as typeof input);
+      }
+      // THOUGHT, AND SAID NOTHING. A turn that ends with no words and no tool
+      // call after the continuation is the model spending its whole output
+      // on thinking (MCP turns 667 and 675, 2026-09-25: two reasoning nodes,
+      // zero characters, twice). The words are not coming from that
+      // configuration: compile once more with thinking off and run again.
+      const stillEmpty = normalizeAnswerHtml(finalText).trim().length === 0 && toolCallLog.length === 0 && emittedCards.length === 0;
+      if (stillEmpty && !thoughtOnlyRetried) {
+        thoughtOnlyRetried = true;
+        console.warn('agent turn: thought and said nothing; once more without thinking', { orgId: opts.orgId, agentSlug: opts.agentSlug });
+        compiled = await compileAgentForRequest(
+          opts.orgId,
+          opts.agentSlug,
+          {
+            emit,
+            userId: opts.userId,
+            allowedSourceSlugs: opts.allowedSourceSlugs,
+            missionSlug: opts.missionSlug,
+            missionRunId: opts.missionRunId,
+            conversationId: opts.conversationId,
+            pageContext: opts.pageContext,
+            timeZone: opts.timeZone,
+          },
+          { modelOverride: { ...(modelOverride ?? {}), thinking: 'off' } as typeof modelOverride },
+        );
+        await runGraph({
+          ...input,
+          messages: [
+            ...input.messages,
+            { role: 'user', content: 'Your last two attempts produced no words and no tool calls. Answer now in plain text, or make the tool calls you need — say what you found and what you did.' },
           ],
         } as typeof input);
       }
