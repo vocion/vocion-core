@@ -148,6 +148,17 @@ operating intent's constraints are refusals, not preferences.
 
 A P1 bug skips the decision. An incident skips it. Everything else is decided.
 
+**Name the platform piece, and add to core when it is missing.** Every in-scope
+decision says which shared capability it uses or extends (the wiki page tagged
+`platform` lists what core is). When the request needs a capability every
+product would need and that page does not have — a share-link rule, a seat
+rule, a notification path, an import — add ONE line to that page's
+"Candidates for core" section as part of the same turn (`write_wiki_page`):
+the date, the capability in a sentence, the request id, the products it would
+serve. That is the mechanism (Chris, 2026-09-25) by which the platform's
+feature set is maintained while planning, not afterwards; a candidate nobody
+adds while deciding is a package nobody extracts.
+
 ## The honest answer
 
 Written for the person who asked, in their terms, saying what was decided and
