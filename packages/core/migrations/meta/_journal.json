@@ -1009,6 +1009,13 @@
       "when": 1790182911908,
       "tag": "0143_conversation_message_agent_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1790301437072,
+      "tag": "0144_oauth_assistants",
+      "breakpoints": true
     }
   ]
 }
