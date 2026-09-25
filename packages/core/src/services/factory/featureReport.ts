@@ -309,7 +309,23 @@ export type MoneyLine = {
   actualSource: string;
 };
 
+/**
+ * One thing that happened to this feature that a person may want to open:
+ * a conversation it was discussed in, a mission run that worked on it, or an
+ * engineering run building it. Opened in the preview pane (a sheet on a phone).
+ */
+export type ReportActivity = {
+  kind: 'conversation' | 'mission_run' | 'worker_run';
+  id: number;
+  title: string;
+  at: Date;
+  status: string | null;
+  detail: string | null;
+};
+
 export type FeatureReport = {
+  /** Every conversation and run tied to this feature, newest first (loaded beside the report). */
+  activity?: ReportActivity[];
   requestId: number;
   title: string;
   summary: FeatureReportSummary;

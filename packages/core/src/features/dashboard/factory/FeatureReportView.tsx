@@ -6,6 +6,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { formatStamp, money } from '@/services/factory/featureReport';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { FeatureActivity } from './FeatureActivity';
 
 /**
  * The feature report, drawn — one request's whole story in one column.
@@ -727,6 +728,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         <HeroMedia hero={hero} more={more} docs={docs} />
         <ActionStrip state={report.state} />
         <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
+        {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} />}
         {report.contradictions.length > 0 && (
           <details id="report-contradictions" className="group text-sm">
             <summary className="flex cursor-pointer list-none items-center gap-2 text-[var(--brand-fail)]">
