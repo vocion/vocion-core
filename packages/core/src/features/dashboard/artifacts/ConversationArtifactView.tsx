@@ -24,11 +24,9 @@ import type { AgentSurfaceRequest } from '@/features/dashboard/chat/agentSurface
 import type { AgentOption, ChatMessageArtifact } from '@/features/dashboard/chat/types';
 import type { ArtifactPayload } from '@/services/agents/types';
 import type { PageContext } from '@/services/chat/pageContext';
-import { Minimize2, PanelRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { useViewportBelow } from '@/components/ui/useMobile';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '@/features/dashboard/chat/agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from '@/features/dashboard/chat/autonomyOptions';
@@ -45,6 +43,7 @@ import { useChatSession } from '@/features/dashboard/chat/useChatSession';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { ArtifactPane } from './ArtifactPane';
 import { artifactReducer, initialArtifactPaneState, openArtifact } from './artifactReducer';
+import { ConversationPageActions } from './ConversationPageActions';
 import { ConversationSplit } from './ConversationSplit';
 import { SPLIT_STACK_BREAKPOINT } from './splitState';
 import { useArtifactEvents } from './useArtifactEvents';
@@ -239,18 +238,12 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
   return (
     <div ref={rootRef} className="flex h-full min-h-0 flex-1 flex-col">
       <ShellBarActionsPortal>
-        <div className="flex items-center gap-1">
-          {pane.openId === null && pane.artifacts.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => dispatch({ type: 'open', id: pane.artifacts.at(-1)!.id })} className="gap-1.5">
-              <PanelRight className="size-4" />
-              <span className="hidden sm:inline">{`Artifacts · ${pane.artifacts.length}`}</span>
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/chat')} aria-label="Back to the conversation" className="gap-1.5">
-            <Minimize2 className="size-4" />
-            <span className="hidden sm:inline">Collapse</span>
-          </Button>
-        </div>
+        <ConversationPageActions
+          artifactCount={pane.artifacts.length}
+          artifactsOpen={pane.openId !== null}
+          onOpenArtifacts={() => dispatch({ type: 'open', id: pane.artifacts.at(-1)!.id })}
+          onBack={() => router.push('/dashboard/chat')}
+        />
       </ShellBarActionsPortal>
 
       {/* The two panes and the line between them. The widths are the rule and
