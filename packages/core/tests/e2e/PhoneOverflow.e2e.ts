@@ -44,13 +44,25 @@ async function overflow(page: import('@playwright/test').Page) {
   });
 }
 
+// One sign-in for the whole file: six sign-ins in a row on a shared CI box
+// tripped the 15 s URL wait twice (2026-09-25) on a test that was never
+// about signing in. Serial, one page, signed in once.
+test.describe.configure({ mode: 'serial' });
+
 test.describe('phone shell', () => {
-  test.beforeEach(async ({ page }) => {
+  let page: import('@playwright/test').Page;
+
+  test.beforeAll(async ({ browser }) => {
+    page = await browser.newPage();
     await signIn(page);
   });
 
+  test.afterAll(async () => {
+    await page.close();
+  });
+
   for (const path of PAGES) {
-    test(`${path} fits the phone`, async ({ page }) => {
+    test(`${path} fits the phone`, async () => {
       await page.goto(path);
       // Settled: a heading is on screen (settings redirects to its first tab
       // and has no <main> landmark) and fonts have loaded, so widths are final.
@@ -65,7 +77,7 @@ test.describe('phone shell', () => {
     });
   }
 
-  test('the composer holding an unbroken 300-char id does not push the page sideways', async ({ page }) => {
+  test('the composer holding an unbroken 300-char id does not push the page sideways', async () => {
     await page.goto('/dashboard/chat');
     const box = page.locator('textarea').last();
     await box.click();
@@ -77,7 +89,7 @@ test.describe('phone shell', () => {
     expect(o.hanging).toEqual([]);
   });
 
-  test('the sidebar sheet fits the phone', async ({ page }) => {
+  test('the sidebar sheet fits the phone', async () => {
     await page.goto('/dashboard/chat');
     await page.getByRole('button', { name: /toggle sidebar/i }).first().click();
     await page.waitForTimeout(400);
