@@ -61,7 +61,7 @@ const { db } = await import('@/libs/DB');
 const { agentSchema } = await import('@/models/Schema');
 const { createConversation } = await import('@/services/ConversationService');
 const { listArtifactsForConversation } = await import('@/services/ArtifactService');
-const { delegationFailureNotice, runAgentDeep } = await import('@/services/AgentService');
+const { applyTurnGuarantees, delegationFailureNotice, runAgentDeep } = await import('@/services/AgentService');
 
 const ORG = 'org_turn_guarantees';
 const TASK_ID = 'task-abc';
@@ -465,5 +465,24 @@ describe('the tool-call log an eval reads', () => {
       warn.mockRestore();
       backstop.on = false;
     }
+  });
+});
+
+describe('a write the answer claims is a write that ran (finding 23)', () => {
+  const claimed = 'Scoped the StampSend MCP work against the Send standards and the current connector.\n\n**Filed:** Request recorded for Send. Architecture plan queued.';
+  const base = { orgId: ORG, agentSlug: 'lead', request: 'File it.', failures: [], failedDelegations: [], answer: async () => '' };
+
+  it('appends the correction, live and stored, when only reads ran', async () => {
+    const events: AgentEvent[] = [];
+    const out = await applyTurnGuarantees({ ...base, response: claimed, toolCalls: [{ tool: 'lookup_objects', output: 'request #126' }], emit: e => events.push(e) });
+
+    expect(out).toContain('Nothing was saved in this turn');
+    expect(events.some(e => e.type === 'response_delta' && e.delta.includes('Nothing was saved in this turn'))).toBe(true);
+  });
+
+  it('says nothing when the write ran', async () => {
+    const out = await applyTurnGuarantees({ ...base, response: claimed, toolCalls: [{ tool: 'update_object', output: '{"ok":true,"id":130}' }], emit: () => {} });
+
+    expect(out).toBe(claimed);
   });
 });

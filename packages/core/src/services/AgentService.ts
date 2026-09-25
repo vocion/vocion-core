@@ -30,6 +30,7 @@ import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { TurnRefusedError } from './agents/turnRefusal';
+import { unbackedWriteNotice, writeClaim } from './agents/writeClaim';
 
 /**
  * A tool's name written as the turn's last word — narrated, not called — or a
@@ -288,8 +289,9 @@ export type TurnGuaranteeInput = {
  * Everything a finished turn owes the person, applied in code rather than
  * asked for in a prompt:
  *
- *   1. a failed delegation is stated in the answer, and
- *   2. a turn sent with `deliverable: 'artifact'` ends with an artifact.
+ *   1. a failed delegation is stated in the answer,
+ *   2. a write the answer claims as done is a write that ran, and
+ *   3. a turn sent with `deliverable: 'artifact'` ends with an artifact.
  *
  * Runs for EVERY harness target — it reads the finished text and the tool
  * calls, which all of them return — so the guarantee does not depend on where
@@ -332,6 +334,15 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
   const notice = delegationFailureNotice(input.failedDelegations, text);
   if (notice) {
     append(notice);
+  }
+
+  // A WRITE CLAIMED WITH NO WRITE BEHIND IT is corrected here, after the
+  // answer pass, so a claim that pass made is checked too (finding 23,
+  // services/agents/writeClaim.ts).
+  const unbacked = unbackedWriteNotice(text, input.toolCalls);
+  if (unbacked) {
+    console.warn(`turn claimed a write with none behind it for org ${input.orgId} agent ${input.agentSlug}: "${writeClaim(text)}"`);
+    append(unbacked);
   }
 
   if (input.deliverable === 'artifact') {
