@@ -1333,14 +1333,42 @@ export const RollupSchema = z.object({
 }).refine(r => [r.sum, r.min, r.max].filter(v => v !== undefined).length <= 1, { message: 'a rollup is a sum, a min, a max or a count of children, not two of them' });
 export type Rollup = z.infer<typeof RollupSchema>;
 
-const GateRequirementSchema = z.object({
+/**
+ * One thing a record must satisfy to cross a gate. Grown on 2026-09-25 to
+ * express the two gates that were TypeScript until then (backlog 011): a
+ * requirement can apply only `if` another field has one of some values, can
+ * demand that `allItems` of a list carry a field equal to a value, can pass
+ * when `anyOf` several alternatives pass, and can say something different for
+ * each bad value (`valueMessages`) and for a missing one (`missingMessage`).
+ * Messages may carry `{to}`, `{value}`, `{days}`, `{unmet}`, `{total}` and
+ * `{first}`.
+ */
+export type GateRequirementManifest = {
+  field: string;
+  present?: boolean;
+  minItems?: number;
+  oneOf?: string[];
+  maxAgeDays?: number;
+  allItems?: { field: string; equals: string | number | boolean; label?: string };
+  anyOf?: GateRequirementManifest[];
+  if?: { field: string; oneOf: string[] };
+  valueMessages?: Record<string, string>;
+  missingMessage?: string;
+  message?: string;
+};
+const GateRequirementSchema: z.ZodType<GateRequirementManifest> = z.lazy(() => z.object({
   field: z.string().min(1),
   present: z.boolean().optional(),
   minItems: z.number().int().min(0).optional(),
   oneOf: z.array(z.string()).min(1).optional(),
   maxAgeDays: z.number().min(0).optional(),
+  allItems: z.object({ field: z.string().min(1), equals: z.union([z.string(), z.number(), z.boolean()]), label: z.string().min(1).optional() }).optional(),
+  anyOf: z.array(GateRequirementSchema).min(2).optional(),
+  if: z.object({ field: z.string().min(1), oneOf: z.array(z.string()).min(1) }).optional(),
+  valueMessages: z.record(z.string(), z.string()).optional(),
+  missingMessage: z.string().optional(),
   message: z.string().optional(),
-}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined, { message: 'a requirement needs present, minItems, oneOf or maxAgeDays' });
+}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems or anyOf' }));
 
 /**
  * The judgement half of a gate: after the deterministic checks pass, one

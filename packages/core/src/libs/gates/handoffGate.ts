@@ -18,15 +18,20 @@
 
 export type GateRequirement = {
   field: string;
-  /** The field must be present and not empty. */
   present?: boolean;
-  /** An array field must have at least this many items. */
   minItems?: number;
-  /** A string field must be one of these. */
   oneOf?: string[];
-  /** A date-time field must be within this many days of now. */
   maxAgeDays?: number;
-  /** What to say when it fails — in the seat's terms; defaults to a plain sentence. */
+  /** Every item of the list at `field` has `allItems.field` equal to `equals`; `label` names the item field quoted in the message (default `statement`). */
+  allItems?: { field: string; equals: string | number | boolean; label?: string };
+  /** Passes when any one of these passes. */
+  anyOf?: GateRequirement[];
+  /** Applies only while another field holds one of these values. */
+  if?: { field: string; oneOf: string[] };
+  /** What to say for a specific bad value, keyed by the value. */
+  valueMessages?: Record<string, string>;
+  /** What to say when the field is missing; falls back to `message`. */
+  missingMessage?: string;
   message?: string;
 };
 
@@ -85,28 +90,62 @@ export function gatesOf(schema: Record<string, unknown> | null | undefined): Han
  * @param now - The clock.
  * @returns Why it fails, or null when it holds.
  */
-export function requirementFailure(merged: Record<string, unknown>, r: GateRequirement, now: Date = new Date()): string | null {
+/**
+ * Fill `{token}`s in a gate message; unknown tokens stay as written.
+ * @param message
+ * @param tokens
+ */
+function fill(message: string, tokens: Record<string, string | number | undefined>): string {
+  return message.replace(/\{(\w+)\}/g, (m, k: string) => (tokens[k] === undefined ? m : String(tokens[k])));
+}
+
+export function requirementFailure(merged: Record<string, unknown>, r: GateRequirement, now: Date = new Date(), to = ''): string | null {
+  if (r.if) {
+    const cond = get(merged, r.if.field);
+    if (!(typeof cond === 'string' && r.if.oneOf.includes(cond))) {
+      return null; // not this record's business
+    }
+  }
+  if (r.anyOf) {
+    const whys = r.anyOf.map(sub => requirementFailure(merged, sub, now, to));
+    if (whys.includes(null)) {
+      return null;
+    }
+    return fill(r.message ?? whys.filter((w): w is string => w !== null).join(', or '), { to });
+  }
   const v = get(merged, r.field);
   if ((r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined) && isEmpty(v)) {
-    return r.message ?? `${r.field} is not on the record`;
+    return fill(r.missingMessage ?? r.message ?? `${r.field} is not on the record`, { to });
   }
   if (r.minItems !== undefined) {
     const n = Array.isArray(v) ? v.length : 0;
     if (n < r.minItems) {
-      return r.message ?? `${r.field} has ${n} item${n === 1 ? '' : 's'}; at least ${r.minItems} needed`;
+      return fill(r.message ?? `${r.field} has ${n} item${n === 1 ? '' : 's'}; at least ${r.minItems} needed`, { to });
     }
   }
   if (r.oneOf && !(typeof v === 'string' && r.oneOf.includes(v))) {
-    return r.message ?? `${r.field} is "${String(v)}", not one of ${r.oneOf.join(', ')}`;
+    const value = String(v);
+    const specific = typeof v === 'string' ? r.valueMessages?.[v] : undefined;
+    return fill(specific ?? r.message ?? `${r.field} is "${value}", not one of ${r.oneOf.join(', ')}`, { to, value });
   }
   if (r.maxAgeDays !== undefined) {
     const at = typeof v === 'string' || typeof v === 'number' ? new Date(v) : null;
     if (!at || Number.isNaN(at.getTime())) {
-      return r.message ?? `${r.field} is not a date`;
+      return fill(r.message ?? `${r.field} is not a date`, { to });
     }
     const days = (now.getTime() - at.getTime()) / 86_400_000;
     if (days > r.maxAgeDays) {
-      return r.message ?? `${r.field} is ${Math.floor(days)} days old; it has to be within ${r.maxAgeDays}`;
+      return fill(r.message ?? `${r.field} is ${Math.floor(days)} days old; it has to be within ${r.maxAgeDays}`, { to, days: Math.floor(days) });
+    }
+  }
+  if (r.allItems) {
+    const items = Array.isArray(v) ? v.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null) : [];
+    const rule = r.allItems;
+    const unmet = items.filter(item => get(item, rule.field) !== rule.equals);
+    if (unmet.length > 0) {
+      const label = rule.label ?? 'statement';
+      const first = unmet.slice(0, 3).map(item => (typeof item[label] === 'string' ? String(item[label]) : `an unnamed ${label}`)).join('; ') + (unmet.length > 3 ? '; …' : '');
+      return fill(r.message ?? `${unmet.length} of ${items.length} ${r.field} items do not have ${rule.field} = ${String(rule.equals)} — ${first}`, { to, unmet: unmet.length, total: items.length, first });
     }
   }
   return null;
@@ -130,7 +169,7 @@ export function evaluateGates(gates: HandoffGate[], current: Record<string, unkn
       continue; // not a transition
     }
     const failed = gate.require
-      .map(r => ({ field: r.field, why: requirementFailure(merged, r, now) }))
+      .map(r => ({ field: r.field, why: requirementFailure(merged, r, now, to) }))
       .filter((f): f is { field: string; why: string } => f.why !== null);
     if (failed.length > 0) {
       return { gate, failed, to };

@@ -513,3 +513,71 @@ gates:
       escalateBelow: 0.6
       sampleRate: 1
       alwaysEscalate: {riskClass: [schema, billing, auth, infra]}
+  # STILL MISSING? Nobody plans or dispatches a request without checking, on
+  # the running product, that it is still missing: two of the first rows on
+  # this board in September had already shipped. Was libs/actions/gapGate.ts
+  # until 2026-09-25 (backlog 011); the same refusals, declared.
+  - name: still-missing
+    when: {field: state, becomes: [in_scope, building]}
+    producedBy: product-manager
+    require:
+      - field: gapCheck.checkedAt
+        present: true
+        maxAgeDays: 14
+        missingMessage: >-
+          nobody has checked this is still missing. Look at the running product —
+          the route, the screen, the endpoint it asks for — then record
+          gapCheck.finding as one of add (none of it exists), modify (part of it
+          already ships) or none (it all ships), with gapCheck.how naming what you
+          looked at and gapCheck.checkedAt. Two of the first rows checked on this
+          board in September had already shipped; a request is a statement about
+          the product on the day it was asked, not today
+        message: >-
+          the gap was last checked {days} days ago and this product ships most
+          days. Look again before a worker is sent at it, and re-stamp
+          gapCheck.checkedAt with what you find
+      - field: gapCheck.finding
+        oneOf: [add]
+        missingMessage: >-
+          nobody has checked this is still missing. Record gapCheck.finding as one
+          of add (none of it exists), modify (part of it already ships) or none
+          (it all ships), with gapCheck.how and gapCheck.checkedAt
+        message: 'gapCheck.finding is "{value}", which is not one of add, modify or none. Say which of the three the check found'
+        valueMessages:
+          none: >-
+            the gap check found this already ships. Close it with an honest answer
+            saying where it landed and when, in the asker's own terms. Building it
+            again is the one outcome nobody wants
+          modify: >-
+            the gap check found part of this already ships. Narrow the request to
+            the part that does not — rename it and rewrite its story so it asks for
+            that alone — then check the narrowed ask and record the new finding. A
+            request that is half true builds the wrong thing
+  # THE CONTRACT IS MET, AND SEEN. A request may not call itself done while a
+  # criterion is unmet, and a visible change is not finished until somebody has
+  # looked at it. Was libs/actions/doneGate.ts until 2026-09-25 (backlog 011).
+  - name: contract-met
+    when: {field: state, becomes: [shipped, accepted, released, answered]}
+    producedBy: qa
+    require:
+      - field: acceptance
+        allItems: {field: met, equals: true, label: statement}
+        message: >-
+          {unmet} of {total} acceptance criteria are not met — {first}. Check each
+          one against the running product and record the evidence, or come back
+          and change the contract. Passing engineering checks is not the contract
+          being met
+  - name: shown
+    when: {field: state, becomes: [shipped, accepted, released]}
+    producedBy: qa
+    require:
+      - field: visuals
+        if: {field: surface, oneOf: [ui, flow]}
+        anyOf:
+          - {field: visuals.afterArtifactIds, minItems: 1}
+          - {field: visuals.noVisualReason, present: true}
+        message: >-
+          this is a visible change and nothing shows what it looks like now.
+          Capture an after-shot from the running product, or record why there is
+          nothing to show in visuals.noVisualReason. A visible change nobody has
+          looked at is not finished
