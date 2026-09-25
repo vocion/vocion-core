@@ -168,7 +168,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
     // The cards a turn put up come back from the row (backlog 025): a card
     // is not a client-side ornament that a reload forgets.
     const recommendations: RecommendedAction[] = runsRaw
-      .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && typeof r.actionId === 'string' && r.actionId.length > 0)
+      .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
       .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed') }));
     return {
       ...(typeof row.id === 'number' ? { id: row.id } : {}),
@@ -715,12 +715,21 @@ export function useChatSession({
         flushDeltas();
         const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string };
         const primary = c.actions?.[0];
-        const checked = readRecommendedAction({ actionId: primary?.actionId, input: primary?.input ?? {}, label: c.title, rationale: c.rationale, confidence: c.confidence, agentSlug: c.source?.agentSlug, runId: c.runId, suggestedDecision: c.suggestedDecision, suggestedDecisionReason: c.suggestedDecisionReason });
-        if (!checked.ok) {
-          console.warn(`useChatSession: dropped an invalid card — ${checked.reason}`);
+        let rec: RecommendedAction;
+        if (primary) {
+          const checked = readRecommendedAction({ actionId: primary.actionId, input: primary.input ?? {}, label: c.title, rationale: c.rationale, confidence: c.confidence, agentSlug: c.source?.agentSlug, runId: c.runId, suggestedDecision: c.suggestedDecision, suggestedDecisionReason: c.suggestedDecisionReason });
+          if (!checked.ok) {
+            console.warn(`useChatSession: dropped an invalid card — ${checked.reason}`);
+            return;
+          }
+          rec = { ...checked.rec, id: c.id, state: c.state ?? (c.runId !== undefined ? 'filed' : 'proposed') };
+        } else if (typeof c.title === 'string' && c.title.trim()) {
+          // A recommendation with nothing to press (its action was refused,
+          // finding 20): still the agent's recommendation, read not pressed.
+          rec = { id: c.id, actionId: '', input: {}, label: c.title, ...(c.rationale ? { rationale: c.rationale } : {}), ...(c.source?.agentSlug ? { agentSlug: c.source.agentSlug } : {}), state: c.state ?? 'proposed' };
+        } else {
           return;
         }
-        const rec: RecommendedAction = { ...checked.rec, id: c.id, state: c.state ?? (c.runId !== undefined ? 'filed' : 'proposed') };
         appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []).filter(r => r.id !== c.id), rec] }));
         return;
       }

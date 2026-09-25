@@ -22,19 +22,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const streamEvents = vi.fn();
+const backstop = vi.hoisted(() => ({ on: false, calls: [] as Array<{ name: string; args: Record<string, unknown> }> }));
 
 vi.mock('@/services/agents/harness', () => ({
   // The turn says which model answers it (`run_meta`); the mock keeps the agent's defaults.
   chatModelOptionsFor: () => ({}),
   chatModelOptionsWithOverride: (_h: unknown, o?: { model: string; provider?: string; thinking?: string }) => (o ? { ...o } : {}),
   buildInitialFiles: vi.fn(async () => ({})),
-  compileAgentForRequest: vi.fn(async () => ({
+  compileAgentForRequest: vi.fn(async (_org: string, _slug: string, req: { emit: (e: unknown) => void }) => ({
     graph: { streamEvents },
-    agentRow: { id: 1, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} },
-    ctx: { delegations: new Map() },
+    agentRow: { id: 1, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: backstop.on ? { recommendActionBackstop: true } : {} },
+    ctx: { delegations: new Map(), emit: req.emit, agentSlug: 'lead' },
   })),
 }));
 
+vi.mock('@/libs/llm', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/llm')>()),
+  buildChatModelForOrg: vi.fn(async () => ({ bindTools: () => ({ invoke: async () => ({ tool_calls: backstop.calls }) }) })),
+}));
 vi.mock('@/libs/Langfuse', () => ({
   createLangfuseCallback: vi.fn(() => ({ handler: {}, trace: { id: 'trace-1', update: vi.fn() } })),
   flushTraces: vi.fn(async () => {}),
@@ -97,6 +102,14 @@ function failingDelegationStream(failure: 'uncaught' | 'caught'): AsyncIterable<
 /** A turn whose whole answer is a document, and which renders nothing. */
 function longFormStream(): AsyncIterable<unknown> {
   const body = `## Open pipeline\n\n${Array.from({ length: 130 }, (_, i) => `word${i}`).join(' ')}`;
+  return { async* [Symbol.asyncIterator]() {
+    yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(body) } };
+  } };
+}
+
+/** A long, card-worthy answer with no card in it — what the backstop exists for. */
+function longAnswerStream(): AsyncIterable<unknown> {
+  const body = `Seven customers lost uploads on cellular this week. ${'This is a data-loss bug on Send and it needs a fix now. '.repeat(8)}Filing the request now.`;
   return { async* [Symbol.asyncIterator]() {
     yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(body) } };
   } };
@@ -356,5 +369,29 @@ describe('the tool-call log an eval reads', () => {
     const logged = result.toolCalls.find(call => call.tool === 'lookup_objects');
 
     expect(logged?.output).toBe(page);
+  });
+
+  it('the card backstop counts only cards that were put up: a refused action is re-put without it, and the log says so (finding 20)', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    backstop.on = true;
+    backstop.calls.length = 0;
+    backstop.calls.push({ name: 'recommend_action', args: { action_id: 'no.such.action', action_input: { x: 1 }, label: 'File this as a request', rationale: 'seven reports' } });
+    streamEvents.mockClear();
+    streamEvents.mockResolvedValue(longAnswerStream());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { events } = await run({ message: 'Seven customers lost uploads.', deliverable: 'answer', conversationId: conv.id });
+
+      const cards = events.filter(e => e.type === 'recommended_action') as Array<{ recommendation: { label: string; actionId: string } }>;
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0]?.recommendation.label).toBe('File this as a request');
+      expect(cards[0]?.recommendation.actionId).toBeFalsy();
+      expect(warn.mock.calls.some(c => String(c[0]).includes('refused and re-put'))).toBe(true);
+      expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop' && (c[1] as { emitted: number; refused: number }).emitted === 1 && (c[1] as { refused: number }).refused === 1)).toBe(true);
+    } finally {
+      warn.mockRestore();
+      backstop.on = false;
+    }
   });
 });

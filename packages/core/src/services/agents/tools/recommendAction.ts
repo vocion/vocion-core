@@ -43,11 +43,15 @@ export function recommendActionTool(ctx: RuntimeContext) {
       if (action_id) {
         const action = getAction(action_id);
         if (!action) {
+          // Said out loud: a refused card is a card nobody saw, and for a day
+          // (2026-09-24/25) every one of them counted as emitted (finding 20).
+          console.warn('recommend_action refused: no such action', { agentSlug: ctx.agentSlug, actionId: action_id, label });
           return JSON.stringify({ ok: false, error: `No registered action "${action_id}". Registered: ${listActions().map(a => a.id).join(', ')}. Pick one of these, or recommend without an action id when the next step is a person's, not a system's.` });
         }
         const check = action.inputSchema.safeParse(action_input ?? {});
         if (!check.success) {
           const issues = check.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ');
+          console.warn('recommend_action refused: invalid input', { agentSlug: ctx.agentSlug, actionId: action_id, label, issues });
           return JSON.stringify({ ok: false, error: `action_input for ${action_id} is invalid — ${issues}. Fill those fields from what you know, or recommend without an action id.` });
         }
       }
