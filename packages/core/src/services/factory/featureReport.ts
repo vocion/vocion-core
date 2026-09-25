@@ -1830,10 +1830,11 @@ function buildState(input: FeatureReportInput): ReportState {
  * @param request - The request record.
  */
 function goalOf(request: ReportObject): string | null {
-  // `description` first: the one sentence an agent can write (`summary` is the
-  // row's own column and `objects.update_meta` refuses it), then the summary
-  // the record was filed with, then the ask's body.
-  const raw = (str(request.meta, 'description') ?? str(request.meta, 'summary') ?? str(request.meta, 'body') ?? '').trim();
+  // `outcome` first — the type's own "line every surface leads with", and the
+  // one sentence an agent can write (`summary` is the row's column and
+  // `objects.update_meta` refuses it) — then the summary the record was filed
+  // with, then the ask's body.
+  const raw = (str(request.meta, 'outcome') ?? str(request.meta, 'summary') ?? str(request.meta, 'body') ?? '').trim();
   if (raw === '') {
     return null;
   }
