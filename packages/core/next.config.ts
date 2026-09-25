@@ -34,6 +34,13 @@ const baseConfig: NextConfig = {
       '@wsx/registry': wsxRegistry,
     },
   },
+  // `build:next` and `next dev` both run on Turbopack, which reads the alias
+  // above. This one only applies to `next build --webpack`. It stays so that
+  // going back is one edit, putting `--webpack` back on `build:next` in
+  // package.json, if a Turbopack build ever breaks (#670). Nothing in CI
+  // builds with webpack any more, so that path is untested until someone
+  // takes it. Next turns off its webpack build worker whenever this function
+  // exists; that no longer costs anything.
   webpack: (config) => {
     config.resolve.alias['@wsx/registry'] = join(__dirname, wsxRegistry);
     return config;
@@ -109,6 +116,9 @@ if (!process.env.NEXT_PUBLIC_SENTRY_DISABLED) {
     // side errors will fail.
     tunnelRoute: '/monitoring',
 
+    // Webpack-only: Turbopack builds (#670) ignore both options below, so a
+    // Sentry-on build loses component names on breadcrumbs and replays. The
+    // source-map upload still runs, through Sentry's after-compile hook.
     webpack: {
       reactComponentAnnotation: {
         enabled: true,

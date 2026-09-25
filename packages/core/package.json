@@ -11,7 +11,7 @@
     "dev:spotlight": "npx @spotlightjs/spotlight",
     "dev:next": "next dev",
     "dev": "run-p db-server:file dev:*",
-    "build:next": "next build --webpack",
+    "build:next": "next build",
     "build-local": "run-p db-server:memory build:next --race",
     "build": "run-s db:migrate version:write build:next docs:index",
     "docs:index": "pagefind --site .next/server/app --output-path public/pagefind",

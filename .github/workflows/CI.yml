@@ -32,26 +32,12 @@ jobs:
         with:
           node-version: 22.x
 
-      - name: Restore or cache Next.js build
-        uses: actions/cache@v5
-        with:
-          path: |
-            packages/core/.next/cache
-          # Generate a new cache whenever packages or source files change.
-          # The root lockfile only, not '**/package-lock.json': there is one
-          # lockfile, and the glob walked the restored node_modules first,
-          # which cost this step about 15–20s before it started (#631). One
-          # matching file either way, so the key doesn't change.
-          # next.config.ts is in the key because webpack throws its cache away
-          # when the config changes, and a change to the config alone used to
-          # hit this exact key, so the fresh cache was never saved (#631).
-          key: nextjs-22.x-${{ hashFiles('package-lock.json') }}-${{ hashFiles('packages/core/src/**', 'packages/core/next.config.ts') }}
-          # A change under src/ misses the exact key. Start from the newest
-          # cache with the same lockfile rather than an empty one: webpack's
-          # compile measured 59–74s warm against 81s cold on CI (#631).
-          restore-keys: |
-            nextjs-22.x-${{ hashFiles('package-lock.json') }}-
-
+      # No restore of packages/core/.next/cache before this build. That
+      # directory was webpack's compile cache. The build runs on Turbopack
+      # now (#670), and Turbopack writes nothing reusable there unless
+      # `experimental.turbopackFileSystemCacheForBuild` is turned on, which
+      # Next 16 still calls experimental. A cold Turbopack build (27s compile
+      # locally) is faster than a warm webpack one was (59–74s on CI).
       - name: Build Next.js
         # build-local lives in the @vocion/core workspace, not the repo root.
         # In CI it skips Next's own type-check (next.config.ts): `static`
@@ -90,18 +76,9 @@ jobs:
         with:
           node-version: 20.x
 
-      - name: Restore or cache Next.js build
-        uses: actions/cache@v5
-        with:
-          path: |
-            packages/core/.next/cache
-          key: nextjs-20.x-${{ hashFiles('package-lock.json') }}-${{ hashFiles('packages/core/src/**', 'packages/core/next.config.ts') }}
-          # Same fallback as the 22.x build.
-          restore-keys: |
-            nextjs-20.x-${{ hashFiles('package-lock.json') }}-
-
       # Proves the app builds on the oldest Node a deployment runs. Its output
-      # is thrown away; E2E runs against the 22.x build. Same env as above.
+      # is thrown away; E2E runs against the 22.x build. Same env as above,
+      # and no build-cache restore, for the same reason as the 22.x build.
       - name: Build Next.js
         run: npm run build-local --workspace @vocion/core
         env:
