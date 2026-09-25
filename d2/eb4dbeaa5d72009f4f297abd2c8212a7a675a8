@@ -1,0 +1,36 @@
+packages/core/src/services/GroupService.ts
+  s_b6e5b648af90e7::t_10c34ad261490a 1-16,18-81,86-273,278-293,298-305
+  s_b6e5b648af90e7::t_59afb042acd4c6 17,82-85,274-277,294-297
+packages/core/src/features/members/AccessPanel.tsx
+  s_b6e5b648af90e7::t_0325006deea1ad 1-31,35-56,59-248,250-273,275-301
+  s_b6e5b648af90e7::t_59afb042acd4c6 32-34,249,274
+  s_b6e5b648af90e7::t_cd41d591f59c4a 57-58
+packages/core/src/app/[locale]/(auth)/dashboard/members/page.tsx
+  s_b6e5b648af90e7::t_f6b016210c7132 3,17,29-34
+  s_b6e5b648af90e7::t_d8b3fc6816a673 35
+packages/core/src/routers/index.ts
+  s_b6e5b648af90e7::t_59afb042acd4c6 77-83
+  s_b6e5b648af90e7::t_0957277ed2d90f 244-250
+  s_b6e5b648af90e7::t_8e7548f265ea46 76,251
+packages/core/src/services/GroupService.test.ts
+  s_b6e5b648af90e7::t_7937e0ed003562 1-202
+packages/core/src/routers/Groups.ts
+  s_b6e5b648af90e7::t_c3c47b5ab83f0e 1-119
+  s_b6e5b648af90e7::t_e1f0c39f1a316e 120-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d2eb4dbeaa5d72009f4f297abd2c8212a7a675a8",
+  "prompts": {},
+  "sessions": {
+    "s_b6e5b648af90e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08434c34-abe2-4067-aa41-83078d3fd279",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
