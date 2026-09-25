@@ -58,6 +58,20 @@ const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withd
  */
 const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|(?:^|[\\s*_\`])(${TOOL_NAMES})[*_\`]*\\s*$|(?:^|\\n)\\s*(?:\\*\\*|#{1,4}\\s*)?\`?(${TOOL_NAMES})\\b[^\\n]*\\n\\s*\`\`\`[a-z]*\\n[\\s\\S]*?\`\`\``);
 /**
+ * What a tool handed back: `{ok:false, error}` is a refusal, anything else counts as done.
+ * @param raw
+ */
+function readToolResult(raw: unknown): { ok: boolean; error?: string } {
+  const text = typeof raw === 'string' ? raw : typeof (raw as { content?: unknown })?.content === 'string' ? (raw as { content: string }).content : '';
+  try {
+    const parsed = JSON.parse(text) as { ok?: boolean; error?: string };
+    return parsed && parsed.ok === false ? { ok: false, error: parsed.error } : { ok: true };
+  } catch {
+    return { ok: true };
+  }
+}
+
+/**
  * A card written out as prose: a heading line beginning "CARD —" (or "Card:")
  * and everything under it to the end of the answer. Stripped only when a real
  * card is on screen, so a turn is never left with neither.
@@ -1187,17 +1201,35 @@ export async function runAgentDeep(opts: {
         { signal: AbortSignal.timeout(45_000) },
       );
       let emitted = 0;
+      let refused = 0;
       for (const call of res.tool_calls ?? []) {
-        if (call.name === 'recommend_action') {
-          await recTool.invoke(call.args as never);
+        if (call.name !== 'recommend_action') {
+          continue;
+        }
+        // The tool REFUSES a card whose action is unknown or whose input
+        // fails the action's schema, and emits nothing. For a day every such
+        // refusal counted here as a card on screen (finding 20, 2026-09-25:
+        // "emitted: 1", no card anywhere). A refused recommendation is still
+        // the agent's recommendation: it goes up without the pressable action,
+        // so the person reads it and the log says what to fix.
+        const first = readToolResult(await recTool.invoke(call.args as never));
+        if (first.ok) {
+          emitted += 1;
+          continue;
+        }
+        refused += 1;
+        // The tool's schema wants both fields; empty is "no action", which it accepts and emits.
+        const second = readToolResult(await recTool.invoke({ ...(call.args as Record<string, unknown>), action_id: '', action_input: {} } as never));
+        if (second.ok) {
           emitted += 1;
         }
+        console.warn('card backstop: a recommendation was refused and re-put without its action', { orgId: opts.orgId, agentSlug: opts.agentSlug, label: (call.args as { label?: string }).label, reason: first.error, shown: second.ok });
       }
       // Say what happened: a silent backstop cannot be told from one that
       // never ran (2026-09-24: eight production turns, zero cards, no way to
       // know which). One line per pass, in the app log.
       cardsOnScreen += emitted;
-      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length, emitted, textChars: finalText.length });
+      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length, emitted, refused, textChars: finalText.length });
     } catch (err) {
       /* backstop is best-effort — never fails the turn */
       console.warn('card backstop failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });

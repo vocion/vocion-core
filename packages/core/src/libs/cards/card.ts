@@ -128,7 +128,9 @@ export function cardFromRecommendation(rec: RecommendedActionPayload, id?: strin
     id: id ?? newCardId(),
     kind: 'action',
     title: rec.label,
-    actions: [{ label: rec.label, actionId: rec.actionId, input: rec.input ?? {}, style: 'primary' }],
+    // A recommendation with no action is still a card — the agent's
+    // recommendation, read but not pressed (a refused action, finding 20).
+    actions: rec.actionId ? [{ label: rec.label, actionId: rec.actionId, input: rec.input ?? {}, style: 'primary' }] : [],
     source: { agentSlug: rec.agentSlug, tool: 'recommend_action' },
     ...(rec.runId !== undefined ? { runId: rec.runId, state: 'filed' } : {}),
     ...(rec.suggestedDecision ? { suggestedDecision: rec.suggestedDecision, suggestedDecisionReason: rec.suggestedDecisionReason } : {}),
