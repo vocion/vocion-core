@@ -3,6 +3,7 @@
 import type { RecommendedAction } from './types';
 import { ArrowRight, Bookmark, Check, Layers, Loader2, SkipForward } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
+import { cardDedupKey } from '@/libs/actions/cardDedupKey';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
@@ -85,6 +86,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
       agentSlug: rec.agentSlug,
       rationale: rec.rationale,
       confidence: rec.confidence,
+      dedupKey: cardDedupKey({ actionId: rec.actionId, label: rec.label, input: rec.input }),
       ...recommendedActionAdvice(rec),
     });
   };

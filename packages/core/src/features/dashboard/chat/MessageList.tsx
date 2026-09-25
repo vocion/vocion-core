@@ -127,6 +127,27 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
     }
   }, [messages, streaming, activity]);
 
+  // Growth that is not a new message still moves the bottom: a card that
+  // loads its status after it mounts, an image, a group that opens itself.
+  // While pinned, the view follows ANY change in the column's height — on
+  // 2026-09-25 a card landed and stayed half under the composer because only
+  // `messages` changing could scroll.
+  const columnRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const column = columnRef.current;
+    const el = containerRef.current;
+    if (!column || !el || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current && !touchingRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, []);
+
   const lastIdx = messages.length - 1;
   const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
   return (
@@ -153,7 +174,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
           it the column's min-content is that same 768px, and a grid or flex
           parent sized off min-content hands the transcript 768px on a 390px
           phone. */}
-      <div className="mx-auto w-full max-w-3xl min-w-0 space-y-8">
+      <div ref={columnRef} className="mx-auto w-full max-w-3xl min-w-0 space-y-8">
         {blocksAfter(-1)}
         {messages.map((msg, i) => (
           <div key={i} className="space-y-8">
