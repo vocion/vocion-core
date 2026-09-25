@@ -1118,7 +1118,9 @@ export async function runAgentDeep(opts: {
       // (reference run 4, cases 1, 8 and 13: an empty completion the loop
       // accepted). An empty turn is not an answer either.
       const empty = soFar.length === 0 && toolCallLog.length === 0;
-      if (empty || (soFar.length > 0 && (preambleOnly(soFar) || narrated))) {
+      const callsBeforeContinuation = toolCallLog.length;
+      const continued = empty || (soFar.length > 0 && (preambleOnly(soFar) || narrated));
+      if (continued) {
         const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? narrated[3] ?? 'a tool') : null;
         const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
@@ -1141,6 +1143,34 @@ export async function runAgentDeep(opts: {
             { role: 'user', content: nudge },
           ],
         } as typeof input);
+      }
+      // A CONTINUATION THAT WORKED AND STOPPED AGAIN KEEPS GOING. The one
+      // continuation does the reads it promised and then the turn ends on a
+      // tool result — no write, no words — and the tool-less answer pass
+      // composes the rest. With no tools it can only describe the write: on
+      // mission run 5074 (2026-09-25, backlog 006) it wrote the whole
+      // update_object payload out and said "The call returned. Fields
+      // written", and nothing was. While the last pass made progress (new
+      // tool calls) and ended on a tool result, the loop re-enters, at most
+      // twice more; a pass that makes no call, or answers, ends it.
+      if (continued) {
+        let mark = callsBeforeContinuation;
+        for (let extra = 0; extra < 2; extra++) {
+          const progressed = toolCallLog.length > mark;
+          if (!progressed || answeredSinceTool) {
+            break;
+          }
+          mark = toolCallLog.length;
+          console.warn('agent turn: the continuation worked and stopped on a tool result; once more', { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, extra: extra + 1 });
+          await runGraph({
+            ...input,
+            messages: [
+              ...input.messages,
+              ...(normalizeAnswerHtml(finalText).trim() ? [{ role: 'assistant', content: normalizeAnswerHtml(finalText).trim() }] : []),
+              { role: 'user', content: 'You have the results of the reads you just made. Now do what the person asked — make the write (call the tool) if one is owed — and then answer in one screen. Do not read again what you already read. Never write a tool call as text.' },
+            ],
+          } as typeof input);
+        }
       }
       // A CALL WRITTEN OUT AFTER THE CONTINUATION. The one continuation can
       // be spent on a preamble ("I'll start by reading the request"), and the

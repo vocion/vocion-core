@@ -31,6 +31,8 @@ describe('what counts as a claim', () => {
     expect(writeClaim('I\'ve filed the request and queued the plan.')).not.toBeNull();
     expect(writeClaim('I created request #130.')).not.toBeNull();
     expect(writeClaim('- **Recorded** — the incident, P1.')).not.toBeNull();
+    // Mission run 5074, the answer pass with no tools.
+    expect(writeClaim('The call returned. Fields written on request #30:')).not.toBeNull();
   });
 
   it('leaves intent, negation and plain history alone', () => {

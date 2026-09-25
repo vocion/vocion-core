@@ -298,6 +298,31 @@ describe('the deliverable contract', () => {
     expect(result.response).not.toContain('```json');
   });
 
+  it('a continuation that reads and stops on a tool result keeps going instead of handing the write to the answer pass (mission run 5074)', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    const readsOnly = (): AsyncIterable<unknown> => ({ async* [Symbol.asyncIterator]() {
+      yield { event: 'on_tool_end', name: 'read_object', metadata: { checkpoint_ns: 'tools:read-1' }, data: { input: { id: 30 }, output: { content: '{"id":30}' } } };
+    } });
+    streamEvents.mockClear();
+    streamEvents
+      .mockResolvedValueOnce(narrationStream())
+      .mockResolvedValueOnce(readsOnly())
+      .mockResolvedValueOnce(lookupStream('[{"id":30}]'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await run({ message: 'Backfill request 30.', deliverable: 'answer', conversationId: conv.id });
+
+      expect(streamEvents).toHaveBeenCalledTimes(3);
+
+      const third = streamEvents.mock.calls[2]![0] as { messages: Array<{ role: string; content: string }> };
+
+      expect(third.messages.at(-1)?.content).toContain('make the write');
+      expect(warn.mock.calls.some(c => String(c[0]).includes('worked and stopped on a tool result'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('a malformed tool call does not end the turn: the error goes back once and the answer still lands', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     streamEvents.mockClear();
