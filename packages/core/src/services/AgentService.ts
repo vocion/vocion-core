@@ -896,6 +896,8 @@ export async function runAgentDeep(opts: {
   // A malformed tool call is retried once, not fatal — see the catch below.
   let toolErrorRetried = false;
   let thoughtOnlyRetried = false;
+  // The late narrated-call re-entry runs at most once (see below).
+  let narratedNudged = false;
   // The lead's most recent model-turn namespace, so a scratch tail released
   // at flush lands on the reasoning node of the turn that wrote it.
   let leadNs = '';
@@ -1121,6 +1123,7 @@ export async function runAgentDeep(opts: {
         const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
         if (narrated) {
+          narratedNudged = true;
           finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
         }
         finalText += '\n\n';
@@ -1138,6 +1141,33 @@ export async function runAgentDeep(opts: {
             { role: 'user', content: nudge },
           ],
         } as typeof input);
+      }
+      // A CALL WRITTEN OUT AFTER THE CONTINUATION. The one continuation can
+      // be spent on a preamble ("I'll start by reading the request"), and the
+      // pass it buys then does the reads and WRITES the write as a heading
+      // over a JSON block — mission run 5067 (2026-09-25, backlog 006):
+      // "**update_object** — request #30", the full payload, "Calling
+      // update_object now", and no call. Nothing looked at the text a second
+      // time, so the row stayed empty. When the answer now ends in a call to
+      // a tool that was not the last one made, the loop re-enters once more,
+      // naming the tool.
+      {
+        const tail = normalizeAnswerHtml(finalText).trim();
+        const late = NARRATED_TOOL.exec(tail);
+        const lateName = late ? (late[1] ?? late[2] ?? late[3] ?? null) : null;
+        if (lateName && !narratedNudged && toolCallLog.at(-1)?.tool !== lateName) {
+          narratedNudged = true;
+          finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
+          console.warn(`agent turn: wrote a ${lateName} call out after continuing; once more to make it`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length });
+          await runGraph({
+            ...input,
+            messages: [
+              ...input.messages,
+              { role: 'assistant', content: tail },
+              { role: 'user', content: `Your last message wrote a ${lateName} call out as text instead of calling it, so nothing was written. Call ${lateName} now with exactly the arguments your message described, then reply in one sentence. Never write a tool call as text.` },
+            ],
+          } as typeof input);
+        }
       }
       // THOUGHT, AND SAID NOTHING. A turn that ends with no words and no tool
       // call after the continuation is the model spending its whole output

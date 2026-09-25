@@ -279,6 +279,25 @@ describe('the deliverable contract', () => {
     expect(result.response).not.toContain('```json');
   });
 
+  it('a call written out AFTER the continuation re-enters once more, naming the tool (mission run 5067, backlog 006)', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockClear();
+    streamEvents
+      // The one continuation is spent on a preamble…
+      .mockResolvedValueOnce(narrationStream())
+      // …and the pass it buys writes the write out as text.
+      .mockResolvedValueOnce(narratedToolStream('Now filing the single update:\n\n**update_object** — request #30\n\n```json\n{"title":"Admin panel so ops can comp orgs"}\n```\n\n*(Calling update_object now.)*'))
+      .mockResolvedValueOnce(lookupStream('[{"id":30}]'));
+    const { result } = await run({ message: 'Backfill request 30.', deliverable: 'answer', conversationId: conv.id });
+
+    expect(streamEvents).toHaveBeenCalledTimes(3);
+
+    const third = streamEvents.mock.calls[2]![0] as { messages: Array<{ role: string; content: string }> };
+
+    expect(third.messages.at(-1)?.content).toContain('Call update_object now');
+    expect(result.response).not.toContain('```json');
+  });
+
   it('a malformed tool call does not end the turn: the error goes back once and the answer still lands', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     streamEvents.mockClear();
