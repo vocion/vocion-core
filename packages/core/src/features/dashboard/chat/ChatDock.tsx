@@ -18,9 +18,11 @@ import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
+import { client } from '@/libs/Orpc';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
+import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -274,6 +276,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
+  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+    if (session.conversationId === null) {
+      return;
+    }
+    void client.conversations.recordCardDecision({ id: session.conversationId, ...d }).catch((err: unknown) => {
+      console.warn('card decision was not written to the conversation', err);
+    });
+  }, [session.conversationId]);
   const queueProps = useComposerQueueProps(session);
   const onCommand = useChatCommands(session.handleNewChat);
   // The rail IS on a page, so `(+)` offers `@page` and the record in view
@@ -670,16 +681,18 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                 />
               )
             : (
-                <MessageList
-                  messages={session.messages}
-                  agentName={session.workspaceName}
-                  streaming={session.isStreaming}
-                  activity={session.activity}
-                  blocks={blocks}
-                  onFeedback={session.handleFeedback}
-                  autonomy={session.autonomy}
-                  conversationId={session.conversationId}
-                />
+                <CardDecisionProvider value={recordCardDecision}>
+                  <MessageList
+                    messages={session.messages}
+                    agentName={session.workspaceName}
+                    streaming={session.isStreaming}
+                    activity={session.activity}
+                    blocks={blocks}
+                    onFeedback={session.handleFeedback}
+                    autonomy={session.autonomy}
+                    conversationId={session.conversationId}
+                  />
+                </CardDecisionProvider>
               )}
 
         {/* The cards have scrolled up behind newer turns: one click brings
