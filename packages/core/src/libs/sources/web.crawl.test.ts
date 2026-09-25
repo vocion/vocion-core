@@ -293,6 +293,16 @@ describe('ignore, the parts of a page that are not the page', () => {
     expect(docs[0]!.content).not.toContain('Upcoming');
   });
 
+  it('does not follow a link held only by an ignored element on a listing that redirected within its site', async () => {
+    const fetched = stubFetch(url => url === LISTING_URL
+      ? redirectedTo(listing('other'), 'https://www.venue.test/shows/')
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: LISTING_URL }, ignore: ['.widget-area'] });
+
+    expect(fetched.mock.calls.map(c => String(c[0]))).toEqual([LISTING_URL, 'https://www.venue.test/events/opening']);
+  });
+
   it('reads a detail page the same on two runs when only its ignored widget changed', async () => {
     const detail = async (other: string): Promise<string> => {
       stubFetch(url => url === LISTING_URL ? listing('x') : page(`<p>A show.</p>${widget(other)}`));

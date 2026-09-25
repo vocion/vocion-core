@@ -1768,14 +1768,7 @@ const JSON_LD_TRUNCATED = '[structured data truncated]';
  * by the config schema. Omitted, nothing extra is removed.
  */
 export function extractFromHtml(html: string, baseUrl?: string, ignore: readonly string[] = []): { title?: string; content: string; structure?: PageStructure } {
-  const $ = load(html.replace(OWN_MARKS, ' '));
-
-  // An ignored element is not part of the page: its text, JSON-LD and links
-  // reach neither `content` nor `structure`, and no crawl follows a link
-  // only it held. The page itself can never be ignored away.
-  for (const selector of ignore) {
-    $(selector).not('html, head, body').remove();
-  }
+  const $ = loadPage(html, ignore);
 
   // Read the metadata before the chrome comes out: on plenty of pages the
   // only h1 is the one sitting in the site header.
@@ -2178,7 +2171,7 @@ async function* crawl(
     const ownPath: QueueEntry[] = [];
     const elsewhere: QueueEntry[] = [];
     const base = new URL(page.base).origin === startOrigin ? page.base : page.url;
-    for (const href of pageLinks(page, base)) {
+    for (const href of pageLinks(page, base, ignore)) {
       try {
         const next = new URL(href, base);
         // Strip fragments so #section links don't blow up the queue.
@@ -2205,13 +2198,30 @@ async function* crawl(
 type QueueEntry = { url: string; depth: number };
 
 /**
+ * An HTML page as cheerio reads it, without the elements its source ignores.
+ * An ignored element is not part of the page: its text, JSON-LD and links
+ * reach neither `content` nor `structure`, and no crawl follows a link only it
+ * held. The page itself can never be ignored away.
+ * @param html - raw HTML as fetched.
+ * @param ignore - the source's `ignore` selectors.
+ */
+function loadPage(html: string, ignore: readonly string[]): CheerioAPI {
+  const $ = load(html.replace(OWN_MARKS, ' '));
+  for (const selector of ignore) {
+    $(selector).not('html, head, body').remove();
+  }
+  return $;
+}
+
+/**
  * The links to consider following out of a fetched page.
  * @param page - the fetched page.
  * @param base - the URL its relative links resolve against.
+ * @param ignore - the source's `ignore` selectors, for a page re-read against where it landed.
  */
-function pageLinks(page: FetchedPage, base: string): string[] {
+function pageLinks(page: FetchedPage, base: string, ignore: readonly string[]): string[] {
   if (page.structure && base !== page.url) {
-    return collectLinks(load(page.raw.replace(OWN_MARKS, ' ')), base).map(link => link.url);
+    return collectLinks(loadPage(page.raw, ignore), base).map(link => link.url);
   }
   if (page.structure) {
     return page.structure.links?.map(link => link.url) ?? [];
