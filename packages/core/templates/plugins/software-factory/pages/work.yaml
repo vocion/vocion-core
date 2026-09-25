@@ -102,7 +102,6 @@ primary:
   # decoration. A row with no real picture has no slot at all.
 fields:
   - {key: title, label: Outcome}
-  - {key: kindIcon, label: Kind, from: meta.kindIcon, format: icon}
   # An artifact id, resolved to its served url by the page layer. The record
   # names the artifact; a url copied onto the record would be a second copy of
   # a fact that can quietly disagree with the first.
@@ -130,7 +129,6 @@ fields:
   # that ships, which is the half nothing can draw from a record: what the
   # running product actually looks like has to be captured from the running
   # product.
-  - {key: gap, label: Missing, from: meta.visualGap, format: badge, tones: {no mock: warn, no after: warn}}
   # The QA gate, and it is code rather than a prompt: a finished outcome whose
   # criteria nobody checked, or which failed, is a claim and not a release.
   # Stating it structurally means it cannot be argued away by a model having a
@@ -140,9 +138,7 @@ fields:
   # how many criteria it carries, or that it carries none — "done when it
   # works" is not something a person can agree to. Once a worker is on it the
   # line switches to how much of the contract holds.
-  - {key: contract, label: Contract, from: meta.acceptanceLine}
   # Conditional facts. An empty list renders as nothing, not as a dash.
-  - {key: flags, label: Flags, from: meta.flags}
   # What is happening, minus whatever the badge already said. A queued row's
   # line is empty on purpose: "Queued" under a badge reading "Queued" is the
   # repetition this page was redrawn to lose.
@@ -157,7 +153,6 @@ fields:
   # Which product it is for, hoisted out of every row when they all say the same.
   - {key: product, label: Product, from: meta.product, format: link, to: product, hideWhenConstant: true}
   # Next is numbered one, two, three. Nothing ranked means no rank at all.
-  - {key: rank, label: '#', from: meta.rank, format: mono, align: right}
 # The row IS the drill-down. There was a "Report" affordance on every row; it
 # was never a report, it was the outcome, and a row that opens somewhere else
 # than the thing it names is a second place to click for no second meaning.
