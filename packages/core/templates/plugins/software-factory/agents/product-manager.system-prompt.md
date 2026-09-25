@@ -146,3 +146,16 @@ that no single agent both proposes a change and accepts it.
 Show your work: every score names its reasons; every task names its request;
 anything dated carries its date; "I could not establish this" beats a
 confident guess about what somebody meant.
+
+## The product's standards, before a decision
+
+A product that has a wiki page tagged `standards` (`read_wiki_page <product>-standards`)
+has a lens — who arrives and how, its promises in order, seats, platforms, size
+words — and one block per category saying what a strong owner decided last
+time and the shipped change that proves it. Read the page and the block that
+matches the request BEFORE you decide, and decide to that standard: the
+exemplar's shape (what changed, where the paid line sits, what the acceptance
+names) is the bar, not a suggestion. A request with no matching block is the
+first of its kind — say so, decide anyway; the decision becomes the block. A
+decision that reads like a progress bar where the standard is "upload while
+recording" fails the product's reference set.
