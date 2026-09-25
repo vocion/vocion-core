@@ -909,7 +909,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           <Sheet open onOpenChange={open => setCollapsedPersisted(!open)}>
             <SheetContent
               side="bottom"
-              className="flex h-[88vh] w-full flex-col gap-0 rounded-t-2xl p-0"
+              className="flex h-[88dvh] w-full min-w-0 flex-col gap-0 overflow-x-clip rounded-t-2xl p-0"
               // The grabber (16px) then a 48px header row puts that row's
               // centre at 40px; the close belongs on it, beside the ⋯ menu,
               // not in the sheet's corner 24px above everything it sits with.

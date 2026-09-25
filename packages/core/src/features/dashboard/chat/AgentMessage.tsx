@@ -343,7 +343,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                     // (the owner's screenshot, 2026-09-19). Wrapping is the
                     // answer for prose; a genuinely wide block gets its own
                     // scroller instead (the `table` renderer below).
-                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none break-words dark:prose-invert">
+                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none min-w-0 break-words wrap-anywhere dark:prose-invert">
                       <Markdown
                         remarkPlugins={[remarkGfm]}
                         // Keep our private citation scheme; react-markdown's default

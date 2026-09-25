@@ -198,9 +198,21 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* The phone shell acts like an app (backlog 023): the document never
+     scrolls sideways — anything wider than the screen scrolls inside its own
+     box or is a bug the 390px guard catches; no rubber-band past the ends,
+     no 300ms double-tap zoom, no font inflation when the phone rotates. */
+  html {
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
+    overflow-x: clip;
+    overscroll-behavior-y: none;
+    touch-action: manipulation;
   }
   h1,
   h2,
