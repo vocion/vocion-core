@@ -14,6 +14,14 @@ vi.mock('@/libs/DB');
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/services/AgentService', () => ({ listAgents: vi.fn(async () => []), runAgentDeep: vi.fn() }));
 vi.mock('@/services/SourceAccessService', () => ({ allowedSourceSlugsForUser: vi.fn(async () => []) }));
+// Auto-filing a card is a proposal-store round trip; here it fails, the way
+// it silently did on the live walk of 2026-09-25 (finding 18).
+vi.mock('@/services/chat/autoPropose', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@/services/chat/autoPropose')>();
+  return { ...mod, autoProposeRecommendation: vi.fn(async () => {
+    throw new Error('proposal store unavailable');
+  }) };
+});
 
 const { markStopped } = await import('@/libs/streams/buffer');
 const { TurnRefusedError } = await import('@/services/agents/turnRefusal');
@@ -93,6 +101,17 @@ async function stalls(opts: RunOpts): Promise<RunResult> {
   opts.onEvent?.({ type: 'tool_end', tool: 'search_knowledge', input: { query: 'send history' }, output: '[1] a pull request' });
   opts.onEvent?.({ type: 'tool_start', tool: 'lookup_objects', input: { type_slug: 'request' } });
   opts.onEvent?.({ type: 'tool_end', tool: 'lookup_objects', input: { type_slug: 'request' }, output: '[{"id":124}]' });
+  return finishedRun;
+}
+
+/**
+ * A run that answers and puts up one card — the shape of every PM turn that
+ * files a request.
+ * @param opts - What the route hands the runtime; only `onEvent` is used here.
+ */
+async function putsUpACard(opts: RunOpts): Promise<RunResult> {
+  opts.onEvent?.({ type: 'response_delta', delta: 'Seven customers lost uploads on mobile. Filing it now.' });
+  opts.onEvent?.({ type: 'recommended_action', recommendation: { label: 'File this as a request', actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'Uploads drop on cellular' }, rationale: 'seven reports in a week', confidence: 0.9 } });
   return finishedRun;
 }
 
@@ -300,5 +319,27 @@ describe('agent stream route — the ending it writes down', () => {
     const replayed = toHistoryTurns(await listMessages({ orgId: ORG, conversationId: conv.id }));
 
     expect(replayed.map(t => t.content)).toEqual(['how many deals closed?']);
+  });
+});
+
+describe('agent stream route — a card is never lost', () => {
+  it('a card reaches the wire and the row even when auto-filing it fails', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(putsUpACard);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+
+    const events = await eventsFromTurn(conv.id, 'seven customers lost uploads');
+
+    const card = events.find(e => e.type === 'recommended_action') as { recommendation: { label: string; runId?: number } } | undefined;
+
+    expect(card?.recommendation.label).toBe('File this as a request');
+    expect(card?.recommendation.runId).toBeUndefined();
+
+    const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
+
+    expect(assistant?.runsJson).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'card', label: 'File this as a request', actionId: 'objects.propose_candidate' }),
+    ]));
+    // Written down once, not once per path.
+    expect((assistant?.runsJson ?? []).filter(r => r.type === 'card')).toHaveLength(1);
   });
 });

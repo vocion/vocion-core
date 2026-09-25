@@ -35,6 +35,8 @@ import {
   toHistoryTurns,
 } from '@/services/ConversationService';
 
+/** How long a card waits to be filed before it is shown unfiled — a card the person can press beats a filed one they never see. */
+const AUTO_FILE_MS = 8_000;
 const KEEPALIVE_INTERVAL_MS = 15_000;
 
 export async function POST(request: Request): Promise<Response> {
@@ -283,9 +285,35 @@ export async function POST(request: Request): Promise<Response> {
       const pending: Promise<void>[] = [];
       const sendEvent = (event: AgentEvent) => {
         if (event.type === 'recommended_action' && autonomy === 'act-within-bounds' && event.recommendation.runId === undefined) {
+          // THE CARD IS WRITTEN DOWN BEFORE IT IS FILED. Under done-for-you the
+          // card used to reach the stream and the row only after the auto-file
+          // round trip — and on the live walk of 2026-09-25 (turns 646, 648)
+          // it reached neither: the backstop's card was emitted, the proposal
+          // was never filed, the person saw "Filing the request now." and no
+          // card, and the next turn went looking for a record that did not
+          // exist (finding 18). Whatever happens in the round trip, the card
+          // is on the ledger now and on the screen within `AUTO_FILE_MS`.
+          const r = event.recommendation;
+          collector?.onCard({ label: r.label, actionId: r.actionId, input: r.input });
           pending.push((async () => {
-            const runId = await autoProposeRecommendation({ orgId, userId, rec: event.recommendation });
-            writeEvent(runId === null ? event : { ...event, recommendation: { ...event.recommendation, runId } });
+            let runId: number | null = null;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              runId = await Promise.race([
+                autoProposeRecommendation({ orgId, userId, rec: r }),
+                new Promise<null>((resolve) => {
+                  timer = setTimeout(() => {
+                    console.warn('agent stream: auto-filing the card is taking too long; showing it unfiled', { conversationId, agentSlug, label: r.label, actionId: r.actionId });
+                    resolve(null);
+                  }, AUTO_FILE_MS);
+                }),
+              ]);
+            } catch (err) {
+              console.warn('agent stream: auto-filing the card failed; showing it unfiled', { conversationId, agentSlug, label: r.label, actionId: r.actionId }, err);
+            } finally {
+              clearTimeout(timer);
+            }
+            writeEvent(runId === null ? event : { ...event, recommendation: { ...r, runId } });
           })());
           return;
         }

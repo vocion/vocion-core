@@ -98,8 +98,39 @@ export class RunCollector {
   }
 
   onCard(card: { label: string; actionId: string; input?: Record<string, unknown>; runId?: number }): void {
+    // Written once: the route tees a card when it is first seen AND again
+    // when the auto-filed copy is written to the stream (finding 18).
+    if (this.hasCard(card.label, card.actionId)) {
+      if (card.runId !== undefined) {
+        this.onCardFiled(card.label, card.actionId, card.runId);
+      }
+      return;
+    }
     this.flushText();
     this.runs.push({ type: 'card', label: card.label, actionId: card.actionId, input: card.input, runId: card.runId });
+  }
+
+  /**
+   * Is this card already on the ledger?
+   * @param label
+   * @param actionId
+   */
+  hasCard(label: string, actionId: string): boolean {
+    return this.runs.some(r => r.type === 'card' && r.label === label && r.actionId === actionId);
+  }
+
+  /**
+   * The card was filed as a proposal after it was written down: stamp the id.
+   * @param label
+   * @param actionId
+   * @param runId
+   */
+  onCardFiled(label: string, actionId: string, runId: number): void {
+    for (const r of this.runs) {
+      if (r.type === 'card' && r.label === label && r.actionId === actionId) {
+        r.runId = runId;
+      }
+    }
   }
 
   onToolEnd(name: string, output: string): void {
