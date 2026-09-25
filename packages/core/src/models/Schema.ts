@@ -3096,6 +3096,49 @@ export const sourceSyncCheckpointSchema = pgTable(
  * because a minted row now carries ciphertext too, so a rewritten `platform`
  * alone would leave a row the constraint happily accepts as a supplied key.
  */
+/* ------------------------------------------------------------------ */
+/* OAuth 2.1 for assistants (backlog 027)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A client that registered itself to sign a person in — Claude.ai, ChatGPT,
+ * Claude Code, Cursor. Public clients (PKCE, no secret): the redirect list
+ * is what identifies them. Ported from Slate's `oauth_clients` (2026-09-25).
+ */
+export const oauthClientSchema = pgTable('oauth_client', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  redirectUris: jsonb('redirect_uris').$type<string[]>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+/**
+ * One sign-in attempt: created at /oauth/authorize, approved by the person on
+ * the consent page (which stamps who and which workspace), exchanged once at
+ * /oauth/token. Ten minutes to live.
+ */
+export const oauthRequestSchema = pgTable(
+  'oauth_request',
+  {
+    id: text('id').primaryKey(),
+    clientId: text('client_id').notNull(),
+    redirectUri: text('redirect_uri').notNull(),
+    codeChallenge: text('code_challenge').notNull(),
+    state: text('state'),
+    scope: text('scope'),
+    userId: text('user_id'),
+    orgId: text('org_id'),
+    /** The authorization code, set when the person approves; cleared when exchanged. */
+    code: text('code'),
+    status: text('status').default('pending').notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('oauth_request_code_idx').on(table.code),
+  ],
+);
+
 export const apiTokenSchema = pgTable(
   'api_token',
   {

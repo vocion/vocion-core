@@ -1,5 +1,7 @@
+import type { NextRequest } from 'next/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { buildServerForBearer, McpHttpError } from '@/interfaces/mcp/http';
+import { publicOrigin } from '@/libs/http/publicOrigin';
 
 /**
  * POST/GET/DELETE /api/mcp
@@ -20,7 +22,15 @@ async function handle(req: Request): Promise<Response> {
     ({ server } = await buildServerForBearer(req.headers.get('authorization')));
   } catch (e) {
     if (e instanceof McpHttpError) {
-      return Response.json({ error: { code: e.code, message: e.message } }, { status: e.status });
+      // The MCP authorization spec: a 401 names where to sign in, so an
+      // assistant that arrived with no token starts the OAuth flow itself
+      // (backlog 027). The metadata URL carries the resource's path.
+      const headers: Record<string, string> = {};
+      if (e.status === 401) {
+        const origin = publicOrigin(req as NextRequest);
+        headers['WWW-Authenticate'] = `Bearer realm="vocion", resource_metadata="${origin}/.well-known/oauth-protected-resource/api/mcp"`;
+      }
+      return Response.json({ error: { code: e.code, message: e.message } }, { status: e.status, headers });
     }
     throw e;
   }
