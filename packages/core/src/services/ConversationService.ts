@@ -274,6 +274,8 @@ export async function appendMessage(opts: {
   status?: TurnStatus | null;
   /** Why it ended that way, in the runtime's own words. Only meaningful beside a `status` that owes an explanation. */
   statusReason?: string | null;
+  /** Which agent spoke an assistant turn — the slug the runtime ran, so a reloaded transcript attributes the turn truthfully (backlog 009). */
+  agentSlug?: string | null;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -297,6 +299,7 @@ export async function appendMessage(opts: {
       routingJson: opts.routing ?? null,
       status: storableStatus(opts.status, opts.role),
       statusReason: opts.statusReason ?? null,
+      agentSlug: opts.role === 'assistant' ? opts.agentSlug ?? null : null,
     })
     .returning();
 

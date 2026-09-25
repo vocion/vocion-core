@@ -21,7 +21,7 @@ import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
 import { QuotedPassage } from './QuotedPassage';
-import { hasWorkspaceAgents, parseSearchCommand } from './routing';
+import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
@@ -327,6 +327,8 @@ function ChatShellInner({
                   <MessageList
                     messages={session.messages}
                     agentName={session.workspaceName}
+                    // The workspace speaks through its lead; a specialist's turn is attributed.
+                    ownAgentSlug={defaultAgentSlug(agents)}
                     streaming={session.isStreaming}
                     activity={session.activity}
                     onShowSources={session.handleShowSources}

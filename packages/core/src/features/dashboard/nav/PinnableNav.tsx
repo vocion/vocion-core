@@ -4,6 +4,7 @@ import type { PinnableItem } from './navPins';
 import { ChevronRight, GripVertical, Pin, PinOff } from 'lucide-react';
 
 import { useState } from 'react';
+import { PendingIcon } from '@/components/patterns/PendingIcon';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +14,6 @@ import {
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuAction, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
-import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 import { splitOverflow } from './navPins';
 
@@ -102,7 +102,7 @@ export function PinnableNav(props: {
                   {props.reorderable
                     ? <GripVertical className="hidden text-muted-foreground/40 group-hover/menu-item:block" aria-hidden />
                     : null}
-                  <NavPendingIcon icon={item.icon} />
+                  <PendingIcon icon={item.icon} />
                   <span>{item.title}</span>
                 </Link>
               </SidebarMenuButton>

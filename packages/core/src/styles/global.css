@@ -319,3 +319,44 @@
     color: var(--muted-foreground);
   }
 }
+
+/*
+ * The top progress bar (`NavigationProgress`). Idle: nothing. Active: the bar
+ * sweeps to ~85% on an ease-out over 8s, and stalls there until the page
+ * lands. Landed: it completes and fades. Reduced motion keeps the bar at its
+ * width and drops the sweep, so the signal survives the preference.
+ */
+.nav-progress {
+  opacity: 0;
+  transition: opacity 240ms ease-out 120ms;
+}
+.nav-progress-bar {
+  width: 100%;
+  transform-origin: left;
+  transform: scaleX(0);
+}
+.nav-progress[data-state='active'] {
+  opacity: 1;
+  transition: opacity 80ms ease-out;
+}
+.nav-progress[data-state='active'] .nav-progress-bar {
+  animation: nav-progress-sweep 8s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;
+}
+.nav-progress[data-state='idle'] .nav-progress-bar {
+  transform: scaleX(1);
+  transition: transform 160ms ease-out;
+}
+@keyframes nav-progress-sweep {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(0.85);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress[data-state='active'] .nav-progress-bar {
+    animation: none;
+    transform: scaleX(0.6);
+  }
+}

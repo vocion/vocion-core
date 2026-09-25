@@ -3,12 +3,12 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { PendingIcon } from '@/components/patterns/PendingIcon';
 
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
-import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 
 const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
@@ -80,7 +80,7 @@ export const AppSidebarNav = (props: {
                           )
                         : (
                             <Link href={item.url}>
-                              <NavPendingIcon icon={item.icon} />
+                              <PendingIcon icon={item.icon} />
                               <span>{item.title}</span>
                             </Link>
                           )}

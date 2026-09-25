@@ -177,7 +177,10 @@ describe('useChatSession', () => {
   it('`/search <query>` routes one turn to the retrieval-only path and sends the bare query (§9.10)', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
     vi.mocked(client.conversations.create).mockResolvedValue({ id: 3, agentSlug: 'orchestrator' } as never);
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+    // The runtime says who spoke (backlog 009): the virtual search entry is
+    // on the client roster only, so the server sends the slug as its name and
+    // the transcript names it from the roster.
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"turn_agent","agent":{"slug":"__search__","name":"__search__"}}\n\ndata: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
     vi.stubGlobal('fetch', fetchMock);
     const agents = [...AGENTS, { slug: '__search__', name: 'Search only', icon: 'search' as const, placeholder: 'Search…' }];
 
@@ -194,7 +197,7 @@ describe('useChatSession', () => {
     expect(body.message).toBe('northwind governance');
     // The conversation stays with the workspace agent.
     expect(result.current.agent.slug).toBe('orchestrator');
-    expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentName: 'Search only' });
+    expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentSlug: '__search__', agentName: 'Search only' });
   });
 
   it('handleNewChat clears the view and persists a null conversation pointer', async () => {

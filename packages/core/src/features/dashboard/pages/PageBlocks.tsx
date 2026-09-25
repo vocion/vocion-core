@@ -1,7 +1,9 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
+import { PendingIcon } from '@/components/patterns/PendingIcon';
 import { Badge } from '@/components/ui/badge';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
+import { Link } from '@/libs/I18nNavigation';
 import { fieldIsEmptyOn, interpolateHref, resolveRowActionHref, tableLayout } from '@/libs/workspace/pageFields';
 import { RowMenu } from './RowMenu';
 
@@ -207,8 +209,17 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
         </div>
       );
   const className = 'block min-w-0 overflow-hidden rounded-lg border border-border bg-background text-left';
+  // A real `<Link>`, not an anchor: it is prefetched as it scrolls into view
+  // and its own transition is readable, so the tap is acknowledged at once —
+  // the card dims and a corner spinner appears — before the new page has
+  // rendered a thing (backlog 013). `active:` answers the finger itself.
   const card = href
-    ? <a href={href} className={`${className} transition-colors hover:bg-muted/40`}>{inner}</a>
+    ? (
+        <Link href={href} className={`${className} relative transition-colors hover:bg-muted/40 active:bg-muted/60 has-[[data-link-pending]]:opacity-60`}>
+          {inner}
+          <PendingIcon className={`absolute top-3 size-4 text-muted-foreground ${menuItems.length > 0 ? 'right-10' : 'right-3'}`} />
+        </Link>
+      )
     : <div className={className}>{inner}</div>;
   // The menu sits OUTSIDE the anchor — a button inside a link is a tap that
   // does two things — at the card's corner, over the room the body left it.

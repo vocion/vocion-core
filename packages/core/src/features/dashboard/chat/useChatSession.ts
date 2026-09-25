@@ -19,7 +19,7 @@ import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
 import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
-import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
+import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
 import { describeToolCall } from './WorkTimeline';
@@ -139,6 +139,8 @@ type PersistedMessageRow = {
   attachments?: ChatAttachment[];
   /** Artifacts the turn produced, as the conversations router resolves them — the chips. */
   artifacts?: ChatMessageArtifact[];
+  /** Which agent spoke an assistant turn, as the runtime stamped it (backlog 009); null before the column existed. */
+  agentSlug?: string | null;
 };
 
 /**
@@ -146,8 +148,9 @@ type PersistedMessageRow = {
  * cited sources so inline `[n]` citations still resolve and the Sources
  * drawer repopulates after a reload.
  * @param rows - Persisted message rows, oldest first.
+ * @param nameOf
  */
-function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage[]; documents: IndexedDocument[] } {
+function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) => string): { messages: ChatMessage[]; documents: IndexedDocument[] } {
   const documents: IndexedDocument[] = [];
   const messages: ChatMessage[] = rows.map((row) => {
     const runsRaw = Array.isArray(row.runsJson) ? (row.runsJson as AgentRun[]) : [];
@@ -177,6 +180,9 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       ...(row.statusReason ? { statusReason: row.statusReason } : {}),
       ...(row.attachments && row.attachments.length > 0 ? { attachments: row.attachments } : {}),
       ...(row.artifacts && row.artifacts.length > 0 ? { artifacts: row.artifacts } : {}),
+      // Who spoke, from the row — so "via <specialist>" survives a reload and
+      // says the same thing it said live (backlog 009).
+      ...(row.role === 'assistant' && row.agentSlug ? { agentSlug: row.agentSlug, agentName: nameOf(row.agentSlug) } : {}),
     };
   });
   return { messages, documents };
@@ -369,6 +375,11 @@ export function useChatSession({
   const [modelPrefs, setModelPrefsState] = useState<ModelPrefs>(DEFAULT_MODEL_PREFS);
   const modelPrefsRef = useRef(modelPrefs);
   modelPrefsRef.current = modelPrefs;
+  // The roster, readable from effects and event handlers without re-running
+  // them: it names the agent a persisted or streamed turn was spoken by.
+  const rosterRef = useRef(agents);
+  rosterRef.current = agents;
+  const nameOfAgent = useCallback((slug: string, fallback?: string) => agentDisplayName(slug, rosterRef.current, fallback), []);
   // Records the person pointed this turn at with `@` — sent as `context_refs`
   // beside the message and cleared after the send.
   const [contextRefs, setContextRefs] = useState<ContextRef[]>([]);
@@ -520,7 +531,14 @@ export function useChatSession({
         // The workspace chose the agent (`route: true`): attribute the turn to
         // it the way an `@mention` does, and keep the reason on the message.
         const routed = evt as unknown as { agent: { slug: string; name: string }; routing: RoutingDecision };
-        appendToLatestAgent(m => ({ ...m, agentSlug: routed.agent.slug, agentName: routed.agent.name, routing: routed.routing }));
+        appendToLatestAgent(m => ({ ...m, agentSlug: routed.agent.slug, agentName: nameOfAgent(routed.agent.slug, routed.agent.name), routing: routed.routing }));
+        return;
+      }
+      case 'turn_agent': {
+        // Who speaks this turn, from the runtime — the same slug the row is
+        // stamped with, so live and reloaded transcripts agree (backlog 009).
+        const spoken = evt as unknown as { agent: { slug: string; name: string } };
+        appendToLatestAgent(m => ({ ...m, agentSlug: spoken.agent.slug, agentName: nameOfAgent(spoken.agent.slug, spoken.agent.name) }));
         return;
       }
       case 'run_meta': {
@@ -1094,6 +1112,7 @@ export function useChatSession({
         }
         const { messages: hydrated, documents: restoredDocs } = hydrateTranscript(
           (conv.messages ?? []) as PersistedMessageRow[],
+          nameOfAgent,
         );
         if (hydrated.length > 0) {
           conversationIdRef.current = storedId;
@@ -1207,9 +1226,10 @@ export function useChatSession({
     routeOnceRef.current = null;
     const routed = searchAgent ?? routeTurn(recordRefs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
     const turnAgent = routed ?? agent;
-    if (routed && routed.slug !== agent.slug) {
-      appendToLatestAgent(m => ({ ...m, agentSlug: routed.slug, agentName: routed.name }));
-    }
+    // The reply is NOT attributed here from the tags: the runtime says who
+    // speaks (`turn_agent`, the first frame) and the row records it. A label
+    // stamped from a guess read "via QA" on a turn the product manager
+    // answered (backlog 009).
     if (conversationIdRef.current === null && agent.slug !== '__search__') {
       try {
         const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
@@ -1607,6 +1627,7 @@ export function useChatSession({
       const conv = await client.conversations.get({ id });
       const { messages: hydrated, documents: restoredDocs } = hydrateTranscript(
         (conv.messages ?? []) as PersistedMessageRow[],
+        nameOfAgent,
       );
       const slug = (conv as { agentSlug?: string }).agentSlug ?? agent.slug;
       if (slug !== agent.slug) {

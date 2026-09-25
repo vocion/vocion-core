@@ -1645,6 +1645,15 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    */
   routingJson: jsonb('routing_json').$type<import('@/services/agents/router').RoutingDecision>(),
   /**
+   * Which agent spoke an assistant turn — the slug the runtime actually ran,
+   * stamped when the row is written. The transcript's "via <specialist>"
+   * eyebrow reads THIS after a reload, never a guess made on the client
+   * before the turn ran (backlog 009: a label that said "via QA" on a turn
+   * the product manager answered). NULL on user rows and on turns written
+   * before the column existed.
+   */
+  agentSlug: text('agent_slug'),
+  /**
    * Structured breadcrumb array for the chat UI: a series of text
    * runs interleaved with tool breadcrumbs. Tool entries are dropped
    * when this row is replayed as history to the agent.
