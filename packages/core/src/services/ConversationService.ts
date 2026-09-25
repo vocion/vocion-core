@@ -46,7 +46,7 @@ export type ConversationRun
      * lookup result three times on 2026-09-24 because the card lived only
      * in the browser.
      */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */

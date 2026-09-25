@@ -39,7 +39,7 @@ import { chooseAgent, routableFromRow } from '@/services/agents/router';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
 import { preflightCheck } from '@/services/BudgetService';
-import { autoProposeRecommendation, readAutonomy } from '@/services/chat/autoPropose';
+import { autoProposeRecommendationDetailed, readAutonomy } from '@/services/chat/autoPropose';
 import { RunCollector } from '@/services/chat/runCollector';
 import { appendMessage, createConversation, getConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
 import { projectSlugById } from '@/services/ProjectService';
@@ -313,10 +313,10 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
         // Under `act-within-bounds` the web route files each card as it
         // arrives; a caller with no card to tap needs the same.
         if (autonomy === 'act-within-bounds' && event.recommendation.runId === undefined) {
-          pending.push(autoProposeRecommendation({ orgId, userId: actorId, rec: event.recommendation }).then((runId) => {
-            if (runId !== null) {
-              filed.push({ runId, tool: 'recommend_action', outcome: null });
-              collector.onCardFiled(event.recommendation.label, event.recommendation.actionId, runId);
+          pending.push(autoProposeRecommendationDetailed({ orgId, userId: actorId, rec: event.recommendation }).then((done) => {
+            if (done !== null) {
+              filed.push({ runId: done.runId, tool: 'recommend_action', outcome: null });
+              collector.onCardFiled(event.recommendation.label, event.recommendation.actionId, done.runId, { state: done.status === 'done' ? 'decided' : 'filed', ref: done.ref });
             }
           }));
         }

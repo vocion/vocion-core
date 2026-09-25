@@ -60,6 +60,26 @@ export async function autoProposeRecommendation(opts: {
   userId?: string;
   rec: RecommendedActionPayload;
 }): Promise<number | null> {
+  const filed = await autoProposeRecommendationDetailed(opts);
+  return filed?.runId ?? null;
+}
+
+/** What a filed card came to: the proposal id, its status, and the record it created when it ran (finding 24). */
+export type FiledCard = { runId: number; status: string; ref?: { type: string; id: number } };
+
+/**
+ * File a recommendation and say what happened — the proposal id, whether it
+ * executed on the spot (done-for-you), and the record it created if so.
+ * @param opts - The recommendation and who is filing.
+ * @param opts.orgId
+ * @param opts.userId
+ * @param opts.rec
+ */
+export async function autoProposeRecommendationDetailed(opts: {
+  orgId: string;
+  userId?: string;
+  rec: RecommendedActionPayload;
+}): Promise<FiledCard | null> {
   try {
     const { proposeAction } = await import('@/services/ActionService');
     const agentId = opts.rec.agentSlug ? `agent:${opts.rec.agentSlug}` : 'agent:unknown';
@@ -76,9 +96,31 @@ export async function autoProposeRecommendation(opts: {
       },
       dedupKey: deriveRecommendationDedupKey(opts.rec.actionId, opts.rec.input),
     });
-    const runId = (res as { runId?: number }).runId;
-    return typeof runId === 'number' ? runId : null;
+    const out = res as { runId?: number; status?: string; result?: Record<string, unknown> | null };
+    if (typeof out.runId !== 'number') {
+      return null;
+    }
+    return { runId: out.runId, status: out.status ?? 'pending', ...(refOf(opts.rec, out.result) ? { ref: refOf(opts.rec, out.result)! } : {}) };
   } catch {
     return null;
   }
+}
+
+/**
+ * The record an executed proposal created, when the action's result names
+ * one — `objects.propose_candidate` returns `objectId` + `objectType`; any
+ * action returning a numeric `id` counts, typed by the input's objectType.
+ * @param rec - The recommendation that was filed.
+ * @param result - What `execute` returned, if it ran.
+ */
+export function refOf(rec: RecommendedActionPayload, result: Record<string, unknown> | null | undefined): { type: string; id: number } | null {
+  if (!result) {
+    return null;
+  }
+  const id = typeof result.objectId === 'number' ? result.objectId : typeof result.id === 'number' ? result.id : null;
+  if (id === null) {
+    return null;
+  }
+  const type = typeof result.objectType === 'string' ? result.objectType : typeof rec.input?.objectType === 'string' ? rec.input.objectType : rec.actionId;
+  return { type, id };
 }

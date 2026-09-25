@@ -235,7 +235,7 @@ export type AgentEvent
      * re-rendering the turn.
      */
     | { type: 'card'; card: import('@/libs/cards/card').Card }
-    | { type: 'card_update'; cardId: string; state?: import('@/libs/cards/card').CardState; runId?: number; decision?: { action: string; at: string; by?: string } }
+    | { type: 'card_update'; cardId: string; state?: import('@/libs/cards/card').CardState; runId?: number; ref?: { type: string; id: number }; decision?: { action: string; at: string; by?: string } }
     /**
      * An artifact was created or changed (0095/0101). The pane beside the
      * conversation opens or switches to it and the message gets a chip.
