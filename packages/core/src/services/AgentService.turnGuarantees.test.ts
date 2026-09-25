@@ -107,6 +107,11 @@ function longFormStream(): AsyncIterable<unknown> {
   } };
 }
 
+/** A turn that produces nothing at all — the model thought and stopped. */
+function emptyStream(): AsyncIterable<unknown> {
+  return { async* [Symbol.asyncIterator]() { /* nothing */ } };
+}
+
 /** A long, card-worthy answer with no card in it — what the backstop exists for. */
 function longAnswerStream(): AsyncIterable<unknown> {
   const body = `Seven customers lost uploads on cellular this week. ${'This is a data-loss bug on Send and it needs a fix now. '.repeat(8)}Filing the request now.`;
@@ -393,5 +398,22 @@ describe('the tool-call log an eval reads', () => {
       warn.mockRestore();
       backstop.on = false;
     }
+  });
+
+  it('a turn that thinks and says nothing twice runs once more with thinking off, and answers', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    const { compileAgentForRequest } = await import('@/services/agents/harness');
+    vi.mocked(compileAgentForRequest).mockClear();
+    streamEvents.mockClear();
+    streamEvents
+      .mockResolvedValueOnce(emptyStream())
+      .mockResolvedValueOnce(emptyStream())
+      .mockResolvedValueOnce(narratedToolStream('Four deals closed last month, worth $216K.'));
+    const { result } = await run({ message: 'how many deals closed?', deliverable: 'answer', conversationId: conv.id });
+
+    expect(streamEvents).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(compileAgentForRequest)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(compileAgentForRequest).mock.calls[1]?.[3]).toMatchObject({ modelOverride: { thinking: 'off' } });
+    expect(result.response).toContain('Four deals closed');
   });
 });
