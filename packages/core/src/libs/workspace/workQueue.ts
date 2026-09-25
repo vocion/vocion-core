@@ -213,6 +213,14 @@ function decideOrder(a: PageRow, b: PageRow, time: (r: PageRow) => number): numb
     || time(a) - time(b);
 }
 
+/**
+ * A proposal a person dismissed: out of scope, or its recommendation rejected.
+ * @param row - The row.
+ */
+export function isDismissed(row: PageRow): boolean {
+  return str(row, 'state') === 'out_of_scope' || str(row, 'recommendationState') === 'rejected';
+}
+
 export function laneOf(row: PageRow): WorkLane {
   const state = str(row, 'state');
   if (state && DONE_STATES.has(state)) {
@@ -842,7 +850,11 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date, decideShown = DEC
   // queue whatever its reason or age, because it is the only work here that
   // moves the moment it is read.
   const deferred = rows.filter(r => str(r, 'state') === 'deferred');
-  const live = rows.filter(r => str(r, 'state') !== 'deferred');
+  // DISMISSED leaves the page (Chris, 2026-09-25: "a mechanism to dismiss a
+  // proposal"). Out of scope, or a recommendation a person rejected, is a
+  // decision already made; it stays on the record and in search, not in the
+  // queue of things to decide.
+  const live = rows.filter(r => str(r, 'state') !== 'deferred' && !isDismissed(r));
   const waiting = live.filter(r => isWaitingOnPerson(r));
   const queued = live.filter(r => !isWaitingOnPerson(r));
   const rankable = queued.filter(r => readReasons(meta(r)).recorded);

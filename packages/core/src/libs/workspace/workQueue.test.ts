@@ -555,3 +555,13 @@ describe('which picture the card shows', () => {
     expect(out[0]!.meta.workLine).toBe('Gate "decision-ready" sent it back: "done when it works". No action needed from you.');
   });
 });
+
+describe('a dismissed proposal', () => {
+  it('leaves the queue: out of scope or a rejected recommendation', () => {
+    const open = row(50, 'open', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build' });
+    const outOfScope = row(51, 'oos', { state: 'out_of_scope', recommendationState: 'rejected' });
+    const rejected = row(52, 'rej', { state: 'triaged', recommendationState: 'rejected' });
+
+    expect(deriveWorkQueue([open, outOfScope, rejected], { now: NOW }).map(r => r.id)).toEqual([50]);
+  });
+});

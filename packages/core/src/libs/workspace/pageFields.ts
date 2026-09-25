@@ -679,6 +679,11 @@ export const PageManifestSchema = z.object({
    * This is how one card on Products opens Work AS that product's work
    * rather than a second page — see {@link applyQueryFilters}.
    */
+  /**
+   * The page's own asks: buttons that open a NEW chat with the prompt already
+   * sent (to `agent` when named). The words are the workspace's to manage.
+   */
+  prompts: z.array(z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() })).optional(),
   queryFilters: z.array(z.object({ param: z.string().min(1), field: z.string().min(1), label: z.string().optional(), default: z.string().min(1).optional() })).optional(),
   /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
   live: LiveSchema.optional(),
