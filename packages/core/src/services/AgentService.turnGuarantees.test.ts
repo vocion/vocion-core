@@ -230,6 +230,21 @@ describe('the deliverable contract', () => {
     expect(result.response).not.toContain('```');
   });
 
+  it('a call written as a heading over a JSON block — three of them — is stripped and the loop re-enters to make it (finding 19)', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockClear();
+    streamEvents.mockResolvedValue(narratedToolStream('Now writing each update:\n\n**update_object — request 30**\n\n```json\n{"object_type":"request","id":30,"fields":{"title":"add-send-admin-panel"}}\n```\n\n**update_object — request 38**\n\n```json\n{"object_type":"request","id":38}\n```'));
+    const { result } = await run({ message: 'Backfill the three requests.', deliverable: 'answer', conversationId: conv.id });
+
+    expect(streamEvents).toHaveBeenCalledTimes(2);
+
+    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
+
+    expect(second.messages.at(-1)?.content).toContain('Call update_object now');
+    expect(second.messages.at(-2)?.content).toBe('Now writing each update:');
+    expect(result.response).not.toContain('```json');
+  });
+
   it('a malformed tool call does not end the turn: the error goes back once and the answer still lands', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     streamEvents.mockClear();

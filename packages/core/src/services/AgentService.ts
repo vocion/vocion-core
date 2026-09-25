@@ -48,14 +48,22 @@ function isToolInputError(err: unknown): boolean {
 }
 
 const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal';
-const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|(?:^|[\\s*_\`])(${TOOL_NAMES})[*_\`]*\\s*$`);
+/**
+ * A call written out instead of made. Three shapes seen in production:
+ *   1. a fenced block that STARTS with the tool's name, at the end of the answer;
+ *   2. the bare tool name as the last word;
+ *   3. a heading naming the tool — "**update_object — request 30**" — followed
+ *      by a ```json block of its arguments (mission run 4905, 2026-09-25:
+ *      three of them, nothing written; finding 19).
+ */
+const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|(?:^|[\\s*_\`])(${TOOL_NAMES})[*_\`]*\\s*$|(?:^|\\n)\\s*(?:\\*\\*|#{1,4}\\s*)?\`?(${TOOL_NAMES})\\b[^\\n]*\\n\\s*\`\`\`[a-z]*\\n[\\s\\S]*?\`\`\``);
 /**
  * A card written out as prose: a heading line beginning "CARD —" (or "Card:")
  * and everything under it to the end of the answer. Stripped only when a real
  * card is on screen, so a turn is never left with neither.
  */
 const NARRATED_CARD = /\n\s*(?:\*\*|#{1,4}\s*)?CARD\s*(?:[—–:-]|\*\*)[\s\S]*$/i;
-const NARRATED_TOOL_TAIL = new RegExp(`\\n\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(?:${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|[\\s*_\`]*(?:${TOOL_NAMES})[*_\`]*\\s*$`);
+const NARRATED_TOOL_TAIL = new RegExp(`\\n\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(?:${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|[\\s*_\`]*(?:${TOOL_NAMES})[*_\`]*\\s*$|\\n\\s*(?:\\*\\*|#{1,4}\\s*)?\`?(?:${TOOL_NAMES})\\b[^\\n]*\\n\\s*\`\`\`[a-z]*\\n[\\s\\S]*$`);
 
 /* ------------------------------------------------------------------ */
 /* Load agent config                                                   */
@@ -1007,7 +1015,7 @@ export async function runAgentDeep(opts: {
       // accepted). An empty turn is not an answer either.
       const empty = soFar.length === 0 && toolCallLog.length === 0;
       if (empty || (soFar.length > 0 && (preambleOnly(soFar) || narrated))) {
-        const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? 'a tool') : null;
+        const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? narrated[3] ?? 'a tool') : null;
         const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
         if (narrated) {
