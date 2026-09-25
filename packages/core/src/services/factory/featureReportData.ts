@@ -24,7 +24,7 @@ import type { FeatureReport, ReportActionRun, ReportArtifact, ReportAsk, ReportO
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, askSchema, workerRunSchema } from '@/models/Schema';
-import { listArtifactsForRecords } from '@/services/ArtifactService';
+import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
 import { assembleFeatureReport } from './featureReport';
 
@@ -210,22 +210,32 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   // is the task's. VISUALS hang off the REQUEST: a mockup or a flow diagram is
   // what the outcome should look like, and it exists before there is a task to
   // attach it to. Both are ordinary artifacts, so both arrive the same way.
-  const visualIds = new Set<string>([String(request.id)]);
+  // Two different kinds of id, read two different ways. The request's own id
+  // and its tasks' ids are RECORD ids: every artifact filed against them. The
+  // ids under `visuals.beforeArtifactIds` / `afterArtifactIds` are ARTIFACT
+  // ids — a picture may live on another record (the Share dialog 87 shipped
+  // was captured on request 121) — so they are read by id. They were read as
+  // record ids, and a picture filed anywhere but on the request itself never
+  // reached its page.
   const requestVisuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
+  const pictureIds = new Set<number>();
   for (const key of ['beforeArtifactIds', 'afterArtifactIds']) {
     const ids = requestVisuals[key];
     if (Array.isArray(ids)) {
       for (const id of ids) {
-        if (typeof id === 'number' || typeof id === 'string') {
-          visualIds.add(String(id));
+        const n = Number(id);
+        if (Number.isInteger(n) && n > 0) {
+          pictureIds.add(n);
         }
       }
     }
   }
-  const recordIds = [...new Set([...taskIds].map(String).concat([...visualIds]))];
-  const artifactRows = recordIds.length === 0
-    ? []
-    : await listArtifactsForRecords({ orgId, recordType: 'object', recordIds });
+  const recordIds = [...new Set([...taskIds].map(String).concat([String(request.id)]))];
+  const [onRecords, byId] = await Promise.all([
+    listArtifactsForRecords({ orgId, recordType: 'object', recordIds }),
+    pictureIds.size === 0 ? Promise.resolve([]) : listArtifactsByIds({ orgId, ids: [...pictureIds] }),
+  ]);
+  const artifactRows = [...onRecords, ...byId.filter(b => !onRecords.some(r => r.id === b.id))];
   const artifacts: ReportArtifact[] = artifactRows.map(a => ({
     id: a.id,
     kind: a.kind,
