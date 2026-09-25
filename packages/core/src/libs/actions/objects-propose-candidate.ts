@@ -696,6 +696,7 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   name: 'Propose a record for review',
   description: 'Put one extracted record in front of a human. Approving records the decision; nothing is published from here.',
   inputSchema: candidateInput,
+  inputRequired: ['dedupOn'],
   grant: 'propose_candidate',
   // A decided candidate is what lets something be published outside, so the
   // autonomy gate must hold it for a human. Also on ActionService's

@@ -364,6 +364,13 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   precheck?: (ctx: ActionContext, input: z.infer<S>) => Promise<string | void>;
   /**
+   * Fields a refinement requires that the shape marks optional — so the
+   * input hints a model reads (`actionInputHints`) can mark them required.
+   * `objects.propose_candidate` requires `dedupOn` this way (2026-09-25:
+   * the last refusal standing on walk 17).
+   */
+  inputRequired?: readonly string[];
+  /**
    * Called once per created action_run, right after the row exists (pending or
    * about to execute). For back-linking the run onto the domain record it
    * reviews (e.g. discovery_candidate.reviewActionRunId). Must be idempotent.

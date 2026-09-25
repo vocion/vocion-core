@@ -6,7 +6,8 @@ describe('the fields each action takes, for a model', () => {
     const hints = actionInputHints(['objects.propose_candidate', 'git.merge', 'ask.file']);
 
     expect(hints).toMatch(/^objects\.propose_candidate: .*objectType\*/m);
-    expect(hints).toMatch(/objects\.propose_candidate: .*dedupOn/);
+    // Required by the refine, not the shape, until 2026-09-25 — and so unmarked, and left out (the last refusal standing on walk 17).
+    expect(hints).toMatch(/objects\.propose_candidate: .*dedupOn\*=\[…\]/);
     expect(hints).toMatch(/^git\.merge: .*title\*.*summary\*.*commitSha\*/m);
     expect(hints).toMatch(/^git\.merge: .*taskId(?!\*)/m);
     expect(hints).toMatch(/^ask\.file: .*title\*/m);

@@ -107,7 +107,8 @@ export function actionInputHints(ids?: readonly string[]): string {
     if (!shape) {
       return `${a.id}: (see the action's description)`;
     }
-    const fields = Object.entries(shape).map(([key, field]) => `${key}${isOptionalField(field) ? '' : '*'}${valueHint(field)}`);
+    const alsoRequired = new Set((a as { inputRequired?: readonly string[] }).inputRequired ?? []);
+    const fields = Object.entries(shape).map(([key, field]) => `${key}${isOptionalField(field) && !alsoRequired.has(key) ? '' : '*'}${valueHint(field)}`);
     return `${a.id}: ${fields.join(', ')}`;
   }).join('\n');
 }
