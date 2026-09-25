@@ -947,6 +947,9 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           laneKey: lane,
           laneNote: note ?? undefined,
           order: laneIndex * 1000 + i,
+          // The one line the row leads with: the outcome (what a person can
+          // do afterwards), else the summary the record was filed with.
+          problem: (str(row, 'outcome') ?? str(row, 'summary')) ?? undefined,
           rank: rank === null ? undefined : String(rank),
           state,
           stage: stageOf(row),
