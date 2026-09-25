@@ -21,8 +21,8 @@ import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
-import { formatElapsed, useElapsed } from './useElapsed';
-import { WorkTimeline } from './WorkTimeline';
+import { useElapsed } from './useElapsed';
+import { LiveStatus, WorkTimeline } from './WorkTimeline';
 
 /** One glyph per dashboard entity family, so a chip reads before its label does. */
 /** The abstract levels' words for the turn footer — the same words the composer's control shows; never a vendor or a model id. */
@@ -446,20 +446,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             and a group the agent has written past folds to one line.
           */}
           {streaming && (
-            <div
-              className="mt-3 flex items-center gap-2 text-[12px] text-muted-foreground"
-              role="status"
-              aria-live="polite"
-              data-testid="streaming-indicator"
-            >
-              <span className="relative flex size-1.5 shrink-0" aria-hidden>
-                <span className="absolute inline-flex size-full rounded-full bg-brand-amber opacity-60 motion-safe:animate-ping" />
-                <span className="relative inline-flex size-1.5 rounded-full bg-brand-amber" />
-              </span>
-              <span>{activity ?? 'Working'}</span>
-              {elapsed >= 3 && (
-                <span className="font-mono text-[11px] text-muted-foreground/70 tabular-nums">{formatElapsed(elapsed)}</span>
-              )}
+            <div className="mt-3 min-w-0" data-testid="streaming-indicator">
+              <LiveStatus text={activity ?? 'Working…'} elapsed={elapsed} />
             </div>
           )}
           {/* One card renders directly; several become the in-chat triage

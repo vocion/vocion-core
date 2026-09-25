@@ -79,6 +79,21 @@ function shapeRecommendCall(args: Record<string, unknown>): Record<string, unkno
 }
 
 /**
+ * A streamed tool call's arguments, assembled from their chunks. Unparseable
+ * JSON (a call cut off by the deadline) is an empty call, which the card's own
+ * shaping and refusal handle — one bad call never ends the pass.
+ * @param raw - The concatenated argument chunks.
+ */
+export function parseCallArgs(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw || '{}') as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
  * One tool call that cannot end the pass: a thrown schema error is a refusal with its message.
  * @param tool
  * @param tool.invoke
@@ -315,6 +330,21 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
   // else is appended, so what follows reads under an answer and not under a
   // preamble (services/agents/answerBackstop.ts).
   try {
+    // The answer streams as it is written: the first delta opens the
+    // paragraph, the rest follow it, and `text` holds exactly what was sent.
+    let streamed = false;
+    const onDelta = (delta: string): void => {
+      if (!streamed) {
+        streamed = true;
+        // Leading whitespace would stack under the break that opens the answer.
+        const lead = `${text.trim().length > 0 ? '\n\n' : ''}${delta.trimStart()}`;
+        text = `${text}${lead}`;
+        input.emit({ type: 'response_delta', delta: lead });
+        return;
+      }
+      text = `${text}${delta}`;
+      input.emit({ type: 'response_delta', delta });
+    };
     const answered = await runAnswerBackstop({
       orgId: input.orgId,
       request: input.request,
@@ -323,8 +353,11 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
       endedOnTool: input.endedOnTool === true,
       systemPrompt: input.systemPrompt,
       compose: input.answer ?? composeAnswerWithModel,
+      onDelta,
     });
-    if (answered) {
+    // A composer that does not stream (tests, a provider without it) still
+    // answers: the whole answer goes out as one delta, as before.
+    if (answered && !streamed) {
       append(answered);
     }
   } catch (err) {
@@ -1282,7 +1315,7 @@ export async function runAgentDeep(opts: {
       const recTool = recommendActionTool(compiled.ctx);
       const { buildChatModelForOrg } = await import('@/libs/llm');
       const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-      const base = await buildChatModelForOrg('main', opts.orgId, { temperature: 0, streaming: false, maxTokens: 4000 });
+      const base = await buildChatModelForOrg('main', opts.orgId, { temperature: 0, streaming: true, maxTokens: 4000 });
       if (!base.bindTools) {
         throw new Error('model does not support tools');
       }
@@ -1291,32 +1324,25 @@ export async function runAgentDeep(opts: {
         ? `\nAlready carded (do NOT duplicate these): ${emittedCards.map(l => `"${l}"`).join(', ')}.`
         : '';
       const sys = `${compiled.agentRow.systemPrompt ?? ''}\n\nBACKSTOP PASS: the answer below was ALREADY delivered to the user — do not rewrite it. Your ONLY job now: emit the recommend_action tool calls your rules above require for the owed/actionable touches NAMED in that answer (top 3–5 by leverage).${already} Real, ready-to-send bodies. If every named touch is already carded or none are actionable, call nothing. Output tool calls only — no prose.`;
-      const res = await model.invoke(
-        [new SystemMessage(sys), new HumanMessage(finalText)],
-        { signal: AbortSignal.timeout(45_000) },
-      );
       let emitted = 0;
       let refused = 0;
-      for (const call of res.tool_calls ?? []) {
-        if (call.name !== 'recommend_action') {
-          continue;
-        }
-        // The tool REFUSES a card whose action is unknown or whose input
-        // fails the action's schema, and emits nothing. For a day every such
-        // refusal counted here as a card on screen (finding 20, 2026-09-25:
-        // "emitted: 1", no card anywhere). A refused recommendation is still
-        // the agent's recommendation: it goes up without the pressable action,
-        // so the person reads it and the log says what to fix.
-        // The model's call may miss the tool's OWN schema (no action_input,
-        // no label) and the tool throws — on walk 16 (2026-09-25) that threw
-        // out of the loop and took every other card with it. Each call is
-        // shaped first, and a call that still fails is one refusal, not the
-        // end of the pass.
-        const shaped = shapeRecommendCall(call.args as Record<string, unknown>);
+      // The tool REFUSES a card whose action is unknown or whose input
+      // fails the action's schema, and emits nothing. For a day every such
+      // refusal counted here as a card on screen (finding 20, 2026-09-25:
+      // "emitted: 1", no card anywhere). A refused recommendation is still
+      // the agent's recommendation: it goes up without the pressable action,
+      // so the person reads it and the log says what to fix.
+      // The model's call may miss the tool's OWN schema (no action_input,
+      // no label) and the tool throws — on walk 16 (2026-09-25) that threw
+      // out of the loop and took every other card with it. Each call is
+      // shaped first, and a call that still fails is one refusal, not the
+      // end of the pass.
+      const putUp = async (args: Record<string, unknown>): Promise<void> => {
+        const shaped = shapeRecommendCall(args);
         const first = await invokeRecommend(recTool, shaped);
         if (first.ok) {
           emitted += 1;
-          continue;
+          return;
         }
         refused += 1;
         // The tool's schema wants both fields; empty is "no action", which it accepts and emits.
@@ -1325,6 +1351,39 @@ export async function runAgentDeep(opts: {
           emitted += 1;
         }
         console.warn('card backstop: a recommendation was refused and re-put without its action', { orgId: opts.orgId, agentSlug: opts.agentSlug, label: shaped.label, reason: first.error, shown: second.ok });
+      };
+      // STREAMED, one card at a time. The pass writes three to five cards
+      // with ready-to-send bodies; as one `invoke` every card waited for the
+      // last, and the person waited ~40s after the answer for any of them
+      // (Chris, 2026-09-25). A call is complete when the next one starts, or
+      // when the stream ends, and it goes up the moment it is.
+      const pending = new Map<number, { name?: string; args: string }>();
+      const flush = async (index: number): Promise<void> => {
+        const call = pending.get(index);
+        pending.delete(index);
+        if (!call || call.name !== 'recommend_action') {
+          return;
+        }
+        await putUp(parseCallArgs(call.args));
+      };
+      const stream = await model.stream([new SystemMessage(sys), new HumanMessage(finalText)], { signal: AbortSignal.timeout(45_000) });
+      for await (const chunk of stream) {
+        for (const part of (chunk as { tool_call_chunks?: Array<{ index?: number; name?: string; args?: string }> }).tool_call_chunks ?? []) {
+          const index = part.index ?? 0;
+          if (!pending.has(index)) {
+            // A new call began: every earlier one is finished.
+            for (const done of [...pending.keys()].filter(k => k < index)) {
+              await flush(done);
+            }
+            pending.set(index, { args: '' });
+          }
+          const call = pending.get(index)!;
+          call.name = call.name || part.name;
+          call.args += part.args ?? '';
+        }
+      }
+      for (const index of [...pending.keys()].sort((a, b) => a - b)) {
+        await flush(index);
       }
       // Say what happened: a silent backstop cannot be told from one that
       // never ran (2026-09-24: eight production turns, zero cards, no way to

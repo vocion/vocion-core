@@ -357,13 +357,18 @@ function CallDetail({ node }: { node: TraceNode }) {
 }
 
 /**
- * A single trace node row (used at the root and, indented, for delegate children).
- * @param root0
- * @param root0.node
- * @param root0.nested
- * @param root0.open
- * @param root0.onToggle
- * @param root0.failureContext
+ * A single trace node row — live, finished, root or nested. It is the SAME
+ * one-line row as a finished step ({@link ClaimLine}): the label, what it was
+ * on, and its result on one line, the call behind a tap on the row. It used to
+ * be a second, two-line shape with "Show call" on a line of its own, so a step
+ * changed shape the moment the turn finished (Chris, 2026-09-25: "Tool call as
+ * one line looks better. I don't need two lines to show a link").
+ * @param root0 - Component props.
+ * @param root0.node - The trace node.
+ * @param root0.nested - Indented under a delegate.
+ * @param root0.open - Whether the call detail is showing.
+ * @param root0.onToggle - Show or hide the call detail.
+ * @param root0.failureContext - Stamped into a failed step's Copy details.
  */
 function TraceRow({ node, nested, open, onToggle, failureContext }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void; failureContext?: FailureReport }) {
   const isReason = node.kind === 'reason';
@@ -371,52 +376,38 @@ function TraceRow({ node, nested, open, onToggle, failureContext }: { node: Trac
   // A tool·search·skill node drills into its call detail (tool / input / result).
   const hasCallDetail = !isReason && node.kind !== 'delegate' && Boolean(node.tool || node.args || node.resultDetail);
   const hasCitations = (node.citations?.length ?? 0) > 0;
-  const hasDrill = Boolean(drillText) || hasCallDetail;
-  const drillLabel = drillText
-    ? (open ? 'Hide reasoning' : 'Show reasoning')
-    : (open ? 'Hide call' : 'Show call');
+  const suffix = [
+    typeof node.confidence === 'number' ? `${Math.round(node.confidence * 100)}%` : null,
+    node.actor.kind === 'specialist' && !nested ? node.actor.name : null,
+  ].filter(Boolean).join(' · ');
+  const label = node.kind === 'delegate' ? `→ ${liveStepLabel(node)}` : liveStepLabel(node);
   return (
-    <li className={`relative py-1.5 pl-7 ${nested ? 'ml-4 border-l border-border/50' : ''}`}>
-      <span className="absolute top-2 left-0 grid size-4 place-items-center"><TraceMarker node={node} /></span>
-      <div className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] leading-snug">
-        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.kind === 'delegate' ? `→ ${liveStepLabel(node)}` : liveStepLabel(node)}</span>
-        {node.detail && <span className="min-w-0 text-muted-foreground">{node.detail}</span>}
-        {node.result && (
-          <span className="text-muted-foreground/80">
-            ·
-            {node.result}
-          </span>
-        )}
-        {typeof node.confidence === 'number' && (
-          <span className="text-[11px] text-[var(--brand-pass)]">
-            ·
-            {Math.round(node.confidence * 100)}
-            %
-          </span>
-        )}
-        {node.actor.kind === 'specialist' && !nested && (
-          <span className="text-[10px] text-muted-foreground/60">
-            ·
-            {node.actor.name}
-          </span>
-        )}
-      </div>
-      {hasDrill && (
-        <button type="button" onClick={onToggle} className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-amber-deep">
-          {drillLabel}
-          <ChevronRight className={`size-3 transition ${open ? 'rotate-90' : ''}`} aria-hidden />
-        </button>
-      )}
-      {open && drillText && (
-        <span className="mt-1 block max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{drillText}</span>
-      )}
-      {open && hasCallDetail && <CallDetail node={node} />}
-      {/* A failure is never folded away: the message (redacted) and the way
-          to hand it to someone else sit right on the step. */}
-      {node.status === 'error' && <FailureDetail node={node} context={failureContext} />}
-      {/* Citations always visible under a search node (the sources it surfaced). */}
-      {hasCitations && <TraceCitations node={node} />}
-    </li>
+    <ClaimLine
+      id={node.id}
+      nested={nested}
+      icon={<TraceMarker node={node} />}
+      label={label}
+      detail={[node.detail, suffix].filter(Boolean).join(' · ') || undefined}
+      radius={node.result ?? (node.resultDetail && node.resultDetail.length <= 60 ? node.resultDetail : undefined)}
+      error={node.status === 'error'}
+      open={open}
+      onToggle={drillText || hasCallDetail ? onToggle : undefined}
+      // A failure is never folded away: the message (redacted) and the way to
+      // hand it to someone else sit right on the step. Citations under a
+      // search stay visible too — they are what the step found.
+      after={node.status === 'error' || hasCitations
+        ? (
+            <>
+              {node.status === 'error' && <FailureDetail node={node} context={failureContext} />}
+              {hasCitations && <TraceCitations node={node} />}
+            </>
+          )
+        : undefined}
+    >
+      {drillText
+        ? <span className="block max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{drillText}</span>
+        : hasCallDetail ? <CallDetail node={node} /> : null}
+    </ClaimLine>
   );
 }
 
@@ -435,7 +426,6 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
   // After the turn the whole trace folds to one line — "Worked it out · N
   // steps" — and opens on tap (§2). Live, it is always open.
   const [expanded, setExpanded] = useState(false);
-  const [reasonOpen, setReasonOpen] = useState(false);
   const elapsed = useElapsed(streaming);
   // How long the agent thought before its first action — frozen the moment
   // an action starts, so the label reads "Thought for 6s" afterwards.
@@ -474,8 +464,6 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
   }, [inspect, failedKey]);
 
   const thoughtLabel = thinkingSeconds >= 2 ? `Thought for ${thinkingSeconds}s` : 'Thought it through';
-  const reasonText = reasons.map(r => r.text?.trim() || '').filter(Boolean).join('\n\n');
-  const reasonPreview = reasonText.split('\n').find(l => l.trim().length > 0)?.trim() ?? '';
 
   // A completed turn with no real actions and no sources has nothing worth
   // surfacing; keep the line while streaming (live status).
@@ -497,66 +485,37 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
     setOpenDrill(null);
   };
 
-  // LIVE: the rows appear as the agent works — a tool row the moment its
-  // start event arrives, flipping to done/error when it lands; delegates
-  // indent their specialist's rows beneath them; reasoning folds to one
-  // line with its first sentence showing (agent-chat-surface.md §9).
+  // LIVE, the group is FOLDED like a finished one: one line naming the work
+  // so far, the rows behind a tap. What is happening right now is said once,
+  // by the shimmering status line at the bottom of the turn (Chris,
+  // 2026-09-25: "We can probably stay collapsed by default while thinking.
+  // As long as the text is updating to show what is happening"). A surface
+  // with no status line of its own (`liveHeadline`) gets it here instead.
   if (streaming) {
     const live = [...trace].reverse().find(n => n.kind !== 'reason' && (n.status === 'start' || n.status === 'progress'));
     // "Working…" on its own for a minute told the person nothing (Chris,
     // twice). The step that is running says what it is on, and — when the
     // call reports — where it has got to: `Building the document… sheet 7 of 12`.
-    const headline = activity ?? (live ? liveStepLabel(live) : null) ?? 'Working…';
+    const headline = activity ?? (live ? liveStepLabel(live) : null) ?? (actions.length === 0 && reasons.length > 0 ? 'Thinking…' : 'Working…');
+    // A failure is never folded away: a group with a failed step opens itself.
+    const liveOpen = expanded || actions.some(n => n.status === 'error');
+    if (liveHeadline) {
+      return (
+        <div className="my-2" data-testid="work-timeline-live">
+          <LiveStatus text={headline} elapsed={elapsed} />
+          {actions.length > 0 && <StepGroupLine actions={actions} sources={sources} expanded={liveOpen} onToggle={() => setExpanded(v => !v)} />}
+          {liveOpen && <StepList reasons={reasons} actions={actions} childrenOf={childrenOf} thoughtLabel={thoughtLabel} openIds={openIds} toggle={toggle} failureContext={failureContext} testId="work-steps-live" />}
+        </div>
+      );
+    }
+    // Only thinking so far: the status line says so; there is no step to fold.
+    if (actions.length === 0) {
+      return null;
+    }
     return (
-      <div className="my-2" data-testid="work-timeline-live">
-        {liveHeadline && (
-          <div className="flex w-full items-center gap-2 py-1 text-left text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-            <span className="work-shimmer min-w-0 flex-1 truncate font-medium">{headline}</span>
-            {elapsed >= 3 && (
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-                {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
-              </span>
-            )}
-          </div>
-        )}
-        {(reasons.length > 0 || actions.length > 0) && (
-          <ol className="mt-0.5 flex flex-col border-l border-border/50 pl-3" data-testid="work-steps-live">
-            {reasons.length > 0 && (
-              <li className="py-1">
-                <button type="button" onClick={() => setReasonOpen(v => !v)} aria-expanded={reasonOpen} className="flex w-full items-center gap-2 text-left text-xs">
-                  <span className="grid size-4 shrink-0 place-items-center"><Brain className="size-3.5 text-brand-amber-deep" aria-hidden /></span>
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
-                    <span className={`font-medium text-foreground/80 ${actions.length === 0 ? 'work-shimmer' : ''}`}>{actions.length === 0 ? 'Thinking…' : thoughtLabel}</span>
-                    {!reasonOpen && reasonPreview && (
-                      <span className="text-muted-foreground">
-                        {' · '}
-                        {reasonPreview}
-                      </span>
-                    )}
-                  </span>
-                  <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${reasonOpen ? 'rotate-180' : ''}`} aria-hidden />
-                </button>
-                {reasonOpen && reasonText && (
-                  <div className="mt-1 ml-6 max-h-60 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{reasonText}</div>
-                )}
-              </li>
-            )}
-            {actions.map((n) => {
-              const kids = childrenOf(n.id);
-              return (
-                <li key={n.id}>
-                  <ol>
-                    <TraceRow node={n} open={openDrill === n.id} onToggle={() => setOpenDrill(o => (o === n.id ? null : n.id))} />
-                    {kids.map(k => (
-                      <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
-                    ))}
-                  </ol>
-                </li>
-              );
-            })}
-          </ol>
-        )}
+      <div className="my-1.5" data-testid="work-timeline-live">
+        <StepGroupLine actions={actions} sources={sources} expanded={liveOpen} onToggle={() => setExpanded(v => !v)} />
+        {liveOpen && <StepList reasons={reasons} actions={actions} childrenOf={childrenOf} thoughtLabel={thoughtLabel} openIds={openIds} toggle={toggle} failureContext={failureContext} testId="work-steps-live" />}
       </div>
     );
   }
@@ -675,10 +634,110 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
 }
 
 /**
- * One level-1 line: the claim, quiet, with the blast radius priced on the
- * line so the reader can decide whether the expansion is worth it
- * (agent-chat-surface.md §2). Expanding reveals level 2 (the steps) or, for
- * a stepless action, the payload directly.
+ * The live status line: what is happening now, shimmering, with a seconds
+ * count from the start of the turn. Plain text and one CSS animation — no
+ * spinner, no ping.
+ * @param root0 - Component props.
+ * @param root0.text - What the turn is on.
+ * @param root0.elapsed - Seconds since the turn started.
+ */
+export function LiveStatus({ text, elapsed }: { text: string; elapsed: number }) {
+  return (
+    <div className="flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs text-muted-foreground" role="status" aria-live="polite">
+      <span className="work-shimmer min-w-0 flex-1 truncate font-medium">{text}</span>
+      {elapsed >= 1 && (
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70 tabular-nums">
+          {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A live group, folded: what the steps so far add up to, one line, a tap
+ * away from the rows.
+ * @param root0 - Component props.
+ * @param root0.actions - The group's steps so far.
+ * @param root0.sources - Sources grounded so far.
+ * @param root0.expanded - Whether the rows show.
+ * @param root0.onToggle - Show or hide the rows.
+ */
+function StepGroupLine({ actions, sources, expanded, onToggle }: { actions: TraceNode[]; sources: number; expanded: boolean; onToggle: () => void }) {
+  const text = actions.length === 1
+    ? liveStepLabel(actions[0]!)
+    : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool })), sources);
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-label={`${text} · ${actions.length} step${actions.length === 1 ? '' : 's'}`}
+      className="group/work flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs text-muted-foreground/75 transition hover:text-foreground"
+    >
+      <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
+      <span className="min-w-0 flex-1 truncate">{text}</span>
+      <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground/50 transition ${expanded ? 'rotate-90' : ''}`} aria-hidden />
+    </button>
+  );
+}
+
+/**
+ * The rows of a group — reasoning first, then each step with a delegate's
+ * steps under it. The same list live and after the turn.
+ * @param root0 - Component props.
+ * @param root0.reasons - Reasoning nodes.
+ * @param root0.actions - Step nodes.
+ * @param root0.childrenOf - A delegate's steps.
+ * @param root0.thoughtLabel - "Thought for 6s".
+ * @param root0.openIds - Which rows are open.
+ * @param root0.toggle - Open or close a row.
+ * @param root0.failureContext - Stamped into a failed step's Copy details.
+ * @param root0.testId - The list's test id.
+ */
+function StepList({ reasons, actions, childrenOf, thoughtLabel, openIds, toggle, failureContext, testId }: {
+  reasons: TraceNode[];
+  actions: TraceNode[];
+  childrenOf: (id: string) => TraceNode[];
+  thoughtLabel: string;
+  openIds: Set<string>;
+  toggle: (id: string) => void;
+  failureContext?: FailureReport;
+  testId: string;
+}) {
+  const reasonText = reasons.map(r => r.text?.trim() || '').filter(Boolean).join('\n\n');
+  return (
+    <ol className="mt-0.5 flex min-w-0 flex-col border-l border-border/50 pl-3" data-testid={testId}>
+      {reasons.length > 0 && (
+        <ClaimLine
+          id="__reasoning__"
+          icon={<Brain className="size-3.5 text-brand-amber-deep" aria-hidden />}
+          label={thoughtLabel}
+          open={openIds.has('__reasoning__')}
+          onToggle={reasonText ? () => toggle('__reasoning__') : undefined}
+        >
+          <div className="max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{reasonText}</div>
+        </ClaimLine>
+      )}
+      {actions.map(n => (
+        <li key={n.id} className="min-w-0">
+          <ol>
+            <TraceRow node={n} open={openIds.has(n.id)} onToggle={() => toggle(n.id)} failureContext={failureContext} />
+            {childrenOf(n.id).map(k => (
+              <TraceRow key={k.id} node={k} nested open={openIds.has(k.id)} onToggle={() => toggle(k.id)} failureContext={failureContext} />
+            ))}
+          </ol>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * One step line: the claim, quiet, with the blast radius priced on the line
+ * so the reader can decide whether the expansion is worth it
+ * (agent-chat-surface.md §2). Tapping the line reveals what is behind it.
+ * Every step in the chat — live or finished, root or nested — is this line.
  * @param root0 - Component props.
  * @param root0.id - Stable identity for the open set.
  * @param root0.icon - The kind marker.
@@ -686,38 +745,52 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
  * @param root0.detail - Input summary shown beside the claim.
  * @param root0.radius - The blast radius or compact result on the line.
  * @param root0.error - Renders the claim in the failure color.
+ * @param root0.nested - Indented under a delegate.
  * @param root0.open - Whether the line is expanded.
- * @param root0.onToggle - Expand or collapse this line.
- * @param root0.children - The level-2 content.
+ * @param root0.onToggle - Expand or collapse this line; absent when there is nothing behind it.
+ * @param root0.after - Shown under the line whether or not it is open (a failure, citations).
+ * @param root0.children - What the line expands to.
  */
-function ClaimLine({ id, icon, label, detail, radius, error, open, onToggle, children }: {
+function ClaimLine({ id, icon, label, detail, radius, error, nested, open, onToggle, after, children }: {
   id: string;
   icon: React.ReactNode;
   label: string;
   detail?: string;
   radius?: string;
   error?: boolean;
+  nested?: boolean;
   open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
+  onToggle?: () => void;
+  after?: React.ReactNode;
+  children?: React.ReactNode;
 }) {
+  const line = (
+    <>
+      <span className="grid size-4 shrink-0 place-items-center">{icon}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px]">
+        <span className={`font-medium ${error ? 'text-[var(--brand-fail)]' : 'text-foreground/85'}`}>{label}</span>
+        {detail && (
+          <span className="text-muted-foreground">
+            {' · '}
+            {detail}
+          </span>
+        )}
+      </span>
+      {radius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/80">{radius}</span>}
+    </>
+  );
   return (
-    <li data-claim={id}>
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 py-1 text-left text-xs transition hover:text-foreground">
-        <span className="grid size-4 shrink-0 place-items-center">{icon}</span>
-        <span className="min-w-0 flex-1 truncate text-[13px]">
-          <span className={`font-medium ${error ? 'text-[var(--brand-fail)]' : 'text-foreground/85'}`}>{label}</span>
-          {detail && (
-            <span className="text-muted-foreground">
-              {' · '}
-              {detail}
-            </span>
-          )}
-        </span>
-        {radius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/80">{radius}</span>}
-        <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />
-      </button>
-      {open && <div className="mb-2 ml-6">{children}</div>}
+    <li data-claim={id} className={`min-w-0 ${nested ? 'ml-4 border-l border-border/50 pl-2' : ''}`}>
+      {onToggle
+        ? (
+            <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs transition hover:text-foreground">
+              {line}
+              <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />
+            </button>
+          )
+        : <div className="flex w-full min-w-0 items-center gap-2 py-1 text-xs">{line}</div>}
+      {open && children && <div className="mb-2 ml-6 min-w-0">{children}</div>}
+      {after && <div className="ml-6 min-w-0">{after}</div>}
     </li>
   );
 }

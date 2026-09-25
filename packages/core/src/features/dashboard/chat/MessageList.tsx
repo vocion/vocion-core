@@ -21,8 +21,9 @@ import { useSelectionReply } from './useSelectionReply';
  * Scrolling is STICK-TO-BOTTOM: while the user is at (or near) the
  * bottom, streaming updates keep the newest content in view with an
  * instant scroll — no per-token smooth animations fighting each other.
- * The moment the user scrolls up to read, auto-scroll disengages and
- * the stream stops moving the page; sending a new message re-pins.
+ * The moment the user touches the list or wheels up, auto-scroll
+ * disengages and the stream stops moving the page; lifting the finger at the
+ * bottom, or sending a new message, re-pins.
  */
 
 export type MessageListProps = {
@@ -72,12 +73,34 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
   // Highlight a passage → "Reply" quotes it on the next turn (`useSelectionReply`).
   const selection = useSelectionReply(containerRef);
 
+  // A finger on the list. While it is down the stream never moves the page.
+  const touchingRef = useRef(false);
+
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
-    if (!el) {
+    if (!el || touchingRef.current) {
       return;
     }
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_THRESHOLD;
+  }, []);
+
+  // INTENT, not position, unpins. Waiting for a scroll event to say the person
+  // moved lost the race on a phone: every streamed token re-pinned before the
+  // drag had travelled 48px, so a person at the bottom trying to read could not
+  // move at all (Chris, 2026-09-25: "it kept shifting back down"). A touch or
+  // an upward wheel lets go at once; lifting the finger at the bottom re-pins.
+  const onTouchStart = useCallback(() => {
+    touchingRef.current = true;
+    pinnedRef.current = false;
+  }, []);
+  const onTouchEnd = useCallback(() => {
+    touchingRef.current = false;
+    handleScroll();
+  }, [handleScroll]);
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    if (e.deltaY < 0) {
+      pinnedRef.current = false;
+    }
   }, []);
 
   // A new message was added (the user just sent), or a block moved — re-pin
@@ -95,7 +118,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
   // `smooth`: overlapping smooth animations are what made streaming look
   // choppy, and an instant scroll on already-visible growth is invisible.
   useEffect(() => {
-    if (!pinnedRef.current) {
+    if (!pinnedRef.current || touchingRef.current) {
       return;
     }
     const el = containerRef.current;
@@ -107,7 +130,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
   const lastIdx = messages.length - 1;
   const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="relative flex min-h-0 flex-1 flex-col gap-8 overflow-x-clip overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
+    <div ref={containerRef} onScroll={handleScroll} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} onWheel={onWheel} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-8 overflow-x-clip overflow-y-auto overscroll-y-contain px-4 pt-16 pb-6 sm:px-6">
       {selection.hit && (
         <SelectionToolbar
           x={selection.hit.x}

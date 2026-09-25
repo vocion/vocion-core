@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const streamEvents = vi.fn();
-const backstop = vi.hoisted(() => ({ on: false, calls: [] as Array<{ name: string; args: Record<string, unknown> }> }));
+const backstop = vi.hoisted(() => ({ on: false, calls: [] as Array<{ name: string; args: Record<string, unknown> }>, onCall: undefined as undefined | ((mark: string) => void) }));
 
 vi.mock('@/services/agents/harness', () => ({
   // The turn says which model answers it (`run_meta`); the mock keeps the agent's defaults.
@@ -38,7 +38,23 @@ vi.mock('@/services/agents/harness', () => ({
 
 vi.mock('@/libs/llm', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/llm')>()),
-  buildChatModelForOrg: vi.fn(async () => ({ bindTools: () => ({ invoke: async () => ({ tool_calls: backstop.calls }) }) })),
+  // The card pass streams: each recorded call arrives as tool_call_chunks,
+  // its arguments split across two chunks, as a provider sends them.
+  buildChatModelForOrg: vi.fn(async () => ({
+    bindTools: () => ({
+      invoke: async () => ({ tool_calls: backstop.calls }),
+      stream: async () => (async function* () {
+        for (const [index, call] of backstop.calls.entries()) {
+          const json = JSON.stringify(call.args);
+          const cut = Math.floor(json.length / 2);
+          backstop.onCall?.(`model starts card ${index + 1}`);
+          yield { tool_call_chunks: [{ index, name: call.name, args: json.slice(0, cut) }] };
+          yield { tool_call_chunks: [{ index, args: json.slice(cut) }] };
+          backstop.onCall?.(`model finishes card ${index + 1}`);
+        }
+      })(),
+    }),
+  })),
 }));
 vi.mock('@/libs/Langfuse', () => ({
   createLangfuseCallback: vi.fn(() => ({ handler: {}, trace: { id: 'trace-1', update: vi.fn() } })),
@@ -484,5 +500,79 @@ describe('a write the answer claims is a write that ran (finding 23)', () => {
     const out = await applyTurnGuarantees({ ...base, response: claimed, toolCalls: [{ tool: 'update_object', output: '{"ok":true,"id":130}' }], emit: () => {} });
 
     expect(out).toBe(claimed);
+  });
+});
+
+describe('the answer pass streams (2026-09-25: "the response just pops in")', () => {
+  it('sends the answer as it is written, and the stored text is what was sent', async () => {
+    const events: AgentEvent[] = [];
+    const out = await applyTurnGuarantees({
+      orgId: ORG,
+      agentSlug: 'lead',
+      request: 'What should I do right now?',
+      response: 'I\'ll read the records before answering.',
+      toolCalls: [{ tool: 'lookup_objects', output: 'request #126 Retry uploads — state new' }],
+      endedOnTool: true,
+      failures: [],
+      failedDelegations: [],
+      emit: e => events.push(e),
+      answer: async ({ onDelta }) => {
+        for (const piece of ['  Approve', ' request #126', ' first.']) {
+          onDelta?.(piece);
+        }
+        return 'Approve request #126 first.';
+      },
+    });
+
+    const deltas = events.filter(e => e.type === 'response_delta').map(e => (e as { delta: string }).delta);
+
+    expect(deltas).toEqual(['\n\nApprove', ' request #126', ' first.']);
+    expect(out).toBe('I\'ll read the records before answering.\n\nApprove request #126 first.');
+  });
+});
+
+describe('the card pass streams (2026-09-25: "waiting like 40 seconds for the cards")', () => {
+  it('puts the first card up before the model has started writing the second', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    backstop.on = true;
+    backstop.calls.length = 0;
+    backstop.calls.push(
+      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Approve the P1 upload fix', rationale: 'seven reports' } },
+      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Defer the admin panel', rationale: 'no demand yet' } },
+    );
+    const order: string[] = [];
+    backstop.onCall = mark => order.push(mark);
+    streamEvents.mockClear();
+    streamEvents.mockResolvedValue(longAnswerStream());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await runAgentDeep({
+        orgId: ORG,
+        agentSlug: 'lead',
+        message: 'What should I do right now?',
+        deliverable: 'answer',
+        conversationId: conv.id,
+        onEvent: (e) => {
+          if (e.type === 'recommended_action') {
+            order.push(`on screen: ${(e as { recommendation: { label: string } }).recommendation.label}`);
+          }
+        },
+      });
+
+      // Card 1 is on screen as soon as card 2 begins — before the model has
+      // finished writing card 2, let alone the last one.
+      expect(order).toEqual([
+        'model starts card 1',
+        'model finishes card 1',
+        'model starts card 2',
+        'on screen: Approve the P1 upload fix',
+        'model finishes card 2',
+        'on screen: Defer the admin panel',
+      ]);
+    } finally {
+      warn.mockRestore();
+      backstop.on = false;
+      backstop.onCall = undefined;
+    }
   });
 });

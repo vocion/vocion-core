@@ -360,3 +360,15 @@
     transform: scaleX(0.6);
   }
 }
+
+/* A viewport-fit page (chat) on a phone is a fixed app screen: the document
+   does not scroll or rubber-band, only the transcript inside it does
+   (PageWidth.tsx sets the attribute while such a page is mounted). */
+@media (max-width: 767.98px) {
+  html[data-viewport-fit],
+  html[data-viewport-fit] body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}

@@ -301,7 +301,12 @@ function ChatShellInner({
       </ShellBarActionsPortal>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-1 flex-col">
+        {/* `min-w-0` is load-bearing. A flex item's floor is its min-content,
+            and one unbroken line in the stream (a reasoning preview, a tool
+            result) made that 800px on a 390px phone: the transcript AND the
+            composer widened with it and this row's `overflow-hidden` cut the
+            right side off (2026-09-25, Safari, measured live in WebKit). */}
+        <div className="flex min-w-0 flex-1 flex-col">
           {/* The approval gate is a BLOCK IN THE TRANSCRIPT (058's mechanism,
               the same one the dock's review cards use), after the turn that
               raised it — not a strip pinned above the composer. `afterIndex`
