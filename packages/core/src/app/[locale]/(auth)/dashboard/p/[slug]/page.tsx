@@ -701,7 +701,7 @@ export default async function WorkspacePage(props: {
               only
             </span>
           ))}
-          <Link href={`/dashboard/p/${manifest.slug}`} className="text-xs text-muted-foreground underline-offset-2 hover:underline">Show all</Link>
+          <Link href={`/dashboard/p/${manifest.slug}${queryFilters.some(f => manifest.queryFilters?.find(q => q.param === f.param)?.default !== undefined) ? `?${queryFilters.map(f => `${f.param}=all`).join('&')}` : ''}`} className="text-xs text-muted-foreground underline-offset-2 hover:underline">Show all</Link>
         </p>
       )}
       {activeView?.note && <p className="mb-4 max-w-3xl text-sm text-muted-foreground">{activeView.note}</p>}
