@@ -19,7 +19,7 @@ import { HistoryPopover } from './HistoryPopover';
  * @param props.onNewChat - Start a fresh thread on this surface (and focus the box).
  * @param props.onCopy
  * @param props.history - The conversations dropdown's data, or null when the surface has no history (a scoped rail).
- * @param props.compact - Force the ⋯ menu (the rail's phone sheet); undefined = decided by viewport width.
+ * @param props.compact - Fold the conversations control into the ⋯ menu (the rail's phone sheet); undefined = decided by viewport width. New chat never folds.
  */
 export function ChatHeaderActions({ onNewChat, onCopy, history, compact }: {
   onNewChat: () => void;
@@ -33,25 +33,29 @@ export function ChatHeaderActions({ onNewChat, onCopy, history, compact }: {
   const menu = compact === true ? 'flex' : compact === false ? 'hidden' : 'flex sm:hidden';
   return (
     <div className="flex items-center gap-1" data-testid="chat-header-actions">
+      {/* New chat is the most common first move when the sheet opens on a new
+          page, so it is a visible icon at EVERY width — never a row inside ⋯
+          (Chris, 2026-09-24: "promote that icon out of the context menu"). */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={onNewChat}
+            aria-label={t('new_chat')}
+            data-testid="new-chat"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+          >
+            <SquarePen className="size-4" aria-hidden />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" collisionPadding={8}>{`${t('new_chat')} · ${chatHotkeyLabel('new-chat')}`}</TooltipContent>
+      </Tooltip>
       <span className={icons}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onNewChat}
-              aria-label={t('new_chat')}
-              data-testid="new-chat"
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
-            >
-              <SquarePen className="size-4" aria-hidden />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="end" collisionPadding={8}>{`${t('new_chat')} · ${chatHotkeyLabel('new-chat')}`}</TooltipContent>
-        </Tooltip>
         {history && <HistoryPopover recent={history.recent} currentId={history.currentId} onPick={history.onPick} search={history.search} />}
       </span>
+      {/* The ⋯ menu carries what is left: Copy conversation, All conversations. */}
       <span className={menu}>
-        <ChatMenu onNewChat={onNewChat} onCopy={onCopy} />
+        <ChatMenu onCopy={onCopy} />
       </span>
     </div>
   );

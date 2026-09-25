@@ -231,16 +231,18 @@ describe('ChatDock', () => {
     await expect.element(page.getByRole('slider', { name: 'Resize the conversation' })).toBeInTheDocument();
   });
 
-  it('carries the chat menu (new chat only — no agent picker, §9.10) and, unscoped, a history popover with the recent threads', async () => {
+  it('carries New chat as an icon (no agent picker, §9.10) and, unscoped, a history popover with the recent threads', async () => {
     vi.mocked(client.conversations.list).mockResolvedValue([
       { id: 7, title: 'Earlier about the queue', messageCount: 4, updatedAt: new Date().toISOString() },
     ] as never);
     localStorage.setItem(COLLAPSE_KEY, '0');
     await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" />));
 
+    await expect.element(page.getByRole('button', { name: 'New chat' })).toBeVisible();
+
     await userEvent.click(page.getByRole('button', { name: 'Chat options' }));
 
-    await expect.element(page.getByRole('menuitem', { name: /New chat/ })).toBeVisible();
+    expect(page.getByRole('menuitem', { name: /New chat/ }).elements()).toHaveLength(0);
 
     await userEvent.keyboard('{Escape}');
 
