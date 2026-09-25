@@ -76,12 +76,17 @@ describe('ChatShell', () => {
     expect(page.getByText('GTM Orchestrator').elements()).toHaveLength(0);
   });
 
-  it('has no agent picker: the surface speaks as the workspace and ⋯ offers only New chat (§9.10)', async () => {
+  it('has no agent picker: the surface speaks as the workspace; New chat is an icon, and ⋯ never lists an agent (§9.10)', async () => {
     await render(wrap(<ChatShell agents={AGENTS} />));
+
+    await expect.element(page.getByRole('button', { name: 'New chat' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Chat options' }).click();
 
-    await expect.element(page.getByRole('menuitem', { name: /New chat/ })).toBeVisible();
+    // New chat is never a row inside ⋯ (Chris, 2026-09-24: "promote that
+    // icon out of the context menu"); the menu keeps All conversations.
+    await expect.element(page.getByRole('menuitem', { name: /All conversations/ })).toBeVisible();
+    expect(page.getByRole('menuitem', { name: /New chat/ }).elements()).toHaveLength(0);
     expect(page.getByRole('menuitem', { name: /Pipeline Analyst/ }).elements()).toHaveLength(0);
   });
 
