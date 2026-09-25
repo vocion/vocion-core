@@ -33,8 +33,12 @@ export type AnswerBackstopToolCall = { tool: string; input?: Record<string, unkn
 const PER_TOOL_CHARS = 2_500;
 const TOTAL_CHARS = 14_000;
 
-/** The model call, injectable for tests: system prompt + one human turn in, prose out. */
-export type AnswerComposer = (input: { orgId: string; system: string; human: string }) => Promise<string>;
+/**
+ * The model call, injectable for tests: system prompt + one human turn in,
+ * prose out. `onDelta`, when given, receives the answer as it is written, so
+ * the person watches it arrive instead of seeing it land whole.
+ */
+export type AnswerComposer = (input: { orgId: string; system: string; human: string; onDelta?: (delta: string) => void }) => Promise<string>;
 
 /**
  * Does this finished turn owe an answer? Tool calls ran and the text is
@@ -92,6 +96,7 @@ export function answerPassSystem(systemPrompt: string | undefined, steps: number
  * @param input.systemPrompt - The agent's system prompt.
  * @param input.compose - The model call (injected in tests).
  * @param input.endedOnTool
+ * @param input.onDelta - Receives the answer as it streams.
  * @returns The text to append, or null when the turn already answered or the pass could not.
  */
 export async function runAnswerBackstop(input: {
@@ -102,6 +107,7 @@ export async function runAnswerBackstop(input: {
   systemPrompt?: string;
   compose: AnswerComposer;
   endedOnTool?: boolean;
+  onDelta?: (delta: string) => void;
 }): Promise<string | null> {
   if (!owesAnswer(input.finalText, input.toolCalls, input.endedOnTool)) {
     return null;
@@ -112,7 +118,7 @@ export async function runAnswerBackstop(input: {
     `What you already did and found:\n\n${evidenceBlock(input.toolCalls)}`,
   ].join('\n\n---\n\n');
   try {
-    const answer = (await input.compose({ orgId: input.orgId, system: answerPassSystem(input.systemPrompt, input.toolCalls.length), human })).trim();
+    const answer = (await input.compose({ orgId: input.orgId, system: answerPassSystem(input.systemPrompt, input.toolCalls.length), human, onDelta: input.onDelta })).trim();
     return answer.length > 0 ? answer : null;
   } catch {
     return null;
@@ -120,20 +126,43 @@ export async function runAnswerBackstop(input: {
 }
 
 /**
- * The real pass: the org's main model, no tools, one call, bounded.
- * @param root0
- * @param root0.orgId
- * @param root0.system
- * @param root0.human
+ * Text out of one streamed chunk: a string, or the text blocks of a content
+ * array (a thinking block is not the answer).
+ * @param content - The chunk's content.
  */
-export const composeAnswerWithModel: AnswerComposer = async ({ orgId, system, human }) => {
-  const { buildChatModelForOrg } = await import('@/libs/llm');
-  const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-  const model = await buildChatModelForOrg('main', orgId, { temperature: 0.2, streaming: false, maxTokens: 2_000 });
-  const res = await model.invoke([new SystemMessage(system), new HumanMessage(human)], { signal: AbortSignal.timeout(60_000) });
-  const content = res.content;
+export function chunkText(content: unknown): string {
   if (typeof content === 'string') {
     return content;
   }
+  if (!Array.isArray(content)) {
+    return '';
+  }
   return (content as Array<{ type?: string; text?: string }>).map(c => (c.type === 'text' ? c.text ?? '' : '')).join('');
+}
+
+/**
+ * The real pass: the org's main model, no tools, one call, bounded — and
+ * STREAMED. It used to be one `invoke`, so after "Working 40s" the whole
+ * answer appeared at once (Chris, 2026-09-25: "After thinking the response
+ * just pops in. It should stream in").
+ * @param root0 - See {@link AnswerComposer}.
+ * @param root0.orgId - The org the call is made for.
+ * @param root0.system - The pass's system prompt.
+ * @param root0.human - The turn laid out for the pass.
+ * @param root0.onDelta - Receives the answer as it is written.
+ */
+export const composeAnswerWithModel: AnswerComposer = async ({ orgId, system, human, onDelta }) => {
+  const { buildChatModelForOrg } = await import('@/libs/llm');
+  const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+  const model = await buildChatModelForOrg('main', orgId, { temperature: 0.2, streaming: true, maxTokens: 2_000 });
+  const stream = await model.stream([new SystemMessage(system), new HumanMessage(human)], { signal: AbortSignal.timeout(60_000) });
+  let text = '';
+  for await (const chunk of stream) {
+    const delta = chunkText(chunk.content);
+    if (delta) {
+      text += delta;
+      onDelta?.(delta);
+    }
+  }
+  return text;
 };
