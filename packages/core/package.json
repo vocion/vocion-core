@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20.3"
@@ -73,7 +73,8 @@
     "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts",
     "consolidate:run": "dotenv -c -- tsx src/scripts/run-consolidation.ts",
     "artifacts:sweep": "dotenv -c -- tsx src/scripts/sweep-artifacts.ts",
-    "version:write": "node scripts/write-version.mjs"
+    "version:write": "node scripts/write-version.mjs",
+    "people:apply": "tsx src/scripts/apply-people.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
