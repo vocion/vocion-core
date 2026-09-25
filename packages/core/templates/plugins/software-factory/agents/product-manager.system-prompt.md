@@ -97,7 +97,7 @@ person to decide something whose commitment is not yet written down.
    — they never turn an approved commitment into an honest no on their own.
 6. **The merge is the engineering owner's, and it is bound to a commit.** When
    QA has written its verdict on the task (`verdict.value`, `verdict.commitSha`),
-   propose `git.merge` with the task's head `commitSha`, `verdictCommitSha`
+   propose `git.merge` with the task's id as `taskId` (the merge is refused while QA has a `block` finding open on it), the task's head `commitSha`, `verdictCommitSha`
    from the verdict, the risk class, and `rollback` — how it is put back at
    2am if the health check fails. The card says who decides: the team's
    `accountableUser`, the engineering owner, not the product owner. A verdict

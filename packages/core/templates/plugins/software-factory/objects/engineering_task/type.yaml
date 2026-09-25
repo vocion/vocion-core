@@ -272,6 +272,25 @@ schema:
         by: {type: string, description: 'The reviewer — an agent slug, or a person.'}
         note: {type: string, description: 'The one sentence for the person who will merge: what they are accepting and the one risk to know.'}
         independentChecks: {type: array, items: {type: string}, description: 'Checks that ran on trusted CI or were reproduced by QA rather than reported by the worker. Required to be non-empty for a schema, billing, auth or infra risk class before the merge ask is filed.'}
+        findings:
+          type: array
+          description: >-
+            What QA found, TYPED against the contract (backlog 003): each finding
+            names the criterion it fails, the allowed-path rule it breaks or the
+            required check that did not pass — never free prose. A `block`
+            finding keeps the merge ask from being filed (git.merge refuses it,
+            naming the finding); `fix` rides on the next attempt; `note` is for
+            the PM's next contract. A finding that cannot be keyed to the
+            contract is a preference and is not a finding.
+          items:
+            type: object
+            required: [against, ref, severity, what]
+            properties:
+              against: {type: string, enum: [criterion, path, check], description: 'What it is keyed to: an acceptance criterion, an allowedPaths rule, or a required check.'}
+              ref: {type: string, description: 'The criterion statement, the path rule, or the check name — as written on the contract.'}
+              severity: {type: string, enum: [block, fix, note]}
+              what: {type: string, description: 'One sentence a worker can act on, with the hunk, exit code or artifact behind it.'}
+              closeBy: {type: string, description: 'Who closes it: engineer (next attempt), pm (next contract), or a person.'}
     rollback:
       x-display: {label: If the health check fails, group: Review}
       type: string
