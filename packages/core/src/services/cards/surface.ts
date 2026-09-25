@@ -37,6 +37,10 @@ export type SurfaceDeps = {
 export async function surfaceCard(card: Card, deps: SurfaceDeps): Promise<void> {
   deps.collector?.onCard({ id: card.id, kind: card.kind, label: card.title, actionId: card.actions[0]?.actionId ?? '', input: card.actions[0]?.input, runId: card.runId, state: card.state });
   deps.write({ type: 'card', card });
+  // One line per card lifecycle (backlog 025 § testable): a card that never
+  // shows up in the log never showed up at all — that is how finding 18 was
+  // established a day late.
+  console.warn('card: surfaced', { ...deps.where, cardId: card.id, kind: card.kind, title: card.title, ledger: Boolean(deps.collector), filing: Boolean(deps.file) && card.runId === undefined });
   if (!deps.file || card.runId !== undefined) {
     return;
   }
@@ -60,6 +64,7 @@ export async function surfaceCard(card: Card, deps: SurfaceDeps): Promise<void> 
   if (runId !== null) {
     deps.collector?.onCardFiled(card.title, card.actions[0]?.actionId ?? '', runId);
     deps.write({ type: 'card_update', cardId: card.id, runId, state: 'filed' });
+    console.warn('card: filed', { ...deps.where, cardId: card.id, runId });
   }
 }
 
