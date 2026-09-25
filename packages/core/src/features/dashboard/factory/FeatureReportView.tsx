@@ -1,8 +1,9 @@
-import type { FeatureReport, LifecycleStep, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportPhase, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
+import type { FeatureReport, LifecycleStep, LiveBuild, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportPhase, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
 import type { Status } from '@/types/Status';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
+import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { formatStamp, money } from '@/services/factory/featureReport';
 import { DecisionCard } from './DecisionCard';
 
@@ -572,12 +573,52 @@ function SummaryStrip({ report }: { report: FeatureReport }) {
  * @param props - The report.
  * @param props.report - The assembled report.
  */
+/**
+ * WATCH THE BUILD (backlog 007): the step the worker is on, how long it has
+ * run, how long since it last spoke, and the tail of what it printed — from
+ * the run's own heartbeat, re-read every five seconds while any run is live.
+ * A build that has gone quiet says so in words; nothing here is an animation.
+ * @param props - The live view.
+ * @param props.live - What the run last reported.
+ */
+function WatchTheBuild({ live }: { live: LiveBuild }) {
+  const since = live.sinceSec === null ? null : duration(live.sinceSec);
+  const quiet = live.quietSec !== null && live.quietSec > 90 ? `quiet for ${duration(live.quietSec)}` : null;
+  return (
+    <div className="mt-2 rounded-md border border-border/60 bg-muted/30 p-2.5" data-testid="watch-the-build">
+      <p className="text-xs text-foreground/90">
+        <span className="font-medium">{live.step ?? 'Working'}</span>
+        {since && <span className="text-muted-foreground">{` · ${since} so far`}</span>}
+        {quiet && <span className="text-brand-amber-deep">{` · ${quiet}`}</span>}
+      </p>
+      {live.log.length > 0 && (
+        <pre className="mt-1.5 max-h-40 overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre text-muted-foreground">{live.log.join('\n')}</pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Seconds as a person reads them: "45s", "3m 10s", "1h 12m".
+ * @param sec - Seconds.
+ */
+function duration(sec: number): string {
+  if (sec < 60) {
+    return `${sec}s`;
+  }
+  if (sec < 3600) {
+    return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  }
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+}
+
 function Timeline({ report }: { report: FeatureReport }) {
   if (report.timeline.length === 0) {
     return <p className="text-sm text-muted-foreground">Nothing on this request is dated, so there is no order to show.</p>;
   }
   return (
     <ol id="report-timeline" className="relative ml-1.5 border-l border-border pl-4">
+      {report.timeline.some(e => e.live) && <LiveRefresh everyMs={5000} />}
       {report.timeline.map(entry => (
         <li key={entry.key} data-timeline-entry={entry.key} className="relative pb-4 last:pb-0">
           <span className={`absolute top-1.5 left-[-1.3125rem] size-2 rounded-full ring-2 ring-background ${TONE_DOT[entry.tone]}`} />
@@ -593,6 +634,7 @@ function Timeline({ report }: { report: FeatureReport }) {
               : entry.title}
           </p>
           {entry.detail && <p className="mt-0.5 line-clamp-3 text-xs break-words text-muted-foreground">{entry.detail}</p>}
+          {entry.live && <WatchTheBuild live={entry.live} />}
         </li>
       ))}
     </ol>

@@ -2,6 +2,7 @@ import type { TokenUsage } from '@/libs/pricing';
 import type { WORKER_RUN_COMPLETED, WORKER_RUN_FAILED, WorkerRunEndedPayload } from '@/services/EventService';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { boundProgress } from '@/libs/worker/progress';
 import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
@@ -282,7 +283,7 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
   const [updated] = await db.update(workerRunSchema).set({
     heartbeatAt: now,
     leaseExpiresAt: new Date(now.getTime() + run.leaseSeconds * 1000),
-    progress: input.progress ?? run.progress,
+    progress: input.progress ? boundProgress(input.progress) : run.progress,
     cursor: input.cursor ?? run.cursor,
     counts: input.counts ? { ...run.counts, ...input.counts } : run.counts,
     tokens: run.tokens + tokens,

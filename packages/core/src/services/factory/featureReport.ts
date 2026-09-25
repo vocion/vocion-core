@@ -91,6 +91,7 @@ export type ReportWorkerRun = {
   createdAt: Date;
   claimedAt: Date | null;
   completedAt: Date | null;
+  heartbeatAt?: Date | null;
   input: Record<string, unknown>;
   result: Record<string, unknown> | null;
   progress: Record<string, unknown>;
@@ -244,7 +245,43 @@ export type TimelineEntry = {
   cents: number | null;
   tone: Tone;
   href: string | null;
+  /** A run still going: what it is doing, its last line, its log tail (backlog 007). */
+  live?: LiveBuild;
 };
+
+/** What a person watching a build sees while it runs. */
+export type LiveBuild = {
+  step: string | null;
+  lastLine: string | null;
+  log: string[];
+  /** Seconds since the run was claimed, or null when the row does not say. */
+  sinceSec: number | null;
+  /** Seconds since the last heartbeat — a build that went quiet says so. */
+  quietSec: number | null;
+};
+
+const LIVE_STATUSES = new Set(['running', 'claimed', 'paused']);
+
+/**
+ * The live view of a run that is still going, or null once it is not.
+ * @param run - The worker run.
+ * @param now - The clock.
+ */
+export function liveOf(run: ReportWorkerRun & { heartbeatAt?: Date | null }, now: Date = new Date()): LiveBuild | null {
+  if (!LIVE_STATUSES.has(run.status)) {
+    return null;
+  }
+  const p = run.progress as { step?: unknown; log?: unknown };
+  const log = Array.isArray(p.log) ? p.log.filter((l): l is string => typeof l === 'string').slice(-8) : [];
+  const since = run.claimedAt ?? run.createdAt;
+  return {
+    step: typeof p.step === 'string' && p.step.trim() ? p.step.trim() : null,
+    lastLine: log.at(-1) ?? null,
+    log,
+    sinceSec: since ? Math.max(0, Math.round((now.getTime() - since.getTime()) / 1000)) : null,
+    quietSec: run.heartbeatAt ? Math.max(0, Math.round((now.getTime() - run.heartbeatAt.getTime()) / 1000)) : null,
+  };
+}
 
 export type FeatureReportSummary = {
   askedAt: Date | null;
@@ -1498,6 +1535,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
 
   for (const run of input.workerRuns) {
     const change = runChange(run);
+    const live = liveOf(run);
     out.push({
       key: `run-${run.id}`,
       at: runAt(run),
@@ -1507,6 +1545,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       cents: run.cents,
       tone: statusTone(run.status),
       href: null,
+      ...(live ? { live } : {}),
     });
     if (change.prUrl) {
       out.push({
