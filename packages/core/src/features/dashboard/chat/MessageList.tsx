@@ -100,7 +100,7 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
   const lastIdx = messages.length - 1;
   const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="relative flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
+    <div ref={containerRef} onScroll={handleScroll} className="relative flex min-h-0 flex-1 flex-col gap-8 overflow-x-clip overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
       {selection.hit && (
         <SelectionToolbar
           x={selection.hit.x}
