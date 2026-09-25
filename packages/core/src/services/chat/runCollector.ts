@@ -97,6 +97,11 @@ export class RunCollector {
     this.runs.push({ type: 'tool', name, input });
   }
 
+  onCard(card: { label: string; actionId: string; input?: Record<string, unknown>; runId?: number }): void {
+    this.flushText();
+    this.runs.push({ type: 'card', label: card.label, actionId: card.actionId, input: card.input, runId: card.runId });
+  }
+
   onToolEnd(name: string, output: string): void {
     // Attach the output to the most recent matching tool run, if found.
     for (let i = this.runs.length - 1; i >= 0; i--) {

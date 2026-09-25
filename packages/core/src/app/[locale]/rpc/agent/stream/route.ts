@@ -14,6 +14,7 @@
  */
 
 import type { AgentEvent } from '@/services/agents/types';
+import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -23,7 +24,6 @@ import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
-import { toolsMarker } from '@/services/chat/historyTools';
 import { RunCollector } from '@/services/chat/runCollector';
 import { stoppedShort } from '@/services/chat/turnStatus';
 import {
@@ -110,7 +110,7 @@ export async function POST(request: Request): Promise<Response> {
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
   }
   const routedAgent = routing ? (await listAgents(orgId)).find(a => a.slug === routing!.chosen) ?? null : null;
-  const clientHistory = (body.conversation_history as Array<{ role: 'user' | 'assistant'; content: string }>) ?? [];
+  const clientHistory = (body.conversation_history as HistoryTurn[]) ?? [];
   // Optional persistence — when the client supplies a conversation_id
   // we replay server-side history (authoritative) and persist the new
   // turn(s) on stream completion. When omitted, the route still works
@@ -186,10 +186,9 @@ export async function POST(request: Request): Promise<Response> {
     // not the contents — so the agent asks rather than guesses.
     // Stamped with when each turn was sent, so the model can tell yesterday's
     // question from one asked a minute ago (`toHistoryTurns`).
-    // …and what each of the agent's own turns actually DID (the tools it
-    // ran, what came back), so it does not disbelieve its earlier self and
-    // start over — see `services/chat/historyTools.ts`.
-    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}${m.role === 'assistant' ? toolsMarker(m.runsJson) : ''}` })), { timeZone });
+    // …and each agent turn carries its runs, replayed as the tool calls and
+    // cards they were — see `services/chat/historyTools.ts`.
+    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })), { timeZone });
     const userMsg = await appendMessage({
       orgId,
       conversationId,
@@ -269,6 +268,9 @@ export async function POST(request: Request): Promise<Response> {
             collector.onTraceNode(event as unknown as Record<string, unknown>);
           } else if (event.type === 'artifact' && !event.pending) {
             collector.onArtifact(event.artifact.id);
+          } else if (event.type === 'recommended_action') {
+            const r = event.recommendation as { label: string; actionId: string; input?: Record<string, unknown>; runId?: number };
+            collector.onCard({ label: r.label, actionId: r.actionId, input: r.input, runId: r.runId });
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));

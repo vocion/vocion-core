@@ -40,7 +40,6 @@ import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
 import { preflightCheck } from '@/services/BudgetService';
 import { autoProposeRecommendation, readAutonomy } from '@/services/chat/autoPropose';
-import { toolsMarker } from '@/services/chat/historyTools';
 import { RunCollector } from '@/services/chat/runCollector';
 import { appendMessage, createConversation, getConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
 import { projectSlugById } from '@/services/ProjectService';
@@ -274,7 +273,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   // History BEFORE the new message, so the model does not see it twice. The
   // log keeps the message as typed, with the routing decision beside it.
   // Each of the agent's replayed turns carries what it ran (services/chat/historyTools.ts).
-  const history = toHistoryTurns((await listMessages({ orgId, conversationId })).map(m => ({ ...m, content: `${m.content}${m.role === 'assistant' ? toolsMarker(m.runsJson) : ''}` })), { timeZone });
+  const history = toHistoryTurns(await listMessages({ orgId, conversationId }), { timeZone });
   await appendMessage({ orgId, conversationId, role: 'user', content: message, userId: actorId, ...(routing ? { routing } : {}) });
 
   const collector = new RunCollector();
