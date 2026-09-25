@@ -98,6 +98,17 @@ describe('registration', () => {
     expect(askFileAction.dedupKeyFor!(askFileAction.inputSchema.parse(question({ sourceRef: 'PM:Batch-1/3' })))).toBe('ask.file:pm:batch-1/3');
   });
 
+  it('takes an app path or an https URL as the context link, and nothing else (walk 20)', () => {
+    const ok = (contextUrl: string) => askFileAction.inputSchema.safeParse({ title: 'Ship it?', contextUrl }).success;
+
+    // The form this action writes itself, and the one the model reaches for.
+    expect(ok('/dashboard/inbox/110')).toBe(true);
+    expect(ok('https://github.com/fictional-co/send/pull/27')).toBe(true);
+    expect(ok('//evil.example/phish')).toBe(false);
+    expect(ok('javascript:alert(1)')).toBe(false);
+    expect(ok('inbox/110')).toBe(false);
+  });
+
   it('defaults the kind to approval and keeps object ids as strings', () => {
     const parsed = askFileAction.inputSchema.parse({ title: 'Ship it?', objectRefs: [{ type: 'release', id: 4 }] });
 
