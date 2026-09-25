@@ -436,4 +436,31 @@ describe('the tool-call log an eval reads', () => {
       streamEvents.mockReset();
     }
   });
+
+  it('a backstop call that misses the tool\'s own schema is one refusal, not the end of the pass', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    backstop.on = true;
+    backstop.calls.length = 0;
+    // No action_input at all, and the label under `title` — the shape the model produced on walk 16.
+    backstop.calls.push({ name: 'recommend_action', args: { action_id: 'no.such.action', title: 'Approve P1 fix: mobile upload lost on cellular' } });
+    backstop.calls.push({ name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Tell the requester' } });
+    streamEvents.mockClear();
+    streamEvents.mockResolvedValue(longAnswerStream());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { events } = await run({ message: 'Seven customers lost uploads.', deliverable: 'answer', conversationId: conv.id });
+
+      const cards = events.filter(e => e.type === 'recommended_action') as Array<{ recommendation: { label: string } }>;
+
+      if (cards.length !== 2) {
+        console.error('WARNS', JSON.stringify(warn.mock.calls.map(c => [String(c[0]), c[1]]).slice(-6)));
+      }
+
+      expect(cards.map(c => c.recommendation.label)).toEqual(['Approve P1 fix: mobile upload lost on cellular', 'Tell the requester']);
+      expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop failed')).toBe(false);
+    } finally {
+      warn.mockRestore();
+      backstop.on = false;
+    }
+  });
 });

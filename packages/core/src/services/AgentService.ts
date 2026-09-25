@@ -61,6 +61,36 @@ const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]
  * What a tool handed back: `{ok:false, error}` is a refusal, anything else counts as done.
  * @param raw
  */
+/**
+ * The backstop model's call, made to fit the tool's schema: every field the tool requires, present.
+ * @param args
+ */
+function shapeRecommendCall(args: Record<string, unknown>): Record<string, unknown> {
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const input = args.action_input && typeof args.action_input === 'object' && !Array.isArray(args.action_input) ? args.action_input as Record<string, unknown> : {};
+  return {
+    ...args,
+    action_id: str(args.action_id) ?? '',
+    action_input: input,
+    label: (str(args.label) ?? str(args.title) ?? str(input.title) ?? 'Recommendation').slice(0, 120),
+    ...(str(args.rationale) ? { rationale: str(args.rationale) } : {}),
+  };
+}
+
+/**
+ * One tool call that cannot end the pass: a thrown schema error is a refusal with its message.
+ * @param tool
+ * @param tool.invoke
+ * @param args
+ */
+async function invokeRecommend(tool: { invoke: (args: never) => Promise<unknown> }, args: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  try {
+    return readToolResult(await tool.invoke(args as never));
+  } catch (err) {
+    return { ok: false, error: (err as Error).message.replace(/\s+/g, ' ').slice(0, 300) };
+  }
+}
+
 function readToolResult(raw: unknown): { ok: boolean; error?: string } {
   const text = typeof raw === 'string' ? raw : typeof (raw as { content?: unknown })?.content === 'string' ? (raw as { content: string }).content : '';
   try {
@@ -1263,18 +1293,24 @@ export async function runAgentDeep(opts: {
         // "emitted: 1", no card anywhere). A refused recommendation is still
         // the agent's recommendation: it goes up without the pressable action,
         // so the person reads it and the log says what to fix.
-        const first = readToolResult(await recTool.invoke(call.args as never));
+        // The model's call may miss the tool's OWN schema (no action_input,
+        // no label) and the tool throws — on walk 16 (2026-09-25) that threw
+        // out of the loop and took every other card with it. Each call is
+        // shaped first, and a call that still fails is one refusal, not the
+        // end of the pass.
+        const shaped = shapeRecommendCall(call.args as Record<string, unknown>);
+        const first = await invokeRecommend(recTool, shaped);
         if (first.ok) {
           emitted += 1;
           continue;
         }
         refused += 1;
         // The tool's schema wants both fields; empty is "no action", which it accepts and emits.
-        const second = readToolResult(await recTool.invoke({ ...(call.args as Record<string, unknown>), action_id: '', action_input: {} } as never));
+        const second = await invokeRecommend(recTool, { ...shaped, action_id: '', action_input: {} });
         if (second.ok) {
           emitted += 1;
         }
-        console.warn('card backstop: a recommendation was refused and re-put without its action', { orgId: opts.orgId, agentSlug: opts.agentSlug, label: (call.args as { label?: string }).label, reason: first.error, shown: second.ok });
+        console.warn('card backstop: a recommendation was refused and re-put without its action', { orgId: opts.orgId, agentSlug: opts.agentSlug, label: shaped.label, reason: first.error, shown: second.ok });
       }
       // Say what happened: a silent backstop cannot be told from one that
       // never ran (2026-09-24: eight production turns, zero cards, no way to
