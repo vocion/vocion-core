@@ -338,6 +338,9 @@ describe('plugin pages', () => {
       expect(pages.map(p => p.slug)).not.toContain('ours');
       expect(pages.find(p => p.slug === 'work')?.origin).toBe('workspace');
       expect(pages.find(p => p.slug === 'work')?.sourceDir).toBe(join(mine, 'pages'));
+      // It keeps the plugin's place in the nav (Work under Software factory).
+      expect(pages.find(p => p.slug === 'work')?.overrides).toBe('plugin:software-factory');
+      expect(pagePlugin(pages.find(p => p.slug === 'work')!)).toBe('software-factory');
     });
 
     it('a project with no plugins of its own sees nothing under a foreign mount', () => {

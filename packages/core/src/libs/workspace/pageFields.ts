@@ -733,6 +733,8 @@ export type LoadedPage = PageManifest & {
   sourceDir: string;
   /** `workspace`, or the slug of the plugin that ships it. */
   origin: 'workspace' | `plugin:${string}`;
+  /** A workspace page that replaces a plugin's page of the same slug keeps that plugin's place in the nav. */
+  overrides?: `plugin:${string}`;
 };
 export type PageField = z.infer<typeof FieldSchema>;
 export type PageView = z.infer<typeof ViewSchema>;

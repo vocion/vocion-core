@@ -112,6 +112,12 @@ export function readWorkspacePages(opts: ReadPagesOptions = {}): { pages: Loaded
         }
         // The workspace reads first, so a same-slug plugin page is the one that yields.
         if (seen.has(result.data.slug)) {
+          // A workspace page shadowing this plugin's page keeps the plugin's
+          // place in the nav (Work stays under Software factory).
+          const shadow = pages.find(p => p.slug === result.data.slug);
+          if (shadow && shadow.origin === 'workspace' && origin !== 'workspace' && !shadow.overrides) {
+            shadow.overrides = origin;
+          }
           continue;
         }
         seen.add(result.data.slug);
@@ -171,8 +177,9 @@ export function readWorkspacePage(slug: string, opts: ReadPagesOptions = {}): Lo
  * page" never parses it by hand.
  * @param page - A loaded page.
  */
-export function pagePlugin(page: Pick<LoadedPage, 'origin'>): string | null {
-  return page.origin.startsWith('plugin:') ? page.origin.slice('plugin:'.length) : null;
+export function pagePlugin(page: Pick<LoadedPage, 'origin' | 'overrides'>): string | null {
+  const from = page.origin.startsWith('plugin:') ? page.origin : page.overrides;
+  return from ? from.slice('plugin:'.length) : null;
 }
 
 /**
