@@ -1,0 +1,63 @@
+# A shipped feature becomes a standard — automatically, through the review
+# queue, as a historical log (backlog 018; Chris, 2026-09-25: "a great feature
+# built should end up in standards. Probably running through the review and
+# approval queue. Probably safe to fully automate, but show as historical log").
+#
+# Fires when a factory branch's pull request MERGES: the change is real. The PM
+# reads the request, the contract and the PR, finds the product's standards
+# page and the block for the request's category, and decides one of two things
+# — this teaches something the block does not (rewrite the block, demote the
+# oldest unpinned exemplar) or it does not (one exemplar line under it). Either
+# way the edit is a wiki write: proposed with a confidence, done for you above
+# the bar, asked below it, a Review row with undo in both cases. Not every
+# feature is a standard; every feature is at most one line. That is the quota
+# that keeps the pages readable and the prompt small (018 § "Not every feature").
+#
+# Loop safety: a pull-request event, never one this automation's own run raises,
+# and a wiki write raises no PR.
+slug: standard-from-shipped
+name: A shipped feature becomes a standard, or one line under one
+description: >-
+  When a factory branch's pull request merges, the PM reads what shipped
+  against the product's standards page and either promotes the change into
+  the matching block (it taught something) or adds one exemplar line under it
+  (it did not). The edit goes through the wiki write's own bar — done for you
+  with undo, or asked — so the Review log shows every lesson the factory took.
+status: active
+agent: product-manager
+when:
+  event: pr.merged
+  filter:
+    branchPrefix: factory/
+  maxFiresPer10m: 4
+do:
+  checkMission: close-the-gap
+  prompt: >-
+    Pull request {{repo}}#{{number}} ({{url}}) on branch {{branch}} merged.
+
+    Find the engineering task and the request behind this branch (lookup_objects
+    on engineering_task by branch, then its request) and read the request's
+    product, category and the contract's acceptance. Read the product's standards
+    page (`read_wiki_page <product>-standards`; if the product has none, stop
+    and say so — a standards page is written by a person first). Find the block
+    that matches the request's category.
+
+    Decide ONE of two things, and say which in one sentence with the reason:
+
+    1. This change teaches something the block does not — a new category, a
+       reversed decision, a sharper acceptance, a promise made explicit. Then
+       write_wiki_page: rewrite that block's "what good looks like" in at most
+       four sentences to include it, add the exemplar line
+       (`- <date> · <title> · <repo>#<number>`) at the top of the block's list,
+       and remove the oldest exemplar line if the list now has more than three
+       (never remove one marked "pinned"). Confidence: your honest confidence
+       that a strong owner would agree this is a new standard.
+
+    2. It does not — it applies a standard the block already states. Then
+       write_wiki_page with exactly one exemplar line under that block, same
+       shape, and remove the oldest unpinned exemplar if the list exceeds three.
+       Confidence: high; this is a record, not a judgement.
+
+    Never touch any other block, never write a page for a product that has
+    none, never write more than one line for case 2. Your last sentence names
+    what you wrote and links the page.
