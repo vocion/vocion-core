@@ -352,7 +352,11 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
       toolCalls: input.toolCalls,
       endedOnTool: input.endedOnTool === true,
       systemPrompt: input.systemPrompt,
-      compose: input.answer ?? composeAnswerWithModel,
+      // Say it: the answer is being written from what the steps found.
+      compose: (args) => {
+        input.emit({ type: 'status', label: `Writing the answer from ${input.toolCalls.length} step${input.toolCalls.length === 1 ? '' : 's'}` });
+        return (input.answer ?? composeAnswerWithModel)(args);
+      },
       onDelta,
     });
     // A composer that does not stream (tests, a provider without it) still
@@ -1134,6 +1138,7 @@ export async function runAgentDeep(opts: {
         const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? narrated[3] ?? 'a tool') : null;
         const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
+        emit({ type: 'status', label: narrated ? `Making the ${narratedName} call it described` : toolCallLog.length > 0 ? `Reading what ${toolCallLog.length} step${toolCallLog.length === 1 ? '' : 's'} found` : 'Looking up what it needs' });
         if (narrated) {
           narratedNudged = true;
           finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
@@ -1172,6 +1177,7 @@ export async function runAgentDeep(opts: {
           }
           mark = toolCallLog.length;
           console.warn('agent turn: the continuation worked and stopped on a tool result; once more', { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, extra: extra + 1 });
+          emit({ type: 'status', label: 'Making the change it owes' });
           await runGraph({
             ...input,
             messages: [
@@ -1385,7 +1391,13 @@ export async function runAgentDeep(opts: {
       const recTool = recommendActionTool(compiled.ctx);
       const { buildChatModelForOrg } = await import('@/libs/llm');
       const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-      const base = await buildChatModelForOrg('main', opts.orgId, { temperature: 0, streaming: true, maxTokens: 4000 });
+      // THE FAST MODEL, and it says so. The pass lifts cards out of an answer
+      // that is already written — extraction, not reasoning — and on the main
+      // model with thinking it held the person on "Working…" for ~40s after
+      // the answer (Chris, 2026-09-25: "why does it take 40 seconds to render
+      // the card … show your work").
+      emit({ type: 'status', label: 'Writing the decision cards' });
+      const base = await buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: true, maxTokens: 4000 });
       if (!base.bindTools) {
         throw new Error('model does not support tools');
       }
@@ -1412,6 +1424,7 @@ export async function runAgentDeep(opts: {
         const first = await invokeRecommend(recTool, shaped);
         if (first.ok) {
           emitted += 1;
+          emit({ type: 'status', label: `Card ${emitted} ready · writing the next` });
           return;
         }
         refused += 1;
