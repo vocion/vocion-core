@@ -1,5 +1,6 @@
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { AccessPanel } from '@/features/members/AccessPanel';
 import { MembersPanel } from '@/features/members/MembersPanel';
 import { clerkAuth } from '@/libs/Auth';
 import { ORG_ROLE } from '@/types/Auth';
@@ -13,7 +14,7 @@ export default async function MembersPage() {
     <>
       <TitleBar
         title="Members"
-        description="The people in this account — invite, manage roles, remove"
+        description="The people in this account, the groups they are in, and the workspaces those groups open"
       />
 
       <DashboardSection
@@ -24,6 +25,13 @@ export default async function MembersPage() {
           isAdmin={has({ role: ORG_ROLE.ADMIN })}
           currentUserId={userId ?? ''}
         />
+      </DashboardSection>
+
+      <DashboardSection
+        title="Workspace access"
+        description="Which workspaces each person reaches, and the groups that decide it."
+      >
+        <AccessPanel isAdmin={has({ role: ORG_ROLE.ADMIN })} />
       </DashboardSection>
     </>
   );

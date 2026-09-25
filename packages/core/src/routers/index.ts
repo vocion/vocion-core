@@ -74,6 +74,14 @@ import {
   run as runEval,
 } from './Evals';
 import {
+  create as createGroupRoute,
+  overview as groupsOverviewRoute,
+  removeDirect as removeDirectGrantRoute,
+  remove as removeGroupRoute,
+  setGrant as setGroupGrantRoute,
+  setMember as setGroupMemberRoute,
+} from './Groups';
+import {
   add as addLearning,
   check as checkLearning,
   get as getLearning,
@@ -232,6 +240,14 @@ export const router = {
     listPlatforms: listPlatformsRoute,
     revealPlatformKey: revealPlatformKeyRoute,
     revoke: revokeTokenRoute,
+  },
+  groups: {
+    overview: groupsOverviewRoute,
+    create: createGroupRoute,
+    remove: removeGroupRoute,
+    setMember: setGroupMemberRoute,
+    setGrant: setGroupGrantRoute,
+    removeDirect: removeDirectGrantRoute,
   },
   members: {
     list: listMembersRoute,
