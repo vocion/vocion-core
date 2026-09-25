@@ -19,7 +19,7 @@ import { RecommendedActionCard } from './RecommendedActionCard';
  * @param root0.recs
  * @param root0.autoPropose
  */
-export function RecommendedActionStack({ recs, autoPropose = false }: { recs: RecommendedAction[]; autoPropose?: boolean }) {
+export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) {
   const [idx, setIdx] = useState(0);
 
   // The strip is a native scroll-snap row: the card follows the finger and
@@ -34,8 +34,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
     }
   }, []);
   // The current card is where the strip SETTLES, not every card it passes:
-  // a tap on the last dot glides past the middle ones, and a card that was
-  // "current" for one frame must not count as seen (or propose itself).
+  // a tap on the last dot glides past the middle ones.
   const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onStripScroll = useCallback(() => {
     if (settleRef.current) {
@@ -60,7 +59,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
   }, []);
 
   if (recs.length <= 1) {
-    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} autoPropose={autoPropose} />)}</>;
+    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} />)}</>;
   }
 
   return (
@@ -79,7 +78,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
 
       {/* Every card is mounted, so a card keeps its own state when you slide
           past it. The next card peeks at the edge, which is what says "this
-          slides". Only the card in view may propose itself. */}
+          slides". */}
       <div
         ref={stripRef}
         onScroll={onStripScroll}
@@ -88,7 +87,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
       >
         {recs.map((rec, i) => (
           <div key={i} className="w-[calc(100%-1.5rem)] min-w-0 shrink-0 snap-start snap-always last:w-full" aria-hidden={i !== idx ? true : undefined}>
-            <RecommendedActionCard rec={rec} autoPropose={autoPropose && i === idx && rec.runId === undefined} />
+            <RecommendedActionCard rec={rec} />
           </div>
         ))}
       </div>

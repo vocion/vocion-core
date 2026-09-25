@@ -172,7 +172,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -453,7 +453,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {/* One card renders directly; several become the in-chat triage
               stepper (skip / save-for-later / queue-all). */}
           {(message.recommendations?.length ?? 0) > 0 && (
-            <RecommendedActionStack recs={message.recommendations!} autoPropose={autonomy === 'act-within-bounds'} />
+            <RecommendedActionStack recs={message.recommendations!} />
           )}
           {(message.artifacts?.length ?? 0) > 0 && (
             <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />

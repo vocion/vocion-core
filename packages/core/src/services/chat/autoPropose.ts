@@ -11,6 +11,7 @@
  */
 
 import type { RecommendedActionPayload } from '@/services/agents/types';
+import { cardDedupKey } from '@/libs/actions/cardDedupKey';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 
 export const CONVERSATION_AUTONOMY = ['ask-before-acting', 'act-within-bounds'] as const;
@@ -94,7 +95,11 @@ export async function autoProposeRecommendationDetailed(opts: {
         rationale: opts.rec.rationale,
         ...recommendedActionAdvice(opts.rec),
       },
-      dedupKey: deriveRecommendationDedupKey(opts.rec.actionId, opts.rec.input),
+      // The record the card targets when it names one; otherwise the card's
+      // own key, the same one a person's tap proposes under, so the card is
+      // one run whoever files it (`cardDedupKey`, walk 20 finding 27).
+      dedupKey: deriveRecommendationDedupKey(opts.rec.actionId, opts.rec.input)
+        ?? cardDedupKey({ actionId: opts.rec.actionId, label: opts.rec.label, input: opts.rec.input }),
     });
     const out = res as { runId?: number; status?: string; result?: Record<string, unknown> | null };
     if (typeof out.runId !== 'number') {

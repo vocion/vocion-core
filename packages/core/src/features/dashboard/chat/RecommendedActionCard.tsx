@@ -2,7 +2,7 @@
 
 import type { RecommendedAction } from './types';
 import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cardDedupKey } from '@/libs/actions/cardDedupKey';
 import { Link } from '@/libs/I18nNavigation';
@@ -45,19 +45,12 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export function RecommendedActionCard({ rec, canApprove = true, onProposed, autoPropose = false }: {
+export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   rec: RecommendedAction;
   /** Whether to offer the inline Approve. The server still authorizes the decision. */
   canApprove?: boolean;
   /** Fired once the run exists (tap or server-filed) so a stack can count it. */
   onProposed?: (runId: number) => void;
-  /**
-   * The thread runs at `act-within-bounds` (0094): propose into the review
-   * queue as soon as the card appears, and say so. Still nothing executes —
-   * the queue and trust rules gate every outward step. A card that already
-   * arrived with a server-filed `runId` (R4) has nothing left to propose.
-   */
-  autoPropose?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
   // The decision goes into the conversation as a typed user turn (backlog
@@ -72,7 +65,6 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   const [decideError, setDecideError] = useState<string | null>(null);
   const [deferredUntil, setDeferredUntil] = useState<Date | null>(null);
   const live = useActionRunStatus(phase.runId);
-  const autoFiredRef = useRef(rec.runId !== undefined);
 
   const prepare = async () => {
     // Belt and braces behind `readRecommendedAction` (the event boundary): a
@@ -230,16 +222,16 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
     }
   };
 
+  // The server files a card under done-for-you and sends its run id after
+  // the card (`card_update`); the card adopts it and shows the run. It used to
+  // file ITSELF on mount as well, which was a second filing of the same card
+  // (walk 20, finding 27: every done-for-you card filed its ask twice).
   useEffect(() => {
-    if (autoPropose && !autoFiredRef.current && rec.actionId) {
-      autoFiredRef.current = true;
-      // Proposing IS the effect here: the thread runs at act-within-bounds,
-      // so the card fires its one network call the moment it appears.
-
-      void prepare();
+    if (rec.runId !== undefined && phase.runId === undefined) {
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+      setPhase({ status: 'proposed', runId: rec.runId });
     }
-    // `prepare` closes over `rec`, which is stable for the card's life.
-  }, [autoPropose]);
+  }, [rec.runId, phase.runId]);
 
   const pct = rec.confidence !== undefined ? Math.round(rec.confidence * 100) : null;
   const isEmail = rec.actionId === 'gmail.send';
