@@ -14,6 +14,26 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${PORT}`;
 
 const CI = !!process.env.CI;
 
+// PLAYWRIGHT_PGLITE_PORT moves the local in-memory PGlite off 5432, so a
+// plain run works on a machine where Docker Postgres already holds that port
+// (`npm run dev:up` publishes it there). The app, its migrations
+// and the seed scripts the specs spawn all have to reach the same database,
+// so DATABASE_URL is set here, in the runner's own environment: the web
+// server and every worker inherit it, and the `dotenv -c` scripts leave a
+// DATABASE_URL that is already set alone rather than reading .env.local's.
+// Unset, nothing changes: PGlite takes 5432 and DATABASE_URL comes from
+// .env.local. Ignored in CI, which runs against its own Postgres service.
+const pglitePort = CI ? undefined : process.env.PLAYWRIGHT_PGLITE_PORT || undefined;
+if (pglitePort !== undefined && !/^\d{1,5}$/.test(pglitePort)) {
+  throw new Error(`PLAYWRIGHT_PGLITE_PORT must be a port number, got "${pglitePort}"`);
+}
+if (pglitePort) {
+  process.env.DATABASE_URL = `postgresql://postgres:postgres@127.0.0.1:${pglitePort}/postgres`;
+}
+const localServerCommand = pglitePort
+  ? `npx run-p "db-server:memory -- --port=${pglitePort}" dev:next --race`
+  : 'npx run-p db-server:memory dev:next --race';
+
 // CI fails fast. Every failure this suite has produced so far was
 // deterministic (a fixture that could not seed, a stale assertion, a server
 // that would not answer), so the first one is the whole story; letting the
@@ -57,7 +77,9 @@ export default defineConfig<ChromaticConfig>({
   // already serving PLAYWRIGHT_BASE_URL. The case it exists for: a worktree
   // running against a real Postgres, where the command below cannot be used —
   // `db-server:memory` starts pglite on 5432, the port that Postgres already
-  // holds, and `--race` then takes the Next process down with it.
+  // holds, and `--race` then takes the Next process down with it. To run the
+  // suite on its own throwaway PGlite instead, set PLAYWRIGHT_PGLITE_PORT
+  // (see the top of this file).
   //
   // CI runs against the Postgres service container each E2E shard gets
   // (.github/workflows/CI.yml), not PGlite: PGlite accepts one connection,
@@ -68,7 +90,7 @@ export default defineConfig<ChromaticConfig>({
   webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER
     ? undefined
     : {
-        command: process.env.CI ? 'npm run db:migrate && npm run start' : 'npx run-p db-server:memory dev:next --race',
+        command: process.env.CI ? 'npm run db:migrate && npm run start' : localServerCommand,
         url: baseURL,
         timeout: 60 * 1000,
         reuseExistingServer: !process.env.CI,
