@@ -1,5 +1,6 @@
 import type { ChromaticConfig } from '@chromatic-com/playwright';
 import { defineConfig, devices } from '@playwright/test';
+import { planLocalDatabase } from './src/scripts/playwright-local-database';
 
 // Use process.env.PORT by default and fallback to port 3008
 // to avoid conflicts with the Next.js default port 3000.
@@ -16,23 +17,24 @@ const CI = !!process.env.CI;
 
 // PLAYWRIGHT_PGLITE_PORT moves the local in-memory PGlite off 5432, so a
 // plain run works on a machine where Docker Postgres already holds that port
-// (`npm run dev:up` publishes it there). The app, its migrations
-// and the seed scripts the specs spawn all have to reach the same database,
-// so DATABASE_URL is set here, in the runner's own environment: the web
-// server and every worker inherit it, and the `dotenv -c` scripts leave a
-// DATABASE_URL that is already set alone rather than reading .env.local's.
-// Unset, nothing changes: PGlite takes 5432 and DATABASE_URL comes from
-// .env.local. Ignored in CI, which runs against its own Postgres service.
-const pglitePort = CI ? undefined : process.env.PLAYWRIGHT_PGLITE_PORT || undefined;
-if (pglitePort !== undefined && !/^\d{1,5}$/.test(pglitePort)) {
-  throw new Error(`PLAYWRIGHT_PGLITE_PORT must be a port number, got "${pglitePort}"`);
+// (`npm run dev:up` publishes it there). The rules — which DATABASE_URL, which
+// command, why a running app is not reused — are in
+// src/scripts/playwright-local-database.ts. Unset, nothing changes: PGlite
+// takes 5432 and DATABASE_URL comes from .env.local. Ignored in CI.
+//
+// DATABASE_URL is written into this process's environment on purpose, and
+// here at load time: Playwright evaluates the config before it starts the web
+// server or any worker, so all of them inherit it. Anything that has to agree
+// on the database must read it after this line, not before.
+const localDatabase = planLocalDatabase({
+  isContinuousIntegration: CI,
+  requestedPort: process.env.PLAYWRIGHT_PGLITE_PORT,
+  exportedDatabaseUrl: process.env.DATABASE_URL,
+  skipsWebServer: !!process.env.PLAYWRIGHT_SKIP_WEB_SERVER,
+});
+if (localDatabase.databaseUrl) {
+  process.env.DATABASE_URL = localDatabase.databaseUrl;
 }
-if (pglitePort) {
-  process.env.DATABASE_URL = `postgresql://postgres:postgres@127.0.0.1:${pglitePort}/postgres`;
-}
-const localServerCommand = pglitePort
-  ? `npx run-p "db-server:memory -- --port=${pglitePort}" dev:next --race`
-  : 'npx run-p db-server:memory dev:next --race';
 
 // CI fails fast. Every failure this suite has produced so far was
 // deterministic (a fixture that could not seed, a stale assertion, a server
@@ -90,10 +92,10 @@ export default defineConfig<ChromaticConfig>({
   webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER
     ? undefined
     : {
-        command: process.env.CI ? 'npm run db:migrate && npm run start' : localServerCommand,
+        command: process.env.CI ? 'npm run db:migrate && npm run start' : localDatabase.serverCommand,
         url: baseURL,
         timeout: 60 * 1000,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: !process.env.CI && localDatabase.mayReuseRunningServer,
         gracefulShutdown: { signal: 'SIGTERM', timeout: 2 * 1000 },
         env: {
           NEXT_PUBLIC_SENTRY_DISABLED: 'true',
