@@ -107,7 +107,7 @@ export function actionInputHints(ids?: readonly string[]): string {
     if (!shape) {
       return `${a.id}: (see the action's description)`;
     }
-    const fields = Object.entries(shape).map(([key, field]) => `${key}${isOptionalField(field) ? '' : '*'}`);
+    const fields = Object.entries(shape).map(([key, field]) => `${key}${isOptionalField(field) ? '' : '*'}${valueHint(field)}`);
     return `${a.id}: ${fields.join(', ')}`;
   }).join('\n');
 }
@@ -129,6 +129,43 @@ function objectShape(schema: unknown): Record<string, unknown> | null {
     s = next as typeof s;
   }
   return null;
+}
+
+/**
+ * What a field takes, when a name alone is not enough: an enum's options, a
+ * number, a boolean, a list. Every refusal left after the names were fixed
+ * (2026-09-25) was a value — `kind: "build"` for an enum, a cost as a string.
+ * @param field - The zod field, possibly wrapped in optional/default/effects.
+ */
+function valueHint(field: unknown): string {
+  // zod 4: `_def.type` is the kind ('optional', 'default', 'enum', …),
+  // `_def.innerType` unwraps, an enum's options sit in `_def.entries`.
+  let f = field as { _def?: { type?: string; typeName?: string; innerType?: unknown; schema?: unknown; entries?: Record<string, unknown>; values?: unknown[] } } | undefined;
+  for (let i = 0; i < 6 && f?._def; i += 1) {
+    const t = f._def.type ?? f._def.typeName;
+    if (t === 'enum' || t === 'ZodEnum') {
+      const values = f._def.entries ? Object.values(f._def.entries) : (f._def.values ?? []);
+      return values.length > 0 ? `=${values.join('|')}` : '';
+    }
+    if (t === 'number' || t === 'ZodNumber') {
+      return '=number';
+    }
+    if (t === 'boolean' || t === 'ZodBoolean') {
+      return '=true|false';
+    }
+    if (t === 'array' || t === 'ZodArray') {
+      return '=[…]';
+    }
+    if (t === 'object' || t === 'record' || t === 'ZodObject' || t === 'ZodRecord') {
+      return '={…}';
+    }
+    const next = f._def.innerType ?? f._def.schema;
+    if (!next || next === f) {
+      break;
+    }
+    f = next as typeof f;
+  }
+  return '';
 }
 
 function isOptionalField(field: unknown): boolean {

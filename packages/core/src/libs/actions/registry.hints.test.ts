@@ -10,6 +10,10 @@ describe('the fields each action takes, for a model', () => {
     expect(hints).toMatch(/^git\.merge: .*title\*.*summary\*.*commitSha\*/m);
     expect(hints).toMatch(/^git\.merge: .*taskId(?!\*)/m);
     expect(hints).toMatch(/^ask\.file: .*title\*/m);
+    // Values too: the enum's options, a number — what the second wave of refusals was about.
+    expect(hints).toMatch(/^ask\.file: .*kind\*?=approval\|input\|ruling/m);
+    expect(hints).toMatch(/^ask\.file: .*decisionCost\*?=number/m);
+    expect(hints).toMatch(/^git\.merge: .*riskClass\*=docs\|deps/m);
   });
 
   it('describes every registered action when asked for none in particular', () => {
