@@ -14,6 +14,11 @@ import { signIn } from '../TestUtils';
  */
 test.use({ ...devices['iPhone 14'] });
 
+// iPhone emulation is Chromium's and WebKit's; Firefox ignores the device
+// and signs in slowly enough to trip the guard on CI (2026-09-25, twice).
+// The rule is about the phone, so it runs where a phone is emulated.
+test.skip(({ browserName }) => browserName === 'firefox', 'no phone emulation in Firefox');
+
 const PAGES = ['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/search', '/dashboard/settings'];
 
 /**
