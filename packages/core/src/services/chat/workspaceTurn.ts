@@ -306,12 +306,17 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
         }
         break;
       case 'recommended_action':
+        // The card goes on the ledger here too (backlog 025): an MCP turn's
+        // cards used to live nowhere — the person opening the conversation in
+        // the app after asking from Claude saw none of them.
+        collector.onCard({ label: event.recommendation.label, actionId: event.recommendation.actionId, input: event.recommendation.input, runId: event.recommendation.runId });
         // Under `act-within-bounds` the web route files each card as it
         // arrives; a caller with no card to tap needs the same.
         if (autonomy === 'act-within-bounds' && event.recommendation.runId === undefined) {
           pending.push(autoProposeRecommendation({ orgId, userId: actorId, rec: event.recommendation }).then((runId) => {
             if (runId !== null) {
               filed.push({ runId, tool: 'recommend_action', outcome: null });
+              collector.onCardFiled(event.recommendation.label, event.recommendation.actionId, runId);
             }
           }));
         }
