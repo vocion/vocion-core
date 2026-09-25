@@ -48,14 +48,22 @@ const mockSession = vi.mocked(clerkAuth);
  * A signed-in dashboard session, as `clerkAuth` reports one.
  * @param role - Membership role on the active project.
  * @param userId
+ * @param workspaceRole
  */
-function sessionOf(role: 'admin' | 'member' | null, userId: string | null = 'u_drew') {
+function sessionOf(
+  role: 'admin' | 'member' | null,
+  userId: string | null = 'u_drew',
+  // Defaults to null so every existing case still exercises the FALLBACK map.
+  // A session issued before this field existed carries exactly that.
+  workspaceRole: 'owner' | 'pm' | 'specialist' | 'client_reviewer' | null = null,
+) {
   return {
     userId,
     orgId: userId ? 'org1' : null,
     accountId: 'acct1',
     projectId: 'org1',
     role,
+    workspaceRole,
     has: () => true,
   };
 }
@@ -97,6 +105,46 @@ describe('authApi — bearer token', () => {
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toMatchObject({ error: { code: 'UNAUTHORIZED' } });
     expect(mockSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('authApi — the workspace role the session carries', () => {
+  it('uses the role held in THIS workspace, not the account role', async () => {
+    // The whole point of the change: a specialist reaches authz.ts as a
+    // specialist. Before, every signed-in member arrived as `pm`, which
+    // carries '*' grants, so the grant model was being fed a constant.
+    mockSession.mockResolvedValue(sessionOf('member', 'u_drew', 'specialist'));
+
+    const caller = await authApi(requestWith());
+
+    expect(caller).toMatchObject({ principal: { role: 'specialist' } });
+  });
+
+  it('does not widen a client_reviewer to the member default', async () => {
+    mockSession.mockResolvedValue(sessionOf('member', 'u_drew', 'client_reviewer'));
+
+    const caller = await authApi(requestWith());
+
+    expect(caller).toMatchObject({ principal: { role: 'client_reviewer' } });
+  });
+
+  it('does not let an account admin override a narrower workspace role', async () => {
+    // Administering the deployment is not a grant inside every workspace.
+    mockSession.mockResolvedValue(sessionOf('admin', 'u_drew', 'client_reviewer'));
+
+    const caller = await authApi(requestWith());
+
+    expect(caller).toMatchObject({ principal: { role: 'client_reviewer' } });
+  });
+
+  it('falls back to the account role when the session carries none', async () => {
+    // A session issued before the field existed, and every request while
+    // enforcement is off. Behaviour here must be exactly what it always was.
+    mockSession.mockResolvedValue(sessionOf('member', 'u_drew', null));
+
+    const caller = await authApi(requestWith());
+
+    expect(caller).toMatchObject({ principal: { role: 'pm' } });
   });
 });
 

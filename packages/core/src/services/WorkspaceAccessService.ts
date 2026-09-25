@@ -32,6 +32,7 @@
  */
 
 import type { WorkspaceRole } from '@/services/authz';
+import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
@@ -75,6 +76,18 @@ export type WorkspaceAccess = {
   /** Why they have it, for the access list in the UI. Strongest source wins. */
   via: 'owner' | 'direct' | 'group' | 'account-admin';
 };
+
+/**
+ * Whether access is enforced on this deployment.
+ *
+ * One definition, because the flag has to cover every seam at once. A flag that
+ * reaches `ProjectService` but not `resolveTenancyForUser` hides workspaces
+ * from the switcher while leaving them reachable by naming one in a header,
+ * which is worse than not enforcing at all: it looks enforced.
+ */
+export function enforcementEnabled(): boolean {
+  return process.env.VOCION_ENFORCE_WORKSPACE_ACCESS === '1';
+}
 
 type Membership = { accountId: string; role: 'admin' | 'member' };
 

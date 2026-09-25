@@ -14,7 +14,7 @@ const { openStream } = await import('@/libs/streams/buffer');
 const { GET } = await import('./route');
 
 const OWNER = { orgId: 'org-1', userId: 'usr-1' };
-const signedIn = { ...OWNER, accountId: null, projectId: 'org-1', role: 'admin' as const, has: () => true };
+const signedIn = { ...OWNER, accountId: null, projectId: 'org-1', role: 'admin' as const, workspaceRole: 'owner' as const, has: () => true };
 
 /**
  * Attach to a stream and read whatever it replays before it closes.

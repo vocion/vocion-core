@@ -72,7 +72,7 @@ async function base() {
   ]);
 }
 
-/** What migration 0143 does: everyone, every shared workspace. */
+/** What migration 0145 does: everyone, every shared workspace. */
 async function backfill() {
   await db.insert(projectMemberSchema).values(
     [REVENUE, DELIVERY, FACTORY].flatMap(p => [

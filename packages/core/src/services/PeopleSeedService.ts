@@ -12,8 +12,8 @@
  *
  * ONE EXCEPTION, and it is narrow. A person marked `exclusive` may have a
  * `project_member` row REMOVED when no group of theirs grants that workspace —
- * but only a row the backfill wrote (`added_by = 'backfill-0143'`). That row is
- * a machine-generated default, not a decision: migration 0143 gave every member
+ * but only a row the backfill wrote (`added_by = 'backfill-0145'`). That row is
+ * a machine-generated default, not a decision: migration 0145 gave every member
  * every shared workspace so nobody lost access at cutover. Without this, "Lili
  * reaches RevOps and nothing else" cannot be expressed at all. A grant a person
  * made is still never touched, whoever they are.
@@ -41,8 +41,8 @@ import {
   userSchema,
 } from '@/models/Schema';
 
-/** What migration 0143 stamps on the rows it writes. Only these may be removed. */
-export const BACKFILL_ACTOR = 'backfill-0143';
+/** What migration 0145 stamps on the rows it writes. Only these may be removed. */
+export const BACKFILL_ACTOR = 'backfill-0145';
 
 /** Who the applier records as the author of a row it creates. */
 const SEED_ACTOR = 'yaml';

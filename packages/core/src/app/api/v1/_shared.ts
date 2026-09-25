@@ -26,6 +26,13 @@ import { WriteApiError } from '@/services/writeApi';
  * unrestricted `owner` bundle; ordinary members get `pm`, which is also
  * unrestricted — that matches how the dashboard behaved before these endpoints
  * were authorized at all, so no browser flow loses access.
+ *
+ * This is now the FALLBACK, not the answer. The session carries the role the
+ * caller holds in the active workspace (`session.user.workspaceRole`), so a
+ * `specialist` or a `client_reviewer` finally reaches `authz.ts` as itself
+ * rather than being widened to `'*'` on the way in. This map still applies
+ * where there is no such role: a session issued before the field existed, and
+ * every request while `VOCION_ENFORCE_WORKSPACE_ACCESS` is off.
  */
 const MEMBERSHIP_ROLE_TO_WORKSPACE_ROLE: Record<'admin' | 'member', WorkspaceRole> = {
   admin: 'owner',
@@ -55,7 +62,7 @@ export async function authApi(req?: Request): Promise<ApiCaller | NextResponseTy
     };
   }
 
-  const { userId, orgId, role } = await clerkAuth();
+  const { userId, orgId, role, workspaceRole } = await clerkAuth();
   if (!userId || !orgId) {
     return jsonError('UNAUTHORIZED', 'Missing or invalid credentials', 401);
   }
@@ -65,7 +72,11 @@ export async function authApi(req?: Request): Promise<ApiCaller | NextResponseTy
     principal: {
       kind: 'user',
       id: userId,
-      role: MEMBERSHIP_ROLE_TO_WORKSPACE_ROLE[role ?? 'member'],
+      // The role held in THIS workspace, resolved per request by
+      // `resolveTenancyForUser`. The account-role map below is the fallback for
+      // a session issued before that field existed, and for the unenforced
+      // path, where it is what the session carries anyway.
+      role: workspaceRole ?? MEMBERSHIP_ROLE_TO_WORKSPACE_ROLE[role ?? 'member'],
       scope: { orgId },
     },
     source: 'session',
