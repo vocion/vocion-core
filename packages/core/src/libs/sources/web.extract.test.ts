@@ -453,6 +453,21 @@ describe('extractFromHtml, the structure it returns', () => {
 
     expect(structure).toEqual({});
   });
+
+  it('says when every JSON-LD block is also in the text, whole', () => {
+    const { structure } = extractFromHtml(SMALL_HTML, SMALL_URL);
+
+    expect(structure?.jsonLdInText).toBe(true);
+  });
+
+  it('does not claim the text carries the JSON-LD once the text section had to cut it', () => {
+    const block = `<script type="application/ld+json">{"@type":"Event","name":"Long","description":"${'z'.repeat(25_000)}"}</script>`;
+    const { content, structure } = extractFromHtml(`<html><head>${block}</head><body><main><p>Hello.</p></main></body></html>`, SMALL_URL);
+
+    expect(content).toContain('[structured data truncated]');
+    expect(structure?.jsonLd).toHaveLength(1);
+    expect(structure).not.toHaveProperty('jsonLdInText');
+  });
 });
 
 describe('pageMetadata, the blob that reaches the document row', () => {
@@ -468,6 +483,11 @@ describe('pageMetadata, the blob that reaches the document row', () => {
 
     expect(meta.jsonLd).toEqual([{ keep: 1 }, big]);
     expect(meta.truncated).toBe(true);
+  });
+
+  it('carries the in-text flag only alongside JSON-LD it kept', () => {
+    expect(pageMetadata({ jsonLd: [{ '@type': 'Event' }], jsonLdInText: true }).jsonLdInText).toBe(true);
+    expect(pageMetadata({ jsonLdInText: true })).toEqual({});
   });
 
   it('caps the block count too', () => {

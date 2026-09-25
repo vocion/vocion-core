@@ -137,6 +137,18 @@ describe('buildChatModel for bedrock', () => {
     expect(model.maxTokens).toBe(4096);
   });
 
+  it('tells a model that thinks by default to stop when the caller asks for off', () => {
+    const model = buildChatModel('extractor', { provider: 'bedrock', model: 'global.anthropic.claude-sonnet-5', thinking: 'off' }) as ChatBedrockConverse;
+
+    expect(model.additionalModelRequestFields).toEqual({ thinking: { type: 'disabled' } });
+  });
+
+  it('sends nothing extra for off to a model that does not think by default', () => {
+    const model = buildChatModel('extractor', { provider: 'bedrock', model: 'global.anthropic.claude-sonnet-4-6', thinking: 'off' }) as ChatBedrockConverse;
+
+    expect(model.additionalModelRequestFields).toBeUndefined();
+  });
+
   it('does not throw for a missing key, because instance roles carry no env var', () => {
     // The Anthropic and OpenAI branches refuse when their env var is empty.
     // Bedrock must not: a deployed host authenticates by instance role and sets

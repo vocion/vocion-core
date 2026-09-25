@@ -1715,7 +1715,7 @@ export function extractFromHtml(html: string, baseUrl?: string): { title?: strin
   // uses to check a model-returned URL wants every URL the page published,
   // not only the ones that survive chrome removal.
   const published = collectLinks($, baseUrl);
-  const structured = structuredText(blocks.serialised);
+  const { text: structured, cut: structuredCut } = structuredText(blocks.serialised);
 
   $(CHROME_SELECTOR).remove();
   removeBoilerplate($);
@@ -1742,6 +1742,9 @@ export function extractFromHtml(html: string, baseUrl?: string): { title?: strin
   const structure: PageStructure = {};
   if (blocks.values.length) {
     structure.jsonLd = blocks.values.slice(0, JSON_LD_BLOCK_CAP);
+    if (!structuredCut) {
+      structure.jsonLdInText = true;
+    }
   }
   if (blocks.values.length > JSON_LD_BLOCK_CAP) {
     structure.truncated = true;
@@ -1848,9 +1851,9 @@ function structuredBlocks($: CheerioAPI): { values: unknown[]; serialised: strin
  * workspace has on its own.
  * @param blocks - the re-serialised JSON-LD blocks, in document order
  */
-function structuredText(blocks: string[]): string {
+function structuredText(blocks: string[]): { text: string; cut: boolean } {
   if (!blocks.length) {
-    return '';
+    return { text: '', cut: false };
   }
   const kept: string[] = [];
   let budget = JSON_LD_CHAR_CAP;
@@ -1870,7 +1873,9 @@ function structuredText(blocks: string[]): string {
     truncated = true;
     break;
   }
-  return truncated ? `${kept.join('\n')}\n${JSON_LD_TRUNCATED}`.trim() : kept.join('\n');
+  return truncated
+    ? { text: `${kept.join('\n')}\n${JSON_LD_TRUNCATED}`.trim(), cut: true }
+    : { text: kept.join('\n'), cut: false };
 }
 
 /**

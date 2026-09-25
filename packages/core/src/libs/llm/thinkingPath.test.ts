@@ -57,3 +57,36 @@ describe('buildChatModel — thinking on Anthropic', () => {
     expect(args).not.toHaveProperty('thinking');
   });
 });
+
+describe('buildChatModel — thinking off on models that think unless told not to', () => {
+  beforeEach(() => {
+    ctor.mockReset();
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  it.each(['claude-sonnet-5', 'claude-opus-5'])('tells %s to stop thinking when the caller asks for off', async (model) => {
+    const { buildChatModel } = await import('./langchain');
+    buildChatModel('extractor', { provider: 'anthropic', model, thinking: 'off' });
+    const args = ctor.mock.calls[0]?.[0] as Record<string, unknown>;
+
+    expect(args.thinking).toEqual({ type: 'disabled' });
+  });
+
+  it.each(['claude-sonnet-4-6', 'claude-fable-5', 'claude-mythos-5', 'claude-opus-5-5'])('sends no thinking field to %s for off', async (model) => {
+    // Sonnet 4.6 does not think unless asked; Fable 5 and Mythos 5 answer
+    // `disabled` with a 400; Opus 5.5 is not known to accept it.
+    const { buildChatModel } = await import('./langchain');
+    buildChatModel('extractor', { provider: 'anthropic', model, thinking: 'off' });
+    const args = ctor.mock.calls[0]?.[0] as Record<string, unknown>;
+
+    expect(args).not.toHaveProperty('thinking');
+  });
+
+  it('changes nothing for a caller that did not ask for off', async () => {
+    const { buildChatModel } = await import('./langchain');
+    buildChatModel('main', { provider: 'anthropic', model: 'claude-sonnet-5' });
+    const args = ctor.mock.calls[0]?.[0] as Record<string, unknown>;
+
+    expect(args).not.toHaveProperty('thinking');
+  });
+});
