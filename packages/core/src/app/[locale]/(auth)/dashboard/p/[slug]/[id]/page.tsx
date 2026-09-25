@@ -2,6 +2,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
 import { FeatureReportView, ReportContextLine } from '@/features/dashboard/factory/FeatureReportView';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
@@ -33,6 +34,31 @@ export default async function WorkspaceReportPage(props: {
   }
 
   const manifest = await readPageForOrg(slug, orgId);
+  // A wiki page by slug: the same rail, this page open.
+  if (manifest?.archetype === 'wiki' && manifest.source?.kind === 'artifacts' && manifest.source.folder) {
+    const { loadWikiReadingPages } = await import('@/services/wiki/wikiReading');
+    const { wikiSlug } = await import('@/services/wiki/WikiService');
+    const pageSlug = wikiSlug(id);
+    const pages = await loadWikiReadingPages(orgId, manifest.source.folder, { withBodyFor: pageSlug });
+    const current = pages.find(p => p.slug === pageSlug) ?? null;
+    if (!current) {
+      return notFound();
+    }
+    const guide = await readPageForOrg(`${manifest.slug}-guide`, orgId);
+    return (
+      <>
+        <TitleBar title={manifest.title} description={manifest.description} />
+        <WikiView
+          base={`/dashboard/p/${manifest.slug}`}
+          pages={pages}
+          current={current}
+          guideHref={guide ? `/dashboard/p/${guide.slug}` : null}
+          askAgentSlug="wiki-researcher"
+          editBase="/dashboard/artifacts"
+        />
+      </>
+    );
+  }
   if (!manifest || manifest.archetype !== 'report' || !manifest.report) {
     return notFound();
   }

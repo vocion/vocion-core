@@ -31,7 +31,10 @@ type Aws = typeof import('@aws-sdk/client-bedrock-agentcore-control');
 type CreateCommand = InstanceType<Aws['CreateEvaluatorCommand']>;
 const { UpdateEvaluatorCommand } = await import('@aws-sdk/client-bedrock-agentcore-control');
 const { eq } = await import('drizzle-orm');
-const { resolveAgentcoreEvaluators } = await import('./agentcoreEvaluators');
+const { awsEvaluatorName, resolveAgentcoreEvaluators } = await import('./agentcoreEvaluators');
+
+/** The pattern AWS validates `evaluatorName` against, anchored. */
+const AWS_EVALUATOR_NAME = /^[a-z]\w{0,47}$/i;
 
 const ORG = 'org_agentcore_evaluators';
 const DATASET = 'pw-quality';
@@ -157,5 +160,49 @@ describe('resolveAgentcoreEvaluators', () => {
     const [row] = await db.select().from(evalEvaluatorSchema).where(eq(evalEvaluatorSchema.id, id));
 
     expect(row?.syncError).toContain('neither instructions nor a lambdaArn');
+  });
+
+  it('names a hyphenated evaluator the way AWS requires', async () => {
+    // A slug like `ingestion-report` is ordinary authoring. AWS refuses any
+    // hyphen in the name, so sending it through would fail every create.
+    await insertEvaluator({ slug: 'ingestion-report', config: { instructions: 'Is the report complete?' } });
+    send.mockResolvedValue({ evaluatorId: 'ev-123' });
+
+    await resolve();
+
+    expect((send.mock.calls[0]![0] as CreateCommand).input.evaluatorName).toMatch(AWS_EVALUATOR_NAME);
+  });
+});
+
+describe('awsEvaluatorName', () => {
+  it('stays inside what AWS accepts even when the org and slugs are long', () => {
+    const name = awsEvaluatorName('org_'.padEnd(60, 'x'), 'event-ingestion-quality-review', 'ingestion-report');
+
+    expect(name).toMatch(AWS_EVALUATOR_NAME);
+  });
+
+  it('keeps two evaluators apart when their names only differ after the cut', () => {
+    // Both share the first 48 characters, so a plain cut would give AWS the
+    // same name twice and the second create would fail as a duplicate.
+    const longDataset = 'a-dataset-slug-long-enough-to-fill-the-whole-name';
+
+    expect(awsEvaluatorName(ORG, longDataset, 'tone-check'))
+      .not
+      .toBe(awsEvaluatorName(ORG, longDataset, 'tone-check-strict'));
+  });
+
+  it('produces a legal name from slugs that start with a digit or hold no ASCII at all', () => {
+    expect(awsEvaluatorName('2024', '9-lives', '1st-pass')).toMatch(AWS_EVALUATOR_NAME);
+    expect(awsEvaluatorName('', '', '')).toMatch(AWS_EVALUATOR_NAME);
+    expect(awsEvaluatorName(ORG, 'qualité', 'ton-vérifié')).toMatch(AWS_EVALUATOR_NAME);
+  });
+
+  it('keeps apart slugs that differ only in characters AWS cannot hold', () => {
+    // Both collapse to the same readable text, so only the hash tells them apart.
+    expect(awsEvaluatorName(ORG, DATASET, 'tone.check')).not.toBe(awsEvaluatorName(ORG, DATASET, 'tone-check'));
+  });
+
+  it('gives the same evaluator the same name every time', () => {
+    expect(awsEvaluatorName(ORG, DATASET, 'tone-check')).toBe(awsEvaluatorName(ORG, DATASET, 'tone-check'));
   });
 });

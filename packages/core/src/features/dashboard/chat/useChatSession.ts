@@ -1,7 +1,7 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
@@ -19,7 +19,7 @@ import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
 import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
-import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
+import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
 import { describeToolCall } from './WorkTimeline';
@@ -139,6 +139,8 @@ type PersistedMessageRow = {
   attachments?: ChatAttachment[];
   /** Artifacts the turn produced, as the conversations router resolves them — the chips. */
   artifacts?: ChatMessageArtifact[];
+  /** Which agent spoke an assistant turn, as the runtime stamped it (backlog 009); null before the column existed. */
+  agentSlug?: string | null;
 };
 
 /**
@@ -146,8 +148,9 @@ type PersistedMessageRow = {
  * cited sources so inline `[n]` citations still resolve and the Sources
  * drawer repopulates after a reload.
  * @param rows - Persisted message rows, oldest first.
+ * @param nameOf
  */
-function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage[]; documents: IndexedDocument[] } {
+function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) => string): { messages: ChatMessage[]; documents: IndexedDocument[] } {
   const documents: IndexedDocument[] = [];
   const messages: ChatMessage[] = rows.map((row) => {
     const runsRaw = Array.isArray(row.runsJson) ? (row.runsJson as AgentRun[]) : [];
@@ -162,12 +165,18 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
     }
     const trace = Array.isArray(row.traceJson) ? (row.traceJson as TraceNode[]) : undefined;
     const rating = row.feedbackRating === 'up' || row.feedbackRating === 'down' ? row.feedbackRating : null;
+    // The cards a turn put up come back from the row (backlog 025): a card
+    // is not a client-side ornament that a reload forgets.
+    const recommendations: RecommendedAction[] = runsRaw
+      .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
+      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed') }));
     return {
       ...(typeof row.id === 'number' ? { id: row.id } : {}),
       role: row.role,
       content: row.content ?? '',
       ...(row.role === 'assistant' && (rating || row.feedbackNote) ? { feedback: { rating, note: row.feedbackNote ?? null } } : {}),
       ...(runs ? { runs } : {}),
+      ...(recommendations.length > 0 ? { recommendations } : {}),
       ...(docs && docs.length > 0 ? { documents: docs } : {}),
       ...(trace && trace.length > 0 ? { trace } : {}),
       ...(row.confidence ? { confidence: row.confidence } : {}),
@@ -177,6 +186,9 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       ...(row.statusReason ? { statusReason: row.statusReason } : {}),
       ...(row.attachments && row.attachments.length > 0 ? { attachments: row.attachments } : {}),
       ...(row.artifacts && row.artifacts.length > 0 ? { artifacts: row.artifacts } : {}),
+      // Who spoke, from the row — so "via <specialist>" survives a reload and
+      // says the same thing it said live (backlog 009).
+      ...(row.role === 'assistant' && row.agentSlug ? { agentSlug: row.agentSlug, agentName: nameOf(row.agentSlug) } : {}),
     };
   });
   return { messages, documents };
@@ -369,6 +381,11 @@ export function useChatSession({
   const [modelPrefs, setModelPrefsState] = useState<ModelPrefs>(DEFAULT_MODEL_PREFS);
   const modelPrefsRef = useRef(modelPrefs);
   modelPrefsRef.current = modelPrefs;
+  // The roster, readable from effects and event handlers without re-running
+  // them: it names the agent a persisted or streamed turn was spoken by.
+  const rosterRef = useRef(agents);
+  rosterRef.current = agents;
+  const nameOfAgent = useCallback((slug: string, fallback?: string) => agentDisplayName(slug, rosterRef.current, fallback), []);
   // Records the person pointed this turn at with `@` — sent as `context_refs`
   // beside the message and cleared after the send.
   const [contextRefs, setContextRefs] = useState<ContextRef[]>([]);
@@ -520,7 +537,14 @@ export function useChatSession({
         // The workspace chose the agent (`route: true`): attribute the turn to
         // it the way an `@mention` does, and keep the reason on the message.
         const routed = evt as unknown as { agent: { slug: string; name: string }; routing: RoutingDecision };
-        appendToLatestAgent(m => ({ ...m, agentSlug: routed.agent.slug, agentName: routed.agent.name, routing: routed.routing }));
+        appendToLatestAgent(m => ({ ...m, agentSlug: routed.agent.slug, agentName: nameOfAgent(routed.agent.slug, routed.agent.name), routing: routed.routing }));
+        return;
+      }
+      case 'turn_agent': {
+        // Who speaks this turn, from the runtime — the same slug the row is
+        // stamped with, so live and reloaded transcripts agree (backlog 009).
+        const spoken = evt as unknown as { agent: { slug: string; name: string } };
+        appendToLatestAgent(m => ({ ...m, agentSlug: spoken.agent.slug, agentName: nameOfAgent(spoken.agent.slug, spoken.agent.name) }));
         return;
       }
       case 'run_meta': {
@@ -683,6 +707,38 @@ export function useChatSession({
       case 'hitl_gate': {
         flushDeltas();
         setPendingHitl(evt.gate as HitlGatePayload);
+        return;
+      }
+      case 'card': {
+        // The typed form (backlog 025): on the ledger already, on the wire
+        // now, filed later if at all — `card_update` carries the proposal id.
+        flushDeltas();
+        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string };
+        const primary = c.actions?.[0];
+        let rec: RecommendedAction;
+        if (primary) {
+          const checked = readRecommendedAction({ actionId: primary.actionId, input: primary.input ?? {}, label: c.title, rationale: c.rationale, confidence: c.confidence, agentSlug: c.source?.agentSlug, runId: c.runId, suggestedDecision: c.suggestedDecision, suggestedDecisionReason: c.suggestedDecisionReason });
+          if (!checked.ok) {
+            console.warn(`useChatSession: dropped an invalid card — ${checked.reason}`);
+            return;
+          }
+          rec = { ...checked.rec, id: c.id, state: c.state ?? (c.runId !== undefined ? 'filed' : 'proposed') };
+        } else if (typeof c.title === 'string' && c.title.trim()) {
+          // A recommendation with nothing to press (its action was refused,
+          // finding 20): still the agent's recommendation, read not pressed.
+          rec = { id: c.id, actionId: '', input: {}, label: c.title, ...(c.rationale ? { rationale: c.rationale } : {}), ...(c.source?.agentSlug ? { agentSlug: c.source.agentSlug } : {}), state: c.state ?? 'proposed' };
+        } else {
+          return;
+        }
+        appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []).filter(r => r.id !== c.id), rec] }));
+        return;
+      }
+      case 'card_update': {
+        const u = evt as unknown as { cardId: string; runId?: number; state?: RecommendedAction['state'] };
+        appendToLatestAgent(m => ({
+          ...m,
+          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? { ...r, ...(u.runId !== undefined ? { runId: u.runId } : {}), ...(u.state ? { state: u.state } : {}) } : r)),
+        }));
         return;
       }
       case 'recommended_action': {
@@ -906,12 +962,19 @@ export function useChatSession({
   // RESUME a mid-turn stream after refresh/drop: replay missed events, then
   // stay attached live until done. Falls back silently (404 = expired; the
   // finished turn arrives via conversation rehydrate as before).
-  const resumeStream = useCallback(async (stash: StreamStash) => {
-    pendingTraceRef.current = new Map();
-    traceDirtyRef.current = false;
-    textRunsRef.current = 0;
-    lastRunIsTextRef.current = false;
-    setMessages(prev => [...prev, { role: 'assistant', content: '', runs: [] }]);
+  // `continueLatest`: the connection dropped mid-turn in THIS page (Safari's
+  // "Load failed" — a network change, a suspended tab), so the turn's message
+  // is already on screen and the replay continues it rather than starting a
+  // new one. 2026-09-25: the server finished and stored the answer while the
+  // phone showed "This answer stopped partway through".
+  const resumeStream = useCallback(async (stash: StreamStash, opts: { continueLatest?: boolean } = {}) => {
+    if (!opts.continueLatest) {
+      pendingTraceRef.current = new Map();
+      traceDirtyRef.current = false;
+      textRunsRef.current = 0;
+      lastRunIsTextRef.current = false;
+      setMessages(prev => [...prev, { role: 'assistant', content: '', runs: [] }]);
+    }
     streamingRef.current = true;
     setPhase('thinking');
     setTurnOutcome('running');
@@ -966,9 +1029,24 @@ export function useChatSession({
       // queue that survived the reload (sessionStorage) goes out.
       setTurnOutcome('completed');
     } catch (error) {
-      // Expired/unreachable — drop the placeholder; rehydrate covers the rest.
       console.warn('useChatSession: could not re-attach to the running turn', error);
-      setMessages(prev => (prev[prev.length - 1]?.role === 'assistant' && !prev[prev.length - 1]?.content ? prev.slice(0, -1) : prev));
+      if (opts.continueLatest) {
+        // The turn's own message stays; it says the answer stopped where the
+        // connection did — the same ending as before this reconnect existed.
+        flushDeltas();
+        appendToLatestAgent(m => ({
+          ...m,
+          content: m.content || (m.runs ?? [])
+            .filter((run): run is Extract<AgentRun, { type: 'text' }> => run.type === 'text')
+            .map(run => run.text)
+            .join('\n\n'),
+          status: (m.content || (m.runs ?? []).length > 0 ? 'incomplete' : 'failed') as TurnStatus,
+          statusReason: (error as Error).message,
+        }));
+      } else {
+        // Expired/unreachable — drop the placeholder; rehydrate covers the rest.
+        setMessages(prev => (prev[prev.length - 1]?.role === 'assistant' && !prev[prev.length - 1]?.content ? prev.slice(0, -1) : prev));
+      }
       setTurnOutcome('error');
     } finally {
       streamingRef.current = false;
@@ -1094,6 +1172,7 @@ export function useChatSession({
         }
         const { messages: hydrated, documents: restoredDocs } = hydrateTranscript(
           (conv.messages ?? []) as PersistedMessageRow[],
+          nameOfAgent,
         );
         if (hydrated.length > 0) {
           conversationIdRef.current = storedId;
@@ -1207,9 +1286,10 @@ export function useChatSession({
     routeOnceRef.current = null;
     const routed = searchAgent ?? routeTurn(recordRefs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
     const turnAgent = routed ?? agent;
-    if (routed && routed.slug !== agent.slug) {
-      appendToLatestAgent(m => ({ ...m, agentSlug: routed.slug, agentName: routed.name }));
-    }
+    // The reply is NOT attributed here from the tags: the runtime says who
+    // speaks (`turn_agent`, the first frame) and the row records it. A label
+    // stamped from a guess read "via QA" on a turn the product manager
+    // answered (backlog 009).
     if (conversationIdRef.current === null && agent.slug !== '__search__') {
       try {
         const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
@@ -1338,6 +1418,14 @@ export function useChatSession({
         return;
       }
       flushDeltas();
+      // The connection died, nobody pressed Stop, and the server holds the
+      // turn: re-attach once and let it finish into the same message.
+      const reattach = !aborted ? streamStashRef.current : null;
+      if (reattach) {
+        console.warn('useChatSession: the stream dropped; re-attaching to the running turn', err);
+        void resumeStream({ ...reattach }, { continueLatest: true });
+        return;
+      }
       streamingRef.current = false;
       setPhase('idle');
       setActivity(null);
@@ -1378,7 +1466,7 @@ export function useChatSession({
         abortRef.current = null;
       }
     }
-  }, [agent, agents, messages, pastedText, attachments, uploading, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId]);
+  }, [agent, agents, messages, pastedText, attachments, uploading, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId, resumeStream]);
 
   /**
    * Attach files to the next message: upload now, chip now. A refused file
@@ -1607,6 +1695,7 @@ export function useChatSession({
       const conv = await client.conversations.get({ id });
       const { messages: hydrated, documents: restoredDocs } = hydrateTranscript(
         (conv.messages ?? []) as PersistedMessageRow[],
+        nameOfAgent,
       );
       const slug = (conv as { agentSlug?: string }).agentSlug ?? agent.slug;
       if (slug !== agent.slug) {

@@ -995,6 +995,34 @@
       "when": 1790182911906,
       "tag": "0141_personalization_bulk_job",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1790182911907,
+      "tag": "0142_workspace_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1790182911908,
+      "tag": "0143_conversation_message_agent_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1790301437072,
+      "tag": "0144_oauth_assistants",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1790301437073,
+      "tag": "0145_workspace_access_backfill",
+      "breakpoints": true
     }
   ]
 }

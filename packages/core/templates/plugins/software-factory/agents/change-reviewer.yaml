@@ -1,9 +1,9 @@
-# The Change reviewer — reads the contract, the diff and the verification
+# QA — reads the contract, the diff and the verification
 # output, and returns one verdict keyed to the contract. In-app, and
 # deliberately blind to the implementer's conversation: it grades the work,
 # never the worker's account of the work.
 slug: change-reviewer
-name: Change reviewer
+name: QA
 description: >-
   QA. Reviews a finished engineering task against its contract — the diff, the
   files changed and the verification artifacts — and returns approve, changes
@@ -15,12 +15,13 @@ accent: emerald
 active: true
 agentType: operational
 temperature: '0.1'
-eyebrow: Software factory · QA · Reviewer
+eyebrow: Software factory · QA
 team: software-factory
 playbooks:
   - designing-a-surface
 skills:
   - review-against-contract
+  - rubric-qa
 objectTypes:
   - architecture_plan
   - engineering_task

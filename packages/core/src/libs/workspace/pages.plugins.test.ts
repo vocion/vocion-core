@@ -48,8 +48,10 @@ describe('plugin pages', () => {
 
     expect(issues).toEqual([]);
     expect(wiki?.origin).toBe('plugin:wiki');
-    expect(wiki?.archetype).toBe('list');
+    // Read as a wiki, not as a table of artifacts (2026-09-24).
+    expect(wiki?.archetype).toBe('wiki');
     expect(wiki?.source).toMatchObject({ kind: 'artifacts', folder: 'wiki' });
+    expect(wiki?.fields ?? []).toEqual([]);
     expect(guide?.nav.hidden).toBe(true);
     expect(readWorkspacePageContent(guide!)).toContain('# How the wiki works');
   });
@@ -97,11 +99,16 @@ describe('plugin pages', () => {
 
     // The outcome, why it is here, what is happening to it, which product,
     // what it costs. Plus the rank and the conditional facts, both of which
-    // draw nothing when there is nothing to say.
-    expect(keys).toEqual(['title', 'status', 'gap', 'unmet', 'contract', 'flags', 'detail', 'why', 'cost', 'product', 'rank']);
+    // draw nothing when there is nothing to say — and the picture, which is
+    // drawn rather than said.
+    expect(keys).toEqual(['title', 'kindIcon', 'visual', 'status', 'blocked', 'gap', 'unmet', 'contract', 'flags', 'summary', 'detail', 'why', 'cost', 'product', 'rank']);
     // Every field sits in the subtitle so the uppercase fact list never
-    // draws: five labels a person reads past to reach five values.
-    expect(work?.primary).toEqual({ field: 'title', subtitle: ['status', 'gap', 'unmet', 'contract', 'flags', 'rank', 'detail', 'why', 'cost', 'product'] });
+    // draws: five labels a person reads past to reach five values. The
+    // picture is the one exception, and it is not in the fact list either —
+    // it leads the block, because "PREVIEW" over a thumbnail is a caption
+    // saying what a person can already see.
+    // What it is, the user problem, and what it needs — nothing else on the row (Chris, 2026-09-25).
+    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', subtitle: ['status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product'] });
 
     // Sixteen fields became these. The record's own vocabulary is gone.
     // `status` is the derived badge — "Blocked", "Decide" — never the
@@ -128,110 +135,31 @@ describe('plugin pages', () => {
     expect(keys).not.toContain('priority');
   });
 
-  it('leads with three surfaces and buries the forensic ones under More', () => {
+  it('ships three pages a product exec decides from, and the hidden work item', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const mine = pages.filter(p => p.origin === 'plugin:software-factory');
 
     expect(issues).toEqual([]);
     // The loop a person actually walks: what I own (Products), what is
-    // happening to it (Work), what reached production (Releases). Everything
-    // else is forensic — real, occasionally essential, and not where anybody
-    // starts — so it sits under More rather than competing for the same eye.
-    expect(mine.map(p => p.slug).sort()).toEqual(['activity', 'factory', 'feature', 'guide', 'performance', 'products', 'releases', 'work']);
+    // happening to it (Work), what reached production (Releases). Nothing
+    // else. Factory, Factory log, Performance and Guide explained the machine
+    // and were removed on 2026-09-24; the machine can be complicated, the
+    // product cannot be.
+    expect(mine.map(p => p.slug).sort()).toEqual(['feature', 'products', 'releases', 'work']);
     expect(mine.every(p => p.nav.section === 'Software factory')).toBe(true);
     expect(mine.filter(p => !p.nav.hidden && !p.nav.secondary).map(p => p.slug)).toEqual(['products', 'work', 'releases']);
-    expect(mine.filter(p => p.nav.secondary).map(p => p.slug)).toEqual(['performance', 'factory', 'activity', 'guide']);
-    // Only the per-record report stays off the nav entirely: it is reached
-    // from the row that names it.
+    expect(mine.filter(p => p.nav.secondary)).toEqual([]);
+    // Only the per-record work item stays off the nav: it is reached from the
+    // row that names it.
     expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);
-    // "Activity" is generic SaaS language; a factory log has a meaning here.
-    expect(mine.find(p => p.slug === 'activity')?.title).toBe('Factory log');
+    // Work is the one live page: states move as workers claim and finish.
+    expect(mine.filter(p => p.live).map(p => p.slug)).toEqual(['work']);
 
-    // Guide is the fourth verb: what a person wants next. It is a row in
-    // Business rather than an object list, because operating intent is a file
-    // in the workspace and the core route at /dashboard/guide renders it.
-    expect(pages.find(p => p.slug === 'guide')).toMatchObject({ archetype: 'link', href: '/dashboard/guide', nav: { section: 'Software factory', order: 7, secondary: true } });
-
-    // The pages that were merged away are gone, not hidden.
-    for (const slug of ['backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {
+    // The pages that were merged or cut away are gone, not hidden.
+    for (const slug of ['activity', 'factory', 'guide', 'performance', 'backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {
       expect(pages.find(p => p.slug === slug)).toBeUndefined();
     }
-  });
-
-  it('Work and Activity are live, and Activity reads the worker heartbeat', () => {
-    workspace('plugins: [software-factory]\n');
-    const { pages, issues } = readWorkspacePages();
-    const activity = pages.find(p => p.slug === 'activity');
-    const fields = Object.fromEntries((activity?.fields ?? []).map(f => [f.key, f]));
-
-    // A worker heartbeats every ~30s; 15s keeps a running row moving without
-    // a request the database would notice. No other page is live.
-    expect(issues).toEqual([]);
-    expect(pages.find(p => p.slug === 'work')?.live).toEqual({ every: 15 });
-    expect(activity?.live).toEqual({ every: 15 });
-    expect(pages.filter(p => p.origin === 'plugin:software-factory' && p.live).map(p => p.slug).sort()).toEqual(['activity', 'work']);
-    expect(activity?.source).toEqual({ kind: 'workerRuns', kinds: ['worker', 'lead', 'red-team'], limit: 200 });
-    // What the worker said, when it last spoke, how long its lease holds, whether it was told to stop.
-    expect(fields.progress).toMatchObject({ from: 'meta.progress', format: 'progress' });
-    expect(fields.heartbeat).toMatchObject({ from: 'meta.heartbeatAt', format: 'relative' });
-    expect(fields.lease).toMatchObject({ from: 'meta.leaseExpiresAt', format: 'relative' });
-    expect(fields.stop).toMatchObject({ from: 'meta.stopRequested', format: 'badge', tones: { true: 'warn' } });
-  });
-
-  it('Activity splits the four facts one status column was carrying', () => {
-    workspace('plugins: [software-factory]\n');
-    const { pages, issues } = readWorkspacePages();
-    const activity = pages.find(p => p.slug === 'activity');
-    const fields = Object.fromEntries((activity?.fields ?? []).map(f => [f.key, f]));
-    const stats = Object.fromEntries((activity?.stats ?? []).map(st => [st.label, st]));
-
-    expect(issues).toEqual([]);
-    // Execution, verification, output and task disposition are four columns
-    // reading four accessors. The row that said "failed / complete / passed /
-    // opened" can no longer be written, because nothing on this page reads
-    // `status` as the answer to all four questions.
-    expect(fields.execution).toMatchObject({ from: 'meta.execution', format: 'badge' });
-    expect(fields.verification).toMatchObject({ from: 'meta.verification', format: 'badge' });
-    expect(fields.output).toMatchObject({ from: 'meta.output', format: 'badge' });
-    expect(fields.disposition).toMatchObject({ from: 'meta.disposition', format: 'badge' });
-    expect(fields.failureClass).toMatchObject({ from: 'meta.failureClass', format: 'badge' });
-    expect(fields.recovery).toMatchObject({ from: 'meta.recoveryNote' });
-    // The raw column is still reachable, as evidence inside the row.
-    expect(fields.rawStatus).toMatchObject({ from: 'status', detail: true });
-
-    // The unit is the task, not the run.
-    expect(activity?.groupBy).toBe('meta.taskKey');
-    // Default row: what happened, then result, recovery, cost, duration, PR, time.
-    expect(activity?.primary).toEqual({ field: 'headline', subtitle: ['execution', 'verification', 'output', 'failureClass', 'recovery'] });
-    expect((activity?.fields ?? []).filter(f => !f.detail).map(f => f.key))
-      .toEqual(['headline', 'execution', 'verification', 'output', 'disposition', 'failureClass', 'recovery', 'cents', 'duration', 'pr', 'created']);
-
-    // The number the old strip never reported, plus the one that beats it.
-    expect(Object.keys(stats)).toContain('Failed');
-    expect(stats.Failed).toMatchObject({ kind: 'countWhere', where: { field: 'meta.execution', op: 'eq', value: 'failed' } });
-    expect(stats.Recovered).toMatchObject({ where: { field: 'meta.recovery', op: 'in', value: ['retried', 'preserved'] } });
-    expect(stats.Unresolved).toMatchObject({ where: { field: 'meta.recovery', op: 'eq', value: 'unresolved' } });
-    expect(stats.Spend).toMatchObject({ kind: 'sum', field: 'meta.cents', format: 'money' });
-    expect(stats['Spend on unsuccessful attempts']).toMatchObject({ kind: 'sum', where: { field: 'meta.successful', op: 'eq', value: false } });
-    // "0 lost" is a tile spent saying a thing did not happen.
-    expect(stats.Lost).toMatchObject({ hideWhenZero: true });
-
-    // Every heartbeat-era field is evidence now, not a column.
-    for (const key of ['agent', 'model', 'tokens', 'heartbeat', 'lease', 'summary', 'progress']) {
-      expect(fields[key]).toMatchObject({ detail: true });
-    }
-
-    // Activity means activity: the timeline is the default, the run table is
-    // a view, and the surfaces that are genuinely other records say so.
-    expect((activity?.views ?? []).map(v => v.key)).toEqual(['all', 'runs', 'unresolved', 'contract', 'environment', 'verification', 'releases', 'decisions']);
-    expect(activity?.views?.[0]?.key).toBe('all');
-    expect(activity?.views?.[0]?.filters).toBeUndefined();
-    expect(activity?.views?.find(v => v.key === 'releases')).toMatchObject({ href: '/dashboard/p/releases' });
-
-    // Back to the outcome the run served: the report when the run named a
-    // request, the task record when it only named a task.
-    expect(activity?.rowActions).toEqual([{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]);
   });
 
   it('Products reads as a product card, not as a document', () => {
@@ -250,10 +178,18 @@ describe('plugin pages', () => {
     const drawn = (products?.fields ?? []).filter(f => !f.detail).map(f => f.key);
     const subtitle = products?.primary?.subtitle ?? [];
 
-    expect(subtitle).toEqual(['stage', 'health', 'owner', 'price', 'lastRelease', 'open']);
+    // The card (Chris, 2026-09-24): a mark, the name, one line saying what it
+    // is for, then the least a person needs to decide whether to open it.
+    expect(products?.primary?.thumb).toBe('icon');
+    expect(subtitle).toEqual(['tagline', 'stage', 'health', 'line', 'deps', 'open', 'lastRelease']);
+    expect(products?.derive).toBe('productBoard');
+    // Tapping the card opens WORK as this product's work; the rest is one ⋯ away.
+    expect(products?.rowLink).toBe('/dashboard/p/work?product={meta.slug}');
+    expect(products?.rowActionsAs).toBe('menu');
+    expect(products?.rowActions.map(a => a.label)).toEqual(['Open work', 'Releases', 'Product record', 'Wiki']);
 
     for (const key of drawn) {
-      expect(key === products?.primary?.field || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
+      expect(key === products?.primary?.field || key === products?.primary?.thumb || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
     }
 
     // "Last shipped" is internal factory language; a person running a product
@@ -276,77 +212,13 @@ describe('plugin pages', () => {
     // weaker copies of one page.
     expect(products?.source).toEqual({ kind: 'objects', objectType: 'product' });
     expect(products?.nav).toMatchObject({ section: 'Software factory', order: 1, secondary: false });
-    expect(readWorkspacePageContent(products!)).toContain('agent-maintained');
+    expect(readWorkspacePageContent(products!)).toContain('monitoring not connected');
     // Releases came ON to the nav: what reached production, and what happened
     // to it afterwards, is a question a person asks daily — it is not
     // forensic. It is the one net-new top-level surface.
     expect(releases?.source).toEqual({ kind: 'objects', objectType: 'release' });
     expect(releases?.sort).toEqual({ field: 'meta.releasedAt', dir: 'desc' });
     expect(releases?.nav).toMatchObject({ section: 'Software factory', order: 3, hidden: false, secondary: false });
-  });
-
-  it('Performance answers one question, in four numbers that each carry their direction', () => {
-    workspace('plugins: [software-factory]\n');
-    const { pages, issues } = readWorkspacePages();
-    const perf = pages.find(p => p.slug === 'performance');
-    const stats = Object.fromEntries((perf?.stats ?? []).map(s => [s.label, s]));
-    const headline = (perf?.stats ?? []).filter(s => s.group === undefined).map(s => s.label);
-
-    expect(issues).toEqual([]);
-    expect(perf?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    // It is its figures. Listing the requests under them made it a second
-    // Backlog — the same rows, in a worse order, under headings that were not
-    // about them. The source stays, because the figures come from it.
-    expect(perf?.showRows).toBe(false);
-    expect(perf?.fields ?? []).toEqual([]);
-
-    // FOUR headline numbers: are we shipping faster, is quality holding, is
-    // it costing less, does it need less of me.
-    expect(headline).toEqual([
-      'Speed to release',
-      'Cost per release',
-      'Accepted first pass',
-      'Human time per release',
-    ]);
-
-    // Every one of them carries its DIRECTION. A figure alone is nearly
-    // unreadable: "$1.28 per release" says almost nothing against "$1.28,
-    // down 38%".
-    for (const label of headline) {
-      expect(stats[label]?.compare).toBe('prior');
-      expect(stats[label]?.goodWhen).toBeDefined();
-    }
-
-    // Which way is GOOD is declared, never inferred: cost falling is good and
-    // quality falling is not, and no arithmetic can tell them apart.
-    expect(stats['Cost per release']?.goodWhen).toBe('down');
-    expect(stats['Accepted first pass']?.goodWhen).toBe('up');
-
-    // One canonical unit. A reader who divides any two figures gets a third,
-    // which is only true while they all count releases.
-    expect(stats['Cost per release']).toMatchObject({
-      kind: 'ratio',
-      field: 'meta.actualCents',
-      format: 'money',
-      where: { field: 'meta.state', op: 'eq', value: 'shipped' },
-    });
-    // "Outcome" is abstract AI language; release is software language. It is
-    // gone from every LABEL — the notes may still use the word in prose where
-    // they are describing something that is genuinely not a release.
-    expect((perf?.stats ?? []).map(s => s.label).join(' ')).not.toMatch(/outcome/i);
-
-    // An honest answer is not waste, and rework is still the figure that
-    // replaced it — now under Needs attention, hidden while it is zero.
-    expect(Object.keys(stats).some(l => /waste/i.test(l))).toBe(false);
-    expect(stats['Rework spend']).toMatchObject({ kind: 'sum', field: 'meta.reworkCents', format: 'money', hideWhenZero: true });
-    expect(stats['Defects reported']?.hideWhenZero).toBe(true);
-    expect(JSON.stringify(perf?.stats)).not.toContain('"value":"answered"');
-
-    // Every figure still says what it counts — as DATA the methodology page
-    // is written from, not as a paragraph under each tile.
-    for (const s of perf?.stats ?? []) {
-      expect(s.note, `${s.label} has no note`).toBeTruthy();
-    }
   });
 
   it('a workspace page with the same slug replaces the plugin\'s', () => {

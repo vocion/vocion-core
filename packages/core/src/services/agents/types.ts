@@ -229,6 +229,14 @@ export type AgentEvent
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
     /**
+     * A card in front of the person (backlog 025) — the typed form every
+     * producer's recommendation becomes at the route. `card_update` moves
+     * its state (filed with a proposal id, decided, deferred) without
+     * re-rendering the turn.
+     */
+    | { type: 'card'; card: import('@/libs/cards/card').Card }
+    | { type: 'card_update'; cardId: string; state?: import('@/libs/cards/card').CardState; runId?: number; ref?: { type: string; id: number }; decision?: { action: string; at: string; by?: string } }
+    /**
      * An artifact was created or changed (0095/0101). The pane beside the
      * conversation opens or switches to it and the message gets a chip.
      *
@@ -302,6 +310,14 @@ export type AgentEvent
      * the decision — candidates, pick, reason — is on the message row.
      */
     | { type: 'routed'; routing: import('./router').RoutingDecision; agent: { slug: string; name: string } }
+    /**
+     * Who speaks this turn — the agent the runtime is about to run, whether a
+     * person named it, the workspace chose it, or it is the conversation's
+     * own. Sent on every turn, before the first token, and stamped on the
+     * assistant row as `agent_slug`, so the live transcript and the reloaded
+     * one attribute the turn from the same fact (backlog 009).
+     */
+    | { type: 'turn_agent'; agent: { slug: string; name: string } }
     | { type: 'done'; response: string; traceId?: string }
     /**
      * The turn ended badly. `ending` says HOW, in the same words the row will

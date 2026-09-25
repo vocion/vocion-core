@@ -275,6 +275,15 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   policyKeyFor?: (input: z.infer<S>) => string;
   /**
+   * Whether a rule on THIS action's bare id governs a derived key that has
+   * no rule of its own. Opt-in, because the two families want opposite
+   * defaults: `git.merge` wants one rule ("a merge is a person's") to cover
+   * every risk class until a class earns its own, while `objects.update_meta`
+   * wants each object type's ledger to stand alone, so a bare rule binds to
+   * nothing there (2026-09-24).
+   */
+  parentRuleGoverns?: boolean;
+  /**
    * Canonical dedup key derived from the input. Applied when the proposer
    * passes none, so structurally-identical proposals collapse into one PENDING
    * queue item however the proposal was made (job, agent tool, API).
@@ -354,6 +363,13 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * nothing.
    */
   precheck?: (ctx: ActionContext, input: z.infer<S>) => Promise<string | void>;
+  /**
+   * Fields a refinement requires that the shape marks optional — so the
+   * input hints a model reads (`actionInputHints`) can mark them required.
+   * `objects.propose_candidate` requires `dedupOn` this way (2026-09-25:
+   * the last refusal standing on walk 17).
+   */
+  inputRequired?: readonly string[];
   /**
    * Called once per created action_run, right after the row exists (pending or
    * about to execute). For back-linking the run onto the domain record it

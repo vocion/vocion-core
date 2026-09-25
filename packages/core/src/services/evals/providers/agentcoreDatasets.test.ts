@@ -39,6 +39,7 @@ const {
   UpdateDatasetExamplesCommand,
 } = await import('@aws-sdk/client-bedrock-agentcore-control');
 const {
+  awsDatasetDescription,
   awsDatasetName,
   casesHashFor,
   chunkScenarios,
@@ -189,6 +190,15 @@ describe('publishAgentcoreDataset', () => {
     // AWS deduplicates on this token. A random one would leave the customer
     // with two datasets and our row pointing at whichever answered last.
     expect(commandsOf(CreateDatasetCommand)[0]!.input.clientToken).toBe(first);
+  });
+
+  it('sends AWS a description it will accept when the authored one is long', async () => {
+    respondNormally();
+    const long = { ...request([item('one')]), description: 'Checks the ingestion report. '.repeat(20) };
+
+    await publishAgentcoreDataset(long, NO_WAITING);
+
+    expect(commandsOf(CreateDatasetCommand)[0]!.input.description!.length).toBeLessThanOrEqual(200);
   });
 
   it('updates the case that changed and leaves the one that did not alone', async () => {
@@ -369,6 +379,31 @@ describe('awsDatasetName', () => {
     const name = awsDatasetName('org_'.padEnd(80, 'x'), 'a-very-long-dataset-slug-indeed');
 
     expect(name.length).toBeLessThanOrEqual(48);
+  });
+});
+
+describe('awsDatasetDescription', () => {
+  it('leaves a description that already fits exactly as written', () => {
+    const fits = 'x'.repeat(200);
+
+    expect(awsDatasetDescription(fits)).toBe(fits);
+  });
+
+  it('cuts a long description to the 200 characters AWS accepts, and says it was cut', () => {
+    const cut = awsDatasetDescription('word '.repeat(80));
+
+    expect(cut.length).toBeLessThanOrEqual(200);
+    expect(cut.endsWith('…')).toBe(true);
+    expect(cut.startsWith('word word')).toBe(true);
+  });
+
+  it('never splits an emoji at the boundary into half a character', () => {
+    // 198 letters then emoji two UTF-16 units wide: keeping half of one
+    // would send AWS a broken character.
+    const cut = awsDatasetDescription(`${'a'.repeat(198)}😀😀😀`);
+
+    expect(cut.length).toBeLessThanOrEqual(200);
+    expect(cut).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
   });
 });
 

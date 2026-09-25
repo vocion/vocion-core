@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { awsMutateAction, factoryActions, gitMergeAction, gitPushBranchAction, MERGE_RISK_CLASSES } from './factory';
+import { awsMutateAction, factoryActions, gitMergeAction, gitPushBranchAction, MERGE_RISK_CLASSES, notifyRequesterAction, verdictLine } from './factory';
 import { costLabel, isManualAction, looksLikeManualInput, manualAction, manualInputSchema } from './manual';
 import { policyKeyForRun } from './policyKey';
 import { getAction, listActions } from './registry';
@@ -19,6 +19,8 @@ const base = {
   recipe: RECIPE,
   evidence: ['https://github.com/vocion/vocion-core/pull/484', 'ci:run/9182'],
   externalRef: { system: 'github', id: 'vocion/vocion-core#484', url: 'https://github.com/vocion/vocion-core/pull/484' },
+  commitSha: 'a1b2c3d4e5f6',
+  rollback: 'revert the merge commit and redeploy; no data written',
 };
 
 describe('the factory hand-offs are registered', () => {
@@ -54,6 +56,13 @@ describe('the factory hand-offs are registered', () => {
     expect(getAction('deploy.provision')!.inputSchema.safeParse({ title: 'x', summary: 'y', recipe: 'z', externalRef: { system: 'aws' } }).success).toBe(false);
     expect(gitMergeAction.inputSchema.safeParse(base).success).toBe(false);
     expect(gitMergeAction.inputSchema.safeParse({ ...base, riskClass: 'docs' }).success).toBe(true);
+
+    // A merge that is a deploy names its commit and its way back, or it is not filed (review, 2026-09-24).
+    const { commitSha: _c, ...noCommit } = base;
+    const { rollback: _r, ...noRollback } = base;
+
+    expect(gitMergeAction.inputSchema.safeParse({ ...noCommit, riskClass: 'docs' }).success).toBe(false);
+    expect(gitMergeAction.inputSchema.safeParse({ ...noRollback, riskClass: 'docs' }).success).toBe(false);
     expect(gitMergeAction.inputSchema.safeParse({ ...base, riskClass: 'everything' }).success).toBe(false);
   });
 
@@ -67,6 +76,31 @@ describe('the factory hand-offs are registered', () => {
     expect(policyKeyForRun('nope.unknown', {})).toBe('nope.unknown');
     // A malformed payload never throws its way out of the gate.
     expect(policyKeyForRun('git.merge', {})).toBe('git.merge.undefined');
+  });
+
+  it('binds the merge card to its commit and says when QA\'s verdict is about a different one', async () => {
+    const same = await gitMergeAction.reviewCard!({ orgId: 'org_x' }, { ...base, riskClass: 'ui', verdictCommitSha: 'a1b2c3d' });
+    const moved = await gitMergeAction.reviewCard!({ orgId: 'org_x' }, { ...base, riskClass: 'ui', verdictCommitSha: '0000000' });
+    const none = await gitMergeAction.reviewCard!({ orgId: 'org_x' }, { ...base, riskClass: 'ui' });
+
+    expect(same.fields).toEqual(expect.arrayContaining([
+      { label: 'Commit', value: 'a1b2c3d4e5f6' },
+      { label: 'QA verdict', value: 'read at a1b2c3d — this commit' },
+      { label: 'If the health check fails', value: base.rollback },
+    ]));
+    expect(moved.fields.find(f => f.label === 'QA verdict')?.value).toMatch(/^STALE — read at 0000000, the branch has moved to a1b2c3d/);
+    expect(none.fields.find(f => f.label === 'QA verdict')?.value).toMatch(/not bound to a commit/);
+    expect(verdictLine('abcdef1234', 'abcdef1')).toBe('read at abcdef1 — this commit');
+  });
+
+  it('a reply is two ledgers: a routine completion may earn its way, everything else is a person\'s', () => {
+    expect(notifyRequesterAction.inputSchema.safeParse({ ...base, kind: 'completion' }).success).toBe(true);
+    expect(notifyRequesterAction.inputSchema.safeParse({ ...base }).success).toBe(false);
+    expect(policyKeyForRun('notify.requester', { ...base, kind: 'completion' })).toBe('notify.requester.completion');
+
+    for (const kind of ['decline', 'incident', 'question']) {
+      expect(policyKeyForRun('notify.requester', { ...base, kind })).toBe('notify.requester.sensitive');
+    }
   });
 
   it('dedups on the external record when there is one, and not at all when there is none', () => {

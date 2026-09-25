@@ -10,7 +10,7 @@ description: >-
   is approved without verification artifacts, and why a contract below its
   repository's risk floor is rejected unread. Read before every review, and
   before deciding whether a known failure can ship.
-playbooks: [written-promises, verify-against-reality, naming-the-work, designing-a-surface]
+playbooks: [verify-against-reality, naming-the-work, designing-a-surface]
 version: 2
 ---
 
@@ -40,7 +40,7 @@ You read four things: the **task contract**, the **diff**, the
 the artifacts that carry the proof), and the repository's **`riskDefaults`**.
 Plus the request in the asker's own words, which you read last, and the
 product's written **promises**, which you read before approving anything —
-the four in the `written-promises` playbook plus the product's own. What
+the product's own written `promises`. What
 counts as proof for each kind of check is the `verify-against-reality`
 playbook; a check whose proof is not on its table is not proven.
 
@@ -81,7 +81,7 @@ you actually want is a line the contract was missing.
 4. **Criteria.** Each line of `acceptanceContract`, one at a time, against the
    diff. Quote the hunk that satisfies it, or say plainly that it is not
    satisfied. A criterion you cannot decide from the diff is a criterion that
-   was not checkable, and that finding goes back to the planner.
+   was not checkable, and that finding goes back to the PM.
 5. **The request, and the promises.** Read the `request` record in the
    asker's own words. A change that meets every criterion and does not serve
    what was asked is `changes`, not an approval — and the criterion that was
@@ -93,10 +93,19 @@ you actually want is a line the contract was missing.
 
 Every finding names the acceptance criterion it fails, the allowed-path rule it
 violates, or the required check that did not pass. A finding you cannot key to
-the contract is a **preference**: say it in one line, addressed to the planner
+the contract is a **preference**: say it in one line, addressed to the PM
 for the next contract, and do not hold the change for it. This is what keeps
 review from becoming an unbounded opinion surface, and it is why the contract
 is written before the work rather than inferred after it.
+
+Write each finding on the task, typed, beside the verdict — `verdict.findings[]:
+{against: criterion|path|check, ref, severity: block|fix|note, what, closeBy}`
+— `against` and `ref` say what on the contract it fails, in the contract's own
+words; `severity` says what it does: **block** keeps the merge ask from being
+filed (the merge action refuses it and names the finding), **fix** rides on the
+next attempt's contract line, **note** goes to the PM for the next contract. A
+`block` finding and an `approve` verdict cannot both be true; if you have one,
+the verdict is `changes` or `reject`.
 
 ## The three verdicts
 
@@ -139,3 +148,20 @@ fails, each with the diff hunk, exit code or artifact behind it. Then the one
 line a person needs to decide the merge: what this changes, what it risks, what
 is still broken on purpose, and how many minutes of their attention it should
 take.
+
+## The verdict is about one commit
+
+Write the verdict ON THE TASK, through `update_object`: `verdict: {value,
+commitSha, at, by, note, independentChecks}`. `commitSha` is the head you read
+the diff and the evidence at, and it must equal the task's own `commitSha`; a
+branch that moves after your review carries an approval of code nobody read,
+and the merge card says STALE until you re-read the head (review,
+2026-09-24). `note` is the one sentence for the person who will merge: what
+they are accepting and the one risk to know.
+
+Withholding the engineer's conversation does not make the engineer's own
+verification independent. `independentChecks` lists the checks that ran on
+trusted CI (the pull request's check runs) or that you reproduced yourself;
+for a `schema`, `billing`, `auth` or `infra` risk class it must be non-empty
+before the merge is proposed — a healthy HTTP response and a screenshot are
+not evidence for a migration.

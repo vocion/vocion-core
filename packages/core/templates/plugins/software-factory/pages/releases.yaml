@@ -61,3 +61,7 @@ fields:
   # is a column here rather than a page of its own.
   - {key: announcement, label: What shipped, from: meta.announcement}
 rowLink: /dashboard/objects/{id}
+# A product card opens THIS page as that product's work: `?product=send`
+# narrows every lane to Send and the page says so, with a way back.
+queryFilters:
+  - {param: product, field: meta.product, label: Product}

@@ -15,7 +15,7 @@
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { CaseTranscript } from '../transcripts';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
@@ -136,10 +136,25 @@ export async function judgeTranscript(request: JudgeRequest): Promise<JudgeOutpu
     response,
   });
 
-  const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
+  let stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripped);
+    parsed = JSON.parse(firstJsonObject(stripped) ?? stripped);
+  } catch {
+    // ONE more ask, JSON only. A judge that opens with "I'm ready" or breaks
+    // a quote (reference run 3, cases 9 and 12) is a retry, not a scored
+    // error — an unscored case is a hole in the number the run exists for.
+    const again = await judge.invoke([
+      new SystemMessage(JUDGE_SYSTEM),
+      new HumanMessage(user),
+      new AIMessage(raw),
+      new HumanMessage('That was not a JSON object. Reply with ONLY the JSON object — no words before or after it.'),
+    ]);
+    await chargeModelCall({ orgId: request.orgId, feature: FEATURES.EVAL_JUDGE, role: 'classifier', response: again });
+    stripped = textOf(again.content).replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
+  }
+  try {
+    parsed = parsed ?? JSON.parse(firstJsonObject(stripped) ?? stripped);
   } catch (error) {
     console.error(`[evals] judge returned non-JSON for ${request.datasetSlug} case ${request.transcript.itemIndex}`, error);
     const fallback = { verdict: 'error' as const, score: 0, rationale: 'judge returned non-JSON' };
@@ -156,4 +171,45 @@ export async function judgeTranscript(request: JudgeRequest): Promise<JudgeOutpu
   }
   trace.update({ output: validated.data });
   return validated.data;
+}
+
+/**
+ * The first complete JSON object in a text, or null. A judge that appends a
+ * sentence after its verdict ("…} Hope that helps") used to score the case
+ * as an error (factory-reference cases 4, 7 and 8, 2026-09-24): the verdict
+ * was there, the parser stopped at the first character after it.
+ * @param text - The model's output, fences already stripped.
+ */
+export function firstJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start === -1) {
+    return null;
+  }
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
 }

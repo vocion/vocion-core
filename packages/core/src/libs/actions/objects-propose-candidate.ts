@@ -471,7 +471,11 @@ export async function describeSchemaProblems(
   }
   return (validate.errors ?? []).map((error) => {
     const where = error.instancePath ? error.instancePath.replace(/^\//, '') : 'the payload';
-    return `${where} ${error.message}`;
+    // Name the allowed values: "must be equal to one of the allowed values"
+    // without them is a refusal the caller cannot act on (backlog 006,
+    // 2026-09-25: `surface` refused, the retry guessed again).
+    const allowed = error.keyword === 'enum' ? (error.params as { allowedValues?: unknown[] }).allowedValues : undefined;
+    return `${where} ${error.message}${Array.isArray(allowed) ? `: ${allowed.map(v => JSON.stringify(v)).join(', ')}` : ''}`;
   });
 }
 
@@ -696,6 +700,7 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   name: 'Propose a record for review',
   description: 'Put one extracted record in front of a human. Approving records the decision; nothing is published from here.',
   inputSchema: candidateInput,
+  inputRequired: ['dedupOn'],
   grant: 'propose_candidate',
   // A decided candidate is what lets something be published outside, so the
   // autonomy gate must hold it for a human. Also on ActionService's

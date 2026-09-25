@@ -1,7 +1,7 @@
 import type { BriefRow } from './PersonalizationQueue';
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { leadBriefSchema } from '@/models/Schema';
+import { actionRunSchema, leadBriefSchema } from '@/models/Schema';
 import { contactUtmContentByRef } from '@/services/CrmRecordsService';
 import { QUEUED_STATUS } from '@/services/PersonalizationQueueService';
 
@@ -22,6 +22,21 @@ export async function loadQueueBriefRows(orgId: string): Promise<BriefRow[]> {
   // The lead magnet lives on the CRM mirror, not the ledger row: see
   // `contactUtmContentByRef` for why. A failed read drops the fact, never the queue.
   const magnets = await contactUtmContentByRef(orgId, rows.map(r => r.contactRef)).catch(() => new Map<string, string>());
+  // A failed regenerate is recorded on the review card, not the lead
+  // (ticket 069), so the queue reads it through the card the lead links to.
+  const runIds = [...new Set(rows.map(r => r.reviewActionRunId).filter((n): n is number => n != null))];
+  const regenerateErrors = new Map<number, string>();
+  if (runIds.length > 0) {
+    const runs = await db
+      .select({ id: actionRunSchema.id, regenerateError: actionRunSchema.regenerateError })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, runIds)));
+    for (const run of runs) {
+      if (run.regenerateError) {
+        regenerateErrors.set(run.id, run.regenerateError);
+      }
+    }
+  }
   return rows.map(r => ({
     id: r.id,
     contactRef: r.contactRef,
@@ -31,6 +46,8 @@ export async function loadQueueBriefRows(orgId: string): Promise<BriefRow[]> {
     entranceSource: r.entranceSource,
     utmCampaign: r.utmCampaign,
     utmContent: magnets.get(r.contactRef) ?? null,
+    recommendedSequence: r.recommendedSequence?.name ?? null,
+    lastError: (r.reviewActionRunId != null ? regenerateErrors.get(r.reviewActionRunId) : undefined) ?? r.draftError ?? r.briefError ?? null,
     engagementSent: r.engagementSent,
     engagementOpened: r.engagementOpened,
     status: r.status,

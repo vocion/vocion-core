@@ -76,6 +76,17 @@ describe('pluginNav', () => {
     expect(nav.claimedPages).toEqual(['team-report']);
   });
 
+  it('a core route a plugin OFFERS lists last and secondary in its section, and is not claimed — its own group keeps it', () => {
+    const nav = pluginNav({
+      plugins: [plugin({ slug: 'software-factory', nav: { section: 'Software factory', order: 0 } })],
+      pages: [],
+      routes: [...routes, { url: '/dashboard/evals', title: 'Evals', offeredBy: 'software-factory' }],
+    });
+
+    expect(nav.sections).toEqual([{ label: 'Software factory', items: [{ title: 'Evals', url: '/dashboard/evals', icon: 'folder-open', plugin: 'software-factory', order: 99, secondary: true }] }]);
+    expect(nav.claimedRoutes).toEqual([]);
+  });
+
   it('nothing enabled, nothing claimed', () => {
     expect(pluginNav({ plugins: [], pages: [], routes })).toEqual({ sections: [], claimedSurfaces: [], claimedPages: [], claimedRoutes: [] });
   });

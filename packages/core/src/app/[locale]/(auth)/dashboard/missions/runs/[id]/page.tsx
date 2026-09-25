@@ -1,6 +1,5 @@
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionRunActions } from '@/features/dashboard/MissionRunActions';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -49,7 +48,6 @@ export default async function MissionRunPage(props: {
       <TitleBar
         title={run.title}
         description={`Mission · ${run.status.replace('_', ' ')}`}
-        actions={<AskAboutThis record={recordRef('mission_run', run.id, run.title)} />}
       />
 
       <div className="mb-5">

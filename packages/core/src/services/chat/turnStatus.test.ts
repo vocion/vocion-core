@@ -6,7 +6,7 @@
  * later: which endings are kept out of history, and which ones are failures.
  */
 import { describe, expect, it } from 'vitest';
-import { isDroppedFromHistory, isFailure, isTurnStatus, stoppedShort, TURN_STATUSES } from './turnStatus';
+import { isDroppedFromHistory, isFailure, isTurnStatus, preambleOnly, stoppedShort, TURN_STATUSES } from './turnStatus';
 
 describe('isDroppedFromHistory', () => {
   it('drops the endings whose text would teach the model something false', () => {
@@ -102,5 +102,25 @@ describe('a turn that did work and never answered', () => {
 
   it('does not catch a turn that answered at length', () => {
     expect(stoppedShort({ text: 'a'.repeat(200), toolCalls: 5 })).toBe(false);
+  });
+
+  it('a turn made only of promises to look is stopped short, however long it is', () => {
+    const twoPreambles = 'I\'ll pull what\'s on record before saying anything about it. Let me check whether anything is already in flight on this and where the upload path lives.';
+
+    expect(twoPreambles.length).toBeGreaterThan(120);
+    expect(preambleOnly(twoPreambles)).toBe(true);
+    expect(stoppedShort({ text: twoPreambles, toolCalls: 2 })).toBe(true);
+    // No tool call behind the promise is the emptiest stall of all (turn 577).
+    expect(stoppedShort({ text: twoPreambles, toolCalls: 0 })).toBe(true);
+    expect(stoppedShort({ text: 'Let me look', toolCalls: 0 })).toBe(true);
+    expect(stoppedShort({ text: 'Yes.', toolCalls: 0 })).toBe(false);
+  });
+
+  it('a short real answer after a preamble is an answer', () => {
+    const answered = 'Let me check what we actually know. No, Send does not support SSO today; nothing in the codebase, the wiki or the request history shows it built or planned.';
+
+    expect(preambleOnly(answered)).toBe(false);
+    expect(stoppedShort({ text: answered, toolCalls: 3 })).toBe(false);
+    expect(preambleOnly('Yes — PR #16 merged on Sunday.')).toBe(false);
   });
 });

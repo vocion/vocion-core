@@ -113,6 +113,31 @@ describe('useChatSession', () => {
     expect(result.current.messages[2]!.status).toBeUndefined();
   });
 
+  it('renders the cards a turn put up from the row after a reload, with their filed proposal (backlog 025)', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 8, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '8');
+    vi.mocked(client.conversations.get).mockResolvedValue({
+      id: 8,
+      orgId: 'org_1',
+      agentSlug: 'orchestrator',
+      title: 'Filed',
+      messageCount: 2,
+      messages: [
+        { id: 1, conversationId: 8, role: 'user', content: 'seven customers lost uploads', runsJson: null, createdAt: new Date() },
+        { id: 2, conversationId: 8, role: 'assistant', content: 'Filing it now.', runsJson: [
+          { type: 'text', text: 'Filing it now.' },
+          { type: 'card', id: 'card_1', kind: 'action', label: 'File this as a request', actionId: 'objects.propose_candidate', input: { objectType: 'request' }, runId: 3691, state: 'filed' },
+        ], createdAt: new Date(), status: 'complete' },
+      ],
+    } as never);
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+
+    await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+    expect(result.current.messages[1]?.recommendations).toEqual([{ id: 'card_1', actionId: 'objects.propose_candidate', input: { objectType: 'request' }, label: 'File this as a request', runId: 3691, state: 'filed' }]);
+  });
+
   it('resumes the thread the URL names (`?conversation=<id>`) even on a fresh session', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
     vi.mocked(client.conversations.get).mockResolvedValue({
@@ -177,7 +202,10 @@ describe('useChatSession', () => {
   it('`/search <query>` routes one turn to the retrieval-only path and sends the bare query (§9.10)', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
     vi.mocked(client.conversations.create).mockResolvedValue({ id: 3, agentSlug: 'orchestrator' } as never);
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+    // The runtime says who spoke (backlog 009): the virtual search entry is
+    // on the client roster only, so the server sends the slug as its name and
+    // the transcript names it from the roster.
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"turn_agent","agent":{"slug":"__search__","name":"__search__"}}\n\ndata: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
     vi.stubGlobal('fetch', fetchMock);
     const agents = [...AGENTS, { slug: '__search__', name: 'Search only', icon: 'search' as const, placeholder: 'Search…' }];
 
@@ -194,7 +222,7 @@ describe('useChatSession', () => {
     expect(body.message).toBe('northwind governance');
     // The conversation stays with the workspace agent.
     expect(result.current.agent.slug).toBe('orchestrator');
-    expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentName: 'Search only' });
+    expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentSlug: '__search__', agentName: 'Search only' });
   });
 
   it('handleNewChat clears the view and persists a null conversation pointer', async () => {

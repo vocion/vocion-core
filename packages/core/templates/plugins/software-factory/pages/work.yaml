@@ -83,20 +83,53 @@ layout: block
 # muted line under it. Anything more about this outcome is on its own page.
 primary:
   field: title
-  subtitle: [status, gap, unmet, contract, flags, rank, detail, why, cost, product]
+  # A row answers: what is it and for which product (the title), the user
+  # problem in one sentence (`summary`), and what it needs — decide, review,
+  # or where it stands, with how long it has waited (`detail`). Internal
+  # status that helps nobody decide (`no criteria`, `no mock`, a rank) is on
+  # the feature page, not repeated on every row (Chris, 2026-09-25).
+  subtitle: [status, blocked, unmet, summary, detail, why, cost, product]
+  # THE PICTURE LEADS. What this outcome changes, drawn by the platform from
+  # what the record says, at the moment the record says it
+  # (`services/factory/proposalVisual.ts`). It is a shape, not a screenshot:
+  # a page and the rows this contract changes, or the components the plan
+  # touches and the direction between them. A row nobody has classified gets
+  # an empty frame, which is the honest drawing of "nobody has said what this
+  # changes yet" and is the only card on the board that reports a missing
+  # fact by being empty rather than by printing a complaint.
+  thumb: visual
+  # No fallback mark: a generic icon stretched into the media slot is
+  # decoration. A row with no real picture has no slot at all.
 fields:
   - {key: title, label: Outcome}
+  - {key: kindIcon, label: Kind, from: meta.kindIcon, format: icon}
+  # An artifact id, resolved to its served url by the page layer. The record
+  # names the artifact; a url copied onto the record would be a second copy of
+  # a fact that can quietly disagree with the first.
+  - {key: visual, label: Preview, from: meta.visual, format: image}
   # The badge, and the reason the lanes could be collapsed from four to
   # three: it says which row set this row belongs to, so one list can hold
   # rows in different states without a heading between every pair of them.
   # Blocked reads bad, an undecided recommendation reads warn, and work that
   # nobody has started is muted because it is not asking for anything yet.
-  - {key: status, label: Status, from: meta.state, format: badge, tones: {Blocked: bad, Building: info, Decide: warn, Shipped: ok, Answered: muted, Queued: muted, Triaged: muted, In scope: muted, Not triaged: muted}}
+  # Stage, activity and blocker are three facts (review, 2026-09-24). The
+  # badge is the state; `detail` is the plain sentence saying what is
+  # happening and whether it needs the reader; `blocked` is only ever an
+  # obstacle somebody wrote down. Normal waiting — dispatch, QA, merge — has
+  # its own name and is never painted as failure.
+  - {key: status, label: Status, from: meta.state, format: badge, tones: {Blocked: bad, Building: info, Awaiting dispatch: muted, Awaiting QA: info, Ready to merge: warn, Decide: warn, Staged: muted, Deferred: muted, Returned to PM: warn, Returned to Design: warn, Returned to Eng: warn, Returned to QA: warn, Shipped: ok, Shipped · helped: ok, Shipped · did not help: bad, Answered: muted, Queued: muted, Triaged: muted, In scope: muted, Not triaged: muted}}
+  - {key: blocked, label: Blocked on, from: meta.blockerLine, format: badge, tones: {}}
   # What this row cannot show. A `ui` or `flow` outcome owes a mockup before
   # it is decided and an after-shot before it closes; the row says which is
   # missing and the lane counts them, the same way it reports an unranked
   # queue. Work nobody has classified claims nothing, so the gate stays quiet
   # until `surface` says a picture is owed.
+  #
+  # Since the platform draws the proposal visual, `no mock` fires only where
+  # the drawing could not be made — and `no after` still bites on everything
+  # that ships, which is the half nothing can draw from a record: what the
+  # running product actually looks like has to be captured from the running
+  # product.
   - {key: gap, label: Missing, from: meta.visualGap, format: badge, tones: {no mock: warn, no after: warn}}
   # The QA gate, and it is code rather than a prompt: a finished outcome whose
   # criteria nobody checked, or which failed, is a claim and not a release.
@@ -113,6 +146,7 @@ fields:
   # What is happening, minus whatever the badge already said. A queued row's
   # line is empty on purpose: "Queued" under a badge reading "Queued" is the
   # repetition this page was redrawn to lose.
+  - {key: summary, label: Problem, from: meta.problem}
   - {key: detail, label: What is happening, from: meta.workLine}
   # One human sentence, built from the closed reason list. Never `manual_toil`.
   - {key: why, label: Why, from: meta.whyLine}
@@ -128,3 +162,7 @@ fields:
 # was never a report, it was the outcome, and a row that opens somewhere else
 # than the thing it names is a second place to click for no second meaning.
 rowLink: /dashboard/p/feature/{id}
+# A product card opens THIS page as that product's work: `?product=send`
+# narrows every lane to Send and the page says so, with a way back.
+queryFilters:
+  - {param: product, field: meta.product, label: Product}

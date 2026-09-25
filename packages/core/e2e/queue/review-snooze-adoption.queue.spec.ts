@@ -44,10 +44,14 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  *   PLAYWRIGHT_BASE_URL=http://<host>:<port> npx playwright test --project=queue
  */
 
+// Its own admin, not the Mo Delgado that objects-propose-candidate signs in
+// as. That spec approves items as Mo, and this one asserts Mo's Approvals
+// count did not move, so sharing the admin failed whenever the two files ran
+// at the same time on different workers (#631).
 const ADMIN = {
-  name: 'Mo Delgado',
-  account: 'Larkfield Events',
-  email: 'mo@larkfield.example',
+  name: 'Sam Okafor',
+  account: 'Larkfield Snooze Desk',
+  email: 'sam@larkfield-snooze.example',
   password: 'events-queue-1',
 };
 

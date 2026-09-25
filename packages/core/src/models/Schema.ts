@@ -2,7 +2,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
-import { bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -51,6 +51,15 @@ const tsvector = customType<{ data: string; driverData: string }>({
 /*   - `project` replaces today's `orgId` scope on business content.     */
 /*     Columns are added in a follow-up migration after callers migrate. */
 /* ==================================================================== */
+
+/**
+ * The role a person holds IN ONE WORKSPACE. Mirrors `WorkspaceRole` in
+ * `services/authz.ts`, which owns the grant model these map to; the DDL pins
+ * the same four with a CHECK. Declared here rather than imported so the schema
+ * stays free of service imports — `workspaceAccessRole.test.ts` fails if the
+ * two ever drift.
+ */
+type WorkspaceAccessRole = 'owner' | 'pm' | 'specialist' | 'client_reviewer';
 
 /** A person. Drizzle adapter shape for auth.js v5. */
 export const userSchema = pgTable('user', {
@@ -176,6 +185,19 @@ export const projectSchema = pgTable(
      * resolved to a user id at apply.
      */
     accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    /**
+     * `shared` — a workspace the team works in, the only kind before 0142.
+     * `personal` — one person's own workspace, holding their exec assistant.
+     *
+     * The distinction is load-bearing in two places that have nothing to do
+     * with the UI: a personal workspace is never a target of a group grant,
+     * and the deploy's stale-row sweep keys on this rather than on a list of
+     * known slugs (a slug list swept every personal workspace's agents,
+     * missions and ingested mail on every deploy).
+     */
+    kind: text('kind').$type<'shared' | 'personal'>().default('shared').notNull(),
+    /** Set iff `kind = 'personal'`: the person the workspace belongs to. */
+    ownerUserId: text('owner_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
     /**
      * Optional dashboard surfaces this workspace switched on, by registry id
      * (`features/navigation/surfaces.ts`). Authored as top-level `surfaces:`
@@ -382,6 +404,101 @@ export const inviteSchema = pgTable(
   },
   table => [
     index('invite_account_email_idx').on(table.accountId, table.email),
+  ],
+);
+
+/* ==================================================================== */
+/* Workspace access (0142)                                               */
+/*                                                                       */
+/* Account membership says a person is in the deployment. These say      */
+/* WHICH workspaces they reach and at what role:                         */
+/*                                                                       */
+/*   user_group ──< user_group_member >── user                           */
+/*        │                                                              */
+/*        └──< group_project_grant >── project     (role per workspace)   */
+/*                                                                       */
+/*   project_member                                 (a direct grant)     */
+/*                                                                       */
+/* `user_group`, never `team`: `team` above is an org chart of AGENTS.    */
+/* A group grant is resolved at READ time rather than expanded into      */
+/* project_member rows, so removing someone from a group takes effect on */
+/* their next request instead of waiting for a re-expansion.             */
+/* ==================================================================== */
+
+/** A named group of people, e.g. the sales team or the delivery team. */
+export const userGroupSchema = pgTable(
+  'user_group',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull().references(() => tenantAccountSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    /**
+     * 'yaml' | 'ui'. Provenance for display only. It never gates a write:
+     * `people:apply` is create-if-absent and never updates a row that exists,
+     * whichever door made it.
+     */
+    managedFrom: text('managed_from').$type<'yaml' | 'ui'>().default('ui').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('user_group_account_slug_idx').on(table.accountId, table.slug),
+  ],
+);
+
+/** Who is in a group. */
+export const userGroupMemberSchema = pgTable(
+  'user_group_member',
+  {
+    groupId: text('group_id').notNull().references(() => userGroupSchema.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    addedAt: timestamp('added_at', { mode: 'date' }).defaultNow().notNull(),
+    /** A user id, or 'yaml' when the seed applier put the row there. */
+    addedBy: text('added_by'),
+  },
+  table => [
+    primaryKey({ columns: [table.groupId, table.userId] }),
+    // The resolver asks what a PERSON may reach, and `user_id` trails the key.
+    index('user_group_member_user_idx').on(table.userId),
+  ],
+);
+
+/** What a group grants: one workspace, at one role. */
+export const groupProjectGrantSchema = pgTable(
+  'group_project_grant',
+  {
+    groupId: text('group_id').notNull().references(() => userGroupSchema.id, { onDelete: 'cascade' }),
+    projectId: text('project_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /** A `WorkspaceRole` (`services/authz.ts`), constrained in the DDL. */
+    role: text('role').$type<WorkspaceAccessRole>().notNull(),
+    grantedAt: timestamp('granted_at', { mode: 'date' }).defaultNow().notNull(),
+    grantedBy: text('granted_by'),
+  },
+  table => [
+    primaryKey({ columns: [table.groupId, table.projectId] }),
+    index('group_project_grant_project_idx').on(table.projectId),
+  ],
+);
+
+/** A person granted one workspace directly, outside any group. */
+export const projectMemberSchema = pgTable(
+  'project_member',
+  {
+    projectId: text('project_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    role: text('role').$type<WorkspaceAccessRole>().notNull(),
+    /**
+     * Why the row exists: 'direct' (someone granted it) or 'owner' (the person
+     * a personal workspace belongs to). Group grants never appear here.
+     */
+    source: text('source').$type<'direct' | 'owner'>().default('direct').notNull(),
+    addedAt: timestamp('added_at', { mode: 'date' }).defaultNow().notNull(),
+    addedBy: text('added_by'),
+  },
+  table => [
+    primaryKey({ columns: [table.projectId, table.userId] }),
+    index('project_member_user_idx').on(table.userId),
   ],
 );
 
@@ -1528,13 +1645,24 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    */
   routingJson: jsonb('routing_json').$type<import('@/services/agents/router').RoutingDecision>(),
   /**
+   * Which agent spoke an assistant turn — the slug the runtime actually ran,
+   * stamped when the row is written. The transcript's "via <specialist>"
+   * eyebrow reads THIS after a reload, never a guess made on the client
+   * before the turn ran (backlog 009: a label that said "via QA" on a turn
+   * the product manager answered). NULL on user rows and on turns written
+   * before the column existed.
+   */
+  agentSlug: text('agent_slug'),
+  /**
    * Structured breadcrumb array for the chat UI: a series of text
    * runs interleaved with tool breadcrumbs. Tool entries are dropped
    * when this row is replayed as history to the agent.
    */
   runsJson: jsonb('runs_json').$type<Array<
     | { type: 'text'; text: string }
-    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string }
+    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
+    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
   >>(),
   /**
    * Cited/pulled source documents for this assistant turn — so inline `[n]`
@@ -2968,6 +3096,49 @@ export const sourceSyncCheckpointSchema = pgTable(
  * because a minted row now carries ciphertext too, so a rewritten `platform`
  * alone would leave a row the constraint happily accepts as a supplied key.
  */
+/* ------------------------------------------------------------------ */
+/* OAuth 2.1 for assistants (backlog 027)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A client that registered itself to sign a person in — Claude.ai, ChatGPT,
+ * Claude Code, Cursor. Public clients (PKCE, no secret): the redirect list
+ * is what identifies them. Ported from Slate's `oauth_clients` (2026-09-25).
+ */
+export const oauthClientSchema = pgTable('oauth_client', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  redirectUris: jsonb('redirect_uris').$type<string[]>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+/**
+ * One sign-in attempt: created at /oauth/authorize, approved by the person on
+ * the consent page (which stamps who and which workspace), exchanged once at
+ * /oauth/token. Ten minutes to live.
+ */
+export const oauthRequestSchema = pgTable(
+  'oauth_request',
+  {
+    id: text('id').primaryKey(),
+    clientId: text('client_id').notNull(),
+    redirectUri: text('redirect_uri').notNull(),
+    codeChallenge: text('code_challenge').notNull(),
+    state: text('state'),
+    scope: text('scope'),
+    userId: text('user_id'),
+    orgId: text('org_id'),
+    /** The authorization code, set when the person approves; cleared when exchanged. */
+    code: text('code'),
+    status: text('status').default('pending').notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('oauth_request_code_idx').on(table.code),
+  ],
+);
+
 export const apiTokenSchema = pgTable(
   'api_token',
   {

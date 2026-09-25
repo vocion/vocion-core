@@ -23,7 +23,7 @@ import { actionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } f
 import { getObjectTypeBySlug, listBusinessObjects } from '@/services/BusinessObjectService';
 import { runRecord } from '@/services/WorkerRunService';
 
-/** The machinery's own noise — left out unless asked for, as the Factory log leaves it out. */
+/** The machinery's own noise — left out unless asked for, as the work item leaves it out. */
 const BOOKKEEPING_KINDS = ['compact', 'snapshot'];
 
 const DEFAULT_LIMIT = 20;

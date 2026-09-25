@@ -198,9 +198,21 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* The phone shell acts like an app (backlog 023): the document never
+     scrolls sideways — anything wider than the screen scrolls inside its own
+     box or is a bug the 390px guard catches; no rubber-band past the ends,
+     no 300ms double-tap zoom, no font inflation when the phone rotates. */
+  html {
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
+    overflow-x: clip;
+    overscroll-behavior-y: none;
+    touch-action: manipulation;
   }
   h1,
   h2,
@@ -305,5 +317,58 @@
     animation: none;
     background-image: none;
     color: var(--muted-foreground);
+  }
+}
+
+/*
+ * The top progress bar (`NavigationProgress`). Idle: nothing. Active: the bar
+ * sweeps to ~85% on an ease-out over 8s, and stalls there until the page
+ * lands. Landed: it completes and fades. Reduced motion keeps the bar at its
+ * width and drops the sweep, so the signal survives the preference.
+ */
+.nav-progress {
+  opacity: 0;
+  transition: opacity 240ms ease-out 120ms;
+}
+.nav-progress-bar {
+  width: 100%;
+  transform-origin: left;
+  transform: scaleX(0);
+}
+.nav-progress[data-state='active'] {
+  opacity: 1;
+  transition: opacity 80ms ease-out;
+}
+.nav-progress[data-state='active'] .nav-progress-bar {
+  animation: nav-progress-sweep 8s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;
+}
+.nav-progress[data-state='idle'] .nav-progress-bar {
+  transform: scaleX(1);
+  transition: transform 160ms ease-out;
+}
+@keyframes nav-progress-sweep {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(0.85);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress[data-state='active'] .nav-progress-bar {
+    animation: none;
+    transform: scaleX(0.6);
+  }
+}
+
+/* A viewport-fit page (chat) on a phone is a fixed app screen: the document
+   does not scroll or rubber-band, only the transcript inside it does
+   (PageWidth.tsx sets the attribute while such a page is mounted). */
+@media (max-width: 767.98px) {
+  html[data-viewport-fit],
+  html[data-viewport-fit] body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 }

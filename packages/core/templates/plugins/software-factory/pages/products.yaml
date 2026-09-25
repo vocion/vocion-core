@@ -52,6 +52,10 @@ nav: {section: Software factory, order: 1}
 archetype: list
 layout: block
 source: {kind: objects, objectType: product}
+# One sentence per product, derived from its rollups and its health: what a
+# person should do about it, or that it is too early to say (review,
+# 2026-09-24: "Products is missing the executive recommendation").
+derive: productBoard
 sort: {field: meta.stage, dir: asc}
 # Drawn once the portfolio is big enough that reading every row is the slower
 # way to answer these. At two products the rows already say all of it.
@@ -70,11 +74,21 @@ stats:
 # The order is the order the questions get asked: is it alive (stage,
 # health), who owns it, what does it cost against the incumbent, when did it
 # last reach production, and how much is queued.
+# THE CARD (Chris, 2026-09-24): a mark, the name, one line saying what it is
+# for, and the least a person needs to decide whether to open it — where it
+# stands, what is waiting on them, when it last shipped. Tapping the card
+# opens WORK as this product's work; everything else about it is behind the
+# ⋯ menu, so the card stays one tap to one place.
 primary:
   field: title
-  subtitle: [stage, health, owner, price, lastRelease, open]
+  subtitle: [tagline, stage, health, line, deps, open, lastRelease]
+  thumb: icon
 fields:
   - {key: title, label: Product}
+  - {key: icon, label: Mark, from: meta.icon, format: icon}
+  - {key: tagline, label: What it is for, from: meta.tagline}
+  - {key: line, label: Where it stands, from: meta.boardLine}
+  - {key: deps, label: Built on, from: meta.dependencyLine}
   - {key: stage, label: Stage, from: meta.stage, format: badge, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
   # `source` is what keeps a degraded product and an unmonitored one from
   # reading the same. With nothing checking it, the row says "monitoring not
@@ -86,14 +100,15 @@ fields:
     format: badge
     tones: {ok: ok, degraded: warn, down: bad}
     source: {from: [meta.healthSource, meta.healthCheckedAt], absentLabel: monitoring not connected}
-  - {key: owner, label: Accountable, from: meta.accountableUser}
-  # Core to the thesis, so it is the one place on the row that keeps detail
-  # and the one that carries visual weight.
+  - {key: owner, label: Accountable, from: meta.accountableUser, detail: true}
+  # Our price beside the incumbent's lives on the record; it is rarely the
+  # fact a daily portfolio read turns on.
   - key: price
     label: Our price
     from: meta.ourPrice
     format: compare
     beside: {from: meta.incumbent.listPrice, labelFrom: meta.incumbent.name, checkedFrom: meta.incumbent.checkedOn}
+    detail: true
   # "Last shipped" is internal factory language. "Last release" is what a
   # person running a product says, and the release itself is the thing they
   # would open to see what changed.
@@ -105,13 +120,18 @@ fields:
     label: Open work
     from: meta.openRequests
     format: workload
-    workload: {noun: open request, inFlightFrom: meta.inFlight, urgentFrom: meta.p1Open, urgentLabel: urgent}
+    workload: {noun: open request, inFlightFrom: meta.inFlight, urgentFrom: meta.awaitingDecision, urgentLabel: to decide}
   # Only on a row whose figures have gone STALE. "Counters last recomputed"
   # is never primary card content: on a healthy row it is noise competing
   # with the figures it describes, so when nothing is stale the field is
   # empty on every row and the page drops it entirely.
   - {key: updated, label: Recomputed, from: meta.countersUpdatedAt, format: relative, staleAfterHours: 24, detail: true}
-# No app and site columns. Where a product lives is not one of the six things
-# a person walking to the kitchen needs; it is on the product record, one tap
-# away, with everything else about it.
-rowLink: /dashboard/objects/{id}
+# The card opens the product's WORK — the queue a person manages — not the
+# record. The record, the releases and the wiki are one ⋯ away.
+rowLink: '/dashboard/p/work?product={meta.slug}'
+rowActionsAs: menu
+rowActions:
+  - {label: Open work, href: '/dashboard/p/work?product={meta.slug}'}
+  - {label: Releases, href: '/dashboard/p/releases?product={meta.slug}'}
+  - {label: Product record, href: '/dashboard/objects/{id}'}
+  - {label: Wiki, href: /dashboard/p/wiki}

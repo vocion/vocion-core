@@ -92,3 +92,17 @@ describe('toHistoryTurns', () => {
     ]);
   });
 });
+
+describe('toHistoryTurns carries the runs', () => {
+  it('hands an agent turn\'s runs_json and id through, so the loop can replay its calls', () => {
+    const turns = toHistoryTurns([
+      { id: 'u1', role: 'user', content: 'hi' },
+      { id: 'a1', role: 'assistant', content: 'Filed.', runsJson: [{ type: 'tool', name: 'lookup_objects', input: {} }] },
+    ]);
+
+    expect(turns).toEqual([
+      { role: 'user', content: 'hi', id: 'u1' },
+      { role: 'assistant', content: 'Filed.', id: 'a1', runs: [{ type: 'tool', name: 'lookup_objects', input: {} }] },
+    ]);
+  });
+});

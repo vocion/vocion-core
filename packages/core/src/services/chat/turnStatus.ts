@@ -122,7 +122,45 @@ const ANSWER_FLOOR = 120;
  * @returns True when the turn worked and never said what it found.
  */
 export function stoppedShort(turn: { text: string; toolCalls: number }): boolean {
-  return turn.toolCalls > 0 && turn.text.trim().length < ANSWER_FLOOR;
+  const text = turn.text.trim();
+  // Nothing at all — no words, whatever ran — is the emptiest answer there is
+  // (MCP turns 667/675, 2026-09-25: two reasoning nodes, zero characters).
+  if (text.length === 0) {
+    return true;
+  }
+  // "Let me look" with NO tool call behind it is the emptiest stall of all
+  // (production turn 577, 2026-09-24): a promise, then silence.
+  if (text.length > 0 && preambleOnly(text)) {
+    return true;
+  }
+  return turn.toolCalls > 0 && text.length < ANSWER_FLOOR;
+}
+
+/**
+ * The openers of a sentence that PROMISES an answer instead of giving one:
+ * "I'll pull what's on record…", "Let me check…", "Pulling the records…".
+ *
+ * The length rule above is the right first half, and it was defeated on
+ * 2026-09-24: production turn 563 was two such sentences, 154 characters, and
+ * counted as complete, so the answer pass never fired and a bug report was
+ * never triaged. This is the narrow second half — it fires only when EVERY
+ * sentence is a promise, so "Yes, it merged." and "Let me check. No, Send
+ * has no SSO." are both still answers.
+ */
+const PREAMBLE_OPENERS = /^(?:i(?:['’]ll| will| am going to| need to| want to)\s|let me\s|(?:first|now|next),?\s+(?:i(?:['’]ll| will)\s|let me\s)|(?:pulling|checking|reading|looking|fetching|gathering|querying|searching|retrieving|loading|opening)\b)/i;
+
+/**
+ * True when every sentence of the text is a preamble — a promise to look,
+ * with nothing found yet.
+ * @param text - The turn's finished text.
+ */
+export function preambleOnly(text: string): boolean {
+  const sentences = text
+    .replace(/<[^>]*>/g, ' ')
+    .split(/(?<=[.!?…])\s+|\n+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  return sentences.length > 0 && sentences.every(s => PREAMBLE_OPENERS.test(s));
 }
 
 /**

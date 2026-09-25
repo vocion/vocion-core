@@ -1,9 +1,12 @@
+import type { BaseMessage } from '@langchain/core/messages';
+import type { AnswerComposer } from './agents/answerBackstop';
 import type { TurnFailure } from './agents/deliverableBackstop';
 import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
 import type { AgentEvent } from './agents/types';
 import type { Deliverable } from '@/libs/chat/deliverable';
 import type { LangfuseTurnUsage } from '@/libs/Langfuse';
+import type { HistoryTurn } from '@/services/chat/historyTools';
 import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
@@ -16,6 +19,9 @@ import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostMicroCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
+import { flatHistory, historyMessages } from '@/services/chat/historyTools';
+import { preambleOnly } from '@/services/chat/turnStatus';
+import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
@@ -24,6 +30,105 @@ import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { TurnRefusedError } from './agents/turnRefusal';
+import { unbackedWriteNotice, writeClaim } from './agents/writeClaim';
+
+/**
+ * A tool's name written as the turn's last word — narrated, not called — or a
+ * whole call imitated as text at the end of the message: production turn 608
+ * (2026-09-24) ended with "CARD" and a fenced block beginning
+ * `recommend_action id: …`. Either way the person saw words where a card
+ * should have been.
+ */
+/**
+ * A tool call the tool itself refused for its arguments — retryable, not fatal.
+ * @param err
+ */
+function isToolInputError(err: unknown): boolean {
+  const m = err instanceof Error ? err.message : String(err ?? '');
+  return /did not match expected schema|Received tool input|invalid arguments/i.test(m);
+}
+
+const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal';
+/**
+ * A call written out instead of made. Three shapes seen in production:
+ *   1. a fenced block that STARTS with the tool's name, at the end of the answer;
+ *   2. the bare tool name as the last word;
+ *   3. a heading naming the tool — "**update_object — request 30**" — followed
+ *      by a ```json block of its arguments (mission run 4905, 2026-09-25:
+ *      three of them, nothing written; finding 19).
+ */
+const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|(?:^|[\\s*_\`])(${TOOL_NAMES})[*_\`]*\\s*$|(?:^|\\n)\\s*(?:\\*\\*|#{1,4}\\s*)?\`?(${TOOL_NAMES})\\b[^\\n]*\\n\\s*\`\`\`[a-z]*\\n[\\s\\S]*?\`\`\``);
+/**
+ * What a tool handed back: `{ok:false, error}` is a refusal, anything else counts as done.
+ * @param raw
+ */
+/**
+ * The backstop model's call, made to fit the tool's schema: every field the tool requires, present.
+ * @param args
+ */
+function shapeRecommendCall(args: Record<string, unknown>): Record<string, unknown> {
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const input = args.action_input && typeof args.action_input === 'object' && !Array.isArray(args.action_input) ? args.action_input as Record<string, unknown> : {};
+  return {
+    ...args,
+    action_id: str(args.action_id) ?? '',
+    action_input: input,
+    label: (str(args.label) ?? str(args.title) ?? str(input.title) ?? 'Recommendation').slice(0, 120),
+    ...(str(args.rationale) ? { rationale: str(args.rationale) } : {}),
+  };
+}
+
+/**
+ * A streamed tool call's arguments, assembled from their chunks. Unparseable
+ * JSON (a call cut off by the deadline) is an empty call, which the card's own
+ * shaping and refusal handle — one bad call never ends the pass.
+ * @param raw - The concatenated argument chunks.
+ */
+export function parseCallArgs(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw || '{}') as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * One tool call that cannot end the pass: a thrown schema error is a refusal with its message.
+ * @param tool
+ * @param tool.invoke
+ * @param args
+ */
+async function invokeRecommend(tool: { invoke: (args: never) => Promise<unknown> }, args: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  try {
+    return readToolResult(await tool.invoke(args as never));
+  } catch (err) {
+    return { ok: false, error: (err as Error).message.replace(/\s+/g, ' ').slice(0, 300) };
+  }
+}
+
+function readToolResult(raw: unknown): { ok: boolean; error?: string } {
+  const text = typeof raw === 'string' ? raw : typeof (raw as { content?: unknown })?.content === 'string' ? (raw as { content: string }).content : '';
+  try {
+    const parsed = JSON.parse(text) as { ok?: boolean; error?: string };
+    return parsed && parsed.ok === false ? { ok: false, error: parsed.error } : { ok: true };
+  } catch {
+    return { ok: true };
+  }
+}
+
+/**
+ * A card written out as prose: a heading line beginning "CARD —" (or "Card:")
+ * and everything under it to the end of the answer. Stripped only when a real
+ * card is on screen, so a turn is never left with neither.
+ */
+const NARRATED_CARD = /\n\s*(?:\*\*|#{1,4}\s*)?CARD\s*(?:[—–:-]|\*\*)[\s\S]*$/i;
+/** How long one turn may run before it is stopped: `VOCION_TURN_DEADLINE_MS`, default eight minutes. Read per turn so a test can shorten it. */
+function turnDeadlineMs(): number {
+  const raw = Number(process.env.VOCION_TURN_DEADLINE_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 8 * 60 * 1000;
+}
+const NARRATED_TOOL_TAIL = new RegExp(`\\n\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(?:${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|[\\s*_\`]*(?:${TOOL_NAMES})[*_\`]*\\s*$|\\n\\s*(?:\\*\\*|#{1,4}\\s*)?\`?(?:${TOOL_NAMES})\\b[^\\n]*\\n\\s*\`\`\`[a-z]*\\n[\\s\\S]*$`);
 
 /* ------------------------------------------------------------------ */
 /* Load agent config                                                   */
@@ -183,20 +288,25 @@ export type TurnGuaranteeInput = {
   /** The answer the turn produced. */
   response: string;
   toolCalls: ReadonlyArray<{ tool: string; input?: Record<string, unknown>; output?: string }>;
+  /** The turn's last event was a tool result, not words — it owes an answer whatever its length. */
+  endedOnTool?: boolean;
   failures: ReadonlyArray<TurnFailure>;
   failedDelegations: ReadonlyArray<FailedDelegation>;
   systemPrompt?: string;
   emit: (event: AgentEvent) => void;
   /** Injected in tests; the harness passes the real gated pass. */
   compose?: Parameters<typeof runDeliverableBackstop>[0]['compose'];
+  /** The answer pass for a stalled turn; injected in tests. */
+  answer?: AnswerComposer;
 };
 
 /**
  * Everything a finished turn owes the person, applied in code rather than
  * asked for in a prompt:
  *
- *   1. a failed delegation is stated in the answer, and
- *   2. a turn sent with `deliverable: 'artifact'` ends with an artifact.
+ *   1. a failed delegation is stated in the answer,
+ *   2. a write the answer claims as done is a write that ran, and
+ *   3. a turn sent with `deliverable: 'artifact'` ends with an artifact.
  *
  * Runs for EVERY harness target — it reads the finished text and the tool
  * calls, which all of them return — so the guarantee does not depend on where
@@ -216,9 +326,56 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
     input.emit({ type: 'response_delta', delta });
   };
 
+  // A TURN THAT WORKED AND DID NOT ANSWER IS ANSWERED HERE — before anything
+  // else is appended, so what follows reads under an answer and not under a
+  // preamble (services/agents/answerBackstop.ts).
+  try {
+    // The answer streams as it is written: the first delta opens the
+    // paragraph, the rest follow it, and `text` holds exactly what was sent.
+    let streamed = false;
+    const onDelta = (delta: string): void => {
+      if (!streamed) {
+        streamed = true;
+        // Leading whitespace would stack under the break that opens the answer.
+        const lead = `${text.trim().length > 0 ? '\n\n' : ''}${delta.trimStart()}`;
+        text = `${text}${lead}`;
+        input.emit({ type: 'response_delta', delta: lead });
+        return;
+      }
+      text = `${text}${delta}`;
+      input.emit({ type: 'response_delta', delta });
+    };
+    const answered = await runAnswerBackstop({
+      orgId: input.orgId,
+      request: input.request,
+      finalText: text,
+      toolCalls: input.toolCalls,
+      endedOnTool: input.endedOnTool === true,
+      systemPrompt: input.systemPrompt,
+      compose: input.answer ?? composeAnswerWithModel,
+      onDelta,
+    });
+    // A composer that does not stream (tests, a provider without it) still
+    // answers: the whole answer goes out as one delta, as before.
+    if (answered && !streamed) {
+      append(answered);
+    }
+  } catch (err) {
+    console.warn(`answer backstop failed for org ${input.orgId} agent ${input.agentSlug}: ${(err as Error).message}`);
+  }
+
   const notice = delegationFailureNotice(input.failedDelegations, text);
   if (notice) {
     append(notice);
+  }
+
+  // A WRITE CLAIMED WITH NO WRITE BEHIND IT is corrected here, after the
+  // answer pass, so a claim that pass made is checked too (finding 23,
+  // services/agents/writeClaim.ts).
+  const unbacked = unbackedWriteNotice(text, input.toolCalls);
+  if (unbacked) {
+    console.warn(`turn claimed a write with none behind it for org ${input.orgId} agent ${input.agentSlug}: "${writeClaim(text)}"`);
+    append(unbacked);
   }
 
   if (input.deliverable === 'artifact') {
@@ -391,7 +548,7 @@ export async function runAgentDeep(opts: {
    * graded as that one thing. See `services/evals/sessionIds.ts`.
    */
   sessionId?: string;
-  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  conversationHistory?: HistoryTurn[];
   /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
   pageContext?: import('./chat/pageContext').PageContext;
   /** The person's IANA time zone for this turn (from the browser); the workspace's when absent. */
@@ -542,7 +699,7 @@ export async function runAgentDeep(opts: {
       ?? defaultHarnessTargetFor(harness?.modelProvider);
   if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
-    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, onEvent: run }));
+    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, conversationHistory: flatHistory(opts.conversationHistory), onEvent: run }));
   }
   if (target === 'external-worker') {
     // ADR 0004: Vocion is the control plane, a process it does not host does the
@@ -553,7 +710,7 @@ export async function runAgentDeep(opts: {
   }
   if (target === 'aws-managed-harness' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
-    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, onEvent: run }));
+    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, conversationHistory: flatHistory(opts.conversationHistory), onEvent: run }));
   }
 
   // The person's per-thread choice of model and thinking, mapped onto the
@@ -567,7 +724,7 @@ export async function runAgentDeep(opts: {
   // The graph and its tools are compiled for THIS turn, on this person's
   // context. Nothing here is shared with a turn running beside it — which is
   // what a shared, overwritten context cost us (harness.ts, issue #109).
-  const compiled = await compileAgentForRequest(
+  let compiled = await compileAgentForRequest(
     opts.orgId,
     opts.agentSlug,
     {
@@ -600,6 +757,14 @@ export async function runAgentDeep(opts: {
   // only sees the turn's start, and a long turn used to spend past its cap
   // until it finished (#272). A turn that crossed on its final answer keeps it.
   const budgetGuard = new TurnBudgetGuard(opts.orgId, opts.agentSlug);
+  // A TURN ENDS. Walk 15's third turn (2026-09-25, conversation 217) never
+  // persisted: a model call that never returned held the route's finally,
+  // and the row, for as long as the process lived (finding 22). The graph
+  // runs under the budget signal AND a wall-clock deadline; past it the turn
+  // ends incomplete with what it said so far, and says why.
+  const deadlineMs = turnDeadlineMs();
+  const deadline = AbortSignal.timeout(deadlineMs);
+  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline]);
 
   // What this run cost, summed over every model turn the callback sees.
   const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
@@ -659,9 +824,21 @@ export async function runAgentDeep(opts: {
     emit({ type: 'memories_mounted', paths: memoryPaths });
   }
 
+  // A past agent turn is replayed as what it DID — its tool calls, each
+  // result, the card it put up — then what it said, so the model binds
+  // "approve" to a call it made and never re-plans a lookup it already ran
+  // (`services/chat/historyTools.ts`). A person's turn is their words.
+  const { AIMessage, HumanMessage, ToolMessage } = await import('@langchain/core/messages');
   const history = (opts.conversationHistory ?? [])
-    .filter(t => t.content.trim().length > 0)
-    .map(t => ({ role: t.role, content: t.content }));
+    .filter(t => t.content.trim().length > 0 || t.runs)
+    .flatMap((t): BaseMessage[] => {
+      if (t.role === 'user') {
+        return [new HumanMessage(t.content)];
+      }
+      return historyMessages(t).map(m => m.role === 'tool'
+        ? new ToolMessage({ content: m.content, tool_call_id: m.toolCallId, name: m.name })
+        : new AIMessage({ content: m.content, tool_calls: m.toolCalls.map(c => ({ id: c.id, name: c.name, args: c.args, type: 'tool_call' as const })) }));
+    });
 
   // The agent's system prompt is supplied to the graph via createDeepAgent's
   // `systemPrompt` (see runtime.ts). It must NOT also appear here — deepagents
@@ -711,6 +888,26 @@ export async function runAgentDeep(opts: {
   // post-run buffering.
   const answerStreamer = new AnswerStreamer();
   let answering = false;
+  // THE INVARIANT: a turn ends with words after its last tool call. False
+  // from a tool result until the next answer text; a turn that ends false
+  // (production turn 579, 2026-09-24: six lookups after a self-correction,
+  // then silence) owes an answer whatever its length says.
+  let answeredSinceTool = true;
+  // A malformed tool call is retried once, not fatal — see the catch below.
+  let toolErrorRetried = false;
+  let thoughtOnlyRetried = false;
+  // The late narrated-call re-entry runs at most once (see below).
+  let narratedNudged = false;
+  // A RE-ENTRY CARRIES WHAT THE TOOLS RETURNED. `runGraph` starts a fresh
+  // graph from text messages, so the previous pass's tool calls and results
+  // were not in the new pass's context at all: mission run 5081 (2026-09-25,
+  // backlog 006) — "no read ever returned — my context holds the mission
+  // brief and nothing from the record" — read the same record four times
+  // across passes and never wrote. Every re-entry's instruction now ends with
+  // the turn's tool results, capped the way the answer pass caps them.
+  const withResults = (instruction: string): string => (toolCallLog.length === 0
+    ? instruction
+    : `${instruction}\n\nWhat your tool calls in this turn returned (they ran; do not repeat them):\n\n${evidenceBlock(toolCallLog)}`);
   // The lead's most recent model-turn namespace, so a scratch tail released
   // at flush lands on the reasoning node of the turn that wrote it.
   let leadNs = '';
@@ -734,11 +931,13 @@ export async function runAgentDeep(opts: {
   // Unset leaves deepagents' own recursionLimit in charge — see stepLimit.ts.
   const maxSteps = compiled.agentRow.harnessConfig?.maxSteps;
 
-  try {
-    const stream = await compiled.graph.streamEvents(input as never, {
+  // The loop, as a function, so a turn that ended on a promise can re-enter
+  // it ONCE with the promise as the assistant's own last words (see below).
+  const runGraph = async (graphInput: typeof input): Promise<void> => {
+    const stream = await compiled.graph.streamEvents(graphInput as never, {
       version: 'v2',
       callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard)],
-      signal: budgetGuard.signal,
+      signal: turnSignal,
       ...stepLimitStreamConfig(maxSteps),
     } as never);
 
@@ -818,6 +1017,7 @@ export async function runAgentDeep(opts: {
             const { answer, thinking: scratch, closed } = answerStreamer.push(text);
             routeScratch(scratch, closed);
             if (answer) {
+              answeredSinceTool = true;
               if (!answering) {
                 answering = true;
                 emit({ type: 'answering' });
@@ -869,6 +1069,7 @@ export async function runAgentDeep(opts: {
             const outputStr = outputFull.slice(0, 2000);
             emit({ type: 'tool_end', tool, input, output: outputStr });
             toolCallLog.push({ tool, input, output: outputFull });
+            answeredSinceTool = false;
           }
           break;
         }
@@ -896,48 +1097,229 @@ export async function runAgentDeep(opts: {
     // Note: per-actor citations ride on the `trace_node` events (so the trace
     // can show "found by <specialist>"); the Sources drawer keeps using the
     // richer `documents` event the search tool emits via ctx.emit.
+  };
+
+  try {
+    await runGraph(input);
+
+    // A TURN THAT ENDED ON A PROMISE CONTINUES, ONCE. "Let me look" — and the
+    // model ended its turn, zero tool calls (production turn 577, 2026-09-24,
+    // Chris: "I see lookup happen. Then end!?!"). The answer pass can only
+    // compose from what the tools found, and here nothing was found. So the
+    // loop re-enters with the promise as the assistant's own last words and
+    // one instruction: do what you said, now, and answer. Tools are on.
+    // Bounded to one continuation; after that the answer pass says what it
+    // honestly can.
+    {
+      const held = answerStreamer.flush();
+      routeScratch(held.thinking, false);
+      if (held.answer) {
+        finalText += held.answer;
+        emit({ type: 'response_delta', delta: held.answer });
+      }
+      const soFar = normalizeAnswerHtml(finalText).trim();
+      // The other way a turn ends without doing what it said: the model
+      // writes a tool's NAME as its last word instead of calling it —
+      // production turn 595 (2026-09-24) ended "…the card is below.
+      // recommend_action" and no card existed. That word is not an answer
+      // either; it is stripped, and the loop re-enters once to make the call.
+      const narrated = NARRATED_TOOL.exec(soFar);
+      // The seventh shape: NOTHING — no words, no tool call, no error
+      // (reference run 4, cases 1, 8 and 13: an empty completion the loop
+      // accepted). An empty turn is not an answer either.
+      const empty = soFar.length === 0 && toolCallLog.length === 0;
+      const callsBeforeContinuation = toolCallLog.length;
+      const continued = empty || (soFar.length > 0 && (preambleOnly(soFar) || narrated));
+      if (continued) {
+        const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? narrated[3] ?? 'a tool') : null;
+        const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
+        console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
+        if (narrated) {
+          narratedNudged = true;
+          finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
+        }
+        finalText += '\n\n';
+        emit({ type: 'response_delta', delta: '\n\n' });
+        const nudge = empty
+          ? 'You returned nothing — no words and no tool call. Answer the person now: run the lookups you need and reply in one screen.'
+          : narrated
+            ? `Your last message wrote "${narratedName}" as text — the name of a tool, or a block shaped like a call — instead of calling it. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
+            : `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.`;
+        await runGraph({
+          ...input,
+          messages: [
+            ...input.messages,
+            ...(empty ? [] : [{ role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar }]),
+            { role: 'user', content: withResults(nudge) },
+          ],
+        } as typeof input);
+      }
+      // A CONTINUATION THAT WORKED AND STOPPED AGAIN KEEPS GOING. The one
+      // continuation does the reads it promised and then the turn ends on a
+      // tool result — no write, no words — and the tool-less answer pass
+      // composes the rest. With no tools it can only describe the write: on
+      // mission run 5074 (2026-09-25, backlog 006) it wrote the whole
+      // update_object payload out and said "The call returned. Fields
+      // written", and nothing was. While the last pass made progress (new
+      // tool calls) and ended on a tool result, the loop re-enters, at most
+      // twice more; a pass that makes no call, or answers, ends it.
+      if (continued) {
+        let mark = callsBeforeContinuation;
+        for (let extra = 0; extra < 2; extra++) {
+          const progressed = toolCallLog.length > mark;
+          if (!progressed || answeredSinceTool) {
+            break;
+          }
+          mark = toolCallLog.length;
+          console.warn('agent turn: the continuation worked and stopped on a tool result; once more', { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, extra: extra + 1 });
+          await runGraph({
+            ...input,
+            messages: [
+              ...input.messages,
+              ...(normalizeAnswerHtml(finalText).trim() ? [{ role: 'assistant', content: normalizeAnswerHtml(finalText).trim() }] : []),
+              { role: 'user', content: withResults('You have the results of the reads you just made. Now do what the person asked — make the write (call the tool) if one is owed — and then answer in one screen. Do not read again what you already read. Never write a tool call as text.') },
+            ],
+          } as typeof input);
+        }
+      }
+      // A CALL WRITTEN OUT AFTER THE CONTINUATION. The one continuation can
+      // be spent on a preamble ("I'll start by reading the request"), and the
+      // pass it buys then does the reads and WRITES the write as a heading
+      // over a JSON block — mission run 5067 (2026-09-25, backlog 006):
+      // "**update_object** — request #30", the full payload, "Calling
+      // update_object now", and no call. Nothing looked at the text a second
+      // time, so the row stayed empty. When the answer now ends in a call to
+      // a tool that was not the last one made, the loop re-enters once more,
+      // naming the tool.
+      {
+        const tail = normalizeAnswerHtml(finalText).trim();
+        const late = NARRATED_TOOL.exec(tail);
+        const lateName = late ? (late[1] ?? late[2] ?? late[3] ?? null) : null;
+        if (lateName && !narratedNudged && toolCallLog.at(-1)?.tool !== lateName) {
+          narratedNudged = true;
+          finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
+          console.warn(`agent turn: wrote a ${lateName} call out after continuing; once more to make it`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length });
+          await runGraph({
+            ...input,
+            messages: [
+              ...input.messages,
+              { role: 'assistant', content: tail },
+              { role: 'user', content: withResults(`Your last message wrote a ${lateName} call out as text instead of calling it, so nothing was written. Call ${lateName} now with exactly the arguments your message described, then reply in one sentence. Never write a tool call as text.`) },
+            ],
+          } as typeof input);
+        }
+      }
+      // THOUGHT, AND SAID NOTHING. A turn that ends with no words and no tool
+      // call after the continuation is the model spending its whole output
+      // on thinking (MCP turns 667 and 675, 2026-09-25: two reasoning nodes,
+      // zero characters, twice). The words are not coming from that
+      // configuration: compile once more with thinking off and run again.
+      const stillEmpty = normalizeAnswerHtml(finalText).trim().length === 0 && toolCallLog.length === 0 && emittedCards.length === 0;
+      if (stillEmpty && !thoughtOnlyRetried) {
+        thoughtOnlyRetried = true;
+        console.warn('agent turn: thought and said nothing; once more without thinking', { orgId: opts.orgId, agentSlug: opts.agentSlug });
+        compiled = await compileAgentForRequest(
+          opts.orgId,
+          opts.agentSlug,
+          {
+            emit,
+            userId: opts.userId,
+            allowedSourceSlugs: opts.allowedSourceSlugs,
+            missionSlug: opts.missionSlug,
+            missionRunId: opts.missionRunId,
+            conversationId: opts.conversationId,
+            pageContext: opts.pageContext,
+            timeZone: opts.timeZone,
+          },
+          // A ModelOverride names its model; without one the provider lookup
+          // trims undefined and the turn dies (MCP turn, 2026-09-25 04:26Z,
+          // finding 25). The retry keeps the model the turn already chose.
+          { modelOverride: { ...(modelOverride ?? {}), model: modelOverride?.model ?? chatModelOptionsFor(harness ?? {}).model ?? resolvedModelId('main'), ...((modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider) ? { provider: modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider } : {}), thinking: 'off' } },
+        );
+        await runGraph({
+          ...input,
+          messages: [
+            ...input.messages,
+            { role: 'user', content: withResults('Your last two attempts produced no words and no tool calls. Answer now in plain text, or make the tool calls you need — say what you found and what you did.') },
+          ],
+        } as typeof input);
+      }
+    }
 
     // Give late step names a moment to land before the turn closes, so the
     // persisted trace reads like the live one did. Never more than a beat.
     if (labelJobs.length > 0) {
       await Promise.race([Promise.allSettled(labelJobs), new Promise(r => setTimeout(r, 1500))]);
     }
-  } catch (err) {
+  } catch (caught) {
+    let err: unknown = caught;
+    let recovered = false;
+    // A MALFORMED TOOL CALL IS NOT THE END OF THE TURN. deepagents' own tools
+    // throw on a schema miss and the throw leaves the graph (verified live,
+    // harness.ts); production turn 614 (2026-09-24) died on `read_file`
+    // called with no arguments — the person saw one preamble and "incomplete".
+    // The error goes back to the model once, as the instruction, tools on.
+    if (isToolInputError(caught) && !toolErrorRetried) {
+      toolErrorRetried = true;
+      const detail = (caught as Error).message.replace(/\s+/g, ' ').slice(0, 300);
+      console.warn('agent turn: malformed tool call, continuing once', { orgId: opts.orgId, agentSlug: opts.agentSlug, detail });
+      try {
+        const soFar = normalizeAnswerHtml(finalText).trim();
+        await runGraph({
+          ...input,
+          messages: [
+            ...input.messages,
+            ...(soFar ? [{ role: 'assistant', content: soFar }] : []),
+            { role: 'user', content: withResults(`Your last tool call was rejected: ${detail}. Call it again with valid arguments, or do without it — and answer. Do not stop.`) },
+          ],
+        } as typeof input);
+        recovered = true;
+      } catch (again) {
+        err = again;
+      }
+    }
+    if (!recovered) {
     // A budget stop ends the turn as a refusal carrying the cap that was hit —
     // whatever the aborted stream threw on its way out. A step-limit stop is
     // reworded for the person; anything else keeps its own message.
-    const budgetStop = budgetGuard.stopError();
-    if (budgetStop) {
+      const budgetStop = budgetGuard.stopError();
+      if (budgetStop) {
       // Almost always the abort itself; logged in case something else broke
       // as the stop landed, since the person only sees the budget message.
-      console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
-    }
-    const { message, rethrow } = budgetStop
-      ? { message: budgetStop.message, rethrow: budgetStop }
-      : describeTurnFailure(err, maxSteps);
-    // The run died. Close anything still open as a FAILURE first, so the
-    // persisted trace carries a terminal node instead of stopping at
-    // "Delegating to <specialist>" — the exact trace this turn used to leave.
-    const stillDelegating = tracer.openDelegationNames();
-    for (const node of tracer.closeDelegations(message)) {
-      emit(node);
-    }
-    for (const name of stillDelegating) {
-      if (!failedDelegations.some(f => f.name === name)) {
-        failedDelegations.push({ name, message });
+        console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
       }
-      emit({ type: 'tool_error', tool: 'task', message });
+      if (!budgetStop && deadline.aborted) {
+        console.warn('agent turn: ran past the deadline and was stopped', { orgId: opts.orgId, agentSlug: opts.agentSlug, deadlineMs, toolCalls: toolCallLog.length, textChars: finalText.length });
+      }
+      const { message, rethrow } = budgetStop
+        ? { message: budgetStop.message, rethrow: budgetStop }
+        : deadline.aborted
+          ? { message: `the turn ran past the ${Math.round(deadlineMs / 60_000)}-minute limit and was stopped; what it said so far is kept`, rethrow: new Error(`the turn ran past the ${Math.round(deadlineMs / 60_000)}-minute limit and was stopped`) }
+          : describeTurnFailure(err, maxSteps);
+      // The run died. Close anything still open as a FAILURE first, so the
+      // persisted trace carries a terminal node instead of stopping at
+      // "Delegating to <specialist>" — the exact trace this turn used to leave.
+      const stillDelegating = tracer.openDelegationNames();
+      for (const node of tracer.closeDelegations(message)) {
+        emit(node);
+      }
+      for (const name of stillDelegating) {
+        if (!failedDelegations.some(f => f.name === name)) {
+          failedDelegations.push({ name, message });
+        }
+        emit({ type: 'tool_error', tool: 'task', message });
+      }
+      // There will be no answer, so the words have to go into the transcript
+      // here — a badge in the trace is not the person being told.
+      const notice = delegationFailureNotice(failedDelegations, finalText);
+      if (notice) {
+        emit({ type: 'response_delta', delta: `${finalText.trim().length > 0 ? '\n\n' : ''}${notice}` });
+      }
+      emit({ type: 'error', message });
+      trace.update({ output: { error: message } });
+      await flushTraces();
+      throw rethrow;
     }
-    // There will be no answer, so the words have to go into the transcript
-    // here — a badge in the trace is not the person being told.
-    const notice = delegationFailureNotice(failedDelegations, finalText);
-    if (notice) {
-      emit({ type: 'response_delta', delta: `${finalText.trim().length > 0 ? '\n\n' : ''}${notice}` });
-    }
-    emit({ type: 'error', message });
-    trace.update({ output: { error: message } });
-    await flushTraces();
-    throw rethrow;
   }
 
   // Release any held-back tail (partial-tag boundary) from the streamer. A
@@ -950,51 +1332,17 @@ export async function runAgentDeep(opts: {
     emit({ type: 'response_delta', delta: tail.answer });
   }
   finalText = normalizeAnswerHtml(finalText).trim();
+  // Whatever happened above, a tool's bare name is never the last word of an
+  // answer: if the continuation narrated it again, it goes, and the log says so.
+  if (NARRATED_TOOL.test(finalText)) {
+    console.warn('agent turn: narrated tool name stripped from the answer', { orgId: opts.orgId, agentSlug: opts.agentSlug });
+    finalText = finalText.replace(NARRATED_TOOL_TAIL, '').trim();
+  }
   if (createdRecords.length > 0) {
     const linked = appendRecordLinks(finalText, createdRecords);
     if (linked !== finalText) {
       emit({ type: 'response_delta', delta: linked.slice(finalText.length) });
       finalText = linked;
-    }
-  }
-
-  // Card backstop (structural, workspace-opt-in): prompt compliance for
-  // recommend_action proved unreliable — a long tool output (the daily brief)
-  // anchors the model into prose mode and cards drop from 3 to 0. When the
-  // agent's harness sets recommendActionBackstop and this turn emitted ZERO
-  // cards, run one focused pass over the finished answer whose only job is
-  // emitting the cards the agent's own rules require. Tool execution emits
-  // the recommended_action events through the same request emit.
-  // Fires on UNDER-carding too (< 3), not just zero — a single card must not
-  // suppress the pass when the answer names several owed touches. The pass
-  // sees what's already carded and only tops up the missing ones.
-  const backstopOn = (compiled.agentRow.harnessConfig as { recommendActionBackstop?: boolean } | null)?.recommendActionBackstop === true;
-  if (backstopOn && emittedCards.length < 3 && finalText.length > 300) {
-    try {
-      const { recommendActionTool } = await import('./agents/tools/recommendAction');
-      const recTool = recommendActionTool(compiled.ctx);
-      const { buildChatModelForOrg } = await import('@/libs/llm');
-      const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-      const base = await buildChatModelForOrg('main', opts.orgId, { temperature: 0, streaming: false, maxTokens: 4000 });
-      if (!base.bindTools) {
-        throw new Error('model does not support tools');
-      }
-      const model = base.bindTools([recTool]);
-      const already = emittedCards.length > 0
-        ? `\nAlready carded (do NOT duplicate these): ${emittedCards.map(l => `"${l}"`).join(', ')}.`
-        : '';
-      const sys = `${compiled.agentRow.systemPrompt ?? ''}\n\nBACKSTOP PASS: the answer below was ALREADY delivered to the user — do not rewrite it. Your ONLY job now: emit the recommend_action tool calls your rules above require for the owed/actionable touches NAMED in that answer (top 3–5 by leverage).${already} Real, ready-to-send bodies. If every named touch is already carded or none are actionable, call nothing. Output tool calls only — no prose.`;
-      const res = await model.invoke(
-        [new SystemMessage(sys), new HumanMessage(finalText)],
-        { signal: AbortSignal.timeout(45_000) },
-      );
-      for (const call of res.tool_calls ?? []) {
-        if (call.name === 'recommend_action') {
-          await recTool.invoke(call.args as never);
-        }
-      }
-    } catch {
-      /* backstop is best-effort — never fails the turn */
     }
   }
 
@@ -1009,11 +1357,124 @@ export async function runAgentDeep(opts: {
     request: opts.message,
     response: finalText,
     toolCalls: toolCallLog,
+    endedOnTool: toolCallLog.length > 0 && !answeredSinceTool,
     failures,
     failedDelegations,
     systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
     emit,
   });
+
+  // Card backstop (structural, workspace-opt-in) — AFTER the guarantees, so
+  // it reads the answer the person actually got. It used to run before the
+  // answer pass, saw only a short preamble, and never fired on a turn the
+  // pass had answered (three PM turns on 2026-09-24, zero cards, no log).: prompt compliance for
+  // recommend_action proved unreliable — a long tool output (the daily brief)
+  // anchors the model into prose mode and cards drop from 3 to 0. When the
+  // agent's harness sets recommendActionBackstop and this turn emitted ZERO
+  // cards, run one focused pass over the finished answer whose only job is
+  // emitting the cards the agent's own rules require. Tool execution emits
+  // the recommended_action events through the same request emit.
+  // Fires on UNDER-carding too (< 3), not just zero — a single card must not
+  // suppress the pass when the answer names several owed touches. The pass
+  // sees what's already carded and only tops up the missing ones.
+  const backstopOn = (compiled.agentRow.harnessConfig as { recommendActionBackstop?: boolean } | null)?.recommendActionBackstop === true;
+  let cardsOnScreen = emittedCards.length;
+  if (backstopOn && emittedCards.length < 3 && finalText.length > 300) {
+    try {
+      const { recommendActionTool } = await import('./agents/tools/recommendAction');
+      const recTool = recommendActionTool(compiled.ctx);
+      const { buildChatModelForOrg } = await import('@/libs/llm');
+      const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+      const base = await buildChatModelForOrg('main', opts.orgId, { temperature: 0, streaming: true, maxTokens: 4000 });
+      if (!base.bindTools) {
+        throw new Error('model does not support tools');
+      }
+      const model = base.bindTools([recTool]);
+      const already = emittedCards.length > 0
+        ? `\nAlready carded (do NOT duplicate these): ${emittedCards.map(l => `"${l}"`).join(', ')}.`
+        : '';
+      const sys = `${compiled.agentRow.systemPrompt ?? ''}\n\nBACKSTOP PASS: the answer below was ALREADY delivered to the user — do not rewrite it. Your ONLY job now: emit the recommend_action tool calls your rules above require for the owed/actionable touches NAMED in that answer (top 3–5 by leverage).${already} Real, ready-to-send bodies. If every named touch is already carded or none are actionable, call nothing. Output tool calls only — no prose.`;
+      let emitted = 0;
+      let refused = 0;
+      // The tool REFUSES a card whose action is unknown or whose input
+      // fails the action's schema, and emits nothing. For a day every such
+      // refusal counted here as a card on screen (finding 20, 2026-09-25:
+      // "emitted: 1", no card anywhere). A refused recommendation is still
+      // the agent's recommendation: it goes up without the pressable action,
+      // so the person reads it and the log says what to fix.
+      // The model's call may miss the tool's OWN schema (no action_input,
+      // no label) and the tool throws — on walk 16 (2026-09-25) that threw
+      // out of the loop and took every other card with it. Each call is
+      // shaped first, and a call that still fails is one refusal, not the
+      // end of the pass.
+      const putUp = async (args: Record<string, unknown>): Promise<void> => {
+        const shaped = shapeRecommendCall(args);
+        const first = await invokeRecommend(recTool, shaped);
+        if (first.ok) {
+          emitted += 1;
+          return;
+        }
+        refused += 1;
+        // The tool's schema wants both fields; empty is "no action", which it accepts and emits.
+        const second = await invokeRecommend(recTool, { ...shaped, action_id: '', action_input: {} });
+        if (second.ok) {
+          emitted += 1;
+        }
+        console.warn('card backstop: a recommendation was refused and re-put without its action', { orgId: opts.orgId, agentSlug: opts.agentSlug, label: shaped.label, reason: first.error, shown: second.ok });
+      };
+      // STREAMED, one card at a time. The pass writes three to five cards
+      // with ready-to-send bodies; as one `invoke` every card waited for the
+      // last, and the person waited ~40s after the answer for any of them
+      // (Chris, 2026-09-25). A call is complete when the next one starts, or
+      // when the stream ends, and it goes up the moment it is.
+      const pending = new Map<number, { name?: string; args: string }>();
+      const flush = async (index: number): Promise<void> => {
+        const call = pending.get(index);
+        pending.delete(index);
+        if (!call || call.name !== 'recommend_action') {
+          return;
+        }
+        await putUp(parseCallArgs(call.args));
+      };
+      const stream = await model.stream([new SystemMessage(sys), new HumanMessage(finalText)], { signal: AbortSignal.timeout(45_000) });
+      for await (const chunk of stream) {
+        for (const part of (chunk as { tool_call_chunks?: Array<{ index?: number; name?: string; args?: string }> }).tool_call_chunks ?? []) {
+          const index = part.index ?? 0;
+          if (!pending.has(index)) {
+            // A new call began: every earlier one is finished.
+            for (const done of [...pending.keys()].filter(k => k < index)) {
+              await flush(done);
+            }
+            pending.set(index, { args: '' });
+          }
+          const call = pending.get(index)!;
+          call.name = call.name || part.name;
+          call.args += part.args ?? '';
+        }
+      }
+      for (const index of [...pending.keys()].sort((a, b) => a - b)) {
+        await flush(index);
+      }
+      // Say what happened: a silent backstop cannot be told from one that
+      // never ran (2026-09-24: eight production turns, zero cards, no way to
+      // know which). One line per pass, in the app log.
+      cardsOnScreen += emitted;
+      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length, emitted, refused, textChars: finalText.length });
+    } catch (err) {
+      /* backstop is best-effort — never fails the turn */
+      console.warn('card backstop failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
+    }
+  } else if (emittedCards.length === 0 && finalText.length > 300) {
+    console.warn('card backstop skipped', { orgId: opts.orgId, agentSlug: opts.agentSlug, backstopOn, textChars: finalText.length });
+  }
+  // A card is a tool call, never prose. With a real card on screen, a "CARD —
+  // Approve build: …" block the model wrote out by hand (production turn 642,
+  // 2026-09-24: the whole card as markdown, then the real one under it) is
+  // the same card twice, once un-pressable. It goes; `done` carries the text.
+  if (cardsOnScreen > 0 && NARRATED_CARD.test(finalText)) {
+    console.warn('agent turn: narrated card stripped from the answer', { orgId: opts.orgId, agentSlug: opts.agentSlug, cardsOnScreen });
+    finalText = finalText.replace(NARRATED_CARD, '').trim();
+  }
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
 

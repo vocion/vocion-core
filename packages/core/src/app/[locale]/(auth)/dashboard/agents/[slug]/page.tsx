@@ -3,7 +3,6 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { createElement } from 'react';
 import { AgentMemoryPanel } from '@/features/agents/AgentMemoryPanel';
-import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
@@ -132,7 +131,6 @@ export default async function AgentDetailPage(props: {
             <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground/80">
               {roleLabel}
             </span>
-            <AskAboutThis record={recordRef('agent', agent.slug, agent.name)} agentSlug={agent.slug} label="Ask this agent" className="ml-auto" />
             <RecordContext record={recordRef('agent', agent.slug, agent.name)} />
           </div>
 

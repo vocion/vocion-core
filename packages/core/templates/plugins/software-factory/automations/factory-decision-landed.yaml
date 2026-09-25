@@ -1,0 +1,40 @@
+# The moment a person decides a build card, the record learns it and the
+# work starts — or parks, or stops. This is the step that makes the card the
+# commitment: approving it freezes the acceptance criteria as the contract
+# and queues the engineer; nothing executed before the decision, and nothing
+# is renegotiated after it without saying so (review, 2026-09-24).
+slug: factory-decision-landed
+name: A build decision landed
+description: >-
+  Fires when a person decides one of the PM's recommendation asks. Approve:
+  freeze the acceptance criteria (`acceptanceFrozenAt`), move the request to
+  `in_scope`, promote the draft contract and queue the engineer. Request
+  changes: reopen the draft with the person's note and come back with one
+  card, not a conversation. Defer: `state: deferred`, `deferReason` and
+  `deferredUntil` from the note, re-surfaced when the date passes and never
+  before. Reject: `decisionReason`, and the request is not asked again.
+status: active
+agent: product-manager
+when:
+  event: ask.decided
+  filter:
+    agentSlug: product-manager
+    kind: recommendation
+do:
+  checkMission: close-the-gap
+  prompt: >-
+    A person decided one of your build cards; the event carries the ask, its
+    decision and note, and the request and draft task it named. Write the
+    decision on the request now, through update_object, and do only what the
+    decision says. approve-build: set acceptanceFrozenAt to now, state
+    in_scope, recommendationState approved, decidedAt; move the draft task to
+    status new so the engineer can claim it, and say exactly which step
+    queues the run. request-changes: keep the draft, write the note as
+    decisionReason, revise the contract or the card to answer it, and file
+    one revised card — not a thread. defer: state deferred,
+    recommendationState deferred, deferReason from the note, deferredUntil
+    from the date or condition in it (ask for one in a single line if the
+    note has none); do not re-surface it before then. reject:
+    recommendationState rejected, decisionReason from the note; never ask
+    again. Report in one line: request, decision, what you wrote, what
+    happens next.

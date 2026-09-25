@@ -21,7 +21,7 @@
 
 import type { ArtifactKind } from '@/libs/cards/specs';
 import type { ArtifactPayload } from '@/services/agents/types';
-import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { ARTIFACT_KINDS, SPEC_SCHEMA_FOR_KIND } from '@/libs/cards/specs';
 import { db } from '@/libs/DB';
 import { artifactSchema, artifactVersionSchema, conversationSchema } from '@/models/Schema';
@@ -432,10 +432,28 @@ export async function restoreArtifactVersion(opts: { orgId: string; id: number; 
  * @param opts.userId - The person choosing — the owner when the audience is `me`.
  */
 export async function setArtifactShare(opts: { orgId: string; id: number; audience: 'me' | 'workspace' | 'anyone'; userId: string | null }): Promise<ArtifactRow | null> {
+  // An artifact narrowed to `me` belongs to the person who narrowed it, and
+  // only they may widen it again. Without this, any member of the org could
+  // flip someone else's private document to `anyone` and be handed the public
+  // link in the same response — the org check alone never looked at the owner.
+  //
+  // `workspace` and `anyone` rows carry no owner and stay changeable by any
+  // member, which is exactly what they already were, so nobody loses a
+  // capability they had. A caller with no user id (an API token) can never
+  // satisfy the owner match, so it cannot re-share a private artifact either.
+  // `me` with no owner is nobody's: it cannot happen through this function,
+  // which always stamps the chooser, but a row that reached that state some
+  // other way has no owner to protect and must not become unchangeable by
+  // everyone. So the refusal needs an owner to point at.
+  const unowned = or(ne(artifactSchema.shareAudience, 'me'), isNull(artifactSchema.shareOwnerId));
+  const ownerGate = opts.userId
+    ? or(unowned, eq(artifactSchema.shareOwnerId, opts.userId))
+    : unowned;
+
   const [row] = await db
     .update(artifactSchema)
     .set({ shareAudience: opts.audience, shareOwnerId: opts.audience === 'me' ? opts.userId : null })
-    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)))
+    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id), ownerGate))
     .returning();
   return row ?? null;
 }

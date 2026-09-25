@@ -47,12 +47,22 @@ export const BRIEFED_WINDOWS = [
 ] as const;
 export type BriefedWindow = (typeof BRIEFED_WINDOWS)[number]['key'];
 
+/**
+ * A lead whose last attempt failed: a regenerate that did not land, a draft
+ * or a brief that errored (Valerie, 2026-09-24: "a way in the personalization
+ * queue to filter for errors so that I can regenerate them in bulk"). A chip
+ * beside the briefed windows so it rides the same URL parameter to the bulk
+ * page, but it narrows rather than widens: the windows are OR'd together,
+ * and this one is AND'd with them.
+ */
+export const ERROR_CHIP = { key: 'errored', label: 'Has an error' } as const;
+
 /** The page opens where the work is; the clean URL means this state. */
 export const QUEUE_LIST: ListStateConfig = {
   defaults: { tab: 'ready_for_review', q: '', sort: 'arrived', dir: 'desc' as const, chips: [] },
   tabs: QUEUE_LANES.map(l => l.key),
   sorts: QUEUE_SORTS.map(s => s.key),
-  chips: BRIEFED_WINDOWS.map(w => w.key),
+  chips: [...BRIEFED_WINDOWS.map(w => w.key), ERROR_CHIP.key],
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -98,12 +108,14 @@ export function filterQueueRows(rows: readonly BriefRow[], view: QueueView, now:
     .filter(b => !q
       || b.contactName.toLowerCase().includes(q)
       || (b.companyName ?? '').toLowerCase().includes(q));
-  if (view.chips.length === 0) {
-    return inLane;
+  const errored = view.chips.includes(ERROR_CHIP.key) ? inLane.filter(b => Boolean(b.lastError)) : inLane;
+  const windows = view.chips.filter(c => c !== ERROR_CHIP.key);
+  if (windows.length === 0) {
+    return errored;
   }
-  return inLane.filter((b) => {
+  return errored.filter((b) => {
     const w = briefedWindowOf(b.briefedAt, now);
-    return w !== null && view.chips.includes(w);
+    return w !== null && windows.includes(w);
   });
 }
 
@@ -129,8 +141,59 @@ export function describeQueueView(view: QueueView): string {
   if (windows.length > 0) {
     parts.push(windows.join(' or '));
   }
+  if (view.chips.includes(ERROR_CHIP.key)) {
+    parts.push('with an error');
+  }
   if (view.q.trim()) {
     parts.push(`matching “${view.q.trim()}”`);
   }
   return parts.join(' · ');
+}
+
+/** A filter value meaning "leads with no value here" (no recommendation, no lead magnet). */
+export const BULK_NONE = '__none';
+
+/**
+ * What the bulk actions page filters on (Metacto ticket 076): the queue's
+ * lane, search and briefed windows, plus the recommended sequence, the lead
+ * magnet, and a "briefed before" moment. `rung` and `magnet` are an exact
+ * value, `BULK_NONE`, or '' for any. `before` is an ISO timestamp or ''.
+ */
+export type BulkFilter = QueueView & { rung: string; magnet: string; before: string };
+
+/**
+ * The rows the bulk page shows for a filter. Lane, search and windows are the
+ * queue's own rule, so a view opened from the queue shows the same rows.
+ * @param rows - Every brief row the page loaded.
+ * @param filter - The page's filters.
+ * @param now - The moment to bucket the briefed windows against.
+ */
+export function filterBulkRows(rows: readonly BriefRow[], filter: BulkFilter, now: number): BriefRow[] {
+  const before = filter.before ? new Date(filter.before).getTime() : Number.NaN;
+  const matches = (value: string | null | undefined, want: string) => want === '' || (want === BULK_NONE ? !value : value === want);
+  return filterQueueRows(rows, filter, now)
+    .filter(r => matches(r.recommendedSequence, filter.rung))
+    .filter(r => matches(r.utmContent, filter.magnet))
+    .filter((r) => {
+      if (Number.isNaN(before)) {
+        return true;
+      }
+      const t = r.briefedAt ? new Date(r.briefedAt).getTime() : Number.NaN;
+      return !Number.isNaN(t) && t < before;
+    });
+}
+
+/**
+ * The distinct values a column holds across the loaded rows, sorted, for a
+ * filter's options. Empty values are left out; `BULK_NONE` stands for them.
+ * @param rows - Every brief row the page loaded.
+ * @param pick - The column to read.
+ */
+export function distinctValues(rows: readonly BriefRow[], pick: (r: BriefRow) => string | null | undefined): string[] {
+  return [...new Set(rows.map(pick).filter((v): v is string => Boolean(v)))].sort((a, b) => a.localeCompare(b));
+}
+
+/** The server's clock, for a page that must hand the view a `now` (a component may not read one during render). */
+export function queueNow(): number {
+  return Date.now();
 }

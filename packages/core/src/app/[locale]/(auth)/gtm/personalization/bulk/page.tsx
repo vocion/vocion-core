@@ -1,15 +1,16 @@
 import { setRequestLocale } from 'next-intl/server';
 import { ListPage, parseListState } from '@/components/patterns';
 import { BulkActionsView } from '@/features/personalization/BulkActionsView';
-import { describeQueueView, filterQueueRowsNow, QUEUE_LIST } from '@/features/personalization/queueFilter';
+import { QUEUE_LIST, queueNow } from '@/features/personalization/queueFilter';
 import { loadQueueBriefRows } from '@/features/personalization/queueRows';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { BULK_MAX_LEADS } from '@/services/personalization/bulkRegenerate';
 
 /**
- * The bulk actions view (Metacto ticket 071). Opens on the leads the queue
- * was showing: the URL state the queue keeps (lane, search, briefed-window
- * chips) comes along on the link, and the same filter runs here.
+ * The bulk actions view (Metacto tickets 071 and 076). Opens on the leads the
+ * queue was showing, selected: the URL state the queue keeps (lane, search,
+ * briefed-window chips) comes along on the link and seeds the page's own
+ * filters. Every loaded row goes to the view, so a filter widened here finds
+ * leads the queue link had narrowed away.
  * @param props
  * @param props.params
  * @param props.searchParams
@@ -27,15 +28,15 @@ export default async function BulkActionsPage(props: {
   const sp = await props.searchParams;
   const search = new URLSearchParams(Object.entries(sp).flatMap(([k, v]) => (Array.isArray(v) ? v.map(x => [k, x]) : v === undefined ? [] : [[k, v]])) as [string, string][]).toString();
   const state = parseListState(search, QUEUE_LIST);
-  const view = { lane: state.tab, q: state.q, chips: state.chips };
-  const rows = filterQueueRowsNow(await loadQueueBriefRows(orgId), view);
+  const initial = { lane: state.tab, q: state.q, chips: state.chips, rung: '', magnet: '', before: '' };
+  const rows = await loadQueueBriefRows(orgId);
 
   return (
     <ListPage
       title="Bulk actions"
-      description="One action on every lead the queue was showing. Each lead is worked in turn on the work queue, and the next page shows each one land."
+      description="One action on the leads you select. It opens on the leads the queue was showing; filter and tick from there. Each lead is worked in turn on the work queue, and the next page shows each one land."
     >
-      <BulkActionsView rows={rows} viewLabel={describeQueueView(view)} max={BULK_MAX_LEADS} />
+      <BulkActionsView rows={rows} initial={initial} now={queueNow()} />
     </ListPage>
   );
 }

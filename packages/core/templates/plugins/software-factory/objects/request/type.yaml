@@ -21,7 +21,7 @@ schema:
         `gap` — something expected is missing. `idea` — something new. `incident`
         — something is down or wrong for people right now. `question` — the
         asker wants to know, not to change. Decides the default route: bugs and
-        incidents go to severity and a repo; ideas go to the twenty-percent test.
+        incidents go to severity and a repo; ideas go to the scope decision.
       enum: [bug, gap, idea, incident, question]
     channel:
       x-display: {label: Channel, format: badge, group: Where it came from, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
@@ -84,11 +84,36 @@ schema:
     evidence:
       x-display: {label: Evidence, role: prose, format: steps, order: 3}
       type: object
-      description: What the asker gave us to go on. Kept as links and artifact ids so the planner and the reviewer read the same thing the asker saw.
+      description: What the asker gave us to go on. Kept as links and artifact ids so the PM and QA read the same thing the asker saw.
       properties:
         urls: {type: array, items: {type: string}}
         videoUrl: {type: string}
         screenshotArtifactIds: {type: array, items: {type: integer}, description: 'Screenshots as core artifacts — versioned, previewable, one tap from the request.'}
+    gapCheck:
+      x-display: {label: Is the gap still there, role: prose, group: Triage, order: 4}
+      type: object
+      description: >-
+        Whether the thing being asked for is STILL missing from the running
+        product, read at the moment work was about to start rather than when
+        the ask arrived. A request records what was true the day somebody
+        asked; a product that ships most days makes that a perishable claim.
+        Required before a request may enter `in_scope` or `building`, refused
+        in code rather than asked for in a prompt
+        (`libs/actions/gapGate.ts`), and good for fourteen days — so a replan
+        re-reads it rather than trusting a month-old look.
+      properties:
+        finding:
+          type: string
+          description: >-
+            `add` — none of it exists; plan it. `modify` — part of it already
+            ships, so narrow the request to the part that does not and check
+            that. `none` — it all ships; close it with an honest answer
+            saying where it landed and when. Only `add` lets work start.
+          enum: [add, modify, none]
+        how:
+          type: string
+          description: What was actually looked at — the route, the screen, the endpoint, the file — so the next reader can repeat the check in one move rather than trusting it.
+        checkedAt: {type: string, format: date-time}
     surface:
       x-display: {label: Surface, format: badge, group: Triage, tones: {ui: info, flow: info, data: muted, infra: muted, none: muted}}
       type: string
@@ -118,6 +143,7 @@ schema:
         afterArtifactIds: {type: array, items: {type: integer}, description: 'What shipped, captured from the running product. GIF and video later; a still is enough to close.'}
         surfaceUrl: {type: string, description: 'Where on the live product this can be seen — and, once it has shipped, where the after-shot was captured. One link, because they are the same place, and a shot nobody can check against the real thing is decoration.'}
         noVisualReason: {type: string, description: 'Why this user-facing change carries no visual. Recorded rather than assumed, so the gap is a decision somebody made and not an omission nobody noticed.'}
+        drawnArtifactId: {type: integer, description: 'The picture the PLATFORM drew from the record (services/factory/proposalVisual.ts) — a diagram of the shape of the change, kept current on every write. It is what a card shows when nobody has filed a real mockup, and it never satisfies the mockup gate: a drawing derived from the record is not evidence of a proposed experience, so `no mock` stays on the row until Design files one or `noVisualReason` says why not (review, 2026-09-24).'}
     acceptance:
       x-display: {label: Acceptance criteria, role: prose, format: steps, order: 5}
       type: array
@@ -173,16 +199,19 @@ schema:
         the promoter, so ten small merges cost a coffee and ten architecture
         asks cost a week.
     state:
-      x-display: {label: State, format: badge, group: Triage, tones: {new: warn, triaged: info, in_scope: ok, out_of_scope: muted, building: info, shipped: ok, answered: muted}}
+      x-display: {label: State, format: badge, group: Triage, tones: {new: warn, triaged: info, in_scope: ok, out_of_scope: muted, deferred: muted, building: info, shipped: ok, answered: muted}}
       type: string
       description: >-
         Where it stands. `new` — arrived, unread. `triaged` — kind, product and
         risk tagged, duplicate check done. `in_scope` — it is in the twenty
         percent; a task will be written. `out_of_scope` — it will not be built,
         and the honest answer says why. `building` — a task is dispatched.
+        `deferred` — a person said not now, with a reason and a revisit
+        condition (`deferReason`, `deferredUntil`); it is a decision, not a
+        rejection, and the request comes back when the condition is met.
         `shipped` — the change merged. `answered` — the reply went back. Every
         request ends in `shipped`, `answered`, or as a duplicate of one that did.
-      enum: [new, triaged, in_scope, out_of_scope, building, shipped, answered]
+      enum: [new, triaged, in_scope, out_of_scope, deferred, building, shipped, answered]
     answer:
       x-display: {label: The answer given, role: prose, order: 2}
       type: string
@@ -287,7 +316,7 @@ schema:
     priority:
       x-display: {label: Priority, group: Ranking}
       type: integer
-      description: 'Where it ranks, 0–100, against four inputs and nothing else: the product''s written promises, the twenty-percent test, how many real people asked (duplicates count) and analytics evidence when a source exists. Written by the product manager with its reasons beside it; never a severity, never an effort.'
+      description: 'Where it ranks, 0–100, against four inputs and nothing else: the product''s written promises, the operating intent, how many real people asked (duplicates count) and analytics evidence when a source exists. Written by the product manager with its reasons beside it; never a severity, never an effort.'
       minimum: 0
       maximum: 100
     priorityReason:
@@ -307,17 +336,17 @@ schema:
     recommendationBatch:
       x-display: {label: Batch, format: mono, group: Ranking}
       type: string
-      description: The ask group key the recommendation was filed under — `software-factory:batch/<date>` — so a batch reads as one thing on the page and the ten-then-pause rule can be checked from the record.
+      description: The ask group key the recommendation was filed under so the asks a person decided together read as one thing on the page.
     recommendedOutcome:
       x-display: {label: Proposed, format: badge, group: Ranking, tones: {build: ok, answer: info, decline: warn, merge: muted}}
       type: string
-      description: 'What the product manager proposed a person do with it: `build` (the planner writes a contract), `answer` (an honest reply, it will not be built), `decline` (the same, when the reason is the twenty-percent rule or a promise), `merge` (it duplicates an open request).'
+      description: 'What the product manager proposed a person do with it: `build` (the PM writes a contract), `answer` (an honest reply, it will not be built), `decline` (the same, when the reason is scope or a promise), `merge` (it duplicates an open request).'
       enum: [build, answer, decline, merge]
     recommendationState:
-      x-display: {label: Decision, format: badge, group: Ranking, tones: {proposed: warn, approved: ok, rejected: bad}}
+      x-display: {label: Decision, format: badge, group: Ranking, tones: {proposed: warn, approved: ok, rejected: bad, deferred: muted}}
       type: string
-      description: '`proposed` — the ask is open and waiting on a person. `approved` — a person chose an outcome. `rejected` — a person said no; the request stays open and out of the next batch.'
-      enum: [proposed, approved, rejected]
+      description: '`proposed` — the ask is open and waiting on a person. `approved` — a person chose an outcome. `rejected` — a person said no; the request stays open and is not recommended again.'
+      enum: [proposed, approved, rejected, deferred]
     decidedAt:
       x-display: {label: Decided}
       type: string
@@ -352,10 +381,82 @@ schema:
         work". Names the countable thing behind the code, not a restatement
         of it: "user_request" is the code, "Chris and two dogfood users asked
         on 2026-09-20" is the note. Written with `why` and read beside it.
-# What rolls up onto a request, and from where: the tasks that point at it.
-# Core recomputes these from every such task when one task's cost is written
-# (packages/core/src/services/objects/rollups.ts); the page reads them like
-# any other field.
+    # What rolls up onto a request, and from where: the tasks that point at it.
+    # Core recomputes these from every such task when one task's cost is written
+    # (packages/core/src/services/objects/rollups.ts); the page reads them like
+    # any other field.
+    mainRisk:
+      x-display: {label: Main risk, role: prose, order: 6}
+      type: string
+      description: 'The one thing most likely to go wrong, in a sentence a person can weigh: "changes touch the existing upload flow", "the migration rewrites every plan row". Written by the PM before the build decision and shown on the card, because a decision without its risk is a hope.'
+    expectedResult:
+      x-display: {label: Expected result, role: prose, order: 7, group: Result}
+      type: string
+      description: 'What should be different for people once this ships — the outcome the ask was really about, not the change. "Interrupted uploads resume instead of failing." Written before the build decision; a request without one can still be built, but it can never be called a success.'
+    howWeCheck:
+      x-display: {label: How we will check, group: Result}
+      type: string
+      description: 'The metric, observation or requester confirmation that will show the expected result happened: "upload failure rate in PostHog, 7 days before vs after", "the three askers confirm", "reproduction no longer reproduces". Names a source a person can open.'
+    checkAfter:
+      x-display: {label: Check after, format: date, group: Result}
+      type: string
+      format: date-time
+      description: 'When there will have been enough use to learn something — set at release from `howWeCheck` (a bug: the next day; a product bet: two weeks). The daily result pass reads shipped requests past this date and writes `result`, or asks the requester.'
+    result:
+      x-display: {label: Result, format: badge, group: Result, tones: {helped: ok, did_not_help: bad, not_enough_evidence: muted}}
+      type: string
+      description: 'Whether the shipped change did what it was for. `helped` — the check shows the expected result. `did_not_help` — it shows it did not, which is a new request, not a closed one. `not_enough_evidence` — the check could not be read, or too little use to say; recorded rather than left blank so "we do not know" is a fact on the record. Shipped is delivery; this is the outcome.'
+      enum: [helped, did_not_help, not_enough_evidence]
+    resultNote:
+      x-display: {label: What the check showed, role: prose, order: 8, group: Result}
+      type: string
+      description: One or two sentences with the figure or the observation and its source, dated. The evidence behind `result`, one move away.
+    resultCheckedAt:
+      x-display: {label: Result checked, format: date, group: Result}
+      type: string
+      format: date-time
+    deferReason:
+      x-display: {label: Why not now, role: prose, order: 9, group: Ranking}
+      type: string
+      description: 'A person chose Defer: the reason, in their words. Distinct from a rejection — the ask is right, the time is not.'
+    deferredUntil:
+      x-display: {label: Revisit, format: date, group: Ranking}
+      type: string
+      format: date-time
+      description: 'When, or on what condition, this comes back in front of a person. A date here; a condition goes in `deferReason`. The planning pass re-surfaces a deferred request once the date has passed, and never before.'
+    told:
+      x-display: {label: The asker was told, group: Telling people}
+      type: object
+      description: >-
+        Whether the PERSON WHO ASKED heard back, what they were told, and whether
+        it reached them — on this request, because one release carries several
+        requests with different people on different channels and the release's
+        own announcement cannot say which of them was answered. The release
+        keeps what deployed, whether it is healthy and whether notes were
+        published; this keeps who was told. A request is closed when this says
+        sent, not when the release says announced.
+      properties:
+        at: {type: string, format: date-time, description: When the reply was released by a person.}
+        channel: {type: string, description: 'Where it went — the store, the mailbox, the issue, the chat — the same channel the request came in on.'}
+        what: {type: string, description: 'One line: shipped in v1.8 / decided not to, because … / deferred until …'}
+        status: {type: string, enum: [sent, failed, not_needed], description: '`sent` — released and delivered. `failed` — released and the channel refused it; still open. `not_needed` — an internal ask with no external requester, recorded so the loop is closed on purpose.'}
+    blocker:
+      x-display: {label: Blocked on, group: Triage}
+      type: object
+      description: >-
+        An ACTUAL obstacle, with an owner and a next action — never derived
+        from "no task is running", which also describes work awaiting
+        dispatch, awaiting QA or ready to merge. Written by the PM when a
+        check has failed three times, a dependency was never accepted, an
+        access or credential is missing, or a decision names a person who
+        has not answered; cleared when the obstacle is. The Work board reads
+        Blocked from this and only this.
+      properties:
+        what: {type: string, description: 'The obstacle in a sentence: "the staging account is not connected", "checks fail on the shared helper three attempts running".'}
+        owner: {type: string, description: 'Who can clear it — a person by email, or an agent slug.'}
+        next: {type: string, description: The one move that clears it.}
+        since: {type: string, format: date-time}
+
 rollups:
   - {field: estimateCents, from: {type: engineering_task, by: requestId}, sum: estimateCents}
   - {field: actualCents, from: {type: engineering_task, by: requestId}, sum: actualCents}
@@ -366,6 +467,10 @@ rollups:
   # Work page can read a building request with nothing running as stopped
   # without storing a second state that could disagree with the tasks.
   - {field: runningTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [dispatched, running]}}
+  # The two waits the board must not call Blocked: work finished and waiting
+  # on QA, and work QA approved waiting on a merge (review, 2026-09-24).
+  - {field: awaitingReviewTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [awaiting_review]}}
+  - {field: acceptedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [accepted]}}
   # Rework: the same tasks, narrowed to the ones that were thrown away. Money
   # spent and then answered rather than shipped is NOT here, on purpose.
   - {field: reworkCents, from: {type: engineering_task, by: requestId}, sum: actualCents, where: {field: status, in: [rejected, abandoned]}}
@@ -381,3 +486,98 @@ classificationPrompt: >-
   about and, for a bug or incident, a severity. Compute a dedupe key from the
   product and the thing that is broken or asked for. Report a confidence and
   the words you matched on; when the product is unclear, ask rather than file.
+# HANDOFF GATES (core: libs/gates/handoffGate.ts). The deterministic half of
+# "the next seat rejects weak work without repairing it": a request may not
+# be committed to (`in_scope`) until the PM's card is decision-ready. A write
+# that fails is refused, the record reads "Returned to PM" on Work with the
+# missing things named, and nobody is interrupted. The judge half (rubric +
+# reference cases, escalation to a person) runs only after this passes.
+gates:
+  - name: decision-ready
+    when: {field: state, becomes: [in_scope]}
+    producedBy: product-manager
+    require:
+      - {field: product, present: true, message: name the product this is for}
+      - {field: why, present: true, message: record the reason from the closed list, so it can be ranked}
+      - {field: acceptance, minItems: 3, message: 'write at least three criteria a person can check — "done when it works" is not a contract'}
+      - {field: expectedResult, present: true, message: say what will be different if this works}
+      - {field: howWeCheck, present: true, message: say how we will know it worked}
+      - {field: decisionCost, present: true, message: estimate the decision cost so the queue can carry it}
+    # The judgement half: the PM's own rubric reads the card, calibrated on
+    # the reference cases. Return goes back to the PM with a reason code and
+    # an example; a schema/billing/auth/infra risk, or a judge under the bar,
+    # goes to a person. The workspace turns the dials (`defaults.gates`).
+    judge:
+      rubric: rubric-product-manager
+      cases: factory-reference
+      escalateBelow: 0.6
+      sampleRate: 1
+      alwaysEscalate: {riskClass: [schema, billing, auth, infra]}
+  # STILL MISSING? Nobody plans or dispatches a request without checking, on
+  # the running product, that it is still missing: two of the first rows on
+  # this board in September had already shipped. Was libs/actions/gapGate.ts
+  # until 2026-09-25 (backlog 011); the same refusals, declared.
+  - name: still-missing
+    when: {field: state, becomes: [in_scope, building]}
+    producedBy: product-manager
+    require:
+      - field: gapCheck.checkedAt
+        present: true
+        maxAgeDays: 14
+        missingMessage: >-
+          nobody has checked this is still missing. Look at the running product —
+          the route, the screen, the endpoint it asks for — then record
+          gapCheck.finding as one of add (none of it exists), modify (part of it
+          already ships) or none (it all ships), with gapCheck.how naming what you
+          looked at and gapCheck.checkedAt. Two of the first rows checked on this
+          board in September had already shipped; a request is a statement about
+          the product on the day it was asked, not today
+        message: >-
+          the gap was last checked {days} days ago and this product ships most
+          days. Look again before a worker is sent at it, and re-stamp
+          gapCheck.checkedAt with what you find
+      - field: gapCheck.finding
+        oneOf: [add]
+        missingMessage: >-
+          nobody has checked this is still missing. Record gapCheck.finding as one
+          of add (none of it exists), modify (part of it already ships) or none
+          (it all ships), with gapCheck.how and gapCheck.checkedAt
+        message: 'gapCheck.finding is "{value}", which is not one of add, modify or none. Say which of the three the check found'
+        valueMessages:
+          none: >-
+            the gap check found this already ships. Close it with an honest answer
+            saying where it landed and when, in the asker's own terms. Building it
+            again is the one outcome nobody wants
+          modify: >-
+            the gap check found part of this already ships. Narrow the request to
+            the part that does not — rename it and rewrite its story so it asks for
+            that alone — then check the narrowed ask and record the new finding. A
+            request that is half true builds the wrong thing
+  # THE CONTRACT IS MET, AND SEEN. A request may not call itself done while a
+  # criterion is unmet, and a visible change is not finished until somebody has
+  # looked at it. Was libs/actions/doneGate.ts until 2026-09-25 (backlog 011).
+  - name: contract-met
+    when: {field: state, becomes: [shipped, accepted, released, answered]}
+    producedBy: qa
+    require:
+      - field: acceptance
+        allItems: {field: met, equals: true, label: statement}
+        message: >-
+          {unmet} of {total} acceptance criteria are not met — {first}. Check each
+          one against the running product and record the evidence, or come back
+          and change the contract. Passing engineering checks is not the contract
+          being met
+  - name: shown
+    when: {field: state, becomes: [shipped, accepted, released]}
+    producedBy: qa
+    require:
+      - field: visuals
+        if: {field: surface, oneOf: [ui, flow]}
+        anyOf:
+          - {field: visuals.afterArtifactIds, minItems: 1}
+          - {field: visuals.noVisualReason, present: true}
+        message: >-
+          this is a visible change and nothing shows what it looks like now.
+          Capture an after-shot from the running product, or record why there is
+          nothing to show in visuals.noVisualReason. A visible change nobody has
+          looked at is not finished

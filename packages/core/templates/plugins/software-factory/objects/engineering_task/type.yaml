@@ -51,7 +51,7 @@ schema:
     requestSummary:
       x-display: {label: In their words, role: prose, order: 3}
       type: string
-      description: The request in the requester's own words, one or two lines, so the reviewer can judge the change against what was actually asked rather than against the objective the planner wrote.
+      description: The request in the requester's own words, one or two lines, so the reviewer can judge the change against what was actually asked rather than against the objective the PM wrote.
     acceptanceContract:
       x-display: {label: Acceptance contract, role: prose, format: steps, order: 4}
       type: array
@@ -76,7 +76,7 @@ schema:
         much evidence the merge takes. Ordered roughly by blast radius — docs
         and marketing are reversible prose, schema and infra are not. Never
         lower than what the repository's `riskDefaults` says for any path in
-        `allowedPaths`: the planner raises it to the floor when writing, the
+        `allowedPaths`: the PM raises it to the floor when writing, the
         reviewer rejects a contract that sits below it. `promise` is the
         class for a diff that nears one of the product's written promises —
         pricing, plan limits, seats, what the free plan includes — and it
@@ -93,13 +93,13 @@ schema:
       description: >-
         Minutes of a person's attention the merge ask for this task is expected
         to take — 1 for a docs change, 5 for a logic change, 60 for anything
-        that changes an architecture or a price. Estimated by the planner from
+        that changes an architecture or a price. Estimated by the PM from
         the risk class and the size of the contract; the promoter sums it over
         open asks against the daily decision budget before dispatching another.
     dependencies:
       x-display: {label: Waits on, format: link, to: engineering_task}
       type: array
-      description: Ids of engineering tasks that must be accepted before this one is dispatched. The planner writes the edges; a worker never discovers them at run time.
+      description: Ids of engineering tasks that must be accepted before this one is dispatched. The PM writes the edges; a worker never discovers them at run time.
       items: {type: string}
     planId:
       x-display: {label: Plan, format: link, to: architecture_plan, group: The plan}
@@ -125,7 +125,7 @@ schema:
       x-display: {label: Estimated, format: money, group: Cost}
       type: integer
       description: >-
-        What the planner expects this task to cost in model spend, in cents,
+        What the PM expects this task to cost in model spend, in cents,
         written with the contract from the size class, the risk class and the
         model policy. The ESTIMATE half of the cost pair — kept when the
         actual lands so the two can be read side by side. A task dispatched
@@ -240,7 +240,7 @@ schema:
         person reading the floor can ask why of anything in flight without
         opening the request. Normally inherited from the `request` this task
         serves; it differs only when the task is one part of a larger ask and
-        that part has its own reason. REQUIRED: the planner proposes no task
+        that part has its own reason. REQUIRED: the PM proposes no task
         without one, and `write-task-contract` fails review on a task whose
         `why` is empty, because a task nobody can justify is a task to close
         rather than dispatch.
@@ -255,6 +255,46 @@ schema:
         count of askers, the run that lost the work, the promise at risk.
         Carried onto the merge ask, so the person deciding reads why before
         they read the diff.
+    verdict:
+      x-display: {label: QA verdict, group: Review}
+      type: object
+      description: >-
+        QA's verdict, BOUND TO THE COMMIT it was read against. A verdict is
+        evidence about one diff; when the branch moves after the review, the
+        verdict is stale and the merge ask says so rather than carrying an
+        approval of code nobody read. Written by QA through update_object
+        (review-against-contract); the merge ask copies `commitSha` into
+        `verdictCommitSha` so the card can compare.
+      properties:
+        value: {type: string, enum: [approve, changes, reject]}
+        commitSha: {type: string, description: The head commit the diff and the verification were read at. Must equal `commitSha` on this task for the verdict to stand.}
+        at: {type: string, format: date-time}
+        by: {type: string, description: 'The reviewer — an agent slug, or a person.'}
+        note: {type: string, description: 'The one sentence for the person who will merge: what they are accepting and the one risk to know.'}
+        independentChecks: {type: array, items: {type: string}, description: 'Checks that ran on trusted CI or were reproduced by QA rather than reported by the worker. Required to be non-empty for a schema, billing, auth or infra risk class before the merge ask is filed.'}
+        findings:
+          type: array
+          description: >-
+            What QA found, TYPED against the contract (backlog 003): each finding
+            names the criterion it fails, the allowed-path rule it breaks or the
+            required check that did not pass — never free prose. A `block`
+            finding keeps the merge ask from being filed (git.merge refuses it,
+            naming the finding); `fix` rides on the next attempt; `note` is for
+            the PM's next contract. A finding that cannot be keyed to the
+            contract is a preference and is not a finding.
+          items:
+            type: object
+            required: [against, ref, severity, what]
+            properties:
+              against: {type: string, enum: [criterion, path, check], description: 'What it is keyed to: an acceptance criterion, an allowedPaths rule, or a required check.'}
+              ref: {type: string, description: 'The criterion statement, the path rule, or the check name — as written on the contract.'}
+              severity: {type: string, enum: [block, fix, note]}
+              what: {type: string, description: 'One sentence a worker can act on, with the hunk, exit code or artifact behind it.'}
+              closeBy: {type: string, description: 'Who closes it: engineer (next attempt), pm (next contract), or a person.'}
+    rollback:
+      x-display: {label: If the health check fails, group: Review}
+      type: string
+      description: 'How this change is put back, in one or two lines a person can follow at 2am: "revert the merge commit and redeploy; no data written", or "run down-migration 0042 first, then revert". Written by the PM before the merge ask; a merge that is a deploy is not proposed without it.'
 classificationPrompt: >-
   Given a request — a review item, an ask, a support thread, a message —
   decide whether it is one engineering task or several. One task changes one
@@ -265,3 +305,21 @@ classificationPrompt: >-
   the request onto every task you write. If the request cannot be made
   checkable, do not write a task: write the question that would make it
   checkable and put it on the queue.
+# HANDOFF GATE (core: libs/gates/handoffGate.ts). A contract may not be made
+# `ready` for a worker until it is complete: one objective, a pinned base
+# commit, allowed paths, required checks, and criteria. A worker sent an
+# incomplete contract pays for it in attempts; the gate refuses it here and
+# returns the task to the PM with the missing pieces named. Whether the paths
+# and checks EXIST at base_sha is the worker's check at dispatch — core cannot
+# read the repository.
+gates:
+  - name: contract-complete
+    when: {field: status, becomes: [ready, dispatched]}
+    producedBy: product-manager
+    require:
+      - {field: objective, present: true}
+      - {field: baseSha, present: true, message: pin the base commit the worker starts from}
+      - {field: allowedPaths, minItems: 1, message: fence the change to the paths it may touch}
+      - {field: requiredChecks, minItems: 1, message: name the checks that must pass}
+      - {field: acceptanceContract, minItems: 1, message: carry the criteria a reviewer can check}
+      - {field: riskClass, present: true}

@@ -247,6 +247,8 @@ export type ManualActionSpec<Extra extends Z.ZodRawShape = Record<never, never>>
   description: string;
   /** The card's badge — "Git", "Deploy", "AWS". */
   system: string;
+  /** Refuse a proposal before it is filed — a sentence for the proposer, or nothing. Runs with the org and the checked input. */
+  precheck?: (ctx: import('./types').ActionContext, input: Record<string, unknown>) => Promise<string | void>;
   /** authz grant the proposer needs. */
   grant: string;
   /** Whether what it does can be put back with one step. Default false: hand-offs usually cannot. */
@@ -257,6 +259,8 @@ export type ManualActionSpec<Extra extends Z.ZodRawShape = Record<never, never>>
   extraFields?: (input: ManualInput & Z.infer<Z.ZodObject<Extra>>) => Array<{ label: string; value: string }>;
   /** The ladder key for this input, when one id serves several ledgers. */
   policyKeyFor?: (input: ManualInput & Z.infer<Z.ZodObject<Extra>>) => string;
+  /** Whether a rule on the bare id governs derived keys with no rule of their own; see `Action.parentRuleGoverns`. */
+  parentRuleGoverns?: boolean;
 };
 
 /**
@@ -291,6 +295,8 @@ export function manualAction<Extra extends Z.ZodRawShape = Record<never, never>>
       return input.externalRef ? `${spec.id}:${input.externalRef.system}:${input.externalRef.id}`.toLowerCase() : undefined;
     },
     ...(spec.policyKeyFor ? { policyKeyFor: (raw: unknown) => spec.policyKeyFor!(raw as Input) } : {}),
+    ...(spec.precheck ? { precheck: (ctx, raw) => spec.precheck!(ctx, raw as Record<string, unknown>) } : {}),
+    ...(spec.parentRuleGoverns ? { parentRuleGoverns: true } : {}),
     async reviewCard(_ctx, raw) {
       const input = raw as Input;
       return manualReviewCard({

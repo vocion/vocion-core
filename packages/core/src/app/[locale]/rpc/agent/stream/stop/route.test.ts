@@ -14,7 +14,7 @@ const { clerkAuth } = await import('@/libs/Auth');
 const { openStream, wasStopped } = await import('@/libs/streams/buffer');
 const { POST } = await import('./route');
 
-const signedIn = { userId: 'usr-1', orgId: 'org-1', accountId: null, projectId: 'org-1', role: 'admin' as const, has: () => true };
+const signedIn = { userId: 'usr-1', orgId: 'org-1', accountId: null, projectId: 'org-1', role: 'admin' as const, workspaceRole: 'owner' as const, has: () => true };
 
 /**
  * Post a stop for one stream id.

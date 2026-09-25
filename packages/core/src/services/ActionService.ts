@@ -80,6 +80,12 @@ const DAY_IN_MS = 86_400_000;
 /** What blocks a fresh card by default, for an action that opted in at all. */
 const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
 
+/** A chat card's idempotency key starts with this (`libs/actions/cardDedupKey.ts`). */
+export const CARD_DEDUP_PREFIX = 'card:';
+
+/** Every status that means a card's run already happened, or is happening. */
+const CARD_STATUSES_THAT_BLOCK = ['done', 'rejected', 'undone', 'executing', 'awaiting_execution'] as const;
+
 /**
  * The envelope as the column holds it: a recommendation is either there with
  * its reason, or the keys are absent. The null a caller passes to say "nothing
@@ -137,10 +143,19 @@ async function findDecidedRunForKey(
   dedupKey: string,
   config: Action['dedupAgainstDecided'],
 ): Promise<{ id: number; status: 'done' | 'failed' | 'rejected'; decidedAt: Date } | undefined> {
-  if (!config) {
+  // A chat card's own key (`card:…`, `cardDedupKey`) is an idempotency key:
+  // one card, one run, whatever its status. The card proposes itself when it
+  // mounts under done-for-you, and it mounts again when the streamed turn is
+  // swapped for the stored one — on 2026-09-25 (walk 20) every such card filed
+  // its ask twice, both executed, because an executed run matched neither the
+  // open-run refresh nor a decided-run rule the action had not opted into.
+  const cardKey = dedupKey.startsWith(CARD_DEDUP_PREFIX);
+  if (!config && !cardKey) {
     return undefined;
   }
-  const statuses = config.statuses ?? [...DECIDED_STATUSES_THAT_BLOCK];
+  const statuses = cardKey
+    ? [...CARD_STATUSES_THAT_BLOCK]
+    : config?.statuses ?? [...DECIDED_STATUSES_THAT_BLOCK];
   const [row] = await db
     .select({
       id: actionRunSchema.id,
@@ -165,7 +180,7 @@ async function findDecidedRunForKey(
   // through carries `executedAt` instead, and `createdAt` is the last resort
   // so the window below always has a date to measure from.
   const decidedAt = row.decidedAt ?? row.executedAt ?? row.createdAt;
-  if (config.reproposeAfterDays !== undefined) {
+  if (!cardKey && config?.reproposeAfterDays !== undefined) {
     const staleAt = decidedAt.getTime() + config.reproposeAfterDays * DAY_IN_MS;
     if (Date.now() >= staleAt) {
       return undefined;

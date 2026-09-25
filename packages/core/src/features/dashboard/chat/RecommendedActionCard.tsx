@@ -1,12 +1,16 @@
 'use client';
 
 import type { RecommendedAction } from './types';
-import { ArrowRight, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cardDedupKey } from '@/libs/actions/cardDedupKey';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { useRecordCardDecision } from './cards/CardDecisions';
+import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
 /**
@@ -25,6 +29,9 @@ import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './u
  * and starts in the status view.
  */
 
+/** A secondary control on a card: an icon, no border, a tint on hover. */
+const QUIET_ICON = 'inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-60';
+
 type Phase = { status: 'idle' | 'working' | 'proposed' | 'error'; runId?: number; message?: string };
 
 function str(v: unknown): string {
@@ -38,25 +45,26 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export function RecommendedActionCard({ rec, canApprove = true, onProposed, autoPropose = false }: {
+export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   rec: RecommendedAction;
   /** Whether to offer the inline Approve. The server still authorizes the decision. */
   canApprove?: boolean;
   /** Fired once the run exists (tap or server-filed) so a stack can count it. */
   onProposed?: (runId: number) => void;
-  /**
-   * The thread runs at `act-within-bounds` (0094): propose into the review
-   * queue as soon as the card appears, and say so. Still nothing executes —
-   * the queue and trust rules gate every outward step. A card that already
-   * arrived with a server-filed `runId` (R4) has nothing left to propose.
-   */
-  autoPropose?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
-  const [deciding, setDeciding] = useState<'approve' | 'reject' | 'undo' | null>(null);
+  // The decision goes into the conversation as a typed user turn (backlog
+  // 025), so the next turn binds "approve" to THIS card, never to words.
+  const recordDecision = useRecordCardDecision();
+  const record = (action: 'approve' | 'reject' | 'defer' | 'undo', runId?: number) => {
+    if (rec.id) {
+      recordDecision({ cardId: rec.id, label: rec.label, action, runId });
+    }
+  };
+  const [deciding, setDeciding] = useState<'approve' | 'reject' | 'defer' | 'undo' | null>(null);
   const [decideError, setDecideError] = useState<string | null>(null);
+  const [deferredUntil, setDeferredUntil] = useState<Date | null>(null);
   const live = useActionRunStatus(phase.runId);
-  const autoFiredRef = useRef(rec.runId !== undefined);
 
   const prepare = async () => {
     // Belt and braces behind `readRecommendedAction` (the event boundary): a
@@ -75,6 +83,9 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
         agentSlug: rec.agentSlug,
         rationale: rec.rationale,
         confidence: rec.confidence,
+        // One card, one run: a remount proposes under the same key and gets
+        // the run that already exists back (`cardDedupKey`).
+        dedupKey: cardDedupKey({ actionId: rec.actionId, label: rec.label, input: rec.input }),
         ...recommendedActionAdvice(rec),
       }) as { runId: number; status: string };
       setPhase({ status: 'proposed', runId: res.runId });
@@ -112,6 +123,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       onProposed?.(res.runId);
       setDeciding('approve');
       await client.review.decideAction({ id: res.runId, decision: 'approve' });
+      record('approve', res.runId);
     } catch (err) {
       setDecideError((err as Error).message);
     } finally {
@@ -127,12 +139,71 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
     setDecideError(null);
     try {
       await client.review.decideAction({ id: phase.runId, decision });
+      record(decision, phase.runId);
     } catch (err) {
       setDecideError((err as Error).message);
     } finally {
       setDeciding(null);
     }
   };
+
+  /**
+   * Defer: "not now" without it reading as "no". The proposal is filed if it
+   * is not yet, then snoozed in review until a week out (`deferral.ts`) — the
+   * queue's own snooze, so the card and the queue say the same thing.
+   */
+  const defer = async () => {
+    setDeciding('defer');
+    setDecideError(null);
+    try {
+      let runId = phase.runId;
+      if (runId === undefined) {
+        if (!rec.actionId) {
+          setDecideError('This recommendation named no action, so there is nothing to defer.');
+          return;
+        }
+        const res = await client.review.propose({
+          actionId: rec.actionId,
+          input: rec.input,
+          agentSlug: rec.agentSlug,
+          rationale: rec.rationale,
+          confidence: rec.confidence,
+          ...recommendedActionAdvice(rec),
+        }) as { runId: number; status: string };
+        runId = res.runId;
+        setPhase({ status: 'proposed', runId });
+        onProposed?.(runId);
+      }
+      const until = deferUntil();
+      await client.review.snoozeAction({ id: runId, until: until.toISOString(), note: 'Deferred from chat' });
+      setDeferredUntil(until);
+    } catch (err) {
+      setDecideError((err as Error).message);
+    } finally {
+      setDeciding(null);
+    }
+  };
+
+  // Icon only, no border: one labelled button on a card — the one you came to
+  // press — and the rest quiet, named on hover and to a screen reader
+  // (Chris, 2026-09-25: "turn the review and defer buttons into icon only").
+  const deferButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => void defer()}
+          disabled={deciding !== null || phase.status === 'working'}
+          data-testid="recommended-defer"
+          aria-label={deciding === 'defer' ? 'Deferring…' : 'Defer'}
+          className={QUIET_ICON}
+        >
+          {deciding === 'defer' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <CalendarClock className="size-4" aria-hidden />}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{`Defer ${DEFER_DAYS} days`}</TooltipContent>
+    </Tooltip>
+  );
 
   // Done for you → Undo, from the card that said it was done (principle 10:
   // one move from where the claim is read).
@@ -151,16 +222,16 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
     }
   };
 
+  // The server files a card under done-for-you and sends its run id after
+  // the card (`card_update`); the card adopts it and shows the run. It used to
+  // file ITSELF on mount as well, which was a second filing of the same card
+  // (walk 20, finding 27: every done-for-you card filed its ask twice).
   useEffect(() => {
-    if (autoPropose && !autoFiredRef.current && rec.actionId) {
-      autoFiredRef.current = true;
-      // Proposing IS the effect here: the thread runs at act-within-bounds,
-      // so the card fires its one network call the moment it appears.
-
-      void prepare();
+    if (rec.runId !== undefined && phase.runId === undefined) {
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+      setPhase({ status: 'proposed', runId: rec.runId });
     }
-    // `prepare` closes over `rec`, which is stable for the card's life.
-  }, [autoPropose]);
+  }, [rec.runId, phase.runId]);
 
   const pct = rec.confidence !== undefined ? Math.round(rec.confidence * 100) : null;
   const isEmail = rec.actionId === 'gmail.send';
@@ -278,7 +349,21 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
 
       {/* CTA */}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
-        {phase.status === 'proposed'
+        {deferredUntil && (
+          <>
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <CalendarClock className="size-4" aria-hidden />
+              {deferredLine(deferredUntil)}
+            </span>
+            {phase.runId !== undefined && (
+              <Link href={inboxHref('proposal', phase.runId)} className="inline-flex items-center gap-1 text-sm text-brand-amber-deep hover:opacity-90">
+                Open in review
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            )}
+          </>
+        )}
+        {!deferredUntil && phase.status === 'proposed'
           ? (
               <>
                 {status === 'pending' && canApprove && (
@@ -300,6 +385,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
                     >
                       Reject
                     </button>
+                    {deferButton}
                   </>
                 )}
                 <Link
@@ -318,40 +404,55 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
                 )}
               </>
             )
-          : (
-              <>
-                {/* One click when the suggestion is already right. Approving
+          : deferredUntil
+            ? null
+            : (
+                <>
+                  {/* One click when the suggestion is already right. Approving
                     used to mean "Prepare for review", then find the card again,
                     then "Approve" — two clicks and a context switch to agree
                     with something you had already read. Chris, 2026-09-17:
                     *"I wanted to approve. I shouldn't have to click twice."*
                     Preparing is still offered, for when you want to look first
                     or edit the draft. */}
-                {canApprove && !isDraft && (
-                  <button
-                    type="button"
-                    onClick={() => void prepareAndApprove()}
-                    disabled={busy || deciding !== null}
-                    data-testid="recommended-approve-now"
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-                  >
-                    {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
-                    {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={prepare}
-                  disabled={busy}
-                  className={canApprove && !isDraft
-                    ? 'inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition hover:bg-surface-hover disabled:opacity-60'
-                    : 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60'}
-                >
-                  {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
-                  {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
-                </button>
-              </>
-            )}
+                  {canApprove && !isDraft && (
+                    <button
+                      type="button"
+                      onClick={() => void prepareAndApprove()}
+                      disabled={busy || deciding !== null}
+                      data-testid="recommended-approve-now"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                    >
+                      {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
+                      {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
+                    </button>
+                  )}
+                  {canApprove && !isDraft
+                    ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" onClick={prepare} disabled={busy} aria-label={busy ? 'Preparing…' : 'Review first'} className={QUIET_ICON}>
+                              {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Review first</TooltipContent>
+                        </Tooltip>
+                      )
+                    : (
+                        // The only way forward on this card, so it keeps its words.
+                        <button
+                          type="button"
+                          onClick={prepare}
+                          disabled={busy}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                        >
+                          {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                          {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
+                        </button>
+                      )}
+                  {canApprove && deferButton}
+                </>
+              )}
         {isDraft && phase.status !== 'proposed' && (
           <span className="text-[11px] text-muted-foreground">saves to Gmail Drafts — nothing sends without you</span>
         )}

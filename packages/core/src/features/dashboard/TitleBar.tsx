@@ -22,9 +22,12 @@ export const TitleBar = (props: {
   /** A tab strip (see `PageTabs`) for a page that is several sections in one. */
   tabs?: React.ReactNode;
 }) => (
-  <div className="mb-8">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
+  <div className="mb-6 sm:mb-8">
+    {/* No wrap between the title and its actions: wrapped, the live pill
+        landed alone under the description as a green dot with nothing to
+        say (phone, 2026-09-24). The title column shrinks; the pill does not. */}
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
         <h1 className="text-xl font-semibold tracking-tight">{props.title}</h1>
 
         {props.description && (

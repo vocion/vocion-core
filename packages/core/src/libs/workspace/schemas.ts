@@ -157,6 +157,26 @@ export const WorkspaceManifestSchema = z.object({
     agentBudget: z.object({
       dailyCents: z.number().int().min(0).nullable(),
     }).optional(),
+    /**
+     * The proposal budget every agent in this workspace is held to when its
+     * own YAML sets no `proposals:` — how many undecided items it may hold in
+     * Review at once when acting on its own schedule, and how many new ideas
+     * it may file a week. See `AgentSchema.proposals`. Omit and the built-in
+     * default applies (`ProposalBudgetService.DEFAULT_PROPOSAL_BUDGET`).
+     */
+    agentProposals: z.object({
+      openMax: z.number().int().min(0).optional(),
+      weeklyMax: z.number().int().min(0).optional(),
+    }).optional(),
+    /**
+     * How strict the handoff judges are in THIS workspace: overrides every
+     * gate's `judge.sampleRate` / `judge.escalateBelow` at apply time. The
+     * plugin declares the gates; the workspace turns the dial.
+     */
+    gates: z.object({
+      sampleRate: z.number().min(0).max(1).optional(),
+      escalateBelow: z.number().min(0).max(1).optional(),
+    }).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -593,6 +613,25 @@ export const AgentManifestSchema = z.object({
   budget: z.object({
     dailyCents: z.number().int().min(0).optional(),
     monthlyCents: z.number().int().min(0).optional(),
+  }).optional(),
+  /**
+   * THE PROPOSAL BUDGET — no runaway queues (Chris, 2026-09-24: "700 items
+   * need attention is uselessly overwhelming").
+   *
+   * When this agent acts on its own schedule (a mission check, an automation,
+   * anything with no person in the conversation) it may hold at most
+   * `openMax` undecided items in Review — pending action runs and open asks
+   * it filed — and file at most `weeklyMax` new candidate records (ideas) in
+   * a rolling week. Past either, filing is refused with the list of its own
+   * open items and the instruction to withdraw one first
+   * (`withdraw_proposal`), so a better idea retires an older one instead of
+   * stacking on it. A proposal made inside a person's own chat turn never
+   * counts: the person asked. Omit for the workspace default
+   * (`defaults.agentProposals`), then the built-in one.
+   */
+  proposals: z.object({
+    openMax: z.number().int().min(0).optional(),
+    weeklyMax: z.number().int().min(0).optional(),
   }).optional(),
   /**
    * Slug of the primary agent this specialist reports to. Omit for
@@ -1273,15 +1312,88 @@ export const RollupSchema = z.object({
     ids: MetaKeySchema.optional(),
     /** The child's metadata key whose list of ids contains this record's. */
     inList: MetaKeySchema.optional(),
-  }).refine(l => [l.by, l.ids, l.inList].filter(v => v !== undefined).length === 1, { message: 'a rollup link names exactly one of `by` (the child points here), `ids` (this record lists its children) or `inList` (the child lists this record)' }),
-  /** The child's metadata key to sum. Omitted with no `min`, the rollup is a count of children. */
+    /**
+     * With `by`: THIS record's metadata key the child's `by` value names,
+     * instead of this record's id. A request names its product by slug
+     * (`product: send`), not by row id, so the product's rollups over its
+     * requests join `by: product` to `match: slug` (2026-09-24).
+     */
+    match: MetaKeySchema.optional(),
+  })
+    .refine(l => [l.by, l.ids, l.inList].filter(v => v !== undefined).length === 1, { message: 'a rollup link names exactly one of `by` (the child points here), `ids` (this record lists its children) or `inList` (the child lists this record)' })
+    .refine(l => l.match === undefined || l.by !== undefined, { message: '`match` only makes sense with `by`: the child names this record by the value under `match`' }),
+  /** The child's metadata key to sum. Omitted with no `min`/`max`, the rollup is a count of children. */
   sum: MetaKeySchema.optional(),
   /** The child's date key whose EARLIEST value is written, as an ISO string. */
   min: MetaKeySchema.optional(),
+  /** The child's date key whose LATEST value is written, as an ISO string. */
+  max: MetaKeySchema.optional(),
   /** Which children count; see {@link RollupWhereSchema}. */
   where: RollupWhereSchema.optional(),
-}).refine(r => !(r.sum !== undefined && r.min !== undefined), { message: 'a rollup is a sum, a min or a count of children, not two of them' });
+}).refine(r => [r.sum, r.min, r.max].filter(v => v !== undefined).length <= 1, { message: 'a rollup is a sum, a min, a max or a count of children, not two of them' });
 export type Rollup = z.infer<typeof RollupSchema>;
+
+/**
+ * One thing a record must satisfy to cross a gate. Grown on 2026-09-25 to
+ * express the two gates that were TypeScript until then (backlog 011): a
+ * requirement can apply only `if` another field has one of some values, can
+ * demand that `allItems` of a list carry a field equal to a value, can pass
+ * when `anyOf` several alternatives pass, and can say something different for
+ * each bad value (`valueMessages`) and for a missing one (`missingMessage`).
+ * Messages may carry `{to}`, `{value}`, `{days}`, `{unmet}`, `{total}` and
+ * `{first}`.
+ */
+export type GateRequirementManifest = {
+  field: string;
+  present?: boolean;
+  minItems?: number;
+  oneOf?: string[];
+  maxAgeDays?: number;
+  allItems?: { field: string; equals: string | number | boolean; label?: string };
+  anyOf?: GateRequirementManifest[];
+  if?: { field: string; oneOf: string[] };
+  valueMessages?: Record<string, string>;
+  missingMessage?: string;
+  message?: string;
+};
+const GateRequirementSchema: z.ZodType<GateRequirementManifest> = z.lazy(() => z.object({
+  field: z.string().min(1),
+  present: z.boolean().optional(),
+  minItems: z.number().int().min(0).optional(),
+  oneOf: z.array(z.string()).min(1).optional(),
+  maxAgeDays: z.number().min(0).optional(),
+  allItems: z.object({ field: z.string().min(1), equals: z.union([z.string(), z.number(), z.boolean()]), label: z.string().min(1).optional() }).optional(),
+  anyOf: z.array(GateRequirementSchema).min(2).optional(),
+  if: z.object({ field: z.string().min(1), oneOf: z.array(z.string()).min(1) }).optional(),
+  valueMessages: z.record(z.string(), z.string()).optional(),
+  missingMessage: z.string().optional(),
+  message: z.string().optional(),
+}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems or anyOf' }));
+
+/**
+ * The judgement half of a gate: after the deterministic checks pass, one
+ * model call reads the record against the seat's rubric (a skill) and, when
+ * named, the reference cases (an eval dataset), and says pass, return, or
+ * escalate to a person. The workspace steers the numbers (`defaults.gates`).
+ */
+export const GateJudgeSchema = z.object({
+  rubric: z.string().min(1).describe('skill slug — the seat\'s one-page rubric'),
+  cases: z.string().min(1).optional().describe('eval dataset slug — the reference cases the judge is calibrated on'),
+  /** Below this confidence in its own verdict, the judge escalates to a person instead of deciding. */
+  escalateBelow: z.number().min(0).max(1).default(0.6),
+  /** How often the judge runs at all; 1 = every crossing. Autonomy earned lowers it. */
+  sampleRate: z.number().min(0).max(1).default(1),
+  /** Field values that always go to a person whatever the judge says (e.g. riskClass: [schema, billing]). */
+  alwaysEscalate: z.record(z.string(), z.array(z.string())).optional(),
+});
+
+export const HandoffGateSchema = z.object({
+  name: z.string().min(1),
+  when: z.object({ field: z.string().min(1), becomes: z.array(z.string().min(1)).min(1) }),
+  producedBy: z.string().min(1).describe('the agent slug whose work this is — where a failure is returned'),
+  require: z.array(GateRequirementSchema).min(1),
+  judge: GateJudgeSchema.optional(),
+});
 
 export const ObjectTypeManifestSchema = z.object({
   slug: SlugSchema,
@@ -1295,6 +1407,13 @@ export const ObjectTypeManifestSchema = z.object({
   fewShotExamples: z.array(FewShotExampleSchema).default([]),
   /** Figures computed from another type's rows — see {@link RollupSchema}. */
   rollups: z.array(RollupSchema).optional(),
+  /**
+   * HANDOFF GATES: what must be on a record before it may cross a transition,
+   * and which seat the record goes back to when it is not
+   * (`libs/gates/handoffGate.ts`). Declared here by the plugin, steered by
+   * the workspace, enforced where the record is written — never a prompt.
+   */
+  gates: z.array(HandoffGateSchema).optional(),
 });
 export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
 

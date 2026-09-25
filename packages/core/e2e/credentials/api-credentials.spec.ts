@@ -12,7 +12,7 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  * which controls appear per platform, which values are refused, what the list
  * shows afterwards, and what happens when a platform already holds a key.
  *
- * Self-seeding, like the tour spec: a fresh PGlite dev server has zero users,
+ * Self-seeding, like the tour spec: a fresh database (PGlite locally, Postgres in CI) has zero users,
  * so it bootstraps the admin with `create-local-user.ts` (the web signup route
  * is invite-only). No live provider is ever called — every key here is a
  * well-shaped fake.

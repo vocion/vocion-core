@@ -20,6 +20,13 @@ import { parseRecordKeyParam, recordKeyLabel } from '@/services/inbox/recordKey'
 /** The routing shims under `inbox` that are not places a person can stand. */
 const SHEET_SEGMENTS = new Set(['r', 'g']);
 
+/**
+ * Route folders that are not places either: `/dashboard/p/<slug>` mounts a
+ * workspace page, and `/dashboard/p` alone is a 404 — a crumb reading "P"
+ * that leads nowhere (agents.metacto.com, 2026-09-24).
+ */
+const FOLDER_SEGMENTS = new Set(['p']);
+
 export type Crumb = { url: string; label: string };
 
 export function buildCrumbs(input: { pathname: string; docTitle: string; workspaceName?: string | null }): Crumb[] | null {
@@ -38,6 +45,9 @@ export function buildCrumbs(input: { pathname: string; docTitle: string; workspa
   const pageCrumbs: Crumb[] = [];
   segments.forEach((seg, i) => {
     const url = `/dashboard/${segments.slice(0, i + 1).join('/')}`;
+    if (i === 0 && FOLDER_SEGMENTS.has(seg) && segments.length > 1) {
+      return;
+    }
     if (segments[0] === 'inbox' && i === 1 && SHEET_SEGMENTS.has(seg)) {
       return;
     }

@@ -38,6 +38,7 @@ const scratchDir = mkdtempSync(join(tmpdir(), 'cc-mcp-chat-'));
 const config: McpConfig = {
   orgId: ORG,
   contextPath: scratchDir,
+  diskWorkspace: true,
   autoCommit: false,
   autoApply: false,
   serverName: 'vocion-test',

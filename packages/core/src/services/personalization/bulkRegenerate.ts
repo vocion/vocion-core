@@ -20,12 +20,10 @@ import { leadBriefSchema, personalizationBulkJobSchema } from '@/models/Schema';
 import { REVIEW_STATUS } from '@/services/PersonalizationQueueService';
 
 export const BULK_BRIEF_REGENERATE_WORKFLOW = 'bulkBriefRegenerate';
-/** The most leads one press may take. Stated on the confirmation. */
-export const BULK_MAX_LEADS = 100;
 
 export type StartBulkResult
   = | { ok: true; jobId: number; total: number }
-    | { ok: false; reason: 'empty' | 'too_many' | 'not_in_review' | 'queue_unreachable'; message: string; refused?: Array<{ id: number; contactName: string; status: string }> };
+    | { ok: false; reason: 'empty' | 'not_in_review' | 'queue_unreachable'; message: string; refused?: Array<{ id: number; contactName: string; status: string }> };
 
 export function bulkWorkflowIdFor(orgId: string, jobId: number): string {
   return `bulk-brief-regenerate:${orgId}:${jobId}`;
@@ -44,9 +42,6 @@ export async function startBulkBriefRegenerate(orgId: string, opts: { leadIds: n
   const ids = [...new Set(opts.leadIds.filter(n => Number.isInteger(n) && n > 0))];
   if (ids.length === 0) {
     return { ok: false, reason: 'empty', message: 'No leads were named.' };
-  }
-  if (ids.length > BULK_MAX_LEADS) {
-    return { ok: false, reason: 'too_many', message: `At most ${BULK_MAX_LEADS} leads in one job; this asked for ${ids.length}.` };
   }
   const rows = await db
     .select({ id: leadBriefSchema.id, contactName: leadBriefSchema.contactName, status: leadBriefSchema.status })

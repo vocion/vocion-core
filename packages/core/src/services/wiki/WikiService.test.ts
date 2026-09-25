@@ -10,6 +10,7 @@ function page(over: Partial<WikiPage> & { slug: string }): WikiPage {
     title: over.slug,
     md: 'Body.',
     summary: '',
+    tags: [],
     version: 1,
     updatedAt: new Date('2026-09-18T12:00:00Z'),
     createdAt: new Date('2026-09-01T00:00:00Z'),
@@ -59,29 +60,39 @@ describe('renderWikiIndex', () => {
 });
 
 describe('planWikiMount', () => {
-  it('mounts the index and every page that fits, in order, and names what did not', () => {
+  it('mounts the index and only the pages tagged always, names the rest as on demand, and holds the budget', () => {
     const big = 'x'.repeat(900);
     const pages = [
-      page({ slug: 'a', title: 'A', md: big }),
-      page({ slug: 'b', title: 'B', md: big }),
-      page({ slug: 'c', title: 'C', md: big }),
+      page({ slug: 'a', title: 'A', md: big, tags: ['always'] }),
+      page({ slug: 'b', title: 'B', md: big, tags: ['always'] }),
+      page({ slug: 'c', title: 'C', md: big, tags: ['always'] }),
+      page({ slug: 'd', title: 'D', md: big }),
     ];
-    // Room for the index and two whole pages, not three.
+    // Room for the index and two whole pages, not three; d is never mounted whole.
     const files = planWikiMount(pages, renderWikiIndex(pages).length + 2 * `# A\n\n${big}`.length + 10);
 
     expect(Object.keys(files)).toEqual(['/wiki/index.md', '/wiki/a.md', '/wiki/b.md']);
     expect(files['/wiki/a.md']).toBe(`# A\n\n${big}`);
-    expect(files['/wiki/index.md']).toContain('Not mounted in full (read with read_wiki_page): c');
+    expect(files['/wiki/index.md']).toContain('Tagged always but over the mount budget (read with read_wiki_page): c');
+    expect(files['/wiki/index.md']).toContain('Read on demand with read_wiki_page when the turn is about them: d');
   });
 
   it('mounts only the index for an empty wiki', () => {
     expect(Object.keys(planWikiMount([]))).toEqual(['/wiki/index.md']);
   });
 
+  it('a page nobody tagged always is one line in the index, not a body in every turn', () => {
+    const files = planWikiMount([page({ slug: 'plan', title: 'The plan', md: 'x'.repeat(4000) })]);
+
+    expect(Object.keys(files)).toEqual(['/wiki/index.md']);
+    expect(files['/wiki/index.md']).toContain('- **The plan** (`plan`');
+    expect(files['/wiki/index.md']).toContain('Read on demand with read_wiki_page when the turn is about them: plan');
+  });
+
   it('a seeded `index` page leads the mounted index, the rendered listing follows, and it is not mounted twice', () => {
     const files = planWikiMount([
       page({ slug: 'index', title: 'Start here', md: 'Read Voice first.' }),
-      page({ slug: 'voice', title: 'Voice', summary: 'How we sound.' }),
+      page({ slug: 'voice', title: 'Voice', summary: 'How we sound.', tags: ['always'] }),
     ]);
 
     expect(Object.keys(files)).toEqual(['/wiki/index.md', '/wiki/voice.md']);

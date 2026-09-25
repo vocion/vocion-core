@@ -8,6 +8,16 @@ import process from 'node:process';
 export type McpConfig = {
   orgId: string;
   contextPath: string;
+  /**
+   * Whether `contextPath` is the CALLER's workspace checkout.
+   *
+   * True on stdio/CI, where the process serves one org and the path is chosen
+   * for it. False on HTTP, where one process serves every org and the path is
+   * whatever `WORKSPACE_PATH` names — one org's folder for all of them. The
+   * disk-backed workspace tools are omitted when this is false; see
+   * `tools/workspace-tools.ts`.
+   */
+  diskWorkspace: boolean;
   autoCommit: boolean;
   autoApply: boolean;
   serverName: string;
@@ -30,6 +40,9 @@ export function readConfig(): McpConfig {
   return {
     orgId,
     contextPath,
+    // Stdio is single-tenant: this process was started for one org and
+    // WORKSPACE_PATH was chosen for that org.
+    diskWorkspace: true,
     autoCommit: process.env.WORKSPACE_AUTO_COMMIT !== 'false',
     autoApply: process.env.WORKSPACE_AUTO_APPLY !== 'false',
     serverName: 'vocion',

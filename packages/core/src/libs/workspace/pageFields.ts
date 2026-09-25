@@ -18,7 +18,8 @@ import { z } from 'zod';
  * core page archetype* — today `list` (the objects/type/[slug] shape),
  * `queue` (the review shape, read-only, linking into /dashboard/inbox for
  * decisions), `markdown` (the docs shape), `report` (one record's whole story)
- * or `overview` (an ordered list of typed panels - the control plane) -
+ * (the `overview` archetype — typed panels over the same rows — was removed on
+ * 2026-09-24 with the Factory page, the only page that ever used it) -
  * configured over data core already owns: business objects, skill runs, or
  * knowledge documents.
  *
@@ -66,7 +67,7 @@ const FieldSchema = z.object({
    * `duration` reads an integer number of seconds as "18m 25s", because a
    * run's length is the thing being compared and `1105` is not.
    */
-  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link', 'relative', 'progress', 'steps', 'duration', 'compare', 'workload']).default('text'),
+  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'icon', 'money', 'link', 'relative', 'progress', 'steps', 'duration', 'compare', 'workload']).default('text'),
   /**
    * For `format: compare`, the figure ours is read against and who it
    * belongs to. Our price beside the incumbent's is one fact, not four
@@ -502,275 +503,6 @@ const ReportSchema = z.object({
   subject: z.enum(['request']),
 });
 
-/**
- * The `overview` archetype - the 60-second control plane.
- *
- * Every other archetype answers one question about one kind of row. This one
- * answers the six a person running a business asks before they have decided
- * what to look at: what is true, what changed since I last looked, what is
- * happening now, what is planned next and why, what needs me, and is it worth
- * what it costs. So the page is an ordered list of typed PANELS, each
- * computed server-side from records core already owns
- * (`services/factory/overview.ts` assembles, `overviewData.ts` reads).
- *
- * Panels are declarative rather than hand-coded for the same reason the
- * report archetype is an archetype: the plugin that owns the nouns should own
- * the surface, and a deployment that replaces the page by slug replaces its
- * panels too.
- *
- * The one rule every panel holds to: a figure that the records cannot support
- * is NOT drawn. The panel says which figure is missing and why, in the place
- * the figure would have been. A fabricated metric on a page a person steers
- * by is worse than a gap, because a gap can be fixed and a lie cannot be
- * noticed.
- */
-const PanelFactSchema = z.discriminatedUnion('kind', [
-  /** A value read straight off the record - stage, health, a date. */
-  z.object({
-    kind: z.literal('field'),
-    label: z.string().min(1),
-    from: z.string().min(1),
-  }),
-  /**
-   * A count of OTHER records that point back at this one. `relatedField` is
-   * the accessor on the related record holding this record's key;
-   * `subjectFields` are the accessors tried, in order, for that key on this
-   * record. Both sides are compared lower-cased and trimmed, because a
-   * product titled "Send" is written `send` on the rows that belong to it.
-   */
-  z.object({
-    kind: z.literal('related'),
-    label: z.string().min(1),
-    objectType: SlugSchema,
-    relatedField: z.string().min(1),
-    subjectFields: z.array(z.string().min(1)).min(1).default(['title']),
-    /** Keep only these statuses (omitted = every status). */
-    status: z.array(z.string()).optional(),
-    /** Drop these statuses. Applied after `status`. */
-    excludeStatus: z.array(z.string()).optional(),
-  }),
-]);
-
-const PanelBaseFields = {
-  title: z.string().min(1),
-  /** One line under the panel title, in the page's own words. */
-  note: z.string().optional(),
-  /**
-   * How the panel's figures are computed, in a person's words. This is the
-   * ONLY home for methodology prose. It is never drawn beside the numbers; it
-   * lives behind a "How this is measured" affordance, because the page states
-   * conclusions and the method is one click away.
-   */
-  method: z.string().optional(),
-};
-
-/**
- * `since` for the digest: a per-viewer last-looked stamp when there is one,
- * this many hours otherwise. The panel heading SAYS which of the two it used;
- * a page that silently substitutes a window for a memory is telling a person
- * their attention was tracked when it was not.
- */
-const DigestFallbackHoursSchema = z.number().int().min(1).max(720).default(24);
-
-const OverviewPanelSchema = z.discriminatedUnion('kind', [
-  /**
-   * The one synthesised sentence under the page title.
-   *
-   * It carries no configuration on purpose. The line is derived from the
-   * panels below it, after they are assembled, so it cannot drift from them
-   * or describe data they do not show. When the records cannot support a
-   * confident reading, it says something true and narrow instead of
-   * reaching for a cheerful one.
-   */
-  z.object({
-    kind: z.literal('judgment'),
-    ...PanelBaseFields,
-  }),
-  /** One row per record of a type: a headline and up to four inline facts. */
-  z.object({
-    kind: z.literal('status'),
-    ...PanelBaseFields,
-    objectType: SlugSchema,
-    headline: z.string().min(1).default('title'),
-    facts: z.array(PanelFactSchema).max(4).default([]),
-    /**
-     * The accessor holding the record's health, when it has one. A health of
-     * `unknown` on a record that no related work points at is not merely
-     * unknown: nothing is connected to it, and the row says so. A grey label
-     * a person cannot act on becomes a sentence they can.
-     */
-    healthField: z.string().optional(),
-    /** Health values that mean "nothing has reported", lower-cased. */
-    unknownHealth: z.array(z.string()).default(['unknown', 'unrecorded', '']),
-    /** Row click-through, e.g. `/dashboard/objects/{id}`. */
-    rowLink: z.string().optional(),
-  }),
-  /**
-   * Human-meaningful change since a timestamp. Deliberately NOT a feed:
-   * `arrivals` and `transitions` name the handful of changes a person cares
-   * about by name, and everything high-volume (deploys, worker runs) is only
-   * ever a `rollup` - a count and a sum, never a list.
-   */
-  z.object({
-    kind: z.literal('digest'),
-    ...PanelBaseFields,
-    fallbackHours: DigestFallbackHoursSchema,
-    /**
-     * Records that ARRIVED in the window. `dateFields` are tried in order:
-     * name the record's own stamp for when a person asked (`meta.askedAt`)
-     * first and leave `createdAt` last, because `createdAt` is when the ROW
-     * was written, which a backfill can move years after the ask.
-     */
-    arrivals: z.array(z.object({
-      objectType: SlugSchema,
-      label: z.string().min(1),
-      dateFields: z.array(z.string().min(1)).min(1).default(['createdAt']),
-    })).default([]),
-    /**
-     * Records whose status is now one of `to`, and whose stamp for that
-     * change falls in the window. `dateFields` are tried in order: name the
-     * record's own stamp for the change first (`meta.acceptedAt`) and leave
-     * `updatedAt` last. The panel reports which one it used, because
-     * "updated since you looked" is weaker evidence than "accepted at 14:02"
-     * and a reader is entitled to know which they are being shown.
-     */
-    transitions: z.array(z.object({
-      objectType: SlugSchema,
-      to: z.array(z.string()).min(1),
-      label: z.string().min(1),
-      dateFields: z.array(z.string().min(1)).min(1).default(['updatedAt']),
-      /** How many to name individually before the rest become a count. */
-      detail: z.number().int().min(0).max(10).default(3),
-    })).default([]),
-    /** A count and, when a money field is given, a sum. Never a list. */
-    rollups: z.array(z.object({
-      objectType: SlugSchema,
-      label: z.string().min(1),
-      dateFields: z.array(z.string().min(1)).min(1).default(['createdAt']),
-      moneyField: z.string().optional(),
-    })).default([]),
-    /** Decisions that arrived in the window, by risk. */
-    decisions: z.object({
-      label: z.string().min(1).default('decisions arrived'),
-      risk: z.array(z.string()).default([]),
-    }).optional(),
-  }),
-  /**
-   * Outcomes in flight - requests and initiatives, never worker runs. The
-   * unit is the thing a person asked for; the runs underneath it are
-   * evidence and live on the Activity surface.
-   */
-  z.object({
-    kind: z.literal('active'),
-    ...PanelBaseFields,
-    objectType: SlugSchema,
-    /** Statuses (or `stateField` values) that mean "in flight". */
-    statusIn: z.array(z.string()).min(1),
-    /** A second accessor that also has to be in flight, e.g. `meta.state`. */
-    stateField: z.string().optional(),
-    stateIn: z.array(z.string()).optional(),
-    limit: z.number().int().min(1).max(25).default(7),
-    /**
-     * The work underneath an outcome. This is what decides membership, not
-     * the outcome's own status: a heading that promises work in flight must
-     * list only outcomes where work is literally occurring. An outcome with
-     * no contracted task is approved or queued, not in flight, and an
-     * outcome whose every task has stopped is waiting, not building. Both
-     * are accounted for in the panel's empty line and live on Work.
-     */
-    tasks: z.object({
-      objectType: SlugSchema,
-      /** Accessor on the task holding the outcome's id. */
-      joinField: z.string().min(1),
-      completeStatus: z.array(z.string()).min(1),
-      /** Task statuses that mean a worker is on it RIGHT NOW. */
-      workingStatus: z.array(z.string()).min(1).default(['claimed', 'running']),
-      /** Task statuses that mean the work stopped and a person must look. */
-      waitingStatus: z.array(z.string()).default([]),
-    }).optional(),
-    rowLink: z.string().optional(),
-  }),
-  /**
-   * The ordered queue of what the factory intends to do next, each with its
-   * reason. `orderBy` decides the ORDER and is never rendered: a priority
-   * integer is a ranking, not an answer to "why this". The answer comes from
-   * `meta.why` (see libs/workspace/reasonCodes.ts), and when it is absent the
-   * row says so.
-   */
-  z.object({
-    kind: z.literal('next'),
-    ...PanelBaseFields,
-    objectType: SlugSchema,
-    statusIn: z.array(z.string()).optional(),
-    stateField: z.string().optional(),
-    stateIn: z.array(z.string()).optional(),
-    orderBy: z.string().min(1).default('meta.priority'),
-    limit: z.number().int().min(1).max(25).default(3),
-    /** Metadata keys tried, in order, for the prose note beside the codes. */
-    noteFields: z.array(z.string().min(1)).min(1).default(['whyNote']),
-    rowLink: z.string().optional(),
-  }),
-  /**
-   * The decisions themselves - never an inbox count.
-   *
-   * One open record is not one decision. A factory that re-files the same
-   * unanswered question every time a mission check runs produces a queue
-   * depth, and a queue depth read as "interruptions a person caused" is an
-   * indictment printed as a statistic. So the panel counts SUBJECTS: open
-   * decisions sharing a subject collapse into one, and everything that does
-   * not require a person's judgment - a routine approval an agent has
-   * already answered for itself - is accounted for in one line rather than
-   * padding the number.
-   */
-  z.object({
-    kind: z.literal('needsYou'),
-    ...PanelBaseFields,
-    href: z.string().min(1).default('/dashboard/inbox'),
-    limit: z.number().int().min(1).max(10).default(3),
-    /**
-     * A `sourceRef` reads `<subject>:<detail>`, so two open decisions filed
-     * under the same subject are one decision asked twice. These prefixes
-     * name a single RECORD rather than a subject, so decisions under them
-     * are never merged with each other.
-     */
-    perRecordSources: z.array(z.string().min(1)).default([]),
-  }),
-  /** Spend, accepted changes, cost per accepted change, waste. */
-  z.object({
-    kind: z.literal('economics'),
-    ...PanelBaseFields,
-    windowDays: z.number().int().min(1).max(365).default(30),
-    objectType: SlugSchema,
-    dateFields: z.array(z.string().min(1)).min(1).default(['createdAt']),
-    costField: z.string().min(1).default('meta.actualCents'),
-    /** Statuses that mean the change was accepted. */
-    acceptedStatus: z.array(z.string()).min(1),
-    /**
-     * Statuses that mean the attempt did not land. This is REWORK, not
-     * waste: a failed attempt can leave diagnostics, a preserved branch and
-     * a better next attempt, so calling all of it waste overstates what was
-     * measured. Waste is spend later shown to be genuinely pointless, and
-     * nothing records that yet.
-     */
-    reworkStatus: z.array(z.string()).min(1),
-  }),
-  /**
-   * Two measures that must not be blended. Work autonomy is "how much got
-   * done without a person"; human-interruption quality is "how much of a
-   * person's day it took and how much of that was worth taking". "94%
-   * auto-completed" beside "32 need attention" creates questions, not
-   * confidence, so both are reported and the second is named honestly.
-   */
-  z.object({
-    kind: z.literal('autonomy'),
-    ...PanelBaseFields,
-    windowDays: z.number().int().min(1).max(90).default(7),
-  }),
-]);
-
-export type PageOverviewPanel = z.infer<typeof OverviewPanelSchema>;
-export type PagePanelFact = z.infer<typeof PanelFactSchema>;
-
 export const PageManifestSchema = z.object({
   slug: SlugSchema,
   title: z.string(),
@@ -801,17 +533,13 @@ export const PageManifestSchema = z.object({
    * redirects to `href`. It exists so a plugin can seat a core surface (the
    * team report) beside its own pages without duplicating it.
    */
-  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'overview']),
+  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'wiki']),
   /** Required by `link`: the route the row opens. */
   href: z.string().min(1).optional(),
 
   // ---- report config ----
   /** Required by `report` — see {@link ReportSchema}. */
   report: ReportSchema.optional(),
-
-  // ---- overview config ----
-  /** Required by `overview` - the ordered panels, see {@link OverviewPanelSchema}. */
-  panels: z.array(OverviewPanelSchema).min(1).max(12).optional(),
 
   // ---- list / queue config ----
   source: ListSourceSchema.optional(),
@@ -828,6 +556,25 @@ export const PageManifestSchema = z.object({
   primary: z.object({
     field: z.string(),
     subtitle: z.array(z.string()).default([]),
+    /**
+     * The field holding this row's PICTURE, drawn leading the block rather
+     * than as one more labelled fact.
+     *
+     * A fact list puts an uppercase label above its value, which is the right
+     * shape for a figure and the wrong one for an image: "PREVIEW" above a
+     * thumbnail is a caption saying what a person can already see. Named
+     * here rather than inferred from `format: image` because a page may draw
+     * an image that is a column — an avatar in a table — and only `primary`
+     * knows which one leads.
+     */
+    thumb: z.string().optional(),
+    /**
+     * The field drawn in the picture's place when the row has no picture — a
+     * named icon (`format: icon`), so every card has a mark at its left edge
+     * and none has an empty frame (Chris, 2026-09-24: "there is still no
+     * icon for almost every work item").
+     */
+    thumbFallback: z.string().optional(),
   }).optional(),
   /**
    * How a `list` page draws a row. `table` is the grid of columns. `block`
@@ -859,7 +606,7 @@ export const PageManifestSchema = z.object({
    * knows what these records MEAN and is not a general expression language
    * on a page. A second one gets declared here when it exists.
    */
-  derive: z.enum(['workQueue', 'releaseOutcome']).optional(),
+  derive: z.enum(['workQueue', 'releaseOutcome', 'productBoard']).optional(),
   filters: z.array(FilterSchema).optional(),
   /**
    * Named ways of looking at the same rows, chosen with `?view=<key>` and
@@ -920,6 +667,19 @@ export const PageManifestSchema = z.object({
   rowLink: z.string().optional(),
   /** Trailing links on each row — see {@link RowActionSchema}. */
   rowActions: z.array(RowActionSchema).default([]),
+  /**
+   * How a block draws its row actions: `links` under the facts, or `menu` —
+   * one quiet ⋯ control at the card's corner holding the places the row can
+   * ALSO go, so the card itself stays one tap to one place.
+   */
+  rowActionsAs: z.enum(['links', 'menu']).default('links'),
+  /**
+   * Filters a URL may switch on: `?product=send` narrows the page to rows
+   * whose `field` equals the value, and the page says so with a way back.
+   * This is how one card on Products opens Work AS that product's work
+   * rather than a second page — see {@link applyQueryFilters}.
+   */
+  queryFilters: z.array(z.object({ param: z.string().min(1), field: z.string().min(1), label: z.string().optional() })).optional(),
   /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
   live: LiveSchema.optional(),
 
@@ -945,8 +705,8 @@ export const PageManifestSchema = z.object({
 })
   .refine(m => m.archetype !== 'link' || m.href !== undefined, { message: 'a link page needs href — the route it opens', path: ['href'] })
   .refine(m => m.archetype !== 'report' || m.report !== undefined, { message: 'a report page needs report.subject — the record whose story it tells', path: ['report'] })
-  .refine(m => m.archetype !== 'overview' || m.panels !== undefined, { message: 'an overview page needs panels - the ordered list it computes', path: ['panels'] })
-  .refine(m => m.panels === undefined || m.archetype === 'overview', { message: 'panels belong to the overview archetype', path: ['panels'] })
+  // A wiki is a folder of markdown pages read as pages: the source names the folder, nothing else is declared.
+  .refine(m => m.archetype !== 'wiki' || (m.source !== undefined && m.source.kind === 'artifacts' && typeof m.source.folder === 'string'), { message: 'a wiki page needs source: {kind: artifacts, folder: <name>} — the folder its pages live in', path: ['source'] })
   .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
   .refine(m => m.layout === 'table' || m.archetype === 'list', { message: 'layout: block is for list pages, the ones with rows to draw', path: ['layout'] })
   .refine(m => m.groupsAs !== 'tabs' || !!m.groupBy, { message: 'groupsAs: tabs needs groupBy — tabs are the groups', path: ['groupsAs'] })
@@ -979,7 +739,6 @@ export type PageSeries = z.infer<typeof SeriesSchema>;
 export type PageWidget = z.infer<typeof WidgetSchema>;
 export type PageRowAction = z.infer<typeof RowActionSchema>;
 export type PageReport = z.infer<typeof ReportSchema>;
-export type PagePanels = NonNullable<z.infer<typeof PageManifestSchema>['panels']>;
 
 // ---------------------------------------------------------------------------
 // Accessors + computation shared by the renderer
@@ -1123,6 +882,40 @@ export function sinceStart(value: string, now: Date): Date {
   }
   const days = Number.parseInt(value, 10);
   return new Date(now.getTime() - (Number.isFinite(days) ? days : 0) * 86_400_000);
+}
+
+/** One filter a URL switched on, with the words the page uses to say so. */
+export type ActiveQueryFilter = { param: string; field: string; label: string; value: string };
+
+/**
+ * The query filters a URL actually names, read off its search params. A
+ * param that is absent or empty switches nothing on; a repeated param takes
+ * its first value.
+ * @param declared - The page's `queryFilters`.
+ * @param searchParams - The request's search params.
+ */
+export function activeQueryFilters(declared: Array<{ param: string; field: string; label?: string }> | undefined, searchParams: Record<string, string | string[] | undefined>): ActiveQueryFilter[] {
+  return (declared ?? []).flatMap((q) => {
+    const raw = searchParams[q.param];
+    const value = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? '';
+    return value === '' ? [] : [{ param: q.param, field: q.field, label: q.label ?? q.param, value }];
+  });
+}
+
+/**
+ * Rows narrowed to the filters a URL switched on. Equality, case-insensitive
+ * on strings, because a slug in a URL is typed by people and pasted by links.
+ * @param rows - The page's rows.
+ * @param active - From {@link activeQueryFilters}.
+ */
+export function applyQueryFilters(rows: PageRow[], active: ActiveQueryFilter[]): PageRow[] {
+  if (active.length === 0) {
+    return rows;
+  }
+  return rows.filter(r => active.every((f) => {
+    const v = resolveField(r, f.field);
+    return v !== undefined && v !== null && String(v).toLowerCase() === f.value.toLowerCase();
+  }));
 }
 
 export function applyFilter(rows: PageRow[], filters: z.infer<typeof FilterSchema>[] | undefined, now: Date = new Date()): PageRow[] {
@@ -1706,6 +1499,10 @@ export type TableLayout = {
   primary: PageField | null;
   /** The fields that read as the primary's muted second line, in order. */
   subtitle: PageField[];
+  /** The picture that leads the block, when the page declared one. */
+  thumb: PageField | null;
+  /** Drawn where the thumb would be when the row has no picture. */
+  thumbFallback: PageField | null;
   /** The remaining columns, in declaration order. */
   columns: PageField[];
   /** Columns collapsed into the line above the table. */
@@ -1730,7 +1527,9 @@ export function tableLayout(rows: PageRow[], fields: PageField[], primary?: Page
   const byKey = (k: string) => fields.find(f => f.key === k) ?? null;
   const lead = primary ? byKey(primary.field) : null;
   const sub = (primary?.subtitle ?? []).map(byKey).filter((f): f is PageField => f !== null && !f.detail);
-  const spoken = new Set([lead?.key, ...sub.map(f => f.key)].filter(Boolean) as string[]);
+  const thumb = primary?.thumb ? byKey(primary.thumb) : null;
+  const thumbFallback = primary?.thumbFallback ? byKey(primary.thumbFallback) : null;
+  const spoken = new Set([lead?.key, thumb?.key, thumbFallback?.key, ...sub.map(f => f.key)].filter(Boolean) as string[]);
   // A `detail` field is evidence the page deliberately kept out of the row,
   // so it never competes for width with the columns; it reads inside the
   // row's own disclosure instead.
@@ -1748,6 +1547,12 @@ export function tableLayout(rows: PageRow[], fields: PageField[], primary?: Page
   const gone = new Set([...droppedKeys, ...constants.map(c => c.field.key)]);
   return {
     primary: lead,
+    // The picture is NOT dropped when some rows lack it. A row with no
+    // drawing yet leaves a gap the size of one, and a grid whose tiles start
+    // at different left edges is harder to read than one with a hole in it —
+    // the opposite of the usual rule, and only because this is a grid.
+    thumb,
+    thumbFallback,
     subtitle: sub.filter(f => !gone.has(f.key)),
     columns: rest.filter(f => !gone.has(f.key)),
     constants,

@@ -1,9 +1,11 @@
-import type { FeatureReport, LifecycleStep, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportPhase, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
+import type { FeatureReport, LifecycleStep, LiveBuild, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportPhase, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
 import type { Status } from '@/types/Status';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
+import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { formatStamp, money } from '@/services/factory/featureReport';
+import { inboxHref } from '@/services/inbox/inboxRef';
 
 /**
  * The feature report, drawn — one request's whole story in one column.
@@ -250,7 +252,7 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
 function Section({ section }: { section: ReportSection }) {
   return (
     <section id={`report-${section.key}`} data-section={section.key} className="border-t border-border/60 pt-8">
-      <h3 className="mb-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{section.title}</h3>
+      <h3 className="mb-3 text-sm font-semibold text-foreground">{section.title}</h3>
       {section.absence
         ? <p data-absence className="max-w-prose text-[15px] leading-relaxed text-muted-foreground">{section.absence}</p>
         : (
@@ -291,27 +293,6 @@ function Section({ section }: { section: ReportSection }) {
 }
 
 /**
- * THE STORY — the change as the person who will use it would tell it.
- *
- * Between the mock and the plan on purpose: a reader has just seen what it
- * will look like and has not yet been asked to judge how it will be built.
- * This is the part that says why anybody wants it, which neither the mock nor
- * the criteria ever say.
- * @param props
- * @param props.story - The story, as markdown.
- */
-function Story({ story }: { story: string }) {
-  return (
-    <section id="report-story" className="border-t border-border/60 pt-8">
-      <h3 className="mb-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">The story</h3>
-      <div className="prose prose-sm max-w-prose text-foreground dark:prose-invert prose-p:text-[15px] prose-p:leading-relaxed prose-li:text-[15px]">
-        <Markdown remarkPlugins={[remarkGfm]}>{story}</Markdown>
-      </div>
-    </section>
-  );
-}
-
-/**
  * WHERE THIS IS, in four dots.
  *
  * It replaces four whole sections that each said nothing had happened yet:
@@ -322,23 +303,34 @@ function Story({ story }: { story: string }) {
  * @param props
  * @param props.steps - The four steps and where the work has got to.
  */
-function Lifecycle({ steps }: { steps: LifecycleStep[] }) {
+/**
+ * The stage, one line on a phone: dots and the current step's name, with
+ * "your decision next" when a person holds it. The full labelled strip below
+ * wrapped into two rows at 390px and orphaned "QA → Released" (Chris,
+ * 2026-09-24).
+ * @param props
+ * @param props.steps - The lifecycle.
+ * @param props.needsYou - Whether a person is the one holding it up.
+ */
+function LifecycleDots({ steps, needsYou }: { steps: LifecycleStep[]; needsYou: boolean }) {
+  const nowIndex = steps.findIndex(s => s.state === 'now');
+  const current = steps[nowIndex] ?? steps.find(s => s.state === 'todo') ?? steps[steps.length - 1];
   return (
-    <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" aria-label="Where this work has got to">
-      {steps.map((step, i) => (
-        <li key={step.key} className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5">
-            <span
-              aria-hidden
-              className={`inline-block size-1.5 rounded-full ${step.state === 'done' ? 'bg-brand-ok' : step.state === 'now' ? 'bg-brand-amber' : 'bg-border'}`}
-            />
-            <span className={step.state === 'now' ? 'font-medium text-foreground' : undefined}>{step.label}</span>
-            {step.state === 'now' && <span className="sr-only">(now)</span>}
-          </span>
-          {i < steps.length - 1 && <span aria-hidden className="text-border">→</span>}
-        </li>
-      ))}
-    </ol>
+    <div className="flex items-center gap-2 text-xs text-muted-foreground sm:hidden" aria-label="Where this work has got to" data-testid="lifecycle-dots">
+      <span className="flex items-center gap-1" aria-hidden>
+        {steps.map(step => (
+          <span key={step.key} className={`inline-block size-1.5 rounded-full ${step.state === 'done' ? 'bg-brand-ok' : step.state === 'now' ? 'bg-brand-amber' : 'bg-border'}`} />
+        ))}
+      </span>
+      <span>
+        <span className="font-medium text-foreground">{current?.label}</span>
+        {' · '}
+        {(nowIndex >= 0 ? nowIndex : 0) + 1}
+        {' of '}
+        {steps.length}
+        {needsYou && <span className="text-brand-amber-deep"> · your decision next</span>}
+      </span>
+    </div>
   );
 }
 
@@ -348,10 +340,12 @@ function Lifecycle({ steps }: { steps: LifecycleStep[] }) {
  * has not happened.
  */
 const PHASE_LEADS: Record<ReportPhase, readonly string[]> = {
-  proposed: ['visuals', 'today', 'plan'],
+  asked: ['visuals', 'today', 'result', 'plan'],
+  decided: ['visuals', 'today', 'result', 'plan'],
+  planned: ['plan', 'contract', 'visuals', 'result'],
   building: ['runs', 'plan'],
-  review: ['qa', 'change', 'visuals'],
-  released: ['release', 'qa'],
+  qa: ['qa', 'change', 'visuals'],
+  released: ['result', 'release', 'qa'],
 };
 
 /**
@@ -372,45 +366,6 @@ function showsOnPage(section: ReportSection, phase: ReportPhase): boolean {
     return true;
   }
   return PHASE_LEADS[phase].includes(section.key);
-}
-
-/**
- * WHERE THIS WORK IS, at the top, and what it wants from you.
- *
- * The page used to open with a paragraph describing the database and bury the
- * live blocker several screens down; a person could scroll for a while without
- * learning what to do. State first, the question verbatim, the one action —
- * and on a phone the same action again, stuck to the bottom of the screen, so
- * it is reachable from wherever the reading got to.
- * @param props
- * @param props.state - The derived state.
- */
-function StateHeader({ state }: { state: ReportState }) {
-  const tone = state.needsYou
-    ? 'border-brand-amber/50 bg-brand-amber-tint'
-    : 'border-border bg-surface-soft';
-  return (
-    <section id="report-state" className={`rounded-lg border p-3 ${tone}`}>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className={`text-[11px] font-semibold tracking-[0.06em] uppercase ${state.needsYou ? 'text-brand-amber-deep' : 'text-muted-foreground'}`}>
-          {state.label}
-        </span>
-        <span className="text-xs text-muted-foreground">{state.detail}</span>
-      </div>
-      {state.question !== null && (
-        <p className="mt-2 text-sm font-medium break-words text-foreground">{state.question}</p>
-      )}
-      {state.action !== null && (
-        <a
-          href={state.action.href}
-          data-testid="report-primary-action"
-          className="mt-2 inline-flex h-9 items-center rounded-md bg-brand-amber px-3 text-[13px] font-medium text-white transition-colors hover:bg-brand-amber-deep"
-        >
-          {state.action.label}
-        </a>
-      )}
-    </section>
-  );
 }
 
 /**
@@ -538,12 +493,52 @@ function SummaryStrip({ report }: { report: FeatureReport }) {
  * @param props - The report.
  * @param props.report - The assembled report.
  */
+/**
+ * WATCH THE BUILD (backlog 007): the step the worker is on, how long it has
+ * run, how long since it last spoke, and the tail of what it printed — from
+ * the run's own heartbeat, re-read every five seconds while any run is live.
+ * A build that has gone quiet says so in words; nothing here is an animation.
+ * @param props - The live view.
+ * @param props.live - What the run last reported.
+ */
+function WatchTheBuild({ live }: { live: LiveBuild }) {
+  const since = live.sinceSec === null ? null : duration(live.sinceSec);
+  const quiet = live.quietSec !== null && live.quietSec > 90 ? `quiet for ${duration(live.quietSec)}` : null;
+  return (
+    <div className="mt-2 rounded-md border border-border/60 bg-muted/30 p-2.5" data-testid="watch-the-build">
+      <p className="text-xs text-foreground/90">
+        <span className="font-medium">{live.step ?? 'Working'}</span>
+        {since && <span className="text-muted-foreground">{` · ${since} so far`}</span>}
+        {quiet && <span className="text-brand-amber-deep">{` · ${quiet}`}</span>}
+      </p>
+      {live.log.length > 0 && (
+        <pre className="mt-1.5 max-h-40 overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre text-muted-foreground">{live.log.join('\n')}</pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Seconds as a person reads them: "45s", "3m 10s", "1h 12m".
+ * @param sec - Seconds.
+ */
+function duration(sec: number): string {
+  if (sec < 60) {
+    return `${sec}s`;
+  }
+  if (sec < 3600) {
+    return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  }
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+}
+
 function Timeline({ report }: { report: FeatureReport }) {
   if (report.timeline.length === 0) {
     return <p className="text-sm text-muted-foreground">Nothing on this request is dated, so there is no order to show.</p>;
   }
   return (
     <ol id="report-timeline" className="relative ml-1.5 border-l border-border pl-4">
+      {report.timeline.some(e => e.live) && <LiveRefresh everyMs={5000} />}
       {report.timeline.map(entry => (
         <li key={entry.key} data-timeline-entry={entry.key} className="relative pb-4 last:pb-0">
           <span className={`absolute top-1.5 left-[-1.3125rem] size-2 rounded-full ring-2 ring-background ${TONE_DOT[entry.tone]}`} />
@@ -559,6 +554,7 @@ function Timeline({ report }: { report: FeatureReport }) {
               : entry.title}
           </p>
           {entry.detail && <p className="mt-0.5 line-clamp-3 text-xs break-words text-muted-foreground">{entry.detail}</p>}
+          {entry.live && <WatchTheBuild live={entry.live} />}
         </li>
       ))}
     </ol>
@@ -603,21 +599,138 @@ export function ReportContextLine({ bits }: { bits: readonly string[] }) {
  * @param props - The report.
  * @param props.report - The assembled report.
  */
+/** Sections that are how it was made, not what it is: below the feature, in Activity, once the work has landed. */
+const BUILD_DETAIL_KEYS: ReadonlySet<string> = new Set(['runs', 'money', 'approvals']);
+
+/**
+ * A process warning in plain words, one line. The full discrepancy stays one
+ * tap away; it must not push the feature off the screen (Chris, 2026-09-25:
+ * "This feature was built without the required plan").
+ * @param c - The contradiction as recorded.
+ */
+export function plainWarning(c: string): string {
+  if (/plan rule required a plan/i.test(c)) {
+    return 'This feature was built without the required plan.';
+  }
+  const first = c.split(/(?<=[.!?])\s/)[0] ?? c;
+  return first.length > 120 ? `${first.slice(0, 117)}…` : first;
+}
+
+/**
+ * WHAT NEEDS YOU, in one line: the thing waiting, how long, and the one
+ * button that opens it where it is decided. The whole draft used to sit on
+ * the feature page — process narration, internal labels, a cost, raw
+ * `**Approve**` — and it pushed the feature off the first screen.
+ * @param props
+ * @param props.state - The derived state.
+ */
+function ActionStrip({ state }: { state: ReportState }) {
+  const d = state.decision;
+  const href = state.action?.href ?? (d ? inboxHref(d.kind === 'ask' ? 'ask' : 'proposal', d.id) : null);
+  if (!state.needsYou && !d) {
+    return null;
+  }
+  const what = state.question ?? state.label;
+  return (
+    <section id="report-state" data-testid="report-action-strip" className="flex min-w-0 items-center gap-3 rounded-lg border border-brand-amber/40 bg-brand-amber-tint/60 px-3 py-2">
+      <span className="size-2 shrink-0 rounded-full bg-brand-amber" aria-hidden />
+      <p className="min-w-0 flex-1 truncate text-sm">
+        <span className="font-medium text-foreground">{what}</span>
+        {state.detail && <span className="text-muted-foreground">{` · ${state.detail}`}</span>}
+      </p>
+      {href && (
+        <a href={href} data-testid="report-primary-action" className="inline-flex h-8 shrink-0 items-center rounded-md bg-brand-amber px-3 text-[13px] font-medium text-white transition-colors hover:bg-brand-amber-deep">
+          Review
+        </a>
+      )}
+    </section>
+  );
+}
+
+/**
+ * WHAT IT LOOKS LIKE: one large picture and the supporting views under it —
+ * the media hierarchy of a product page, without the decoration. With no
+ * picture yet it says so, honestly, instead of stretching an icon.
+ * @param props
+ * @param props.hero - The main picture.
+ * @param props.more - The other pictures.
+ * @param props.docs - Mockups that are documents rather than pictures.
+ */
+function HeroMedia({ hero, more, docs }: { hero: ReportEvidence | null; more: ReportEvidence[]; docs: ReportEvidence[] }) {
+  if (!hero?.imageUrl) {
+    return (
+      <div id="report-visuals" data-section="visuals">
+        {docs.length > 0
+          ? <Gallery items={docs} />
+          : (
+              <div data-testid="report-preview-pending" className="flex aspect-[16/7] w-full items-center justify-center rounded-xl border border-dashed border-border bg-surface-soft text-sm text-muted-foreground">
+                Preview pending
+              </div>
+            )}
+      </div>
+    );
+  }
+  return (
+    <div id="report-visuals" data-section="visuals" className="space-y-2">
+      <a href={hero.imageUrl} target="_blank" rel="noreferrer" data-testid="report-hero" className="block overflow-hidden rounded-xl border border-border bg-muted">
+        <img src={hero.imageUrl} alt={hero.caption ?? hero.title} className="max-h-[440px] w-full object-cover object-top" loading="eager" />
+      </a>
+      {more.length > 0 && (
+        <ul className="flex gap-2 overflow-x-auto pb-1" data-testid="report-gallery">
+          {more.map(m => (
+            <li key={m.id} className="shrink-0">
+              <a href={m.imageUrl!} target="_blank" rel="noreferrer" className="block w-40 overflow-hidden rounded-lg border border-border bg-muted">
+                <img src={m.imageUrl!} alt={m.caption ?? m.title} className="aspect-[8/5] w-full object-cover object-top" loading="lazy" />
+              </a>
+              <p className="mt-1 w-40 truncate text-xs text-muted-foreground">{m.title}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      {docs.length > 0 && <Gallery items={docs} />}
+    </div>
+  );
+}
+
 export function FeatureReportView({ report }: { report: FeatureReport }) {
+  const visuals = report.sections.find(x => x.key === 'visuals');
+  const pictures = (visuals?.evidence ?? []).filter(e => e.imageUrl !== null);
+  const hero = report.hero ?? pictures[0] ?? null;
+  const more = pictures.filter(p => p.id !== hero?.id);
+  const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
+  // Once the work has landed, how it was made is Activity, not the page.
+  const landed = report.phase === 'released' || report.phase === 'qa';
+  const onTop = (x: ReportSection) => showsOnPage(x, report.phase) && x.key !== 'visuals' && !(landed && BUILD_DETAIL_KEYS.has(x.key));
+  const buildDetails = landed ? report.sections.filter(x => BUILD_DETAIL_KEYS.has(x.key) && showsOnPage(x, report.phase)) : [];
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
-      <StateHeader state={report.state} />
-      <Lifecycle steps={report.lifecycle} />
-
-      {report.contradictions.length > 0 && (
-        <section id="report-contradictions" className="rounded-lg border border-[var(--brand-fail)]/40 bg-[var(--brand-fail-bg)] p-3">
-          <h2 className="text-[11px] font-semibold tracking-[0.06em] text-[var(--brand-fail)] uppercase">The records disagree</h2>
-          <ul className="mt-1.5 space-y-1 text-sm text-[var(--brand-fail)]">
-            {report.contradictions.map(c => <li key={c} className="break-words">{c}</li>)}
-          </ul>
-          <p className="mt-1.5 text-xs text-[var(--brand-fail)]/80">Both facts are shown as recorded. Nothing here was resolved for you.</p>
-        </section>
-      )}
+      {/* THE FIRST SCREEN ANSWERS FOUR QUESTIONS (Chris, 2026-09-25): what is
+          it (the title above), who wanted it and why (the story), what it
+          looks like (the picture), and what needs me now (one line). The
+          process — a warning, the stage — is one line each under that. */}
+      <div className="space-y-4">
+        {report.story !== null && (
+          <div id="report-story" className="prose prose-sm max-w-prose text-foreground dark:prose-invert prose-p:my-0 prose-p:text-[16px] prose-p:leading-relaxed">
+            <Markdown remarkPlugins={[remarkGfm]}>{report.story}</Markdown>
+          </div>
+        )}
+        <HeroMedia hero={hero} more={more} docs={docs} />
+        <ActionStrip state={report.state} />
+        <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
+        {report.contradictions.length > 0 && (
+          <details id="report-contradictions" className="group text-sm">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[var(--brand-fail)]">
+              <span className="size-1.5 shrink-0 rounded-full bg-[var(--brand-fail)]" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{plainWarning(report.contradictions[0]!)}</span>
+              <span className="shrink-0 text-xs underline underline-offset-2">Evidence</span>
+            </summary>
+            <ul className="mt-2 space-y-1 rounded-lg border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)] p-3 text-[13px] text-[var(--brand-fail)]">
+              {report.contradictions.map(c => <li key={c} className="break-words">{c}</li>)}
+              <li className="text-xs opacity-80">Both facts are shown as recorded. Nothing here was resolved for you.</li>
+            </ul>
+          </details>
+        )}
+      </div>
 
       {/* THE STORY, in the order a person follows it: what we are going to
           make, what was built, the evidence, what remains, what it cost. The
@@ -629,9 +742,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
           today, then the plan and what counts as done. The mock comes before
           the prose because it answers the question the prose is about. */}
       <div className="space-y-8">
-        {report.sections.filter(x => showsOnPage(x, report.phase) && x.key === 'visuals').map(section => <Section key={section.key} section={section} />)}
-        {report.story !== null && <Story story={report.story} />}
-        {report.sections.filter(x => showsOnPage(x, report.phase) && x.key !== 'visuals').map(section => <Section key={section.key} section={section} />)}
+        {report.sections.filter(onTop).map(section => <Section key={section.key} section={section} />)}
       </div>
 
       {/* WHAT COUNTS AS DONE, under the proposal rather than above it: it is
@@ -644,15 +755,17 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
           it, for a reader who has got that far and wants it. */}
       {/* HISTORY behind a tap. Good audit data, and nobody approving a plan
           needs to scroll a timestamped event stream to understand a feature. */}
-      <details className="border-t border-border/60 pt-6">
+      <details id="report-activity" className="border-t border-border/60 pt-6">
         <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
-          History
+          Activity
           <span className="ml-2 text-xs">
+            {buildDetails.length > 0 ? 'build details · ' : ''}
             {report.timeline.length}
             {report.timeline.length === 1 ? ' event' : ' events'}
           </span>
         </summary>
-        <div className="mt-4">
+        <div className="mt-4 space-y-8">
+          {buildDetails.map(section => <Section key={section.key} section={section} />)}
           <Timeline report={report} />
         </div>
       </details>

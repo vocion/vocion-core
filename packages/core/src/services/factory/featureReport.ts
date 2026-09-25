@@ -91,6 +91,7 @@ export type ReportWorkerRun = {
   createdAt: Date;
   claimedAt: Date | null;
   completedAt: Date | null;
+  heartbeatAt?: Date | null;
   input: Record<string, unknown>;
   result: Record<string, unknown> | null;
   progress: Record<string, unknown>;
@@ -202,7 +203,7 @@ export type ReportEvidence = {
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 
-export const REPORT_SECTION_KEYS = ['ask', 'triage', 'visuals', 'today', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
+export const REPORT_SECTION_KEYS = ['ask', 'triage', 'visuals', 'today', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'result', 'money'] as const;
 export type ReportSectionKey = typeof REPORT_SECTION_KEYS[number];
 
 /**
@@ -244,7 +245,43 @@ export type TimelineEntry = {
   cents: number | null;
   tone: Tone;
   href: string | null;
+  /** A run still going: what it is doing, its last line, its log tail (backlog 007). */
+  live?: LiveBuild;
 };
+
+/** What a person watching a build sees while it runs. */
+export type LiveBuild = {
+  step: string | null;
+  lastLine: string | null;
+  log: string[];
+  /** Seconds since the run was claimed, or null when the row does not say. */
+  sinceSec: number | null;
+  /** Seconds since the last heartbeat — a build that went quiet says so. */
+  quietSec: number | null;
+};
+
+const LIVE_STATUSES = new Set(['running', 'claimed', 'paused']);
+
+/**
+ * The live view of a run that is still going, or null once it is not.
+ * @param run - The worker run.
+ * @param now - The clock.
+ */
+export function liveOf(run: ReportWorkerRun & { heartbeatAt?: Date | null }, now: Date = new Date()): LiveBuild | null {
+  if (!LIVE_STATUSES.has(run.status)) {
+    return null;
+  }
+  const p = run.progress as { step?: unknown; log?: unknown };
+  const log = Array.isArray(p.log) ? p.log.filter((l): l is string => typeof l === 'string').slice(-8) : [];
+  const since = run.claimedAt ?? run.createdAt;
+  return {
+    step: typeof p.step === 'string' && p.step.trim() ? p.step.trim() : null,
+    lastLine: log.at(-1) ?? null,
+    log,
+    sinceSec: since ? Math.max(0, Math.round((now.getTime() - since.getTime()) / 1000)) : null,
+    quietSec: run.heartbeatAt ? Math.max(0, Math.round((now.getTime() - run.heartbeatAt.getTime()) / 1000)) : null,
+  };
+}
 
 export type FeatureReportSummary = {
   askedAt: Date | null;
@@ -298,6 +335,8 @@ export type FeatureReport = {
   timeline: TimelineEntry[];
   /** Disagreements between records, stated rather than resolved. */
   contradictions: string[];
+  /** The picture that leads the page — the first mock or after-shot with an image — or null. */
+  hero: ReportEvidence | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -350,6 +389,22 @@ function list(source: Record<string, unknown> | null | undefined, key: string): 
  * unparseable value is null rather than an Invalid Date.
  * @param v - The raw value.
  */
+/**
+ * The obstacle the record names, if any — what, who clears it, the one move.
+ * Only this reads as Blocked; "no task running" is a wait, not a block.
+ * @param meta - The request's metadata.
+ */
+export function blockerOf(meta: Record<string, unknown>): { what: string; owner: string | null; next: string | null } | null {
+  const raw = meta.blocker;
+  if (raw === null || typeof raw !== 'object') {
+    return null;
+  }
+  const b = raw as Record<string, unknown>;
+  const text = (k: string) => (typeof b[k] === 'string' && (b[k] as string).trim() !== '' ? (b[k] as string).trim() : null);
+  const what = text('what');
+  return what === null ? null : { what, owner: text('owner'), next: text('next') };
+}
+
 export function asDate(v: unknown): Date | null {
   if (v instanceof Date) {
     return Number.isNaN(v.getTime()) ? null : v;
@@ -448,6 +503,30 @@ function evidenceUrl(artifact: ReportArtifact): string | null {
 // ---------------------------------------------------------------------------
 
 const TERMINAL_BAD = new Set(['failed', 'cancelled', 'lost']);
+
+/** The recommended outcome, as a verb a person reads on the decision card. */
+const OUTCOME_VERBS: Record<string, string> = { build: 'build it', answer: 'answer it', decline: 'decline it', merge: 'merge it into another request', defer: 'defer it' };
+
+/**
+ * An age in a person's words — "2 days", "5 hours", "just now" — for the
+ * context line. `formatDuration`'s "1d 21h" is a stopwatch reading; nobody
+ * decides differently at 1d 21h than at 2 days (Chris, 2026-09-24).
+ * @param ms - How long ago.
+ */
+export function formatAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 60_000) {
+    return 'just now';
+  }
+  const days = Math.round(ms / 86_400_000);
+  if (ms >= 36 * 3_600_000) {
+    return `${days} day${days === 1 ? '' : 's'} ago`;
+  }
+  const hours = Math.round(ms / 3_600_000);
+  if (hours >= 1) {
+    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  }
+  return `${Math.round(ms / 60_000)} min ago`;
+}
 
 /**
  * What a run reported about the change. A completed run writes `pr_url`,
@@ -1111,6 +1190,56 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSectio
 }
 
 /**
+ * THE RESULT — did the shipped change do what it was for? Deployment health,
+ * an after-shot and a reply prove delivery; this is the outcome, and it is
+ * the section the page was missing (review, 2026-09-24: "Shipped and told
+ * does not prove the outcome"). Four facts the record can carry — what
+ * should change, how we will check, when there will be enough use to know,
+ * and what the check showed — and the honest absences for each.
+ * @param request - The request.
+ * @param released - Whether anything has carried it to people yet.
+ */
+function resultSection(request: ReportObject, released: boolean): ReportSection {
+  const s = blank('result', 'Result');
+  const meta = request.meta;
+  const expected = str(meta, 'expectedResult');
+  const how = str(meta, 'howWeCheck');
+  const checkAfter = asDate(meta.checkAfter);
+  const result = str(meta, 'result');
+  const note = str(meta, 'resultNote');
+  const checkedAt = asDate(meta.resultCheckedAt);
+  const told = meta.told !== null && typeof meta.told === 'object' ? meta.told as Record<string, unknown> : null;
+  if (expected === null && result === null) {
+    s.absence = released
+      ? 'No expected result was written for this, so shipping it can be confirmed but never called a success. Write what should have changed, and how to check.'
+      : 'No expected result yet. Before this is approved, say what should be different for people once it ships, and how we will know.';
+    return s;
+  }
+  s.facts.push({ label: 'Expected result', value: expected });
+  s.facts.push({ label: 'How we will check', value: how });
+  s.facts.push({ label: 'Check after', value: checkAfter ? formatStamp(checkAfter) : null });
+  if (result === null) {
+    s.facts.push({ label: 'Result', value: released ? (checkAfter ? `not checked yet — due ${formatStamp(checkAfter)}` : 'not checked yet') : 'not shipped yet' });
+  } else {
+    const label = result === 'helped' ? 'Helped' : result === 'did_not_help' ? 'Did not help' : 'Not enough evidence';
+    s.facts.push({ label: 'Result', value: checkedAt ? `${label} · checked ${formatStamp(checkedAt)}` : label });
+    s.facts.push({ label: 'What the check showed', value: note });
+    if (result === 'did_not_help') {
+      s.flags.push('Did not help: this is a new request, not a closed one.');
+    }
+  }
+  if (told) {
+    const status = typeof told.status === 'string' ? told.status : null;
+    const what = typeof told.what === 'string' ? told.what : null;
+    const channel = typeof told.channel === 'string' ? told.channel : null;
+    s.facts.push({ label: 'The asker was told', value: status === 'sent' ? [what, channel ? `on ${channel}` : null].filter(Boolean).join(' · ') || 'yes' : status === 'failed' ? 'the reply was released and the channel refused it — still open' : status === 'not_needed' ? 'no external asker' : null });
+  } else if (released) {
+    s.facts.push({ label: 'The asker was told', value: 'not yet' });
+  }
+  return s;
+}
+
+/**
  * The release — what the notes said, what the announcement said, when it
  * reached people and where.
  * @param releases - Releases carrying any of this work's tasks.
@@ -1406,6 +1535,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
 
   for (const run of input.workerRuns) {
     const change = runChange(run);
+    const live = liveOf(run);
     out.push({
       key: `run-${run.id}`,
       at: runAt(run),
@@ -1415,6 +1545,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       cents: run.cents,
       tone: statusTone(run.status),
       href: null,
+      ...(live ? { live } : {}),
     });
     if (change.prUrl) {
       out.push({
@@ -1549,7 +1680,7 @@ function findContradictions(input: FeatureReportInput, mergedPrs: Set<string>, l
  * them, and a stored one eventually does.
  */
 export type ReportState = {
-  key: 'blocked' | 'approve' | 'building' | 'review' | 'releasable' | 'released' | 'waiting';
+  key: 'blocked' | 'decide' | 'approve' | 'building' | 'qa' | 'merge' | 'released' | 'waiting';
   /** "Blocked", "Building" — the badge. */
   label: string;
   /** "waiting on you", "no action needed" — the half that says whose move it is. */
@@ -1560,6 +1691,20 @@ export type ReportState = {
   question: string | null;
   /** The one thing to do about it, and where. */
   action: { label: string; href: string } | null;
+  /**
+   * The decision itself, when one is open — enough to decide HERE: what is
+   * asked, what is recommended and why, the risk, the cost — and the id to
+   * decide it by. A "Review decision" button that leaves the page is not a
+   * decision card (Chris, 2026-09-24).
+   */
+  decision: {
+    kind: 'ask' | 'proposal';
+    id: number;
+    actionId: string | null;
+    recommendation: string | null;
+    risk: string | null;
+    cost: string | null;
+  } | null;
 };
 
 /**
@@ -1570,41 +1715,83 @@ export type ReportState = {
  * @param line - The money line, for nothing yet but kept for symmetry.
  */
 function buildState(input: FeatureReportInput): ReportState {
-  const openAsk = input.asks.find(a => a.decidedAt === null);
-  if (openAsk) {
+  // AN ACTUAL OBSTACLE FIRST, and only an actual obstacle reads as Blocked
+  // (review, 2026-09-24). Waiting on a decision, on QA or on a merge are
+  // waits with names; each says whose move it is in a plain sentence.
+  const blocker = blockerOf(input.request.meta);
+  if (blocker) {
     return {
       key: 'blocked',
       label: 'Blocked',
+      detail: blocker.owner ? `${blocker.owner} to ${blocker.next ?? 'clear it'}` : blocker.next ?? 'nobody is named to clear it',
+      needsYou: true,
+      question: blocker.what,
+      action: { label: 'See what is blocking it', href: '#report-approvals' },
+      decision: null,
+    };
+  }
+  const meta = input.request.meta;
+  const risk = str(meta, 'mainRisk');
+  const verb = OUTCOME_VERBS[str(meta, 'recommendedOutcome') ?? ''] ?? null;
+  const whyNote = str(meta, 'whyNote');
+  const recommendation = verb ? `Vocion recommends we ${verb}${whyNote ? ` — ${whyNote}` : ''}` : whyNote;
+  const estimate = num(meta, 'estimateCents');
+  const openAsk = input.asks.find(a => a.decidedAt === null);
+  if (openAsk) {
+    return {
+      key: 'decide',
+      label: 'Decide',
       detail: 'waiting on you',
       needsYou: true,
       question: openAsk.title,
       action: { label: 'Review decision', href: '#report-approvals' },
+      decision: {
+        kind: 'ask',
+        id: openAsk.id,
+        actionId: null,
+        recommendation: openAsk.body?.trim() || recommendation,
+        risk,
+        cost: estimate !== null && estimate > 0 ? `about ${money(estimate)}` : openAsk.decisionCost !== null ? `about ${openAsk.decisionCost} min to decide` : null,
+      },
     };
   }
   const pendingAction = input.actionRuns.find(a => a.decidedAt === null && a.approvedByAgent === false);
   if (pendingAction) {
     return {
       key: 'approve',
-      label: 'Needs approval',
+      label: pendingAction.actionId === 'git.merge' ? 'Ready to merge' : 'Needs approval',
       detail: 'waiting on you',
       needsYou: true,
-      question: `Approve ${pendingAction.actionId}?`,
+      question: pendingAction.actionId === 'git.merge' ? 'QA approved; the merge is the deploy.' : `Approve ${pendingAction.actionId}?`,
       action: { label: 'Review & approve', href: '#report-approvals' },
+      decision: {
+        kind: 'proposal',
+        id: pendingAction.id,
+        actionId: pendingAction.actionId,
+        recommendation: pendingAction.note?.trim() || recommendation,
+        risk,
+        cost: estimate !== null && estimate > 0 ? `about ${money(estimate)}` : null,
+      },
     };
   }
   if (input.releases.length > 0) {
-    return { key: 'released', label: 'Released', detail: 'live for people', needsYou: false, question: null, action: { label: 'See the release', href: '#report-release' } };
+    const result = str(input.request.meta, 'result');
+    const told = input.request.meta.told !== null && typeof input.request.meta.told === 'object' ? (input.request.meta.told as Record<string, unknown>).status : null;
+    const detail = result === 'helped' ? 'live, and it helped' : result === 'did_not_help' ? 'live, and it did not help' : told === 'sent' ? 'live; the asker has been told; result not checked yet' : 'live for people; result not checked yet';
+    return { key: 'released', label: 'Released', detail, needsYou: false, question: null, action: { label: 'See the release', href: '#report-release' }, decision: null };
   }
   const running = input.workerRuns.filter(r => !TERMINAL_BAD.has(r.status) && r.status !== 'completed');
   if (running.length > 0) {
-    return { key: 'building', label: 'Building', detail: 'no action needed', needsYou: false, question: null, action: { label: 'View progress', href: '#report-runs' } };
+    return { key: 'building', label: 'Building', detail: 'no action needed from you', needsYou: false, question: null, action: { label: 'View progress', href: '#report-runs' }, decision: null };
   }
   const accepted = input.tasks.filter(t => t.status === 'accepted');
   if (accepted.length > 0) {
-    const hasEvidence = input.artifacts.length > 0;
-    return hasEvidence
-      ? { key: 'releasable', label: 'Ready to release', detail: 'waiting on you', needsYou: true, question: null, action: { label: 'Review release', href: '#report-release' } }
-      : { key: 'review', label: 'Ready for review', detail: 'waiting on you', needsYou: true, question: null, action: { label: 'Review changes', href: '#report-qa' } };
+    return { key: 'merge', label: 'Ready to merge', detail: 'QA approved; the merge is waiting on a person', needsYou: true, question: null, action: { label: 'Review the merge', href: '#report-qa' }, decision: null };
+  }
+  const awaitingReview = input.tasks.filter(t => t.status === 'awaiting_review');
+  if (awaitingReview.length > 0) {
+    const last = input.workerRuns.map(r => r.completedAt ?? r.createdAt).filter((d): d is Date => d instanceof Date).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    return { key: 'qa', label: 'Awaiting QA', detail: last ? `engineering finished ${formatStamp(last)}; no action needed from you` : 'engineering finished; no action needed from you', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
   }
   // "NOT STARTED" IS A CLAIM TOO.
   //
@@ -1622,11 +1809,12 @@ function buildState(input: FeatureReportInput): ReportState {
       label: 'Unreadable',
       detail: 'the records disagree',
       needsYou: false,
+      decision: null,
       question: `This work says ${written} task${written === 1 ? ' was' : 's were'} written for it and none of them is linked here.`,
       action: null,
     };
   }
-  return { key: 'waiting', label: 'Not started', detail: 'nothing has run yet', needsYou: false, question: null, action: null };
+  return { key: 'waiting', label: 'Not started', detail: 'nothing has run yet', needsYou: false, question: null, action: null, decision: null };
 }
 
 /**
@@ -1642,7 +1830,11 @@ function buildState(input: FeatureReportInput): ReportState {
  * @param request - The request record.
  */
 function goalOf(request: ReportObject): string | null {
-  const raw = (str(request.meta, 'summary') ?? str(request.meta, 'body') ?? '').trim();
+  // `outcome` first — the type's own "line every surface leads with", and the
+  // one sentence an agent can write (`summary` is the row's column and
+  // `objects.update_meta` refuses it) — then the summary the record was filed
+  // with, then the ask's body.
+  const raw = (str(request.meta, 'outcome') ?? str(request.meta, 'summary') ?? str(request.meta, 'body') ?? '').trim();
   if (raw === '') {
     return null;
   }
@@ -1670,7 +1862,18 @@ function goalOf(request: ReportObject): string | null {
   if (trimmed === '' || trimmed.endsWith(':')) {
     return null;
   }
-  return trimmed.length > 180 ? `${trimmed.slice(0, 179).trimEnd()}…` : trimmed;
+  if (trimmed.length <= 180) {
+    return trimmed;
+  }
+  // AT A WORD, NOT A CHARACTER. A hard slice ends the only sentence under the
+  // outcome mid-word — "…and keep a record that it we…" — which reads as a
+  // rendering fault rather than as an abbreviation. Cut back to the last
+  // space, unless the first 180 characters contain no space at all (one
+  // enormous token), where a hard cut is the only cut available.
+  const hard = trimmed.slice(0, 179).trimEnd();
+  const lastSpace = hard.lastIndexOf(' ');
+  const body = lastSpace > 120 ? hard.slice(0, lastSpace) : hard;
+  return `${body.replace(/[,;:]$/, '')}…`;
 }
 
 /**
@@ -1766,7 +1969,8 @@ function drawOf(a: ReportArtifact): { imageUrl: string | null; body: string | nu
  *
  * Everything else stays reachable and stops being in the way.
  */
-export type ReportPhase = 'proposed' | 'building' | 'review' | 'released';
+/** The six stages a person sees, the same vocabulary as the Work board (`workQueue.stageOf`). */
+export type ReportPhase = 'asked' | 'decided' | 'planned' | 'building' | 'qa' | 'released';
 
 /** One step of the lifecycle, as the strip draws it. */
 export type LifecycleStep = { key: string; label: string; state: 'done' | 'now' | 'todo' };
@@ -1780,26 +1984,37 @@ function buildPhase(input: FeatureReportInput): ReportPhase {
   if (input.releases.length > 0) {
     return 'released';
   }
-  if (input.tasks.some(t => t.status === 'accepted') || input.artifacts.some(a => a.recordRole?.startsWith('qa-') === true)) {
-    return 'review';
+  if (input.tasks.some(t => t.status === 'accepted' || t.status === 'awaiting_review') || input.artifacts.some(a => a.recordRole?.startsWith('qa-') === true)) {
+    return 'qa';
   }
-  if (input.workerRuns.length > 0 || input.tasks.length > 0) {
+  if (input.workerRuns.length > 0 || input.tasks.some(t => t.status === 'dispatched' || t.status === 'claimed' || t.status === 'running') || str(input.request.meta, 'state') === 'building') {
     return 'building';
   }
-  return 'proposed';
+  if (input.tasks.length > 0 || input.plans.length > 0) {
+    return 'planned';
+  }
+  const state = str(input.request.meta, 'state');
+  if (state === 'in_scope' || state === 'out_of_scope' || state === 'deferred' || state === 'answered' || input.request.meta.decidedAt) {
+    return 'decided';
+  }
+  return 'asked';
 }
 
 /**
- * The four steps, and where this work has got to. A tiny strip replaces four
- * sections that each said nothing had happened.
+ * The strip: six stages, the current one marked, in the order a person
+ * reads them — asked, decided, planned, building, QA, released. One
+ * vocabulary with the Work board (review, 2026-09-24: "resolve the four-stage
+ * versus six-stage language").
  * @param phase - The phase.
  */
 function buildLifecycle(phase: ReportPhase): LifecycleStep[] {
   const order: Array<{ key: ReportPhase; label: string }> = [
-    { key: 'proposed', label: 'Plan' },
-    { key: 'building', label: 'Build' },
-    { key: 'review', label: 'QA' },
-    { key: 'released', label: 'Release' },
+    { key: 'asked', label: 'Asked' },
+    { key: 'decided', label: 'Decided' },
+    { key: 'planned', label: 'Planned' },
+    { key: 'building', label: 'Building' },
+    { key: 'qa', label: 'QA' },
+    { key: 'released', label: 'Released' },
   ];
   const at = order.findIndex(o => o.key === phase);
   return order.map((o, i) => ({
@@ -1872,7 +2087,7 @@ function buildContext(request: ReportObject, summary: FeatureReportSummary, now:
     out.push(`${money(summary.totalCents)} spent`);
   }
   if (summary.askedAt !== null) {
-    out.push(`asked ${formatDuration(now.getTime() - summary.askedAt.getTime())} ago`);
+    out.push(`asked ${formatAge(now.getTime() - summary.askedAt.getTime())}`);
   }
   return out;
 }
@@ -2044,9 +2259,11 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
       changeSection(input.tasks, runs),
       qaSection(input.artifacts, input.tasks.length),
       releaseSection(input.releases),
+      resultSection(normalised.request, normalised.releases.length > 0),
       moneySection(line),
     ],
     timeline: buildTimeline(normalised, mergedPrs),
     contradictions: findContradictions(normalised, mergedPrs, line),
+    hero: visualsSection(input.request, input.artifacts).evidence.find(e => e.imageUrl !== null) ?? null,
   };
 }

@@ -4,7 +4,6 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
-import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { DocViewer } from '@/features/dashboard/DocViewer';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -156,7 +155,6 @@ export default async function SkillDetailPage(props: Props) {
       </div>
 
       <TitleBar
-        actions={<AskAboutThis record={record} />}
         title={(
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">

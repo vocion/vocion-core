@@ -1,7 +1,9 @@
 import type React from 'react';
 import type { PageField, PageRow } from '@/libs/workspace/pageFields';
+import { createElement } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
+import { iconByName } from '@/features/dashboard/iconByName';
 import { relativeLabel } from '@/libs/timeAgo';
 import { fieldHasSource, fieldIsFresh, formatDuration, formatMoney, formatProgress, isEmptyValue, resolveField, shortUrlLabel, toDate } from '@/libs/workspace/pageFields';
 
@@ -330,8 +332,21 @@ function FieldBody({ row, field, now, links }: { row: PageRow; field: PageField;
         </ul>
       );
     }
+    case 'icon': {
+      // A NAMED icon as the row's picture: a product's mark, a page's glyph.
+      // Fills its tile the way `image` fills its frame.
+      return (
+        <span className="flex size-full items-center justify-center bg-muted text-foreground/70">
+          {createElement(iconByName(s), { 'className': 'size-1/2', 'aria-hidden': true })}
+        </span>
+      );
+    }
     case 'image':
-      return <img src={s} alt={field.label ?? field.key} loading="lazy" className="h-14 w-24 rounded border border-border object-cover" />;
+      // FILLS its container rather than choosing a size. The same drawing is
+      // a thumbnail leading a block and would be a smaller one in a table
+      // cell, and a value that picks its own dimensions cannot be both; the
+      // layout that knows how much room it has sizes the box.
+      return <img src={s} alt={field.label ?? field.key} loading="lazy" className="block size-full object-cover" />;
     default:
       // A list — a request's tags — reads as its items, not as JSON.
       return <span className="text-sm">{Array.isArray(raw) ? raw.map(String).join(', ') : s}</span>;

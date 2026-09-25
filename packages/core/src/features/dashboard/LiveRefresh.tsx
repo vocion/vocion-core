@@ -89,6 +89,8 @@ export function LiveRefresh({ everyMs }: { everyMs: number }) {
             aria-hidden
             className={`size-1.5 shrink-0 rounded-full ${visible ? 'bg-emerald-500' : 'bg-amber-500'}`}
           />
+          {/* A word at every width: a bare dot in a corner says nothing (phone, 2026-09-24). */}
+          <span className="sm:hidden">{visible ? 'live' : 'paused'}</span>
           <span className="hidden sm:inline">
             {visible ? `live · ${relativeLabel(new Date(updatedAt), now)}` : 'paused'}
           </span>

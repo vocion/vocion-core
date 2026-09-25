@@ -1,6 +1,5 @@
-# The software-factory plugin — a named request becomes a task contract, a
-# headless worker in its own checkout executes it, deterministic checks decide
-# whether it worked, and a person merges.
+# The software-factory plugin — a request becomes work, work becomes a
+# release, and a person can run the whole loop from a phone.
 #
 # Learned from running it by hand: the part that made it safe was never the
 # model, it was the contract — an objective, the paths the worker may touch,
@@ -8,168 +7,81 @@
 # Everything that went wrong went wrong where the contract was vague. So the
 # contract is the object here, and the worker is the cheap, replaceable part.
 #
-# 1.3.0 seats a Product manager beside the planner, the engineer and the
-# reviewer — five disciplines, one team, the Design seat declared empty — and
-# makes HOW, WHEN and WHY it acts four automations a person can read and pause
-# on /dashboard/automation, never a habit in a prompt.
+# 2.0.0 — pulled back, a lot. Chris (2026-09-24): "I only want to see 3 pages.
+# Products, Work, Releases. The work object should encompass the full loop:
+# request, plan, feedback/approve, build, qa, release. I should be able to run
+# a whole software company from my phone." Every page and every element was
+# kept only if a product exec can make a decision or get value from it.
+#
+#   PAGES     Products, Work, Releases. The work item (`feature`, hidden from
+#             nav) is the loop for one request. Factory, Factory log,
+#             Performance and Guide are gone: they explained the machine, and
+#             the machine can be complicated, the product cannot be. Reporting
+#             comes back when use demands it (principle 12), not before.
+#   TEAM      Four seats, one team: PM, Design, Eng, QA. The Task planner's
+#             work — triage, the plan, the contract — is the PM's: whoever owns
+#             what to build owns turning it into something buildable. Design
+#             is a seat with an agent now, not a comment saying the seat is
+#             empty: a ui or flow request gets a mockup before a person
+#             decides it and an after-shot before it closes.
+#   MISSIONS  Three: no request waits more than a week (PM), every asker hears
+#             back (PM), every criterion is proven or named unproven (QA).
+#             Eight reporting and hygiene missions — the nightly e2e, the
+#             incumbent's price, dependency currency, board counters, P1 EOD,
+#             tag audits, weekly review, stand-up-product — are gone with their
+#             automations. What they watched is either a request when it
+#             breaks or a report for later.
+#   TRUST     The eight actions core actually registers. The per-risk-class
+#             merge ladder and product.authorize.* were rules for actions that
+#             did not exist.
+#
+# 2.1.0 — the decisions, not just the navigation. A design review of 2.0.0
+# (2026-09-24): "you have simplified the navigation more than the decisions".
+# Five changes it required before this ships, all in:
+#   1. The commitment before the approval. The PM drafts the contract, the
+#      main risk, the expected result and how it will be checked, and gets the
+#      mockup, BEFORE the card; approving the card freezes the acceptance
+#      criteria (`factory-decision-landed`). Nothing executes on a draft.
+#   2. The decision card has a minimum (outcome, who asked, recommendation,
+#      change, done when, spend range and review minutes, main risk, expected
+#      result) and Defer is a decision with a reason and a revisit date
+#      (`state: deferred`), distinct from reject.
+#   3. Gates are conditional and owned: the product owner (workspace
+#      `accountableUser`) approves the commitment, the engineering owner (team
+#      `accountableUser`) approves the merge; a routine evidenced completion
+#      reply may go out under a policy (`notify.requester.completion`) while a
+#      decline or incident update is a person's every time
+#      (`notify.requester.sensitive`). Answers and duplicates never take the
+#      build path. A typical bug is two decisions by two people.
+#   4. Waiting, blocked, deployed, notified and outcome verified are five
+#      facts: Blocked is only `request.blocker` (what, owner, next); awaiting
+#      dispatch / QA / merge have their own names; `told` on the request is
+#      separate from the release's announcement; `result` (helped / did not
+#      help / not enough evidence) is written after `checkAfter` by
+#      `factory-result-check`. Three failed attempts escalate with a revised
+#      recommendation, never an automatic no.
+#   5. QA's verdict is bound to a commit (`engineering_task.verdict.commitSha`),
+#      the merge ask names its head, the verdict's commit and `rollback`, and
+#      the card says STALE when the branch moved; schema/billing/auth/infra
+#      need an independently run check.
+#   And: the platform's drawn thumbnail moves to `visuals.drawnArtifactId`,
+#   so it no longer satisfies the mockup gate; Design may draw an alternative
+#   when a real tradeoff needs a decision; a bug wants a reproduction, not a
+#   mockup; Products gets one derived sentence per product (`derive:
+#   productBoard`) over rollups that join `by: product, match: slug`.
 #
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
-# ladder, the list archetype); this plugin ships the MEANING: what a task
-# contract holds, who writes one, who reviews it against the diff, the bar for
-# a push versus a merge, and the floor a person watches it from. The workspace
-# ships the CONCRETION: its repositories, its products, its budgets and the
-# person accountable for the merge.
+# ladder, the list archetype, the work queue derivation); this plugin ships the
+# MEANING: what a task contract holds, who writes one, who reviews it against
+# the diff, and what a person is asked to decide. The workspace ships the
+# CONCRETION: its repositories, its products, its budgets and the person
+# accountable for the merge.
 slug: software-factory
 name: Software factory
-# 1.5.0 — the debrief: a finished worker run or a merged pull request is
-# written back on the request by the Product manager (state, what answered
-# it, actual cost beside the estimate, the recommendation refreshed, draft
-# release notes) through `automations/product-debrief.yaml`, on core's
-# completion events. The product manager and the planner declare what they
-# `handle` for the router and their `initiative` — high and normal.
-#
-# 1.5.1 — the log, in chat: "what have you built" and "what shipped" are
-# answered from the worker runs themselves through core's `list_recent_runs`,
-# whether or not a task record exists; the product manager handles them.
-#
-# 1.6.0 — the pages made readable. Every list here leads with a wide
-# primary column and a muted subtitle line instead of fourteen narrow
-# columns: a fact that is the same on every visible row (one repository,
-# one product) is said once above the table, figures sit against a right
-# edge, a column carries a `priority` so a phone drops the least important
-# first, and `Asked by` resolves the request id to the request's own
-# title. The object types now annotate their fields (`x-display`), so a
-# record at /dashboard/objects/<id> renders from its own type — the
-# contract, the checks, the evidence, the pull request and the cost —
-# through the same formatting layer the lists use.
-#
-# 1.7.0 — the feature report: `pages/feature.yaml` puts one request's whole
-# story on one page (`/dashboard/p/feature/<requestId>`) — the ask in the
-# asker's words, triage, the contract, every approval, every run with its
-# checks and its cost, the pull request, QA evidence, the release, and
-# estimate against actual — as a timeline with the newest entry last. A stage
-# that did not happen says so; a run that says failed whose pull request
-# merged shows both facts and is flagged. Reached by the "Report" action on
-# the Backlog and the Factory floor.
-#
-# 1.8.0 - naming the work: one playbook, `playbooks/naming-the-work`, that
-# separates the five names a piece of work carries and gives each one its
-# job. The request title is the ask in the asker's words and is never
-# rewritten. The task title is the change, literally, in the imperative,
-# naming the user-visible outcome and where it happens, and it fails review
-# when it describes the situation instead ("Ship the email wordmark the
-# invite email already points at"). The commit subject is Conventional
-# Commits; the pull request title is the task title with the prefix; the
-# release note is what a customer can now do. `write-task-contract` requires
-# the form and lists what fails review, the planner names the task before it
-# writes the contract, and the engineer builds the commit subject and the
-# pull request title from the title rather than truncating the objective.
-#
-# 1.9.0 - the Factory page: `pages/factory.yaml` is the landing page and the
-# 60-second control plane, on core's new `overview` archetype. Seven panels,
-# in the order the six questions are asked: products with what is owed and what
-# is building, what changed since THIS viewer last looked, the outcomes in
-# flight with their task progress, the queue with its reason codes, the
-# decisions waiting with their estimated minutes, spend over accepted change
-# with the waste line, and work autonomy reported apart from what it cost a
-# person. A figure the records cannot support says so in the figure's place.
-#
-# 1.10.0 - the plan, before the contract: a request that needs an architecture
-# plan gets one, and a person approves it, before any worker runs. The rule is
-# read off fields the contract already carries. A plan is REQUIRED when the risk
-# class is auth, billing, schema, infra or promise, when the work spans more
-# than one repository or declares a cross-repo dependency, when the allowed
-# paths span more than one package, when it changes a public interface (an HTTP
-# route, an object type schema, a database migration, a published contract), or
-# when more than one task sits under the request or the estimate is over the
-# threshold. It is OFFERED AND SKIPPABLE for a ui or logic change touching more
-# than one file, and a skip records its reason, because an optional step with no
-# recorded skip becomes a step nobody takes. `architecture_plan` is the noun,
-# the Task planner (Architecture, SA) writes it through
-# `skills/write-architecture-plan`, the feature report carries it as a stage
-# between triage and the contract, and the worker refuses a contract that needed
-# a plan and carries none before the repository is cloned.
-#
-# 1.11.0 - why a piece of work exists, and what a person wants next. Every
-# request and every task carries `why`, one or more codes from the closed list
-# in core, and `whyNote`, the evidence behind them in one line. Triage writes
-# the codes from the record and leaves a request untagged when the evidence
-# names none; the planner refuses to plan a request with no reason; the task
-# inherits it; `write-task-contract` and `review-against-contract` fail a task
-# that carries none. `operating-intent.yaml` holds what a person wants the
-# factory doing - outcomes, what beats what, constraints, a budget, autonomy
-# policy and product judgment - and is composed into the prompt of every agent
-# that chooses or ranks work. The budget advises; it does not stop a run.
-# One ruling asked about four releases is also now one decision sheet: the
-# reply pass files the release-notes ownership asks under one `group_key`.
-#
-# 1.12.0 - Products is a portfolio board, and the simplest page in the factory.
-# The test it is built to pass: could a person understand the state of every
-# product while walking from their desk to the kitchen? So the page starts with
-# the products, and a row is six facts drawn as one block, not fourteen columns
-# behind a horizontal scrollbar: the product and who answers for it, its stage,
-# its health, our price beside the incumbent's as ONE fact, what last shipped
-# and when, and what is still owed with how much of it is moving and whether
-# any of it is urgent. The seven summary cards wait until there are eight
-# products to summarise, the methodology essay moves behind "About this data",
-# and provenance leaves the labels for the type schema. A product nothing
-# watches has no health and no `healthSource`, so the board says "monitoring
-# not connected", about us and fixable, rather than `unknown`, which sounds
-# like doubt about the product; `unknown` is gone from the health enum. There
-# is no revenue column, because no verified revenue source exists and core now
-# drops a field no row can fill. `medianDaysToShip` leaves the board entirely
-# and is left empty on the record below three closed requests that each name
-# the release that closed them, and whenever it would round to 0 days: over
-# the live records on 2026-09-21 the three-request floor was cleared and the
-# figure was still 0, because every measurable request closed within fifteen
-# hours of being asked. A confident 0 is worse than no figure at all. The
-# lead's `keep-the-board-honest` tick maintains the new counters: `lastShipped`
-# and `lastReleaseAt`, `inFlight`, `healthSource` and `healthCheckedAt`.
-#
-# 1.13.0 - the surface standard, written down and attached. One playbook,
-# `playbooks/designing-a-surface`, holds the rule this product has now had to
-# state three times: index pages display decisions and meaning, detail pages
-# display records and evidence. With it, the companion rule that a missing
-# optional capability makes the interface SMALLER rather than filling it with
-# blank cells, and the division the navigation expresses (Factory how the
-# business is doing, Products what we operate, Work what we are doing about
-# it, Review only decisions, Performance whether the machine earns its keep,
-# Activity that everything happened). It is attached to what writes and
-# reviews a page: `write-task-contract`, `write-architecture-plan`,
-# `review-against-contract`, the planner, the engineer and the reviewer. Work
-# is the first page rebuilt to it: `pages/work.yaml` declares
-# `derive: workQueue` and reads as four lanes with ordered Next, derived
-# Waiting, capped Done and probes dropped.
-#
-# 1.14.0 - Performance answers whether this team is getting faster, cheaper,
-# better and less demanding of a person, in four numbers: shipped outcomes,
-# median ask to ship, cost per shipped outcome, and decision minutes. The cost
-# figure is a ratio over the same pool the count beside it reports, so a
-# reader who divides the two gets the third; it used to be an average over
-# the rows that carried a figure, and nothing reconciled. Waste is gone,
-# because a request investigated and honestly answered no is a delivered
-# outcome, not money burnt. What replaced it is REWORK: spend that produced
-# no accepted outcome and had to be discarded or repeated, rolled up on the
-# request from the tasks that ended `rejected` or `abandoned`, which is the
-# same definition the Factory page already used. A request also rolls up
-# `shippedAt` from the earliest release that names it, which is what makes a
-# cycle time measurable at all. The eighteen per-tag tables are gone: a
-# request carries several tags and its money landed under each, so they never
-# added up. The evidence groups by outcome, where every request sits once.
-#
-# 1.14.1 - Activity's Outcome action followed `meta.requestId` to
-# `/dashboard/p/feature/<requestId>`, and that field was read off the
-# contract's own free-text `request_id` label, a lead's bookkeeping, not the
-# request record's id, so it 404'd on live traffic within the hour. The link
-# now resolves the run's actual engineering_task (`input.record`) to that
-# task's own `metadata.requestId`, falls back to the task record itself when
-# the task names no request of its own (a probe, a smoke test), and draws
-# nothing when neither can be named. `rowActions.href` takes this ordered
-# fallback chain wherever a page needs it.
-version: 1.14.1
-description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
+version: 2.4.0
+description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and four seats — PM, Design, Eng, QA.
 depends: []
 surfaces: []
 recommend:
@@ -179,5 +91,7 @@ recommend:
     - the same small change is made by hand in several repositories
     - a person asks what is in flight, what is stuck, and what nobody has answered for a week
     - bug reports, store reviews and support emails about the same product are tracked in different places, or nowhere
-    - nobody can say which ten requests are most worth building next, or why, and the person who could decide is handed two hundred
   connectors: []
+# The plugin's rows sit under their own heading (its pages already say so); a core
+# route it offers — Evals, the reference sets — sits under that heading's "More ›".
+nav: {section: Software factory, order: 0}

@@ -96,8 +96,14 @@ export class AnswerStreamer {
           continue;
         }
         // Hold back only a trailing PARTIAL open tag, so real answer text
-        // streams immediately.
-        const hold = final ? 0 : partialTagTail(this.buf, OPEN);
+        // streams immediately. At the END of the stream a partial open tag is
+        // not text either: a turn that stopped mid-"<scratch>" stored "<sc"
+        // as its answer (production turn 552, 2026-09-24). Drop it.
+        const partial = partialTagTail(this.buf, OPEN);
+        if (final && partial > 0) {
+          this.buf = this.buf.slice(0, this.buf.length - partial);
+        }
+        const hold = final ? 0 : partial;
         const keep = this.buf.length - hold;
         if (keep > 0) {
           answer += this.buf.slice(0, keep);

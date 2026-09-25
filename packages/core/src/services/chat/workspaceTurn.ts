@@ -39,7 +39,7 @@ import { chooseAgent, routableFromRow } from '@/services/agents/router';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
 import { preflightCheck } from '@/services/BudgetService';
-import { autoProposeRecommendation, readAutonomy } from '@/services/chat/autoPropose';
+import { autoProposeRecommendationDetailed, readAutonomy } from '@/services/chat/autoPropose';
 import { RunCollector } from '@/services/chat/runCollector';
 import { appendMessage, createConversation, getConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
 import { projectSlugById } from '@/services/ProjectService';
@@ -272,6 +272,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
 
   // History BEFORE the new message, so the model does not see it twice. The
   // log keeps the message as typed, with the routing decision beside it.
+  // Each of the agent's replayed turns carries what it ran (services/chat/historyTools.ts).
   const history = toHistoryTurns(await listMessages({ orgId, conversationId }), { timeZone });
   await appendMessage({ orgId, conversationId, role: 'user', content: message, userId: actorId, ...(routing ? { routing } : {}) });
 
@@ -305,12 +306,17 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
         }
         break;
       case 'recommended_action':
+        // The card goes on the ledger here too (backlog 025): an MCP turn's
+        // cards used to live nowhere — the person opening the conversation in
+        // the app after asking from Claude saw none of them.
+        collector.onCard({ label: event.recommendation.label, actionId: event.recommendation.actionId, input: event.recommendation.input, runId: event.recommendation.runId });
         // Under `act-within-bounds` the web route files each card as it
         // arrives; a caller with no card to tap needs the same.
         if (autonomy === 'act-within-bounds' && event.recommendation.runId === undefined) {
-          pending.push(autoProposeRecommendation({ orgId, userId: actorId, rec: event.recommendation }).then((runId) => {
-            if (runId !== null) {
-              filed.push({ runId, tool: 'recommend_action', outcome: null });
+          pending.push(autoProposeRecommendationDetailed({ orgId, userId: actorId, rec: event.recommendation }).then((done) => {
+            if (done !== null) {
+              filed.push({ runId: done.runId, tool: 'recommend_action', outcome: null });
+              collector.onCardFiled(event.recommendation.label, event.recommendation.actionId, done.runId, { state: done.status === 'done' ? 'decided' : 'filed', ref: done.ref });
             }
           }));
         }
@@ -367,7 +373,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
     // `truncated`, not failed: the turn is still running and the rest lands in
     // this conversation as a `continued` row. Both halves are replayed to the
     // model, because between them they are one whole answer (#114).
-    const turn = await appendMessage({ orgId, conversationId, role: 'assistant', content: partial.text ? `${partial.text}\n\n${cutNote}` : cutNote, runs: partial.runs, documents: partial.documents, trace: partial.trace, status: 'truncated', statusReason: `cut off at the ${seconds}-second limit for this surface` });
+    const turn = await appendMessage({ orgId, conversationId, role: 'assistant', content: partial.text ? `${partial.text}\n\n${cutNote}` : cutNote, runs: partial.runs, documents: partial.documents, trace: partial.trace, status: 'truncated', statusReason: `cut off at the ${seconds}-second limit for this surface`, agentSlug });
     void run
       .then(async (result) => {
         await Promise.allSettled(pending);
@@ -377,7 +383,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
           // Caught here rather than below: a write that fails is not the turn
           // failing, and saying "the turn failed after the cut" about a
           // deleted conversation would send someone looking at the agent.
-          await appendMessage({ orgId, conversationId, role: 'assistant', content: rest, status: 'continued' }).catch((error: unknown) => {
+          await appendMessage({ orgId, conversationId, role: 'assistant', content: rest, status: 'continued', agentSlug }).catch((error: unknown) => {
             console.warn('ask_workspace: the rest of the answer could not be written down', { conversationId }, error);
           });
         }
@@ -387,7 +393,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
         // The half already shown stays `truncated` and stays in history; this
         // row says the rest never came, and is kept out of history because
         // there is no answer in it to replay.
-        await appendMessage({ orgId, conversationId, role: 'assistant', content: `_(the turn failed after the cut: ${reason})_`, status: 'failed', statusReason: reason }).catch((error: unknown) => {
+        await appendMessage({ orgId, conversationId, role: 'assistant', content: `_(the turn failed after the cut: ${reason})_`, status: 'failed', statusReason: reason, agentSlug }).catch((error: unknown) => {
           console.warn('ask_workspace: could not write the turn-failed-after-the-cut row', { conversationId }, error);
         });
       });
@@ -415,6 +421,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
     trace,
     status: stalled ? 'stalled' : 'complete',
     ...(stalled ? { statusReason: `the turn ran ${trace.length} step${trace.length === 1 ? '' : 's'} and ended without answering` } : {}),
+    agentSlug,
   });
   return { ...base, reply, truncated: false, turnId: turn.id, traceId: outcome.traceId || traceId, actions: await actionsFor(orgId, projectSlug, filed) };
 }

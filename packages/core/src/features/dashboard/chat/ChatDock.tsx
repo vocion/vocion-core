@@ -18,9 +18,11 @@ import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
+import { client } from '@/libs/Orpc';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
+import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -274,6 +276,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
+  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+    if (session.conversationId === null) {
+      return;
+    }
+    void client.conversations.recordCardDecision({ id: session.conversationId, ...d }).catch((err: unknown) => {
+      console.warn('card decision was not written to the conversation', err);
+    });
+  }, [session.conversationId]);
   const queueProps = useComposerQueueProps(session);
   const onCommand = useChatCommands(session.handleNewChat);
   // The rail IS on a page, so `(+)` offers `@page` and the record in view
@@ -551,6 +562,25 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       ? [{ key: 'pointer', afterIndex: -1, node: <SequencePointer run={run} guided={guided} /> }]
       : [];
 
+  // The approval gate joins the transcript blocks instead of sitting above the
+  // composer (Chris, 2026-09-24: "show inline instead of sticky to the compose
+  // bar"). It goes last so a guided card and a gate raised in the same turn
+  // read in the order they happened.
+  const blocks = session.pendingHitl
+    ? [...cardBlocks, {
+        key: 'hitl-gate',
+        afterIndex: session.messages.length,
+        node: (
+          <HitlGate
+            gate={session.pendingHitl}
+            onApprove={session.handleApproveHitl}
+            onReject={session.handleRejectHitl}
+            disabled={session.isStreaming}
+          />
+        ),
+      }]
+    : cardBlocks;
+
   const autonomyCopy = {
     ask: t('autonomy_ask'),
     act: t('autonomy_act'),
@@ -638,9 +668,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             mounted after a decision so the outcome card can state what
             happened — hiding the flow the moment it is decided would drop the
             one card that says so. */}
-        {session.messages.length === 0 && cardBlocks.length === 0 && !workspaceHasAgents
+        {session.messages.length === 0 && blocks.length === 0 && !workspaceHasAgents
           ? <NoAgentsState />
-          : session.messages.length === 0 && cardBlocks.length === 0
+          : session.messages.length === 0 && blocks.length === 0
             ? (
                 <EmptyState
                   greeting={session.emptyGreeting}
@@ -651,26 +681,19 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                 />
               )
             : (
-                <MessageList
-                  messages={session.messages}
-                  agentName={session.workspaceName}
-                  streaming={session.isStreaming}
-                  activity={session.activity}
-                  blocks={cardBlocks}
-                  onFeedback={session.handleFeedback}
-                  autonomy={session.autonomy}
-                  conversationId={session.conversationId}
-                />
+                <CardDecisionProvider value={recordCardDecision}>
+                  <MessageList
+                    messages={session.messages}
+                    agentName={session.workspaceName}
+                    streaming={session.isStreaming}
+                    activity={session.activity}
+                    blocks={blocks}
+                    onFeedback={session.handleFeedback}
+                    autonomy={session.autonomy}
+                    conversationId={session.conversationId}
+                  />
+                </CardDecisionProvider>
               )}
-
-        {session.pendingHitl && (
-          <HitlGate
-            gate={session.pendingHitl}
-            onApprove={session.handleApproveHitl}
-            onReject={session.handleRejectHitl}
-            disabled={session.isStreaming}
-          />
-        )}
 
         {/* The cards have scrolled up behind newer turns: one click brings
             them back to the bottom, the same as asking for them (058). */}
@@ -899,7 +922,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           <Sheet open onOpenChange={open => setCollapsedPersisted(!open)}>
             <SheetContent
               side="bottom"
-              className="flex h-[88vh] w-full flex-col gap-0 rounded-t-2xl p-0"
+              className="flex h-[88dvh] w-full min-w-0 flex-col gap-0 overflow-x-clip rounded-t-2xl p-0"
               // The grabber (16px) then a 48px header row puts that row's
               // centre at 40px; the close belongs on it, beside the ⋯ menu,
               // not in the sheet's corner 24px above everything it sits with.

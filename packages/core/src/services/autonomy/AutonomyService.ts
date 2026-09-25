@@ -102,7 +102,31 @@ export async function effectivePolicy(orgId: string, actionId: string): Promise<
     db.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, actionId))).limit(1),
     db.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, actionId))).limit(1),
   ]);
-  return resolve(actionId, policy ?? null, trustRule ?? null);
+  if (policy || trustRule) {
+    return resolve(actionId, policy ?? null, trustRule ?? null);
+  }
+  // A DERIVED KEY WITH NO ROWS OF ITS OWN IS GOVERNED BY ITS ACTION'S ROWS.
+  //
+  // `git.merge` proposals are keyed `git.merge.<riskClass>` (policyKeyFor),
+  // so a workspace that writes ONE rule — "a merge is a person's, whatever
+  // the class" — used to write a rule nothing ever matched: every class fell
+  // through to the registry default, and the rule in trust.yaml was a lie
+  // about what governed the merge (2026-09-24, software-factory 2.0.0). The
+  // class still wins when it has its own rule, which is how docs earns its
+  // way while schema never does; this only fills the gap below it. The tier
+  // already resolved this way (see `resolve`); the rung and threshold now do
+  // too.
+  const parent = actionForPolicyKey(actionId);
+  if (!parent || parent.id === actionId || !parent.parentRuleGoverns) {
+    // Opt-in per action: `objects.update_meta.<type>` keeps each type's
+    // ledger its own, so a bare rule there binds to nothing.
+    return resolve(actionId, null, null);
+  }
+  const [[parentPolicy], [parentRule]] = await Promise.all([
+    db.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, parent.id))).limit(1),
+    db.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, parent.id))).limit(1),
+  ]);
+  return resolve(actionId, parentPolicy ?? null, parentRule ?? null);
 }
 
 /**

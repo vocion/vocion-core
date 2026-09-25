@@ -8,11 +8,11 @@ description: >-
   criteria and required checks have to say, how risk class and budgets are
   chosen, why every task carries the id of the request that asked for it and
   the slug of the repository it lands in, how the repository's risk floor
-  overrides the planner's guess, what the task's own title has to say and
+  overrides the PM's guess, what the task's own title has to say and
   what fails review for one, and the three WIP limits that decide whether
   a task is dispatched at all. Read before writing or dispatching any task,
   and when a returned task shows assumptions the contract should have carried.
-playbooks: [the-twenty-percent, written-promises, naming-the-work, designing-a-surface]
+playbooks: [naming-the-work, designing-a-surface]
 version: 3
 ---
 
@@ -231,3 +231,26 @@ Report each planning pass in five lines: tasks written (each with its request
 id and repository), dependency edges, decision minutes open against the budget,
 what you did not turn into a task and why, what a person has to decide before
 anything is dispatched.
+
+## Written before the decision, frozen by it
+
+The contract is drafted BEFORE anyone is asked to approve the build, and it is
+what they are approving (review, 2026-09-24: "the approval happens before the
+commitment is clear"). Write it with `status: draft`; nothing dispatches a
+draft. The build card carries its acceptance criteria as **done when**, its
+`estimateCents` as a range, its `decisionCost` as the review minutes, and
+`mainRisk` — the one thing most likely to go wrong, in a sentence a person can
+weigh. When the person approves, `acceptanceFrozenAt` is written from that
+card and the draft becomes the contract; anything you would change after that
+is a renegotiation, said out loud, never a quiet edit.
+
+Two fields belong on the REQUEST beside the contract, because they are about
+the outcome and not the change: `expectedResult` (what should be different for
+people) and `howWeCheck` (the metric, observation or requester confirmation
+that will show it, naming a source a person can open). A contract with no
+expected result can still be built; it can never be called a success.
+
+And one field for the merge, written now while the paths are fresh:
+`rollback` — how the change is put back if the health check fails, in one or
+two lines somebody can follow at 2am. A merge that is a deploy is not proposed
+without it.

@@ -44,7 +44,12 @@ export type WikiPage = {
   createdAt: Date;
   lastAuthorKind: string;
   href: string;
+  /** The seeded tags, when the repo set them. `always` mounts the page in full into every turn. */
+  tags: string[];
 };
+
+/** The tag that mounts a page whole into every agent turn; everything else is read on demand. */
+export const WIKI_ALWAYS_TAG = 'always';
 
 /**
  * A page's slug from its title or a proposed slug: lowercase, dashes, no
@@ -83,7 +88,8 @@ export function firstParagraph(md: string): string {
 }
 
 function toPage(row: ArtifactRow): WikiPage {
-  const spec = (row.spec ?? {}) as { md?: string; title?: string; summary?: string };
+  const spec = (row.spec ?? {}) as { md?: string; title?: string; summary?: string; seed?: { tags?: unknown } };
+  const tags = Array.isArray(spec.seed?.tags) ? spec.seed!.tags.filter((t): t is string => typeof t === 'string') : [];
   return {
     id: row.id,
     slug: row.recordId ?? wikiSlug(row.title),
@@ -95,6 +101,7 @@ function toPage(row: ArtifactRow): WikiPage {
     createdAt: row.createdAt,
     lastAuthorKind: row.lastAuthorKind,
     href: wikiHref(row.id),
+    tags,
   };
 }
 
@@ -253,10 +260,17 @@ export function planWikiMount(pages: WikiPage[], budgetChars: number = WIKI_MOUN
   const rendered = renderWikiIndex(pages.filter(p => p.slug !== WIKI_INDEX_SLUG));
   const index = toc ? `# ${toc.title}\n\n${toc.md.trim()}\n\n---\n\n${rendered}` : rendered;
   files['/wiki/index.md'] = index;
+  // SELECTIVE, NOT EVERYTHING (Chris, 2026-09-24: "the wiki should get used
+  // selectively in context when appropriate"). Until now every page rode
+  // into every turn until the budget ran out, newest first — a 21-page plan
+  // in the context of an agent answering "what shipped". Now only a page
+  // tagged `always` is mounted whole; every other page is one line in the
+  // index and one `read_wiki_page` away, and the agent reads it when the
+  // turn is about it. The budget still holds for the `always` set.
   let used = index.length;
   const omitted: string[] = [];
   for (const p of pages) {
-    if (p.slug === WIKI_INDEX_SLUG) {
+    if (p.slug === WIKI_INDEX_SLUG || !p.tags.includes(WIKI_ALWAYS_TAG)) {
       continue;
     }
     const body = `# ${p.title}\n\n${p.md}`.trim();
@@ -267,8 +281,16 @@ export function planWikiMount(pages: WikiPage[], budgetChars: number = WIKI_MOUN
     files[`/wiki/${p.slug}.md`] = body;
     used += body.length;
   }
+  const onDemand = pages.filter(p => p.slug !== WIKI_INDEX_SLUG && !p.tags.includes(WIKI_ALWAYS_TAG)).map(p => p.slug);
+  const notes: string[] = [];
   if (omitted.length > 0) {
-    files['/wiki/index.md'] = `${index}\n\n_Not mounted in full (read with read_wiki_page): ${omitted.join(', ')}_`;
+    notes.push(`_Tagged always but over the mount budget (read with read_wiki_page): ${omitted.join(', ')}_`);
+  }
+  if (onDemand.length > 0) {
+    notes.push(`_Read on demand with read_wiki_page when the turn is about them: ${onDemand.join(', ')}_`);
+  }
+  if (notes.length > 0) {
+    files['/wiki/index.md'] = `${index}\n\n${notes.join('\n')}`;
   }
   return files;
 }

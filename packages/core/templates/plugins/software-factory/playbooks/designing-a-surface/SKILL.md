@@ -5,18 +5,17 @@ description: >-
   The standard every page in this product is held to. Index pages display
   decisions and meaning; detail pages display records and evidence. A missing
   optional capability makes the interface smaller, not fuller. And each of the
-  six surfaces answers one question and refuses the other five: Factory how
-  the business is doing, Products what we operate, Work what we are doing
-  about it, Review only decisions, Performance whether the machine earns its
-  keep, Activity that everything happened. Read before writing, planning or
-  reviewing any page, panel, column or empty state.
+  four surfaces answers one question and refuses the other three: Products
+  what we operate, Work what we are doing about it, Releases what reached
+  people, Review only decisions. Read before writing, planning or reviewing
+  any page, panel, column or empty state.
 version: 1
 ---
 
 # Designing a surface
 
 This playbook exists because the same correction has now been made three
-times, on Factory, on Products and on Work, in the same words. A standard
+times, on Products, on Work and on the work item, in the same words. A standard
 that has to be re-derived per page is not a standard. This is the written
 form, and the skills that write and review a page are attached to it.
 
@@ -64,19 +63,23 @@ a cell.
 
 The property this protects: **a maturing workspace should look quieter, not
 busier.** As autonomy improves, Review shrinks, warnings become rare,
-missing-data messages disappear and more moves into Activity. The interface
-itself should communicate increasing competence.
+missing-data messages disappear and Work gets shorter. The interface itself
+should communicate increasing competence.
 
-## 3. Each surface answers one question and refuses the other five
+## 3. Each surface answers one question and refuses the other three
 
 | surface | the question it answers |
 |---|---|
-| Factory | how the business is doing |
-| Products | what we operate |
-| Work | what we are doing about it |
+| Products | what we operate, and how it is doing |
+| Work | what we are doing about it, and what is waiting on me |
+| Releases | what reached people, and who has been told |
 | Review | what only a person can decide, and nothing else |
-| Performance | whether the machine earns its keep |
-| Activity | that everything happened |
+
+The filter every page and every element on it passes before it ships: **can a
+product exec make a decision or get value from this?** A panel that explains
+the machine — runs, leases, heartbeats, spend per attempt — fails it and lives
+inside the record, not on a page. Performance and reporting return when use
+demands them, not before (2026-09-24).
 
 A surface that starts answering a second question is how two pages become
 four views of one thing. When a fact seems to belong on two surfaces, it

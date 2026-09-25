@@ -80,12 +80,12 @@ const BOOKKEEPING_ACTIONS: { prefix: string; destination: Destination; policy: s
   { prefix: 'bug.', destination: 'delegate', policy: 'the-factory-files-its-own-bugs', because: 'Creating a record about work the factory already understands needs no permission.' },
 ];
 
-/** Operational events. They belong in the Factory log; none of them is a decision. */
+/** Operational events. They belong on the run, inside the work item; none of them is a decision. */
 const OPERATIONAL = [
   { re: /\bcontracts?\s+(?:was\s+|were\s+)?refus|\brefused\s+the\s+contract\b|\bworker\s+contract\s+(?:failure|refus)/i, because: 'A refused worker contract is an operational event the factory retries or repairs.' },
   { re: /\b(?:typecheck|type check|lint|build|check|verification)\s+failed\b|\bfailed\s+(?:typecheck|check|verification)\b/i, because: 'A failed check is the factory’s own work to fix.' },
   { re: /\bwhat\s+(?:are|is)\s+the\b[^?]{1,40}\bids?\b|\brecord\s+ids?\b|\bwhich\s+(?:record|object|row)\s+ids?\b/i, because: 'Looking up an identifier is the factory\u2019s own work, and if it truly cannot be found that is an evidence gap, not a decision.' },
-  { re: /\btimed\s+out\b|\btimeout\b|\bno[- ]change\s+run\b|\bmade\s+no\s+changes\b/i, because: 'A timeout or a no-change run is an operational event, and the Factory log already holds it.' },
+  { re: /\btimed\s+out\b|\btimeout\b|\bno[- ]change\s+run\b|\bmade\s+no\s+changes\b/i, because: 'A timeout or a no-change run is an operational event, and the run record already holds it.' },
 ];
 
 /** Topics that are always somebody else's job, however they are phrased. */

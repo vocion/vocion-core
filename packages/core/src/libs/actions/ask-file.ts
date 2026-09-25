@@ -70,8 +70,16 @@ const askFileInput = z.object({
   objectRefs: z.array(objectRef).max(20).optional(),
   /** Minutes of a person's attention the decision is estimated to take. */
   decisionCost: z.number().int().min(0).max(100_000).optional(),
-  /** The long form — the record, the PR, the run. */
-  contextUrl: z.string().url().optional(),
+  /**
+   * The long form — the record, the PR, the run. An absolute http(s) URL or
+   * an app path (`/dashboard/inbox/110`), the same form this action writes
+   * itself when it links a mission. `.url()` alone refused the app path, and
+   * on 2026-09-25 every card of a PM turn was refused for it (walk 20).
+   */
+  contextUrl: z.string().trim().max(2_000).refine(
+    v => /^\/(?!\/)/.test(v) || /^https?:\/\/\S+$/i.test(v),
+    'an https URL, or an app path starting with /',
+  ).optional(),
   /** Optional collapsed Details, markdown. */
   contextMd: z.string().max(20_000).optional(),
   /** The caller's idempotency key. Re-filing it updates the open ask instead of doubling it. Absent, the action run's id is used. */

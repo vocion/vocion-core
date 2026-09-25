@@ -6,7 +6,7 @@ import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
 import { confidenceLevel } from './confidence';
 import { entranceLabel, LANE_PILL, shortDate, shortDateTime } from './leadFormat';
-import { BRIEFED_WINDOWS, briefedWindowOf, filterQueueRows, QUEUE_LANES as LANES, QUEUE_LIST as LIST, QUEUE_SORTS as SORTS } from './queueFilter';
+import { BRIEFED_WINDOWS, briefedWindowOf, ERROR_CHIP, filterQueueRows, QUEUE_LANES as LANES, QUEUE_LIST as LIST, QUEUE_SORTS as SORTS } from './queueFilter';
 
 /**
  * The personalization queue — a pure list, and the reference implementation
@@ -34,6 +34,14 @@ export type BriefRow = {
   utmCampaign: string | null;
   /** The ad lead magnet they answered (`utm_content`), read from the CRM mirror. */
   utmContent?: string | null;
+  /** The sequence the drafting pass recommended, by name; null before a recommendation exists. */
+  recommendedSequence?: string | null;
+  /**
+   * Why the last attempt on this lead failed, when it did: the card's last
+   * regenerate, the drafting pass, or the brief, newest-meaning first. Null
+   * when nothing is failing.
+   */
+  lastError?: string | null;
   engagementSent: number;
   engagementOpened: number;
   status: string;
@@ -134,6 +142,9 @@ export const PersonalizationQueue = (props: {
       if (w) {
         c[w] = (c[w] ?? 0) + 1;
       }
+      if (b.lastError) {
+        c[ERROR_CHIP.key] = (c[ERROR_CHIP.key] ?? 0) + 1;
+      }
     }
     return c;
   }, [inLane, now]);
@@ -177,7 +188,7 @@ export const PersonalizationQueue = (props: {
         direction={{ value: dir, onChange: d => setList({ dir: d }) }}
         chips={{
           label: 'Briefed',
-          items: BRIEFED_WINDOWS.map(w => ({ key: w.key, label: w.label, count: windowCounts[w.key] ?? 0 })),
+          items: [...BRIEFED_WINDOWS, ERROR_CHIP].map(w => ({ key: w.key, label: w.label, count: windowCounts[w.key] ?? 0 })),
           active: chips,
           onChange: next => setList({ chips: next }),
         }}
