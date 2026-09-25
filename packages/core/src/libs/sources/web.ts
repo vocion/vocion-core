@@ -380,8 +380,10 @@ function usableUrl(raw: unknown, urlKey: string): string | undefined {
 /* ------------------------------------------------------------------ */
 
 type FetchedPage = {
-  /** The URL actually fetched, after the `webcal:` rewrite. */
+  /** The URL requested, after the `webcal:` rewrite. */
   url: string;
+  /** Where a redirect that stayed on the site landed, else `url`. Read by navigation and the feed scope, never by text or ids. */
+  base: string;
   raw: string;
   contentType: string;
   isHtml: boolean;
@@ -438,10 +440,12 @@ async function fetchPage(
       return null;
     }
     const raw = await res.text();
+    const base = res.redirected && HTTP_URL_RE.test(res.url) ? sameSiteUrl(target, res.url) : target;
     const extracted = isHtml ? extractFromHtml(raw, target) : { title: undefined, content: raw, structure: undefined };
     const lastModifiedHeader = res.headers.get('last-modified');
     return {
       url: target,
+      base,
       raw,
       contentType,
       isHtml,
@@ -455,6 +459,14 @@ async function fetchPage(
     report((err as Error).message);
     return null;
   }
+}
+
+function sameSiteUrl(requestedUrl: string, landedUrl: string): string {
+  const requested = new URL(requestedUrl);
+  const landed = new URL(landedUrl);
+  const site = (url: URL): string => url.hostname.replace(/^www\./, '');
+  const upgradedAtMost = landed.protocol === requested.protocol || (requested.protocol === 'http:' && landed.protocol === 'https:');
+  return upgradedAtMost && landed.port === requested.port && site(landed) === site(requested) ? landedUrl : requestedUrl;
 }
 
 /**
@@ -1435,8 +1447,9 @@ function discoverFeeds(page: FetchedPage, ctx: SourceContext): FeedCandidate[] {
     add(withFormatJson(page.url), 'json');
   }
 
+  const landedListing = listingAsLanded(page).toString();
   const eligible = found.filter((candidate) => {
-    if (describesTheListing(candidate, page.url)) {
+    if (describesTheListing(candidate, page.url) || (landedListing !== page.url && describesTheListing(candidate, landedListing))) {
       return true;
     }
     runNote(ctx, candidate.url, `source: skipped ${candidate.kind} feed outside the listing path ${candidate.url}`);
@@ -1476,6 +1489,19 @@ function isUnderListingPath(url: URL, listing: URL): boolean {
 }
 
 /**
+ * The listing a fetched page stands for once its redirect is followed: where
+ * it landed, unless that path is an ancestor of the one requested, so a
+ * listing that redirects to its site root never widens its scope to the site.
+ * @param page - the fetched listing.
+ */
+function listingAsLanded(page: FetchedPage): URL {
+  const landed = new URL(page.base);
+  const requested = new URL(page.url);
+  const broader = landed.pathname !== requested.pathname && isUnderListingPath(requested, landed);
+  return broader ? new URL(requested.pathname, landed.origin) : landed;
+}
+
+/**
  * Whether a discovered feed describes THIS listing rather than the whole site.
  *
  * The test is the URL path and nothing else: a feed counts when it sits at the
@@ -1493,7 +1519,7 @@ function isUnderListingPath(url: URL, listing: URL): boolean {
  * A Squarespace `?format=json` candidate is the listing URL itself, so it
  * passes on the paths being equal.
  * @param candidate - the discovered feed.
- * @param listingUrl - the listing it was discovered on, as actually fetched.
+ * @param listingUrl - the listing it was discovered on, as requested or as landed on the same site.
  */
 function describesTheListing(candidate: FeedCandidate, listingUrl: string): boolean {
   if (candidate.kind === 'ics') {
@@ -2010,7 +2036,7 @@ function collapse(text: string): string {
  *
  * The crawl starts at the SEED, not at `cfg.startUrl`: with a list of seeds
  * they are not the same URL, and the origin the same-origin rule is read
- * against is the seed's.
+ * against is the seed's, where its redirect landed when that stayed on the site.
  *
  * A page's links are queued in two batches, the seed's own path first and the
  * rest of the origin after, each in page order. See the partition below.
@@ -2027,7 +2053,7 @@ async function* crawl(
   pages: PageBudget,
 ): AsyncIterable<IngestDoc> {
   const startUrl = seed.url;
-  const start = new URL(startUrl);
+  const start = listingAsLanded(seed);
   const startOrigin = start.origin;
   const visited = new Set<string>();
   const queue: QueueEntry[] = [{ url: startUrl, depth: 0 }];
@@ -2045,6 +2071,7 @@ async function* crawl(
     }
     const page = prefetched ?? await fetchPage(url, ctx);
     if (page) {
+      visited.add(page.base);
       for (const doc of docsFromPage(page, ctx)) {
         yield doc;
       }
@@ -2076,9 +2103,10 @@ async function* crawl(
     // `/about-us/`, none of which has ever held an event.
     const ownPath: QueueEntry[] = [];
     const elsewhere: QueueEntry[] = [];
-    for (const href of pageLinks(page)) {
+    const base = new URL(page.base).origin === startOrigin ? page.base : page.url;
+    for (const href of pageLinks(page, base)) {
       try {
-        const next = new URL(href, url);
+        const next = new URL(href, base);
         // Strip fragments so #section links don't blow up the queue.
         next.hash = '';
         if (next.origin === startOrigin && !visited.has(next.toString()) && followable(next, cfg)) {
@@ -2105,14 +2133,18 @@ type QueueEntry = { url: string; depth: number };
 /**
  * The links to consider following out of a fetched page.
  * @param page - the fetched page.
+ * @param base - the URL its relative links resolve against.
  */
-function pageLinks(page: FetchedPage): string[] {
+function pageLinks(page: FetchedPage, base: string): string[] {
+  if (page.structure && base !== page.url) {
+    return collectLinks(load(page.raw.replace(OWN_MARKS, ' ')), base).map(link => link.url);
+  }
   if (page.structure) {
     return page.structure.links?.map(link => link.url) ?? [];
   }
   // Non-HTML bodies never went through cheerio. The old regex still covers the
   // odd page served as text/plain with markup inside it.
-  return extractLinks(page.raw, page.url);
+  return extractLinks(page.raw, base);
 }
 
 /**
