@@ -2234,7 +2234,10 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     // words and is evidence (`naming-the-work`), so it is never rewritten —
     // which meant every surface led with a situation. The outcome line says
     // what a person can do afterwards; the ask is kept underneath, verbatim.
-    title: str(input.request.meta, 'outcome') ?? input.request.title,
+    // The short name leads; the outcome sentence is the subtitle under it
+    // (`goalOf`). A page titled with a sentence read like a ticket (Chris,
+    // 2026-09-25: "Short title: Share a document").
+    title: input.request.title,
     asked: input.request.title,
     story: str(input.request.meta, 'story'),
     state: buildState(normalised),

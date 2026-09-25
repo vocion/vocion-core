@@ -663,9 +663,9 @@ function HeroMedia({ hero, more, docs }: { hero: ReportEvidence | null; more: Re
         {docs.length > 0
           ? <Gallery items={docs} />
           : (
-              <div data-testid="report-preview-pending" className="flex aspect-[16/7] w-full items-center justify-center rounded-xl border border-dashed border-border bg-surface-soft text-sm text-muted-foreground">
-                Preview pending
-              </div>
+              <p data-testid="report-preview-pending" className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
+                Preview pending — no mockup or screenshot yet.
+              </p>
             )}
       </div>
     );

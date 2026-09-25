@@ -101,7 +101,8 @@ describe('plugin pages', () => {
     // what it costs. Plus the rank and the conditional facts, both of which
     // draw nothing when there is nothing to say — and the picture, which is
     // drawn rather than said.
-    expect(keys).toEqual(['title', 'kindIcon', 'visual', 'status', 'blocked', 'gap', 'unmet', 'contract', 'flags', 'summary', 'detail', 'why', 'cost', 'product', 'rank']);
+    // No fact row of internals under the card: every field is on the row's one line, or it is not on the page (Chris, 2026-09-25).
+    expect(keys).toEqual(['title', 'visual', 'status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product']);
     // Every field sits in the subtitle so the uppercase fact list never
     // draws: five labels a person reads past to reach five values. The
     // picture is the one exception, and it is not in the fact list either —
