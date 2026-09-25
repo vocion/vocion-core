@@ -43,13 +43,20 @@ export function updateObjectTool(ctx: RuntimeContext) {
   const writable = ctx.objectTypeSlugs;
   return tool(
     async (raw) => {
-      const { object_type, id, set, reason, confidence } = raw as {
-        object_type: string;
-        id: number;
-        set: Record<string, unknown>;
-        reason: string;
-        confidence: number;
-      };
+      const args = raw as { object_type: string; id: number; set: unknown; reason?: string; confidence?: unknown };
+      const { object_type, id } = args;
+      // The shape the model sends, accepted here rather than in the schema:
+      // `set` as JSON text is the object it describes; no reason says so on
+      // the run; no (or a non-numeric) confidence is the middle of the scale,
+      // so the trust ladder decides whether a person reviews it.
+      const parsedSet = parseJsonObject(args.set);
+      if (!parsedSet || typeof parsedSet !== 'object' || Array.isArray(parsedSet)) {
+        return 'Update refused: `set` must be an object of field: value — e.g. { "priority": 82 }.';
+      }
+      const set = parsedSet as Record<string, unknown>;
+      const reason = typeof args.reason === 'string' && args.reason.trim() ? args.reason.trim() : 'No reason given by the agent.';
+      const c = typeof args.confidence === 'number' ? args.confidence : Number(args.confidence);
+      const confidence = Number.isFinite(c) && c >= 0 && c <= 1 ? c : 0.5;
       if (!writable.includes(object_type)) {
         return `Refused: this agent does not work with "${object_type}" records. It may write: ${writable.join(', ')}. A type is added under objectTypes in the agent's YAML, not here.`;
       }
@@ -112,9 +119,14 @@ export function updateObjectTool(ctx: RuntimeContext) {
         // object. A missing reason says so on the run; a missing confidence
         // is the middle of the scale, so the trust ladder — not a default the
         // model never gave — decides whether a person reviews it.
-        set: z.preprocess(parseJsonObject, z.record(z.string().min(1), z.unknown())).describe('Fields to write, by name, as an object — e.g. { "priority": 82, "priorityReason": "…", "rankedAt": "2026-09-20T10:00:00Z" }. null clears a field.'),
-        reason: z.string().min(1).max(500).optional().default('No reason given by the agent.').describe('Why, in one or two sentences a person can check against the record. Written on the run beside the previous values.'),
-        confidence: z.coerce.number().min(0).max(1).optional().default(0.5).describe('Your confidence these values are right, 0–1. An honest number decides whether they are written now or reviewed first.'),
+        // PLAIN TYPES ONLY. A tool schema is sent to the model as JSON Schema,
+        // and a zod transform (`preprocess`, `coerce`, `default`) cannot be —
+        // #731 used one and every turn of every agent with object types failed
+        // to bind its tools (2026-09-25 18:35Z, "Transforms cannot be
+        // represented in JSON Schema"). The lenience lives in the handler.
+        set: z.union([z.record(z.string().min(1), z.unknown()), z.string()]).describe('Fields to write, by name, as an object — e.g. { "priority": 82, "priorityReason": "…", "rankedAt": "2026-09-20T10:00:00Z" }. null clears a field.'),
+        reason: z.string().max(500).optional().describe('Why, in one or two sentences a person can check against the record. Written on the run beside the previous values.'),
+        confidence: z.union([z.number(), z.string()]).optional().describe('Your confidence these values are right, 0–1. An honest number decides whether they are written now or reviewed first.'),
       }),
     },
   );
