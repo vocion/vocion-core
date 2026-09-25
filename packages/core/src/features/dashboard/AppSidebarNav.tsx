@@ -2,6 +2,8 @@
 
 import type { LucideIcon } from 'lucide-react';
 import type { ComponentPropsWithoutRef } from 'react';
+import { ChevronRight } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
@@ -18,6 +20,8 @@ export type SidebarNavItem = {
   disabled?: boolean;
   /** A live count (e.g. "Review queue"). Omitted or 0 renders nothing. */
   badge?: number;
+  /** Sits under the group's "More ›" row however few rows there are (a route a plugin offers but does not own). */
+  secondary?: boolean;
 };
 
 /**
@@ -31,10 +35,14 @@ export type SidebarNavItem = {
 export const AppSidebarNav = (props: {
   label?: string;
   items: SidebarNavItem[];
+  /** The "More ›" row's label, when any item is `secondary`. */
+  moreLabel?: string;
 } & ComponentPropsWithoutRef<typeof SidebarGroup>) => {
-  const { label, items, ...rest } = props;
+  const { label, items: allItems, moreLabel, ...rest } = props;
   const { toggleSidebar, isMobile } = useSidebar();
   const pathname = usePathname();
+  const items = allItems.filter(i => !i.secondary);
+  const more = allItems.filter(i => i.secondary);
 
   return (
     <SidebarGroup {...rest}>
@@ -87,6 +95,37 @@ export const AppSidebarNav = (props: {
                 : null}
             </SidebarMenuItem>
           ))}
+
+          {/* Secondary rows live under one "More ›" row — the same submenu
+              the pinnable groups use, without the pin control. Drops below
+              the trigger on a phone, where the sheet already fills the screen. */}
+          {more.length > 0 && (
+            <SidebarMenuItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton tooltip={moreLabel ?? 'More'} className="text-muted-foreground">
+                    <ChevronRight />
+                    <span>{moreLabel ?? 'More'}</span>
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  side={isMobile ? 'bottom' : 'right'}
+                  align="start"
+                  collisionPadding={12}
+                  className="w-[min(16rem,calc(100vw-2rem))] shadow-(--shadow-pop)"
+                >
+                  {more.map(item => (
+                    <DropdownMenuItem key={item.url} asChild className="flex items-center gap-2">
+                      <Link href={item.url} className="flex min-w-0 flex-1 items-center gap-2">
+                        <item.icon className="size-4 text-muted-foreground" aria-hidden />
+                        <span className="truncate">{item.title}</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </SidebarMenuItem>
+          )}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
