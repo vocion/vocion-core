@@ -13,11 +13,15 @@ import type { RuntimeContext } from '../types';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { getAction, listActions } from '@/libs/actions/registry';
+import { actionInputHints, getAction, listActions } from '@/libs/actions/registry';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 
 export function recommendActionTool(ctx: RuntimeContext) {
   const available = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
+  // The field names, with * on the required ones — read off the schemas, so
+  // a card is not refused for `object_type` where the action says `objectType`
+  // (finding 20, 2026-09-25: every refused card was a guessed field name).
+  const inputs = actionInputHints();
 
   return tool(
     async (input) => {
@@ -72,7 +76,7 @@ export function recommendActionTool(ctx: RuntimeContext) {
     },
     {
       name: 'recommend_action',
-      description: `Surface a recommended action as a ONE-TAP CARD in your answer (not dead text). Use this for every concrete next action you suggest that maps to a connector action — the user taps to prepare it for review; nothing sends without their approval. Prefer this over spelling the action out in prose. Available actions:\n${available}`,
+      description: `Surface a recommended action as a ONE-TAP CARD in your answer (not dead text). Use this for every concrete next action you suggest that maps to a connector action — the user taps to prepare it for review; nothing sends without their approval. Prefer this over spelling the action out in prose. Available actions:\n${available}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${inputs}`,
       schema: z.object({
         action_id: z.string().describe('Registered action id, e.g. "gmail.send"'),
         action_input: z.record(z.string(), z.unknown()).describe('Pre-filled payload for the action — for gmail.send: { to, subject, body, draft: true }'),

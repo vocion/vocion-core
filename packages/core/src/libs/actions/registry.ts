@@ -89,3 +89,53 @@ for (const a of qcActions) {
 for (const a of factoryActions) {
   registerAction(a);
 }
+
+/**
+ * THE FIELDS EACH ACTION TAKES, for a model that has to fill them in.
+ *
+ * Every refused card on 2026-09-25 (finding 20) was a field name guessed
+ * wrong: `object_type` for `objectType`, no `title`/`summary` on a manual
+ * action, a task id as a string. The registry knows the shapes; this reads
+ * them off the zod schemas so the recommend_action tool's description and
+ * the card backstop can say them, and the guessing stops.
+ * @param ids - The actions to describe; every registered action when omitted.
+ */
+export function actionInputHints(ids?: readonly string[]): string {
+  const actions = ids ? ids.map(id => registry.get(id)).filter((a): a is Action => !!a) : listActions();
+  return actions.map((a) => {
+    const shape = objectShape(a.inputSchema);
+    if (!shape) {
+      return `${a.id}: (see the action's description)`;
+    }
+    const fields = Object.entries(shape).map(([key, field]) => `${key}${isOptionalField(field) ? '' : '*'}`);
+    return `${a.id}: ${fields.join(', ')}`;
+  }).join('\n');
+}
+
+/**
+ * The object shape behind a schema, through refinements and effects; null when it is not an object.
+ * @param schema
+ */
+function objectShape(schema: unknown): Record<string, unknown> | null {
+  let s = schema as { shape?: Record<string, unknown>; _def?: { schema?: unknown; innerType?: unknown; typeName?: string }; innerType?: () => unknown } | undefined;
+  for (let i = 0; i < 6 && s; i += 1) {
+    if (s.shape && typeof s.shape === 'object') {
+      return s.shape;
+    }
+    const next = (typeof s.innerType === 'function' ? s.innerType() : undefined) ?? s._def?.schema ?? s._def?.innerType;
+    if (!next || next === s) {
+      break;
+    }
+    s = next as typeof s;
+  }
+  return null;
+}
+
+function isOptionalField(field: unknown): boolean {
+  const f = field as { isOptional?: () => boolean; _def?: { typeName?: string } };
+  try {
+    return typeof f.isOptional === 'function' ? f.isOptional() : false;
+  } catch {
+    return false;
+  }
+}
