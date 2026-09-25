@@ -22,6 +22,23 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
 
+/**
+ * A value the model sent as JSON text, read as the object it describes;
+ * anything else passes through for the schema to judge.
+ * @param v - The raw `set`.
+ */
+export function parseJsonObject(v: unknown): unknown {
+  if (typeof v !== 'string') {
+    return v;
+  }
+  try {
+    const parsed = JSON.parse(v) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : v;
+  } catch {
+    return v;
+  }
+}
+
 export function updateObjectTool(ctx: RuntimeContext) {
   const writable = ctx.objectTypeSlugs;
   return tool(
@@ -87,9 +104,17 @@ export function updateObjectTool(ctx: RuntimeContext) {
       schema: z.object({
         object_type: z.string().min(1).describe(`The object type slug. One of: ${writable.join(', ')}.`),
         id: z.number().int().positive().describe('The record\'s id (from lookup_objects), never its title.'),
-        set: z.record(z.string().min(1), z.unknown()).describe('Fields to write, by name — e.g. { "priority": 82, "priorityReason": "…", "rankedAt": "2026-09-20T10:00:00Z" }. null clears a field.'),
-        reason: z.string().min(1).max(500).describe('Why, in one or two sentences a person can check against the record. Written on the run beside the previous values.'),
-        confidence: z.number().min(0).max(1).describe('Your confidence these values are right, 0–1. An honest number decides whether they are written now or reviewed first.'),
+        // THE SHAPE THE MODEL SENDS, accepted. On 2026-09-25 (backlog 006) the
+        // first call of every write passed `set` as a JSON string and left
+        // out `reason` and `confidence`; the schema threw, the turn spent its
+        // one malformed-call retry on it, and a second mistake ended the turn
+        // with nothing written. A string that parses to an object IS the
+        // object. A missing reason says so on the run; a missing confidence
+        // is the middle of the scale, so the trust ladder — not a default the
+        // model never gave — decides whether a person reviews it.
+        set: z.preprocess(parseJsonObject, z.record(z.string().min(1), z.unknown())).describe('Fields to write, by name, as an object — e.g. { "priority": 82, "priorityReason": "…", "rankedAt": "2026-09-20T10:00:00Z" }. null clears a field.'),
+        reason: z.string().min(1).max(500).optional().default('No reason given by the agent.').describe('Why, in one or two sentences a person can check against the record. Written on the run beside the previous values.'),
+        confidence: z.coerce.number().min(0).max(1).optional().default(0.5).describe('Your confidence these values are right, 0–1. An honest number decides whether they are written now or reviewed first.'),
       }),
     },
   );
