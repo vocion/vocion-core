@@ -14,6 +14,11 @@ import { signIn } from '../TestUtils';
  */
 test.use({ ...devices['iPhone 14'] });
 
+// iPhone emulation is Chromium's and WebKit's; Firefox ignores the device
+// and signs in slowly enough to trip the guard on CI (2026-09-25, twice).
+// The rule is about the phone, so it runs where a phone is emulated.
+test.skip(({ browserName }) => browserName === 'firefox', 'no phone emulation in Firefox');
+
 const PAGES = ['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/search', '/dashboard/settings'];
 
 /**
@@ -39,13 +44,25 @@ async function overflow(page: import('@playwright/test').Page) {
   });
 }
 
+// One sign-in for the whole file: six sign-ins in a row on a shared CI box
+// tripped the 15 s URL wait twice (2026-09-25) on a test that was never
+// about signing in. Serial, one page, signed in once.
+test.describe.configure({ mode: 'serial' });
+
 test.describe('phone shell', () => {
-  test.beforeEach(async ({ page }) => {
+  let page: import('@playwright/test').Page;
+
+  test.beforeAll(async ({ browser }) => {
+    page = await browser.newPage();
     await signIn(page);
   });
 
+  test.afterAll(async () => {
+    await page.close();
+  });
+
   for (const path of PAGES) {
-    test(`${path} fits the phone`, async ({ page }) => {
+    test(`${path} fits the phone`, async () => {
       await page.goto(path);
       // Settled: a heading is on screen (settings redirects to its first tab
       // and has no <main> landmark) and fonts have loaded, so widths are final.
@@ -60,7 +77,7 @@ test.describe('phone shell', () => {
     });
   }
 
-  test('the composer holding an unbroken 300-char id does not push the page sideways', async ({ page }) => {
+  test('the composer holding an unbroken 300-char id does not push the page sideways', async () => {
     await page.goto('/dashboard/chat');
     const box = page.locator('textarea').last();
     await box.click();
@@ -72,7 +89,7 @@ test.describe('phone shell', () => {
     expect(o.hanging).toEqual([]);
   });
 
-  test('the sidebar sheet fits the phone', async ({ page }) => {
+  test('the sidebar sheet fits the phone', async () => {
     await page.goto('/dashboard/chat');
     await page.getByRole('button', { name: /toggle sidebar/i }).first().click();
     await page.waitForTimeout(400);
