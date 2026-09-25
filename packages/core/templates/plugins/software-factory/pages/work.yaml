@@ -146,7 +146,7 @@ fields:
   # What is happening, minus whatever the badge already said. A queued row's
   # line is empty on purpose: "Queued" under a badge reading "Queued" is the
   # repetition this page was redrawn to lose.
-  - {key: summary, label: Problem, from: meta.summary}
+  - {key: summary, label: Problem, from: meta.problem}
   - {key: detail, label: What is happening, from: meta.workLine}
   # One human sentence, built from the closed reason list. Never `manual_toil`.
   - {key: why, label: Why, from: meta.whyLine}

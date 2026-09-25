@@ -691,6 +691,13 @@ describe('the goal, as a subtitle', () => {
     expect(report.goal).toBe('Launch the product as Stamp at stampsend.com without breaking existing links.');
   });
 
+  it('reads the one-line description first, the sentence an agent can write (2026-09-25)', () => {
+    const base = input({});
+    const report = assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, body: 'The document page offers only Copy link.', description: 'Send a link by email and use the phone share sheet.' } } });
+
+    expect(report.goal).toBe('Send a link by email and use the phone share sheet.');
+  });
+
   it('does not end a sentence inside a domain name', () => {
     expect(withBody('Serve it at stampsend.com from Monday.').goal).toBe('Serve it at stampsend.com from Monday.');
   });
