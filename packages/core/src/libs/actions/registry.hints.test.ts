@@ -14,6 +14,8 @@ describe('the fields each action takes, for a model', () => {
     // Values too: the enum's options, a number — what the second wave of refusals was about.
     expect(hints).toMatch(/^ask\.file: .*kind\*?=approval\|input\|ruling/m);
     expect(hints).toMatch(/^ask\.file: .*decisionCost\*?=number/m);
+    // An array of objects names its element's fields (walk 19's refusal: objectRefs.0.type).
+    expect(hints).toMatch(/^ask\.file: .*objectRefs\*?=\[\{type\*/m);
     expect(hints).toMatch(/^git\.merge: .*riskClass\*=docs\|deps/m);
   });
 

@@ -141,7 +141,7 @@ function objectShape(schema: unknown): Record<string, unknown> | null {
 function valueHint(field: unknown): string {
   // zod 4: `_def.type` is the kind ('optional', 'default', 'enum', …),
   // `_def.innerType` unwraps, an enum's options sit in `_def.entries`.
-  let f = field as { _def?: { type?: string; typeName?: string; innerType?: unknown; schema?: unknown; entries?: Record<string, unknown>; values?: unknown[] } } | undefined;
+  let f = field as { _def?: { type?: string; typeName?: string; innerType?: unknown; schema?: unknown; entries?: Record<string, unknown>; values?: unknown[]; element?: unknown } } | undefined;
   for (let i = 0; i < 6 && f?._def; i += 1) {
     const t = f._def.type ?? f._def.typeName;
     if (t === 'enum' || t === 'ZodEnum') {
@@ -155,6 +155,15 @@ function valueHint(field: unknown): string {
       return '=true|false';
     }
     if (t === 'array' || t === 'ZodArray') {
+      // One level down: an array of objects says its element's fields —
+      // `objectRefs.0.type … received undefined` was the refusal left on
+      // walk 19 (2026-09-25) once the top-level names and values were right.
+      const element = (f._def as { element?: unknown }).element;
+      const inner = element ? objectShape(element) : null;
+      if (inner) {
+        const keys = Object.entries(inner).map(([k, v]) => `${k}${isOptionalField(v) ? '' : '*'}${valueHint(v) === '=[…]' || valueHint(v).startsWith('={') ? '' : valueHint(v)}`);
+        return `=[{${keys.join(', ')}}]`;
+      }
       return '=[…]';
     }
     if (t === 'object' || t === 'record' || t === 'ZodObject' || t === 'ZodRecord') {
