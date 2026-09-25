@@ -208,6 +208,8 @@ export type UseChatSessionOptions = {
   agents: AgentOption[];
   /** Pre-fills the composer without sending. */
   initialComposerValue?: string;
+  /** Files already uploaded (a share from the phone, `?attach=`) that start in the composer as chips. */
+  initialAttachments?: ChatAttachment[];
   /** Workspace-scoped empty-state chips, used while no specific agent is picked. */
   suggestions?: Array<{ label: string; prompt: string }>;
   /** Empty-state greeting: org eyebrow + "Ask <workspace>". */
@@ -267,6 +269,7 @@ export type ChatSessionEventApi = {
  * @param root0 - Hook options.
  * @param root0.agents - Agents available to pick from. The caller guarantees at least one entry.
  * @param root0.initialComposerValue - Pre-fills the composer without sending.
+ * @param root0.initialAttachments - Uploaded files that start in the composer.
  * @param root0.suggestions - Workspace-scoped empty-state chips.
  * @param root0.greeting - Empty-state greeting: org eyebrow + workspace name.
  * @param root0.scopeRef
@@ -277,6 +280,7 @@ export type ChatSessionEventApi = {
 export function useChatSession({
   agents,
   initialComposerValue,
+  initialAttachments,
   suggestions = [],
   greeting,
   scopeRef,
@@ -331,7 +335,7 @@ export function useChatSession({
   // Files attached to the next message — already uploaded, already artifacts;
   // these are the chips. `uploading` counts the batches still in flight so the
   // composer can show it and hold Send until they land.
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>(initialAttachments ?? []);
   const [uploading, setUploading] = useState(0);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [phase, setPhase] = useState<StreamingPhase>('idle');
