@@ -71,6 +71,7 @@
  */
 
 import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { ChatModelStreamEvent } from '@langchain/core/language_models/event';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { ChatGenerationChunk, ChatResult } from '@langchain/core/outputs';
@@ -78,6 +79,7 @@ import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
 
 import { ChatBedrockConverse } from '@langchain/aws';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 
 /**
  * How long the vendor should hold the cached prefix.
@@ -169,6 +171,49 @@ export class CachingChatBedrockConverse extends ChatBedrockConverse {
   ): AsyncGenerator<ChatModelStreamEvent> {
     yield* super._streamChatModelEvents(messages, withCacheControl(options), runManager);
   }
+}
+
+/**
+ * A system prompt and a human turn whose `prefix` repeats on every call, with
+ * the cache point placed right after that prefix.
+ *
+ * The caching classes above put their point at the end of the last message.
+ * For a prompt whose head repeats and whose tail does not, that writes the
+ * tail to the cache on every call and never reads it back. Marking the shared
+ * head instead reads it back and leaves the tail at the plain input rate. Only
+ * the caching classes get marks, so `VOCION_PROMPT_CACHE=0` and
+ * `promptCache: false` still mean no caching.
+ * @param model - The model the messages are for.
+ * @param system - The system prompt.
+ * @param prefix - The opening of the human turn that every call repeats.
+ * @param rest - The remainder of the human turn.
+ */
+export function cachedThroughPrefix(
+  model: BaseChatModel,
+  system: string,
+  prefix: string,
+  rest: string,
+): { messages: BaseMessage[]; callOptions: Record<string, unknown> } {
+  if (model instanceof CachingChatBedrockConverse) {
+    return {
+      messages: [
+        new SystemMessage(system),
+        new HumanMessage({ content: [{ type: 'text', text: prefix }, { cachePoint: { type: 'default' } }, { type: 'text', text: rest }] as never }),
+      ],
+      callOptions: {},
+    };
+  }
+  if (model instanceof CachingChatAnthropic) {
+    return {
+      messages: [
+        new SystemMessage({ content: [{ type: 'text', text: system, cache_control: DEFAULT_CACHE_CONTROL }] as never }),
+        new HumanMessage({ content: [{ type: 'text', text: prefix, cache_control: DEFAULT_CACHE_CONTROL }, { type: 'text', text: rest }] as never }),
+      ],
+      // No request-level instruction: it would add a breakpoint at the end.
+      callOptions: { cache_control: undefined },
+    };
+  }
+  return { messages: [new SystemMessage(system), new HumanMessage(prefix + rest)], callOptions: {} };
 }
 
 /**

@@ -111,6 +111,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
 
   const metadata = (ctx.document.metadata ?? {}) as {
     jsonLd?: unknown[];
+    jsonLdInText?: boolean;
     links?: PageLink[];
     publishedUrls?: string[];
     ogImage?: string;
@@ -134,7 +135,8 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     config,
     rules: rules.text,
     known: known.text,
-    jsonLd: jsonLdBlocks.length > 0 ? JSON.stringify(jsonLdBlocks) : '',
+    // Sent on its own only when the page text does not already carry it whole.
+    jsonLd: jsonLdBlocks.length > 0 && metadata.jsonLdInText !== true ? JSON.stringify(jsonLdBlocks) : '',
     pageText: ctx.document.content,
     uri: ctx.document.uri,
     ogImage: metadata.ogImage,
