@@ -98,6 +98,15 @@ for the next contract, and do not hold the change for it. This is what keeps
 review from becoming an unbounded opinion surface, and it is why the contract
 is written before the work rather than inferred after it.
 
+Write each finding on the task, typed, beside the verdict — `verdict.findings[]:
+{against: criterion|path|check, ref, severity: block|fix|note, what, closeBy}`
+— `against` and `ref` say what on the contract it fails, in the contract's own
+words; `severity` says what it does: **block** keeps the merge ask from being
+filed (the merge action refuses it and names the finding), **fix** rides on the
+next attempt's contract line, **note** goes to the PM for the next contract. A
+`block` finding and an `approve` verdict cannot both be true; if you have one,
+the verdict is `changes` or `reject`.
+
 ## The three verdicts
 
 - **approve** — every criterion met, every required check run and passed

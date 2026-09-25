@@ -61,14 +61,33 @@ export const gitMergeAction = manualAction({
     verdictCommitSha: z.string().regex(/^[0-9a-f]{7,40}$/i).optional(),
     /** How this is put back if the health check fails. Required, because a merge that is a deploy is not proposed without a way out. */
     rollback: z.string().min(8).max(600),
+    /**
+     * The engineering task this merge closes. With it, the merge ask is
+     * refused while QA has a `block` finding open on the task (backlog 003) —
+     * the finding is read off the record, not off the proposer's word.
+     */
+    taskId: z.number().int().positive().optional(),
   },
   extraFields: input => [
     { label: 'Risk class', value: input.riskClass },
     { label: 'Commit', value: input.commitSha },
     { label: 'QA verdict', value: verdictLine(input.commitSha, input.verdictCommitSha) },
+    ...(input.taskId ? [{ label: 'Task', value: `#${input.taskId}` }] : []),
     { label: 'If the health check fails', value: input.rollback },
   ],
   policyKeyFor: input => `git.merge.${input.riskClass}`,
+  precheck: async (ctx, input) => {
+    const taskId = typeof input.taskId === 'number' ? input.taskId : null;
+    if (taskId === null) {
+      return undefined;
+    }
+    const open = await openBlockingFindings(ctx.orgId, taskId);
+    if (open.length > 0) {
+      const f = open[0]!;
+      return `A merge ask cannot be filed while a blocking QA finding is open on task #${taskId}: [${f.against}] ${f.ref} — ${f.what}${open.length > 1 ? ` (and ${open.length - 1} more)` : ''}. Close the finding on the task (verdict.findings) with the evidence, or change the contract, then file again.`;
+    }
+    return undefined;
+  },
   // One rule for git.merge governs every class until a class earns its own.
   parentRuleGoverns: true,
 });
@@ -166,3 +185,22 @@ export const factoryActions: readonly Action[] = [
   releaseAnnounceAction,
   notifyRequesterAction,
 ];
+
+/** A QA finding as written on `engineering_task.verdict.findings` (backlog 003). */
+export type QaFinding = { against: string; ref: string; severity: string; what: string; closeBy?: string };
+
+/**
+ * The `block` findings still open on a task's verdict. Read off the record so
+ * a proposer cannot file around them by leaving them out of the input.
+ * @param orgId - The workspace.
+ * @param taskId - The engineering task.
+ */
+export async function openBlockingFindings(orgId: string, taskId: number): Promise<QaFinding[]> {
+  const { db } = await import('@/libs/DB');
+  const { and, eq } = await import('drizzle-orm');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ metadata: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, taskId))).limit(1);
+  const verdict = (row?.metadata as { verdict?: { findings?: unknown } } | null)?.verdict;
+  const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
+  return findings.filter((f): f is QaFinding => typeof f === 'object' && f !== null && (f as QaFinding).severity === 'block' && typeof (f as QaFinding).ref === 'string');
+}
