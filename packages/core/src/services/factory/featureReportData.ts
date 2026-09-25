@@ -165,6 +165,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
       createdAt: r.createdAt,
       claimedAt: r.claimedAt ?? null,
       completedAt: r.completedAt ?? null,
+      heartbeatAt: r.heartbeatAt ?? null,
       input: (r.input ?? {}) as Record<string, unknown>,
       result: (r.result ?? null) as Record<string, unknown> | null,
       progress: (r.progress ?? {}) as Record<string, unknown>,
