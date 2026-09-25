@@ -311,7 +311,8 @@ describe('what a row cannot show', () => {
     expect(visualGap(row(9, 'i', { surface: 'ui', visuals: { beforeArtifactIds: [12] } }), 'proposed')).toBeNull();
     // The platform's drawing is not a mockup: the gap stays until Design files one.
     expect(visualGap(row(10, 'j', { surface: 'ui', state: 'new', visuals: { drawnArtifactId: 77 } }), 'proposed')).toBe('no mock');
-    expect(visualArtifactId(row(10, 'j', { surface: 'ui', state: 'new', visuals: { drawnArtifactId: 77 } }), 'proposed')).toBe(77);
+    // Nor is it a list thumbnail: a row's picture is a real one or none (Chris, 2026-09-25).
+    expect(visualArtifactId(row(10, 'j', { surface: 'ui', state: 'new', visuals: { drawnArtifactId: 77 } }), 'proposed')).toBeNull();
     expect(visualArtifactId(row(11, 'k', { surface: 'ui', state: 'new', visuals: { drawnArtifactId: 77, beforeArtifactIds: [12] } }), 'proposed')).toBe(12);
     expect(visualGap(row(10, 'j', { surface: 'ui', state: 'shipped', visuals: { afterArtifactIds: [13] } }), 'done')).toBeNull();
     // A before does not close a done row: the question there is what shipped.
@@ -355,8 +356,9 @@ describe('the contract between a person and the factory', () => {
     // "Done when it works" is not a contract: nobody can tell whether it was
     // met. An outcome put in front of a person with nothing written is the
     // gap, reported the way an unranked queue and a missing mockup already are.
-    expect(acceptanceLine(row(3, 'c', { state: 'new' }), 'proposed')).toBe('no criteria');
-    expect(acceptanceLine(row(4, 'd', { state: 'new', acceptance: [] }), 'proposed')).toBe('no criteria');
+    // Said on the feature page, not on every row that has none.
+    expect(acceptanceLine(row(3, 'c', { state: 'new' }), 'proposed')).toBeNull();
+    expect(acceptanceLine(row(4, 'd', { state: 'new', acceptance: [] }), 'proposed')).toBeNull();
   });
 
   it('switches to how much holds once the work is running', () => {
@@ -420,7 +422,7 @@ describe('a finished outcome whose contract does not hold', () => {
     // "no criteria". Saying it again at the other end of its life would put
     // the same complaint on one row twice.
     expect(contractGap(row(3, 'c', { state: 'shipped' }), 'done')).toBeNull();
-    expect(acceptanceLine(row(3, 'c', { state: 'new' }), 'proposed')).toBe('no criteria');
+    expect(acceptanceLine(row(3, 'c', { state: 'new' }), 'proposed')).toBeNull();
   });
 
   it('asks nothing of work that has not finished', () => {
@@ -473,7 +475,8 @@ describe('the sentences on a row', () => {
     const waiting = row(5, 'e', { state: 'new', recommendationState: 'proposed', recommendedOutcome: 'build' });
 
     expect(stateOf(waiting, 'proposed')).toBe('Decide');
-    expect(workLine(waiting, 'proposed', NOW)).toBe('Vocion recommends we build it');
+    // The action and how long it has waited, not who recommended it.
+    expect(workLine(waiting, 'proposed', NOW)).toMatch(/^Decide whether to build it( · waiting (since today|\d+ days?))?$/);
   });
 
   it('says money the way the lane makes sense of it', () => {

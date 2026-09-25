@@ -524,7 +524,12 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
       const ahead = opts.ahead ?? 0;
       return `Behind ${ahead} decision${ahead === 1 ? '' : 's'} — moves up as they land.`;
     }
-    return verb ? `Vocion recommends we ${verb}` : null;
+    // The action, and how long it has waited — "Decide whether to build ·
+    // waiting 2 days" — not a sentence about who recommended what.
+    const since = date(meta(row).recommendedAt) ?? date(meta(row).rankedAt);
+    const days = since ? Math.floor((now.getTime() - since.getTime()) / 86_400_000) : null;
+    const waited = days === null ? '' : days < 1 ? ' · waiting since today' : ` · waiting ${days} day${days === 1 ? '' : 's'}`;
+    return verb ? `Decide whether to ${verb}${waited}` : `Decide${waited}`;
   }
   // A queued row's state is already on its badge. Saying "queued" underneath
   // a badge reading "Queued" is the repetition this page was redrawn to lose.
@@ -606,7 +611,9 @@ export function acceptanceOf(row: PageRow): { total: number; met: number; frozen
 export function acceptanceLine(row: PageRow, lane: WorkLane): string | null {
   const { total, met } = acceptanceOf(row);
   if (lane === 'proposed') {
-    return total === 0 ? 'no criteria' : `${total} ${total === 1 ? 'criterion' : 'criteria'}`;
+    // Nothing, rather than "no criteria" on every row that has none: the gap
+    // is on the feature page, and a phrase repeated down a list is noise.
+    return total === 0 ? null : `${total} ${total === 1 ? 'criterion' : 'criteria'}`;
   }
   if (lane === 'progress' && total > 0) {
     return `${met} of ${total} met`;
@@ -710,8 +717,10 @@ export function visualArtifactId(row: PageRow, lane: WorkLane): number | null {
   // The platform's own drawing is the floor under the picture, never the
   // gate: the card shows it when nothing real exists, and `visualGap` keeps
   // saying `no mock` until Design files one (review, 2026-09-24).
-  const drawn = Number.isInteger(v.drawnArtifactId) && (v.drawnArtifactId as number) > 0 ? v.drawnArtifactId as number : null;
-  const proposed = first('beforeArtifactIds') ?? drawn;
+  // The row's picture is a REAL one — a mockup somebody filed, or the
+  // after-shot once it shipped. The platform's drawing is the feature page's
+  // fallback, not a list thumbnail (Chris, 2026-09-25).
+  const proposed = first('beforeArtifactIds');
   return lane === 'done' ? first('afterArtifactIds') ?? proposed : proposed;
 }
 
