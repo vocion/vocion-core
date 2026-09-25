@@ -694,9 +694,19 @@ function HeroMedia({ hero, more, docs }: { hero: ReportEvidence | null; more: Re
 
 export function FeatureReportView({ report }: { report: FeatureReport }) {
   const visuals = report.sections.find(x => x.key === 'visuals');
-  const pictures = (visuals?.evidence ?? []).filter(e => e.imageUrl !== null);
-  const hero = report.hero ?? pictures[0] ?? null;
-  const more = pictures.filter(p => p.id !== hero?.id);
+  const today = report.sections.find(x => x.key === 'today');
+  // THE BEST REAL PICTURE LEADS: what shipped, then the product today, then
+  // a mockup somebody made — and the platform's own drawing only when there
+  // is nothing else. The drawing led on request 87 (2026-09-25) as a broken
+  // image while the real Share dialog sat in a thumbnail beside it, and a real
+  // screenshot of today sat below the fold on 105 under "Preview pending".
+  const drawn = (e: ReportEvidence) => e.role === 'proposed' && e.title === 'Proposed change';
+  const rank = (e: ReportEvidence) => (e.role === 'shipped' ? 0 : e.role === 'today' ? 1 : drawn(e) ? 3 : 2);
+  const pictures = [...(visuals?.evidence ?? []), ...(today?.evidence ?? [])]
+    .filter((e, i, all) => e.imageUrl !== null && all.findIndex(x => x.id === e.id) === i)
+    .sort((a, b) => rank(a) - rank(b));
+  const hero = pictures[0] ?? null;
+  const more = pictures.filter(p => p.id !== hero?.id && !drawn(p));
   const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
   // Once the work has landed, how it was made is Activity, not the page.
   const landed = report.phase === 'released' || report.phase === 'qa';
