@@ -80,7 +80,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.5.0
+version: 2.6.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and four seats — PM, Design, Eng, QA.
 depends: []
 surfaces: []
