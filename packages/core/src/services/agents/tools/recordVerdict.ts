@@ -88,6 +88,54 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
 }
 
 /**
+ * The acceptance contract on a task, as a list of statements.
+ * @param meta - The task's metadata.
+ */
+export function contractOf(meta: Record<string, unknown>): string[] {
+  const raw = Array.isArray(meta.acceptanceContract) ? meta.acceptanceContract : [];
+  return raw
+    .map(c => (typeof c === 'string' ? c : c && typeof c === 'object' && typeof (c as { statement?: unknown }).statement === 'string' ? (c as { statement: string }).statement : ''))
+    .map(c => c.trim())
+    .filter(Boolean);
+}
+
+function normal(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Pair the reviewer's judgements to the contract, line by line. A judgement
+ * matches a line when one's words contain the other's. Never by position: a
+ * reviewer that invents as many lines as the contract has would pass it.
+ * Every contract line comes back, in contract order, in the contract's own
+ * words; a line no judgement named is `unchecked`.
+ * @param contract - The frozen contract statements.
+ * @param judged - What the reviewer sent.
+ */
+export function alignToContract(contract: string[], judged: VerdictCriterion[]): VerdictCriterion[] {
+  const used = new Set<number>();
+  const byText = contract.map((line) => {
+    const n = normal(line);
+    const i = judged.findIndex((j, k) => {
+      if (used.has(k)) {
+        return false;
+      }
+      const m = normal(j.criterion ?? '');
+      return m.length >= 12 && (n.includes(m) || m.includes(n) || n.slice(0, 40) === m.slice(0, 40));
+    });
+    if (i >= 0) {
+      used.add(i);
+    }
+    return i;
+  });
+  return contract.map((line, idx) => {
+    const i = byText[idx]!;
+    const j = i >= 0 ? judged[i] : undefined;
+    return j ? { criterion: line, status: j.status, ...(j.evidence ? { evidence: j.evidence } : {}) } : { criterion: line, status: 'unchecked' as const };
+  });
+}
+
+/**
  * The merge card's summary: the note, the count, then each criterion with its
  * evidence, so the person merging reads the proof without opening the run.
  * @param note - QA's one sentence.
@@ -131,16 +179,24 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // THE SHAPE THE MODEL SENDS, accepted (as update_object learned, backlog
       // 006): on the first live verdict (fire 7051) the lists arrived as JSON
       // text. Text that parses to a list IS the list; the rules then judge it.
-      const criteria = parseJsonArray(args.criteria) as VerdictCriterion[];
+      const judged = parseJsonArray(args.criteria) as VerdictCriterion[];
       const findings = parseJsonArray(args.findings) as VerdictFinding[];
       const independentChecks = (parseJsonArray(args.independent_checks) as unknown[]).filter((c): c is string => typeof c === 'string');
-      const { proven, total, refusal } = judgeVerdict(args.value, criteria, findings);
-      if (refusal) {
-        return refusal;
-      }
       const task = await findTaskByPr(ctx.orgId, args.pr_url);
       if (!task) {
         return `Not recorded: no engineering task in this workspace carries the pull request ${args.pr_url}. Pass the task's prUrl exactly as it is on the record.`;
+      }
+      // THE CONTRACT IS THE LIST, NOT THE MODEL. On fire 7061 the reviewer
+      // wrote three easy criteria of its own and approved "3 of 3" against a
+      // contract of eight; a verdict whose criteria the grader picks can
+      // always pass. The frozen contract on the task is what is graded: each
+      // judgement is paired to a contract line, and a line nobody judged is
+      // unchecked — absent is not proven.
+      const contract = contractOf(task.meta);
+      const criteria = contract.length > 0 ? alignToContract(contract, judged) : judged;
+      const { proven, total, refusal } = judgeVerdict(args.value, criteria, findings);
+      if (refusal) {
+        return contract.length > 0 ? `${refusal}\n\nThe contract on task #${task.id}, which is what is graded:\n${contract.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : refusal;
       }
       const { readPullHead } = await import('./githubPullRead');
       const head = await readPullHead(ctx.orgId, task.url);
@@ -208,7 +264,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
     },
     {
       name: 'record_verdict',
-      description: 'Record QA\'s verdict on a factory pull request: every acceptance criterion judged proven, unproven or unchecked, with the evidence for each proven one. The server binds it to the PR\'s current head, counts the proven criteria itself, sets the task to accepted, changes_requested or rejected, and on approve files the merge card for a person. This call IS the review; a review that does not end in it did not happen.',
+      description: 'Record QA\'s verdict on a factory pull request: every line of the task\'s acceptance contract (acceptanceContract, in order, in its own words) judged proven, unproven or unchecked, with the evidence for each proven one. A contract line you do not judge is recorded as unchecked. The server binds it to the PR\'s current head, counts the proven criteria itself, sets the task to accepted, changes_requested or rejected, and on approve files the merge card for a person. This call IS the review; a review that does not end in it did not happen.',
       schema: z.object({
         pr_url: z.string().url().describe('The pull request, e.g. https://github.com/acme/app/pull/12.'),
         value: z.enum(VERDICT_VALUES).describe('approve only when every criterion is proven and nothing blocks; changes when something specific would make it right; reject when the contract itself was wrong.'),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judgeVerdict, mergeSummary, parseJsonArray } from './recordVerdict';
+import { alignToContract, contractOf, judgeVerdict, mergeSummary, parseJsonArray } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -53,5 +53,38 @@ describe('parseJsonArray', () => {
     expect(parseJsonArray('{"a":1}')).toEqual([]);
     expect(parseJsonArray('not json')).toEqual([]);
     expect(parseJsonArray(undefined)).toEqual([]);
+  });
+});
+
+describe('alignToContract', () => {
+  const contract = [
+    'A search box above the library narrows the list as you type, matching title and file name.',
+    'Matches are highlighted and the count reads \'N of M\'.',
+    'The query and filter live in the URL, so Back and a shared link keep them.',
+  ];
+
+  it('grades the contract, not the criteria the reviewer wrote: invented lines cannot approve, even as many as the contract has', () => {
+    const invented = [proven('Type-to-filter works'), proven('Non-matches are hidden'), proven('Clearing restores the list')];
+
+    expect(alignToContract(contract, invented).map(c => c.status)).toEqual(['unchecked', 'unchecked', 'unchecked']);
+    expect(judgeVerdict('approve', alignToContract(contract, invented), []).refusal).toMatch(/0 of 3 proven/);
+  });
+
+  it('pairs by text in any order, and a line nobody judged is unchecked', () => {
+    const judged = [
+      { criterion: 'The query and filter live in the URL, so Back and a shared link keep them.', status: 'unproven' as const },
+      proven('A search box above the library narrows the list as you type'),
+    ];
+
+    expect(alignToContract(contract, judged)).toEqual([
+      { criterion: contract[0], status: 'proven', evidence: 'https://example.com/shot.png' },
+      { criterion: contract[1], status: 'unchecked' },
+      { criterion: contract[2], status: 'unproven' },
+    ]);
+  });
+
+  it('reads the contract as strings or statements', () => {
+    expect(contractOf({ acceptanceContract: ['a line', { statement: 'b line' }, '', 3] })).toEqual(['a line', 'b line']);
+    expect(contractOf({})).toEqual([]);
   });
 });
