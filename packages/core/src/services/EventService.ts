@@ -230,15 +230,31 @@ export type EmitEventResult = {
 };
 
 /**
- * A workflow trigger fires only if every key in `filter` equals the payload's.
+ * A trigger fires only if every key in `filter` matches the payload: equal,
+ * or — for a key ending in `Prefix` — the field it names starts with the
+ * value (`branchPrefix: factory/` matches `branch: factory/send-t146-…`).
+ *
+ * The plugin's QA automations have filtered on `branchPrefix` since they were
+ * written, and with `===` only they compared against a `branchPrefix` field no
+ * event carries, so the QA-on-PR and learn-from-merged automations never fired
+ * once (red team, 2026-09-26).
  * @param payload
  * @param filter
  */
-function matchesFilter(payload: Record<string, unknown>, filter: unknown): boolean {
+export function matchesFilter(payload: Record<string, unknown>, filter: unknown): boolean {
   if (!filter || typeof filter !== 'object') {
     return true;
   }
-  return Object.entries(filter as Record<string, unknown>).every(([k, v]) => payload[k] === v);
+  return Object.entries(filter as Record<string, unknown>).every(([k, v]) => {
+    if (payload[k] === v) {
+      return true;
+    }
+    if (k.endsWith('Prefix') && typeof v === 'string') {
+      const field = payload[k.slice(0, -'Prefix'.length)];
+      return typeof field === 'string' && field.startsWith(v);
+    }
+    return false;
+  });
 }
 
 /**

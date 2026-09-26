@@ -119,3 +119,16 @@ describe('what a ui change carries', () => {
     expect(contractGaps(c)).toEqual([]);
   });
 });
+
+describe('a plan\'s risks', () => {
+  it('become acceptance lines, at most two', () => {
+    const c = deriveContract({
+      given: {},
+      request: { title: 'R', outcome: 'o', acceptance: ['a'] },
+      plan: { risks: ['Abuse: add a per-link rate limit', 'Confusion: one line in the dialog', 'Third'], repoSlugs: ['Acme/x'], components: ['apps/web — b'] },
+      repo: { title: 'Acme/x', checks: [{ name: 'test' }] },
+    });
+
+    expect(c.acceptanceContract).toEqual(['a', 'The plan\'s risk is handled: Abuse: add a per-link rate limit', 'The plan\'s risk is handled: Confusion: one line in the dialog']);
+  });
+});

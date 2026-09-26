@@ -247,7 +247,12 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const r = input.request ?? {};
   const p = input.plan ?? {};
   const repo = input.repo ?? {};
-  const acceptance = list(g, 'acceptanceContract').length > 0 ? list(g, 'acceptanceContract') : list(r, 'acceptance');
+  // THE PLAN'S RISKS ARE PART OF DONE (iteration 3, 2026-09-26: the plan named
+  // a per-link rate limit as the mitigation for abuse; the acceptance did not,
+  // and the build shipped without it). The first two risks become checkable
+  // lines, so a mitigation cannot be skipped silently.
+  const riskLines = list(p, 'risks').slice(0, 2).map(x => `The plan's risk is handled: ${x}`);
+  const acceptance = list(g, 'acceptanceContract').length > 0 ? list(g, 'acceptanceContract') : [...list(r, 'acceptance'), ...riskLines];
   // ONLY WHAT IS REAL wins over the records (red team, 2026-09-26: a card
   // carried "send-web: header, RequestDialog.tsx" as a path and "All six
   // acceptance criteria pass" as a check). A path is a path; a check is one
