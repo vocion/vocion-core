@@ -306,7 +306,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.5.0');
+    expect(ws.sha).toContain('+software-factory@2.6.0');
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {
@@ -393,7 +393,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(pm?.resolvedSystemPrompt).toContain('asked → decided → planned → building → QA → released');
     // A ui or flow request owes a mockup before it is decided; the PM hands it to the designer.
     expect(pm?.resolvedSystemPrompt).toContain('Prepare the commitment BEFORE you ask anyone to approve it');
-    expect(pm?.resolvedSystemPrompt).toContain('The card\'s action is\n   `factory.dispatch_task`');
+    expect(pm?.resolvedSystemPrompt).toContain('The card\'s action is\n   `factory.dispatch_task` carrying the contract');
     expect(pm?.resolvedSystemPrompt).toContain('Blocked is only what you write');
     // The runs, not the task list, answer "what have you built" (2026-09-20).
     expect(pm?.resolvedSystemPrompt).toContain('list_recent_runs');

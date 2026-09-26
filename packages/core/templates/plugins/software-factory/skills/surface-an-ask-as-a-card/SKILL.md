@@ -149,15 +149,16 @@ owner, whose body reads, in this order, in plain words:
 **Expected result:** <what should change for people> · **We will check:** <how, and after how long>
 ```
 
-as the card's words, and the card's ACTION is `factory.dispatch_task` with
-`{ taskId: <the engineering_task id>, planId: <the architecture_plan id, when
-the work has one>, reason }`. **A build card with no action is a button that
-does nothing** (red team, 2026-09-26): write the contract as an
-`engineering_task` first (objective, acceptance, allowed paths, required
-checks, risk class, repo), then recommend the dispatch. Approving the card IS
-the decision: it approves the plan, freezes the acceptance criteria and starts
-the engineer, in one tap. Request changes is a reply in chat; Defer is the
-card's own Defer. **Defer is not reject.** "Not now" is a normal product
+as the card's words, and the card's ACTION is `factory.dispatch_task` carrying
+the contract itself: `{ requestId, planId (when the work has one), contract: {
+title, objective, acceptanceContract, allowedPaths, requiredChecks, riskClass,
+repoSlug, taskId } , reason }`. Approving the card creates the engineering task,
+approves the plan, freezes the acceptance and starts the engineer, in one tap.
+Do not write the task first and do not say you wrote it: the card IS the
+contract until the person approves it (red team, 2026-09-26: "I've written the
+contract" with no task behind it). If an engineering_task already exists, pass
+its `taskId` instead. Request changes is a reply in chat; Defer is the card's
+own Defer. **Defer is not reject.** "Not now" is a normal product
 decision; it carries a reason and a revisit date or condition, which you write
 on the request (`state: deferred`, `deferReason`, `deferredUntil`).
 

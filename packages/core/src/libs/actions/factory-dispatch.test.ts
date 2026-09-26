@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps } from './factory-dispatch';
+import { contractFromTask, contractGaps, factoryDispatchAction } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -41,5 +41,16 @@ describe('the contract a dispatch sends', () => {
   it('names every missing field instead of sending a contract the worker would refuse', () => {
     expect(contractGaps(task.meta)).toEqual([]);
     expect(contractGaps({ objective: 'x' })).toEqual(['acceptanceContract', 'allowedPaths', 'requiredChecks', 'riskClass', 'repo']);
+  });
+});
+
+describe('the input a card carries', () => {
+  it('takes a task id, or the contract itself with the request it answers', () => {
+    const contract = { title: 'Add the dialog', objective: 'Add it.', acceptanceContract: ['It is there.'], allowedPaths: ['apps/web/src/**'], requiredChecks: ['test'], riskClass: 'ui', repoSlug: 'Acme/northwind-core' };
+
+    expect(factoryDispatchAction.inputSchema.safeParse({ taskId: 90 }).success).toBe(true);
+    expect(factoryDispatchAction.inputSchema.safeParse({ requestId: 132, contract }).success).toBe(true);
+    expect(factoryDispatchAction.inputSchema.safeParse({ contract }).success).toBe(false);
+    expect(factoryDispatchAction.inputSchema.safeParse({}).success).toBe(false);
   });
 });

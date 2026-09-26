@@ -21,14 +21,39 @@ import { z } from 'zod';
 
 export const DISPATCH_ACTION_ID = 'factory.dispatch_task';
 
+/**
+ * THE CONTRACT, carried on the card. On 2026-09-26 the PM said "I've written
+ * the contract" and put a dispatch card up; no task existed — the write it
+ * narrated never happened. When the card carries the contract itself, the
+ * approval creates the task and starts it in one move, so there is no second
+ * step to narrate and skip.
+ */
+const inlineContract = z.object({
+  title: z.string().min(1).max(200),
+  objective: z.string().min(1),
+  acceptanceContract: z.array(z.string().min(1)).min(1),
+  allowedPaths: z.array(z.string().min(1)).min(1),
+  requiredChecks: z.array(z.string().min(1)).min(1),
+  riskClass: z.string().min(1),
+  repoSlug: z.string().min(1),
+  baseSha: z.string().optional(),
+  taskId: z.string().optional().describe('A readable id for the worker, e.g. send-0012.'),
+  tokenBudget: z.number().positive().optional(),
+  wallClockBudget: z.number().positive().optional(),
+});
+
 const dispatchInput = z.object({
-  /** The engineering_task record whose contract the worker runs. */
-  taskId: z.coerce.number().int().positive(),
+  /** The engineering_task record whose contract the worker runs — or omit it and carry `contract`. */
+  taskId: z.coerce.number().int().positive().optional(),
+  /** The request the work answers; required with an inline `contract`. */
+  requestId: z.coerce.number().int().positive().optional(),
+  /** The contract itself, when no engineering_task record exists yet: approving creates it. */
+  contract: inlineContract.optional(),
   /** The architecture_plan it was approved against, when the work needs one. */
   planId: z.coerce.number().int().positive().optional(),
   /** Why now, in a sentence a person can check. */
   reason: z.string().min(1).max(500).optional().default('Approved to build.'),
-});
+}).refine(v => v.taskId !== undefined || (v.contract !== undefined && v.requestId !== undefined), { message: 'Name the engineering task (taskId), or carry the contract with the requestId it answers.' });
 
 type Meta = Record<string, unknown>;
 type Rec = { id: number; title: string; typeId: number; meta: Meta };
@@ -174,9 +199,11 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
 }
 
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
-  const task = await readRecord(ctx.orgId, input.taskId);
+  const stored = input.taskId ? await readRecord(ctx.orgId, input.taskId) : null;
+  // An inline contract reads as the task it will become.
+  const task = stored ?? (input.contract ? { id: 0, title: input.contract.title, typeId: 0, typeSlug: 'engineering_task', meta: { ...input.contract, requestId: input.requestId } as Meta } : null);
   const plan = input.planId ? await readRecord(ctx.orgId, input.planId) : null;
-  const requestId = task ? Number(task.meta.requestId) : Number.NaN;
+  const requestId = task ? Number(task.meta.requestId ?? input.requestId) : Number.NaN;
   const request = Number.isFinite(requestId) ? await readRecord(ctx.orgId, requestId) : null;
   return { task, plan, request };
 }
@@ -184,11 +211,11 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
 export const factoryDispatchAction: Action<typeof dispatchInput> = {
   id: DISPATCH_ACTION_ID,
   name: 'Start the build',
-  description: 'Approve an engineering task (and its architecture plan, when named) and send it to the engineer that runs on the external worker. Takes the engineering_task record id; the task must carry an objective, acceptance, allowed paths, required checks, a risk class and a repo. Spends money on a model: a person approves it. Undo cancels the run while no worker has claimed it.',
+  description: 'Approve an engineering task (and its architecture plan, when named) and send it to the engineer that runs on the external worker. Takes the engineering_task record id, OR carries the contract itself (contract + requestId) and creates the task on approval; the contract must carry an objective, acceptance, allowed paths, required checks, a risk class and a repo. Spends money on a model: a person approves it. Undo cancels the run while no worker has claimed it.',
   inputSchema: dispatchInput,
   grant: 'factory_write',
   external: true,
-  dedupKeyFor: input => `${DISPATCH_ACTION_ID}:${input.taskId}`,
+  dedupKeyFor: input => `${DISPATCH_ACTION_ID}:${input.taskId ?? `request-${input.requestId}`}`,
   async precheck(ctx, input) {
     const { externalWorkersEnabled } = await import('@/services/WorkerRunService');
     if (!externalWorkersEnabled()) {
@@ -196,7 +223,13 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     }
     const { task, plan } = await loadAll(ctx, input);
     if (!task || task.typeSlug !== 'engineering_task') {
-      return `No engineering task #${input.taskId} in this workspace. Write the contract first (an engineering_task record), then start it.`;
+      return `No engineering task #${input.taskId} in this workspace. Carry the contract on this action (contract + requestId) or name a task that exists.`;
+    }
+    if (input.contract && input.requestId) {
+      const req = await readRecord(ctx.orgId, input.requestId);
+      if (!req || req.typeSlug !== 'request') {
+        return `No request #${input.requestId} in this workspace.`;
+      }
     }
     const gaps = contractGaps(task.meta);
     if (gaps.length > 0) {
@@ -224,7 +257,10 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       fields: [
         ...(request ? [{ label: 'Request', value: `#${request.id} ${request.title}`, href: `/dashboard/p/feature/${request.id}` }] : []),
         ...(plan ? [{ label: 'Plan', value: `#${plan.id} ${plan.title}` }] : []),
-        { label: 'Task', value: `#${input.taskId} ${task?.title ?? ''}`.trim() },
+        { label: 'Task', value: input.taskId ? `#${input.taskId} ${task?.title ?? ''}`.trim() : `${task?.title ?? ''} (new)` },
+        { label: 'Change', value: str(m, 'objective') ?? '' },
+        { label: 'Paths', value: list(m, 'allowedPaths').join(', ') },
+        { label: 'Checks', value: list(m, 'requiredChecks').join(', ') },
         { label: 'Repo', value: str(m, 'repoSlug') ?? str(m, 'repo') ?? 'not named' },
         { label: 'Budget', value: budget },
         { label: 'Done when', value: `${list(m, 'acceptanceContract').length} criteria` },
@@ -235,9 +271,19 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   },
   async execute(ctx, input) {
     const { createWorkerRun } = await import('@/services/WorkerRunService');
-    const { task, plan, request } = await loadAll(ctx, input);
+    const loaded = await loadAll(ctx, input);
+    const { plan, request } = loaded;
+    let task = loaded.task;
     if (!task) {
       throw new Error(`No engineering task #${input.taskId}.`);
+    }
+    let createdTaskId: number | null = null;
+    if (!input.taskId && input.contract) {
+      const { createBusinessObject } = await import('@/services/BusinessObjectService');
+      const { title, ...rest } = input.contract;
+      const created = await createBusinessObject({ typeSlug: 'engineering_task', title, status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready' } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
+      createdTaskId = (created as { id: number }).id;
+      task = { ...task, id: createdTaskId };
     }
     const gaps = contractGaps(task.meta);
     if (gaps.length > 0) {
@@ -271,7 +317,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         ...(request.meta.acceptanceFrozenAt ? {} : { acceptanceFrozenAt: approvedAt }),
       });
     }
-    return { workerRunId: run.id, agentSlug, taskId: task.id, planId: plan?.id ?? null, requestId: request?.id ?? null, previousTask, previousPlan, previousRequestState: request ? (request.meta.state ?? null) : null, previousRequest: request ? { recommendationState: request.meta.recommendationState ?? null, decidedAt: request.meta.decidedAt ?? null, acceptanceFrozenAt: request.meta.acceptanceFrozenAt ?? null } : null };
+    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, previousTask, previousPlan, previousRequestState: request ? (request.meta.state ?? null) : null, previousRequest: request ? { recommendationState: request.meta.recommendationState ?? null, decidedAt: request.meta.decidedAt ?? null, acceptanceFrozenAt: request.meta.acceptanceFrozenAt ?? null } : null };
   },
   async undo(ctx, _input, result) {
     const { cancelWorkerRun, getWorkerRun } = await import('@/services/WorkerRunService');
@@ -284,7 +330,9 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       await cancelWorkerRun(ctx.orgId, runId);
     }
     const pt = (result.previousTask ?? {}) as Meta;
-    await writeMeta(ctx.orgId, Number(result.taskId), { status: pt.status ?? 'ready', workerRunId: pt.workerRunId ?? null });
+    // A task this dispatch created goes back to ready with the run cleared;
+    // it stays on the record as the contract a person approved.
+    await writeMeta(ctx.orgId, Number(result.taskId), { status: result.createdTaskId ? 'ready' : (pt.status ?? 'ready'), workerRunId: pt.workerRunId ?? null });
     if (result.planId && result.previousPlan) {
       const pp = result.previousPlan as Meta;
       await writeMeta(ctx.orgId, Number(result.planId), { status: pp.status ?? 'proposed', approvedBy: pp.approvedBy ?? null, approvedAt: pp.approvedAt ?? null });
