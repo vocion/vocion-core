@@ -262,8 +262,9 @@ schema:
         QA's verdict, BOUND TO THE COMMIT it was read against. A verdict is
         evidence about one diff; when the branch moves after the review, the
         verdict is stale and the merge ask says so rather than carrying an
-        approval of code nobody read. Written by QA through update_object
-        (review-against-contract); the merge ask copies `commitSha` into
+        approval of code nobody read. Written by QA through record_verdict
+        (review-against-contract), which also carries the judged criteria and
+        the proven count; the merge ask copies `commitSha` into
         `verdictCommitSha` so the card can compare.
       properties:
         value: {type: string, enum: [approve, changes, reject]}

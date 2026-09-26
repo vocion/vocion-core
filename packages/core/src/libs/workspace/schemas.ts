@@ -1200,11 +1200,20 @@ export const AutomationManifestSchema = z.object({
      * scheduled-check brief when omitted.
      */
     prompt: z.string().optional(),
+    /**
+     * The tool a `checkMission` fire's work must end in — e.g. `record_verdict`
+     * for a review. A pass that never calls it (or only has it refused) gets
+     * one more pass that says so; a second miss fails the fire, visibly.
+     */
+    requireTool: z.string().min(1).optional(),
     /** Fixed input passed to the workflow run / job. */
     input: z.record(z.string(), z.unknown()).optional(),
   }).refine(
     d => [d.workflow, d.checkMission, d.job].filter(Boolean).length === 1,
     { message: 'do must have exactly one of workflow | checkMission | job' },
+  ).refine(
+    d => !d.requireTool || !!d.checkMission,
+    { message: 'do.requireTool requires do.checkMission — only a mission check runs an agent whose tools can be required' },
   ).refine(
     d => !d.prompt || !!d.checkMission,
     { message: 'do.prompt requires do.checkMission — only mission checks carry an execution prompt' },

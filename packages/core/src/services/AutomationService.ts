@@ -25,7 +25,7 @@ import {
   getTemporalClient,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
-import { automationRunSchema, automationSchema, knowledgeSourceSchema, userSchema } from '@/models/Schema';
+import { automationRunSchema, automationSchema, knowledgeSourceSchema, toolCallSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
 import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
@@ -154,7 +154,7 @@ export type PendingAutomationFire = {
   slug: string;
   kind: 'workflow' | 'mission_check' | 'job';
   automationRunId: number;
-  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> };
+  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> };
   input: Record<string, unknown>;
   /** What the CALLER handed in — an event's payload, or nothing for a schedule fire. */
   triggerInput?: Record<string, unknown>;
@@ -368,6 +368,7 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
  * @param doCfg.checkMission
  * @param doCfg.job
  * @param doCfg.prompt
+ * @param doCfg.requireTool
  * @param input - Merged `do.input` + caller overrides. `input.prompt` replaces the authored orders for this fire.
  * @param invokedBy
  * @param triggerInput - What the caller handed in: an event's payload, or nothing for a schedule fire.
@@ -376,7 +377,7 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
 async function dispatchDo(
   orgId: string,
   slug: string,
-  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string },
+  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string },
   input: Record<string, unknown>,
   invokedBy: string,
   triggerInput: Record<string, unknown> | undefined,
@@ -415,7 +416,7 @@ async function dispatchDo(
   const prompt = typeof input.prompt === 'string' && input.prompt.trim() !== '' ? input.prompt : doCfg.prompt;
   const startedAt = new Date();
   const before = await queueSnapshot(orgId);
-  const run = await startMission({
+  let run = await startMission({
     orgId,
     missionSlug,
     // The automation's authored execution prompt rides the brief; the mission
@@ -434,6 +435,27 @@ async function dispatchDo(
     // can say so and never fire this automation again.
     causedBy,
   });
+  // A REQUIRED TOOL IS A GATED BACKSTOP, NOT A PROMPT LINE. The reviewer read
+  // a whole pull request and ended without recording a verdict (2026-09-26,
+  // run 5471), so a feature sat at "Awaiting QA" over a finished PR. When the
+  // automation names the tool its work must end in and the pass did not call
+  // it, one more pass runs with that said plainly; a second miss is an error
+  // on the fire, where a person sees it, never a silent "completed".
+  if (doCfg.requireTool && !(await calledRequiredTool(orgId, run.id, doCfg.requireTool))) {
+    const missed = run.id;
+    run = await startMission({
+      orgId,
+      missionSlug,
+      brief: `${scheduledCheckBrief(template, prompt, triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined)}\n\nThe previous pass (run #${missed}) ended without calling ${doCfg.requireTool}. This work is not done until ${doCfg.requireTool} is called and accepted; end with it.`,
+      title: `${slug}: ${template.name} (again: no ${doCfg.requireTool})`,
+      mode: 'check',
+      invokedBy,
+      causedBy,
+    });
+    if (!(await calledRequiredTool(orgId, run.id, doCfg.requireTool))) {
+      throw new Error(`automation "${slug}": runs #${missed} and #${run.id} both ended without ${doCfg.requireTool}`);
+    }
+  }
   // The summary the branch used to discard. Best-effort: a fire whose work
   // succeeded must not be recorded as failed because measuring it did.
   const result = await summarizeMissionCheck({ orgId, run, before, startedAt }).catch((err) => {
@@ -444,6 +466,22 @@ async function dispatchDo(
     return undefined;
   });
   return { kind: 'mission_check', runId: run.id, result };
+}
+
+/**
+ * Did this mission run call the tool, and was the call accepted? A required
+ * tool refuses with an output that starts "Not recorded" (record_verdict), so
+ * a refused call does not count as the work being done.
+ * @param orgId - The workspace.
+ * @param missionRunId - The run.
+ * @param toolName - The tool the automation requires.
+ */
+export async function calledRequiredTool(orgId: string, missionRunId: number, toolName: string): Promise<boolean> {
+  const rows = await db
+    .select({ output: toolCallSchema.output, error: toolCallSchema.error })
+    .from(toolCallSchema)
+    .where(and(eq(toolCallSchema.orgId, orgId), eq(toolCallSchema.missionRunId, missionRunId), eq(toolCallSchema.tool, toolName), sql`${toolCallSchema.error} is null`));
+  return rows.some(r => !(typeof r.output === 'string' ? r.output : JSON.stringify(r.output ?? '')).replace(/^"/, '').startsWith('Not recorded'));
 }
 
 export type AutomationRunRow = typeof automationRunSchema.$inferSelect;

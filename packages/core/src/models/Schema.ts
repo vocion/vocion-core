@@ -1130,7 +1130,7 @@ export const automationSchema = pgTable(
      */
     whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number }>().notNull(),
     /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
-    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> }>().notNull(),
+    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> }>().notNull(),
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
     ownerAgentSlug: text('owner_agent_slug'),
     /**

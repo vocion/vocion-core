@@ -67,6 +67,7 @@ import { posthogCountTools } from './posthogCounts';
 import { proposeActionTool } from './proposeAction';
 import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
+import { recordVerdictTools } from './recordVerdict';
 import { renderArtifactTools } from './renderArtifacts';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
@@ -153,6 +154,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // an agent with no object types.
     ...readObjectTools(ctx),
     ...updateObjectTools(ctx),
+    // Granted-only: QA's verdict on a pull request, bound to its head, and the
+    // merge card on approve — one call, so the review cannot end unrecorded.
+    ...recordVerdictTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),

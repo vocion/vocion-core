@@ -50,6 +50,33 @@ async function tokenForRepo(orgId: string, fullName: string): Promise<string | n
 }
 
 /**
+ * The head a pull request points at right now, read with the workspace's own
+ * token. A verdict binds to this, never to a sha the model typed. Null when the
+ * URL is not a pull request on a connected repository or GitHub did not answer.
+ * @param orgId - The workspace.
+ * @param url - A github.com pull request URL.
+ */
+export async function readPullHead(orgId: string, url: string): Promise<{ sha: string; state: string; merged: boolean } | null> {
+  const pr = parsePullUrl(url);
+  if (!pr) {
+    return null;
+  }
+  const token = await tokenForRepo(orgId, `${pr.owner}/${pr.repo}`);
+  if (!token) {
+    return null;
+  }
+  const res = await fetch(`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`, {
+    headers: { 'authorization': `Bearer ${token}`, 'x-github-api-version': '2022-11-28', 'user-agent': 'vocion', 'accept': 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(20_000),
+  }).catch(() => null);
+  if (!res?.ok) {
+    return null;
+  }
+  const meta = await res.json() as { state?: string; merged?: boolean; head?: { sha?: string } };
+  return meta.head?.sha ? { sha: meta.head.sha, state: meta.state ?? 'unknown', merged: meta.merged === true } : null;
+}
+
+/**
  * The pull request as text a reviewer reads: title, state, branches, body,
  * then the unified diff. Null when the URL is not a pull request on a
  * repository this workspace connected, so the caller falls back to the web.

@@ -124,6 +124,31 @@ describe('fireAutomation', () => {
     expect(row?.finishedAt).toBeInstanceOf(Date);
   });
 
+  it('do.requireTool: a pass that never called the tool gets one more pass; a second miss fails the fire', async () => {
+    const { toolCallSchema } = await import('@/models/Schema');
+    await db.delete(toolCallSchema);
+    await seedAutomation('review-pr', { event: 'pr.checks_completed' }, { checkMission: 'prove-the-contract', prompt: 'Review it.', requireTool: 'record_verdict' });
+    vi.mocked(startMission).mockResolvedValueOnce({ id: 401, status: 'completed' } as never).mockResolvedValueOnce({ id: 402, status: 'completed' } as never);
+
+    await expect(fireAutomation(ORG, 'review-pr', { input: { number: 50 } })).rejects.toThrow('runs #401 and #402 both ended without record_verdict');
+    expect(vi.mocked(startMission)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(startMission).mock.calls[1]![0].brief).toContain('The previous pass (run #401) ended without calling record_verdict');
+
+    // A refused call is not the work being done; an accepted one is.
+    vi.mocked(startMission).mockClear();
+    await db.insert(toolCallSchema).values([
+      { orgId: ORG, missionRunId: 403, tool: 'record_verdict', input: {}, output: 'Not recorded: an approve cannot carry 1 criteria that are not proven', agentSlug: 'change-reviewer' },
+      { orgId: ORG, missionRunId: 404, tool: 'record_verdict', input: {}, output: 'Verdict recorded on task #157: changes, 4 of 7 criteria proven', agentSlug: 'change-reviewer' },
+    ] as never);
+    vi.mocked(startMission).mockResolvedValueOnce({ id: 403, status: 'completed' } as never).mockResolvedValueOnce({ id: 404, status: 'completed' } as never);
+    const res = await fireAutomation(ORG, 'review-pr', { input: { number: 50 } });
+
+    expect(res).toMatchObject({ kind: 'mission_check', runId: 404 });
+    expect(vi.mocked(startMission)).toHaveBeenCalledTimes(2);
+
+    await db.delete(toolCallSchema);
+  });
+
   it('carries do.prompt into the scheduled-check brief; the mission stays the standing context', async () => {
     await seedAutomation(
       'discovery-sweep',

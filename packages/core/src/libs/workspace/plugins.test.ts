@@ -60,7 +60,7 @@ describe('the shipped catalogue', () => {
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'product', 'release', 'repo', 'request']);
     // Three missions carry the loop; the eight reporting and hygiene missions are gone.
     expect(factory.missions).toEqual(['close-the-gap', 'prove-the-contract', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-change', 'contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'standard-from-shipped', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'standard-from-shipped', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['feature', 'products', 'releases', 'work']);
     expect(factory.hasTrust).toBe(true);
@@ -306,7 +306,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.8.0');
+    expect(ws.sha).toContain('+software-factory@2.9.0');
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {
@@ -427,7 +427,7 @@ describe('loadWorkspace with the software factory', () => {
     // The decision landing is what makes the card the commitment: approve freezes and queues, defer parks.
     expect(ws.automations.find(a => a.slug === 'factory-decision-landed')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
     expect(ws.automations.find(a => a.slug === 'factory-result-check')?.when.schedule).toBe('30 15 * * 1-5');
-    expect(ws.automations.filter(a => a.agent === 'change-reviewer').map(a => a.slug).sort()).toEqual(['contract-red-team-change', 'contract-red-team-evidence', 'contract-red-team-proposal']);
+    expect(ws.automations.filter(a => a.agent === 'change-reviewer').map(a => a.slug).sort()).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal']);
     expect(ws.automations.every(a => ws.missions.some(m => m.slug === a.do.checkMission))).toBe(true);
 
     // The debrief: the factory finished something, the record learns it. On
