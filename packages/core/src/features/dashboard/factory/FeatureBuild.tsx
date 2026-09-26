@@ -14,8 +14,9 @@ import { client } from '@/libs/Orpc';
  * @param props
  * @param props.requestId - The request.
  * @param props.planId - Its plan, when it has one.
+ * @param props.children
  */
-export function FeatureBuild({ requestId, planId }: { requestId: number; planId: number | null }) {
+export function FeatureBuild({ requestId, planId, children }: { requestId: number; planId: number | null; children?: React.ReactNode }) {
   const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'done'; runId: number; workerRunId: number | null } | { s: 'error'; message: string }>({ s: 'idle' });
 
   const build = async () => {
@@ -59,7 +60,7 @@ export function FeatureBuild({ requestId, planId }: { requestId: number; planId:
     );
   }
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-wrap items-center gap-3">
       <button
         type="button"
         onClick={() => void build()}
@@ -70,7 +71,9 @@ export function FeatureBuild({ requestId, planId }: { requestId: number; planId:
         {phase.s === 'working' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Hammer className="size-4" aria-hidden />}
         {phase.s === 'working' ? 'Starting…' : 'Build it'}
       </button>
-      {phase.s === 'error' && <p className="text-xs text-[var(--brand-fail)]">{phase.message}</p>}
+      {/* The other way out — Dismiss — only while nothing has started. */}
+      {children}
+      {phase.s === 'error' && <p className="w-full text-xs text-[var(--brand-fail)]">{phase.message}</p>}
     </div>
   );
 }

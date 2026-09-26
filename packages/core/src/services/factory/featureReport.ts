@@ -2254,7 +2254,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   return {
     requestId: input.request.id,
     canBuild: !['shipped', 'answered', 'deferred', 'out_of_scope'].includes(String(input.request.meta.state ?? ''))
-      && !input.tasks.some(t => ['dispatched', 'running', 'awaiting_review', 'changes_requested', 'accepted'].includes(String(t.meta.status ?? ''))),
+      && !input.tasks.some(t => [String(t.meta.status ?? ''), String((t as { status?: string }).status ?? '')].some(st => ['dispatched', 'running', 'awaiting_review', 'changes_requested', 'accepted'].includes(st))),
     planId: [...input.plans].filter(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && !p.meta.supersededBy).sort((a, b) => b.id - a.id)[0]?.id ?? null,
     // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's
     // words and is evidence (`naming-the-work`), so it is never rewritten —

@@ -746,9 +746,10 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         {/* ONE DECISION, TWO WAYS (2026-09-26): build it or dismiss it, right
             under the picture — the page used to offer only Dismiss. */}
         {report.canBuild && (
-          <div className="flex flex-wrap items-center gap-3" data-testid="feature-decide">
-            <FeatureBuild requestId={report.requestId} planId={report.planId} />
-            <FeatureDismiss requestId={report.requestId} />
+          <div data-testid="feature-decide">
+            <FeatureBuild requestId={report.requestId} planId={report.planId}>
+              <FeatureDismiss requestId={report.requestId} />
+            </FeatureBuild>
           </div>
         )}
         <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
