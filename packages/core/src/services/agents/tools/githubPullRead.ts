@@ -19,7 +19,9 @@ import { tokenFromCredentials } from '@/libs/github/client';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
 const PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/files|\.diff|\.patch)?\/?(?:[?#].*)?$/i;
-const DIFF_MAX = 150_000;
+// Enough for a factory-sized change; a reviewer drowned in diff runs out of
+// room to write its verdict (mission run 5364).
+const DIFF_MAX = 60_000;
 
 export function parsePullUrl(url: string): { owner: string; repo: string; number: number } | null {
   const m = PR_URL.exec(url.trim());
