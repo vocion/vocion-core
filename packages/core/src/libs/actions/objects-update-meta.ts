@@ -246,7 +246,21 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
   // The ladder's key: one ledger per object type, so `product` can be held
   // at approval while `request` earns its way. A rule for the bare id binds
   // to nothing, as with `git.merge`.
-  policyKeyFor: input => `${UPDATE_ACTION_ID}.${input.objectType.trim().toLowerCase()}`,
+  //
+  // A PRODUCT DECISION IS ITS OWN KIND (red team, 2026-09-26: asked "what
+  // should I decide right now", the PM deferred a proposal itself, done for
+  // you). Writing a request's verdict — deferred, out of scope, answered, a
+  // recommendation approved or rejected — keys to `…request.decision`, so a
+  // workspace can hold decisions at a person while every other field earns.
+  policyKeyFor: (input) => {
+    const type = input.objectType.trim().toLowerCase();
+    const set = (input.set ?? {}) as Record<string, unknown>;
+    const decides = type === 'request' && (
+      ['deferred', 'out_of_scope', 'answered'].includes(String(set.state ?? ''))
+      || ['approved', 'rejected', 'deferred'].includes(String(set.recommendationState ?? ''))
+    );
+    return decides ? `${UPDATE_ACTION_ID}.request.decision` : `${UPDATE_ACTION_ID}.${type}`;
+  },
   async precheck(ctx, input) {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
     if (!objectType) {

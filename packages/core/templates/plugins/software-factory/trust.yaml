@@ -13,6 +13,14 @@ rules:
   # Starting a build spends money on a model and hands a repository to a
   # worker: the product owner's tap on the card, every time. Undo cancels it
   # until a worker claims it.
+  # A product decision on a request — defer, out of scope, answered, a
+  # recommendation approved or rejected — is the product owner's. An agent may
+  # recommend it on a card; it never writes it on its own.
+  - action: objects.update_meta.request.decision
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
   - action: factory.dispatch_task
     autoApproveAbove: 1
     enabled: false

@@ -288,6 +288,25 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
     }
   }
 
+  // ONE QUESTION, ONE ROW (review sweep, 2026-09-26: 89 open asks, most of
+  // them the same question filed again — "Approve build: Send e2e runner" four
+  // times, "CRITICAL (check 10)" escalations of an unanswered one). An open ask
+  // of the same kind and title in this workspace IS this ask: it is refreshed, not
+  // doubled, and the person answers it once.
+  const [same] = await db
+    .select({ id: askSchema.id })
+    .from(askSchema)
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), eq(askSchema.kind, ask.kind), sql`lower(trim(${askSchema.title})) = lower(trim(${ask.title}))`))
+    .limit(1);
+  if (same) {
+    const [row] = await db
+      .update(askSchema)
+      .set({ ...mutable, updatedAt: new Date() })
+      .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, same.id)))
+      .returning();
+    return { ask: row!, created: false };
+  }
+
   const [row] = await db
     .insert(askSchema)
     .values({ ...mutable, orgId, sourceRef, createdBy: opts.createdBy ?? null })

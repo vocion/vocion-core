@@ -7,6 +7,7 @@ import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { formatStamp, money } from '@/services/factory/featureReport';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { FeatureActivity } from './FeatureActivity';
+import { FeatureBuild } from './FeatureBuild';
 import { FeatureDismiss } from './FeatureDismiss';
 import { MediaCarousel } from './MediaCarousel';
 
@@ -252,7 +253,29 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
  * @param props - The section.
  * @param props.section - The section to draw.
  */
-function Section({ section }: { section: ReportSection }) {
+/**
+ * SAY NOTHING WHEN THERE IS NOTHING (2026-09-26). A proposal's page carried
+ * eight rows reading "not recorded", "nobody yet", "nobody estimated this" —
+ * a form, not a feature. A fact with no value is left out, and a section left
+ * with nothing to show is not drawn (principle 7's reduction: less evidence
+ * makes a smaller page, not a longer list of what is missing).
+ */
+const EMPTY_VALUE = /^(?:not recorded|nobody(?: yet| estimated this)?|not shipped yet|none|n\/a|—|-)$/i;
+
+function trimSection(section: ReportSection): ReportSection | null {
+  const facts = section.facts.filter(f => !EMPTY_VALUE.test(String(f.value ?? '').trim()));
+  // Today's screenshots already lead the carousel; the section keeps the link.
+  const evidence = section.key === 'today' ? [] : section.evidence;
+  const trimmed = { ...section, facts, evidence };
+  const empty = !section.absence && facts.length === 0 && trimmed.entries.length === 0 && trimmed.lists.length === 0 && evidence.length === 0 && trimmed.detailLists.length === 0;
+  return empty ? null : trimmed;
+}
+
+function Section({ section: raw }: { section: ReportSection }) {
+  const section = trimSection(raw);
+  if (!section) {
+    return null;
+  }
   return (
     <section id={`report-${section.key}`} data-section={section.key} className="border-t border-border/60 pt-8">
       <h3 className="mb-3 text-sm font-semibold text-foreground">{section.title}</h3>
@@ -718,7 +741,14 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         )}
         <HeroMedia pictures={pictures} docs={docs} />
         <ActionStrip state={report.state} />
-        {(report.phase === 'asked' || report.phase === 'decided' || report.phase === 'planned') && <FeatureDismiss requestId={report.requestId} />}
+        {/* ONE DECISION, TWO WAYS (2026-09-26): build it or dismiss it, right
+            under the picture — the page used to offer only Dismiss. */}
+        {(report.phase === 'asked' || report.phase === 'decided' || report.phase === 'planned') && (
+          <div className="flex flex-wrap items-center gap-3" data-testid="feature-decide">
+            <FeatureBuild requestId={report.requestId} planId={report.planId} />
+            <FeatureDismiss requestId={report.requestId} />
+          </div>
+        )}
         <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
         {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} />}
         {report.contradictions.length > 0 && (
@@ -789,13 +819,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
 
       <StickyAction state={report.state} />
 
-      <p className="text-xs text-muted-foreground">
-        Every figure on this page is read off a record.
-        {' '}
-        {report.summary.elapsedOpen
-          ? 'Elapsed is measured to now, because nothing has shipped.'
-          : 'Elapsed is measured from when it was asked to when it shipped.'}
-      </p>
+      {/* The footer about where figures come from is gone: every figure links its record. */}
     </div>
   );
 }

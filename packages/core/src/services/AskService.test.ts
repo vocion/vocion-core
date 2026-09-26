@@ -178,6 +178,15 @@ describe('decideAsk', () => {
     expect(await svc.decideAsk({ orgId: ORG, id: merge, decision: 'other', note: 'merged by hand', decidedBy: 'u' })).toMatchObject({ decision: 'other', followUp: false });
   });
 
+  it('files the same open question once, refreshed rather than doubled', async () => {
+    const first = await svc.upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Approve build: e2e runner', body: 'v1' } });
+    const again = await svc.upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: ' approve build: E2E runner ', body: 'v2' } });
+
+    expect(again.created).toBe(false);
+    expect(again.ask.id).toBe(first.ask.id);
+    expect(again.ask.body).toBe('v2');
+  });
+
   it('refuses an unknown decision, a second decision, and another org', async () => {
     const id = (await svc.upsertAsk({ orgId: ORG, ask: { kind: 'gate', title: 'q', options: svc.normaliseOptions(['Resume']) } })).ask.id;
 

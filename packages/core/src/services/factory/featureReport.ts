@@ -327,6 +327,8 @@ export type FeatureReport = {
   /** Every conversation and run tied to this feature, newest first (loaded beside the report). */
   activity?: ReportActivity[];
   requestId: number;
+  /** The plan a build would carry: the newest one not rejected or superseded. Null when there is none. */
+  planId: number | null;
   title: string;
   summary: FeatureReportSummary;
   money: MoneyLine;
@@ -2246,6 +2248,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const line = moneyLine(input.request, input.tasks, runs);
   return {
     requestId: input.request.id,
+    planId: [...input.plans].filter(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && !p.meta.supersededBy).sort((a, b) => b.id - a.id)[0]?.id ?? null,
     // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's
     // words and is evidence (`naming-the-work`), so it is never rewritten —
     // which meant every surface led with a situation. The outcome line says
