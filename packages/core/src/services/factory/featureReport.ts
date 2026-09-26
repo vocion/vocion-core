@@ -329,6 +329,11 @@ export type FeatureReport = {
   requestId: number;
   /** The plan a build would carry: the newest one not rejected or superseded. Null when there is none. */
   planId: number | null;
+  /**
+   * Whether "Build it" is the next move: nothing shipped and no task alive —
+   * never built, or every attempt failed, was abandoned or rejected.
+   */
+  canBuild: boolean;
   title: string;
   summary: FeatureReportSummary;
   money: MoneyLine;
@@ -2248,6 +2253,8 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const line = moneyLine(input.request, input.tasks, runs);
   return {
     requestId: input.request.id,
+    canBuild: !['shipped', 'answered', 'deferred', 'out_of_scope'].includes(String(input.request.meta.state ?? ''))
+      && !input.tasks.some(t => ['dispatched', 'running', 'awaiting_review', 'changes_requested', 'accepted'].includes(String(t.meta.status ?? ''))),
     planId: [...input.plans].filter(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && !p.meta.supersededBy).sort((a, b) => b.id - a.id)[0]?.id ?? null,
     // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's
     // words and is evidence (`naming-the-work`), so it is never rewritten —

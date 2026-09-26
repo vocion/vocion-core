@@ -67,6 +67,9 @@ function pillStatus(tone: Tone): Status {
  * @param props - The fact.
  * @param props.fact - The fact to draw.
  */
+/** A value that says nothing — left out rather than drawn (2026-09-26). */
+const EMPTY_VALUE = /^(?:not recorded|nobody(?: yet| estimated this)?|not shipped yet|none|n\/a|—|-)$/i;
+
 function Fact({ fact }: { fact: ReportFact }) {
   const value = fact.value;
   // A long passage is prose, not an aside. It used to be set in italics, which
@@ -151,9 +154,9 @@ function Entry({ entry }: { entry: ReportEntry }) {
           ))}
         </ol>
       )}
-      {entry.facts.length > 0 && (
+      {entry.facts.some(f => !EMPTY_VALUE.test(String(f.value ?? '').trim())) && (
         <dl className="mt-3">
-          {entry.facts.map(f => <Fact key={f.label} fact={f} />)}
+          {entry.facts.filter(f => !EMPTY_VALUE.test(String(f.value ?? '').trim())).map(f => <Fact key={f.label} fact={f} />)}
         </dl>
       )}
       <Checks checks={entry.checks} />
@@ -260,7 +263,6 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
  * with nothing to show is not drawn (principle 7's reduction: less evidence
  * makes a smaller page, not a longer list of what is missing).
  */
-const EMPTY_VALUE = /^(?:not recorded|nobody(?: yet| estimated this)?|not shipped yet|none|n\/a|—|-)$/i;
 
 function trimSection(section: ReportSection): ReportSection | null {
   const facts = section.facts.filter(f => !EMPTY_VALUE.test(String(f.value ?? '').trim()));
@@ -743,7 +745,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         <ActionStrip state={report.state} />
         {/* ONE DECISION, TWO WAYS (2026-09-26): build it or dismiss it, right
             under the picture — the page used to offer only Dismiss. */}
-        {(report.phase === 'asked' || report.phase === 'decided' || report.phase === 'planned') && (
+        {report.canBuild && (
           <div className="flex flex-wrap items-center gap-3" data-testid="feature-decide">
             <FeatureBuild requestId={report.requestId} planId={report.planId} />
             <FeatureDismiss requestId={report.requestId} />
