@@ -8,7 +8,7 @@ description: >-
   conversation the person can approve to start the work, or open to argue
   with. Read whenever a chat turn contains a request for work.
 playbooks: [naming-the-work]
-version: 4
+version: 5
 ---
 
 # An ask in chat becomes a card, not a paragraph
@@ -149,15 +149,20 @@ owner, whose body reads, in this order, in plain words:
 **Expected result:** <what should change for people> · **We will check:** <how, and after how long>
 ```
 
-with `options: [{id: approve-build, label: Approve build}, {id: request-changes,
-label: Request changes}, {id: defer, label: Defer}]`, `object_refs` naming the
-request and the draft task, and `decision_cost` as the minutes above. **Defer
-is not reject.** "Not now" is a normal product decision; it carries a reason
-and a revisit date or condition, which you write on the request
-(`state: deferred`, `deferReason`, `deferredUntil`) when the decision lands.
+as the card's words, and the card's ACTION is `factory.dispatch_task` with
+`{ taskId: <the engineering_task id>, planId: <the architecture_plan id, when
+the work has one>, reason }`. **A build card with no action is a button that
+does nothing** (red team, 2026-09-26): write the contract as an
+`engineering_task` first (objective, acceptance, allowed paths, required
+checks, risk class, repo), then recommend the dispatch. Approving the card IS
+the decision: it approves the plan, freezes the acceptance criteria and starts
+the engineer, in one tap. Request changes is a reply in chat; Defer is the
+card's own Defer. **Defer is not reject.** "Not now" is a normal product
+decision; it carries a reason and a revisit date or condition, which you write
+on the request (`state: deferred`, `deferReason`, `deferredUntil`).
 
-What the decision does is written the moment it lands
-(`factory-decision-landed`): approve freezes the acceptance criteria as the
-contract, moves the request to `in_scope` and queues the engineer;
-request-changes reopens the draft with the note; defer parks it until its
-date; a rejection stays rejected and is not asked again.
+**When the product owner tells you to build it, that is the decision.** Do not
+answer "I can't sign this off myself": put the dispatch card up in the same
+turn, so starting the build is one tap. **Never file an ask for work you can do
+yourself** — reading runs, looking records up, checking the product. Do it in
+this turn and report what you found.

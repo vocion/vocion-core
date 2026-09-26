@@ -28,9 +28,33 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
   const available = ctx.objectTypeSlugs.join(', ');
   return tool(
     async (args) => {
-      const objects = await listBusinessObjects(ctx.orgId, args.type_slug);
+      const all = await listBusinessObjects(ctx.orgId, args.type_slug);
+      // NARROW BEFORE READING (red team, 2026-09-26). Every lookup returned
+      // every record of the type — 61 requests, every plan — as one JSON
+      // blob, and the PM answered "there is no plan for #132" with plan #134
+      // (requestId 132) sitting in the result. A lookup by id, by field or by
+      // words returns the few records asked about, and a long list says how
+      // many it held back instead of burying them.
+      const where = Object.entries(args.where ?? {});
+      const words = (args.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+      const matched = all.filter((obj) => {
+        if (args.id !== undefined && obj.id !== args.id) {
+          return false;
+        }
+        const meta = (obj.metadata ?? {}) as Record<string, unknown>;
+        if (!where.every(([k, v]) => String((k === 'status' ? obj.status : meta[k]) ?? '').toLowerCase() === String(v).toLowerCase())) {
+          return false;
+        }
+        if (words.length > 0) {
+          const hay = `${obj.title} ${typeof obj.summary === 'string' ? obj.summary : ''} ${typeof meta.outcome === 'string' ? meta.outcome : ''}`.toLowerCase();
+          return words.every(w => hay.includes(w));
+        }
+        return true;
+      });
+      const limit = args.limit ?? 25;
+      const objects = matched.slice(0, limit);
       if (objects.length === 0) {
-        return 'No records found for this type.';
+        return all.length === 0 ? 'No records found for this type.' : `No ${args.type_slug ?? ''} record matched (${all.length} of that type exist). Loosen the filter or look one up by id.`;
       }
       // Object-scoped approved memory rides the lookup result — the plan's
       // "business objects in play" layer. A client fact reaches the model
@@ -90,13 +114,20 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
           blurb: [obj.status, typeof obj.summary === 'string' ? obj.summary : ''].filter(Boolean).join(' — ').slice(0, 200),
         })),
       });
-      return JSON.stringify(rows);
+      const held = matched.length - objects.length;
+      return held > 0
+        ? JSON.stringify({ records: rows, showing: rows.length, of: matched.length, note: `${held} more matched; narrow with where, query or id to see them.` })
+        : JSON.stringify(rows);
     },
     {
       name: 'lookup_objects',
       description: 'Look up the structured business objects (follow-ups, events, deals, accounts) the agent tracks. Returns a compact, sanitized digest to SYNTHESIZE into a plain answer — never paste it back verbatim.',
       schema: z.object({
         type_slug: z.string().optional().describe(`Object type to filter by${available ? ` (available: ${available})` : ''}`),
+        id: z.number().int().positive().optional().describe('One record by its id — the fastest way to read a record you already know.'),
+        where: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Field equals value, e.g. { "requestId": 132 } for the plan of request 132, { "product": "send", "state": "triaged" }. Case-insensitive.'),
+        query: z.string().optional().describe('Words that must all appear in the title, summary or outcome.'),
+        limit: z.number().int().min(1).max(100).optional().describe('At most this many records (default 25). The reply says how many more matched.'),
       }),
     },
   );

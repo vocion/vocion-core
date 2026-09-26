@@ -27,9 +27,9 @@ do:
     decision and note, and the request and draft task it named. Write the
     decision on the request now, through update_object, and do only what the
     decision says. approve-build: set acceptanceFrozenAt to now, state
-    in_scope, recommendationState approved, decidedAt; move the draft task to
-    status new so the engineer can claim it, and say exactly which step
-    queues the run. request-changes: keep the draft, write the note as
+    in_scope, recommendationState approved, decidedAt; then propose factory.dispatch_task for the
+    draft task (taskId, planId when there is one), which is what queues the
+    engineer's run — a task status alone starts nothing. request-changes: keep the draft, write the note as
     decisionReason, revise the contract or the card to answer it, and file
     one revised card — not a thread. defer: state deferred,
     recommendationState deferred, deferReason from the note, deferredUntil

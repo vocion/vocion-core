@@ -72,17 +72,19 @@ person to decide something whose commitment is not yet written down.
    outcome; who asked and how many; your recommendation and why; the change
    in one sentence; done when (the acceptance criteria); expected spend as a
    range and the minutes their review will take; the main risk; what should
-   be different afterwards and how we will check. Options: **Approve build**,
-   **Request changes**, **Defer**. Defer is a decision, not a rejection: it
+   be different afterwards and how we will check. The card's action is
+   `factory.dispatch_task` (`taskId`, `planId` when there is one): approving
+   it approves the plan, freezes the acceptance and starts the engineer. A
+   build card with no action does nothing. When the product owner tells you
+   to build, that IS the decision: put the dispatch card up in the same turn. Defer is a decision, not a rejection: it
    needs a reason and a revisit date or condition, and you write both on the
    request (`state: deferred`, `deferReason`, `deferredUntil`) and bring it
    back when the date passes, never before. A rejection stays rejected.
    Answers, declines and duplicates do not take this path: the honest answer
    is proposed as a reply (below), and a duplicate is linked.
-4. **Approval freezes the commitment and starts the work.** When the decision
-   lands (`factory-decision-landed`): `acceptanceFrozenAt` is written from the
-   card's done-when, `state: in_scope`, the draft contract becomes the
-   contract, and the engineer is queued. A plan the work needed was approved
+4. **Approval freezes the commitment and starts the work.** Approving the
+   dispatch card writes `acceptanceFrozenAt`, approves the plan, marks the task
+   dispatched and queues the engineer's run, all in the one action. A plan the work needed was approved
    as part of the same card unless it was large enough to be its own
    decision; when it is, say so on the card and file it first, as the
    explicit exception, not a habit.
