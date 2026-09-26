@@ -39,7 +39,7 @@ import { chooseAgent, routableFromRow } from '@/services/agents/router';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
 import { preflightCheck } from '@/services/BudgetService';
-import { autoProposeRecommendationDetailed, readAutonomy } from '@/services/chat/autoPropose';
+import { autoProposeRecommendationDetailed } from '@/services/chat/autoPropose';
 import { RunCollector } from '@/services/chat/runCollector';
 import { appendMessage, createConversation, getConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
 import { projectSlugById } from '@/services/ProjectService';
@@ -259,7 +259,6 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
     await db.update(conversationSchema).set({ surface: 'mcp' }).where(eq(conversationSchema.id, conversation.id));
   }
   const conversationId = conversation.id;
-  const autonomy = readAutonomy(conversation.autonomy);
   const modelPrefs = readModelPrefs(conversation);
 
   const [timeZone, allowedSourceSlugs, projectSlug] = await Promise.all([
@@ -312,7 +311,11 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
         collector.onCard({ label: event.recommendation.label, actionId: event.recommendation.actionId, input: event.recommendation.input, runId: event.recommendation.runId });
         // Under `act-within-bounds` the web route files each card as it
         // arrives; a caller with no card to tap needs the same.
-        if (autonomy === 'act-within-bounds' && event.recommendation.runId === undefined) {
+        // Always, not only under `act-within-bounds` (red team, 2026-09-26):
+        // over MCP the PM said "the build card is up" and nothing was filed,
+        // so the caller had nothing to approve. Filing is not executing — the
+        // trust ladder still decides whether each one runs or waits.
+        if (event.recommendation.runId === undefined && event.recommendation.actionId) {
           pending.push(autoProposeRecommendationDetailed({ orgId, userId: actorId, rec: event.recommendation }).then((done) => {
             if (done !== null) {
               filed.push({ runId: done.runId, tool: 'recommend_action', outcome: null });
