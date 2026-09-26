@@ -1,6 +1,6 @@
 import type { FeatureReportInput, ReportActionRun, ReportArtifact, ReportAsk, ReportObject, ReportSectionKey, ReportWorkerRun } from './featureReport';
 import { describe, expect, it } from 'vitest';
-import { assembleFeatureReport, formatDuration, moneyLine, qaEvidenceRole, REPORT_SECTION_KEYS, runChange } from './featureReport';
+import { assembleFeatureReport, formatDuration, moneyLine, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
 
 /**
  * The feature report, assembled from fixtures.
@@ -1004,7 +1004,7 @@ describe('which work this is', () => {
 });
 
 describe('a task QA sent back', () => {
-  const sentBack = { ...task, status: 'active', meta: { ...task.meta, status: 'changes_requested', verdict: { value: 'changes', proven: 0, total: 8, note: 'One screenshot cannot show five states.' } } };
+  const sentBack = { ...task, status: 'changes_requested', meta: { ...task.meta, status: 'changes_requested', verdict: { value: 'changes', proven: 0, total: 8, note: 'One screenshot cannot show five states.' } } };
 
   it('reads as Changes asked, with the count and the sentence, and offers Build again', () => {
     const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [sentBack], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
@@ -1013,8 +1013,11 @@ describe('a task QA sent back', () => {
     expect(r.canBuild).toBe(true);
   });
 
-  it('reads the task\'s own status field, not the record\'s lifecycle column', () => {
+  it('reads the record\'s status column first, the metadata copy only under a generic lifecycle value', () => {
     const accepted = { ...task, status: 'active', meta: { ...task.meta, status: 'accepted' } };
+    const columnWins = { ...task, status: 'awaiting_review', meta: { ...task.meta, status: 'accepted' } };
+
+    expect(taskStatus(columnWins)).toBe('awaiting_review');
 
     expect(assembleFeatureReport(input({ tasks: [accepted], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] })).state.key).toBe('merge');
   });

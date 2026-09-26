@@ -347,7 +347,7 @@ async function sentBackTask(orgId: string, requestId: number): Promise<{ id: num
       eq(businessObjectSchema.orgId, orgId),
       eq(businessObjectTypeSchema.slug, 'engineering_task'),
       sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
-      sql`${businessObjectSchema.metadata}->>'status' = 'changes_requested'`,
+      eq(businessObjectSchema.status, 'changes_requested'),
     ))
     .orderBy(sql`${businessObjectSchema.id} desc`)
     .limit(1);
@@ -464,7 +464,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       if (previousTaskId) {
         const { sql } = await import('drizzle-orm');
         await db.update(businessObjectSchema)
-          .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ status: 'abandoned', supersededBy: createdTaskId })}::jsonb`, updatedAt: new Date() })
+          .set({ status: 'abandoned', metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ status: 'abandoned', supersededBy: createdTaskId })}::jsonb`, updatedAt: new Date() })
           .where(and(eq(businessObjectSchema.orgId, ctx.orgId), eq(businessObjectSchema.id, previousTaskId)));
         const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
         await recomputeRollupsForObject(ctx.orgId, previousTaskId).catch(() => undefined);

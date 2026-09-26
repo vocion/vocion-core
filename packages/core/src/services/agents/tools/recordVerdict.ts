@@ -166,9 +166,12 @@ async function writeTask(orgId: string, id: number, set: Record<string, unknown>
   const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
+  // The stage lives on the record's status COLUMN — the worker writes it and
+  // the rollups read it; writing only the metadata copy left the request's
+  // counts saying "awaiting review" under a verdict (2026-09-26).
   await db
     .update(businessObjectSchema)
-    .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify(set)}::jsonb`, updatedAt: new Date() })
+    .set({ ...(typeof set.status === 'string' ? { status: set.status } : {}), metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify(set)}::jsonb`, updatedAt: new Date() })
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
 }
 

@@ -78,13 +78,15 @@ export type ReportObject = {
 };
 
 /**
- * A task's own stage — the `status` field on the record, which is not the
- * record's lifecycle column (`active`). Reading the column meant "Ready to
- * merge" and "Awaiting QA" could never be derived from a task (2026-09-26).
+ * A task's stage. The record's own status column is the source of truth —
+ * the worker writes it, record_verdict writes it, the rollups read it
+ * (`rollups.ts` → `qualifying`). The metadata copy is read only for a record
+ * whose column still holds the generic lifecycle value.
  * @param t - The task.
  */
 export function taskStatus(t: ReportObject): string {
-  return String(t.meta.status ?? t.status ?? '');
+  const column = String(t.status ?? '');
+  return column && !['active', 'candidate', 'new'].includes(column) ? column : String(t.meta.status ?? column);
 }
 
 /** A `worker_run` row, narrowed to what the report reads. */
