@@ -280,6 +280,10 @@ schema:
         the cycle time the Performance page takes a median of; a request with
         no release has no ship date and is left out of that median rather than
         counted as instant.
+    changesRequestedTaskCount:
+      x-display: {hidden: true}
+      type: integer
+      description: ROLLED UP — tasks for this request that QA sent back with changes. Non-zero with nothing running means the next move is Build again.
     rollupsUpdatedAt:
       x-display: {label: Cost as of}
       type: string
@@ -471,6 +475,8 @@ rollups:
   # on QA, and work QA approved waiting on a merge (review, 2026-09-24).
   - {field: awaitingReviewTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [awaiting_review]}}
   - {field: acceptedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [accepted]}}
+  # QA sent an attempt back (record_verdict: changes). The row says so and offers Build again.
+  - {field: changesRequestedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [changes_requested]}}
   # Rework: the same tasks, narrowed to the ones that were thrown away. Money
   # spent and then answered rather than shipped is NOT here, on purpose.
   - {field: reworkCents, from: {type: engineering_task, by: requestId}, sum: actualCents, where: {field: status, in: [rejected, abandoned]}}

@@ -222,6 +222,10 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         independentChecks,
       };
       await writeTask(ctx.orgId, task.id, { verdict, status: TASK_STATUS_FOR[args.value] });
+      // The request's counts move with the task, or the Work row keeps saying
+      // "Awaiting QA" under a verdict (2026-09-26: rollups only reran on cost).
+      const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
+      await recomputeRollupsForObject(ctx.orgId, task.id).catch(() => undefined);
       ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value: args.value, proven, total } } as never);
       const count = `${proven} of ${total} criteria proven`;
       if (args.value !== 'approve') {

@@ -1002,3 +1002,20 @@ describe('which work this is', () => {
     expect(r.context[0]).toMatch(/^asked /);
   });
 });
+
+describe('a task QA sent back', () => {
+  const sentBack = { ...task, status: 'active', meta: { ...task.meta, status: 'changes_requested', verdict: { value: 'changes', proven: 0, total: 8, note: 'One screenshot cannot show five states.' } } };
+
+  it('reads as Changes asked, with the count and the sentence, and offers Build again', () => {
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [sentBack], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
+
+    expect(r.state).toMatchObject({ key: 'changes', label: 'Changes asked', needsYou: true, detail: 'QA proved 0 of 8: One screenshot cannot show five states.', action: { label: 'Build again' } });
+    expect(r.canBuild).toBe(true);
+  });
+
+  it('reads the task\'s own status field, not the record\'s lifecycle column', () => {
+    const accepted = { ...task, status: 'active', meta: { ...task.meta, status: 'accepted' } };
+
+    expect(assembleFeatureReport(input({ tasks: [accepted], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] })).state.key).toBe('merge');
+  });
+});

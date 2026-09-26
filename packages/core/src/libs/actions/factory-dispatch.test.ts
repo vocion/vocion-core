@@ -63,6 +63,25 @@ describe('a contract from the records alone', () => {
   const plan = { approach: 'Surface what exists.', repoSlugs: ['Acme/northwind-core'], components: ['apps/web — a button beside Upload', 'apps/web/src/components/RequestDialog.tsx (new) — the dialog', 'packages/api/src/routes/links.ts — close endpoint', 'expiry enforcement — a check on read'] };
   const repo = { title: 'Acme/northwind-core', checks: [{ name: 'typecheck' }, { name: 'test' }], riskDefaults: { 'apps/web/**': 'ui', 'packages/api/**': 'logic' } };
 
+  it('carries the last attempt\'s verdict into the objective: what QA could not prove is this attempt\'s brief', () => {
+    const previous = { id: 157, meta: { prUrl: 'https://github.com/Acme/northwind-core/pull/50', verdict: { note: 'No screenshot of the dialog.', criteria: [
+      { criterion: 'A button sits beside Upload.', status: 'proven', evidence: 'shot 1' },
+      { criterion: 'The dialog names the file types.', status: 'unproven', evidence: 'no screenshot of the open dialog' },
+      { criterion: 'Closing a request stops uploads.', status: 'unchecked' },
+    ] } } };
+    const c = deriveContract({ given: {}, request, plan, repo, previous });
+
+    expect(c.previousTaskId).toBe(157);
+    expect(String(c.objective).split('\n')).toEqual([
+      'Send a link to upload a file to you. Surface what exists.',
+      '',
+      'The last attempt (task #157, https://github.com/Acme/northwind-core/pull/50) was sent back by QA: No screenshot of the dialog.',
+      'Prove each of these with evidence a reviewer can open (a named test, a screenshot of that exact state):',
+      '- The dialog names the file types. (QA: no screenshot of the open dialog)',
+      '- Closing a request stops uploads.',
+    ]);
+  });
+
   it('fills every field the worker needs from the request, the plan and the repo', () => {
     const c = deriveContract({ given: {}, request, plan, repo });
 

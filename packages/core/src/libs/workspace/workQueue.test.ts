@@ -59,6 +59,12 @@ describe('lanes', () => {
     expect(workLine(qa, 'progress', NOW)).toBe('Engineering finished. Awaiting QA; no action needed from you.');
     expect(stageOf(qa)).toBe('qa');
     expect(stateOf(merge, 'progress')).toBe('Ready to merge');
+
+    // QA sent it back: the reader's move, not "no action needed" (2026-09-26).
+    const changes = row(26, 'Find a document', { state: 'building', taskCount: 9, runningTaskCount: 0, changesRequestedTaskCount: 1 });
+
+    expect(stateOf(changes, 'progress')).toBe('Changes asked');
+    expect(workLine(changes, 'progress', NOW)).toBe('QA sent it back with what would settle each criterion. Build again carries it.');
     expect(workLine(merge, 'progress', NOW)).toBe('QA approved. The merge is waiting on a person.');
     expect(isBlocked(moving)).toBe(false);
     expect(stateOf(moving, 'progress')).toBe('Building');

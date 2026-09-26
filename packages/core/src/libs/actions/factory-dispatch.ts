@@ -241,8 +241,9 @@ export function riskFromPaths(paths: string[], defaults: Record<string, string>)
  * @param input.request
  * @param input.plan
  * @param input.repo
+ * @param input.previous
  */
-export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null }): Meta {
+export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null }): Meta {
   const g = input.given;
   const r = input.request ?? {};
   const p = input.plan ?? {};
@@ -274,7 +275,17 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     ? givenRisk
     : riskFromPaths(paths, (repo.riskDefaults ?? {}) as Record<string, string>) ?? 'logic';
   const repoSlug = str(g, 'repoSlug') ?? (Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null) ?? str(repo, 'title');
-  const objective = str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ');
+  // THE LAST ATTEMPT'S VERDICT IS THIS ATTEMPT'S BRIEF. QA sent #157 back
+  // with "0 of 8 proven" and a line per criterion saying what would settle it
+  // (2026-09-26); a rebuild that starts from the request alone repeats the
+  // same gap. The unproven lines ride the objective, where the worker reads.
+  const prev = input.previous ?? null;
+  const prevVerdict = (prev?.meta.verdict ?? null) as { note?: string; criteria?: Array<{ criterion?: string; status?: string; evidence?: string }> } | null;
+  const owed = (prevVerdict?.criteria ?? []).filter(c => c.status !== 'proven' && c.criterion);
+  const carried = prev && prevVerdict
+    ? `\n\nThe last attempt (task #${prev.id}${str(prev.meta, 'prUrl') ? `, ${str(prev.meta, 'prUrl')}` : ''}) was sent back by QA: ${prevVerdict.note ?? 'changes asked'}${owed.length > 0 ? `\nProve each of these with evidence a reviewer can open (a named test, a screenshot of that exact state):\n${owed.map(c => `- ${c.criterion}${c.evidence ? ` (QA: ${c.evidence})` : ''}`).join('\n')}` : ''}`
+    : '';
+  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + carried;
   // A ui change is refused without a QA flow (the worker screenshots it
   // before and after). The request says where it lives; that page is the flow.
   const visuals = (r.visuals ?? {}) as Meta;
@@ -294,6 +305,7 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     ...(environment ? { environment } : {}),
     title: str(g, 'title') ?? (typeof r.title === 'string' ? r.title : null),
     objective: objective || null,
+    ...(prev ? { previousTaskId: prev.id } : {}),
     acceptanceContract: acceptance,
     allowedPaths: paths,
     requiredChecks: checks,
@@ -318,6 +330,30 @@ async function readRepo(orgId: string, slug: string | null): Promise<Meta | null
   return rows[0] ? { ...(rows[0].meta as Meta), title: rows[0].title } : null;
 }
 
+/**
+ * The newest attempt at this request that QA sent back, if any.
+ * @param orgId - The workspace.
+ * @param requestId - The request.
+ */
+async function sentBackTask(orgId: string, requestId: number): Promise<{ id: number; meta: Meta } | null> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const [row] = await db
+    .select({ id: businessObjectSchema.id, meta: businessObjectSchema.metadata })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(
+      eq(businessObjectSchema.orgId, orgId),
+      eq(businessObjectTypeSchema.slug, 'engineering_task'),
+      sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
+      sql`${businessObjectSchema.metadata}->>'status' = 'changes_requested'`,
+    ))
+    .orderBy(sql`${businessObjectSchema.id} desc`)
+    .limit(1);
+  return row ? { id: row.id, meta: (row.meta ?? {}) as Meta } : null;
+}
+
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
   const stored = input.taskId ? await readRecord(ctx.orgId, input.taskId) : null;
   const plan = input.planId ? await readRecord(ctx.orgId, input.planId) : null;
@@ -327,7 +363,8 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
   if (!stored && request) {
     const planRepo = plan && Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') : null;
     const repo = await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo);
-    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo });
+    const previous = await sentBackTask(ctx.orgId, request.id);
+    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous });
     task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
   }
   return { task, plan, request };
@@ -421,6 +458,17 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       await db.update(businessObjectSchema)
         .set({ externalSystem: 'factory', externalId: `task:${workerTaskId}`, status: 'dispatched' })
         .where(and(eq(businessObjectSchema.orgId, ctx.orgId), eq(businessObjectSchema.id, createdTaskId)));
+      // The attempt QA sent back is superseded by this one, not still open:
+      // abandoned is what the rework rollup counts, which is what it was.
+      const previousTaskId = typeof task.meta.previousTaskId === 'number' ? task.meta.previousTaskId : null;
+      if (previousTaskId) {
+        const { sql } = await import('drizzle-orm');
+        await db.update(businessObjectSchema)
+          .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ status: 'abandoned', supersededBy: createdTaskId })}::jsonb`, updatedAt: new Date() })
+          .where(and(eq(businessObjectSchema.orgId, ctx.orgId), eq(businessObjectSchema.id, previousTaskId)));
+        const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
+        await recomputeRollupsForObject(ctx.orgId, previousTaskId).catch(() => undefined);
+      }
     }
     const gaps = contractGaps(task.meta);
     if (gaps.length > 0) {

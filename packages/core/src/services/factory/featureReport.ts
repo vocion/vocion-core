@@ -77,6 +77,16 @@ export type ReportObject = {
   meta: Record<string, unknown>;
 };
 
+/**
+ * A task's own stage — the `status` field on the record, which is not the
+ * record's lifecycle column (`active`). Reading the column meant "Ready to
+ * merge" and "Awaiting QA" could never be derived from a task (2026-09-26).
+ * @param t - The task.
+ */
+export function taskStatus(t: ReportObject): string {
+  return String(t.meta.status ?? t.status ?? '');
+}
+
 /** A `worker_run` row, narrowed to what the report reads. */
 export type ReportWorkerRun = {
   id: number;
@@ -1703,7 +1713,7 @@ function findContradictions(input: FeatureReportInput, mergedPrs: Set<string>, l
  * them, and a stored one eventually does.
  */
 export type ReportState = {
-  key: 'blocked' | 'decide' | 'approve' | 'building' | 'qa' | 'merge' | 'released' | 'waiting';
+  key: 'blocked' | 'decide' | 'approve' | 'building' | 'qa' | 'changes' | 'merge' | 'released' | 'waiting';
   /** "Blocked", "Building" — the badge. */
   label: string;
   /** "waiting on you", "no action needed" — the half that says whose move it is. */
@@ -1807,11 +1817,19 @@ function buildState(input: FeatureReportInput): ReportState {
   if (running.length > 0) {
     return { key: 'building', label: 'Building', detail: 'no action needed from you', needsYou: false, question: null, action: { label: 'View progress', href: '#report-runs' }, decision: null };
   }
-  const accepted = input.tasks.filter(t => t.status === 'accepted');
+  const accepted = input.tasks.filter(t => taskStatus(t) === 'accepted');
   if (accepted.length > 0) {
     return { key: 'merge', label: 'Ready to merge', detail: 'QA approved; the merge is waiting on a person', needsYou: true, question: null, action: { label: 'Review the merge', href: '#report-qa' }, decision: null };
   }
-  const awaitingReview = input.tasks.filter(t => t.status === 'awaiting_review');
+  // QA SENT IT BACK (record_verdict: changes). The verdict is the reader's
+  // next move, not "no action needed": its count, its sentence, Build again.
+  const sentBack = [...input.tasks].filter(t => taskStatus(t) === 'changes_requested').sort((a, b) => b.id - a.id)[0];
+  if (sentBack && !input.tasks.some(t => taskStatus(t) === 'awaiting_review')) {
+    const v = (sentBack.meta.verdict ?? {}) as { proven?: number; total?: number; note?: string };
+    const count = typeof v.proven === 'number' && typeof v.total === 'number' ? `QA proved ${v.proven} of ${v.total}` : 'QA sent it back';
+    return { key: 'changes', label: 'Changes asked', detail: v.note ? `${count}: ${v.note}` : count, needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
+  }
+  const awaitingReview = input.tasks.filter(t => taskStatus(t) === 'awaiting_review');
   if (awaitingReview.length > 0) {
     const last = input.workerRuns.map(r => r.completedAt ?? r.createdAt).filter((d): d is Date => d instanceof Date).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
     return { key: 'qa', label: 'Awaiting QA', detail: last ? `engineering finished ${formatStamp(last)}; no action needed from you` : 'engineering finished; no action needed from you', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
@@ -2007,7 +2025,7 @@ function buildPhase(input: FeatureReportInput): ReportPhase {
   if (input.releases.length > 0) {
     return 'released';
   }
-  if (input.tasks.some(t => t.status === 'accepted' || t.status === 'awaiting_review') || input.artifacts.some(a => a.recordRole?.startsWith('qa-') === true)) {
+  if (input.tasks.some(t => taskStatus(t) === 'accepted' || taskStatus(t) === 'awaiting_review') || input.artifacts.some(a => a.recordRole?.startsWith('qa-') === true)) {
     return 'qa';
   }
   if (input.workerRuns.length > 0 || input.tasks.some(t => t.status === 'dispatched' || t.status === 'claimed' || t.status === 'running') || str(input.request.meta, 'state') === 'building') {
@@ -2254,7 +2272,9 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   return {
     requestId: input.request.id,
     canBuild: !['shipped', 'answered', 'deferred', 'out_of_scope'].includes(String(input.request.meta.state ?? ''))
-      && !input.tasks.some(t => [String(t.meta.status ?? ''), String((t as { status?: string }).status ?? '')].some(st => ['dispatched', 'running', 'awaiting_review', 'changes_requested', 'accepted'].includes(st))),
+      // A task QA sent back (changes_requested) does not hold the build: the
+      // next attempt is exactly what it asked for.
+      && !input.tasks.some(t => [String(t.meta.status ?? ''), String((t as { status?: string }).status ?? '')].some(st => ['dispatched', 'running', 'awaiting_review', 'accepted'].includes(st))),
     planId: [...input.plans].filter(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && !p.meta.supersededBy).sort((a, b) => b.id - a.id)[0]?.id ?? null,
     // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's
     // words and is evidence (`naming-the-work`), so it is never rewritten —
