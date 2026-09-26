@@ -24,6 +24,26 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { MERGE_RISK_CLASSES } from '@/libs/actions/factory';
 
+/**
+ * A list the model may have sent as JSON text, read as the list; anything
+ * else is an empty list for the rules to refuse.
+ * @param v - The raw value.
+ */
+export function parseJsonArray(v: unknown): unknown[] {
+  if (Array.isArray(v)) {
+    return v;
+  }
+  if (typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v) as unknown;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export const VERDICT_VALUES = ['approve', 'changes', 'reject'] as const;
 export const CRITERION_STATUSES = ['proven', 'unproven', 'unchecked'] as const;
 
@@ -107,9 +127,13 @@ async function writeTask(orgId: string, id: number, set: Record<string, unknown>
 export function recordVerdictTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
-      const args = raw as { pr_url: string; value: typeof VERDICT_VALUES[number]; criteria: VerdictCriterion[]; findings?: VerdictFinding[]; note: string; independent_checks?: string[] };
-      const criteria = Array.isArray(args.criteria) ? args.criteria : [];
-      const findings = Array.isArray(args.findings) ? args.findings : [];
+      const args = raw as { pr_url: string; value: typeof VERDICT_VALUES[number]; criteria: unknown; findings?: unknown; note: string; independent_checks?: unknown };
+      // THE SHAPE THE MODEL SENDS, accepted (as update_object learned, backlog
+      // 006): on the first live verdict (fire 7051) the lists arrived as JSON
+      // text. Text that parses to a list IS the list; the rules then judge it.
+      const criteria = parseJsonArray(args.criteria) as VerdictCriterion[];
+      const findings = parseJsonArray(args.findings) as VerdictFinding[];
+      const independentChecks = (parseJsonArray(args.independent_checks) as unknown[]).filter((c): c is string => typeof c === 'string');
       const { proven, total, refusal } = judgeVerdict(args.value, criteria, findings);
       if (refusal) {
         return refusal;
@@ -139,7 +163,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         total,
         criteria,
         findings,
-        independentChecks: args.independent_checks ?? [],
+        independentChecks,
       };
       await writeTask(ctx.orgId, task.id, { verdict, status: TASK_STATUS_FOR[args.value] });
       ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value: args.value, proven, total } } as never);
@@ -188,20 +212,22 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       schema: z.object({
         pr_url: z.string().url().describe('The pull request, e.g. https://github.com/acme/app/pull/12.'),
         value: z.enum(VERDICT_VALUES).describe('approve only when every criterion is proven and nothing blocks; changes when something specific would make it right; reject when the contract itself was wrong.'),
-        criteria: z.array(z.object({
+        // PLAIN TYPES ONLY (no transforms — they cannot be sent as JSON Schema,
+        // #731); a list sent as text is parsed in the handler.
+        criteria: z.union([z.array(z.object({
           criterion: z.string().min(1).describe('The acceptance criterion, as written on the contract.'),
           status: z.enum(CRITERION_STATUSES),
           evidence: z.string().optional().describe('The link, check or screenshot that settles it. Required for proven.'),
-        })).min(1).describe('Every acceptance criterion, in contract order.'),
-        findings: z.array(z.object({
+        })), z.string()]).describe('Every acceptance criterion, in contract order, as a list.'),
+        findings: z.union([z.array(z.object({
           against: z.enum(['criterion', 'path', 'check']),
           ref: z.string().min(1),
           severity: z.enum(['block', 'fix', 'note']),
           what: z.string().min(1),
           closeBy: z.string().optional(),
-        })).optional().describe('Findings keyed to the contract. block keeps the merge from being proposed.'),
+        })), z.string()]).optional().describe('Findings keyed to the contract, as a list. block keeps the merge from being proposed.'),
         note: z.string().min(1).max(400).describe('One sentence for the person who merges: what they accept and the one risk to know.'),
-        independent_checks: z.array(z.string()).optional().describe('Checks that ran on trusted CI or that you reproduced, not the worker\'s report.'),
+        independent_checks: z.union([z.array(z.string()), z.string()]).optional().describe('Checks that ran on trusted CI or that you reproduced, not the worker\'s report.'),
       }),
     },
   );

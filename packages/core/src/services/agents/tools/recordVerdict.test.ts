@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judgeVerdict, mergeSummary } from './recordVerdict';
+import { judgeVerdict, mergeSummary, parseJsonArray } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -43,5 +43,15 @@ describe('mergeSummary', () => {
       '- Proven: A search box narrows the list (https://example.com/shot.png)',
       '- Unchecked: URL keeps state',
     ]);
+  });
+});
+
+describe('parseJsonArray', () => {
+  it('reads a list sent as JSON text, and refuses what is not a list', () => {
+    expect(parseJsonArray('[{"criterion":"a","status":"unproven"}]')).toEqual([{ criterion: 'a', status: 'unproven' }]);
+    expect(parseJsonArray([1])).toEqual([1]);
+    expect(parseJsonArray('{"a":1}')).toEqual([]);
+    expect(parseJsonArray('not json')).toEqual([]);
+    expect(parseJsonArray(undefined)).toEqual([]);
   });
 });

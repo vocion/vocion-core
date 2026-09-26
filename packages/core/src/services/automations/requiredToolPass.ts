@@ -95,7 +95,9 @@ export async function forceRequiredTool(opts: {
     if (!call) {
       return { called: false, answer: answer || 'the model returned no tool call' };
     }
-    answer = String(await tool.invoke(call.args));
+    // A call that misses the tool's own schema is a refusal too: it names what
+    // to fix, and the second try gets to fix it (fire 7051).
+    answer = await tool.invoke(call.args).then(String, (err: Error) => `Not recorded: the call did not match the tool's schema. ${err.message}`);
     if (!answer.startsWith('Not recorded')) {
       return { called: true, answer };
     }
