@@ -282,7 +282,11 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   try {
     qaPath = str(visuals, 'surfaceUrl') ? new URL(str(visuals, 'surfaceUrl')!).pathname || '/' : '/';
   } catch { /* not a URL: the home page */ }
-  const qa = g.qa ?? (risk === 'ui' ? { surface: str(repo, 'qaSurface') ?? 'app', flows: [{ name: typeof r.title === 'string' ? r.title : 'the change', path: qaPath, sign_in: true }] } : undefined);
+  // A change a person can SEE is screenshotted whatever its risk class: #131
+  // (library search) is `logic` because it touches the API, and shipped with no
+  // QA flow and so no picture to prove it (2026-09-26).
+  const visible = risk === 'ui' || ['ui', 'flow'].includes(String(r.surface ?? ''));
+  const qa = g.qa ?? (visible ? { surface: str(repo, 'qaSurface') ?? 'app', flows: [{ name: typeof r.title === 'string' ? r.title : 'the change', path: qaPath, sign_in: true }] } : undefined);
   const environment = g.environment ?? (repo.environment && typeof repo.environment === 'object' ? repo.environment : undefined);
   return {
     ...g,
