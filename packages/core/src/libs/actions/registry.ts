@@ -10,6 +10,7 @@ import { askFileAction } from './ask-file';
 import { askWithdrawAction } from './ask-withdraw';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
+import { factoryDispatchAction } from './factory-dispatch';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
@@ -51,6 +52,8 @@ registerAction(objectProposeCandidateAction);
 // record's write history is these runs.
 registerAction(objectsUpdateMetaAction);
 registerAction(objectsRenameAction);
+// Start the build: approve the plan, queue the engineer on the task contract.
+registerAction(factoryDispatchAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.

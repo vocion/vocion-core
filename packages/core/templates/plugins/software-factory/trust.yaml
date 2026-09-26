@@ -10,6 +10,14 @@
 # reaches a real person, so a person releases it. Provisioning, anything on a
 # cloud account and a credential are the floor.
 rules:
+  # Starting a build spends money on a model and hands a repository to a
+  # worker: the product owner's tap on the card, every time. Undo cancels it
+  # until a worker claims it.
+  - action: factory.dispatch_task
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
   - action: git.push_branch
     autoApproveAbove: 0.7
     enabled: true

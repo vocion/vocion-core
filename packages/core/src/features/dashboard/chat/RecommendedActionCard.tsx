@@ -404,7 +404,11 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
                 )}
               </>
             )
-          : deferredUntil
+          : deferredUntil || !rec.actionId
+            // A card that names no action has nothing to approve (red team,
+            // 2026-09-26: "Approve build" whose Approve answered "This
+            // recommendation named no action"). It reads as a note; no button
+            // that can only fail.
             ? null
             : (
                 <>

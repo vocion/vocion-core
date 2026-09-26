@@ -294,7 +294,7 @@ describe('loadWorkspace with the software factory', () => {
     // The trust ladder covers the eight actions core registers and nothing
     // else. A push runs on its own; a merge is a person's at the high bar;
     // every other rule ships disabled for the workspace to turn on.
-    expect(ws.trust?.rules.map(r => r.action)).toEqual(['git.push_branch', 'git.merge', 'notify.requester', 'notify.requester.completion', 'notify.requester.sensitive', 'release.announce', 'deploy.release', 'deploy.provision', 'aws.mutate', 'credentials.write']);
+    expect(ws.trust?.rules.map(r => r.action)).toEqual(['factory.dispatch_task', 'git.push_branch', 'git.merge', 'notify.requester', 'notify.requester.completion', 'notify.requester.sensitive', 'release.announce', 'deploy.release', 'deploy.provision', 'aws.mutate', 'credentials.write']);
     // A routine completion may earn its way; a decline or an incident is a person's every time.
     expect(ws.trust?.rules.find(r => r.action === 'notify.requester.completion')).toMatchObject({ enabled: false, risk: 'medium', autoApproveAbove: 0.9 });
     expect(ws.trust?.rules.find(r => r.action === 'notify.requester.sensitive')).toMatchObject({ enabled: false, risk: 'high', autoApproveAbove: 1 });
@@ -306,7 +306,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.4.0');
+    expect(ws.sha).toContain('+software-factory@2.5.0');
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {
@@ -393,7 +393,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(pm?.resolvedSystemPrompt).toContain('asked → decided → planned → building → QA → released');
     // A ui or flow request owes a mockup before it is decided; the PM hands it to the designer.
     expect(pm?.resolvedSystemPrompt).toContain('Prepare the commitment BEFORE you ask anyone to approve it');
-    expect(pm?.resolvedSystemPrompt).toContain('Approve build**,\n   **Request changes**, **Defer**');
+    expect(pm?.resolvedSystemPrompt).toContain('The card\'s action is\n   `factory.dispatch_task`');
     expect(pm?.resolvedSystemPrompt).toContain('Blocked is only what you write');
     // The runs, not the task list, answer "what have you built" (2026-09-20).
     expect(pm?.resolvedSystemPrompt).toContain('list_recent_runs');
