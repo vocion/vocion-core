@@ -127,19 +127,3 @@ export function reachLabel(reaches: readonly string[], sharedCount: number): { a
   }
   return { all: false, chips: [...reaches] };
 }
-
-/**
- * Chips that fit on one line, with the rest folded into a count.
- *
- * Deliberately a fixed number rather than a measurement: this is a cell inside
- * a row, not the toolbar's filter row, and nothing here is interactive, so
- * there is nothing that must stay visible. `ChipRow` is for the filters.
- * @param items - The labels, in display order.
- * @param max - How many to show before the count.
- */
-export function fitToLine(items: readonly string[], max: number): { shown: string[]; more: number } {
-  if (items.length <= max) {
-    return { shown: [...items], more: 0 };
-  }
-  return { shown: items.slice(0, max), more: items.length - max };
-}

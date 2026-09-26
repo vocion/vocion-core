@@ -69,6 +69,7 @@ const ROW = 'group flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2.
  * @param props.align - Numbers right, text left. Default right.
  * @param props.mono
  * @param props.always - Keep the column on phones.
+ * @param props.grow - Take the leftover width instead of `kind`'s fixed one.
  * @param props.children
  * @param props.className
  */
@@ -77,6 +78,22 @@ export function Column(props: {
   align?: 'left' | 'right';
   mono?: boolean;
   always?: boolean;
+  /**
+   * Take the row's leftover width rather than `kind`'s fixed one, and shrink
+   * below the content rather than pushing it off the end.
+   *
+   * For the ONE column on a row that holds a variable-length set — the
+   * workspaces a person reaches, the workspaces a group opens — where the
+   * content decides how wide it wants to be and the row has to say no. A
+   * fixed width either wastes space or clips a label mid-word; `shrink-0`
+   * (the default, and right for a date or a score) meant the overflow ran off
+   * the row instead of folding into a count. `kind` still sets the column's
+   * MINIMUM, so the order down the list is unchanged.
+   *
+   * One per row. Two growing columns share the leftover and neither is the
+   * width its content asked for.
+   */
+  grow?: boolean;
   children: ReactNode;
   className?: string;
 }) {
@@ -84,8 +101,8 @@ export function Column(props: {
     <span
       data-column={props.kind}
       className={cn(
-        'shrink-0 truncate text-[13px] text-muted-foreground tabular-nums',
-        COLUMN[props.kind],
+        'truncate text-[13px] text-muted-foreground tabular-nums',
+        props.grow ? 'min-w-0 flex-1' : cn('shrink-0', COLUMN[props.kind]),
         props.align === 'left' ? 'text-left' : 'text-right',
         props.mono && 'font-mono text-[12px]',
         !props.always && 'hidden sm:inline-block',

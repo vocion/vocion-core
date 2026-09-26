@@ -47,8 +47,8 @@ export function GroupsTab(props: {
           subline={<Subline separator="·" segments={[g.description ?? g.slug, g.managedFrom === 'yaml' && 'seeded']} />}
           columns={(
             <>
-              <Column kind="score" align="left" className="w-auto min-w-0 flex-1 basis-0">
-                <Chips items={g.opens} max={2} empty="opens nothing" />
+              <Column kind="score" align="left" grow>
+                <Chips items={g.opens} empty="opens nothing" />
               </Column>
               <Column kind="number">{g.members.length}</Column>
             </>

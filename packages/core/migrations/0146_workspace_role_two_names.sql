@@ -16,10 +16,15 @@
 -- The columns stay `text`, so per-workspace admin remains possible later
 -- without a schema change.
 --
--- `api_token.role` carries the same vocabulary with no CHECK behind it, and
--- casts to `WorkspaceRole` in ApiTokenService. Left as 'owner' it would resolve
--- to no grant bundle at all and every live token would silently authorize
--- nothing, so it maps here too.
+-- The CHECKs come off FIRST. They still name the four old values while the
+-- rows hold them, so an UPDATE that writes 'admin' under the old constraint is
+-- refused before it has changed anything. An empty table hides this: the
+-- statement matches no rows and passes, which is why it took a database with
+-- real rows in it to find.
+ALTER TABLE "project_member" DROP CONSTRAINT IF EXISTS "project_member_role_ck";
+--> statement-breakpoint
+ALTER TABLE "group_project_grant" DROP CONSTRAINT IF EXISTS "group_project_grant_role_ck";
+--> statement-breakpoint
 UPDATE "project_member"
    SET "role" = CASE WHEN "role" = 'owner' THEN 'admin' ELSE 'member' END
  WHERE "role" IN ('owner', 'pm', 'specialist', 'client_reviewer');
@@ -28,16 +33,16 @@ UPDATE "group_project_grant"
    SET "role" = CASE WHEN "role" = 'owner' THEN 'admin' ELSE 'member' END
  WHERE "role" IN ('owner', 'pm', 'specialist', 'client_reviewer');
 --> statement-breakpoint
+-- `api_token.role` carries the same vocabulary with no CHECK behind it, and
+-- casts to `WorkspaceRole` in ApiTokenService. Left as 'owner' it would resolve
+-- to no grant bundle at all and every live token would silently authorize
+-- nothing, so it maps here too.
 UPDATE "api_token"
    SET "role" = CASE WHEN "role" = 'owner' THEN 'admin' ELSE 'member' END
  WHERE "role" IN ('owner', 'pm', 'specialist', 'client_reviewer');
 --> statement-breakpoint
-ALTER TABLE "project_member" DROP CONSTRAINT IF EXISTS "project_member_role_ck";
---> statement-breakpoint
 ALTER TABLE "project_member"
   ADD CONSTRAINT "project_member_role_ck" CHECK ("role" IN ('admin', 'member'));
---> statement-breakpoint
-ALTER TABLE "group_project_grant" DROP CONSTRAINT IF EXISTS "group_project_grant_role_ck";
 --> statement-breakpoint
 ALTER TABLE "group_project_grant"
   ADD CONSTRAINT "group_project_grant_role_ck" CHECK ("role" IN ('admin', 'member'));

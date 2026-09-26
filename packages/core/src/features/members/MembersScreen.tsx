@@ -19,7 +19,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { client } from '@/libs/Orpc';
 import { filterPeople, grantableWorkspaces, groupMatches, groupRows, peopleRows } from './access';
-import { EnforcementStrip } from './EnforcementStrip';
 import { GroupSheet } from './GroupSheet';
 import { GroupsTab } from './GroupsTab';
 import { InviteDialog } from './InviteDialog';
@@ -42,6 +41,14 @@ import { PeopleTab } from './PeopleTab';
  *
  * Reads are the two this screen already had: `groups.overview` for access and
  * `members.list` for the account role and the joining date. No endpoint is new.
+ *
+ * There is no "not in force" caveat on this screen. Access IS enforced on this
+ * deployment (`VOCION_ENFORCE_WORKSPACE_ACCESS=1`, set in
+ * `infra/aws/compose.revops.yml`), so what the page shows is what applies, and
+ * a banner saying otherwise would be the lie rather than the guard against one.
+ * `accessOverview` still reports `enforced` — that is a true fact about the
+ * deployment and other callers may want it — this screen simply has nothing to
+ * say about it.
  */
 
 const LANES = [
@@ -160,7 +167,6 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
           )
         : undefined}
     >
-      {!overview.enforced && <EnforcementStrip />}
       {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
       <ListToolbar

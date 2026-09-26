@@ -8,7 +8,7 @@
 import type { AccessOverview } from '@/services/GroupService';
 import type { TeamMember } from '@/services/MembersService';
 import { describe, expect, it } from 'vitest';
-import { filterPeople, fitToLine, grantableWorkspaces, groupMatches, groupRows, peopleRows, personMatches, reachLabel } from './access';
+import { filterPeople, grantableWorkspaces, groupMatches, groupRows, peopleRows, personMatches, reachLabel } from './access';
 
 const WORKSPACES = [
   { id: 'p-rev', slug: 'revenue', name: 'Revenue Team', kind: 'shared' },
@@ -109,16 +109,6 @@ describe('reachLabel', () => {
 
   it('says nothing about a person who reaches nothing', () => {
     expect(reachLabel([], 2)).toEqual({ all: false, chips: [] });
-  });
-});
-
-describe('fitToLine', () => {
-  it('shows everything that fits', () => {
-    expect(fitToLine(['a', 'b'], 4)).toEqual({ shown: ['a', 'b'], more: 0 });
-  });
-
-  it('truncates the rest to a count, so the row stays one line', () => {
-    expect(fitToLine(['a', 'b', 'c', 'd', 'e'], 2)).toEqual({ shown: ['a', 'b'], more: 3 });
   });
 });
 

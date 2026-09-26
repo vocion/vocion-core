@@ -98,10 +98,14 @@ export function PeopleTab(props: {
                     : <Badge variant={p.accountRole === 'admin' ? 'default' : 'secondary'}>{p.accountRole}</Badge>}
                 </Column>
                 <Column kind="chip" align="left" className="max-w-40">
-                  <Chips items={p.groups} max={2} empty="no group" />
+                  <Chips items={p.groups} empty="no group" />
                 </Column>
-                <Column kind="score" align="left" className="w-auto min-w-0 flex-1 basis-0">
-                  <Chips items={reach.chips} max={reach.all ? 1 : 4} empty="nothing" />
+                {/* The one column that survives a phone besides the role.
+                    "Who reaches what" is what this lane is for, and `Chips`
+                    folds to a count when the width will not take names, so a
+                    narrow row says "+5" rather than saying nothing. */}
+                <Column kind="score" align="left" grow always>
+                  <Chips items={reach.chips} empty="nothing" />
                 </Column>
                 <Column kind="date">{joined(p.joinedAt)}</Column>
               </>
