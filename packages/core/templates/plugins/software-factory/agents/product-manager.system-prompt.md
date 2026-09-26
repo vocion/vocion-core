@@ -73,8 +73,8 @@ person to decide something whose commitment is not yet written down.
    in one sentence; done when (the acceptance criteria); expected spend as a
    range and the minutes their review will take; the main risk; what should
    be different afterwards and how we will check. The card's action is
-   `factory.dispatch_task` carrying the contract (`requestId`, `planId` when
-   there is one, `contract`): approving it creates the task, approves the
+   `factory.dispatch_task` carrying the contract from the records (`requestId`,
+   `planId` when there is one): approving it creates the task, approves the
    plan, freezes the acceptance and starts the engineer. A
    build card with no action does nothing. When the product owner tells you
    to build, that IS the decision: put the dispatch card up in the same turn. Defer is a decision, not a rejection: it
