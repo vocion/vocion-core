@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, factoryDispatchAction } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, pathsFromComponents, riskFromPaths } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -50,7 +50,42 @@ describe('the input a card carries', () => {
 
     expect(factoryDispatchAction.inputSchema.safeParse({ taskId: 90 }).success).toBe(true);
     expect(factoryDispatchAction.inputSchema.safeParse({ requestId: 132, contract }).success).toBe(true);
+    expect(factoryDispatchAction.inputSchema.safeParse({ requestId: 132, planId: 134 }).success).toBe(true);
+    expect(factoryDispatchAction.inputSchema.safeParse({ requestId: 132, contract: { allowedPaths: 'apps/web/src/**, packages/api/src/**' } }).success).toBe(true);
     expect(factoryDispatchAction.inputSchema.safeParse({ contract }).success).toBe(false);
     expect(factoryDispatchAction.inputSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('a contract from the records alone', () => {
+  const request = { title: 'Request a file', outcome: 'Send a link to upload a file to you.', acceptance: [{ statement: 'A button sits beside Upload.' }] };
+  const plan = { approach: 'Surface what exists.', repoSlugs: ['Acme/northwind-core'], components: ['apps/web — a button beside Upload', 'apps/web/src/components/RequestDialog.tsx (new) — the dialog', 'packages/api/src/routes/links.ts — close endpoint', 'expiry enforcement — a check on read'] };
+  const repo = { title: 'Acme/northwind-core', checks: [{ name: 'typecheck' }, { name: 'test' }], riskDefaults: { 'apps/web/**': 'ui', 'packages/api/**': 'logic' } };
+
+  it('fills every field the worker needs from the request, the plan and the repo', () => {
+    const c = deriveContract({ given: {}, request, plan, repo });
+
+    expect(c).toMatchObject({
+      title: 'Request a file',
+      objective: 'Send a link to upload a file to you. Surface what exists.',
+      acceptanceContract: ['A button sits beside Upload.'],
+      allowedPaths: ['apps/web/**', 'apps/web/src/components/RequestDialog.tsx', 'packages/api/src/routes/links.ts'],
+      requiredChecks: ['typecheck', 'test'],
+      riskClass: 'logic',
+      repoSlug: 'Acme/northwind-core',
+    });
+    expect(contractGaps(c)).toEqual([]);
+  });
+
+  it('keeps what the card carried, and ignores a risk class the worker would refuse', () => {
+    const c = deriveContract({ given: { allowedPaths: ['apps/web/src/**'], riskClass: 'standard' }, request, plan, repo });
+
+    expect(c.allowedPaths).toEqual(['apps/web/src/**']);
+    expect(c.riskClass).toBe('ui');
+  });
+
+  it('reads paths and risk the way a person wrote them', () => {
+    expect(pathsFromComponents(['not a path — prose'])).toEqual([]);
+    expect(riskFromPaths(['docs/x.md'], { 'apps/**': 'ui' })).toBeNull();
   });
 });

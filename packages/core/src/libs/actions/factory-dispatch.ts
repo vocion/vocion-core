@@ -28,19 +28,20 @@ export const DISPATCH_ACTION_ID = 'factory.dispatch_task';
  * approval creates the task and starts it in one move, so there is no second
  * step to narrate and skip.
  */
+const listish = z.union([z.array(z.string()), z.string()]).transform(v => (Array.isArray(v) ? v : v.split(/[,\n]/)).map(x => x.trim()).filter(Boolean));
 const inlineContract = z.object({
-  title: z.string().min(1).max(200),
-  objective: z.string().min(1),
-  acceptanceContract: z.array(z.string().min(1)).min(1),
-  allowedPaths: z.array(z.string().min(1)).min(1),
-  requiredChecks: z.array(z.string().min(1)).min(1),
-  riskClass: z.string().min(1),
-  repoSlug: z.string().min(1),
+  title: z.string().optional(),
+  objective: z.string().optional(),
+  acceptanceContract: listish.optional(),
+  allowedPaths: listish.optional(),
+  requiredChecks: listish.optional(),
+  riskClass: z.string().optional(),
+  repoSlug: z.string().optional(),
   baseSha: z.string().optional(),
   taskId: z.string().optional().describe('A readable id for the worker, e.g. send-0012.'),
-  tokenBudget: z.number().positive().optional(),
-  wallClockBudget: z.number().positive().optional(),
-});
+  tokenBudget: z.coerce.number().positive().optional(),
+  wallClockBudget: z.coerce.number().positive().optional(),
+}).partial();
 
 const dispatchInput = z.object({
   /** The engineering_task record whose contract the worker runs — or omit it and carry `contract`. */
@@ -53,7 +54,7 @@ const dispatchInput = z.object({
   planId: z.coerce.number().int().positive().optional(),
   /** Why now, in a sentence a person can check. */
   reason: z.string().min(1).max(500).optional().default('Approved to build.'),
-}).refine(v => v.taskId !== undefined || (v.contract !== undefined && v.requestId !== undefined), { message: 'Name the engineering task (taskId), or carry the contract with the requestId it answers.' });
+}).refine(v => v.taskId !== undefined || v.requestId !== undefined, { message: 'Name the engineering task (taskId), or the request (requestId) — the contract is filled from the request, its plan and the repo.' });
 
 type Meta = Record<string, unknown>;
 type Rec = { id: number; title: string; typeId: number; meta: Meta };
@@ -198,13 +199,101 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
   return out;
 }
 
+const WORKER_RISK = ['schema', 'billing', 'auth', 'logic', 'ui', 'deps', 'marketing', 'docs'] as const;
+
+/**
+ * A plan component's leading path: "apps/send-web — …" → apps/send-web/**, a file stays a file.
+ * @param components
+ */
+export function pathsFromComponents(components: string[]): string[] {
+  const out = new Set<string>();
+  for (const c of components) {
+    const head = c.split(/\s+[\u2014-]\s+|\s\(/)[0]?.trim() ?? '';
+    if (!/^[\w.@-]+\/[\w./@*-]+$/.test(head)) {
+      continue;
+    }
+    out.add(/\.[a-z0-9]+$/i.test(head) || head.endsWith('*') ? head : `${head.replace(/\/$/, '')}/**`);
+  }
+  return [...out];
+}
+
+/**
+ * The riskiest class the repo's defaults assign to any of the paths.
+ * @param paths
+ * @param defaults
+ */
+export function riskFromPaths(paths: string[], defaults: Record<string, string>): string | null {
+  const hits = paths.flatMap(p => Object.entries(defaults).filter(([glob]) => p.startsWith(glob.replace(/\*+$/, '').replace(/\/$/, ''))).map(([, risk]) => risk));
+  return WORKER_RISK.find(r => hits.includes(r)) ?? null;
+}
+
+/**
+ * THE CONTRACT FROM THE RECORDS. A card needs only the request (and its plan):
+ * the objective and acceptance come from the request, the repo and paths from
+ * the plan, the checks and the risk from the repo record. Whatever the card
+ * did carry wins. Pure, so it is tested without a database.
+ * @param input
+ * @param input.given
+ * @param input.request
+ * @param input.plan
+ * @param input.repo
+ */
+export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null }): Meta {
+  const g = input.given;
+  const r = input.request ?? {};
+  const p = input.plan ?? {};
+  const repo = input.repo ?? {};
+  const acceptance = list(g, 'acceptanceContract').length > 0 ? list(g, 'acceptanceContract') : list(r, 'acceptance');
+  const paths = list(g, 'allowedPaths').length > 0 ? list(g, 'allowedPaths') : pathsFromComponents(list(p, 'components'));
+  const checks = list(g, 'requiredChecks').length > 0
+    ? list(g, 'requiredChecks')
+    : (Array.isArray(repo.checks) ? (repo.checks as Array<{ name?: string }>).map(c => c.name ?? '').filter(Boolean) : []);
+  const givenRisk = str(g, 'riskClass');
+  const risk = givenRisk && (WORKER_RISK as readonly string[]).includes(givenRisk)
+    ? givenRisk
+    : riskFromPaths(paths, (repo.riskDefaults ?? {}) as Record<string, string>) ?? 'logic';
+  const repoSlug = str(g, 'repoSlug') ?? (Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null) ?? str(repo, 'title');
+  const objective = str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ');
+  return {
+    ...g,
+    title: str(g, 'title') ?? (typeof r.title === 'string' ? r.title : null),
+    objective: objective || null,
+    acceptanceContract: acceptance,
+    allowedPaths: paths,
+    requiredChecks: checks,
+    riskClass: risk,
+    repoSlug,
+  };
+}
+
+async function readRepo(orgId: string, slug: string | null): Promise<Meta | null> {
+  if (!slug) {
+    return null;
+  }
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const rows = await db
+    .select({ title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, 'repo'), eq(businessObjectSchema.title, slug)))
+    .limit(1);
+  return rows[0] ? { ...(rows[0].meta as Meta), title: rows[0].title } : null;
+}
+
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
   const stored = input.taskId ? await readRecord(ctx.orgId, input.taskId) : null;
-  // An inline contract reads as the task it will become.
-  const task = stored ?? (input.contract ? { id: 0, title: input.contract.title, typeId: 0, typeSlug: 'engineering_task', meta: { ...input.contract, requestId: input.requestId } as Meta } : null);
   const plan = input.planId ? await readRecord(ctx.orgId, input.planId) : null;
-  const requestId = task ? Number(task.meta.requestId ?? input.requestId) : Number.NaN;
+  const requestId = stored ? Number(stored.meta.requestId) : Number(input.requestId);
   const request = Number.isFinite(requestId) ? await readRecord(ctx.orgId, requestId) : null;
+  let task = stored;
+  if (!stored && request) {
+    const planRepo = plan && Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') : null;
+    const repo = await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo);
+    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo });
+    task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
+  }
   return { task, plan, request };
 }
 
@@ -225,7 +314,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     if (!task || task.typeSlug !== 'engineering_task') {
       return `No engineering task #${input.taskId} in this workspace. Carry the contract on this action (contract + requestId) or name a task that exists.`;
     }
-    if (input.contract && input.requestId) {
+    if (!input.taskId && input.requestId) {
       const req = await readRecord(ctx.orgId, input.requestId);
       if (!req || req.typeSlug !== 'request') {
         return `No request #${input.requestId} in this workspace.`;
@@ -278,10 +367,10 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       throw new Error(`No engineering task #${input.taskId}.`);
     }
     let createdTaskId: number | null = null;
-    if (!input.taskId && input.contract) {
+    if (!input.taskId) {
       const { createBusinessObject } = await import('@/services/BusinessObjectService');
-      const { title, ...rest } = input.contract;
-      const created = await createBusinessObject({ typeSlug: 'engineering_task', title, status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready' } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
+      const { title, ...rest } = task.meta as Meta & { title?: string };
+      const created = await createBusinessObject({ typeSlug: 'engineering_task', title: String(title ?? task.title), status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready' } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
       createdTaskId = (created as { id: number }).id;
       task = { ...task, id: createdTaskId };
     }
