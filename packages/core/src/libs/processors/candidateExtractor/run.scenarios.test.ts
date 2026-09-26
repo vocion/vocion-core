@@ -372,3 +372,40 @@ describe('a document read again with its venue worded differently', () => {
     expect((await cards()).events).toHaveLength(1);
   });
 });
+
+describe('an event page and a listing that both name the event', () => {
+  const EVENT_PAGE = 'https://listings.example.org/riverton/open-mic-night';
+  const TICKETS = 'https://tickets.example.org/open-mic-night';
+  const eventPage = {
+    externalId: EVENT_PAGE,
+    uri: EVENT_PAGE,
+    title: 'Open Mic Night',
+    content: 'Open Mic Night at The Ember Room, Riverton. Thursday, 8pm. Free. Tickets at the link below.',
+    metadata: { links: [{ url: EVENT_PAGE, text: 'Open Mic Night' }, { url: TICKETS, text: 'Tickets' }] },
+  };
+
+  beforeEach(resetOrg);
+
+  it('keeps the ticket link and source the event page wrote when the listing refreshes the card', async () => {
+    invoke.mockResolvedValueOnce(answer([eventRecord({
+      sourceUrl: EVENT_PAGE,
+      fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'The Ember Room', venueCity: 'Riverton', ticketUrl: TICKETS },
+    })]));
+    await run({ ...context(), document: eventPage, outcome: { status: 'created' as const, documentId: 910, chunks: 1, contentHash: 'event-page' } });
+
+    invoke.mockResolvedValueOnce(answer([eventRecord()]));
+    const listing = await run(context());
+
+    expect(listing.counts).toMatchObject({ refreshed: 1 });
+
+    const { events } = await cards();
+
+    expect(events).toHaveLength(1);
+
+    const input = events[0]!.input as { fields: Record<string, unknown>; sourceUrl?: string; rawExtractRef?: string };
+
+    expect(input.fields.ticketUrl).toBe(TICKETS);
+    expect(input.sourceUrl).toBe(EVENT_PAGE);
+    expect(input.rawExtractRef).toBe('knowledge_document:910');
+  });
+});

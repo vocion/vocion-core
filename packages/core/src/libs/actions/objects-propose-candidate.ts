@@ -40,6 +40,7 @@
 import type { ValidateFunction } from 'ajv';
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
+import { isEmptyValue } from '@/libs/workspace/pageFields';
 
 /** The registered id, and the prefix every dedup key carries. */
 const CANDIDATE_ACTION_ID = 'objects.propose_candidate';
@@ -248,6 +249,114 @@ function emptyIdentityFields(input: CandidateInput): string[] {
     }
   }
   return empty;
+}
+
+/** How a pipeline proposal names the document it was read from. */
+const PIPELINE_REF_PREFIX = 'knowledge_document:';
+
+/**
+ * A page address as a comparison key: parsed, without its fragment or a
+ * trailing slash. Null for anything that is not a URL.
+ * @param url - A stored or proposed URL.
+ */
+function pageKey(url: unknown): string | null {
+  if (typeof url !== 'string' || url.trim() === '') {
+    return null;
+  }
+  try {
+    const parsed = new URL(url.trim());
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether this payload was read from the record's own page: the page the
+ * record links to is the page it was found on.
+ * @param input - A candidate payload.
+ * @param input.sourceUrl - The record's own page.
+ * @param input.sourceListingUrl - The page it was read from.
+ */
+function readFromItsOwnPage(input: { sourceUrl?: unknown; sourceListingUrl?: unknown }): boolean {
+  const own = pageKey(input.sourceUrl);
+  return own !== null && own === pageKey(input.sourceListingUrl);
+}
+
+/**
+ * Whether a source sync proposed this payload, rather than an agent, a chat
+ * or the API.
+ * @param input - A candidate payload.
+ * @param input.rawExtractRef - The stored extract it was parsed from.
+ */
+function fromPipeline(input: { rawExtractRef?: unknown }): boolean {
+  return typeof input.rawExtractRef === 'string' && input.rawExtractRef.startsWith(PIPELINE_REF_PREFIX);
+}
+
+/**
+ * The fields a proposal declares as labels the pipeline wrote, not read.
+ * @param proposal - A proposal in stored shape.
+ */
+function labelledFields(proposal: Record<string, unknown> | null): Set<string> {
+  const labels = proposal?.labels;
+  return new Set(Array.isArray(labels) ? labels.filter((name): name is string => typeof name === 'string') : []);
+}
+
+/**
+ * What an open card stores when the pipeline proposes it again.
+ *
+ * A listing names an event in a line; its own page says the rest. When a
+ * listing re-reads a card its own page wrote, the card keeps what that page
+ * said and only gains what it lacked. Everything else replaces the card, as
+ * before: its own page re-reading it, an agent or a person correcting it, a
+ * card whose identity rests on a blank field (another record may share its
+ * key), and a card no page of its own ever wrote.
+ * @param previous - The open card's stored input and proposal.
+ * @param previous.input - Its stored input.
+ * @param previous.proposal - Its stored proposal.
+ * @param next - The new proposal.
+ * @param next.input - The parsed input.
+ * @param next.proposal - The proposal in stored shape.
+ */
+function refreshCandidate(
+  previous: { input: Record<string, unknown>; proposal: Record<string, unknown> | null },
+  next: { input: CandidateInput; proposal: Record<string, unknown> | null },
+): { input: Record<string, unknown>; proposal: Record<string, unknown> | null } {
+  const stored = previous.input as Partial<CandidateInput>;
+  const incoming = next.input;
+  const storedFields = (stored.fields ?? {}) as Record<string, unknown>;
+  const keep = fromPipeline(stored)
+    && fromPipeline(incoming)
+    && readFromItsOwnPage(stored)
+    && !readFromItsOwnPage(incoming)
+    && emptyIdentityFields(incoming).length === 0
+    && emptyIdentityFields({ ...incoming, fields: storedFields }).length === 0;
+  if (!keep) {
+    return next;
+  }
+  const labelled = labelledFields(next.proposal);
+  const fields = { ...storedFields };
+  for (const [name, value] of Object.entries(incoming.fields)) {
+    if (isEmptyValue(fields[name]) && !isEmptyValue(value) && !labelled.has(name)) {
+      fields[name] = value;
+    }
+  }
+  const storedUnlessBlank = (name: 'summary' | 'imageUrl' | 'extractionNotes'): unknown =>
+    isEmptyValue(stored[name]) ? incoming[name] : stored[name];
+  return {
+    input: {
+      ...incoming,
+      title: stored.title ?? incoming.title,
+      sourceUrl: stored.sourceUrl,
+      sourceListingUrl: stored.sourceListingUrl,
+      rawExtractRef: stored.rawExtractRef,
+      summary: storedUnlessBlank('summary'),
+      imageUrl: storedUnlessBlank('imageUrl'),
+      extractionNotes: storedUnlessBlank('extractionNotes'),
+      fields,
+    },
+    proposal: previous.proposal,
+  };
 }
 
 /**
@@ -753,6 +862,8 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   async onProposed(ctx, input, runId) {
     await upsertCandidateObject(ctx, input, runId);
   },
+
+  refresh: refreshCandidate,
 
   // Built from the object type and the payload — core supplies the frame, the
   // workspace supplies the words. Confidence and the queue lane are the card
