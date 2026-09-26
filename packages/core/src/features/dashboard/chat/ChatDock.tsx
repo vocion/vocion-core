@@ -51,6 +51,10 @@ import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 
+function isPhoneViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+}
+
 export type ChatDockProps = {
   /** Agents available to pick from — server-loaded, same list every chat surface uses. Empty array renders nothing. */
   agents: AgentOption[];
@@ -427,8 +431,11 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // One-time read of client-only values (localStorage, viewport) on mount; it
   // cannot happen during render because it would mismatch the server render.
   useEffect(() => {
+    // ON A PHONE THE CHAT IS A SHEET OVER THE PAGE, so it never reopens on its
+    // own (2026-09-26: a feature page opened under a half-screen chat that
+    // hid its title and pictures, because the rail was left open last time).
     // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
-    setCollapsed(readCollapsed(startCollapsed));
+    setCollapsed(isPhoneViewport() ? true : readCollapsed(startCollapsed));
     const stored = readStoredRailWidth();
     // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
     setWidth(clampRailWidth(stored ?? defaultRailWidth(window.innerWidth), window.innerWidth));
@@ -453,7 +460,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     } catch {
       /* storage unavailable */
     }
-    if (storedCollapse === null && typeof railState.railOpen === 'boolean') {
+    if (storedCollapse === null && typeof railState.railOpen === 'boolean' && !isPhoneViewport()) {
       // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
       setCollapsed(!railState.railOpen);
     }
