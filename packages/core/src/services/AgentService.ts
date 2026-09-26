@@ -1188,6 +1188,25 @@ export async function runAgentDeep(opts: {
           } as typeof input);
         }
       }
+      // AN ANSWER CUT OFF MID-SENTENCE is not an answer (mission run 5364,
+      // 2026-09-26: the QA verdict ended at "Head read at `"). Once, the
+      // turn re-enters with where it stopped and finishes from there.
+      {
+        const { cutOffMidSentence } = await import('./agents/truncation');
+        const shown = normalizeAnswerHtml(finalText).trim();
+        if (cutOffMidSentence(shown) && !NARRATED_TOOL.test(shown)) {
+          console.warn('agent turn: the answer stopped mid-sentence; finishing it', { orgId: opts.orgId, agentSlug: opts.agentSlug, tail: shown.slice(-80) });
+          emit({ type: 'status', label: 'Finishing the answer' });
+          await runGraph({
+            ...input,
+            messages: [
+              ...input.messages,
+              { role: 'assistant', content: shown },
+              { role: 'user', content: withResults(`Your answer stopped mid-sentence at "${shown.slice(-120)}". Continue exactly from where it stopped and finish it. Do not repeat what you already wrote and do not read again what you already read.`) },
+            ],
+          } as typeof input);
+        }
+      }
       // A CALL WRITTEN OUT AFTER THE CONTINUATION. The one continuation can
       // be spent on a preamble ("I'll start by reading the request"), and the
       // pass it buys then does the reads and WRITES the write as a heading
