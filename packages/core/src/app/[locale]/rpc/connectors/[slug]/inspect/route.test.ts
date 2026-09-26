@@ -38,7 +38,7 @@ const admin = {
   accountId: null,
   projectId: 'org_1',
   role: 'admin' as const,
-  workspaceRole: 'owner' as const,
+  workspaceRole: 'admin' as const,
   has: () => true,
 };
 

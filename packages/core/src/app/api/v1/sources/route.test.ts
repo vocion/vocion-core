@@ -45,7 +45,7 @@ function tokenPrincipal(orgId: string, grants: string[] = ['*']) {
   return {
     orgId,
     tokenId: 't1',
-    principal: { kind: 'user' as const, id: 'token:t1', role: grants.includes('*') ? 'owner' as const : 'specialist' as const, scope: { orgId }, grants },
+    principal: { kind: 'user' as const, id: 'token:t1', role: grants.includes('*') ? 'admin' as const : undefined, scope: { orgId }, grants },
   };
 }
 
@@ -195,7 +195,7 @@ describe('GET /api/v1/sources', () => {
 
   it('accepts a dashboard session with no bearer token', async () => {
     mockBearer.mockResolvedValue(null);
-    mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', workspaceRole: 'owner' as const, has: () => true } as never);
+    mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', workspaceRole: 'admin' as const, has: () => true } as never);
 
     const res = await GET(new Request('https://vocion.test/api/v1/sources'));
 

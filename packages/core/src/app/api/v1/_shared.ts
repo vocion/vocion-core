@@ -1,5 +1,4 @@
 import type { NextResponse as NextResponseType } from 'next/server';
-import type { WorkspaceRole } from '@/services/authz';
 import type { ApiCaller } from '@/services/writeApi';
 import { NextResponse } from 'next/server';
 import { clerkAuth } from '@/libs/Auth';
@@ -20,24 +19,6 @@ import { WriteApiError } from '@/services/writeApi';
  * Both resolve to the same {@link ApiCaller}, so a handler never has to care
  * which one it got, and the authorization check below runs identically for both.
  */
-
-/**
- * A dashboard membership role is coarser than a workspace role. Admins get the
- * unrestricted `owner` bundle; ordinary members get `pm`, which is also
- * unrestricted — that matches how the dashboard behaved before these endpoints
- * were authorized at all, so no browser flow loses access.
- *
- * This is now the FALLBACK, not the answer. The session carries the role the
- * caller holds in the active workspace (`session.user.workspaceRole`), so a
- * `specialist` or a `client_reviewer` finally reaches `authz.ts` as itself
- * rather than being widened to `'*'` on the way in. This map still applies
- * where there is no such role: a session issued before the field existed, and
- * every request while `VOCION_ENFORCE_WORKSPACE_ACCESS` is off.
- */
-const MEMBERSHIP_ROLE_TO_WORKSPACE_ROLE: Record<'admin' | 'member', WorkspaceRole> = {
-  admin: 'owner',
-  member: 'pm',
-};
 
 /**
  * Authenticate an API request as a tenant token or a dashboard session.
@@ -73,10 +54,10 @@ export async function authApi(req?: Request): Promise<ApiCaller | NextResponseTy
       kind: 'user',
       id: userId,
       // The role held in THIS workspace, resolved per request by
-      // `resolveTenancyForUser`. The account-role map below is the fallback for
-      // a session issued before that field existed, and for the unenforced
-      // path, where it is what the session carries anyway.
-      role: workspaceRole ?? MEMBERSHIP_ROLE_TO_WORKSPACE_ROLE[role ?? 'member'],
+      // `resolveTenancyForUser`. The account role is the fallback for a session
+      // issued before that field existed; the two vocabularies are the same
+      // two names now, so there is no mapping left to apply.
+      role: workspaceRole ?? role ?? 'member',
       scope: { orgId },
     },
     source: 'session',

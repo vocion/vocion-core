@@ -55,11 +55,11 @@ const tsvector = customType<{ data: string; driverData: string }>({
 /**
  * The role a person holds IN ONE WORKSPACE. Mirrors `WorkspaceRole` in
  * `services/authz.ts`, which owns the grant model these map to; the DDL pins
- * the same four with a CHECK. Declared here rather than imported so the schema
+ * the same two with a CHECK. Declared here rather than imported so the schema
  * stays free of service imports — `workspaceAccessRole.test.ts` fails if the
  * two ever drift.
  */
-type WorkspaceAccessRole = 'owner' | 'pm' | 'specialist' | 'client_reviewer';
+type WorkspaceAccessRole = 'admin' | 'member';
 
 /** A person. Drizzle adapter shape for auth.js v5. */
 export const userSchema = pgTable('user', {

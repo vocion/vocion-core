@@ -21,7 +21,7 @@ import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
-const RoleZ = z.enum(['owner', 'pm', 'specialist', 'client_reviewer']);
+const RoleZ = z.enum(['admin', 'member']);
 
 async function guardRead() {
   const ctx = await guardAuth();

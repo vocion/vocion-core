@@ -60,8 +60,8 @@ async function seed() {
   ]);
   await db.insert(userGroupSchema).values({ id: 'grp-revenue', accountId: ACCOUNT, slug: 'revenue-team', name: 'Revenue Team' });
   await db.insert(userGroupMemberSchema).values({ groupId: 'grp-revenue', userId: ALEX });
-  await db.insert(groupProjectGrantSchema).values({ groupId: 'grp-revenue', projectId: REVENUE, role: 'specialist' });
-  await db.insert(projectMemberSchema).values({ projectId: DELIVERY, userId: BRIT, role: 'pm' });
+  await db.insert(groupProjectGrantSchema).values({ groupId: 'grp-revenue', projectId: REVENUE, role: 'admin' });
+  await db.insert(projectMemberSchema).values({ projectId: DELIVERY, userId: BRIT, role: 'member' });
 }
 
 describe('tenancy resolution', () => {
@@ -91,7 +91,7 @@ describe('tenancy resolution', () => {
 
       expect(t.projectId).toBe(DELIVERY);
       // The account role still stands in, exactly as before.
-      expect(t.workspaceRole).toBe('pm');
+      expect(t.workspaceRole).toBe('member');
     });
   });
 
@@ -142,10 +142,11 @@ describe('tenancy resolution', () => {
 
       const t = await resolveTenancyForUser(ALEX);
 
-      // Alex is an account `member`, which used to mean `pm` everywhere. The
-      // group grants `specialist`, and that is what authz.ts must now receive.
+      // Alex is an account `member`, which unenforced means `member`
+      // everywhere. The group grants `admin` on this one workspace, and that is
+      // what authz.ts must now receive.
       expect(t.role).toBe('member');
-      expect(t.workspaceRole).toBe('specialist');
+      expect(t.workspaceRole).toBe('admin');
     });
 
     it('lets the owner of a personal workspace into it', async () => {
@@ -154,7 +155,7 @@ describe('tenancy resolution', () => {
       const t = await resolveTenancyForUser(BRIT);
 
       expect(t.projectId).toBe(BRIT_PERSONAL);
-      expect(t.workspaceRole).toBe('owner');
+      expect(t.workspaceRole).toBe('admin');
     });
 
     it('gives a person who holds nothing a null project rather than an arbitrary one', async () => {

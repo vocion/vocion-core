@@ -56,10 +56,12 @@ describe('authorize — discovery', () => {
     expect(authorize(agent, { kind: 'document', scope: { orgId: ORG, clientId: 'b' } }, 'discover').allowed).toBe(false);
   });
 
-  it('owner spans all clients', () => {
-    const owner: Principal = { kind: 'user', id: 'u1', role: 'owner', scope: { orgId: ORG } };
+  it('a person with a workspace role spans all clients', () => {
+    const admin: Principal = { kind: 'user', id: 'u1', role: 'admin', scope: { orgId: ORG } };
+    const member: Principal = { kind: 'user', id: 'u2', role: 'member', scope: { orgId: ORG } };
 
-    expect(authorize(owner, { kind: 'document', scope: { orgId: ORG, clientId: 'b' } }, 'discover').allowed).toBe(true);
+    expect(authorize(admin, { kind: 'document', scope: { orgId: ORG, clientId: 'b' } }, 'discover').allowed).toBe(true);
+    expect(authorize(member, { kind: 'document', scope: { orgId: ORG, clientId: 'b' } }, 'discover').allowed).toBe(true);
   });
 });
 
@@ -81,8 +83,18 @@ describe('authorize — mutation', () => {
   });
 
   it('humans with the grant act directly (no gate)', () => {
-    const owner: Principal = { kind: 'user', id: 'u1', role: 'owner', scope: { orgId: ORG } };
-    const d = authorize(owner, { kind: 'action', action: 'send_email', external: true }, 'mutate');
+    const admin: Principal = { kind: 'user', id: 'u1', role: 'admin', scope: { orgId: ORG } };
+    const d = authorize(admin, { kind: 'action', action: 'send_email', external: true }, 'mutate');
+
+    expect(d).toEqual({ allowed: true, gate: 'none', reason: 'human-grant' });
+  });
+
+  // Decision Q4, 25 Sep 2026: collapsing four role names to two is a rename,
+  // not a policy change. `member` was `pm`, `pm` was `['*']`, and approving an
+  // agent-proposed action is the grant that actually gates something today.
+  it('a member may approve', () => {
+    const member: Principal = { kind: 'user', id: 'u2', role: 'member', scope: { orgId: ORG } };
+    const d = authorize(member, { kind: 'action', action: 'approve' }, 'mutate');
 
     expect(d).toEqual({ allowed: true, gate: 'none', reason: 'human-grant' });
   });

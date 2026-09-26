@@ -76,7 +76,7 @@ describe('group management', () => {
 
   it('creates a group, grants a workspace, and adds a member', async () => {
     const g = await newGroup();
-    await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'pm', actorId: ALEX });
+    await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'member', actorId: ALEX });
     await setGroupMember({ accountId: ACCOUNT, groupId: g.id, userId: ALEX, member: true, actorId: ALEX });
 
     const view = await accessOverview(ACCOUNT);
@@ -84,23 +84,23 @@ describe('group management', () => {
 
     expect(view.groups[0]!.grants.map(x => x.slug)).toEqual(['revenue']);
     expect(alex.groups).toEqual(['revops']);
-    expect(alex.reaches.map(r => `${r.slug}:${r.role}:${r.via}`)).toEqual(['revenue:pm:group']);
+    expect(alex.reaches.map(r => `${r.slug}:${r.role}:${r.via}`)).toEqual(['revenue:member:group']);
   });
 
   it('changes a role in place rather than adding a second grant', async () => {
     const g = await newGroup();
-    await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'pm', actorId: ALEX });
-    await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'specialist', actorId: ALEX });
+    await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'member', actorId: ALEX });
+    await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'admin', actorId: ALEX });
 
     const view = await accessOverview(ACCOUNT);
 
     expect(view.groups[0]!.grants).toHaveLength(1);
-    expect(view.groups[0]!.grants[0]!.role).toBe('specialist');
+    expect(view.groups[0]!.grants[0]!.role).toBe('admin');
   });
 
   it('revokes a grant when the role is cleared', async () => {
     const g = await newGroup();
-    await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'pm', actorId: ALEX });
+    await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'member', actorId: ALEX });
     await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: null, actorId: ALEX });
 
     expect((await accessOverview(ACCOUNT)).groups[0]!.grants).toEqual([]);
@@ -111,7 +111,7 @@ describe('group management', () => {
       const g = await newGroup();
 
       await expect(
-        setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: BRIT_PERSONAL, role: 'pm', actorId: ALEX }),
+        setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: BRIT_PERSONAL, role: 'member', actorId: ALEX }),
       ).rejects.toThrow(/personal workspace cannot be granted/);
     });
 
@@ -119,7 +119,7 @@ describe('group management', () => {
       const g = await newGroup();
 
       await expect(
-        setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: 'proj-foreign', role: 'pm', actorId: ALEX }),
+        setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: 'proj-foreign', role: 'member', actorId: ALEX }),
       ).rejects.toThrow(/no such workspace/);
     });
 
@@ -127,7 +127,7 @@ describe('group management', () => {
       const g = await newGroup();
 
       await expect(
-        setGroupGrant({ accountId: OTHER, groupId: g.id, projectId: REVENUE, role: 'pm', actorId: ALEX }),
+        setGroupGrant({ accountId: OTHER, groupId: g.id, projectId: REVENUE, role: 'member', actorId: ALEX }),
       ).rejects.toThrow(/no such group/);
       await expect(deleteGroup(OTHER, g.id)).rejects.toThrow(/no such group/);
     });
@@ -152,7 +152,7 @@ describe('group management', () => {
     it('shows why someone reaches a workspace no group opens', async () => {
       // What migration 0145 leaves behind, and the usual reason access looks
       // wrong on this screen.
-      await db.insert(projectMemberSchema).values({ projectId: DELIVERY, userId: ALEX, role: 'pm', addedBy: BACKFILL_ACTOR });
+      await db.insert(projectMemberSchema).values({ projectId: DELIVERY, userId: ALEX, role: 'member', addedBy: BACKFILL_ACTOR });
 
       const alex = (await accessOverview(ACCOUNT)).people.find(p => p.userId === ALEX)!;
 
@@ -160,7 +160,7 @@ describe('group management', () => {
     });
 
     it('removes one, so the fix does not need SQL', async () => {
-      await db.insert(projectMemberSchema).values({ projectId: DELIVERY, userId: ALEX, role: 'pm', addedBy: BACKFILL_ACTOR });
+      await db.insert(projectMemberSchema).values({ projectId: DELIVERY, userId: ALEX, role: 'member', addedBy: BACKFILL_ACTOR });
 
       await removeDirectGrant({ accountId: ACCOUNT, projectId: DELIVERY, userId: ALEX });
 
@@ -171,7 +171,7 @@ describe('group management', () => {
   describe('deleting a group', () => {
     it('takes its grants and memberships, and nobody\'s account place', async () => {
       const g = await newGroup();
-      await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'pm', actorId: ALEX });
+      await setGroupGrant({ accountId: ACCOUNT, groupId: g.id, projectId: REVENUE, role: 'member', actorId: ALEX });
       await setGroupMember({ accountId: ACCOUNT, groupId: g.id, userId: ALEX, member: true, actorId: ALEX });
 
       await deleteGroup(ACCOUNT, g.id);

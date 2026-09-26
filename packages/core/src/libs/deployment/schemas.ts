@@ -24,18 +24,26 @@
 import { z } from 'zod';
 
 /** Matches `WorkspaceRole` in `services/authz.ts`, which turns it into grants. */
-export const SeedRoleSchema = z.enum(['owner', 'pm', 'specialist', 'client_reviewer']);
+export const SeedRoleSchema = z.enum(['admin', 'member']);
 
 const SlugSchema = z.string().trim().min(1).max(64).regex(
   /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
   'a slug is lower-case words joined by single hyphens',
 );
 
-/** One workspace a group opens, and the role its members hold there. */
+/**
+ * One workspace a group opens. A grant is binary — the group opens the
+ * workspace or it does not — so a seed names the workspace and nothing else.
+ * What a person may do once inside is their account role, which this applier
+ * deliberately never changes.
+ *
+ * `role` is still accepted so a file that spells the default out loud parses,
+ * but there is nothing else it can say.
+ */
 export const GroupGrantSchema = z.object({
   /** The `project.slug` of the workspace, e.g. `revenue`. */
   workspace: SlugSchema,
-  role: SeedRoleSchema,
+  role: SeedRoleSchema.default('member'),
 }).strict();
 
 export const GroupSchema = z.object({

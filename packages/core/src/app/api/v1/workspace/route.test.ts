@@ -28,8 +28,15 @@ const mockSession = vi.mocked(clerkAuth);
 const ORG = 'proj_workspace_route';
 const ACCT = 'acct_workspace_route';
 
-function identity(role: 'owner' | 'pm' | 'specialist' | 'client_reviewer', grants: string[] = []) {
-  return { orgId: ORG, tokenId: 't1', principal: { kind: 'user' as const, id: 'token:t1', role, scope: { orgId: ORG }, grants } };
+/**
+ * A token caller. Both workspace roles carry `['*']`, so the caller a
+ * capability check can refuse is one with NO role, holding only the grants it
+ * was issued — which is what a scoped API token is.
+ * @param role - The workspace role, or null for grants-only.
+ * @param grants - The token's explicit grants.
+ */
+function identity(role: 'admin' | 'member' | null, grants: string[] = []) {
+  return { orgId: ORG, tokenId: 't1', principal: { kind: 'user' as const, id: 'token:t1', role: role ?? undefined, scope: { orgId: ORG }, grants } };
 }
 
 function request(path: string, body?: unknown): Request {
@@ -78,7 +85,7 @@ describe('GET /api/v1/workspace', () => {
   });
 
   it('reads null while the workspace is running, and names what a pause would refuse and allow', async () => {
-    mockBearer.mockResolvedValue(identity('specialist') as never);
+    mockBearer.mockResolvedValue(identity(null) as never);
 
     const res = await read(request(''));
 
@@ -92,7 +99,7 @@ describe('GET /api/v1/workspace', () => {
   });
 
   it('reads the hold once the switch is pulled', async () => {
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
     await pause(request('/pause', { note: 'holding the factory' }));
 
     const body = await (await read(request(''))).json();
@@ -109,15 +116,15 @@ describe('POST /api/v1/workspace/pause', () => {
     expect((await pause(request('/pause', { note: 'x' }))).status).toBe(401);
   });
 
-  it('refuses a token below owner/pm, and leaves the workspace running', async () => {
-    mockBearer.mockResolvedValue(identity('specialist') as never);
+  it('refuses a token holding no such grant, and leaves the workspace running', async () => {
+    mockBearer.mockResolvedValue(identity(null) as never);
 
     expect((await pause(request('/pause', { note: 'x' }))).status).toBe(403);
     expect((await project()).pausedAt).toBeNull();
   });
 
   it('requires a note — the banner has to say something to everyone else', async () => {
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
 
     const res = await pause(request('/pause', {}));
 
@@ -127,7 +134,7 @@ describe('POST /api/v1/workspace/pause', () => {
   });
 
   it('pauses on the record, naming the token', async () => {
-    mockBearer.mockResolvedValue(identity('pm') as never);
+    mockBearer.mockResolvedValue(identity('member') as never);
 
     const res = await pause(request('/pause', { note: 'runaway debriefs, incident 2026-09-21' }));
 
@@ -144,7 +151,7 @@ describe('POST /api/v1/workspace/pause', () => {
   });
 
   it('answers 409 on a workspace that is already paused, so a second operator learns the first got there', async () => {
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
     await pause(request('/pause', { note: 'first' }));
 
     const again = await pause(request('/pause', { note: 'second' }));
@@ -158,7 +165,7 @@ describe('POST /api/v1/workspace/pause', () => {
 
 describe('POST /api/v1/workspace/resume', () => {
   it('lifts the hold and says whose it was', async () => {
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
     await pause(request('/pause', { note: 'holding for the release' }));
 
     const res = await resume(bodiless('/resume'));
@@ -172,12 +179,12 @@ describe('POST /api/v1/workspace/resume', () => {
     expect((await project()).pausedAt).toBeNull();
   });
 
-  it('refuses a token below owner/pm, and 409s a resume on a running workspace', async () => {
-    mockBearer.mockResolvedValue(identity('client_reviewer') as never);
+  it('refuses a token holding no such grant, and 409s a resume on a running workspace', async () => {
+    mockBearer.mockResolvedValue(identity(null) as never);
 
     expect((await resume(bodiless('/resume'))).status).toBe(403);
 
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
     const conflict = await resume(bodiless('/resume'));
 
     expect(conflict.status).toBe(409);

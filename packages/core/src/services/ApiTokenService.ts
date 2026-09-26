@@ -112,7 +112,7 @@ export async function issueToken(input: {
     nonce,
     authTag,
     keyHint: keyHint(token),
-    role: input.role ?? 'owner',
+    role: input.role ?? 'admin',
     grants: input.grants ?? [],
     createdBy: input.createdBy ?? null,
     expiresAt: input.expiresAt ?? null,

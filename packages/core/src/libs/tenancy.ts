@@ -116,10 +116,8 @@ export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
   }
 
   // UNENFORCED: unchanged. Every member of the account reaches every project,
-  // and the workspace role stands in from the account role — the same mapping
-  // `app/api/v1/_shared.ts` has always applied, stated here once so both
-  // surfaces agree while the flag is off.
-  const standInRole: WorkspaceRole = accountRole === 'admin' ? 'owner' : 'pm';
+  // and the workspace role IS the account role. There is no longer a mapping to
+  // state: a workspace role and an account role are the same two names.
 
   if (requestedId) {
     const [chosen] = await db
@@ -128,7 +126,7 @@ export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
       .where(and(eq(projectSchema.id, requestedId), eq(projectSchema.accountId, membership.accountId)))
       .limit(1);
     if (chosen) {
-      return { accountId: membership.accountId, projectId: chosen.id, role: accountRole, workspaceRole: standInRole };
+      return { accountId: membership.accountId, projectId: chosen.id, role: accountRole, workspaceRole: accountRole };
     }
   }
 
@@ -148,6 +146,6 @@ export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
     accountId: membership.accountId,
     projectId: proj?.id ?? null,
     role: accountRole,
-    workspaceRole: proj ? standInRole : null,
+    workspaceRole: proj ? accountRole : null,
   };
 }

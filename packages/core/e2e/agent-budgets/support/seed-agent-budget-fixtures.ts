@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   await setLimits({ orgId, agentSlug: 'capped', softCentsLimit: 200, hardCentsLimit: 200 });
   await chargeUsage({ orgId, agentSlug: 'capped', model: MODEL, usage: { inputTokens: 3_000_000 } });
 
-  const token = await issueToken({ orgId, name: 'e2e agent budgets', role: 'owner', createdBy: 'e2e-seed-agent-budget-fixtures' });
+  const token = await issueToken({ orgId, name: 'e2e agent budgets', role: 'admin', createdBy: 'e2e-seed-agent-budget-fixtures' });
   process.stdout.write(`${JSON.stringify({ orgId, token: token.token })}\n`);
 }
 

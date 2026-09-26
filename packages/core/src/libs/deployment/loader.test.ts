@@ -30,7 +30,6 @@ groups:
     name: RevOps
     grants:
       - workspace: revenue
-        role: pm
 `;
 
 afterEach(() => {
@@ -50,7 +49,7 @@ people:
 `,
     }));
 
-    expect(seed.groups[0]!.grants).toEqual([{ workspace: 'revenue', role: 'pm' }]);
+    expect(seed.groups[0]!.grants).toEqual([{ workspace: 'revenue', role: 'member' }]);
     // Lower-cased on the way in, because the user table is unique on a
     // lower-cased email and a capital would simply never match.
     expect(seed.people[0]!.email).toBe('alex@northwind.example');
@@ -117,8 +116,8 @@ groups:
   - slug: revops
     name: RevOps
     grants:
-      - { workspace: revenue, role: pm }
-      - { workspace: revenue, role: owner }
+      - { workspace: revenue }
+      - { workspace: revenue }
 `,
     }));
 
@@ -138,7 +137,7 @@ people:
     expect(run).toThrow(/is listed twice/);
   });
 
-  it('refuses a role outside the four the grant model knows', () => {
+  it('refuses a role outside the two the grant model knows', () => {
     const run = () => loadSeed(seedDir({
       groups: `version: 1
 groups:

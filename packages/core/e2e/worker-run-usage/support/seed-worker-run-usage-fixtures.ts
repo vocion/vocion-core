@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   const token = await issueToken({
     orgId,
     name: TOKEN_NAME,
-    role: 'owner',
+    role: 'admin',
     createdBy: 'e2e-seed-worker-run-usage-fixtures',
   });
 

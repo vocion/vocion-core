@@ -76,9 +76,9 @@ async function seed() {
     { groupId: 'grp-delivery', userId: BRIT },
   ]);
   await db.insert(groupProjectGrantSchema).values([
-    { groupId: 'grp-revenue', projectId: REVENUE, role: 'pm' },
-    { groupId: 'grp-delivery', projectId: DELIVERY, role: 'pm' },
-    { groupId: 'grp-delivery', projectId: FACTORY, role: 'specialist' },
+    { groupId: 'grp-revenue', projectId: REVENUE, role: 'member' },
+    { groupId: 'grp-delivery', projectId: DELIVERY, role: 'member' },
+    { groupId: 'grp-delivery', projectId: FACTORY, role: 'admin' },
   ]);
 }
 
@@ -104,8 +104,8 @@ describe('workspace access', () => {
 
     it('gives a delivery engineer both delivery workspaces at the granted roles', async () => {
       expect(await idsFor(BRIT)).toEqual([BRIT_PERSONAL, DELIVERY, FACTORY].sort());
-      expect(await effectiveRole(BRIT, DELIVERY)).toBe('pm');
-      expect(await effectiveRole(BRIT, FACTORY)).toBe('specialist');
+      expect(await effectiveRole(BRIT, DELIVERY)).toBe('member');
+      expect(await effectiveRole(BRIT, FACTORY)).toBe('admin');
     });
 
     it('refuses the other team\'s workspace', async () => {
@@ -123,8 +123,8 @@ describe('workspace access', () => {
   });
 
   describe('personal workspaces', () => {
-    it('lets the owner in as owner', async () => {
-      expect(await effectiveRole(ALEX, ALEX_PERSONAL)).toBe('owner');
+    it('lets the owner in as admin', async () => {
+      expect(await effectiveRole(ALEX, ALEX_PERSONAL)).toBe('admin');
     });
 
     it('refuses a colleague', async () => {
@@ -143,7 +143,7 @@ describe('workspace access', () => {
     it('ignores a direct grant written against someone else\'s personal workspace', async () => {
       // The service layer refuses to write this row. If one exists anyway, it
       // must be inert rather than effective.
-      await db.insert(projectMemberSchema).values({ projectId: ALEX_PERSONAL, userId: BRIT, role: 'owner' });
+      await db.insert(projectMemberSchema).values({ projectId: ALEX_PERSONAL, userId: BRIT, role: 'admin' });
 
       expect(await effectiveRole(BRIT, ALEX_PERSONAL)).toBeNull();
       expect(await idsFor(BRIT)).not.toContain(ALEX_PERSONAL);
@@ -153,7 +153,7 @@ describe('workspace access', () => {
   describe('account admins', () => {
     it('run every shared workspace', async () => {
       expect(await idsFor(CASS)).toEqual([DELIVERY, FACTORY, REVENUE].sort());
-      expect(await effectiveRole(CASS, REVENUE)).toBe('owner');
+      expect(await effectiveRole(CASS, REVENUE)).toBe('admin');
     });
   });
 
@@ -173,15 +173,17 @@ describe('workspace access', () => {
 
   describe('direct grants', () => {
     it('stack with group grants, strongest winning', async () => {
-      await db.insert(projectMemberSchema).values({ projectId: REVENUE, userId: ALEX, role: 'owner' });
+      await db.insert(projectMemberSchema).values({ projectId: REVENUE, userId: ALEX, role: 'admin' });
 
-      expect(await effectiveRole(ALEX, REVENUE)).toBe('owner');
+      expect(await effectiveRole(ALEX, REVENUE)).toBe('admin');
     });
 
     it('do not weaken a stronger group grant', async () => {
-      await db.insert(projectMemberSchema).values({ projectId: REVENUE, userId: ALEX, role: 'client_reviewer' });
+      await db.delete(groupProjectGrantSchema);
+      await db.insert(groupProjectGrantSchema).values({ groupId: 'grp-revenue', projectId: REVENUE, role: 'admin' });
+      await db.insert(projectMemberSchema).values({ projectId: REVENUE, userId: ALEX, role: 'member' });
 
-      expect(await effectiveRole(ALEX, REVENUE)).toBe('pm');
+      expect(await effectiveRole(ALEX, REVENUE)).toBe('admin');
     });
   });
 
@@ -190,7 +192,7 @@ describe('workspace access', () => {
       await db.insert(projectSchema).values({ id: 'proj-foreign', accountId: OTHER_ACCOUNT, slug: 'foreign', name: 'Foreign' });
       await db.insert(userGroupSchema).values({ id: 'grp-x', accountId: ACCOUNT, slug: 'x', name: 'X' });
       await db.insert(userGroupMemberSchema).values({ groupId: 'grp-x', userId: ALEX });
-      await db.insert(groupProjectGrantSchema).values({ groupId: 'grp-x', projectId: 'proj-foreign', role: 'owner' });
+      await db.insert(groupProjectGrantSchema).values({ groupId: 'grp-x', projectId: 'proj-foreign', role: 'admin' });
 
       expect(await effectiveRole(ALEX, 'proj-foreign')).toBeNull();
       expect(await idsFor(ALEX)).not.toContain('proj-foreign');
@@ -203,28 +205,28 @@ describe('workspace access', () => {
   });
 
   describe('strongerRole', () => {
-    it('ranks owner above pm above specialist above client_reviewer', () => {
-      expect(strongerRole('pm', 'owner')).toBe('owner');
-      expect(strongerRole('specialist', 'pm')).toBe('pm');
-      expect(strongerRole('client_reviewer', 'specialist')).toBe('specialist');
+    it('ranks admin above member', () => {
+      expect(strongerRole('member', 'admin')).toBe('admin');
+      expect(strongerRole('admin', 'member')).toBe('admin');
+      expect(strongerRole('member', 'member')).toBe('member');
     });
 
     it('treats null as no access at all', () => {
-      expect(strongerRole(null, 'specialist')).toBe('specialist');
-      expect(strongerRole('specialist', null)).toBe('specialist');
+      expect(strongerRole(null, 'member')).toBe('member');
+      expect(strongerRole('member', null)).toBe('member');
       expect(strongerRole(null, null)).toBeNull();
     });
   });
 });
 
 /**
- * `Schema.ts` declares the four roles a second time (it stays free of service
+ * `Schema.ts` declares the two roles a second time (it stays free of service
  * imports) and the DDL pins them a third time with a CHECK. These assert the
  * database and the code agree, so a role the grant model accepts can never be
  * one the constraint rejects, or the reverse.
  */
 describe('role vocabulary', () => {
-  const ROLES = ['owner', 'pm', 'specialist', 'client_reviewer'] as const;
+  const ROLES = ['admin', 'member'] as const;
 
   it('accepts every role the resolver can return', async () => {
     for (const role of ROLES) {
@@ -252,7 +254,7 @@ describe('role vocabulary', () => {
       db.insert(projectMemberSchema).values({
         projectId: REVENUE,
         userId: DREW,
-        role: 'pm',
+        role: 'member',
 
         source: 'group' as any,
       }),

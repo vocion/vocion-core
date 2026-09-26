@@ -110,8 +110,8 @@ async function main(): Promise<void> {
 
   const otherOrgId = await createProject(CROSS_ORG_ACCOUNT_SLUG, CROSS_ORG_PROJECT_SLUG, 'E2E Cross-Org (eval refresh)');
 
-  const primaryToken = await issueToken({ orgId: primaryOrgId, name: TOKEN_NAME_PRIMARY, role: 'owner' });
-  const otherOrgToken = await issueToken({ orgId: otherOrgId, name: TOKEN_NAME_OTHER, role: 'owner' });
+  const primaryToken = await issueToken({ orgId: primaryOrgId, name: TOKEN_NAME_PRIMARY, role: 'admin' });
+  const otherOrgToken = await issueToken({ orgId: otherOrgId, name: TOKEN_NAME_OTHER, role: 'admin' });
 
   // process.stdout.write rather than console.log: this repo's eslint allows
   // only console.warn and console.error, and console.warn writes to stderr in

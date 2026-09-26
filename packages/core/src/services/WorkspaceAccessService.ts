@@ -4,9 +4,8 @@
  * One answer, one place. Account membership says a person is in the
  * deployment; this says which of its workspaces they may open. Before it,
  * `listProjectsForUser` returned every project on the account and the role fed
- * to `services/authz.ts` was derived from the account role (admin -> owner,
- * member -> pm), both of which carry `'*'` grants — so everyone held everything
- * everywhere.
+ * to `services/authz.ts` was derived from the account role, which carries
+ * `'*'` grants either way — so everyone held everything everywhere.
  *
  * Access comes from four places and the strongest wins:
  *
@@ -44,15 +43,13 @@ import {
 } from '@/models/Schema';
 
 /**
- * Strength order. `owner` and `pm` both carry `'*'` in `ROLE_GRANTS` today, so
- * the distinction between them is about who may administer the workspace, not
- * about what they may draft — which is why owner still outranks pm here.
+ * Strength order. Both carry `'*'` in `ROLE_GRANTS`, so the distinction is
+ * about who may administer the workspace, not about what they may draft —
+ * which is why admin still outranks member here.
  */
 const RANK: Record<WorkspaceRole, number> = {
-  client_reviewer: 1,
-  specialist: 2,
-  pm: 3,
-  owner: 4,
+  member: 1,
+  admin: 2,
 };
 
 /**
@@ -137,7 +134,7 @@ export async function accessibleProjects(userId: string): Promise<WorkspaceAcces
   if (membership.role === 'admin') {
     for (const p of projects) {
       if (p.kind === 'shared') {
-        offer(p.id, 'owner', 'account-admin');
+        offer(p.id, 'admin', 'account-admin');
       }
     }
   }
@@ -171,7 +168,7 @@ export async function accessibleProjects(userId: string): Promise<WorkspaceAcces
   //    absence from it.
   for (const p of projects) {
     if (p.kind === 'personal' && p.ownerUserId === userId) {
-      offer(p.id, 'owner', 'owner');
+      offer(p.id, 'admin', 'owner');
     }
   }
 
@@ -214,11 +211,11 @@ export async function effectiveRole(userId: string, projectId: string): Promise<
 
   if (project.kind === 'personal') {
     // The whole rule for a personal workspace: its owner, and no one else.
-    return project.ownerUserId === userId ? 'owner' : null;
+    return project.ownerUserId === userId ? 'admin' : null;
   }
 
   if (membership.role === 'admin') {
-    return 'owner';
+    return 'admin';
   }
 
   const [direct] = await db

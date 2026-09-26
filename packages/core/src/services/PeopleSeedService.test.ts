@@ -44,7 +44,7 @@ const seedOf = (groups: unknown[], people: unknown[]) =>
 const REVOPS_GROUP = {
   slug: 'revops',
   name: 'RevOps',
-  grants: [{ workspace: 'revenue', role: 'pm' as const }],
+  grants: [{ workspace: 'revenue', role: 'member' as const }],
 };
 
 const person = (email: string, over: Record<string, unknown> = {}) => ({
@@ -76,8 +76,8 @@ async function base() {
 async function backfill() {
   await db.insert(projectMemberSchema).values(
     [REVENUE, DELIVERY, FACTORY].flatMap(p => [
-      { projectId: p, userId: ALEX, role: 'pm' as const, addedBy: BACKFILL_ACTOR },
-      { projectId: p, userId: BRIT, role: 'pm' as const, addedBy: BACKFILL_ACTOR },
+      { projectId: p, userId: ALEX, role: 'member' as const, addedBy: BACKFILL_ACTOR },
+      { projectId: p, userId: BRIT, role: 'member' as const, addedBy: BACKFILL_ACTOR },
     ]),
   );
 }
@@ -101,7 +101,7 @@ describe('people seed', () => {
       const r = await applySeed(seedOf([REVOPS_GROUP], [person('alex@northwind.example')]), { accountId: ACCOUNT });
 
       expect(r.groups.created).toEqual(['revops']);
-      expect(r.grants.created).toEqual([{ group: 'revops', workspace: 'revenue', role: 'pm' }]);
+      expect(r.grants.created).toEqual([{ group: 'revops', workspace: 'revenue', role: 'member' }]);
       expect(r.memberships.created).toEqual([{ email: 'alex@northwind.example', group: 'revops' }]);
       expect(await accessibleProjectIds(ALEX)).toEqual([REVENUE]);
     });
@@ -130,7 +130,7 @@ describe('people seed', () => {
       await applySeed(seedOf([REVOPS_GROUP], []), { accountId: ACCOUNT });
       // Somebody widens it in the interface.
       const [grp] = await db.select().from(userGroupSchema);
-      await db.insert(groupProjectGrantSchema).values({ groupId: grp!.id, projectId: FACTORY, role: 'specialist', grantedBy: BRIT });
+      await db.insert(groupProjectGrantSchema).values({ groupId: grp!.id, projectId: FACTORY, role: 'admin', grantedBy: BRIT });
 
       await applySeed(seedOf([REVOPS_GROUP], []), { accountId: ACCOUNT });
 
@@ -251,7 +251,7 @@ describe('people seed', () => {
       });
 
       const r = await applySeed(
-        seedOf([{ slug: 'everyone', name: 'Everyone', grants: [{ workspace: 'personal-brit', role: 'pm' as const }] }], []),
+        seedOf([{ slug: 'everyone', name: 'Everyone', grants: [{ workspace: 'personal-brit', role: 'member' as const }] }], []),
         { accountId: ACCOUNT },
       );
 
@@ -261,7 +261,7 @@ describe('people seed', () => {
 
     it('warns rather than failing when a workspace slug matches no project', async () => {
       const r = await applySeed(
-        seedOf([{ slug: 'ops', name: 'Ops', grants: [{ workspace: 'not-a-workspace', role: 'pm' as const }] }], []),
+        seedOf([{ slug: 'ops', name: 'Ops', grants: [{ workspace: 'not-a-workspace', role: 'member' as const }] }], []),
         { accountId: ACCOUNT },
       );
 

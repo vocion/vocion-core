@@ -27,7 +27,7 @@ import {
 } from '@/models/Schema';
 import { accessibleProjects, enforcementEnabled } from '@/services/WorkspaceAccessService';
 
-export type WorkspaceRoleName = 'owner' | 'pm' | 'specialist' | 'client_reviewer';
+export type WorkspaceRoleName = 'admin' | 'member';
 
 export type GroupSummary = {
   id: string;

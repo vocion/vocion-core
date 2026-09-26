@@ -256,7 +256,7 @@ export async function exchangeCode(body: Record<string, unknown>) {
   await db.update(oauthRequestSchema).set({ code: null, status: 'exchanged' }).where(eq(oauthRequestSchema.id, row.id));
   const [client] = await db.select().from(oauthClientSchema).where(eq(oauthClientSchema.id, row.clientId)).limit(1);
   const expiresAt = new Date(Date.now() + ACCESS_TTL_MS);
-  const issued = await issueToken({ orgId: row.orgId, name: `${client?.name ?? 'Assistant'} (connector)`, createdBy: row.userId, role: 'pm', expiresAt });
+  const issued = await issueToken({ orgId: row.orgId, name: `${client?.name ?? 'Assistant'} (connector)`, createdBy: row.userId, role: 'member', expiresAt });
   return {
     access_token: issued.token,
     token_type: 'Bearer',
