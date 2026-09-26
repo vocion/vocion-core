@@ -10,7 +10,10 @@ const NOISE_KEY = /(?:^|_)(?:id|ids|url|urls|link|links|slug)$|linkedin/i;
 const isUrl = (v: unknown): boolean => typeof v === 'string' && /^https?:\/\//i.test(v);
 
 function compactValue(v: unknown): string {
-  const s = Array.isArray(v) ? (v as unknown[]).join(', ') : String(v ?? '');
+  // An object is written as JSON, not "[object Object]" (2026-09-26: a task's
+  // checks and qa read as "[object Object], [object Object]").
+  const one = (x: unknown): string => (x && typeof x === 'object' ? JSON.stringify(x) : String(x ?? ''));
+  const s = Array.isArray(v) ? (v as unknown[]).map(one).join(', ') : one(v);
   return s.replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 

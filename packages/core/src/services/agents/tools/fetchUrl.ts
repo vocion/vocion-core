@@ -31,6 +31,13 @@ export function fetchUrlTool(ctx: RuntimeContext) {
     async (args) => {
       const { url } = args;
       try {
+        // A pull request on a repository this workspace connected is read
+        // with the workspace's token — the diff, not a 404 (2026-09-26).
+        const { readConnectedPull } = await import('./githubPullRead');
+        const pull = await readConnectedPull(ctx.orgId, url);
+        if (pull) {
+          return pull;
+        }
         const provider = getBrowseProvider();
         const page = await provider.fetchPage(url, { orgId: ctx.orgId });
         if (!page) {
@@ -53,7 +60,7 @@ export function fetchUrlTool(ctx: RuntimeContext) {
     {
       name: 'fetch_url',
       description:
-        'Fetch a single public web page and return its full readable text (titles, paragraphs) — never truncated — plus the total character length. Use after web_search to read a result, or when the user gives you a URL.',
+        'Fetch a single web page and return its full readable text — never truncated — plus the total character length. A GitHub pull request URL on a repository this workspace connected returns the PR and its diff, read with the workspace\'s token (private repos included). Use after web_search to read a result, or when the user gives you a URL.',
       schema: z.object({
         url: z.string().url().describe('The absolute URL to fetch'),
       }),
