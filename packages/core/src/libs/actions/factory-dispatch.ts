@@ -129,6 +129,10 @@ export function contractGaps(meta: Meta): string[] {
   if (!str(meta, 'repo') && !str(meta, 'repoSlug')) {
     gaps.push('repo');
   }
+  const qa = (meta.qa ?? {}) as Meta;
+  if (str(meta, 'riskClass') === 'ui' && !(Array.isArray(qa.flows) && qa.flows.length > 0)) {
+    gaps.push('qa.flows (a ui change is screenshotted before and after)');
+  }
   return gaps;
 }
 
@@ -260,8 +264,19 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     : riskFromPaths(paths, (repo.riskDefaults ?? {}) as Record<string, string>) ?? 'logic';
   const repoSlug = str(g, 'repoSlug') ?? (Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null) ?? str(repo, 'title');
   const objective = str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ');
+  // A ui change is refused without a QA flow (the worker screenshots it
+  // before and after). The request says where it lives; that page is the flow.
+  const visuals = (r.visuals ?? {}) as Meta;
+  let qaPath = '/';
+  try {
+    qaPath = str(visuals, 'surfaceUrl') ? new URL(str(visuals, 'surfaceUrl')!).pathname || '/' : '/';
+  } catch { /* not a URL: the home page */ }
+  const qa = g.qa ?? (risk === 'ui' ? { surface: str(repo, 'qaSurface') ?? 'app', flows: [{ name: typeof r.title === 'string' ? r.title : 'the change', path: qaPath, sign_in: true }] } : undefined);
+  const environment = g.environment ?? (repo.environment && typeof repo.environment === 'object' ? repo.environment : undefined);
   return {
     ...g,
+    ...(qa ? { qa } : {}),
+    ...(environment ? { environment } : {}),
     title: str(g, 'title') ?? (typeof r.title === 'string' ? r.title : null),
     objective: objective || null,
     acceptanceContract: acceptance,

@@ -16,7 +16,7 @@ const task = {
     riskClass: 'ui',
     requestId: 132,
     tokenBudget: 8,
-  },
+  } as Record<string, unknown>,
 };
 
 describe('the contract a dispatch sends', () => {
@@ -39,8 +39,9 @@ describe('the contract a dispatch sends', () => {
   });
 
   it('names every missing field instead of sending a contract the worker would refuse', () => {
-    expect(contractGaps(task.meta)).toEqual([]);
+    expect(contractGaps({ ...task.meta, qa: { flows: [{ name: 'x', path: '/' }] } })).toEqual([]);
     expect(contractGaps({ objective: 'x' })).toEqual(['acceptanceContract', 'allowedPaths', 'requiredChecks', 'riskClass', 'repo']);
+    expect(contractGaps({ ...task.meta })).toEqual(['qa.flows (a ui change is screenshotted before and after)']);
   });
 });
 
@@ -101,5 +102,20 @@ describe('what a card carries that is not real', () => {
 
     expect(c.allowedPaths).toEqual(['apps/web/**']);
     expect(c.requiredChecks).toEqual(['typecheck', 'test']);
+  });
+});
+
+describe('what a ui change carries', () => {
+  it('gets a QA flow at the page the request lives on, and the repo\'s environment', () => {
+    const c = deriveContract({
+      given: {},
+      request: { title: 'Find a document', outcome: 'o', acceptance: ['a'], visuals: { surfaceUrl: 'https://app.example.test/library' } },
+      plan: { repoSlugs: ['Acme/northwind-core'], components: ['apps/web — search'] },
+      repo: { title: 'Acme/northwind-core', checks: [{ name: 'test' }], riskDefaults: { 'apps/web/**': 'ui' }, environment: { services: ['postgres'] } },
+    });
+
+    expect(c.qa).toEqual({ surface: 'app', flows: [{ name: 'Find a document', path: '/library', sign_in: true }] });
+    expect(c.environment).toEqual({ services: ['postgres'] });
+    expect(contractGaps(c)).toEqual([]);
   });
 });
