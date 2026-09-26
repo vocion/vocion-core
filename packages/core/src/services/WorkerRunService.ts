@@ -412,6 +412,12 @@ async function announceEnded(run: WorkerRun, type: typeof WORKER_RUN_COMPLETED |
       payload,
       dedupeKey: type === 'worker_run.failed' ? `${type}:${run.id}:${run.attempt}` : `${type}:${run.id}`,
       invokedBy: `worker_run:${run.id}`,
+      // BACKGROUND: an automation on this event runs an agent for a minute or
+      // more (the evidence pass), and the worker's complete call waited for it
+      // — twice past its 20s timeout on run 363, and run 361 failed on it
+      // (2026-09-26). The worker needs its answer; the automation does not
+      // need the worker to wait.
+      dispatchMode: 'background',
     });
   } catch (error) {
     console.warn(`[worker-run] could not raise ${type} for run ${run.id}`, error);
