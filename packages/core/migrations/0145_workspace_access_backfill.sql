@@ -21,6 +21,24 @@
 -- grant someone has since edited in the interface. That is the same rule
 -- `people:apply` will follow, and the reason `enabled_surfaces` is NOT the
 -- model to copy here.
+--
+-- RUNS ONCE, and the guard is not decorative. Production applies every
+-- migration file on every deploy (`infra/aws/migrate.sh`: "every deploy
+-- re-runs every file"), so without it this INSERT fires on each one and
+-- re-grants what has since been taken away:
+--
+--   * `people:apply` narrows an `exclusive` person, and the next deploy hands
+--     the workspaces straight back — the end state only looks right because
+--     the seed runs again afterwards in the same deploy and removes them a
+--     second time.
+--   * an admin removes a direct grant on /dashboard/members, and the next
+--     deploy restores it. That is the `enabled_surfaces` failure — config
+--     reconciling away a person's decision — in the one place this whole
+--     design exists to prevent it.
+--
+-- `NOT EXISTS (SELECT 1 FROM project_member)` says what the backfill is for:
+-- preserving today's access AT CUTOVER. Once a single grant exists, cutover has
+-- happened and access is being managed, so this must never write again.
 INSERT INTO "project_member" ("project_id", "user_id", "role", "source", "added_by")
 SELECT
   p."id",
@@ -31,4 +49,5 @@ SELECT
 FROM "project" p
 JOIN "account_membership" m ON m."account_id" = p."account_id"
 WHERE p."kind" = 'shared'
+  AND NOT EXISTS (SELECT 1 FROM "project_member")
 ON CONFLICT ("project_id", "user_id") DO NOTHING;
