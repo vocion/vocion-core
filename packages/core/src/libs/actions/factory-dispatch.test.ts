@@ -70,7 +70,7 @@ describe('a contract from the records alone', () => {
       title: 'Request a file',
       objective: 'Send a link to upload a file to you. Surface what exists.',
       acceptanceContract: ['A button sits beside Upload.'],
-      allowedPaths: ['apps/web/**', 'apps/web/src/components/RequestDialog.tsx', 'packages/api/src/routes/links.ts'],
+      allowedPaths: ['apps/web/**', 'apps/web/src/components/RequestDialog.tsx', 'packages/api/src/routes/links.ts', 'apps/web/tests/**', 'packages/api/tests/**'],
       requiredChecks: ['typecheck', 'test'],
       riskClass: 'logic',
       repoSlug: 'Acme/northwind-core',
@@ -81,7 +81,7 @@ describe('a contract from the records alone', () => {
   it('keeps what the card carried, and ignores a risk class the worker would refuse', () => {
     const c = deriveContract({ given: { allowedPaths: ['apps/web/src/**'], riskClass: 'standard' }, request, plan, repo });
 
-    expect(c.allowedPaths).toEqual(['apps/web/src/**']);
+    expect(c.allowedPaths).toEqual(['apps/web/src/**', 'apps/web/tests/**']);
     expect(c.riskClass).toBe('ui');
   });
 
@@ -100,7 +100,7 @@ describe('what a card carries that is not real', () => {
       repo: { title: 'Acme/northwind-core', checks: [{ name: 'typecheck' }, { name: 'test' }] },
     });
 
-    expect(c.allowedPaths).toEqual(['apps/web/**']);
+    expect(c.allowedPaths).toEqual(['apps/web/**', 'apps/web/tests/**']);
     expect(c.requiredChecks).toEqual(['typecheck', 'test']);
   });
 });

@@ -260,7 +260,13 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const isPath = (x: string) => /^[\w.@-]+(?:\/[\w.@*-]+)+\/?$/.test(x);
   const repoChecks = Array.isArray(repo.checks) ? (repo.checks as Array<{ name?: string }>).map(c => c.name ?? '').filter(Boolean) : [];
   const givenPaths = list(g, 'allowedPaths').filter(isPath);
-  const paths = givenPaths.length > 0 ? givenPaths : pathsFromComponents(list(p, 'components'));
+  const basePaths = givenPaths.length > 0 ? givenPaths : pathsFromComponents(list(p, 'components'));
+  // EVERY PACKAGE TOUCHED MAY BE TESTED (QA on PR #36, 2026-09-26: "the control
+  // the plan mandates is an integration test, and the contract's allowed paths
+  // make writing one impossible"). Each app or package root a path lives in
+  // brings its tests directory with it.
+  const roots = new Set(basePaths.map(x => /^((?:apps|packages|services)\/[\w.-]+)\//.exec(x)?.[1]).filter((x): x is string => Boolean(x)));
+  const paths = [...new Set([...basePaths, ...[...roots].map(r => `${r}/tests/**`)])];
   const givenChecks = list(g, 'requiredChecks').filter(c => repoChecks.length === 0 ? /^[\w:.-]+$/.test(c) : repoChecks.includes(c));
   const checks = givenChecks.length > 0 ? givenChecks : repoChecks;
   const givenRisk = str(g, 'riskClass');
