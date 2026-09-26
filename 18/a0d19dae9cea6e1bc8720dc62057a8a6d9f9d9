@@ -1,0 +1,35 @@
+packages/core/src/features/members/MembersScreen.tsx
+  s_393daae8284f35::t_0de70858c7e660 44-51
+packages/core/src/features/members/access.test.ts
+  s_393daae8284f35::t_33687d024646c0 11
+packages/core/src/components/patterns/ListRow.tsx
+  s_393daae8284f35::t_c5999211a5c0f8 72,81-96,104-105
+packages/core/src/features/members/GroupsTab.tsx
+  s_393daae8284f35::t_c5999211a5c0f8 50
+  s_393daae8284f35::t_36ddf74267810e 51
+packages/core/src/features/members/PeopleTab.tsx
+  s_393daae8284f35::t_36ddf74267810e 101,108
+  s_393daae8284f35::t_fbfb1c3b622e6c 103-107
+packages/core/src/features/members/Chips.tsx
+  s_393daae8284f35::t_36ddf74267810e 1-4,14-21,27-38,41-43,45-53,56-59,61-63,65,68,71-89
+  s_393daae8284f35::t_dfffdb55ea260c 7-8,22,39-40,44
+  s_393daae8284f35::t_31fe415f2e577f 6
+packages/core/migrations/0146_workspace_role_two_names.sql
+  s_393daae8284f35::t_505cc0933a6f06 19-27,36-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "18a0d19dae9cea6e1bc8720dc62057a8a6d9f9d9",
+  "prompts": {},
+  "sessions": {
+    "s_393daae8284f35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ed36d1f-e914-44c0-a0ad-d143be251a55",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
