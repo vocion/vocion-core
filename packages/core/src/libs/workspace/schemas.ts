@@ -1203,7 +1203,8 @@ export const AutomationManifestSchema = z.object({
     /**
      * The tool a `checkMission` fire's work must end in — e.g. `record_verdict`
      * for a review. A pass that never calls it (or only has it refused) gets
-     * one more pass that says so; a second miss fails the fire, visibly.
+     * one recording pass over its own report with the tool chosen; a miss
+     * after that fails the fire, visibly.
      */
     requireTool: z.string().min(1).optional(),
     /** Fixed input passed to the workflow run / job. */

@@ -416,7 +416,7 @@ async function dispatchDo(
   const prompt = typeof input.prompt === 'string' && input.prompt.trim() !== '' ? input.prompt : doCfg.prompt;
   const startedAt = new Date();
   const before = await queueSnapshot(orgId);
-  let run = await startMission({
+  const run = await startMission({
     orgId,
     missionSlug,
     // The automation's authored execution prompt rides the brief; the mission
@@ -437,23 +437,23 @@ async function dispatchDo(
   });
   // A REQUIRED TOOL IS A GATED BACKSTOP, NOT A PROMPT LINE. The reviewer read
   // a whole pull request and ended without recording a verdict (2026-09-26,
-  // run 5471), so a feature sat at "Awaiting QA" over a finished PR. When the
-  // automation names the tool its work must end in and the pass did not call
-  // it, one more pass runs with that said plainly; a second miss is an error
-  // on the fire, where a person sees it, never a silent "completed".
+  // run 5471); a second full pass told to "end with it" did the same (fire
+  // 7040). So a miss gets one focused pass over the report the run already
+  // wrote, with the tool bound and chosen: the only possible output is the
+  // call. A miss after that is an error on the fire, where a person sees it,
+  // never a silent "completed".
   if (doCfg.requireTool && !(await calledRequiredTool(orgId, run.id, doCfg.requireTool))) {
-    const missed = run.id;
-    run = await startMission({
+    const { forceRequiredTool, missionRunReport } = await import('@/services/automations/requiredToolPass');
+    const forced = await forceRequiredTool({
       orgId,
-      missionSlug,
-      brief: `${scheduledCheckBrief(template, prompt, triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined)}\n\nThe previous pass (run #${missed}) ended without calling ${doCfg.requireTool}. This work is not done until ${doCfg.requireTool} is called and accepted; end with it.`,
-      title: `${slug}: ${template.name} (again: no ${doCfg.requireTool})`,
-      mode: 'check',
-      invokedBy,
-      causedBy,
-    });
-    if (!(await calledRequiredTool(orgId, run.id, doCfg.requireTool))) {
-      throw new Error(`automation "${slug}": runs #${missed} and #${run.id} both ended without ${doCfg.requireTool}`);
+      agentSlug: (template as { agentSlug?: string }).agentSlug ?? '',
+      toolName: doCfg.requireTool,
+      missionRunId: run.id,
+      report: await missionRunReport(orgId, run.id),
+      context: triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined,
+    }).catch(err => ({ called: false, answer: (err as Error).message }));
+    if (!forced.called) {
+      throw new Error(`automation "${slug}": run #${run.id} ended without ${doCfg.requireTool}, and the recording pass did not land it (${forced.answer.slice(0, 300)})`);
     }
   }
   // The summary the branch used to discard. Best-effort: a fire whose work
