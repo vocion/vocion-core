@@ -1,0 +1,28 @@
+packages/core/src/services/ApiTokenService.ts
+  s_393daae8284f35::t_9b151279ffdf87 45
+  s_393daae8284f35::t_a1b39bea271301 161
+packages/core/src/services/authz.test.ts
+  s_393daae8284f35::t_085214a58b51e7 7,112-145
+  s_393daae8284f35::t_0d5669a49bb5c8 146-147
+packages/core/src/services/authz.ts
+  s_393daae8284f35::t_ccbc66b3323165 96
+  s_393daae8284f35::t_a1b39bea271301 63-95,97-98
+packages/core/migrations/0146_workspace_role_two_names.sql
+  s_393daae8284f35::t_38bc7145e46dba 19-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7f54fd497fe32a58e83745f3847219dff9015edb",
+  "prompts": {},
+  "sessions": {
+    "s_393daae8284f35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ed36d1f-e914-44c0-a0ad-d143be251a55",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
