@@ -1,0 +1,25 @@
+packages/core/src/services/GroupService.ts
+  s_393daae8284f35::t_e31cfe27cb2ee5 28,146-163
+packages/core/src/services/WorkspaceAccessService.test.ts
+  s_393daae8284f35::t_a5220c9c11d93e 245-265
+  s_393daae8284f35::t_d24f16be736389 26,205-244
+packages/core/src/services/WorkspaceAccessService.ts
+  s_393daae8284f35::t_1712d556cb17fd 35,100-109,111-114,116-117,119,132,141,150,167-170,176-290
+  s_393daae8284f35::t_30ca68983b8083 291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3acd36adcc07f32932640efed71552b4a325c65a",
+  "prompts": {},
+  "sessions": {
+    "s_393daae8284f35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ed36d1f-e914-44c0-a0ad-d143be251a55",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
