@@ -25,7 +25,7 @@ import {
   userGroupSchema,
   userSchema,
 } from '@/models/Schema';
-import { accessibleProjects, enforcementEnabled } from '@/services/WorkspaceAccessService';
+import { enforcementEnabled, reachForAccount } from '@/services/WorkspaceAccessService';
 
 export type WorkspaceRoleName = 'admin' | 'member';
 
@@ -143,23 +143,24 @@ export async function accessOverview(accountId: string): Promise<AccessOverview>
     .where(eq(accountMembershipSchema.accountId, accountId))
     .orderBy(asc(userSchema.email));
 
-  const people: PersonAccess[] = [];
-  for (const p of accountPeople) {
-    const reach = await accessibleProjects(p.userId);
-    people.push({
-      ...p,
-      groups: summaries.filter(g => g.members.some(m => m.userId === p.userId)).map(g => g.slug),
-      reaches: reach
-        .map(r => ({
-          projectId: r.projectId,
-          slug: byId.get(r.projectId)?.slug ?? r.projectId,
-          name: byId.get(r.projectId)?.name ?? r.projectId,
-          role: r.role,
-          via: r.via,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    });
-  }
+  // One read for the whole roster. This used to ask `accessibleProjects` per
+  // person, which was four round trips each and grew with every person who
+  // joined — the screen got slower the more people it had to show.
+  const reachByUser = await reachForAccount(accountId, accountPeople.map(p => p.userId));
+
+  const people: PersonAccess[] = accountPeople.map(p => ({
+    ...p,
+    groups: summaries.filter(g => g.members.some(m => m.userId === p.userId)).map(g => g.slug),
+    reaches: (reachByUser.get(p.userId) ?? [])
+      .map(r => ({
+        projectId: r.projectId,
+        slug: byId.get(r.projectId)?.slug ?? r.projectId,
+        name: byId.get(r.projectId)?.name ?? r.projectId,
+        role: r.role,
+        via: r.via,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  }));
 
   return { enforced: enforcementEnabled(), workspaces: projects, groups: summaries, people };
 }

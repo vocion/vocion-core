@@ -23,7 +23,7 @@ const {
   userGroupSchema,
   userSchema,
 } = await import('@/models/Schema');
-const { accessibleProjects, effectiveRole, strongerRole } = await import('@/services/WorkspaceAccessService');
+const { accessibleProjects, effectiveRole, reachForAccount, strongerRole } = await import('@/services/WorkspaceAccessService');
 
 const ACCOUNT = 'acct-northwind';
 const OTHER_ACCOUNT = 'acct-kestrel';
@@ -201,6 +201,67 @@ describe('workspace access', () => {
     it('gives a person with no membership nothing', async () => {
       expect(await accessibleProjects('usr-nobody')).toEqual([]);
       expect(await effectiveRole('usr-nobody', REVENUE)).toBeNull();
+    });
+  });
+
+  describe('reachForAccount', () => {
+    const sortKey = (a: { projectId: string }, b: { projectId: string }) => a.projectId.localeCompare(b.projectId);
+
+    it('answers identically to asking one person at a time', async () => {
+      // The members screen reads the whole roster at once; the resolver that
+      // gates a request reads one person. If these two ever disagree, the
+      // screen is describing access nobody actually has.
+      const everyone = [ALEX, BRIT, CASS, DREW];
+      const batched = await reachForAccount(ACCOUNT, everyone);
+
+      for (const userId of everyone) {
+        const one = (await accessibleProjects(userId)).sort(sortKey);
+
+        expect([...batched.get(userId)!].sort(sortKey)).toEqual(one);
+      }
+    });
+
+    it('agrees once direct grants and personal workspaces are in play too', async () => {
+      await db.insert(projectMemberSchema).values([
+        { projectId: DELIVERY, userId: ALEX, role: 'admin' },
+        { projectId: REVENUE, userId: DREW, role: 'member' },
+      ]);
+
+      const batched = await reachForAccount(ACCOUNT, [ALEX, DREW]);
+
+      expect([...batched.get(ALEX)!].sort(sortKey)).toEqual((await accessibleProjects(ALEX)).sort(sortKey));
+      expect([...batched.get(DREW)!].sort(sortKey)).toEqual((await accessibleProjects(DREW)).sort(sortKey));
+    });
+
+    it('gives someone who is not on the account nothing, rather than omitting them', async () => {
+      const batched = await reachForAccount(ACCOUNT, [ALEX, 'usr-nobody']);
+
+      expect(batched.get('usr-nobody')).toEqual([]);
+      expect(batched.has('usr-nobody')).toBe(true);
+    });
+
+    it('asks for nobody without touching the database', async () => {
+      expect(await reachForAccount(ACCOUNT, [])).toEqual(new Map());
+    });
+
+    it('costs the same number of reads however many people are on the account', async () => {
+      // The defect this replaced: `accessOverview` called `accessibleProjects`
+      // inside a per-person loop, so the members screen got slower every time
+      // someone joined. The count must not move with the roster.
+      const spy = vi.spyOn(db, 'select');
+
+      spy.mockClear();
+      await reachForAccount(ACCOUNT, [ALEX, BRIT]);
+      const forTwo = spy.mock.calls.length;
+
+      spy.mockClear();
+      await reachForAccount(ACCOUNT, [ALEX, BRIT, CASS, DREW]);
+      const forFour = spy.mock.calls.length;
+
+      spy.mockRestore();
+
+      expect(forFour).toBe(forTwo);
+      expect(forFour).toBe(4);
     });
   });
 
