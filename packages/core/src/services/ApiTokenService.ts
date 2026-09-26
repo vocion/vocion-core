@@ -42,6 +42,7 @@ import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { DEFAULT_PLATFORM_ID, getPlatform, hintField, holdsManyCredentials, isCredentialPlatformId, keyHint, validatePlatformCredential } from '@/libs/platforms/registry';
 import { apiTokenSchema } from '@/models/Schema';
+import { normalizeWorkspaceRole } from '@/services/authz';
 
 const PREFIX = 'vcn_live';
 
@@ -157,7 +158,7 @@ export async function verifyToken(raw: string): Promise<TokenIdentity | null> {
   const principal: Principal = {
     kind: 'user',
     id: `token:${id}`,
-    role: row.role as WorkspaceRole,
+    role: normalizeWorkspaceRole(row.role),
     scope: { orgId: row.orgId },
     grants: row.grants,
   };

@@ -61,6 +61,42 @@ const ROLE_GRANTS: Record<WorkspaceRole, string[]> = {
 };
 
 /**
+ * The four names this model used to carry, mapped to the two it carries now.
+ *
+ * Only `api_token.role` still holds them. Migration 0146 rewrote
+ * `project_member` and `group_project_grant` and pinned both with a CHECK, but
+ * it deliberately left `api_token` alone: a deploy applies migrations BEFORE
+ * the container swap, so for the length of the drain the PREVIOUS image is
+ * still serving against the new data. A token whose authority comes from its
+ * role rather than from explicit grants would have resolved to no grants at
+ * all on that image, and every call it made would have been refused until the
+ * swap finished.
+ *
+ * So the value stays as it is and the reader accepts both. New tokens are
+ * issued as `admin`/`member`; this is what keeps the ones issued before then
+ * working. It can be deleted once no `api_token` row holds a legacy name.
+ */
+const LEGACY_ROLE: Record<string, WorkspaceRole> = {
+  owner: 'admin',
+  pm: 'member',
+  specialist: 'member',
+  client_reviewer: 'member',
+};
+
+/**
+ * A stored role as one of the two the model has. Unknown values resolve to
+ * `member`, the narrower of the two, because a role nobody recognises must not
+ * be the one that grants everything.
+ * @param raw - Whatever the column holds.
+ */
+export function normalizeWorkspaceRole(raw: string | null | undefined): WorkspaceRole {
+  if (raw === 'admin' || raw === 'member') {
+    return raw;
+  }
+  return (raw ? LEGACY_ROLE[raw] : undefined) ?? 'member';
+}
+
+/**
  * A person holding a workspace role may search across all clients; a principal
  * with no role at all (an agent, a token acting on explicit grants) is
  * scope-bound.

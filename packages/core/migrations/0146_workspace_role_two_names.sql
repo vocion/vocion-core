@@ -16,6 +16,19 @@
 -- The columns stay `text`, so per-workspace admin remains possible later
 -- without a schema change.
 --
+-- `api_token.role` carries the same vocabulary and is deliberately NOT touched.
+-- A deploy applies migrations BEFORE the container swap, so for the length of
+-- the drain the PREVIOUS image is still serving against this data. Rewriting
+-- that column would leave a token whose authority comes from its role, rather
+-- than from explicit grants, resolving to no grants at all on that image, and
+-- every call it made would be refused until the swap finished. The value stays
+-- and `normalizeWorkspaceRole` accepts both vocabularies instead; a later
+-- release can contract it once no row holds a legacy name.
+--
+-- The two tables below are safe to rewrite because the previous image reads
+-- them for DISPLAY on the members screen and for a resolver that is not
+-- consulted while enforcement is off, which it is on that image.
+--
 -- The CHECKs come off FIRST. They still name the four old values while the
 -- rows hold them, so an UPDATE that writes 'admin' under the old constraint is
 -- refused before it has changed anything. An empty table hides this: the
@@ -30,14 +43,6 @@ UPDATE "project_member"
  WHERE "role" IN ('owner', 'pm', 'specialist', 'client_reviewer');
 --> statement-breakpoint
 UPDATE "group_project_grant"
-   SET "role" = CASE WHEN "role" = 'owner' THEN 'admin' ELSE 'member' END
- WHERE "role" IN ('owner', 'pm', 'specialist', 'client_reviewer');
---> statement-breakpoint
--- `api_token.role` carries the same vocabulary with no CHECK behind it, and
--- casts to `WorkspaceRole` in ApiTokenService. Left as 'owner' it would resolve
--- to no grant bundle at all and every live token would silently authorize
--- nothing, so it maps here too.
-UPDATE "api_token"
    SET "role" = CASE WHEN "role" = 'owner' THEN 'admin' ELSE 'member' END
  WHERE "role" IN ('owner', 'pm', 'specialist', 'client_reviewer');
 --> statement-breakpoint
