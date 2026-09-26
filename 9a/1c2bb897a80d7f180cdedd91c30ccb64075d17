@@ -1,0 +1,105 @@
+packages/core/src/services/authz.test.ts
+  s_393daae8284f35::t_75bdc8420b2252 59-61,63-64,86-97
+packages/core/src/services/authz.ts
+  s_393daae8284f35::t_b9ec38d7c2f398 21,47-56,59-60,64-66,70
+packages/core/src/app/api/v1/_shared.ts
+  s_393daae8284f35::t_5fe953af987979 57-60
+packages/core/src/models/Schema.ts
+  s_393daae8284f35::t_ff06dc866ea1b7 58,62
+packages/core/e2e/worker-run-usage/support/seed-worker-run-usage-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 89
+packages/core/e2e/eval-refresh/support/seed-eval-refresh-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 113-114
+packages/core/src/app/[locale]/rpc/sources/[id]/credentials/route.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 66
+packages/core/src/app/api/v1/sources/route.test.ts
+  s_393daae8284f35::t_aebb3a00143202 48,198
+packages/core/src/app/api/v1/workspace/route.test.ts
+  s_393daae8284f35::t_aebb3a00143202 31-39,88,102,119-120,127,137,154,168,182-183,187
+packages/core/e2e/reviews-suggested-decision/support/seed-suggested-decision-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 108
+packages/core/e2e/reviews-propose/support/seed-propose-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 109
+packages/core/src/services/GroupService.ts
+  s_393daae8284f35::t_ff06dc866ea1b7 30
+packages/core/e2e/queue/support/seed-dedup-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 105
+packages/core/src/routers/Groups.ts
+  s_393daae8284f35::t_ff06dc866ea1b7 24
+packages/core/src/app/[locale]/rpc/agent/stream/stop/route.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 17
+packages/core/src/interfaces/mcp/http.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 18
+packages/core/src/services/ApiTokenService.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 27,37
+packages/core/src/libs/deployment/schemas.ts
+  s_393daae8284f35::t_ff06dc866ea1b7 27,34-42,46
+packages/core/src/libs/deployment/loader.test.ts
+  s_393daae8284f35::t_342e68989c2bf5 52
+  s_393daae8284f35::t_03b397edc3207f 119-120,140
+packages/core/src/services/PeopleSeedService.test.ts
+  s_393daae8284f35::t_342e68989c2bf5 47,79-80,104,133,254,264
+packages/core/src/services/WorkspaceAccessService.ts
+  s_393daae8284f35::t_0d3eba67487172 7-8,46-48,51-52,137,171,214,218
+packages/core/e2e/api-docs/support/seed-api-docs-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 74
+packages/core/src/app/[locale]/rpc/connectors/[slug]/inspect/route.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 41
+packages/core/src/services/WorkspaceAccessService.test.ts
+  s_393daae8284f35::t_1402ba97e0b185 79-81,107-108,126-127,146,156,176,178,182-184,186,195,208-211,215-216,223,229,257
+packages/core/src/services/GroupService.test.ts
+  s_393daae8284f35::t_342e68989c2bf5 79,87,92-93,98,103,114,122,130,155,163,174
+packages/core/src/libs/tenancy.test.ts
+  s_393daae8284f35::t_ef3e76cf4ebe6d 63-64,94,145-147,149,158
+packages/core/src/app/[locale]/rpc/sources/[id]/route.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 31
+packages/core/src/features/dashboard/AppSidebar.stories.tsx
+  s_393daae8284f35::t_4d1623b8d2b235 38
+packages/core/e2e/agent-budgets/support/seed-agent-budget-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 66
+packages/core/src/services/writeApi.test.ts
+  s_393daae8284f35::t_342e68989c2bf5 42-46,62,264-265,298-299,360-361,377-378,477-478
+packages/core/src/libs/tenancy.ts
+  s_393daae8284f35::t_61510b959f72e1 149
+  s_393daae8284f35::t_f9985199725b85 119-120,129
+packages/core/src/app/[locale]/rpc/agent/stream/route.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 51
+packages/core/src/app/api/v1/_shared.test.ts
+  s_393daae8284f35::t_ab590ebac4269b 58,86,113-115,119,124,128,138,143,152,157,162,170,202-205,212
+packages/core/src/app/api/v1/automations/[slug]/pause/route.test.ts
+  s_393daae8284f35::t_aebb3a00143202 35-43,83-84,93,102,123,139,153-154,158
+packages/core/migrations/meta/_journal.json
+  s_393daae8284f35::t_40e0d4e29cbe54 1026-1032
+packages/core/src/app/[locale]/rpc/agent/stream/resume/route.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 17
+packages/core/src/services/ApiTokenService.ts
+  s_393daae8284f35::t_ff06dc866ea1b7 115
+packages/core/e2e/reviews-approved-by-agent/support/seed-approved-by-agent-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 105
+packages/core/src/services/OAuthService.ts
+  s_393daae8284f35::t_2c1ab225e107c5 259
+packages/core/src/app/[locale]/rpc/sources/route.test.ts
+  s_393daae8284f35::t_4d1623b8d2b235 35
+packages/core/migrations/0146_workspace_role_two_names.sql
+  s_393daae8284f35::t_def9637d72f920 26,30,34,39
+  s_393daae8284f35::t_40e0d4e29cbe54 1-25,27-29,31-33,35,37-38,40,42-43
+  s_393daae8284f35::t_31ca205dffbace 36,41
+packages/core/e2e/mission-runs/support/seed-mission-run-fixtures.ts
+  s_393daae8284f35::t_f4d6a17a075256 220,226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9a1c2bb897a80d7f180cdedd91c30ccb64075d17",
+  "prompts": {},
+  "sessions": {
+    "s_393daae8284f35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ed36d1f-e914-44c0-a0ad-d143be251a55",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
