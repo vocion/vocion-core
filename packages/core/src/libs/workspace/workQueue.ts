@@ -553,8 +553,12 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
  * @param lane - The lane it landed in.
  */
 export function costLine(row: PageRow, lane: WorkLane): string | null {
-  const estimate = num(row, 'estimateCents');
-  const actual = num(row, 'actualCents');
+  // A zero is not a figure (2026-09-26: "$0.00 of about $0.00", "$13.04 of
+  // about $0.00" on the Work page). An estimate of nothing is no estimate,
+  // and nothing spent yet is not worth a line.
+  const positive = (n: number | null): number | null => (n !== null && n > 0 ? n : null);
+  const estimate = positive(num(row, 'estimateCents'));
+  const actual = positive(num(row, 'actualCents'));
   if (lane === 'done') {
     return actual === null ? null : dollars(actual);
   }
@@ -971,7 +975,9 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           kindIcon: kindIconOf(row),
           acceptanceLine: acceptanceLine(row, lane) ?? undefined,
           contractGap: contractGap(row, lane) ?? undefined,
-          whyLine: whyLine(row) ?? undefined,
+          // Why it is worth doing is the proposal's argument; once it is
+          // building or done the row says what is happening, not why.
+          whyLine: lane === 'proposed' ? (whyLine(row) ?? undefined) : undefined,
           workLine: workLine(row, lane, now, { staged, ahead }) ?? undefined,
           costLine: costLine(row, lane) ?? undefined,
           flags: flags.length > 0 ? flags : undefined,
