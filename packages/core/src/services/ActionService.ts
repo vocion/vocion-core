@@ -97,6 +97,36 @@ type StoredProposal<T> = Omit<T, 'suggestedDecision' | 'suggestedDecisionReason'
 };
 
 /**
+ * What a refresh stores on an open run: the action's own `refresh` result when
+ * it has one and that result still parses as the action's input, otherwise the
+ * new input and proposal whole.
+ * @param action - The action being proposed.
+ * @param existing - The open run as read under the lock.
+ * @param existing.input - Its stored input.
+ * @param existing.proposal - Its stored proposal.
+ * @param parsed - The new, parsed input.
+ * @param proposal - The new proposal in stored shape.
+ */
+function storedOnRefresh(
+  action: Action,
+  existing: { input: unknown; proposal: unknown },
+  parsed: Record<string, unknown>,
+  proposal: Record<string, unknown> | null,
+): { input: Record<string, unknown>; proposal: Record<string, unknown> | null } {
+  if (!action.refresh) {
+    return { input: parsed, proposal };
+  }
+  const merged = action.refresh(
+    { input: (existing.input ?? {}) as Record<string, unknown>, proposal: (existing.proposal ?? null) as Record<string, unknown> | null },
+    { input: parsed, proposal },
+  );
+  const checked = action.inputSchema.safeParse(merged.input);
+  return checked.success
+    ? { input: checked.data as Record<string, unknown>, proposal: merged.proposal }
+    : { input: parsed, proposal };
+}
+
+/**
  * The proposal envelope as it should be stored.
  *
  * A reason belongs to a recommendation. An envelope carrying
@@ -351,24 +381,32 @@ export async function proposeAction(input: {
   // key alone would rewrite the other action's row with this input and run
   // this action's `onProposed` against a run it does not own.
   if (dedupKey) {
-    const [existing] = await db
-      .select({ id: actionRunSchema.id })
-      .from(actionRunSchema)
-      .where(and(
-        eq(actionRunSchema.orgId, input.orgId),
-        eq(actionRunSchema.actionId, action.id),
-        eq(actionRunSchema.dedupKey, dedupKey),
-        inArray(actionRunSchema.status, ['pending', 'failed']),
-      ))
-      .limit(1);
-    if (existing) {
-      await db
+    const refreshed = await db.transaction(async (tx) => {
+      const lookup = tx
+        .select({ id: actionRunSchema.id, input: actionRunSchema.input, proposal: actionRunSchema.proposal })
+        .from(actionRunSchema)
+        .where(and(
+          eq(actionRunSchema.orgId, input.orgId),
+          eq(actionRunSchema.actionId, action.id),
+          eq(actionRunSchema.dedupKey, dedupKey),
+          inArray(actionRunSchema.status, ['pending', 'failed']),
+        ))
+        .limit(1);
+      // An action that merges into the stored payload reads it under a row
+      // lock: a sync proposes several documents at once, and two of them can
+      // refresh the same run.
+      const [existing] = action.refresh ? await lookup.for('update') : await lookup;
+      if (!existing) {
+        return null;
+      }
+      const stored = storedOnRefresh(action, existing, parsed as Record<string, unknown>, proposalForStorage(input.proposal));
+      await tx
         .update(actionRunSchema)
         .set({
           status: 'pending',
           error: null,
-          input: parsed as Record<string, unknown>,
-          proposal: proposalForStorage(input.proposal),
+          input: stored.input,
+          proposal: stored.proposal as never,
           expiresAt: input.expiresAt ?? null,
           // The refresh is the completion edge of a regeneration: the new
           // payload landing on the same pending run clears the in-flight
@@ -391,16 +429,19 @@ export async function proposeAction(input: {
           decidedAt: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
+      return { id: existing.id, input: stored.input };
+    });
+    if (refreshed) {
       // Keep the action's own domain row in step with the refreshed payload.
       // `onProposed` is documented idempotent precisely so it can run here as
       // well as on first creation; without this a re-proposed candidate would
       // show the reviewer a stale record.
       await action.onProposed?.(
         { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
-        parsed,
-        existing.id,
+        refreshed.input,
+        refreshed.id,
       );
-      return { runId: existing.id, status: 'pending', outcome: 'refreshed' };
+      return { runId: refreshed.id, status: 'pending', outcome: 'refreshed' };
     }
 
     // Nothing open, but a person may have judged this exact record already.

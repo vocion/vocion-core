@@ -481,3 +481,79 @@ describe('proposing against an already-decided run', () => {
     expect(again.runId).toBe(reopened!.id);
   });
 });
+
+const refreshedPayloads: Array<Record<string, unknown>> = [];
+
+// An action that keeps one field of its stored payload when proposed again,
+// the way the candidate action keeps what an event page wrote.
+registerAction({
+  id: 'test.keeps-note',
+  name: 'Test keeps its note',
+  description: 'test',
+  inputSchema: z.object({ value: z.string(), note: z.string().optional() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.keeps-note:${(input as { value: string }).value}`,
+  refresh: (previous, next) => ({
+    input: { ...(next.input as Record<string, unknown>), note: previous.input.note ?? (next.input as { note?: string }).note },
+    proposal: previous.proposal,
+  }),
+  onProposed: async (_ctx, input) => {
+    refreshedPayloads.push(input as Record<string, unknown>);
+  },
+  execute: async () => ({}),
+});
+
+// Same, but its hook hands back something the input schema refuses.
+registerAction({
+  id: 'test.bad-refresh',
+  name: 'Test bad refresh',
+  description: 'test',
+  inputSchema: z.object({ value: z.string(), note: z.string().optional() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.bad-refresh:${(input as { value: string }).value}`,
+  refresh: () => ({ input: { value: 42 }, proposal: null }),
+  execute: async () => ({}),
+});
+
+describe('an action that decides what a refresh stores', () => {
+  beforeEach(() => {
+    refreshedPayloads.length = 0;
+  });
+
+  it('stores what its refresh hook returns, and hands that payload to onProposed', async () => {
+    const first = await proposeAction({
+      orgId: ORG,
+      actionId: 'test.keeps-note',
+      input: { value: 'open-mic', note: 'from the event page' },
+      proposal: { confidence: 0.9, rationale: 'first read', suggestedDecision: 'approve', suggestedDecisionReason: 'Read from its page.' },
+      principal: agent(2),
+    });
+    const second = await proposeAction({
+      orgId: ORG,
+      actionId: 'test.keeps-note',
+      input: { value: 'open-mic', note: 'from a listing' },
+      proposal: { confidence: 0.4, rationale: 'second read', suggestedDecision: 'approve', suggestedDecisionReason: 'Read from a listing.' },
+      principal: agent(2),
+    });
+
+    expect(second.runId).toBe(first.runId);
+    expect(second.outcome).toBe('refreshed');
+
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
+
+    expect(row!.input).toEqual({ value: 'open-mic', note: 'from the event page' });
+    expect(row!.proposal).toMatchObject({ confidence: 0.9, rationale: 'first read' });
+    expect(refreshedPayloads.at(-1)).toEqual({ value: 'open-mic', note: 'from the event page' });
+  });
+
+  it('falls back to the new payload when the hook returns one the input schema refuses', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.bad-refresh', input: { value: 'open-mic', note: 'first' }, principal: agent(2) });
+    await proposeAction({ orgId: ORG, actionId: 'test.bad-refresh', input: { value: 'open-mic', note: 'second' }, principal: agent(2) });
+
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
+
+    expect(row!.input).toEqual({ value: 'open-mic', note: 'second' });
+  });
+});
