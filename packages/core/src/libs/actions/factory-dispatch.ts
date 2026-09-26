@@ -244,10 +244,16 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const p = input.plan ?? {};
   const repo = input.repo ?? {};
   const acceptance = list(g, 'acceptanceContract').length > 0 ? list(g, 'acceptanceContract') : list(r, 'acceptance');
-  const paths = list(g, 'allowedPaths').length > 0 ? list(g, 'allowedPaths') : pathsFromComponents(list(p, 'components'));
-  const checks = list(g, 'requiredChecks').length > 0
-    ? list(g, 'requiredChecks')
-    : (Array.isArray(repo.checks) ? (repo.checks as Array<{ name?: string }>).map(c => c.name ?? '').filter(Boolean) : []);
+  // ONLY WHAT IS REAL wins over the records (red team, 2026-09-26: a card
+  // carried "send-web: header, RequestDialog.tsx" as a path and "All six
+  // acceptance criteria pass" as a check). A path is a path; a check is one
+  // the repo defines. Anything else falls back to what the records say.
+  const isPath = (x: string) => /^[\w.@-]+(?:\/[\w.@*-]+)+\/?$/.test(x);
+  const repoChecks = Array.isArray(repo.checks) ? (repo.checks as Array<{ name?: string }>).map(c => c.name ?? '').filter(Boolean) : [];
+  const givenPaths = list(g, 'allowedPaths').filter(isPath);
+  const paths = givenPaths.length > 0 ? givenPaths : pathsFromComponents(list(p, 'components'));
+  const givenChecks = list(g, 'requiredChecks').filter(c => repoChecks.length === 0 ? /^[\w:.-]+$/.test(c) : repoChecks.includes(c));
+  const checks = givenChecks.length > 0 ? givenChecks : repoChecks;
   const givenRisk = str(g, 'riskClass');
   const risk = givenRisk && (WORKER_RISK as readonly string[]).includes(givenRisk)
     ? givenRisk

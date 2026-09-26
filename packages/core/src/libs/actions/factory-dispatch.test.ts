@@ -89,3 +89,17 @@ describe('a contract from the records alone', () => {
     expect(riskFromPaths(['docs/x.md'], { 'apps/**': 'ui' })).toBeNull();
   });
 });
+
+describe('what a card carries that is not real', () => {
+  it('drops prose paths and checks the repo does not define, and uses the records instead', () => {
+    const c = deriveContract({
+      given: { allowedPaths: ['send-web: header, RequestDialog.tsx'], requiredChecks: ['All six acceptance criteria pass'] },
+      request: { title: 'R', outcome: 'o', acceptance: ['a'] },
+      plan: { repoSlugs: ['Acme/northwind-core'], components: ['apps/web — a button'] },
+      repo: { title: 'Acme/northwind-core', checks: [{ name: 'typecheck' }, { name: 'test' }] },
+    });
+
+    expect(c.allowedPaths).toEqual(['apps/web/**']);
+    expect(c.requiredChecks).toEqual(['typecheck', 'test']);
+  });
+});
