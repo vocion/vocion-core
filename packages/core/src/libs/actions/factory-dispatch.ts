@@ -394,6 +394,18 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       const created = await createBusinessObject({ typeSlug: 'engineering_task', title: String(title ?? task.title), status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready' } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
       createdTaskId = (created as { id: number }).id;
       task = { ...task, id: createdTaskId };
+      // THE WORKER'S KEY on the task it will report to (2026-09-26: run 357
+      // upserted a second engineering_task by `factory` / `task:<task_id>`
+      // and the dispatched one stayed "dispatched" forever). Same id the
+      // contract carries, so claimed / completed land on this record.
+      const product = request ? str(request.meta, 'product') : null;
+      const workerTaskId = str(task.meta, 'taskId') ?? `${product ?? 'product'}-t${createdTaskId}`;
+      const { and, eq } = await import('drizzle-orm');
+      const { db } = await import('@/libs/DB');
+      const { businessObjectSchema } = await import('@/models/Schema');
+      await db.update(businessObjectSchema)
+        .set({ externalSystem: 'factory', externalId: `task:${workerTaskId}`, status: 'dispatched' })
+        .where(and(eq(businessObjectSchema.orgId, ctx.orgId), eq(businessObjectSchema.id, createdTaskId)));
     }
     const gaps = contractGaps(task.meta);
     if (gaps.length > 0) {
