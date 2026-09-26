@@ -399,6 +399,15 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     }
   }
 
+  // A merge on GitHub is the decision its merge card asked for: close it
+  // before anything subscribed to the merge reads the card as still open.
+  if (input.type === 'pr.merged') {
+    const { closeMergeCardsOnMerge } = await import('@/services/factory/mergeCards');
+    await closeMergeCardsOnMerge(input.orgId, payload).catch((err) => {
+      console.warn('[events] could not close merge cards', { error: (err as Error).message });
+    });
+  }
+
   // Find active workflows subscribed to this event type whose filter matches.
   const workflows = await db
     .select({ slug: workflowSchema.slug, trigger: workflowSchema.trigger, status: workflowSchema.status })
