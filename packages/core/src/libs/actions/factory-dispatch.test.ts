@@ -132,3 +132,17 @@ describe('a plan\'s risks', () => {
     expect(c.acceptanceContract).toEqual(['a', 'The plan\'s risk is handled: Abuse: add a per-link rate limit', 'The plan\'s risk is handled: Confusion: one line in the dialog']);
   });
 });
+
+describe('a visible change on a logic contract', () => {
+  it('still gets a QA flow when the request\'s surface is ui', () => {
+    const c = deriveContract({
+      given: {},
+      request: { title: 'Search', outcome: 'o', acceptance: ['a'], surface: 'ui', visuals: { surfaceUrl: 'https://app.example.test/' } },
+      plan: { repoSlugs: ['Acme/x'], components: ['packages/api/src/routes/documents.ts — q param'] },
+      repo: { title: 'Acme/x', checks: [{ name: 'test' }], riskDefaults: { 'packages/api/**': 'logic' } },
+    });
+
+    expect(c.riskClass).toBe('logic');
+    expect(c.qa).toEqual({ surface: 'app', flows: [{ name: 'Search', path: '/', sign_in: true }] });
+  });
+});
