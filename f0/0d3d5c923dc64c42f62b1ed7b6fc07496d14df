@@ -1,0 +1,24 @@
+packages/core/src/libs/sources/slack.ts
+  s_393daae8284f35::t_51f5cb89e896f8 7-12,20-35,46-68,71-87,92,104-134
+  s_393daae8284f35::t_9c044b02ba2474 69-70
+packages/core/src/libs/sources/slack.test.ts
+  s_393daae8284f35::t_85acc0746cd709 42
+  s_393daae8284f35::t_9c044b02ba2474 11,40-41,43
+  s_393daae8284f35::t_8909252544ebea 1-10,12-39,44-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f00d3d5c923dc64c42f62b1ed7b6fc07496d14df",
+  "prompts": {},
+  "sessions": {
+    "s_393daae8284f35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ed36d1f-e914-44c0-a0ad-d143be251a55",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
