@@ -81,7 +81,7 @@ export async function forceRequiredTool(opts: {
   // the run's last refusal lists screenshots, this pass fetches them
   // server-side, records each as opened, and puts the pictures in front of the
   // model beside its report, so the verdict is taken looking at the evidence.
-  const shots = await shotsFromRefusal(ctx, opts.toolName);
+  const shots = await openShots(ctx, listedShots(await lastRefusal(ctx, opts.toolName)));
   if (shots.length > 0) {
     ctx.evidenceOpened = true;
   }
@@ -121,19 +121,31 @@ export async function forceRequiredTool(opts: {
       return { called: true, answer };
     }
     messages.push(res as BaseMessage, new ToolMessage({ content: answer, tool_call_id: call.id ?? `${opts.toolName}-${attempt}` }));
+    // ITS OWN REFUSAL LISTS THE EVIDENCE TOO. Review 5715 read the PR and
+    // quit without calling the tool at all, so there was no earlier refusal to
+    // take screenshots from; the pass's first try was refused for not looking,
+    // and the second repeated it. When this pass is refused with a list of
+    // screenshots and has none open, it opens them and tries once more looking.
+    if (shots.length === 0) {
+      const opened = await openShots(ctx, listedShots(answer));
+      if (opened.length > 0) {
+        ctx.evidenceOpened = true;
+        shots.push(...opened);
+        messages.push(new HumanMessage({ content: [{ type: 'text', text: 'The screenshots, opened for you. Judge each criterion by what these show, and cite the link of the one that proves it:' }, ...opened.flatMap(shot => [{ type: 'text' as const, text: `${shot.title}: ${shot.link}` }, { type: 'image_url' as const, image_url: { url: shot.dataUri } }])] }));
+      }
+    }
   }
   return { called: false, answer };
 }
 
 /**
- * The screenshots the run's last refusal listed, fetched and recorded as
- * opened in this run. Empty when the last refusal lists none.
- * @param ctx - The run's context (org, missionRunId, agent).
+ * The run's newest refusal of the required tool that lists screenshots, or ''.
+ * @param ctx - The run's context (org, missionRunId).
  * @param toolName - The required tool whose refusal is read.
  */
-async function shotsFromRefusal(ctx: RuntimeContext, toolName: string): Promise<Array<{ title: string; link: string; dataUri: string }>> {
+async function lastRefusal(ctx: RuntimeContext, toolName: string): Promise<string> {
   if (!ctx.missionRunId) {
-    return [];
+    return '';
   }
   const { desc, sql } = await import('drizzle-orm');
   const { toolCallSchema } = await import('@/models/Schema');
@@ -143,8 +155,15 @@ async function shotsFromRefusal(ctx: RuntimeContext, toolName: string): Promise<
     .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.missionRunId, ctx.missionRunId), eq(toolCallSchema.tool, toolName), sql`${toolCallSchema.output}::text like '%Not recorded%'`, sql`${toolCallSchema.output}::text like '%/dashboard/artifacts/%'`))
     .orderBy(desc(toolCallSchema.id))
     .limit(1);
-  const text = typeof last?.output === 'string' ? last.output : JSON.stringify(last?.output ?? '');
-  const listed = listedShots(text);
+  return typeof last?.output === 'string' ? last.output : JSON.stringify(last?.output ?? '');
+}
+
+/**
+ * The listed screenshots, fetched and recorded as opened in this run.
+ * @param ctx - The run's context.
+ * @param listed - What a refusal listed.
+ */
+async function openShots(ctx: RuntimeContext, listed: Array<{ title: string; link: string }>): Promise<Array<{ title: string; link: string; dataUri: string }>> {
   if (listed.length === 0) {
     return [];
   }
