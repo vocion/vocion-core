@@ -62,7 +62,10 @@ export const TASK_STATUS_FOR: Record<typeof VERDICT_VALUES[number], string> = {
  * @param evidence - What the reviewer cited.
  */
 export function reachable(evidence: string): boolean {
-  return /https?:\/\/\S+/.test(evidence) || /[\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?\b/.test(evidence) || /\b(?:describe|it|test)\(\s*['"`]/.test(evidence);
+  // An artifact number in this workspace ("artifacts 978/979") is one move
+  // away too: the recording pass that had just looked at the shots cited them
+  // that way and was refused as "a description" (review 5650, 2026-09-27).
+  return /https?:\/\/\S+/.test(evidence) || /\bartifacts?\s*#?\d+/i.test(evidence) || /[\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?\b/.test(evidence) || /\b(?:describe|it|test)\(\s*['"`]/.test(evidence);
 }
 
 /**

@@ -109,6 +109,8 @@ describe('reachable evidence', () => {
     expect(reachable('https://agents.example/dashboard/artifacts/733')).toBe(true);
     expect(reachable('documents-search.test.ts, describe(\'scope: kept-back\')')).toBe(true);
     expect(reachable('qaReport (run 374): the empty state reads No documents match')).toBe(false);
+    expect(reachable('Artifacts 978/979 show the list narrowing as text is typed')).toBe(true);
+    expect(reachable('artifact #949')).toBe(true);
     expect(judgeVerdict('changes', [{ criterion: 'Empty state offers Clear', status: 'proven', evidence: 'the caption says Clear is visible' }], []).refusal).toMatch(/a description, not evidence/);
   });
 });
