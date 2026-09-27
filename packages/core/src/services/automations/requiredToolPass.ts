@@ -181,7 +181,7 @@ async function openShots(ctx: RuntimeContext, listed: Array<{ title: string; lin
       continue;
     }
     const started = Date.now();
-    const got = await fetchImage(stored, { maxEdge: 1100 }).catch(() => null);
+    const got = await fetchImage(stored, { maxEdge: 800 }).catch(() => null);
     if (!got) {
       continue;
     }
@@ -192,12 +192,15 @@ async function openShots(ctx: RuntimeContext, listed: Array<{ title: string; lin
 }
 
 /**
- * The screenshots a refusal lists (`- <title>: <artifact page link>`), at most twelve.
+ * The screenshots a refusal lists (`- <title>: <artifact page link>`), at most twenty-four.
  * @param text - The refusal.
  * @param raw
  */
 export function listedShots(raw: string): Array<{ title: string; link: string }> {
   // tool_call.output can hold the refusal JSON-quoted, newlines as "\\n".
   const text = raw.replace(/\\n/g, '\n');
-  return [...text.matchAll(/- ([^\n]+?): (https?:\/\/\S+\/dashboard\/artifacts\/\d+)/g)].slice(0, 12).map(m => ({ title: m[1]!, link: m[2]! }));
+  // Twenty-four, not twelve: task 179 had fifteen and the two that proved the
+  // URL-state criterion were cut, so QA recorded them "not provided" (review
+  // 5750). Each is fetched smaller (800px) so the pass costs about the same.
+  return [...text.matchAll(/- ([^\n]+?): (https?:\/\/\S+\/dashboard\/artifacts\/\d+)/g)].slice(0, 24).map(m => ({ title: m[1]!, link: m[2]! }));
 }

@@ -57,6 +57,11 @@ describe('listedShots', () => {
     expect(listedShots('Not recorded: an approve cannot carry 1 criteria')).toEqual([]);
     // As tool_call.output stores it: JSON-quoted, newlines escaped.
     expect(listedShots(JSON.stringify(refusal))).toEqual(listedShots(refusal));
+
+    // Fifteen screenshots are fifteen, not twelve (review 5750 lost the URL-state pair).
+    const fifteen = Array.from({ length: 15 }, (_, i) => `- Shot ${i}: https://agents.example/dashboard/artifacts/${1000 + i}`).join('\n');
+
+    expect(listedShots(fifteen)).toHaveLength(15);
   });
 });
 
