@@ -168,6 +168,14 @@ export function noteWithoutCount(note: string): string {
 }
 
 /**
+ * The note, at most 400 characters, cut at a word.
+ * @param note - QA's sentence.
+ */
+export function clipNote(note: string): string {
+  return note.length <= 400 ? note : `${note.slice(0, 399).replace(/\s+\S*$/, '')}…`;
+}
+
+/**
  * The merge card's summary: the note, the count, then each criterion with its
  * evidence, so the person merging reads the proof without opening the run.
  * @param note - QA's one sentence.
@@ -185,7 +193,7 @@ async function findTaskByPr(orgId: string, prUrl: string) {
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
   const url = prUrl.trim().replace(/\/(files|commits|checks)\/?$/, '').replace(/\/$/, '');
   const [row] = await db
-    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, 'engineering_task'), sql`${businessObjectSchema.metadata}->>'prUrl' = ${url}`))
@@ -205,6 +213,27 @@ async function writeTask(orgId: string, id: number, set: Record<string, unknown>
     .update(businessObjectSchema)
     .set({ ...(typeof set.status === 'string' ? { status: set.status } : {}), metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify(set)}::jsonb`, updatedAt: new Date() })
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
+}
+
+/**
+ * QA COULD NOT FINISH: the review ended without a verdict, even after the
+ * recording pass. The task says so (status review_failed), so the Work row
+ * stops reading "no action needed". A later verdict overwrites it.
+ * @param orgId - The workspace.
+ * @param prUrl - The pull request the review was about.
+ * @param reason - What the last refusal said.
+ * @returns The task marked, or null when no waiting task carries the PR.
+ */
+export async function markReviewFailed(orgId: string, prUrl: string, reason: string): Promise<number | null> {
+  const task = await findTaskByPr(orgId, prUrl);
+  const status = task ? String((task as { status?: string }).status ?? task.meta.status ?? '') : '';
+  if (!task || status !== 'awaiting_review') {
+    return null;
+  }
+  await writeTask(orgId, task.id, { status: 'review_failed', reviewFailure: { at: new Date().toISOString(), reason: reason.slice(0, 600) } });
+  const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
+  await recomputeRollupsForObject(orgId, task.id).catch(() => undefined);
+  return task.id;
 }
 
 /**
@@ -326,7 +355,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         commitSha,
         at: new Date().toISOString(),
         by,
-        note: noteWithoutCount(args.note),
+        note: clipNote(noteWithoutCount(args.note)),
         proven,
         total,
         criteria,
@@ -399,7 +428,9 @@ export function recordVerdictTool(ctx: RuntimeContext) {
           what: z.string().min(1),
           closeBy: z.string().optional(),
         })), z.string()]).optional().describe('Findings keyed to the contract, as a list. block keeps the merge from being proposed.'),
-        note: z.string().min(1).max(400).describe('One sentence for the person who merges: what they accept and the one risk to know.'),
+        // No max: review 5710's verdict died on a 520-character note and the
+        // task sat in Awaiting QA. A long sentence is clipped, never refused.
+        note: z.string().min(1).describe('One sentence for the person who merges: what they accept and the one risk to know.'),
         independent_checks: z.union([z.array(z.string()), z.string()]).optional().describe('Checks that ran on trusted CI or that you reproduced, not the worker\'s report.'),
       }),
     },

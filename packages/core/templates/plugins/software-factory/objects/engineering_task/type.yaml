@@ -164,10 +164,10 @@ schema:
         a check. Nothing is accepted on a worker's assurance that it tested it.
       items: {type: string}
     status:
-      x-display: {label: Status, format: badge, group: Contract, tones: {drafted: muted, ready: info, dispatched: info, running: info, awaiting_review: warn, changes_requested: warn, accepted: ok, rejected: bad, abandoned: muted}}
+      x-display: {label: Status, format: badge, group: Contract, tones: {drafted: muted, ready: info, dispatched: info, running: info, awaiting_review: warn, review_failed: bad, changes_requested: warn, accepted: ok, rejected: bad, abandoned: muted}}
       type: string
       description: Where the task stands. Plain text rather than an enum because a deployment's stages are its own; these are the ones the plugin's own page filters on.
-      enum: [drafted, ready, dispatched, running, awaiting_review, changes_requested, accepted, rejected, abandoned]
+      enum: [drafted, ready, dispatched, running, awaiting_review, review_failed, changes_requested, accepted, rejected, abandoned]
     branch:
       x-display: {label: Branch, format: mono, group: The change}
       type: string

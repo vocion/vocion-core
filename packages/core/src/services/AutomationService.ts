@@ -453,6 +453,12 @@ async function dispatchDo(
       context: triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined,
     }).catch(err => ({ called: false, answer: (err as Error).message }));
     if (!forced.called) {
+      // The review's own record says it failed, where the person reads (Work).
+      const prUrl = typeof triggerInput?.url === 'string' ? triggerInput.url : '';
+      if (doCfg.requireTool === 'record_verdict' && prUrl) {
+        const { markReviewFailed } = await import('@/services/agents/tools/recordVerdict');
+        await markReviewFailed(orgId, prUrl, forced.answer).catch(() => null);
+      }
       throw new Error(`automation "${slug}": run #${run.id} ended without ${doCfg.requireTool}, and the recording pass did not land it (${forced.answer.slice(0, 300)})`);
     }
   }

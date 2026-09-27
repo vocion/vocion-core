@@ -97,12 +97,12 @@ describe('withToolCallRecord', () => {
 
     const asText = await read.invoke({ object_type: 'request' } as never);
 
-    expect(String(asText)).toMatch(/^Invalid arguments for read_object: [\s\S]*Nothing ran\. Fix the arguments and call read_object again\.$/);
+    expect(String(asText)).toMatch(/^Not recorded: invalid arguments for read_object: [\s\S]*Nothing ran\. Fix the arguments and call read_object again\.$/);
 
     const asMessage = await read.invoke({ type: 'tool_call', id: 'call_1', name: 'read_object', args: { object_type: 'request' } } as never) as { content: string; tool_call_id: string };
 
     expect(asMessage.tool_call_id).toBe('call_1');
-    expect(asMessage.content).toMatch(/^Invalid arguments for read_object/);
+    expect(asMessage.content).toMatch(/^Not recorded: invalid arguments for read_object/);
 
     // The tool's own work failing still throws (see 'records the error and rethrows').
     expect(await read.invoke({ id: 7, object_type: 'request' })).toBe('record 7');

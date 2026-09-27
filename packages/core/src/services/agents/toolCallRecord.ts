@@ -176,7 +176,7 @@ export function withToolCallRecord(
       // what was wrong and calls again — the tool's own work still throws.
       if (isSchemaMiss(err)) {
         const call = input as { id?: string; type?: string } | null;
-        const content = `Invalid arguments for ${toolObj.name}: ${(err as Error).message.replace(/^Error invoking tool '[^']+' with kwargs [\s\S]*? with error: /, '').slice(0, 600)}. Nothing ran. Fix the arguments and call ${toolObj.name} again.`;
+        const content = `Not recorded: invalid arguments for ${toolObj.name}: ${(err as Error).message.replace(/^Error invoking tool '[^']+' with kwargs [\s\S]*? with error: /, '').slice(0, 600)}. Nothing ran. Fix the arguments and call ${toolObj.name} again.`;
         if (call?.type === 'tool_call' && call.id) {
           const { ToolMessage } = await import('@langchain/core/messages');
           return new ToolMessage({ content, tool_call_id: call.id, name: toolObj.name });

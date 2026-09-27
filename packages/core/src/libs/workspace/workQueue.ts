@@ -299,12 +299,13 @@ export function stageOf(row: PageRow): WorkStage {
  * Which wait a building outcome is in, when it is not actually running.
  * @param row - The row.
  */
-function waitOf(row: PageRow): 'merge' | 'qa' | 'changes' | 'dispatch' | null {
+function waitOf(row: PageRow): 'merge' | 'qa' | 'stuck' | 'changes' | 'dispatch' | null {
   const tasks = num(row, 'taskCount') ?? 0;
   const running = num(row, 'runningTaskCount') ?? 0;
   const review = num(row, 'awaitingReviewTaskCount') ?? 0;
   const accepted = num(row, 'acceptedTaskCount') ?? 0;
   const changes = num(row, 'changesRequestedTaskCount') ?? 0;
+  const stuck = num(row, 'reviewFailedTaskCount') ?? 0;
   if (running > 0) {
     return null;
   }
@@ -313,6 +314,9 @@ function waitOf(row: PageRow): 'merge' | 'qa' | 'changes' | 'dispatch' | null {
   }
   if (review > 0) {
     return 'qa';
+  }
+  if (stuck > 0) {
+    return 'stuck';
   }
   // QA SENT IT BACK, AND THAT IS THE READER'S MOVE (2026-09-26: #131 read
   // "Awaiting QA; no action needed" under a verdict of 0 of 8 proven).
@@ -362,6 +366,8 @@ export function stateOf(row: PageRow, lane: WorkLane, opts: { staged?: boolean }
         return 'Ready to merge';
       case 'qa':
         return 'Awaiting QA';
+      case 'stuck':
+        return 'QA could not finish';
       case 'changes':
         return 'Changes asked';
       case 'dispatch':
@@ -502,6 +508,8 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
         return 'QA approved. The merge is waiting on a person.';
       case 'qa':
         return 'Engineering finished. Awaiting QA; no action needed from you.';
+      case 'stuck':
+        return 'The review ended without a verdict. Build again starts a fresh attempt.';
       case 'changes':
         return 'QA sent it back with what would settle each criterion. Build again carries it.';
       case 'dispatch':

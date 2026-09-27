@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignToContract, buildAgain, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable } from './recordVerdict';
+import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -93,6 +93,17 @@ describe('buildAgain', () => {
   it('never retries an attempt that was itself the automatic retry, and needs a request', async () => {
     expect(await buildAgain('org_x', { id: 165, meta: { requestId: 131, autoRetryOf: 164 } })).toMatch(/already the automatic retry/);
     expect(await buildAgain('org_x', { id: 165, meta: {} })).toBeNull();
+  });
+});
+
+describe('clipNote', () => {
+  it('keeps a short note and clips a long one at a word, never refusing it (review 5710)', () => {
+    expect(clipNote('Short.')).toBe('Short.');
+
+    const long = clipNote(`${'word '.repeat(110)}end`);
+
+    expect(long.length).toBeLessThanOrEqual(400);
+    expect(long.endsWith('word…')).toBe(true);
   });
 });
 

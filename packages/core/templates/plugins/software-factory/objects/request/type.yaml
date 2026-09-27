@@ -280,6 +280,10 @@ schema:
         the cycle time the Performance page takes a median of; a request with
         no release has no ship date and is left out of that median rather than
         counted as instant.
+    reviewFailedTaskCount:
+      x-display: {hidden: true}
+      type: integer
+      description: ROLLED UP — tasks whose QA review ended without a verdict, even after the recording pass. Non-zero means the row says so instead of "no action needed".
     changesRequestedTaskCount:
       x-display: {hidden: true}
       type: integer
@@ -475,6 +479,8 @@ rollups:
   # on QA, and work QA approved waiting on a merge (review, 2026-09-24).
   - {field: awaitingReviewTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [awaiting_review]}}
   - {field: acceptedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [accepted]}}
+  # QA could not finish: the review ended without a verdict (review 5710 sat six hours as "no action needed").
+  - {field: reviewFailedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [review_failed]}}
   # QA sent an attempt back (record_verdict: changes). The row says so and offers Build again.
   - {field: changesRequestedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [changes_requested]}}
   # Rework: the same tasks, narrowed to the ones that were thrown away. Money

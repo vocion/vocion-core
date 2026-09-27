@@ -642,6 +642,7 @@ export function statusTone(status: string | null): Tone {
       return 'ok';
     case 'failed':
     case 'rejected':
+    case 'review_failed':
     case 'cancelled':
     case 'lost':
       return 'bad';
@@ -1715,7 +1716,7 @@ function findContradictions(input: FeatureReportInput, mergedPrs: Set<string>, l
  * them, and a stored one eventually does.
  */
 export type ReportState = {
-  key: 'blocked' | 'decide' | 'approve' | 'building' | 'qa' | 'changes' | 'merge' | 'released' | 'waiting';
+  key: 'blocked' | 'decide' | 'approve' | 'building' | 'qa' | 'changes' | 'stuck' | 'merge' | 'released' | 'waiting';
   /** "Blocked", "Building" — the badge. */
   label: string;
   /** "waiting on you", "no action needed" — the half that says whose move it is. */
@@ -1830,6 +1831,14 @@ function buildState(input: FeatureReportInput): ReportState {
     const v = (sentBack.meta.verdict ?? {}) as { proven?: number; total?: number; note?: string };
     const count = typeof v.proven === 'number' && typeof v.total === 'number' ? `QA proved ${v.proven} of ${v.total}` : 'QA sent it back';
     return { key: 'changes', label: 'Changes asked', detail: v.note ? `${count}: ${v.note}` : count, needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
+  }
+  // QA COULD NOT FINISH. A review that ended without a verdict, even after
+  // the recording pass, is said as that — never "no action needed" (#131,
+  // task 177 read that for six hours over five failed reviews).
+  const failedReview = [...input.tasks].filter(t => taskStatus(t) === 'review_failed').sort((a, b) => b.id - a.id)[0];
+  if (failedReview && !input.tasks.some(t => taskStatus(t) === 'awaiting_review')) {
+    const why = String((failedReview.meta.reviewFailure as { reason?: string } | undefined)?.reason ?? '').split(/(?<=\.)\s/)[0]?.slice(0, 200);
+    return { key: 'stuck', label: 'QA could not finish', detail: why ? `the review ended without a verdict: ${why}` : 'the review ended without a verdict', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
   }
   const awaitingReview = input.tasks.filter(t => taskStatus(t) === 'awaiting_review');
   if (awaitingReview.length > 0) {
