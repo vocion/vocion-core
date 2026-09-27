@@ -364,6 +364,13 @@ export type RuntimeContext = {
   missionSlug?: string;
   /** The mission_run driving this turn — audit trails (`assessed_by`) point back to it. */
   missionRunId?: number;
+  /**
+   * Set by the automations' recording pass when it has fetched the task's
+   * screenshots and put them in front of the model: evidence opened in this
+   * turn, which record_verdict's "opened none" rule accepts without reading
+   * tool_call rows back.
+   */
+  evidenceOpened?: boolean;
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
   /**

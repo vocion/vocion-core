@@ -82,6 +82,10 @@ export async function forceRequiredTool(opts: {
   // server-side, records each as opened, and puts the pictures in front of the
   // model beside its report, so the verdict is taken looking at the evidence.
   const shots = await shotsFromRefusal(ctx, opts.toolName);
+  if (shots.length > 0) {
+    ctx.evidenceOpened = true;
+  }
+  console.warn('[automation] recording pass', { missionRunId: opts.missionRunId, tool: opts.toolName, shotsAttached: shots.length });
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage, ToolMessage } = await import('@langchain/core/messages');
   const base = await buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: false, maxTokens: 6000 });
@@ -136,7 +140,7 @@ async function shotsFromRefusal(ctx: RuntimeContext, toolName: string): Promise<
   const [last] = await db
     .select({ output: toolCallSchema.output })
     .from(toolCallSchema)
-    .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.missionRunId, ctx.missionRunId), eq(toolCallSchema.tool, toolName), sql`${toolCallSchema.output}::text like '%Not recorded%'`))
+    .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.missionRunId, ctx.missionRunId), eq(toolCallSchema.tool, toolName), sql`${toolCallSchema.output}::text like '%Not recorded%'`, sql`${toolCallSchema.output}::text like '%/dashboard/artifacts/%'`))
     .orderBy(desc(toolCallSchema.id))
     .limit(1);
   const text = typeof last?.output === 'string' ? last.output : JSON.stringify(last?.output ?? '');
@@ -167,7 +171,10 @@ async function shotsFromRefusal(ctx: RuntimeContext, toolName: string): Promise<
 /**
  * The screenshots a refusal lists (`- <title>: <artifact page link>`), at most twelve.
  * @param text - The refusal.
+ * @param raw
  */
-export function listedShots(text: string): Array<{ title: string; link: string }> {
+export function listedShots(raw: string): Array<{ title: string; link: string }> {
+  // tool_call.output can hold the refusal JSON-quoted, newlines as "\\n".
+  const text = raw.replace(/\\n/g, '\n');
   return [...text.matchAll(/- ([^\n]+?): (https?:\/\/\S+\/dashboard\/artifacts\/\d+)/g)].slice(0, 12).map(m => ({ title: m[1]!, link: m[2]! }));
 }

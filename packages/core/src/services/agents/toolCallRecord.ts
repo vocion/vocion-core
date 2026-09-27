@@ -130,7 +130,7 @@ export async function persistToolCall(rec: ToolCallRecord): Promise<void> {
   } catch (err) {
     // Reported, never propagated — and console rather than the LogTape
     // logger so the CLI scripts that import the harness stay loadable.
-    console.warn('[tool_call] record write failed', { error: (err as Error).message, tool: rec.tool });
+    console.error('[tool_call] record write failed', { error: (err as Error).message, tool: rec.tool, missionRunId: rec.ctx.missionRunId ?? null });
   }
 }
 

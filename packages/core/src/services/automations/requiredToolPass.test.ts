@@ -10,5 +10,7 @@ describe('listedShots', () => {
       { title: 'Chips · phone · after', link: 'https://agents.example/dashboard/artifacts/950' },
     ]);
     expect(listedShots('Not recorded: an approve cannot carry 1 criteria')).toEqual([]);
+    // As tool_call.output stores it: JSON-quoted, newlines escaped.
+    expect(listedShots(JSON.stringify(refusal))).toEqual(listedShots(refusal));
   });
 });

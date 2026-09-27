@@ -251,7 +251,7 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
  * @param taskId - The task under review.
  */
 export async function unopenedShots(ctx: RuntimeContext, taskId: number): Promise<string | null> {
-  if (!ctx.missionRunId) {
+  if (!ctx.missionRunId || ctx.evidenceOpened) {
     return null;
   }
   const { and, eq, like, sql } = await import('drizzle-orm');
