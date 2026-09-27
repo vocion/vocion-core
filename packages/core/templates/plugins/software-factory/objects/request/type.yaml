@@ -499,6 +499,22 @@ classificationPrompt: >-
 # missing things named, and nobody is interrupted. The judge half (rubric +
 # reference cases, escalation to a person) runs only after this passes.
 gates:
+  # PROPOSAL-READY: the bar a proposal meets before it reaches a person's
+  # Proposed lane, taken from the six Stamp proposals Chris called great
+  # (2026-09-27; wiki "What a good proposal looks like", eval
+  # proposal-reference). Runs at the door: objects.propose_candidate refuses a
+  # card that fails it, naming each missing thing, and the proposer fixes it.
+  - name: proposal-ready
+    when: {field: status, becomes: [candidate]}
+    producedBy: product-manager
+    require:
+      - {field: product, present: true, message: name the product this is for}
+      - {field: story, present: true, message: 'write the story as one person in their words — "As a founder who just sent a deck to an investor, I want…"'}
+      - {field: outcome, present: true, message: say what the person can do afterwards}
+      - {field: acceptance, minItems: 3, message: write three to six acceptance lines a person can check on the screen or in a named test}
+      - {field: mainRisk, present: true, message: name the one thing most likely to go wrong, in a sentence}
+      - {field: visuals.surfaceUrl, present: true, message: name the live page this changes, and attach a before-shot of it as it is today}
+      - {field: whyNote, present: true, message: 'say why this does not exist yet: the file, screen or marketing line you checked against what the product already does'}
   - name: decision-ready
     when: {field: state, becomes: [in_scope]}
     producedBy: product-manager

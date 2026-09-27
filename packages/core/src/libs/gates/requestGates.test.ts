@@ -205,3 +205,28 @@ describe('the declared gate, through the action a planner actually calls', () =>
     expect(res.status).toBe('done');
   });
 });
+
+describe('proposal-ready: the bar a proposal meets at the door (Chris, 2026-09-27)', () => {
+  const six = {
+    product: 'send',
+    story: 'As someone with dozens of links, I want to type a name and find the proposal I sent last month.',
+    outcome: 'Type a few letters in the library and find the document.',
+    acceptance: [{ statement: 'A search box narrows the list as you type.' }, { statement: 'The count reads N of M.' }, { statement: 'No match offers Clear.' }],
+    mainRisk: 'Search must respect the library scope a teammate sees.',
+    visuals: { surfaceUrl: 'https://app.example/' },
+    whyNote: 'LibraryPage.tsx has no search input; the capability list has no search.',
+  };
+
+  it('lets a card shaped like the six through', () => {
+    expect(evaluateGates(GATES, {}, { ...six, status: 'candidate' })).toBeNull();
+  });
+
+  it('refuses a thin card and names every missing piece, for the proposer to fix', async () => {
+    const { proposalRefusal } = await import('@/libs/actions/objects-propose-candidate');
+    const failure = evaluateGates(GATES, {}, { product: 'send', outcome: 'Search the library.', acceptance: [{ statement: 'Search works.' }], status: 'candidate' });
+
+    expect(failure?.gate.name).toBe('proposal-ready');
+    expect(failure?.failed.map(f => f.field)).toEqual(['story', 'acceptance', 'mainRisk', 'visuals.surfaceUrl', 'whyNote']);
+    expect(proposalRefusal(failure!, 'Request')).toMatch(/^Not proposed: this request fails the "proposal-ready" bar: story: write the story as one person in their words/);
+  });
+});

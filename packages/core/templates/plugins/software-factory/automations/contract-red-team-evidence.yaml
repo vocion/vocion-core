@@ -50,6 +50,10 @@ do:
     criterion it does not exercise; a screenshot of the wrong state is not
     evidence; a criterion with no link is unproven.
 
+    The contract graded is the task's acceptanceContract: the request's
+    frozen criteria AND the plan's risk lines ("The plan's risk is handled:
+    …"). Judge the risk lines too, usually by a named test.
+
     End by calling record_verdict with every criterion judged proven, unproven
     or unchecked, the evidence for each proven one, and one sentence for the
     person who merges. approve only when every criterion is proven. The server

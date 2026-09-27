@@ -39,7 +39,9 @@
 
 import type { ValidateFunction } from 'ajv';
 import type { Action, ActionContext, ReviewCard } from './types';
+import type { GateFailure } from '@/libs/gates/handoffGate';
 import { z } from 'zod';
+import { evaluateGates, gatesOf } from '@/libs/gates/handoffGate';
 import { isEmptyValue } from '@/libs/workspace/pageFields';
 
 /** The registered id, and the prefix every dedup key carries. */
@@ -49,6 +51,15 @@ const CANDIDATE_ACTION_ID = 'objects.propose_candidate';
 const DEDUP_SEGMENT_MAX_LENGTH = 80;
 
 /** Lifecycle a proposed object walks. `active` stays the default for objects created any other way. */
+/**
+ * The refusal for a proposal that fails a candidate gate: every missing thing, and what to do.
+ * @param f - The failure.
+ * @param label - The type's label.
+ */
+export function proposalRefusal(f: GateFailure, label: string): string {
+  return `Not proposed: this ${label.toLowerCase()} fails the "${f.gate.name}" bar: ${f.failed.map(x => `${x.field}: ${x.why}`).join('; ')}. Fix the card and propose it again.`;
+}
+
 export const CANDIDATE_STATUS = {
   proposed: 'candidate',
   approved: 'approved',
@@ -855,6 +866,15 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
     if (!objectType) {
       return `No object type "${input.objectType}" in this workspace. Propose against a type the workspace defines, or have the type added first.`;
+    }
+    // A GATE ON BECOMING A CANDIDATE runs here, at the door (Chris,
+    // 2026-09-27: "the 6 ideas in proposed are great; codify this quality").
+    // A type that declares `when: {field: status, becomes: [candidate]}` gets
+    // proposals refused with each missing thing named, before they reach a
+    // person's queue; the proposer fixes the card and proposes again.
+    const failure = evaluateGates(gatesOf(objectType.schema), {}, { ...input.fields, status: 'candidate' });
+    if (failure) {
+      return proposalRefusal(failure, objectType.label);
     }
     return undefined;
   },
