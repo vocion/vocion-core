@@ -79,6 +79,16 @@ function normalizeOutput(output: unknown): string {
   }
 }
 
+/**
+ * Whether an error is the tool refusing its INPUT (schema validation), as
+ * opposed to the tool's own work failing.
+ * @param err - What the invocation threw.
+ */
+export function isSchemaMiss(err: unknown): boolean {
+  const e = err as { name?: string; message?: string } | null;
+  return e?.name === 'ToolInputParsingException' || /did not match expected schema/i.test(e?.message ?? '');
+}
+
 export type ToolCallRecord = {
   ctx: RuntimeContext;
   tool: string;
@@ -159,6 +169,20 @@ export function withToolCallRecord(
         durationMs: Date.now() - started,
         ns,
       });
+      // A CALL THAT MISSES THE TOOL'S SCHEMA IS AN ANSWER, NOT A CRASH. On
+      // 2026-09-27 a review called read_object with no id; the schema threw,
+      // and the throw ended the whole mission task 19 seconds in, so the
+      // review recorded nothing (run 5631). Nothing ran, so the model is told
+      // what was wrong and calls again — the tool's own work still throws.
+      if (isSchemaMiss(err)) {
+        const call = input as { id?: string; type?: string } | null;
+        const content = `Invalid arguments for ${toolObj.name}: ${(err as Error).message.replace(/^Error invoking tool '[^']+' with kwargs [\s\S]*? with error: /, '').slice(0, 600)}. Nothing ran. Fix the arguments and call ${toolObj.name} again.`;
+        if (call?.type === 'tool_call' && call.id) {
+          const { ToolMessage } = await import('@langchain/core/messages');
+          return new ToolMessage({ content, tool_call_id: call.id, name: toolObj.name });
+        }
+        return content;
+      }
       throw err;
     }
   };
