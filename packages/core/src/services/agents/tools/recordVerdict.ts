@@ -241,6 +241,39 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
   }
 }
 
+/**
+ * The refusal for a review that opened none of the task's screenshots, or
+ * null when it opened one (or there are none, or this is not a review run).
+ * @param ctx - The runtime context; `missionRunId` scopes "this review".
+ * @param taskId - The task under review.
+ */
+export async function unopenedShots(ctx: RuntimeContext, taskId: number): Promise<string | null> {
+  if (!ctx.missionRunId) {
+    return null;
+  }
+  const { and, eq, like, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { artifactSchema, toolCallSchema } = await import('@/models/Schema');
+  const shots = await db
+    .select({ id: artifactSchema.id, title: artifactSchema.title })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, ctx.orgId), eq(artifactSchema.recordId, String(taskId)), sql`${artifactSchema.recordRole} = 'qa-screenshot'`, sql`${artifactSchema.url} is not null`));
+  if (shots.length === 0) {
+    return null;
+  }
+  const [opened] = await db
+    .select({ id: toolCallSchema.id })
+    .from(toolCallSchema)
+    .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.missionRunId, ctx.missionRunId), eq(toolCallSchema.tool, 'fetch_image'), like(sql`${toolCallSchema.output}::text`, '%verified%')))
+    .limit(1);
+  if (opened) {
+    return null;
+  }
+  const { appBaseUrl } = await import('@/libs/links');
+  const links = shots.map(s => `- ${s.title}: ${appBaseUrl()}/dashboard/artifacts/${s.id}`).join('\n');
+  return `Not recorded: task #${taskId} has ${shots.length} screenshots and this review opened none of them. Open the ones each criterion needs with fetch_image, then record the verdict on what they show:\n${links}`;
+}
+
 export function recordVerdictTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
@@ -263,7 +296,14 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // unchecked — absent is not proven.
       const contract = contractOf(task.meta);
       const criteria = contract.length > 0 ? alignToContract(contract, judged) : judged;
-      const { proven, total, refusal } = judgeVerdict(args.value, criteria, findings);
+      const { proven, total, refusal: ruled } = judgeVerdict(args.value, criteria, findings);
+      // JUDGED WITHOUT LOOKING. On #131 attempt 176 the PR listed seventeen
+      // short screenshot links and QA opened none: it read the task through a
+      // lookup that clips long fields and called every link "truncated". A
+      // verdict on a task that has screenshots is taken only after at least one
+      // was opened in this review; the refusal hands over every link, so the
+      // evidence is in front of the reviewer with nothing in between.
+      const refusal = ruled ?? await unopenedShots(ctx, task.id);
       if (refusal) {
         return contract.length > 0 ? `${refusal}\n\nThe contract on task #${task.id}, which is what is graded:\n${contract.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : refusal;
       }
