@@ -136,6 +136,18 @@ export function alignToContract(contract: string[], judged: VerdictCriterion[]):
 }
 
 /**
+ * The note without a count of its own. The server counts (N of M over the
+ * frozen contract); a note that restates a different number — "4 of 6
+ * criteria proven" under a recorded 3 of 8, on #131 attempt 168 — makes the
+ * page read "QA proved 3 of 8: 4 of 6 proven". The words stay; the number goes.
+ * @param note - QA's sentence.
+ */
+export function noteWithoutCount(note: string): string {
+  const cut = note.trim().replace(/^\d+\s+of\s+\d+\s+(?:frozen\s+|acceptance\s+)?criteria\s+(?:are\s+)?proven\s*[:;,.\u2014-]*\s*/i, '');
+  return cut ? cut.charAt(0).toUpperCase() + cut.slice(1) : note.trim();
+}
+
+/**
  * The merge card's summary: the note, the count, then each criterion with its
  * evidence, so the person merging reads the proof without opening the run.
  * @param note - QA's one sentence.
@@ -254,7 +266,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         commitSha,
         at: new Date().toISOString(),
         by,
-        note: args.note.trim(),
+        note: noteWithoutCount(args.note),
         proven,
         total,
         criteria,

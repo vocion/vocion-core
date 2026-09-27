@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignToContract, buildAgain, contractOf, judgeVerdict, mergeSummary, parseJsonArray } from './recordVerdict';
+import { alignToContract, buildAgain, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -93,5 +93,13 @@ describe('buildAgain', () => {
   it('never retries an attempt that was itself the automatic retry, and needs a request', async () => {
     expect(await buildAgain('org_x', { id: 165, meta: { requestId: 131, autoRetryOf: 164 } })).toMatch(/already the automatic retry/);
     expect(await buildAgain('org_x', { id: 165, meta: {} })).toBeNull();
+  });
+});
+
+describe('noteWithoutCount', () => {
+  it('drops a count the reviewer wrote, keeps the words, and leaves a note with no count alone', () => {
+    expect(noteWithoutCount('4 of 6 criteria proven; C3, C4 and C5 remain unproven.')).toBe('C3, C4 and C5 remain unproven.');
+    expect(noteWithoutCount('0 of 8 frozen criteria proven: no screenshot of the empty state.')).toBe('No screenshot of the empty state.');
+    expect(noteWithoutCount('Adds search; the one risk is the debounce.')).toBe('Adds search; the one risk is the debounce.');
   });
 });
