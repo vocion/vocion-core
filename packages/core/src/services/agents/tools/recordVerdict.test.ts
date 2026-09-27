@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignToContract, buildAgain, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray } from './recordVerdict';
+import { alignToContract, buildAgain, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -101,5 +101,14 @@ describe('noteWithoutCount', () => {
     expect(noteWithoutCount('4 of 6 criteria proven; C3, C4 and C5 remain unproven.')).toBe('C3, C4 and C5 remain unproven.');
     expect(noteWithoutCount('0 of 8 frozen criteria proven: no screenshot of the empty state.')).toBe('No screenshot of the empty state.');
     expect(noteWithoutCount('Adds search; the one risk is the debounce.')).toBe('Adds search; the one risk is the debounce.');
+  });
+});
+
+describe('reachable evidence', () => {
+  it('accepts a link or a named test, and refuses a caption', () => {
+    expect(reachable('https://agents.example/dashboard/artifacts/733')).toBe(true);
+    expect(reachable('documents-search.test.ts, describe(\'scope: kept-back\')')).toBe(true);
+    expect(reachable('qaReport (run 374): the empty state reads No documents match')).toBe(false);
+    expect(judgeVerdict('changes', [{ criterion: 'Empty state offers Clear', status: 'proven', evidence: 'the caption says Clear is visible' }], []).refusal).toMatch(/a description, not evidence/);
   });
 });

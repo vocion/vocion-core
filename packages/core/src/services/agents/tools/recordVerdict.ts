@@ -58,6 +58,14 @@ export const TASK_STATUS_FOR: Record<typeof VERDICT_VALUES[number], string> = {
 };
 
 /**
+ * Evidence a person can open: a URL, or a test named as a test.
+ * @param evidence - What the reviewer cited.
+ */
+export function reachable(evidence: string): boolean {
+  return /https?:\/\/\S+/.test(evidence) || /[\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?\b/.test(evidence) || /\b(?:describe|it|test)\(\s*['"`]/.test(evidence);
+}
+
+/**
  * The rules a verdict must satisfy, applied before anything is written.
  * @param value - The verdict.
  * @param criteria - Every acceptance criterion, judged.
@@ -73,6 +81,15 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
   const provenWithoutEvidence = criteria.filter(c => c.status === 'proven' && !c.evidence?.trim());
   if (provenWithoutEvidence.length > 0) {
     return { proven, total, refusal: `Not recorded: "${provenWithoutEvidence[0]!.criterion}" is marked proven with no evidence. Name the link, check or screenshot that settles it, or mark it unproven.` };
+  }
+  // EVIDENCE YOU CAN REACH (principle 3). On #131 attempt 170 every "proven"
+  // cited the worker's own caption ("the empty state reads No documents
+  // match") and QA opened no image: that is the engineer's account of its
+  // work, not evidence. Proven cites something a person can open in one move
+  // — a link (the screenshot's page) or a named test.
+  const unreachable = criteria.filter(c => c.status === 'proven' && !reachable(c.evidence ?? ''));
+  if (unreachable.length > 0) {
+    return { proven, total, refusal: `Not recorded: "${unreachable[0]!.criterion}" is marked proven on "${(unreachable[0]!.evidence ?? '').slice(0, 80)}", which is a description, not evidence. Cite the screenshot's link (open it with fetch_image first) or the named test, or mark it unproven.` };
   }
   if (value === 'approve') {
     const open = criteria.filter(c => c.status !== 'proven');
