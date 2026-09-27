@@ -91,5 +91,11 @@ export async function POST(req: Request) {
     caller.orgId,
     caller.actorId,
   );
+  // A release names the pull requests it carried; the pack — requests, tasks,
+  // QA's verdict and screenshots, Shipped — is linked here, in code.
+  if (parsed.data.type === 'release') {
+    const { linkRelease } = await import('@/services/factory/releasePack');
+    await linkRelease(caller.orgId, object.id).catch(err => console.warn('[release] could not link the pack', { id: object.id, error: (err as Error).message }));
+  }
   return NextResponse.json({ object }, { status: created ? 201 : 200 });
 }
