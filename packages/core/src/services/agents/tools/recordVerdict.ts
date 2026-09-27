@@ -292,7 +292,7 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
  * @param taskId - The task under review.
  */
 /**
- * The ids of a task's QA screenshots.
+ * The ids of a task's QA evidence: its screenshots and the stored run of its named tests.
  * @param orgId - The workspace.
  * @param taskId - The task.
  */
@@ -303,8 +303,42 @@ async function taskShotIds(orgId: string, taskId: number): Promise<Set<number>> 
   const rows = await db
     .select({ id: artifactSchema.id })
     .from(artifactSchema)
-    .where(and(eq(artifactSchema.orgId, orgId), eq(artifactSchema.recordId, String(taskId)), sql`${artifactSchema.recordRole} = 'qa-screenshot'`));
+    .where(and(eq(artifactSchema.orgId, orgId), eq(artifactSchema.recordId, String(taskId)), sql`${artifactSchema.recordRole} in ('qa-screenshot', 'qa-test-run')`));
   return new Set(rows.map(r => r.id));
+}
+
+/**
+ * THE TESTS WERE RUN; READ THEM BEFORE CALLING THEM UNPROVEN. The worker runs
+ * each named test on the branch and stores the output on the task
+ * (qa-test-run). On #131 attempt 185 all three passed and were linked in the
+ * PR, and QA still wrote "no integration test log" — it never opened the
+ * artifact. A verdict that leaves criteria open on a task with a stored run is
+ * refused once, with the run's output in the refusal, so the next call is
+ * taken having read it. Once per run; never blocks twice.
+ * @param ctx - The run's context.
+ * @param taskId - The task.
+ * @param open - How many criteria the verdict leaves unproven or unchecked.
+ */
+export async function unreadTestRun(ctx: RuntimeContext, taskId: number, open: number): Promise<string | null> {
+  if (open === 0 || ctx.testRunShown) {
+    return null;
+  }
+  const { and, desc, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { artifactSchema } = await import('@/models/Schema');
+  const [run] = await db
+    .select({ id: artifactSchema.id, spec: artifactSchema.spec })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, ctx.orgId), eq(artifactSchema.recordId, String(taskId)), sql`${artifactSchema.recordRole} = 'qa-test-run'`))
+    .orderBy(desc(artifactSchema.id))
+    .limit(1);
+  const md = typeof run?.spec?.md === 'string' ? run.spec.md : '';
+  if (!run || !md) {
+    return null;
+  }
+  ctx.testRunShown = true;
+  const { appBaseUrl } = await import('@/libs/links');
+  return `Not recorded: task #${taskId} has a stored run of its named tests, and this verdict leaves ${open} criteria open without reading it. Its output is below. For each criterion a test covers, judge it on this output and cite ${appBaseUrl()}/dashboard/artifacts/${run.id}; then record the verdict again.\n\n${md.slice(0, 8000)}`;
 }
 
 export async function unopenedShots(ctx: RuntimeContext, taskId: number): Promise<string | null> {
@@ -363,7 +397,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // verdict on a task that has screenshots is taken only after at least one
       // was opened in this review; the refusal hands over every link, so the
       // evidence is in front of the reviewer with nothing in between.
-      const refusal = ruled ?? await unopenedShots(ctx, task.id);
+      const refusal = ruled ?? await unopenedShots(ctx, task.id) ?? await unreadTestRun(ctx, task.id, total - proven);
       if (refusal) {
         return contract.length > 0 ? `${refusal}\n\nThe contract on task #${task.id}, which is what is graded:\n${contract.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : refusal;
       }

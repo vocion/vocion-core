@@ -4,7 +4,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { artifactSchema, toolCallSchema } = await import('@/models/Schema');
-const { unopenedShots } = await import('./recordVerdict');
+const { unopenedShots, unreadTestRun } = await import('./recordVerdict');
 
 const ORG = 'org_opened';
 const ctx = (missionRunId?: number) => ({ orgId: ORG, missionRunId } as never);
@@ -33,5 +33,22 @@ describe('unopenedShots', () => {
   it('asks nothing of a task with no screenshots, or of a call outside a review run', async () => {
     expect(await unopenedShots(ctx(900), 999)).toBeNull();
     expect(await unopenedShots(ctx(undefined), 176)).toBeNull();
+  });
+});
+
+describe('unreadTestRun', () => {
+  it('refuses once with the stored test output when a verdict leaves criteria open, then lets the next call through (#131 attempt 185)', async () => {
+    await db.insert(artifactSchema).values({ orgId: ORG, kind: 'markdown', title: 'Named tests, run 386', recordType: 'object', recordId: '185', recordRole: 'qa-test-run', spec: { md: '# Named tests, run 386\n\n## Passed: Scope holds\n\n✓ never returns a teammate kept-back document' } } as never);
+    const run = { orgId: ORG, missionRunId: 901 } as { orgId: string; missionRunId: number; testRunShown?: boolean };
+
+    expect(await unreadTestRun(run as never, 185, 0)).toBeNull();
+
+    const refusal = await unreadTestRun(run as never, 185, 4);
+
+    expect(refusal).toMatch(/^Not recorded: task #185 has a stored run of its named tests, and this verdict leaves 4 criteria open/);
+    expect(refusal).toMatch(/✓ never returns a teammate kept-back document/);
+    expect(refusal).toMatch(/\/dashboard\/artifacts\/\d+/);
+    expect(await unreadTestRun(run as never, 185, 4)).toBeNull();
+    expect(await unreadTestRun({ orgId: ORG } as never, 999, 4)).toBeNull();
   });
 });

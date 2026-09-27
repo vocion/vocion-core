@@ -371,6 +371,8 @@ export type RuntimeContext = {
    * tool_call rows back.
    */
   evidenceOpened?: boolean;
+  /** A verdict in this run has been shown the task's stored run of its named tests (record_verdict). */
+  testRunShown?: boolean;
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
   /**
