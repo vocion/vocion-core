@@ -122,6 +122,10 @@ describe('reachable evidence', () => {
     expect(reachable('qaReport (run 374): the empty state reads No documents match')).toBe(false);
     expect(reachable('Artifacts 978/979 show the list narrowing as text is typed')).toBe(true);
     expect(reachable('artifact #949')).toBe(true);
+    // The task's own screenshot, cited by its bare number (review 5737); any other number is not evidence.
+    expect(reachable('1008: query \'msa\' narrows 3 results to 1', new Set([1006, 1008]))).toBe(true);
+    expect(reachable('1008: query \'msa\' narrows 3 results to 1')).toBe(false);
+    expect(reachable('3 results narrow to 1', new Set([1006, 1008]))).toBe(false);
     expect(judgeVerdict('changes', [{ criterion: 'Empty state offers Clear', status: 'proven', evidence: 'the caption says Clear is visible' }], []).refusal).toMatch(/a description, not evidence/);
   });
 });

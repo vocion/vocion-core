@@ -134,7 +134,7 @@ export async function forceRequiredTool(opts: {
       if (opened.length > 0) {
         ctx.evidenceOpened = true;
         shots.push(...opened);
-        tries = Math.max(tries, attempt + 2);
+        tries = 3;
         messages.push(new HumanMessage({ content: [{ type: 'text', text: 'The screenshots, opened for you. Judge each criterion by what these show, and cite the link of the one that proves it:' }, ...opened.flatMap(shot => [{ type: 'text' as const, text: `${shot.title}: ${shot.link}` }, { type: 'image_url' as const, image_url: { url: shot.dataUri } }])] }));
       }
     }

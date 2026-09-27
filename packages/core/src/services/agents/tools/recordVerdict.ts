@@ -60,8 +60,16 @@ export const TASK_STATUS_FOR: Record<typeof VERDICT_VALUES[number], string> = {
 /**
  * Evidence a person can open: a URL, or a test named as a test.
  * @param evidence - What the reviewer cited.
+ * @param shotIds - The task's own screenshot artifact ids: citing one by its bare number is one move away.
  */
-export function reachable(evidence: string): boolean {
+export function reachable(evidence: string, shotIds: ReadonlySet<number> = new Set()): boolean {
+  // Review 5737 looked at the task's screenshots and cited "1008: query 'msa'
+  // narrows 3 results to 1" — screenshot 1008 of that task — and was refused
+  // as a description. A number that is one of THIS task's screenshots is the
+  // screenshot; any other bare number still is not.
+  if ([...evidence.matchAll(/\b(\d{2,})\b/g)].some(m => shotIds.has(Number(m[1])))) {
+    return true;
+  }
   // An artifact number in this workspace ("artifacts 978/979") is one move
   // away too: the recording pass that had just looked at the shots cited them
   // that way and was refused as "a description" (review 5650, 2026-09-27).
@@ -73,9 +81,10 @@ export function reachable(evidence: string): boolean {
  * @param value - The verdict.
  * @param criteria - Every acceptance criterion, judged.
  * @param findings - Typed findings.
+ * @param shotIds - The task's own screenshot artifact ids.
  * @returns The count, and the refusal when the verdict contradicts itself.
  */
-export function judgeVerdict(value: string, criteria: VerdictCriterion[], findings: VerdictFinding[]): { proven: number; total: number; refusal: string | null } {
+export function judgeVerdict(value: string, criteria: VerdictCriterion[], findings: VerdictFinding[], shotIds: ReadonlySet<number> = new Set()): { proven: number; total: number; refusal: string | null } {
   const total = criteria.length;
   const proven = criteria.filter(c => c.status === 'proven').length;
   if (total === 0) {
@@ -90,7 +99,7 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
   // match") and QA opened no image: that is the engineer's account of its
   // work, not evidence. Proven cites something a person can open in one move
   // — a link (the screenshot's page) or a named test.
-  const unreachable = criteria.filter(c => c.status === 'proven' && !reachable(c.evidence ?? ''));
+  const unreachable = criteria.filter(c => c.status === 'proven' && !reachable(c.evidence ?? '', shotIds));
   if (unreachable.length > 0) {
     return { proven, total, refusal: `Not recorded: "${unreachable[0]!.criterion}" is marked proven on "${(unreachable[0]!.evidence ?? '').slice(0, 80)}", which is a description, not evidence. Cite the screenshot's link (open it with fetch_image first) or the named test, or mark it unproven.` };
   }
@@ -279,6 +288,22 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
  * @param ctx - The runtime context; `missionRunId` scopes "this review".
  * @param taskId - The task under review.
  */
+/**
+ * The ids of a task's QA screenshots.
+ * @param orgId - The workspace.
+ * @param taskId - The task.
+ */
+async function taskShotIds(orgId: string, taskId: number): Promise<Set<number>> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { artifactSchema } = await import('@/models/Schema');
+  const rows = await db
+    .select({ id: artifactSchema.id })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, orgId), eq(artifactSchema.recordId, String(taskId)), sql`${artifactSchema.recordRole} = 'qa-screenshot'`));
+  return new Set(rows.map(r => r.id));
+}
+
 export async function unopenedShots(ctx: RuntimeContext, taskId: number): Promise<string | null> {
   if (!ctx.missionRunId || ctx.evidenceOpened) {
     return null;
@@ -328,7 +353,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // unchecked — absent is not proven.
       const contract = contractOf(task.meta);
       const criteria = contract.length > 0 ? alignToContract(contract, judged) : judged;
-      const { proven, total, refusal: ruled } = judgeVerdict(args.value, criteria, findings);
+      const { proven, total, refusal: ruled } = judgeVerdict(args.value, criteria, findings, await taskShotIds(ctx.orgId, task.id));
       // JUDGED WITHOUT LOOKING. On #131 attempt 176 the PR listed seventeen
       // short screenshot links and QA opened none: it read the task through a
       // lookup that clips long fields and called every link "truncated". A
