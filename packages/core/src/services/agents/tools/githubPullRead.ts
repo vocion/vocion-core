@@ -22,6 +22,10 @@ const PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/fi
 // Enough for a factory-sized change; a reviewer drowned in diff runs out of
 // room to write its verdict (mission run 5364).
 const DIFF_MAX = 60_000;
+// The whole read stays under the runtime's eviction line (4 × 20,000 tokens'
+// worth of characters in deepagents), so the model sees all of it.
+const READ_MAX = 72_000;
+const BODY_MAX = 20_000;
 
 export function parsePullUrl(url: string): { owner: string; repo: string; number: number } | null {
   const m = PR_URL.exec(url.trim());
@@ -103,15 +107,35 @@ export async function readConnectedPull(orgId: string, url: string): Promise<str
   }
   const meta = await metaRes.json() as { title?: string; state?: string; merged?: boolean; head?: { ref?: string; sha?: string }; base?: { ref?: string }; body?: string | null; additions?: number; deletions?: number; changed_files?: number };
   const diff = diffRes.ok ? await diffRes.text() : `(diff unavailable: HTTP ${diffRes.status})`;
-  const cut = diff.length > DIFF_MAX ? `${diff.slice(0, DIFF_MAX)}\n\n[Diff truncated at ${DIFF_MAX} of ${diff.length} characters.]` : diff;
+  return composePullText(url, pr.number, meta, diff);
+}
+
+type PullMeta = { title?: string; state?: string; merged?: boolean; head?: { ref?: string; sha?: string }; base?: { ref?: string }; body?: string | null; additions?: number; deletions?: number; changed_files?: number };
+
+/**
+ * The pull request as one read the model sees whole.
+ * @param url - The pull request URL.
+ * @param number - Its number.
+ * @param meta - GitHub's pull request object.
+ * @param diff - The unified diff.
+ */
+export function composePullText(url: string, number: number, meta: PullMeta, diff: string): string {
+  // ONE READ, UNDER THE EVICTION LINE. The agent runtime moves any tool result
+  // over 80,000 characters to a file and shows the model a preview; a 20,000
+  // body plus a 60,000 diff crossed it, and QA saw the first evidence lines
+  // and called the rest missing (#131 attempt 173). The body — contract and
+  // evidence — always comes whole; the diff gets what room is left.
+  const body = meta.body ? meta.body.slice(0, BODY_MAX) : '';
+  const diffRoom = Math.max(4_000, Math.min(DIFF_MAX, READ_MAX - body.length - 2_000));
+  const cut = diff.length > diffRoom ? `${diff.slice(0, diffRoom)}\n\n[Diff truncated at ${diffRoom} of ${diff.length} characters, to keep this read whole.]` : diff;
   return [
-    `# ${meta.title ?? `Pull request #${pr.number}`}`,
+    `# ${meta.title ?? `Pull request #${number}`}`,
     `${url}`,
     `State: ${meta.merged ? 'merged' : meta.state ?? 'unknown'} · ${meta.head?.ref ?? '?'} → ${meta.base?.ref ?? '?'} · head ${meta.head?.sha?.slice(0, 12) ?? '?'} · +${meta.additions ?? 0} −${meta.deletions ?? 0} in ${meta.changed_files ?? 0} files`,
     '',
     // The body is where the worker lists its evidence; a reviewer that sees
     // only its first 6,000 characters misses it (#131 attempt 169).
-    meta.body ? `## Description\n\n${meta.body.slice(0, 20_000)}` : '',
+    body ? `## Description\n\n${body}` : '',
     '',
     '## Diff',
     '',
