@@ -109,7 +109,9 @@ export async function readConnectedPull(orgId: string, url: string): Promise<str
     `${url}`,
     `State: ${meta.merged ? 'merged' : meta.state ?? 'unknown'} · ${meta.head?.ref ?? '?'} → ${meta.base?.ref ?? '?'} · head ${meta.head?.sha?.slice(0, 12) ?? '?'} · +${meta.additions ?? 0} −${meta.deletions ?? 0} in ${meta.changed_files ?? 0} files`,
     '',
-    meta.body ? `## Description\n\n${meta.body.slice(0, 6000)}` : '',
+    // The body is where the worker lists its evidence; a reviewer that sees
+    // only its first 6,000 characters misses it (#131 attempt 169).
+    meta.body ? `## Description\n\n${meta.body.slice(0, 20_000)}` : '',
     '',
     '## Diff',
     '',

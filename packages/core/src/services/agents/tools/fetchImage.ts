@@ -35,6 +35,41 @@ import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { DEFAULT_MAX_EDGE, fetchImage, ImageFetchError } from '@/libs/tools/image/remote';
 import { getDataRoom, updateDataRoom } from '@/services/DataRoomService';
 
+/** `…/dashboard/artifacts/<id>`, with or without the workspace segment. */
+const ARTIFACT_PAGE = /^https?:\/\/[^/]+(?:\/[a-z]{2})?(?:\/w\/[\w-]+)?\/dashboard\/artifacts\/(\d+)\/?(?:[?#].*)?$/i;
+
+/**
+ * An artifact page in THIS workspace, read as the image it holds.
+ *
+ * WHY (2026-09-26, #131 attempt 169): QA evidence linked as presigned S3 URLs
+ * ran ~700 characters each, so seventeen of them pushed the evidence past what
+ * the reviewer is shown of a pull request, and QA proved nothing. The short,
+ * lasting link is the artifact's page, the same one a person opens; the
+ * reviewer opens it here, server-side, never across workspaces.
+ * @param orgId - The workspace.
+ * @param url - What the model passed.
+ * @returns The stored image's own URL, or null when it is not such a page.
+ */
+export async function artifactImageUrl(orgId: string, url: string): Promise<string | null> {
+  const m = ARTIFACT_PAGE.exec(url.trim());
+  if (!m) {
+    return null;
+  }
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { artifactSchema } = await import('@/models/Schema');
+  const [row] = await db
+    .select({ url: artifactSchema.url, spec: artifactSchema.spec })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, orgId), eq(artifactSchema.id, Number(m[1]))))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  const stored = row.url ?? (typeof row.spec?.url === 'string' ? row.spec.url : null);
+  return stored && /^https:\/\//.test(stored) ? stored : null;
+}
+
 /** `data:image/png;base64,…` → the extension to store it under. */
 const EXT: Record<string, string> = { 'image/png': 'png', 'image/svg+xml': 'svg' };
 
@@ -55,7 +90,8 @@ export function fetchImageTool(ctx: RuntimeContext) {
 
       let got: Awaited<ReturnType<typeof fetchImage>>;
       try {
-        got = await fetchImage(args.url, { maxEdge: args.max_width ?? DEFAULT_MAX_EDGE });
+        const own = await artifactImageUrl(ctx.orgId, args.url);
+        got = await fetchImage(own ?? args.url, { maxEdge: args.max_width ?? DEFAULT_MAX_EDGE });
       } catch (err) {
         if (err instanceof ImageFetchError) {
           return `Did not fetch that image: ${err.message} Say the logo could not be retrieved — never draw a company's mark as styled text and present it as their logo.`;
