@@ -75,6 +75,13 @@ export async function forceRequiredTool(opts: {
   if (!tool) {
     return { called: false, answer: `${opts.agentSlug} does not hold ${opts.toolName} (not granted, or excluded)` };
   }
+  // THE PASS LOOKS, IN CODE. Review run 5638 was refused twice for judging
+  // fifteen screenshots it never opened — the refusal listed every link — and
+  // it called record_verdict again instead of opening one (2026-09-27). When
+  // the run's last refusal lists screenshots, this pass fetches them
+  // server-side, records each as opened, and puts the pictures in front of the
+  // model beside its report, so the verdict is taken looking at the evidence.
+  const shots = await shotsFromRefusal(ctx, opts.toolName);
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage, ToolMessage } = await import('@langchain/core/messages');
   const base = await buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: false, maxTokens: 6000 });
@@ -83,8 +90,16 @@ export async function forceRequiredTool(opts: {
   }
   const model = base.bindTools([tool], { tool_choice: opts.toolName } as never);
   const messages: BaseMessage[] = [
-    new SystemMessage(`${agent.systemPrompt ?? ''}\n\nRECORDING PASS: the report below is your own finished work. Your only job is to call ${opts.toolName} once, carrying exactly what the report concluded — the same verdict, the same judgement of each item, the same evidence. Do not re-judge and do not soften it.`),
-    new HumanMessage(`${opts.context ? `What this was about:\n${JSON.stringify(opts.context)}\n\n` : ''}Your report:\n\n${opts.report.slice(0, 40_000)}`),
+    new SystemMessage(`${agent.systemPrompt ?? ''}\n\nRECORDING PASS: the report below is your own finished work. Your only job is to call ${opts.toolName} once, carrying what the report concluded${shots.length > 0 ? ', corrected by what the attached screenshots actually show' : ' — the same verdict, the same judgement of each item, the same evidence. Do not re-judge and do not soften it'}.`),
+    new HumanMessage({
+      content: [
+        { type: 'text', text: `${opts.context ? `What this was about:\n${JSON.stringify(opts.context)}\n\n` : ''}Your report:\n\n${opts.report.slice(0, 40_000)}${shots.length > 0 ? `\n\nThe screenshots, opened for you. Judge each criterion by what these show, and cite the link of the one that proves it:` : ''}` },
+        ...shots.flatMap(shot => [
+          { type: 'text' as const, text: `${shot.title}: ${shot.link}` },
+          { type: 'image_url' as const, image_url: { url: shot.dataUri } },
+        ]),
+      ],
+    }),
   ];
   let answer = '';
   // Two tries: a refusal ("Not recorded: …") names what to fix, and the
@@ -104,4 +119,55 @@ export async function forceRequiredTool(opts: {
     messages.push(res as BaseMessage, new ToolMessage({ content: answer, tool_call_id: call.id ?? `${opts.toolName}-${attempt}` }));
   }
   return { called: false, answer };
+}
+
+/**
+ * The screenshots the run's last refusal listed, fetched and recorded as
+ * opened in this run. Empty when the last refusal lists none.
+ * @param ctx - The run's context (org, missionRunId, agent).
+ * @param toolName - The required tool whose refusal is read.
+ */
+async function shotsFromRefusal(ctx: RuntimeContext, toolName: string): Promise<Array<{ title: string; link: string; dataUri: string }>> {
+  if (!ctx.missionRunId) {
+    return [];
+  }
+  const { desc, sql } = await import('drizzle-orm');
+  const { toolCallSchema } = await import('@/models/Schema');
+  const [last] = await db
+    .select({ output: toolCallSchema.output })
+    .from(toolCallSchema)
+    .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.missionRunId, ctx.missionRunId), eq(toolCallSchema.tool, toolName), sql`${toolCallSchema.output}::text like '%Not recorded%'`))
+    .orderBy(desc(toolCallSchema.id))
+    .limit(1);
+  const text = typeof last?.output === 'string' ? last.output : JSON.stringify(last?.output ?? '');
+  const listed = listedShots(text);
+  if (listed.length === 0) {
+    return [];
+  }
+  const { artifactImageUrl } = await import('@/services/agents/tools/fetchImage');
+  const { fetchImage } = await import('@/libs/tools/image/remote');
+  const { persistToolCall } = await import('@/services/agents/toolCallRecord');
+  const out: Array<{ title: string; link: string; dataUri: string }> = [];
+  for (const { title, link } of listed) {
+    const stored = await artifactImageUrl(ctx.orgId, link).catch(() => null);
+    if (!stored) {
+      continue;
+    }
+    const started = Date.now();
+    const got = await fetchImage(stored, { maxEdge: 1100 }).catch(() => null);
+    if (!got) {
+      continue;
+    }
+    out.push({ title, link, dataUri: got.dataUri });
+    await persistToolCall({ ctx, tool: 'fetch_image', input: { url: link, by: 'recording pass' }, output: `Image fetched and verified: ${got.contentType}, ${got.width}×${got.height}, from ${link} (opened by the recording pass)`, durationMs: Date.now() - started, ns: '' });
+  }
+  return out;
+}
+
+/**
+ * The screenshots a refusal lists (`- <title>: <artifact page link>`), at most twelve.
+ * @param text - The refusal.
+ */
+export function listedShots(text: string): Array<{ title: string; link: string }> {
+  return [...text.matchAll(/- ([^\n]+?): (https?:\/\/\S+\/dashboard\/artifacts\/\d+)/g)].slice(0, 12).map(m => ({ title: m[1]!, link: m[2]! }));
 }
