@@ -230,16 +230,19 @@ async function writeTask(orgId: string, id: number, set: Record<string, unknown>
  * stops reading "no action needed". A later verdict overwrites it.
  * @param orgId - The workspace.
  * @param prUrl - The pull request the review was about.
- * @param reason - What the last refusal said.
  * @returns The task marked, or null when no waiting task carries the PR.
  */
-export async function markReviewFailed(orgId: string, prUrl: string, reason: string): Promise<number | null> {
+export async function markReviewFailed(orgId: string, prUrl: string): Promise<number | null> {
   const task = await findTaskByPr(orgId, prUrl);
   const status = task ? String((task as { status?: string }).status ?? task.meta.status ?? '') : '';
   if (!task || status !== 'awaiting_review') {
     return null;
   }
-  await writeTask(orgId, task.id, { status: 'review_failed', reviewFailure: { at: new Date().toISOString(), reason: reason.slice(0, 600) } });
+  // Only WHEN, never the refusal text: review 5746 read the last review's
+  // refusal off this record and judged the work by it ("the task's own
+  // reviewFailure record names the criterion"). The reason stays on the
+  // automation fire's error, where the mechanism is debugged.
+  await writeTask(orgId, task.id, { status: 'review_failed', reviewFailure: { at: new Date().toISOString() } });
   const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
   await recomputeRollupsForObject(orgId, task.id).catch(() => undefined);
   return task.id;

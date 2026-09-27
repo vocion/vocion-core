@@ -457,7 +457,7 @@ async function dispatchDo(
       const prUrl = typeof triggerInput?.url === 'string' ? triggerInput.url : '';
       if (doCfg.requireTool === 'record_verdict' && prUrl) {
         const { markReviewFailed } = await import('@/services/agents/tools/recordVerdict');
-        await markReviewFailed(orgId, prUrl, forced.answer).catch(() => null);
+        await markReviewFailed(orgId, prUrl).catch(() => null);
       }
       throw new Error(`automation "${slug}": run #${run.id} ended without ${doCfg.requireTool}, and the recording pass did not land it (${forced.answer.slice(0, 300)})`);
     }

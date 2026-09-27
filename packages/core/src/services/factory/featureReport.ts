@@ -1837,8 +1837,7 @@ function buildState(input: FeatureReportInput): ReportState {
   // task 177 read that for six hours over five failed reviews).
   const failedReview = [...input.tasks].filter(t => taskStatus(t) === 'review_failed').sort((a, b) => b.id - a.id)[0];
   if (failedReview && !input.tasks.some(t => taskStatus(t) === 'awaiting_review')) {
-    const why = String((failedReview.meta.reviewFailure as { reason?: string } | undefined)?.reason ?? '').split(/(?<=\.)\s/)[0]?.slice(0, 200);
-    return { key: 'stuck', label: 'QA could not finish', detail: why ? `the review ended without a verdict: ${why}` : 'the review ended without a verdict', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
+    return { key: 'stuck', label: 'QA could not finish', detail: 'the review ended without a verdict; Build again starts a fresh attempt', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
   }
   const awaitingReview = input.tasks.filter(t => taskStatus(t) === 'awaiting_review');
   if (awaitingReview.length > 0) {

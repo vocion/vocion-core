@@ -1014,10 +1014,10 @@ describe('a task QA sent back', () => {
   });
 
   it('reads as QA could not finish when the review ended without a verdict, and offers Build again', () => {
-    const failed = { ...task, status: 'review_failed', meta: { ...task.meta, status: 'review_failed', reviewFailure: { at: '2026-09-27T16:50:00Z', reason: 'Not recorded: invalid arguments for record_verdict. Nothing ran.' } } };
+    const failed = { ...task, status: 'review_failed', meta: { ...task.meta, status: 'review_failed', reviewFailure: { at: '2026-09-27T16:50:00Z' } } };
     const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [failed], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
 
-    expect(r.state).toMatchObject({ key: 'stuck', label: 'QA could not finish', needsYou: true, detail: 'the review ended without a verdict: Not recorded: invalid arguments for record_verdict.', action: { label: 'Build again' } });
+    expect(r.state).toMatchObject({ key: 'stuck', label: 'QA could not finish', needsYou: true, detail: 'the review ended without a verdict; Build again starts a fresh attempt', action: { label: 'Build again' } });
     expect(r.canBuild).toBe(true);
   });
 
