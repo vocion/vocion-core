@@ -11,6 +11,7 @@ vi.mock('@/libs/Orpc', () => ({
     conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), latestForScope: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(), feedback: vi.fn() },
     teams: { list: vi.fn(async () => ({ workspace: null, teams: [] })) },
     missions: { list: vi.fn(async () => []) },
+    preview: { get: vi.fn(async () => ({ type: 'worker_run', id: '148', title: 'send-t148', blocks: [] })) },
   },
 }));
 
@@ -461,6 +462,26 @@ describe('ChatDock', () => {
     await expect.element(page.getByText('The entrance path sets it.')).toBeInTheDocument();
     expect(vi.mocked(client.conversations.latestForScope)).toHaveBeenCalledWith({ scopeRef: SCOPE });
     expect(vi.mocked(client.conversations.get)).toHaveBeenCalledWith({ id: 41 });
+  });
+
+  it('on a phone, closing the sheet closes the preview in it, with one close control (2026-09-27)', async () => {
+    await page.viewport(390, 844);
+    window.history.replaceState(null, '', `${window.location.pathname}?preview=worker_run:148`);
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Rowan Pike" defaultCollapsed={false} />));
+
+    const sheet = page.getByRole('dialog');
+
+    await expect.element(sheet).toBeInTheDocument();
+    // The pane's header owns the close; the sheet draws no second X over it.
+    expect(document.querySelectorAll('[data-slot="sheet-close"]:not(.hidden), button.hidden').length).toBeLessThanOrEqual(1);
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(sheet).not.toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('preview')).toBeNull();
+
+    window.history.replaceState(null, '', window.location.pathname);
+    await page.viewport(1280, 800);
   });
 
   it('collapses to the reopen button and the choice persists', async () => {

@@ -18,6 +18,7 @@ import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
+import { closePreview, useOpenPreviewRef } from '@/features/preview/previewState';
 import { client } from '@/libs/Orpc';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
@@ -335,6 +336,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   const cardsScrolledAway = cardAnchor < lastMessageIndex;
   const recallCards = () => setCardAnchor(lastMessageIndex);
 
+  const previewOpen = useOpenPreviewRef() !== null;
   const setCollapsedPersisted = useCallback((next: boolean) => {
     setCollapsed(next);
     writeCollapsed(next);
@@ -926,14 +928,29 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       aria-label={ariaLabel}
       frame={narrow
         ? content => (
-          <Sheet open onOpenChange={open => setCollapsedPersisted(!open)}>
+          // ONE CLOSE, AND IT CLOSES. On a phone the preview stands in this
+          // sheet; the sheet's X (and a tap outside) only collapsed chat, so
+          // with a preview open the sheet stayed, and its X sat on top of the
+          // preview's own — two X's, neither doing anything (Chris,
+          // 2026-09-27, an engineering run on #132). Closing the sheet closes
+          // what is in it; with a preview showing, the pane's header owns the
+          // close and the sheet draws none.
+          <Sheet
+            open
+            onOpenChange={(open) => {
+              if (!open) {
+                closePreview();
+              }
+              setCollapsedPersisted(!open);
+            }}
+          >
             <SheetContent
               side="bottom"
               className="flex h-[88dvh] w-full min-w-0 flex-col gap-0 overflow-x-clip rounded-t-2xl p-0"
               // The grabber (16px) then a 48px header row puts that row's
               // centre at 40px; the close belongs on it, beside the ⋯ menu,
               // not in the sheet's corner 24px above everything it sits with.
-              closeClassName="top-10 right-3 -translate-y-1/2"
+              closeClassName={previewOpen ? 'hidden' : 'top-10 right-3 -translate-y-1/2'}
               aria-label={ariaLabel}
             >
               {/* The grabber. It is not a control — the sheet is dismissed by
