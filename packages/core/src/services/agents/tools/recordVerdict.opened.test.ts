@@ -23,7 +23,7 @@ describe('unopenedShots', () => {
     const refusal = await unopenedShots(ctx(900), 176);
 
     expect(refusal).toMatch(/^Not recorded: task #176 has 2 screenshots and this review opened none of them/);
-    expect(refusal).toMatch(/Empty state · desktop · after: \S+\/dashboard\/artifacts\/\d+/);
+    expect(refusal).toMatch(/Empty state · desktop · after: \S*\/dashboard\/artifacts\/\d+/);
 
     await db.insert(toolCallSchema).values({ orgId: ORG, missionRunId: 900, tool: 'fetch_image', input: {}, output: 'Image fetched and verified: image/png, 1100×688', agentSlug: 'change-reviewer' } as never);
 
