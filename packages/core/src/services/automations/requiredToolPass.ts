@@ -107,8 +107,11 @@ export async function forceRequiredTool(opts: {
   ];
   let answer = '';
   // Two tries: a refusal ("Not recorded: …") names what to fix, and the
-  // second call gets to fix it. Nothing more — this is a backstop, not a loop.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // second call gets to fix it. Opening the screenshots a refusal listed earns
+  // one more (review 5718 opened twelve after its last try and used none), so
+  // never more than three — this is a backstop, not a loop.
+  let tries = 2;
+  for (let attempt = 0; attempt < tries; attempt++) {
     const res = await model.invoke(messages as never);
     const call = (res.tool_calls ?? []).find(c => c.name === opts.toolName);
     if (!call) {
@@ -131,6 +134,7 @@ export async function forceRequiredTool(opts: {
       if (opened.length > 0) {
         ctx.evidenceOpened = true;
         shots.push(...opened);
+        tries = Math.max(tries, attempt + 2);
         messages.push(new HumanMessage({ content: [{ type: 'text', text: 'The screenshots, opened for you. Judge each criterion by what these show, and cite the link of the one that proves it:' }, ...opened.flatMap(shot => [{ type: 'text' as const, text: `${shot.title}: ${shot.link}` }, { type: 'image_url' as const, image_url: { url: shot.dataUri } }])] }));
       }
     }

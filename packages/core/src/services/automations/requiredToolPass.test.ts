@@ -4,11 +4,16 @@ vi.mock('@/libs/DB');
 
 // The tool: refuses until the review has looked, then records.
 const invoked: Array<Record<string, unknown>> = [];
+// 'late': the first refusal lists nothing, the second lists the screenshots.
+const refusals = { late: false };
 const verdictTool = {
   name: 'record_verdict',
   invoke: vi.fn(async (args: Record<string, unknown>) => {
     invoked.push(args);
-    return invoked.length === 1
+    if (invoked.length === 1 && refusals.late) {
+      return 'Not recorded: "Search" is marked proven on "Run 379 screenshot", which cannot be opened.';
+    }
+    return invoked.length === (refusals.late ? 2 : 1)
       ? 'Not recorded: task #177 has 2 screenshots and this review opened none of them. Open them:\n- Empty state · desktop · after: https://agents.example/dashboard/artifacts/949\n- Chips · phone · after: https://agents.example/dashboard/artifacts/950'
       : 'Verdict recorded on task #177: changes, 1 of 2 criteria proven.';
   }),
@@ -63,5 +68,16 @@ describe('forceRequiredTool', () => {
     const images = JSON.stringify(seen[1]).match(/data:image\/png/g) ?? [];
 
     expect(images).toHaveLength(2);
+  });
+
+  it('screenshots listed by its LAST try still earn one more try, never a fourth (review 5718)', async () => {
+    invoked.length = 0;
+    seen.length = 0;
+    refusals.late = true;
+    const res = await forceRequiredTool({ orgId: 'org_pass', agentSlug: 'change-reviewer', toolName: 'record_verdict', missionRunId: 999_002, report: 'changes.' });
+    refusals.late = false;
+
+    expect(res.called).toBe(true);
+    expect(invoked).toHaveLength(3);
   });
 });
