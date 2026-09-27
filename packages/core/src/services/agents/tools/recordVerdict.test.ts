@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignToContract, contractOf, judgeVerdict, mergeSummary, parseJsonArray } from './recordVerdict';
+import { alignToContract, buildAgain, contractOf, judgeVerdict, mergeSummary, parseJsonArray } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -86,5 +86,12 @@ describe('alignToContract', () => {
   it('reads the contract as strings or statements', () => {
     expect(contractOf({ acceptanceContract: ['a line', { statement: 'b line' }, '', 3] })).toEqual(['a line', 'b line']);
     expect(contractOf({})).toEqual([]);
+  });
+});
+
+describe('buildAgain', () => {
+  it('never retries an attempt that was itself the automatic retry, and needs a request', async () => {
+    expect(await buildAgain('org_x', { id: 165, meta: { requestId: 131, autoRetryOf: 164 } })).toMatch(/already the automatic retry/);
+    expect(await buildAgain('org_x', { id: 165, meta: {} })).toBeNull();
   });
 });

@@ -54,6 +54,13 @@ const dispatchInput = z.object({
   planId: z.coerce.number().int().positive().optional(),
   /** Why now, in a sentence a person can check. */
   reason: z.string().min(1).max(500).optional().default('Approved to build.'),
+  /**
+   * The attempt QA sent back, when this build is the factory's own retry of
+   * it. A retry is its own trust key (`factory.dispatch_task.retry`), so it
+   * can run done-for-you while a first build stays the owner's tap; and an
+   * attempt that was itself a retry is never retried again.
+   */
+  autoRetryOf: z.coerce.number().int().positive().optional(),
 }).refine(v => v.taskId !== undefined || v.requestId !== undefined, { message: 'Name the engineering task (taskId), or the request (requestId) — the contract is filled from the request, its plan and the repo.' });
 
 type Meta = Record<string, unknown>;
@@ -377,7 +384,8 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   inputSchema: dispatchInput,
   grant: 'factory_write',
   external: true,
-  dedupKeyFor: input => `${DISPATCH_ACTION_ID}:${input.taskId ?? `request-${input.requestId}`}`,
+  dedupKeyFor: input => `${DISPATCH_ACTION_ID}:${input.taskId ?? `request-${input.requestId}`}${input.autoRetryOf ? `:retry-${input.autoRetryOf}` : ''}`,
+  policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : DISPATCH_ACTION_ID),
   async precheck(ctx, input) {
     const { externalWorkersEnabled } = await import('@/services/WorkerRunService');
     if (!externalWorkersEnabled()) {
@@ -443,7 +451,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     if (!input.taskId) {
       const { createBusinessObject } = await import('@/services/BusinessObjectService');
       const { title, ...rest } = task.meta as Meta & { title?: string };
-      const created = await createBusinessObject({ typeSlug: 'engineering_task', title: String(title ?? task.title), status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready' } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
+      const created = await createBusinessObject({ typeSlug: 'engineering_task', title: String(title ?? task.title), status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready', ...(input.autoRetryOf ? { autoRetryOf: input.autoRetryOf } : {}) } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
       createdTaskId = (created as { id: number }).id;
       task = { ...task, id: createdTaskId };
       // THE WORKER'S KEY on the task it will report to (2026-09-26: run 357

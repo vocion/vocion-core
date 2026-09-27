@@ -175,6 +175,43 @@ async function writeTask(orgId: string, id: number, set: Record<string, unknown>
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
 }
 
+/**
+ * BUILD AGAIN, DONE FOR YOU (Chris, 2026-09-26: "auto Build again, yes").
+ * When QA sends back an attempt a person started, the next attempt starts on
+ * its own, carrying the verdict (deriveContract). It is proposed as
+ * `factory.dispatch_task.retry`, so the workspace's trust rule decides whether
+ * it runs at once (with Undo) or waits on a card; an attempt that was itself
+ * a retry is never retried again, so one press of Build is at most two.
+ * @param orgId - The workspace.
+ * @param task - The task QA just sent back.
+ * @param task.id
+ * @param task.meta
+ * @returns One sentence for the verdict's receipt, or null when nothing started.
+ */
+export async function buildAgain(orgId: string, task: { id: number; meta: Record<string, unknown> }): Promise<string | null> {
+  const requestId = Number(task.meta.requestId);
+  if (!Number.isFinite(requestId) || requestId <= 0 || task.meta.autoRetryOf) {
+    return task.meta.autoRetryOf ? 'This attempt was already the automatic retry, so the next build is a person\'s call.' : null;
+  }
+  try {
+    const { proposeAction } = await import('@/services/ActionService');
+    const planId = Number(task.meta.planId);
+    const res = await proposeAction({
+      orgId,
+      actionId: 'factory.dispatch_task',
+      input: { requestId, ...(Number.isFinite(planId) && planId > 0 ? { planId } : {}), autoRetryOf: task.id, reason: `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.` },
+      principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
+      invokedBy: 'agent:product-manager',
+      proposal: { confidence: 0.9, rationale: `QA sent attempt #${task.id} back with named gaps; one automatic retry carries them.`, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'One automatic retry after changes asked.' },
+    });
+    return res.status === 'pending'
+      ? `Build again is on a card for a person (run #${res.runId}).`
+      : `Build again started on its own (run #${res.runId}, ${res.status}); Undo cancels it until a worker claims it.`;
+  } catch (err) {
+    return `Build again could not start: ${(err as Error).message}`;
+  }
+}
+
 export function recordVerdictTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
@@ -232,7 +269,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value: args.value, proven, total } } as never);
       const count = `${proven} of ${total} criteria proven`;
       if (args.value !== 'approve') {
-        return `Verdict recorded on task #${task.id}: ${args.value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[args.value]}; the Work page shows what would settle it.`;
+        const retry = args.value === 'changes' ? await buildAgain(ctx.orgId, task) : null;
+        return `Verdict recorded on task #${task.id}: ${args.value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[args.value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''}`;
       }
       const riskRaw = typeof task.meta.riskClass === 'string' ? task.meta.riskClass : 'logic';
       const riskClass = (MERGE_RISK_CLASSES as readonly string[]).includes(riskRaw) ? riskRaw : 'logic';

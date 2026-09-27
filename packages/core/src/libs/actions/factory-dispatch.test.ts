@@ -165,3 +165,11 @@ describe('a visible change on a logic contract', () => {
     expect(c.qa).toEqual({ surface: 'app', flows: [{ name: 'Search', path: '/', sign_in: true }] });
   });
 });
+
+describe('a retry is its own trust key', () => {
+  it('keys a retry on factory.dispatch_task.retry and a first build on the action id, and never collapses the two', () => {
+    expect(factoryDispatchAction.policyKeyFor?.({ requestId: 131, reason: 'x', autoRetryOf: 164 } as never)).toBe('factory.dispatch_task.retry');
+    expect(factoryDispatchAction.policyKeyFor?.({ requestId: 131, reason: 'x' } as never)).toBe('factory.dispatch_task');
+    expect(factoryDispatchAction.dedupKeyFor?.({ requestId: 131, reason: 'x', autoRetryOf: 164 } as never)).toBe('factory.dispatch_task:request-131:retry-164');
+  });
+});

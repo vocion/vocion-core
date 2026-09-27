@@ -26,6 +26,15 @@ rules:
     enabled: false
     rung: execute-with-approval
     risk: medium
+  # The factory's own retry of an attempt QA sent back, carrying the verdict.
+  # Its own key so a workspace can let it run done-for-you (Undo cancels it
+  # until a worker claims it) while a first build stays a person's tap. An
+  # attempt that was itself a retry is never retried again.
+  - action: factory.dispatch_task.retry
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
   - action: git.push_branch
     autoApproveAbove: 0.7
     enabled: true
