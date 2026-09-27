@@ -1,0 +1,21 @@
+packages/core/migrations/0145_workspace_access_backfill.sql
+  s_393daae8284f35::t_6e8cffe23a047f 24-70
+packages/core/src/services/workspaceAccessBackfill.test.ts
+  s_393daae8284f35::t_59d5251aef69a2 1-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "08c157bf56c69f726a6dcdc179923d9f300fcbc2",
+  "prompts": {},
+  "sessions": {
+    "s_393daae8284f35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ed36d1f-e914-44c0-a0ad-d143be251a55",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
