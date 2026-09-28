@@ -983,6 +983,154 @@ export function toDate(raw: unknown): Date | null {
 }
 
 /**
+ * Compare two rows by `field` — what every declared `manifest.sort` and every
+ * merged run log (worker runs + agent runs in one list) sorts with. A Date
+ * value compares by instant, never by `String(date)`: `Date#toString()`
+ * starts with the weekday name ("Sun Sep 28 2026 …", "Thu Sep 24 2026 …"),
+ * so comparing those strings sorts "Sun" ahead of "Thu" and put a four-day-old
+ * row above one from 22 hours ago — the /dashboard/p/runs "not newest first"
+ * bug (Chris, 2026-09-28). Ties break on `id` so two rows created in the same
+ * instant keep one fixed order across renders — `Array#sort` needs that for
+ * stability, and cursor pagination needs it so a boundary never lands inside
+ * a tie.
+ * @param a - One row.
+ * @param b - The other row.
+ * @param field - The `resolveField` accessor to compare on.
+ * @param dir - `asc` or `desc` (default `desc`).
+ */
+export function compareRowsByField(a: PageRow, b: PageRow, field: string, dir: 'asc' | 'desc' = 'desc'): number {
+  const av = resolveField(a, field);
+  const bv = resolveField(b, field);
+  // A row the field is missing from sorts last whichever way the page sorts.
+  // Comparing it as the string "undefined" put the rows with no figure at the
+  // top of a page sorted by cost, which is the opposite of naming the most
+  // expensive work.
+  const ae = av === undefined || av === null || av === '';
+  const be = bv === undefined || bv === null || bv === '';
+  if (ae || be) {
+    return ae && be ? 0 : ae ? 1 : -1;
+  }
+  const ad = toDate(av);
+  const bd = toDate(bv);
+  let cmp = ad && bd
+    ? ad.getTime() - bd.getTime()
+    : typeof av === 'number' && typeof bv === 'number'
+      ? av - bv
+      : String(av).localeCompare(String(bv));
+  if (cmp === 0) {
+    cmp = String(a.id).localeCompare(String(b.id));
+  }
+  return dir === 'asc' ? cmp : -cmp;
+}
+
+/**
+ * `rows`, newest (or `dir`-most) first by `field` — a new array; the input is
+ * left alone. The one sort every list page and every merged run log goes
+ * through, so a fix to how a Date compares fixes every page sorted by one.
+ * @param rows - The rows to order.
+ * @param field - The `resolveField` accessor to sort on.
+ * @param dir - `asc` or `desc` (default `desc`).
+ */
+export function sortRowsByField(rows: PageRow[], field: string, dir: 'asc' | 'desc' = 'desc'): PageRow[] {
+  return [...rows].sort((a, b) => compareRowsByField(a, b, field, dir));
+}
+
+/** A page's resume point: the sorted field's value on the last row shown, plus that row's `id` as a tiebreaker. */
+export type PageCursorValue = { value: string; id: string };
+
+/**
+ * Encode a row's position (by `field`) as a URL-safe `?cursor=` string. A
+ * Date field encodes by its instant (`getTime()`), not its display string, so
+ * the cursor survives the same weekday-name trap `compareRowsByField` fixes.
+ * @param row - The row a page stopped at.
+ * @param field - The field the page is sorted by.
+ */
+export function encodeRowCursor(row: PageRow, field: string): string {
+  const raw = resolveField(row, field);
+  const d = toDate(raw);
+  const value = d ? String(d.getTime()) : String(raw ?? '');
+  return `${encodeURIComponent(value)}:${encodeURIComponent(String(row.id))}`;
+}
+
+/**
+ * Decode a `?cursor=` string back to its value and id, or `null` for a
+ * missing or malformed one — an unreadable cursor is treated as no cursor
+ * (the first page), never as an error a person sees.
+ * @param raw - The URL's `cursor` param.
+ */
+export function decodeRowCursor(raw: string | undefined | null): PageCursorValue | null {
+  if (!raw) {
+    return null;
+  }
+  const sep = raw.indexOf(':');
+  if (sep < 0) {
+    return null;
+  }
+  const value = decodeURIComponent(raw.slice(0, sep));
+  const id = decodeURIComponent(raw.slice(sep + 1));
+  return id ? { value, id } : null;
+}
+
+/**
+ * One page of `rows` — already sorted newest-first by `field` — starting
+ * right after `cursor`, plus the cursor for the next page (`null` once
+ * nothing is left). This never re-sorts: it slices an order the caller
+ * already produced, keyed by VALUE rather than position, so a run that starts
+ * between two clicks of "Load more" shifts what an offset would have meant
+ * but never lands on both sides of a `field`+`id` boundary — no duplicate,
+ * no gap. A cursor naming a row no longer in `rows` (the set changed between
+ * clicks) serves nothing further rather than risk repeating a row already
+ * seen.
+ * @param rows - The full, already-sorted set for the current view and filters.
+ * @param field - The field `rows` is sorted by (and the cursor is keyed on).
+ * @param cursor - The `?cursor=` param, or undefined for the first page.
+ * @param pageSize - How many rows one page holds.
+ */
+export function paginateRows(rows: PageRow[], field: string, cursor: string | undefined | null, pageSize: number): { page: PageRow[]; nextCursor: string | null } {
+  const decoded = decodeRowCursor(cursor);
+  let start = 0;
+  if (decoded) {
+    const idx = rows.findIndex((r) => {
+      const raw = resolveField(r, field);
+      const d = toDate(raw);
+      const value = d ? String(d.getTime()) : String(raw ?? '');
+      return value === decoded.value && String(r.id) === decoded.id;
+    });
+    start = idx >= 0 ? idx + 1 : rows.length;
+  }
+  const page = rows.slice(start, start + pageSize);
+  const last = page.at(-1);
+  const nextCursor = last && start + pageSize < rows.length ? encodeRowCursor(last, field) : null;
+  return { page, nextCursor };
+}
+
+/**
+ * A page's own URL, with `patch` merged in — `null` removes a key. Every
+ * other param (the view, a query filter, the window) rides along unchanged,
+ * so a "Load more" link never resets a filter someone chose to get here.
+ * @param slug - The page.
+ * @param searchParams - The request's own params.
+ * @param patch - Keys to add, change or (on `null`) drop.
+ */
+export function pageHrefKeeping(slug: string, searchParams: Record<string, string | string[] | undefined>, patch: Record<string, string | null>): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(searchParams)) {
+    if (typeof v === 'string') {
+      params.set(k, v);
+    }
+  }
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) {
+      params.delete(k);
+    } else {
+      params.set(k, v);
+    }
+  }
+  const qs = params.toString();
+  return `/dashboard/p/${slug}${qs ? `?${qs}` : ''}`;
+}
+
+/**
  * Where a `since` window starts, in UTC. `week` starts on Monday.
  * @param value - `month` | `week` | `today` | `<n>d`.
  * @param now - The clock.

@@ -32,10 +32,13 @@ import {
   computeStatChange,
   groupRows,
   isZeroFigure,
+  pageHrefKeeping,
   pagePlugin,
+  paginateRows,
   readWorkspacePageContent,
   readWorkspacePageMethodology,
   resolveField,
+  sortRowsByField,
 } from '@/libs/workspace/pages';
 import { deriveProductBoard } from '@/libs/workspace/productBoard';
 import { deriveReleaseFeed } from '@/libs/workspace/releaseFeed';
@@ -71,6 +74,12 @@ import { resolveRowImages } from '@/services/workspace/pageImages';
  * index), and custom widgets come from the workspace's own component
  * registry via the `@wsx/registry` alias.
  */
+
+/**
+ * How many rows a plain, ungrouped list page shows before "Load more" —
+ * Chris, 2026-09-28: "reverse sort the runs page, paginate or load more."
+ */
+const LIST_PAGE_SIZE = 50;
 
 async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[]> {
   const src = manifest.source;
@@ -268,9 +277,10 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
         createdAt: m.createdAt,
       },
     }));
-    return [...engineering, ...agent]
-      .sort((a, b) => (b.createdAt ? new Date(b.createdAt).getTime() : 0) - (a.createdAt ? new Date(a.createdAt).getTime() : 0))
-      .slice(0, src.limit);
+    // `sortRowsByField` compares by instant, not by `String(date)` — see its
+    // doc comment for the exact bug ("Sun" sorting ahead of "Thu") this once
+    // was.
+    return sortRowsByField([...engineering, ...agent], 'createdAt', 'desc').slice(0, src.limit);
   }
 
   if (src.kind === 'artifacts') {
@@ -619,24 +629,11 @@ export default async function WorkspacePage(props: {
     const drawn = await resolveRowImages(orgId, derived, manifest.fields ?? []);
     rows = applyFilter(drawn, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
     if (manifest.sort) {
-      const { field, dir } = manifest.sort;
-      rows.sort((a, b) => {
-        const av = resolveField(a, field);
-        const bv = resolveField(b, field);
-        // A row the field is missing from sorts last whichever way the page
-        // sorts. Comparing it as the string "undefined" put the rows with no
-        // figure at the top of a page sorted by cost, which is the opposite
-        // of naming the most expensive work.
-        const ae = av === undefined || av === null || av === '';
-        const be = bv === undefined || bv === null || bv === '';
-        if (ae || be) {
-          return ae && be ? 0 : ae ? 1 : -1;
-        }
-        const cmp = typeof av === 'number' && typeof bv === 'number'
-          ? av - bv
-          : String(av).localeCompare(String(bv));
-        return dir === 'asc' ? cmp : -cmp;
-      });
+      // `sortRowsByField` compares a Date field by instant — see its doc
+      // comment for why comparing `String(date)` instead put a four-day-old
+      // run above one from 22 hours ago on /dashboard/p/runs (Chris,
+      // 2026-09-28: "reverse sort the runs page").
+      rows = sortRowsByField(rows, manifest.sort.field, manifest.sort.dir);
     }
   }
 
@@ -694,6 +691,23 @@ export default async function WorkspacePage(props: {
   const groups: Array<{ label: string | null; rows: PageRow[] }> = manifest.groupBy
     ? groupRows(windowed, manifest.groupBy)
     : [{ label: null, rows: windowed }];
+
+  // "Load more" pagination — the plain, ungrouped list only: a page with
+  // lanes or tabs already shows each lane's own rows in full, and a cursor
+  // across several lanes at once is a separate problem for a separate day.
+  // Every stat, series and group count above was computed from `rows` /
+  // `windowed` — the WHOLE matching set — before this slices what is
+  // actually drawn, so paginating the display never changes what a stat
+  // counts (Chris, 2026-09-28: the stats strip counts the whole set, not the
+  // page).
+  const cursorParam = typeof searchParams.cursor === 'string' ? searchParams.cursor : undefined;
+  const pagination = !manifest.groupBy && manifest.archetype === 'list' && manifest.sort && groups[0]!.rows.length > LIST_PAGE_SIZE
+    ? paginateRows(groups[0]!.rows, manifest.sort.field, cursorParam, LIST_PAGE_SIZE)
+    : null;
+  const totalMatched = groups[0]?.rows.length ?? 0;
+  if (pagination) {
+    groups[0] = { label: null, rows: pagination.page };
+  }
 
   // Which plugin shipped this page, if any — the panel's slug.
   const ownedBy = pagePlugin(manifest);
@@ -900,6 +914,18 @@ export default async function WorkspacePage(props: {
         </p>
       )}
 
+      {pagination && (
+        <p className="mb-3 text-xs text-muted-foreground" data-testid="page-pagination-count">
+          Showing
+          {' '}
+          {groups[0]!.rows.length}
+          {' '}
+          of
+          {' '}
+          {totalMatched.toLocaleString()}
+        </p>
+      )}
+
       {manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && (() => {
         const Rows = manifest.layout === 'block' ? PageBlocks : PageTable;
         // A feed is the Ledger pattern: its own shape, so its own props.
@@ -954,6 +980,18 @@ export default async function WorkspacePage(props: {
           />
         );
       })()}
+
+      {pagination?.nextCursor && (
+        <div className="mt-3">
+          <Link
+            href={pageHrefKeeping(manifest.slug, searchParams, { cursor: pagination.nextCursor })}
+            className="inline-flex items-center rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+            data-testid="page-load-more"
+          >
+            Load more
+          </Link>
+        </div>
+      )}
 
       {reviewCfg && (
         <section id="wsx-review" className="mt-8">

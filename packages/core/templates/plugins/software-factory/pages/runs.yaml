@@ -11,6 +11,15 @@
 # The facts are libs/factory/runFacts.ts (execution, verification, output,
 # cause, recovery), read once for every row. Live: a worker heartbeats every
 # ~30s, so the page re-reads itself every 15s while it is open.
+#
+# Chris, 2026-09-28: "reverse sort the runs page, paginate or load more." The
+# page shows 50 at a time with a "Load more" control (rows/[slug]/page.tsx);
+# `limit` below is the most this source ever loads into memory to compute
+# those 50 plus the stats strip's whole-set counts, raised to the schema's
+# own ceiling (workerRuns.limit maxes at 500 — libs/workspace/pageFields.ts)
+# so a real factory's history is covered. A workspace that outgrows 500
+# engineering+agent runs needs the stats strip computed by a DB aggregate
+# instead of this in-memory one — not done here.
 slug: runs
 title: Runs
 description: Every run, engineering and agent, newest first — what is running now, what stopped and why, and what each attempt cost.
@@ -18,7 +27,7 @@ icon: activity
 nav: {section: Software factory, order: 6, secondary: true}
 archetype: list
 pluginPanel: false
-source: {kind: workerRuns, kinds: [worker], agentRuns: true, limit: 200}
+source: {kind: workerRuns, kinds: [worker], agentRuns: true, limit: 500}
 live: {every: 15}
 sort: {field: createdAt, dir: desc}
 
