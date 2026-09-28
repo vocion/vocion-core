@@ -27,6 +27,7 @@ import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
 import { cardAsRecommendation, surfaceCard } from '@/services/cards/surface';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
+import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
 import { RunCollector } from '@/services/chat/runCollector';
 import { stoppedShort } from '@/services/chat/turnStatus';
 import {
@@ -467,6 +468,13 @@ export async function POST(request: Request): Promise<Response> {
                 ...(endingReason ? { statusReason: endingReason } : {}),
                 agentSlug,
               });
+              // The thread's name, once its first answer has landed — in the
+              // background, after the row is written, so the stream never waits
+              // on it. It only ever replaces a title nobody chose
+              // (`services/chat/conversationTitle.ts`).
+              if (ending === 'complete' && text.trim()) {
+                scheduleConversationTitle({ orgId, conversationId });
+              }
               const touched = collector.touchedArtifactIds;
               if (touched.length > 0) {
                 await stampArtifactsWithMessage({ orgId, artifactIds: touched, messageId: msg.id });

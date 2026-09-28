@@ -2,6 +2,7 @@
 
 import type { TurnOutcome } from './queueReducer';
 import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
@@ -12,6 +13,7 @@ import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
+import { firstMessageTitle } from '@/libs/chat/threadTitle';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
@@ -377,7 +379,15 @@ export function useChatSession({
   // Recent conversations for the current agent — powers the history pickers
   // (the ⋯ menu on the page, the history panel in the bubble). Refreshed on
   // agent switch and when the list could be stale.
-  const [recentChats, setRecentChats] = useState<Array<{ id: number; title: string }>>([]);
+  const [recentChats, setRecentChats] = useState<Array<{ id: number; title: string; titleSource?: ConversationTitleSource }>>([]);
+  // The open thread's name as last read from the server (resume, pick) or
+  // written here (first send, rename). The recent list wins when it holds the
+  // thread, since it is refetched after every turn; this covers a thread too
+  // old to be in it.
+  const [threadMeta, setThreadMeta] = useState<{ id: number; title: string; titleSource: ConversationTitleSource } | null>(null);
+  // Bumped to refetch the recent list while a new thread's generated name is
+  // on its way (it is written in the background after the first reply).
+  const [titleTick, setTitleTick] = useState(0);
   // How recommended actions behave in this thread (0094). Starts from the
   // person's last choice; a resumed thread brings its own.
   const [autonomy, setAutonomyState] = useState<ConversationAutonomy>(DEFAULT_AUTONOMY);
@@ -1186,6 +1196,7 @@ export function useChatSession({
           conversationIdRef.current = storedId;
           setConversationId(storedId);
           writeSessionConversation(slug, storedId);
+          setThreadMeta(readThreadMeta(conv));
           setAutonomyState(readAutonomy(conv));
           setModelPrefsState(readModelPrefs(conv));
           setMessages(hydrated);
@@ -1302,6 +1313,9 @@ export function useChatSession({
       try {
         const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
         setActiveConversation(agent.slug, conv.id);
+        // The name the server is about to give it — the first message, cut —
+        // shown now rather than after the turn lands.
+        setThreadMeta({ id: conv.id, title: firstMessageTitle(text), titleSource: 'auto' });
         if (autonomy !== DEFAULT_AUTONOMY) {
           // The person's standing choice applies to the thread it just created
           // (the row is born at the default; only a different rung needs writing).
@@ -1682,9 +1696,10 @@ export function useChatSession({
     void client.conversations.list({ agentSlug: agentSlugForChats, limit: 12 })
       .then((rows) => {
         if (!cancelled) {
-          setRecentChats((rows as Array<{ id: number; title: string | null }>).map(row => ({
+          setRecentChats((rows as Array<{ id: number; title: string | null; titleSource?: ConversationTitleSource }>).map(row => ({
             id: row.id,
             title: row.title || `Chat #${row.id}`,
+            ...(row.titleSource ? { titleSource: row.titleSource } : {}),
           })));
         }
       })
@@ -1694,7 +1709,50 @@ export function useChatSession({
     return () => {
       cancelled = true;
     };
-  }, [agentSlugForChats, booted, phase]);
+  }, [agentSlugForChats, booted, phase, titleTick]);
+
+  // The open thread's name: the recent list when it holds it (refetched after
+  // every turn, so a generated name arrives there), else what was last read.
+  const listedThread = conversationId === null ? undefined : recentChats.find(c => c.id === conversationId);
+  const conversationTitle = conversationId === null
+    ? null
+    : listedThread?.title ?? (threadMeta?.id === conversationId ? threadMeta.title : null);
+  const conversationTitleSource = listedThread?.titleSource ?? (threadMeta?.id === conversationId ? threadMeta.titleSource : undefined);
+
+  // A generated name is written a second or two after the first reply lands,
+  // in the background. While the open thread's name is still the first-message
+  // cut and the turn is over, look again twice — then stop: a model that
+  // failed leaves the cut, which is already on screen.
+  const awaitingName = conversationId !== null && phase === 'idle' && conversationTitleSource === 'auto' && messages.some(m => m.role === 'assistant');
+  useEffect(() => {
+    if (!awaitingName) {
+      return;
+    }
+    const timers = [2_500, 7_000].map(ms => setTimeout(() => setTitleTick(n => n + 1), ms));
+    return () => timers.forEach(clearTimeout);
+  }, [awaitingName, conversationId]);
+
+  /**
+   * A person names the open thread. Optimistic in the header, the rail and the
+   * history list; a failed write puts the old name back.
+   */
+  const renameConversation = useCallback(async (next: string) => {
+    const id = conversationIdRef.current;
+    const title = next.split(/\s+/).filter(Boolean).join(' ');
+    if (id === null || !title) {
+      return;
+    }
+    const previous = { list: recentChats, meta: threadMeta };
+    setThreadMeta({ id, title, titleSource: 'person' });
+    setRecentChats(rows => rows.map(r => (r.id === id ? { ...r, title, titleSource: 'person' } : r)));
+    try {
+      await client.conversations.rename({ id, title });
+    } catch (error) {
+      console.warn('useChatSession: could not rename the conversation', error);
+      setThreadMeta(previous.meta);
+      setRecentChats(previous.list);
+    }
+  }, [recentChats, threadMeta]);
 
   // History picker: load a past conversation into the transcript + make it
   // the active thread (so new turns append to it).
@@ -1714,6 +1772,7 @@ export function useChatSession({
         setCurrentSlug(slug);
       }
       setActiveConversation(slug, id);
+      setThreadMeta(readThreadMeta(conv));
       setAutonomyState(readAutonomy(conv));
       setModelPrefsState(readModelPrefs(conv));
       setMessages(hydrated);
@@ -1862,6 +1921,10 @@ export function useChatSession({
     recentChats,
     /** Id of the thread new turns append to. Null until the first send. */
     conversationId,
+    /** The open thread's name; null for a new chat that has not been sent yet. */
+    conversationTitle,
+    /** Name the open thread (sets its title source to `person`). */
+    renameConversation,
     sendMessage,
     handleStop,
     /** How the last turn ended — `stopped`/`error` hold the queue instead of flushing it. */
@@ -1910,6 +1973,19 @@ export function useChatSession({
     railLoading: lastViewedLoading,
     persistRail,
   };
+}
+
+/**
+ * The name a persisted conversation carries, and who wrote it.
+ * @param conv - A conversation row as the router returns it.
+ */
+function readThreadMeta(conv: unknown): { id: number; title: string; titleSource: ConversationTitleSource } | null {
+  const c = conv as { id?: unknown; title?: unknown; titleSource?: unknown } | null;
+  if (typeof c?.id !== 'number' || typeof c.title !== 'string') {
+    return null;
+  }
+  const source = c.titleSource === 'generated' || c.titleSource === 'person' ? c.titleSource : 'auto';
+  return { id: c.id, title: c.title, titleSource: source };
 }
 
 /**

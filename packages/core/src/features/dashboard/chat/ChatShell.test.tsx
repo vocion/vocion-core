@@ -1,16 +1,16 @@
 import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 
-import { ShellBarActionsOutlet, ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
+import { ShellBarActionsOutlet, ShellBarActionsProvider, ShellBarTitleOutlet, useShellBarTitleClaimed } from '@/features/dashboard/ShellBarActions';
 import en from '@/locales/en.json';
 
 vi.mock('@/libs/Orpc', () => ({
   client: {
     chatWidget: { getState: vi.fn(), setState: vi.fn(), setRail: vi.fn(async () => ({ railWidth: null, railOpen: null })) },
     chat: { suggestions: vi.fn() },
-    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(), feedback: vi.fn() },
+    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(), feedback: vi.fn(), rename: vi.fn(async () => ({})) },
     teams: { list: vi.fn(async () => ({ workspace: null, teams: [] })) },
     missions: { list: vi.fn(async () => []) },
   },
@@ -42,11 +42,18 @@ function wrap(ui: React.ReactNode) {
   return (
     <NextIntlClientProvider locale="en" messages={en}>
       <ShellBarActionsProvider>
+        <CrumbStandIn />
+        <ShellBarTitleOutlet />
         <ShellBarActionsOutlet />
         {ui}
       </ShellBarActionsProvider>
     </NextIntlClientProvider>
   );
+}
+
+/** Stands in for the bar's breadcrumb: shown until a page claims the title slot, as `AppSidebarHeader` does. */
+function CrumbStandIn() {
+  return useShellBarTitleClaimed() ? null : <span data-testid="crumb">Squatch Factory</span>;
 }
 
 const AGENTS = [
@@ -128,5 +135,62 @@ describe('ChatShell', () => {
     resolveGetState(null);
 
     await expect.element(page.getByRole('button', { name: 'Try this' })).not.toBeDisabled();
+  });
+
+  it('keeps the workspace crumb for a new chat, and names the page by its thread once there is one', async () => {
+    await render(wrap(<ChatShell agents={AGENTS} />));
+
+    await expect.element(page.getByPlaceholder('Ask anything…')).toBeInTheDocument();
+    await expect.element(page.getByTestId('crumb')).toBeInTheDocument();
+    expect(page.getByTestId('chat-title').elements()).toHaveLength(0);
+  });
+
+  it('shows a resumed thread\'s title in the header in place of the workspace, and renames it inline', async () => {
+    vi.mocked(client.conversations.get).mockResolvedValue({
+      id: 64,
+      agentSlug: 'orchestrator',
+      title: 'Contoso supply forecast',
+      titleSource: 'generated',
+      messages: [
+        { role: 'user', content: 'what does contoso need next quarter?', runsJson: null, documentsJson: null, confidence: null },
+        { role: 'assistant', content: 'Roughly 4,000 units.', runsJson: null, documentsJson: null, confidence: null },
+      ],
+    } as never);
+
+    await render(wrap(<ChatShell agents={AGENTS} conversationId={64} />));
+
+    const title = page.getByTestId('chat-title');
+
+    await expect.element(title).toHaveTextContent('Contoso supply forecast');
+    expect(page.getByTestId('crumb').elements()).toHaveLength(0);
+
+    await userEvent.click(title);
+    await userEvent.fill(page.getByRole('textbox', { name: 'Conversation title' }), 'Contoso Q4 demand');
+    await userEvent.keyboard('{Enter}');
+
+    await expect.element(page.getByTestId('chat-title')).toHaveTextContent('Contoso Q4 demand');
+    expect(vi.mocked(client.conversations.rename)).toHaveBeenCalledWith({ id: 64, title: 'Contoso Q4 demand' });
+
+    // Escape leaves the name alone.
+    await userEvent.click(page.getByTestId('chat-title'));
+    await userEvent.fill(page.getByRole('textbox', { name: 'Conversation title' }), 'Never mind');
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(page.getByTestId('chat-title')).toHaveTextContent('Contoso Q4 demand');
+    expect(vi.mocked(client.conversations.rename)).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists threads by title in the history dropdown', async () => {
+    vi.mocked(client.conversations.list).mockResolvedValue([
+      { id: 7, title: 'Bellwater Hall booking', titleSource: 'generated' },
+      { id: 8, title: 'Acme renewal terms', titleSource: 'person' },
+    ] as never);
+
+    await render(wrap(<ChatShell agents={AGENTS} />));
+
+    await userEvent.click(page.getByRole('button', { name: 'Conversations' }));
+
+    await expect.element(page.getByRole('button', { name: 'Bellwater Hall booking' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Acme renewal terms' })).toBeVisible();
   });
 });

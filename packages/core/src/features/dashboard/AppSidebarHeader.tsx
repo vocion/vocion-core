@@ -32,7 +32,7 @@ import { envLabel as readEnvLabel } from '@/libs/envLabel';
 import { Link } from '@/libs/I18nNavigation';
 import { buildInfo, versionLabel } from '@/libs/version';
 import { NavigationProgress } from './NavigationProgress';
-import { ShellBarActionsOutlet } from './ShellBarActions';
+import { ShellBarActionsOutlet, ShellBarTitleOutlet, useShellBarTitleClaimed } from './ShellBarActions';
 
 /**
  * The dashboard top bar (ElevenLabs pattern, Chris 2026-09-15): breadcrumb
@@ -61,6 +61,9 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
   const user = session?.user;
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
+  // A page with a name of its own (the full-page chat, named by its thread)
+  // shows it here instead of the breadcrumb.
+  const titleClaimed = useShellBarTitleClaimed();
   const initials = user?.name
     ?.split(' ')
     .map(p => p[0])
@@ -124,7 +127,8 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
             {envLabel}
           </span>
         )}
-        <Breadcrumb workspaceName={workspace?.name ?? null} />
+        {!titleClaimed && <Breadcrumb workspaceName={workspace?.name ?? null} />}
+        <ShellBarTitleOutlet />
       </div>
 
       {/* Centre: the one search field. A bordered field with the ⌘K hint

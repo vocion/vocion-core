@@ -8,10 +8,12 @@
  *   - `toHistoryTurns` drops tool entries before replaying to the agent.
  */
 
+import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { PageContext } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { DEFAULT_THREAD_TITLE, firstMessageTitle } from '@/libs/chat/threadTitle';
 import { db } from '@/libs/DB';
 import { formatDateTime } from '@/libs/time/zone';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
@@ -19,7 +21,7 @@ import { track } from '@/services/adoption/track';
 import { isDroppedFromHistory, isTurnStatus } from '@/services/chat/turnStatus';
 import { enqueue } from '@/services/FeedbackWorkerService';
 
-const DEFAULT_TITLE = 'New conversation';
+const DEFAULT_TITLE = DEFAULT_THREAD_TITLE;
 
 /**
  * How recommended actions behave in a thread (0094). Neither rung executes
@@ -84,6 +86,12 @@ export async function createConversation(opts: {
   scopeRef?: string;
   /** Where the first turn was asked from — persisted once (R4). */
   context?: PageContext | null;
+  /**
+   * Who wrote `initialTitle`. Default `auto`: the generator may replace it
+   * after the first reply. Pass `person` when somebody chose the words (an
+   * email subject, a caller naming the thread) so it is kept.
+   */
+  titleSource?: ConversationTitleSource;
 }) {
   const title = (opts.initialTitle ?? DEFAULT_TITLE).trim() || DEFAULT_TITLE;
   const [row] = await db
@@ -92,6 +100,7 @@ export async function createConversation(opts: {
       orgId: opts.orgId,
       agentSlug: opts.agentSlug,
       title,
+      titleSource: opts.titleSource ?? 'auto',
       createdBy: opts.createdBy ?? null,
       scopeRef: opts.scopeRef ?? null,
       contextJson: opts.context ?? null,
@@ -186,14 +195,26 @@ export async function deleteConversation(opts: { orgId: string; id: number }) {
     .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)));
 }
 
+/** The longest title a person can give a thread; longer is cut, not refused. */
+export const MAX_TITLE_LENGTH = 120;
+
+/**
+ * A person names a thread. Marks the title `person`, so the generator never
+ * replaces it afterwards. Org-scoped: another workspace's id updates nothing
+ * and returns null.
+ * @param opts
+ * @param opts.orgId - Tenant; the row must belong to it.
+ * @param opts.id - The conversation.
+ * @param opts.title - The new name; whitespace collapsed, cut to `MAX_TITLE_LENGTH`.
+ */
 export async function renameConversation(opts: { orgId: string; id: number; title: string }) {
-  const title = opts.title.trim();
+  const title = opts.title.split(/\s+/).filter(Boolean).join(' ').slice(0, MAX_TITLE_LENGTH).trim();
   if (!title) {
     throw new Error('title must not be empty');
   }
   const [row] = await db
     .update(conversationSchema)
-    .set({ title })
+    .set({ title, titleSource: 'person' })
     .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)))
     .returning();
   return row ?? null;
@@ -285,8 +306,9 @@ export async function appendMessage(opts: {
   // Auto-title from the first user message if the title is still the default.
   const isFirstUser = conv.messageCount === 0
     && opts.role === 'user'
+    && conv.titleSource === 'auto'
     && (conv.title === DEFAULT_TITLE || conv.title === '');
-  const derivedTitle = isFirstUser ? deriveTitle(opts.content) : conv.title;
+  const derivedTitle = isFirstUser ? firstMessageTitle(opts.content) : conv.title;
 
   const [msg] = await db
     .insert(conversationMessageSchema)
@@ -383,18 +405,6 @@ export function toHistoryTurns(messages: Array<{
     out.push({ role: m.role, content, ...(m.id ? { id: m.id } : {}), ...(m.role === 'assistant' && m.runsJson ? { runs: m.runsJson } : {}) });
   }
   return out;
-}
-
-/* ------------------------------------------------------------------ */
-/* Helpers                                                             */
-/* ------------------------------------------------------------------ */
-
-function deriveTitle(content: string, maxLen = 60): string {
-  const s = content.split(/\s+/).filter(Boolean).join(' ');
-  if (s.length <= maxLen) {
-    return s || DEFAULT_TITLE;
-  }
-  return `${s.slice(0, maxLen - 1)}…`;
 }
 
 /* ------------------------------------------------------------------ */

@@ -232,7 +232,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
   if (!known) {
     // A stranger wrote to the workspace. No agent turn: file it for a person,
     // acknowledge the sender, remember the mail so a redelivery is dropped.
-    const conv = await createConversation({ orgId, agentSlug, createdBy: `email:${meta.from}`, scopeRef: `email:${inboundMessageId}`, initialTitle: meta.subject || `Mail from ${meta.from}` });
+    const conv = await createConversation({ orgId, agentSlug, createdBy: `email:${meta.from}`, scopeRef: `email:${inboundMessageId}`, initialTitle: meta.subject || `Mail from ${meta.from}`, ...(meta.subject ? { titleSource: 'person' as const } : {}) });
     await db.update(conversationSchema).set({ surface: 'email' }).where(eq(conversationSchema.id, conv.id));
     await appendMessage({ orgId, conversationId: conv.id, role: 'user', content: body || '(empty message)', userId: `email:${meta.from}` });
     await db.insert(emailThreadSchema).values({ orgId, conversationId: conv.id, messageId: inboundMessageId, receivedEmailId: meta.receivedEmailId, direction: 'in', fromAddress: meta.from, subject: meta.subject });
@@ -294,7 +294,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
   if (existingId !== null) {
     conversationId = existingId;
   } else {
-    const conv = await createConversation({ orgId, agentSlug, createdBy: `email:${meta.from}`, scopeRef: `email:${inboundMessageId}`, initialTitle: meta.subject || `Mail from ${meta.from}` });
+    const conv = await createConversation({ orgId, agentSlug, createdBy: `email:${meta.from}`, scopeRef: `email:${inboundMessageId}`, initialTitle: meta.subject || `Mail from ${meta.from}`, ...(meta.subject ? { titleSource: 'person' as const } : {}) });
     await db.update(conversationSchema).set({ surface: 'email' }).where(eq(conversationSchema.id, conv.id));
     conversationId = conv.id;
     created = true;

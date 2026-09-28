@@ -7,7 +7,8 @@ import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
-import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
+import { InlineTitle } from '@/components/ui/inline-title';
+import { ShellBarActionsPortal, ShellBarTitlePortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
@@ -289,6 +290,21 @@ function ChatShellInner({
 
   return (
     <div className="relative flex h-full flex-1 flex-col">
+      {/* The page's name is its thread's, in the shell bar where the
+          workspace crumb was — click it to rename. A new chat has no name
+          yet, so the bar keeps the workspace until the first send. */}
+      {session.conversationTitle && (
+        <ShellBarTitlePortal>
+          <InlineTitle
+            value={session.conversationTitle}
+            onRename={next => void session.renameConversation(next)}
+            label={t('rename_conversation')}
+            inputLabel={t('conversation_title')}
+            className="max-w-[min(28rem,50vw)] text-[13px] font-medium"
+            testId="chat-title"
+          />
+        </ShellBarTitlePortal>
+      )}
       {/* The single small chat menu — portaled into the shell top bar beside
           the account menu, so the conversation canvas stays clean. */}
       <ShellBarActionsPortal>

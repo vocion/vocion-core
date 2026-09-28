@@ -23,6 +23,10 @@ vi.mock('@/services/chat/autoPropose', async (importOriginal) => {
   }) };
 });
 
+// The thread's name is written in the background after a complete reply; the
+// route's only job is to ask for it, at the right moment.
+vi.mock('@/services/chat/conversationTitle', () => ({ scheduleConversationTitle: vi.fn() }));
+
 const { markStopped } = await import('@/libs/streams/buffer');
 const { TurnRefusedError } = await import('@/services/agents/turnRefusal');
 
@@ -31,6 +35,7 @@ const { conversationMessageSchema, conversationSchema } = await import('@/models
 const { clerkAuth } = await import('@/libs/Auth');
 const { runAgentDeep } = await import('@/services/AgentService');
 const { createConversation, listMessages, toHistoryTurns } = await import('@/services/ConversationService');
+const { scheduleConversationTitle } = await import('@/services/chat/conversationTitle');
 const { POST } = await import('./route');
 
 type RunOpts = Parameters<typeof runAgentDeep>[0];
@@ -384,5 +389,27 @@ describe('agent stream route — who spoke is a fact, not a guess (backlog 009)'
 
     expect(assistant?.agentSlug).toBe('revenue-lead');
     expect(person?.agentSlug).toBeNull();
+  });
+});
+
+describe('agent stream route — naming the thread', () => {
+  it('asks for a title after a complete reply has been written, and not before', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(finishes);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+
+    await postTurn(conv.id, 'how many deals closed?');
+
+    expect(scheduleConversationTitle).toHaveBeenCalledTimes(1);
+    expect(scheduleConversationTitle).toHaveBeenCalledWith({ orgId: ORG, conversationId: conv.id });
+  });
+
+  it('does not ask for one when the turn died or stalled', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+    vi.mocked(runAgentDeep).mockImplementation(diesPartWay);
+    await postTurn(conv.id, 'how many deals closed?');
+    vi.mocked(runAgentDeep).mockImplementation(stalls);
+    await postTurn(conv.id, 'and last quarter?');
+
+    expect(scheduleConversationTitle).not.toHaveBeenCalled();
   });
 });

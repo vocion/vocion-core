@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
-import { History, MoreHorizontal, PanelRightClose } from 'lucide-react';
+import { History, MoreHorizontal, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
  * The rail's header after the 2026-09-15 polish pass: ONE hairline-separated
  * row, 48px tall — the workspace mark, its name as the title, then four equal
- * 32px ghost controls (New chat · conversations · collapse), every one
+ * 32px ghost controls (New chat · conversations · close), every one
  * of them tooltipped.
  *
  * It was two lines before: a title with an underlined "All conversations"
@@ -50,7 +50,7 @@ function RailHeader({ workspace = 'Revenue Team', width = 480 }: {
         </div>
         <GhostIcon label="Conversations"><History className="size-4" aria-hidden /></GhostIcon>
         <GhostIcon label="Chat options"><MoreHorizontal className="size-4" aria-hidden /></GhostIcon>
-        <GhostIcon label="Collapse the conversation (⌘J)"><PanelRightClose className="size-4" aria-hidden /></GhostIcon>
+        <GhostIcon label="Close chat (⌘J)"><X className="size-4" aria-hidden /></GhostIcon>
       </div>
       <div className="h-24 bg-background" />
     </div>

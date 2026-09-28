@@ -1,9 +1,9 @@
-import { Mail, MessagesSquare, Plug, Search, Slack } from 'lucide-react';
+import { MessagesSquare, Search } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ConversationListRow } from '@/features/dashboard/chat/ConversationListRow';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { Link } from '@/libs/I18nNavigation';
 import { searchConversations } from '@/services/ConversationService';
 
 export const dynamic = 'force-dynamic';
@@ -28,9 +28,6 @@ function bucketOf(when: Date, now: Date): string {
   return when.toLocaleDateString(undefined, { month: 'long', year: when.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
 
-// `mcp`: a conversation an MCP client opened with ask_workspace (`services/chat/workspaceTurn.ts`).
-const SURFACE_ICON = { email: Mail, slack: Slack, mcp: Plug } as const;
-
 /**
  * /dashboard/conversations — every thread in this workspace, newest first.
  *
@@ -43,6 +40,9 @@ const SURFACE_ICON = { email: Mail, slack: Slack, mcp: Plug } as const;
  * Record-scoped threads are per person, so this shows the workspace's
  * everything-scoped threads plus the viewer's own scoped ones — never someone
  * else's (agent-chat-surface.md §8.6).
+ *
+ * A row's name is the thread's title — the generated one once the first
+ * reply has landed — and its pencil renames it in place (`ConversationListRow`).
  * @param props
  * @param props.params
  * @param props.searchParams
@@ -105,25 +105,16 @@ export default async function ConversationsPage(props: {
                   <h2 className="px-1 pb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">{group.label}</h2>
                   <ul className="divide-y divide-border/70 rounded-lg border border-border">
                     {group.rows.map((row) => {
-                      const SurfaceIcon = SURFACE_ICON[row.surface as keyof typeof SURFACE_ICON];
                       return (
                         <li key={row.id}>
-                          <Link href={`/dashboard/chat/${row.id}`} className="flex items-start gap-3 px-4 py-3 text-sm hover:bg-surface-hover">
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center gap-1.5">
-                                {SurfaceIcon && <SurfaceIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label={row.surface} />}
-                                <span className="truncate font-medium text-foreground">{row.title}</span>
-                              </span>
-                              {row.snippet && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{row.snippet}</span>}
-                              <span className="mt-0.5 block text-xs text-muted-foreground">
-                                {row.messageCount === 1 ? '1 message' : `${row.messageCount} messages`}
-                                {row.scopeRef ? ' · about a record' : ''}
-                              </span>
-                            </span>
-                            <span className="shrink-0 pt-0.5 text-xs text-muted-foreground tabular-nums">
-                              {row.updatedAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                            </span>
-                          </Link>
+                          <ConversationListRow
+                            id={row.id}
+                            title={row.title}
+                            snippet={row.snippet}
+                            meta={`${row.messageCount === 1 ? '1 message' : `${row.messageCount} messages`}${row.scopeRef ? ' · about a record' : ''}`}
+                            time={row.updatedAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                            surface={row.surface}
+                          />
                         </li>
                       );
                     })}

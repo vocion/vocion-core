@@ -1,0 +1,14 @@
+-- Who wrote a conversation's title: 'auto' | 'generated' | 'person'.
+--
+-- A thread was titled by cutting its first message to sixty characters, which
+-- reads as the question rather than as a name for it. After the first reply a
+-- cheap model now names the thread; the cut stays as the immediate fallback
+-- and as the answer whenever that call fails. The column is what lets the
+-- generator replace only a title nobody chose: a rename, or an email subject,
+-- is 'person' and is never overwritten.
+--
+-- Existing rows are 'auto'. The generator only runs after a thread's FIRST
+-- reply, so an old thread keeps the title it has; nothing is rewritten here.
+-- A constant default on ADD COLUMN is a catalog-only change on Postgres 11+,
+-- so this takes no table rewrite.
+ALTER TABLE "conversation" ADD COLUMN IF NOT EXISTS "title_source" text DEFAULT 'auto' NOT NULL;

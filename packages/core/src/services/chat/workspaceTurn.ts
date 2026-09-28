@@ -40,6 +40,7 @@ import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
 import { preflightCheck } from '@/services/BudgetService';
 import { autoProposeRecommendationDetailed } from '@/services/chat/autoPropose';
+import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
 import { RunCollector } from '@/services/chat/runCollector';
 import { appendMessage, createConversation, getConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
 import { projectSlugById } from '@/services/ProjectService';
@@ -255,7 +256,9 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   }
 
   if (!conversation) {
-    conversation = await createConversation({ orgId, agentSlug, createdBy: actorId, initialTitle: input.title?.trim() || undefined });
+    // A caller that names the thread chose those words; they are kept.
+    const named = input.title?.trim() || undefined;
+    conversation = await createConversation({ orgId, agentSlug, createdBy: actorId, initialTitle: named, ...(named ? { titleSource: 'person' as const } : {}) });
     await db.update(conversationSchema).set({ surface: 'mcp' }).where(eq(conversationSchema.id, conversation.id));
   }
   const conversationId = conversation.id;
@@ -426,6 +429,9 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
     ...(stalled ? { statusReason: `the turn ran ${trace.length} step${trace.length === 1 ? '' : 's'} and ended without answering` } : {}),
     agentSlug,
   });
+  if (!stalled && reply.trim()) {
+    scheduleConversationTitle({ orgId, conversationId });
+  }
   return { ...base, reply, truncated: false, turnId: turn.id, traceId: outcome.traceId || traceId, actions: await actionsFor(orgId, projectSlug, filed) };
 }
 

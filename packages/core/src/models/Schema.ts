@@ -1,4 +1,5 @@
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
@@ -1561,6 +1562,14 @@ export const conversationSchema = pgTable(
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     agentSlug: text('agent_slug').notNull(),
     title: text('title').notNull(),
+    /**
+     * Who wrote the title (migration 0148): `auto` — cut from the first
+     * message, the immediate fallback; `generated` — a cheap model named the
+     * thread after its first reply; `person` — somebody chose it (a rename, an
+     * email subject). Only an `auto` title is ever replaced, so a name a person
+     * gave is never overwritten.
+     */
+    titleSource: text('title_source').$type<ConversationTitleSource>().default('auto').notNull(),
     createdBy: text('created_by'),
     /**
      * The record this conversation is scoped to, when it was opened from a

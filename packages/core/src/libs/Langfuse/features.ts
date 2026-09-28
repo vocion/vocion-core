@@ -27,6 +27,8 @@ export const FEATURES = {
   FEEDBACK_DEDUPE: 'feedback.dedupe',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
+  /** A thread's name, written by the classifier model after its first reply. */
+  CHAT_TITLE: 'chat.title',
   /** OAuth token-refresh round-trips for Source plugins. */
   SOURCE_OAUTH: 'source.oauth',
   /** Native pgvector + Postgres FTS hybrid retrieval. */

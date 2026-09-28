@@ -4,10 +4,12 @@ import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption } from './types';
 import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import type { PageContext } from '@/services/chat/pageContext';
-import { MessageSquare, PanelRightClose, X } from 'lucide-react';
+import { MessageSquare, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { InlineTitle } from '@/components/ui/inline-title';
+import { PanelCloseButton } from '@/components/ui/panel-close-button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewportBelow } from '@/components/ui/useMobile';
@@ -621,7 +623,23 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {/* Unscoped, the rail is titled "Chat" with the bubble — not the workspace's name, which the sidebar already says (Chris, 2026-09-18). */}
           {!scopeRef && <MessageSquare className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
-          <span className="truncate text-sm font-semibold">{scopeRef ? headerName : t('rail_title')}</span>
+          {/* Unscoped, the header names the THREAD once there is one — click
+              it to rename — and says "Chat" for a new one. Scoped, it names
+              the record the thread is about. */}
+          {scopeRef
+            ? <span className="truncate text-sm font-semibold">{headerName}</span>
+            : session.conversationTitle
+              ? (
+                  <InlineTitle
+                    value={session.conversationTitle}
+                    onRename={next => void session.renameConversation(next)}
+                    label={t('rename_conversation')}
+                    inputLabel={t('conversation_title')}
+                    className="text-sm font-semibold"
+                    testId="rail-title"
+                  />
+                )
+              : <span className="truncate text-sm font-semibold" data-testid="rail-title">{t('rail_title')}</span>}
           {/* The drawer's scope, when an affordance opened it with one
               (`docs/specs/personalization-v2.md`): one line naming the
               subject, so an ask has an unambiguous referent. Not a panel and
@@ -655,20 +673,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         />
         {/* The sheet carries its own close control in this corner; a second
             one underneath it was two buttons in one 32px square. */}
+        {/* The same X every side pane closes with (PanelCloseButton): it
+            collapses the rail to its edge tab, as ⌘J does. */}
         {!narrow && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setCollapsedPersisted(true)}
-                aria-label={t('collapse_rail')}
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
-              >
-                <PanelRightClose className="size-4" aria-hidden="true" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" align="end" collisionPadding={8}>{t('collapse_rail')}</TooltipContent>
-          </Tooltip>
+          <PanelCloseButton
+            onClick={() => setCollapsedPersisted(true)}
+            label={t('close_rail')}
+            tooltip={t('close_rail_hint')}
+            testId="rail-close"
+          />
         )}
       </div>
 

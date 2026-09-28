@@ -102,8 +102,12 @@ export const remove = os
     return { ok: true };
   });
 
+/**
+ * A person names a thread. Org-scoped (another workspace's id is not found),
+ * and marks the title `person`, so the generator never replaces it.
+ */
 export const rename = os
-  .input(z.object({ id: z.number().int().positive(), title: z.string().min(1) }))
+  .input(z.object({ id: z.number().int().positive(), title: z.string().trim().min(1).max(500) }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
     const row = await renameConversation({ orgId, id: input.id, title: input.title });
