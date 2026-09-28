@@ -397,7 +397,12 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // verdict on a task that has screenshots is taken only after at least one
       // was opened in this review; the refusal hands over every link, so the
       // evidence is in front of the reviewer with nothing in between.
-      const refusal = ruled ?? await unopenedShots(ctx, task.id) ?? await unreadTestRun(ctx, task.id, total - proven);
+      // LOOK, THEN CITE. Review 5781 had opened nothing and was refused twice
+      // for citing captions instead of links — links it could not have, since
+      // the list of screenshots comes only with the "opened none" refusal,
+      // which the citation rule reached first. The evidence is handed over
+      // before the citations are judged.
+      const refusal = await unopenedShots(ctx, task.id) ?? ruled ?? await unreadTestRun(ctx, task.id, total - proven);
       if (refusal) {
         return contract.length > 0 ? `${refusal}\n\nThe contract on task #${task.id}, which is what is graded:\n${contract.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : refusal;
       }
