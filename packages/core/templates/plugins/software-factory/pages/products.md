@@ -1,18 +1,24 @@
-Each row is a product a person answers for: its stage, its health, our price
-beside the incumbent's dated list price, what last shipped and when, and what
-is still owed with how much of it is moving. Stage and price are read from the
-record; health, last shipped and open work are recomputed from the request and
-release records underneath when work finishes, and the row says when.
+Each card is a product a person answers for. It says, in order: what the
+product is for, the one thing that needs you (if anything), the work underway,
+what last shipped, and then, quietly, its stage and its health.
 
-**Health is a reading, not a guess.** A product with something watching it
-shows what that check last said. A product with nothing watching it shows
-"monitoring not connected", which is a statement about us and not about the
-product, and is the thing to go and fix. There is no `unknown`.
+**What needs you is one action.** Decisions waiting on a person, work that has
+stopped, or an issue the last health check found — only the most pressing is
+on the card, and it opens the place you act on it. Everything else is on the
+product's overview.
 
-**Revenue is not here** because no verified revenue source exists yet. A field
-no row can fill is removed rather than shown blank: a missing capability
-should make this page smaller, not fill it with dashes.
+**Work is counted the way Work counts it.** "In progress" is Work's In
+progress tab for this product; "open requests" is its Proposed tab, decisions
+included. Both are read from the request records when the page loads, not
+from a nightly count. A product the factory has never built for says "No work
+tracked here" rather than claiming everything is quiet.
 
-What shipped, in the words the public reads, is on
-[Releases](/dashboard/p/releases). What is still owed is on
-[Work](/dashboard/p/work).
+**Stage is not health.** Internal testing, Beta, Live and Retired say where a
+product is in its life. Health says what the last check found: "Current checks
+passed", "Issue detected", "Health check outdated" — a check older than the
+latest release, or than 48 hours, is never shown as passing — or "Health
+unavailable · Connect monitoring" when nothing is watching it, which names our
+gap (monitoring not connected), not a problem with the product.
+
+**Latest** is the newest release that says what shipped, by its title, with
+when it went out. The full list is on [Releases](/dashboard/p/releases).

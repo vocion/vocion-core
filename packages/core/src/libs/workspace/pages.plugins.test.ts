@@ -182,28 +182,32 @@ describe('plugin pages', () => {
     const drawn = (products?.fields ?? []).filter(f => !f.detail).map(f => f.key);
     const subtitle = products?.primary?.subtitle ?? [];
 
-    // The card (Chris, 2026-09-24): a mark, the name, one line saying what it
-    // is for, then the least a person needs to decide whether to open it.
+    // The card (products red team, 2026-09-28), in the order the questions
+    // are asked: what it is for, what needs you, what is underway, what last
+    // shipped, and then quietly its stage and health.
     expect(products?.primary?.thumb).toBe('icon');
-    expect(subtitle).toEqual(['tagline', 'stage', 'health', 'line', 'deps', 'open', 'lastRelease']);
+    expect(subtitle).toEqual(['tagline', 'attention', 'inProgress', 'backlog', 'workNone', 'latest', 'latestWhen', 'stage', 'health', 'deps']);
     expect(products?.derive).toBe('productBoard');
-    // Tapping the card opens WORK as this product's work; the rest is one ⋯ away.
-    expect(products?.rowLink).toBe('/dashboard/p/work?product={meta.slug}');
+    expect(products?.pluginPanel).toBe(false);
+    // The name opens the product's overview; each line opens its own place.
+    expect(products?.rowLink).toBe('/dashboard/p/products/{id}');
+
+    const byKey = (k: string) => (products?.fields ?? []).find(f => f.key === k);
+
+    expect(byKey('attention')?.href).toEqual(['/dashboard/p/work?product={meta.slug}#{meta.attentionTab}', '/dashboard/p/products/{id}']);
+    expect(byKey('inProgress')?.href).toBe('/dashboard/p/work?product={meta.slug}#in-progress');
+    expect(byKey('backlog')?.href).toBe('/dashboard/p/work?product={meta.slug}#proposed');
+    expect(byKey('latest')?.href).toBe('/dashboard/objects/{meta.latestReleaseId}');
+    // Lifecycle is not a badge with a warning tone: "dogfood" is a stage.
+    expect(byKey('stage')?.format).toBe('text');
+    expect(byKey('stage')?.from).toBe('meta.lifecycle');
+    // The ⋯ keeps the occasional places; "Product record" is gone.
     expect(products?.rowActionsAs).toBe('menu');
-    expect(products?.rowActions.map(a => a.label)).toEqual(['Open work', 'Releases', 'Product record', 'Wiki']);
+    expect(products?.rowActions.map(a => a.label)).toEqual(['All releases', 'Wiki', 'Edit fields and history']);
 
     for (const key of drawn) {
       expect(key === products?.primary?.field || key === products?.primary?.thumb || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
     }
-
-    // "Last shipped" is internal factory language; a person running a product
-    // says "last release", and the release is the thing they would open.
-    expect(drawn).toContain('lastRelease');
-    expect(drawn).not.toContain('lastShipped');
-
-    // Freshness is never primary card content. It is `detail`, and on a
-    // healthy row it is empty and the page drops it entirely.
-    expect((products?.fields ?? []).find(f => f.key === 'updated')?.detail).toBe(true);
   });
 
   it('Products is the one product page, and says where its counters came from', () => {

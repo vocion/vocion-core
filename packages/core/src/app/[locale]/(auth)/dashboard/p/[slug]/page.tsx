@@ -20,7 +20,7 @@ import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
-import { activeQueryFilters, applyQueryFilters } from '@/libs/workspace/pageFields';
+import { activeQueryFilters, applyQueryFilters, groupTabKey } from '@/libs/workspace/pageFields';
 import {
   applyFilter,
   applyWindow,
@@ -52,6 +52,7 @@ import { readPageForOrg } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
 import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
+import { loadObjectRows } from '@/services/workspace/objectRows';
 import { resolveRowImages } from '@/services/workspace/pageImages';
 
 /**
@@ -73,22 +74,7 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
   }
 
   if (src.kind === 'objects') {
-    const objType = await db.query.businessObjectTypeSchema.findFirst({
-      where: and(eq(businessObjectTypeSchema.slug, src.objectType), eq(businessObjectTypeSchema.orgId, orgId)),
-    });
-    if (!objType) {
-      return [];
-    }
-    const rows = await db.query.businessObjectSchema.findMany({
-      where: eq(businessObjectSchema.typeId, objType.id),
-    });
-    return rows.map(r => ({
-      id: r.id,
-      title: r.title,
-      status: r.status ?? null,
-      createdAt: r.createdAt ?? null,
-      meta: (r.metadata ?? {}) as Record<string, unknown>,
-    }));
+    return loadObjectRows(orgId, src.objectType);
   }
 
   if (src.kind === 'skillRuns') {
@@ -574,7 +560,14 @@ export default async function WorkspacePage(props: {
       : manifest.derive === 'releaseOutcome'
         ? deriveReleaseOutcome(loaded, { now: new Date(now) })
         : manifest.derive === 'productBoard'
-          ? deriveProductBoard(loaded, { now: new Date(now) })
+          // A card says what needs a person, what is underway and what last
+          // shipped BY NAME, so it reads the requests and releases themselves
+          // rather than only the counters rolled up onto the product.
+          ? deriveProductBoard(loaded, {
+              now: new Date(now),
+              requests: await loadObjectRows(orgId, 'request'),
+              releases: await loadObjectRows(orgId, 'release'),
+            })
           : loaded;
     // A picture a row names by id becomes a picture the page can draw. One
     // query for the whole page, after the derivation has chosen WHICH visual
@@ -865,7 +858,7 @@ export default async function WorkspacePage(props: {
         return (
           <PageGroupTabs
             groups={groups.map((g, gi) => ({
-              key: (g.label ?? `group-${gi}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `group-${gi}`,
+              key: groupTabKey(g.label, gi),
               label: g.label ?? '',
               count: g.rows.length,
               note: typeof g.rows[0]?.meta?.laneNote === 'string' ? g.rows[0].meta.laneNote : null,

@@ -1,10 +1,11 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
+import { StatusDot } from '@/components/patterns/DetailPage';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
 import { Badge } from '@/components/ui/badge';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
 import { Link } from '@/libs/I18nNavigation';
-import { fieldIsEmptyOn, interpolateHref, resolveRowActionHref, tableLayout } from '@/libs/workspace/pageFields';
+import { fieldIsEmptyOn, interpolateHref, resolveField, resolveRowActionHref, subtitleLines, tableLayout } from '@/libs/workspace/pageFields';
 import { RowMenu } from './RowMenu';
 
 /**
@@ -81,8 +82,15 @@ function ConstantLine({ constants }: { constants: TableLayout['constants'] }) {
  * @param root0.now - The instant a `relative` value is measured against.
  */
 function Thumb({ row, field, fallback, now }: { row: PageRow; field: PageField | null; fallback: PageField | null; now: number }) {
-  const picture = field && field.format !== 'icon' && !fieldIsEmptyOn(row, field, now) ? field : null;
-  const mark = picture ? null : (field?.format === 'icon' && !fieldIsEmptyOn(row, field, now) ? field : fallback && !fieldIsEmptyOn(row, fallback, now) ? fallback : null);
+  // A page whose lead picture IS a mark (`thumb` is `format: icon`) has no
+  // pictures at all, so there is no grid of drawings to align: the mark sits
+  // small beside the name instead (products red team, 2026-09-28: "shrink
+  // the large gray icon strip"). See {@link InlineMark}.
+  if (field?.format === 'icon') {
+    return null;
+  }
+  const picture = field && !fieldIsEmptyOn(row, field, now) ? field : null;
+  const mark = picture ? null : (fallback && !fieldIsEmptyOn(row, fallback, now) ? fallback : null);
   if (!picture && !mark) {
     return null;
   }
@@ -91,6 +99,51 @@ function Thumb({ row, field, fallback, now }: { row: PageRow; field: PageField |
       <FieldValue row={row} field={picture ?? mark!} now={now} />
     </span>
   );
+}
+
+/**
+ * The row's mark, small, leading its name — for a page whose lead picture is
+ * a named icon rather than a drawing.
+ * @param root0 - Props.
+ * @param root0.row - The row.
+ * @param root0.field - The `format: icon` field.
+ * @param root0.now - The clock.
+ */
+function InlineMark({ row, field, now }: { row: PageRow; field: PageField | null; now: number }) {
+  if (!field || field.format !== 'icon' || fieldIsEmptyOn(row, field, now)) {
+    return null;
+  }
+  return (
+    <span className="mt-0.5 inline-flex size-6 shrink-0 overflow-hidden rounded-md border border-border" data-testid="block-mark">
+      <FieldValue row={row} field={field} now={now} />
+    </span>
+  );
+}
+
+const TONE_DOT: Record<string, 'pass' | 'amber' | 'fail' | 'neutral' | 'ink'> = { ok: 'pass', warn: 'amber', bad: 'fail', info: 'ink', muted: 'neutral' };
+
+/** Focus and hover that can be seen, on every link a card carries. */
+const FACT_LINK = 'rounded-sm underline decoration-border underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring';
+
+/**
+ * One subtitle fact: its value, with the emphasis, tone dot and link the
+ * field declared.
+ * @param root0 - Props.
+ * @param root0.row - The row.
+ * @param root0.field - The field.
+ * @param root0.now - The clock.
+ * @param root0.links - Resolved record references.
+ */
+function Fact({ row, field, now, links }: { row: PageRow; field: PageField; now: number; links?: LinkMap }) {
+  const to = field.href ? resolveRowActionHref(row, field.href) : null;
+  const tone = field.toneFrom ? resolveField(row, field.toneFrom) : undefined;
+  const dot = typeof tone === 'string' ? TONE_DOT[tone] : undefined;
+  const value = <FieldValue row={row} field={field} now={now} links={links} />;
+  const body = dot ? <StatusDot tone={dot} label={value} /> : value;
+  const strong = field.emphasis === 'strong' ? 'text-sm font-medium text-foreground' : undefined;
+  return to
+    ? <Link href={to} className={`${FACT_LINK} ${strong ?? ''}`} data-testid={`fact-link-${field.key}`}>{body}</Link>
+    : <span className={strong}>{body}</span>;
 }
 
 /**
@@ -125,6 +178,15 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   const badges = layout.subtitle.filter(f => f.format === 'badge');
   const rest = layout.subtitle.filter(f => f.format !== 'badge');
   const facts = factsFor(row, layout.columns, now);
+  const lines = subtitleLines(rest, row, now);
+  // A card whose facts open their OWN places cannot also be one big link — a
+  // link inside a link is a tap that does two things. Its title opens the
+  // row instead, and each linked fact opens where it says.
+  const split = [...layout.subtitle, ...layout.columns].some(f => f.href !== undefined);
+  const mark = <InlineMark row={row} field={layout.thumb} now={now} />;
+  const title = layout.primary
+    ? <FieldValue row={row} field={layout.primary} now={now} links={links} />
+    : row.title;
   const body = (
     <>
       {/* The headline and its state, on one line that does NOT wrap between
@@ -138,10 +200,16 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
           the first chip, so a card never spends a whole row on one word
           (phone, 2026-09-24). On a wide card the badges still hold the right. */}
       <div className="flex flex-col gap-1 @md:flex-row @md:items-start @md:justify-between @md:gap-x-3">
-        <span className="min-w-0 text-base font-semibold text-foreground">
-          {layout.primary
-            ? <FieldValue row={row} field={layout.primary} now={now} links={links} />
-            : row.title}
+        <span className="flex min-w-0 items-start gap-2 text-base font-semibold text-foreground">
+          {mark}
+          {split && href
+            ? (
+                <Link href={href} className={`${FACT_LINK} min-w-0 decoration-transparent`} data-testid="block-title-link">
+                  {title}
+                  <PendingIcon className="ml-1.5 inline size-3.5 text-muted-foreground" />
+                </Link>
+              )
+            : <span className="min-w-0">{title}</span>}
         </span>
         {badges.some(f => !fieldIsEmptyOn(row, f, now)) && (
           <span className="hidden items-center gap-1.5 @md:flex @md:shrink-0">
@@ -162,10 +230,14 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
           {/* The separator TRAILS its fact rather than leading the next one.
               Led, it wrapped onto the start of a new line as a stray "·"
               floating before the value it was meant to divide. */}
-          {rest.filter(f => !fieldIsEmptyOn(row, f, now)).map((f, i, drawn) => (
-            <span key={f.key} className="flex items-center gap-1.5">
-              <FieldValue row={row} field={f} now={now} links={links} />
-              {i < drawn.length - 1 && <span aria-hidden className="text-muted-foreground/50">·</span>}
+          {lines.map((line, li) => (
+            <span key={line[0]!.key} className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 ${lines.length > 1 ? 'basis-full' : ''} ${li > 0 ? 'mt-0.5' : ''}`} data-testid="block-line">
+              {line.map((f, i) => (
+                <span key={f.key} className="flex items-center gap-1.5">
+                  <Fact row={row} field={f} now={now} links={links} />
+                  {i < line.length - 1 && <span aria-hidden className="text-muted-foreground/50">·</span>}
+                </span>
+              ))}
             </span>
           ))}
         </div>
@@ -200,8 +272,9 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   // column nobody can scan. `shrink-0` because the drawing has one size —
   // it is 128 by 80 and letting the grid squeeze it would distort the one
   // thing on the card that is meant to be read as a shape.
-  const inner = layout.thumb === null && layout.thumbFallback === null
-    ? <div className="p-4">{body}</div>
+  const strip = (layout.thumb !== null && layout.thumb.format !== 'icon') || layout.thumbFallback !== null;
+  const inner = !strip
+    ? <div className={`p-4 ${menuItems.length > 0 ? 'pr-10' : ''}`}>{body}</div>
     : (
         <div className="flex items-stretch">
           <Thumb row={row} field={layout.thumb} fallback={layout.thumbFallback} now={now} />
@@ -213,14 +286,14 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   // and its own transition is readable, so the tap is acknowledged at once —
   // the card dims and a corner spinner appears — before the new page has
   // rendered a thing (backlog 013). `active:` answers the finger itself.
-  const card = href
+  const card = href && !split
     ? (
         <Link href={href} className={`${className} relative transition-colors hover:bg-muted/40 active:bg-muted/60 has-[[data-link-pending]]:opacity-60`}>
           {inner}
           <PendingIcon className={`absolute top-3 size-4 text-muted-foreground ${menuItems.length > 0 ? 'right-10' : 'right-3'}`} />
         </Link>
       )
-    : <div className={className}>{inner}</div>;
+    : <div className={`${className} ${split ? 'transition-colors focus-within:ring-2 focus-within:ring-ring/40 hover:bg-muted/20' : ''}`} data-testid={split ? 'block-card' : undefined}>{inner}</div>;
   // The menu sits OUTSIDE the anchor — a button inside a link is a tap that
   // does two things — at the card's corner, over the room the body left it.
   return menuItems.length > 0

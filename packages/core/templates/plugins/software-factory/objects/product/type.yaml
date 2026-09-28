@@ -45,10 +45,19 @@ schema:
         every product on it, and the board says so in both directions — "built
         on Squatch Core" on the app, "Send and Slate build on it" on the core.
     stage:
-      x-display: {label: Stage, format: badge, group: Product, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
+      x-display: {label: Stage, format: badge, group: Product, tones: {idea: muted, building: muted, dogfood: muted, beta: muted, live: muted, retired: muted}}
       type: string
-      description: '`idea` — not yet building. `building` — code, no users. `dogfood` — the team uses it daily. `live` — people outside the team rely on it. `retired` — no longer offered, still answered for.'
-      enum: [idea, building, dogfood, live, retired]
+      description: 'Where the product is in its life — never a warning, so every stage is drawn neutral. `idea` — not yet building. `building` — code, no users ("In development"). `dogfood` — the team uses it daily ("Internal testing"). `beta` — a few people outside the team use it on purpose. `live` — people outside the team rely on it. `retired` — no longer offered, still answered for.'
+      enum: [idea, building, dogfood, beta, live, retired]
+    currentFocus:
+      x-display: {label: Current focus, role: prose, group: Product}
+      type: string
+      description: >-
+        What the product's accountable person says the team is working towards
+        right now, in their words — one or two sentences. SET BY A PERSON (the
+        overview's "Set current focus" asks the product manager to take it
+        down), never written by an agent on its own: a generated strategy
+        reads like a decision nobody made.
     incumbent:
       x-display: {label: Incumbent, role: prose, format: steps, order: 2}
       type: object

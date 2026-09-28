@@ -77,6 +77,18 @@ export default async function WorkspaceReportPage(props: {
       </>
     );
   }
+  // A product's OVERVIEW — what a Products card's name opens. Keyed on the
+  // page's derivation rather than its slug: a page that derives a product
+  // board is the products page, whatever a workspace called it.
+  if (manifest?.derive === 'productBoard') {
+    const { loadProductOverview } = await import('@/services/factory/productOverviewData');
+    const { ProductOverviewView } = await import('@/features/dashboard/factory/ProductOverviewView');
+    const now = new Date();
+    const overview = await loadProductOverview(orgId, id, now);
+    return overview
+      ? <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} />
+      : notFound();
+  }
   if (!manifest || manifest.archetype !== 'report' || !manifest.report) {
     return notFound();
   }

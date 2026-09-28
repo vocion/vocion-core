@@ -35,15 +35,14 @@
 #   fresh: `staleAfterHours` draws it only on a row that has gone stale, and
 #   while every row is current the field is empty everywhere and disappears.
 #
-# The counters are still AGENT-MAINTAINED: a page's stats compute over their
-# own rows, so a count across requests or releases per product cannot be a
-# page stat. The lead's `keep-the-board-honest` tick recomputes them each
-# morning.
+# The card is derived from the requests and releases themselves
+# (`derive: productBoard`, libs/workspace/productBoard.ts), not from a
+# morning tick, so what it says needs you is what Work would show you.
 #
-# Rows here are products, not requests, so there is no Report action: the
-# feature report takes a request id, and a link a row cannot fill is worse
-# than no link. The drill from a product is its own record, and from there
-# the requests that name it.
+# The drill from a product is its OVERVIEW, `/dashboard/p/products/<id>`:
+# what needs attention by name, the work underway, recent releases, what is
+# measured, and the product's context, with the raw record behind Technical
+# details. The generic record page is one ⋯ away for editing.
 slug: products
 title: Products
 description: How are my products doing?
@@ -53,9 +52,6 @@ archetype: list
 pluginPanel: false
 layout: block
 source: {kind: objects, objectType: product}
-# One sentence per product, derived from its rollups and its health: what a
-# person should do about it, or that it is too early to say (review,
-# 2026-09-24: "Products is missing the executive recommendation").
 derive: productBoard
 sort: {field: meta.stage, dir: asc}
 # Drawn once the portfolio is big enough that reading every row is the slower
@@ -64,75 +60,62 @@ statsMinRows: 8
 stats:
   - {label: Products, kind: count}
   - {label: Live, kind: countWhere, where: {field: meta.stage, op: eq, value: live}}
-  - {label: In dogfood, kind: countWhere, where: {field: meta.stage, op: eq, value: dogfood}}
-  - {label: Down or degraded, kind: countWhere, where: {field: meta.health, op: in, value: [down, degraded]}}
-# Every field is in the subtitle on purpose. A block draws its remaining
-# fields as a definition list with an uppercase heading over each value —
-# OUR PRICE, LAST SHIPPED, OPEN WORK — which asks a reader past five labels
-# to reach five values, and filled a phone screen with two products. In the
-# subtitle they read as one line of facts under the name.
+  - {label: In internal testing, kind: countWhere, where: {field: meta.stage, op: eq, value: dogfood}}
+  - {label: Issue detected, kind: countWhere, where: {field: meta.healthState, op: eq, value: issue}}
+# THE CARD (products red team, 2026-09-28). In the order the questions are
+# asked, one line each:
 #
-# The order is the order the questions get asked: is it alive (stage,
-# health), who owns it, what does it cost against the incumbent, when did it
-# last reach production, and how much is queued.
-# THE CARD (Chris, 2026-09-24): a mark, the name, one line saying what it is
-# for, and the least a person needs to decide whether to open it — where it
-# stands, what is waiting on them, when it last shipped. Tapping the card
-# opens WORK as this product's work; everything else about it is behind the
-# ⋯ menu, so the card stays one tap to one place.
+#   Send                                          (small mark, the name opens the overview)
+#   Send big files and know when they were opened (what it is for)
+#   Review 2 decisions                            (the ONE thing that needs you, loudest)
+#   1 change in progress · 5 open requests        (what is underway, each its own link)
+#   Latest: Email delivery tracking · 8h ago      (what last shipped, links to it)
+#   Internal testing · Health check outdated · Built on Squatch Core   (quiet)
+#
+# Lifecycle, health and attention are three different axes and never share a
+# word: "dogfood" is a stage, not a warning; a health check older than the
+# latest release says "outdated", never "ok"; and a decision is said once, as
+# the action ("Review 2 decisions"), never also as "2 to decide".
 primary:
   field: title
-  subtitle: [tagline, stage, health, line, deps, open, lastRelease]
+  subtitle: [tagline, attention, inProgress, backlog, workNone, latest, latestWhen, stage, health, deps]
   thumb: icon
 fields:
   - {key: title, label: Product}
   - {key: icon, label: Mark, from: meta.icon, format: icon}
   - {key: tagline, label: What it is for, from: meta.tagline}
-  - {key: line, label: Where it stands, from: meta.boardLine}
+  - key: attention
+    label: Needs you
+    from: meta.attentionLine
+    emphasis: strong
+    toneFrom: meta.attentionTone
+    breakBefore: true
+    # Decisions and blocked work open Work on the right tab for this product;
+    # an issue (no Work tab) opens the product's overview.
+    href: ['/dashboard/p/work?product={meta.slug}#{meta.attentionTab}', '/dashboard/p/products/{id}']
+  - {key: inProgress, label: In progress, from: meta.inProgressLine, breakBefore: true, href: '/dashboard/p/work?product={meta.slug}#in-progress'}
+  - {key: backlog, label: Open requests, from: meta.backlogLine, href: '/dashboard/p/work?product={meta.slug}#proposed'}
+  - {key: workNone, label: Work, from: meta.workNoneLine}
+  # The release's own page. Releases open the record today (releases.yaml
+  # `rowLink`); when Releases grows its own release page, point this there.
+  - {key: latest, label: Latest release, from: meta.latestReleaseLine, breakBefore: true, href: '/dashboard/objects/{meta.latestReleaseId}'}
+  - {key: latestWhen, label: Released, from: meta.latestReleaseAt, format: relative}
+  - {key: stage, label: Stage, from: meta.lifecycle, breakBefore: true}
+  - {key: health, label: Health, from: meta.healthLabel, toneFrom: meta.healthTone}
   - {key: deps, label: Built on, from: meta.dependencyLine}
-  - {key: stage, label: Stage, from: meta.stage, format: badge, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
-  # `source` is what keeps a degraded product and an unmonitored one from
-  # reading the same. With nothing checking it, the row says "monitoring not
-  # connected", which names our gap, instead of "unknown", which sounds like
-  # doubt about the product.
-  - key: health
-    label: Health
-    from: meta.health
-    format: badge
-    tones: {ok: ok, degraded: warn, down: bad}
-    source: {from: [meta.healthSource, meta.healthCheckedAt], absentLabel: monitoring not connected}
+  # Behind the product's overview, not on the card.
   - {key: owner, label: Accountable, from: meta.accountableUser, detail: true}
-  # Our price beside the incumbent's lives on the record; it is rarely the
-  # fact a daily portfolio read turns on.
   - key: price
     label: Our price
     from: meta.ourPrice
     format: compare
     beside: {from: meta.incumbent.listPrice, labelFrom: meta.incumbent.name, checkedFrom: meta.incumbent.checkedOn}
     detail: true
-  # "Last shipped" is internal factory language. "Last release" is what a
-  # person running a product says, and the release itself is the thing they
-  # would open to see what changed.
-  - key: lastRelease
-    label: Last release
-    from: meta.lastShipped
-    caption: {from: meta.lastReleaseAt, format: relative}
-  - key: open
-    label: Open work
-    from: meta.openRequests
-    format: workload
-    workload: {noun: open request, inFlightFrom: meta.inFlight, urgentFrom: meta.awaitingDecision, urgentLabel: to decide}
-  # Only on a row whose figures have gone STALE. "Counters last recomputed"
-  # is never primary card content: on a healthy row it is noise competing
-  # with the figures it describes, so when nothing is stale the field is
-  # empty on every row and the page drops it entirely.
-  - {key: updated, label: Recomputed, from: meta.countersUpdatedAt, format: relative, staleAfterHours: 24, detail: true}
-# The card opens the product's WORK — the queue a person manages — not the
-# record. The record, the releases and the wiki are one ⋯ away.
-rowLink: '/dashboard/p/work?product={meta.slug}'
+# The name opens the product's overview. The card's other lines open their
+# own places, so the card itself is not one big link.
+rowLink: '/dashboard/p/products/{id}'
 rowActionsAs: menu
 rowActions:
-  - {label: Open work, href: '/dashboard/p/work?product={meta.slug}'}
-  - {label: Releases, href: '/dashboard/p/releases?product={meta.slug}'}
-  - {label: Product record, href: '/dashboard/objects/{id}'}
+  - {label: All releases, href: '/dashboard/p/releases?product={meta.slug}'}
   - {label: Wiki, href: /dashboard/p/wiki}
+  - {label: Edit fields and history, href: '/dashboard/objects/{id}'}

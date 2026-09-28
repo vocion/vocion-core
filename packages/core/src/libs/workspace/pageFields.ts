@@ -223,6 +223,35 @@ const FieldSchema = z.object({
    * digits when nobody is.
    */
   detail: z.boolean().default(false),
+  /**
+   * Where this one fact opens, as a row-link template (`{id}`, `{meta.slug}`)
+   * or an ordered list of fallbacks — the same grammar as `rowLink` and a row
+   * action's `href`. A block whose facts carry their own destinations is no
+   * longer one big link: its title opens the row and each linked fact opens
+   * its own place, so "Review 2 decisions" goes to the decisions and "1 change
+   * in progress" goes to the work, from the card, without the ⋯ menu
+   * (products red team, 2026-09-28). A template this row cannot fill draws
+   * the fact as plain text rather than as a link to a 404.
+   */
+  href: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
+  /**
+   * In a block's subtitle, start a new line with this field. A card that
+   * reads name → what needs you → what is underway → what last shipped →
+   * stage and health is five questions, and running them together on one
+   * dotted line made the one that needs a person as quiet as the stage.
+   */
+  breakBefore: z.boolean().optional(),
+  /**
+   * `strong` draws the value in the foreground at normal size — the line a
+   * card leads with after its name — where the rest of a subtitle is muted.
+   */
+  emphasis: z.enum(['strong']).optional(),
+  /**
+   * An accessor holding a tone (`ok`, `warn`, `bad`, `info`, `muted`) drawn
+   * as a small dot before the value, for a sentence that carries a state
+   * without being a badge ("Issue detected", "Current checks passed").
+   */
+  toneFrom: z.string().optional(),
 });
 
 /**
@@ -793,6 +822,17 @@ export function resolveField(row: PageRow, from: string): unknown {
     cur = (cur as Record<string, unknown>)[part];
   }
   return cur;
+}
+
+/**
+ * The key a group's tab is addressed by — `#in-progress` for "In progress" —
+ * so a link from another page can open a grouped page on the right tab. One
+ * definition, used where the tabs are drawn and where links to them are made.
+ * @param label - The group's label.
+ * @param index - Its position, for a group with no usable label.
+ */
+export function groupTabKey(label: string | null, index = 0): string {
+  return (label ?? `group-${index}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `group-${index}`;
 }
 
 /**
@@ -1624,4 +1664,25 @@ export function shortUrlLabel(url: string): string {
   const host = parsed.hostname.replace(/^www\./, '');
   const last = parsed.pathname.split('/').filter(Boolean).at(-1);
   return last ? `${host}/${last}` : host;
+}
+
+/**
+ * The subtitle's fields as LINES: a field that declared `breakBefore` starts
+ * a new one. A break whose own field is empty on this row still breaks, so
+ * the next fact does not run on into the line before it.
+ * @param fields - The subtitle fields, in order.
+ * @param row - The row.
+ * @param now - The clock.
+ */
+export function subtitleLines(fields: PageField[], row: PageRow, now: number): PageField[][] {
+  const lines: PageField[][] = [[]];
+  for (const f of fields) {
+    if (f.breakBefore && lines[lines.length - 1]!.length > 0) {
+      lines.push([]);
+    }
+    if (!fieldIsEmptyOn(row, f, now)) {
+      lines[lines.length - 1]!.push(f);
+    }
+  }
+  return lines.filter(l => l.length > 0);
 }
