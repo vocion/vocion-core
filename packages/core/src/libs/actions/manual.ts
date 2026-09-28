@@ -249,6 +249,8 @@ export type ManualActionSpec<Extra extends Z.ZodRawShape = Record<never, never>>
   system: string;
   /** Refuse a proposal before it is filed — a sentence for the proposer, or nothing. Runs with the org and the checked input. */
   precheck?: (ctx: import('./types').ActionContext, input: Record<string, unknown>) => Promise<string | void>;
+  /** After a person rejects the hand-off: what the domain record does about it. */
+  onRejected?: (ctx: import('./types').ActionContext, input: Record<string, unknown>, runId: number, reason?: string) => Promise<void>;
   /** authz grant the proposer needs. */
   grant: string;
   /** Whether what it does can be put back with one step. Default false: hand-offs usually cannot. */
@@ -297,6 +299,7 @@ export function manualAction<Extra extends Z.ZodRawShape = Record<never, never>>
     ...(spec.policyKeyFor ? { policyKeyFor: (raw: unknown) => spec.policyKeyFor!(raw as Input) } : {}),
     ...(spec.precheck ? { precheck: (ctx, raw) => spec.precheck!(ctx, raw as Record<string, unknown>) } : {}),
     ...(spec.parentRuleGoverns ? { parentRuleGoverns: true } : {}),
+    ...(spec.onRejected ? { onRejected: (ctx, raw, runId, reason) => spec.onRejected!(ctx, raw as Record<string, unknown>, runId, reason) } : {}),
     async reviewCard(_ctx, raw) {
       const input = raw as Input;
       return manualReviewCard({

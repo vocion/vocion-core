@@ -90,7 +90,43 @@ export const gitMergeAction = manualAction({
   },
   // One rule for git.merge governs every class until a class earns its own.
   parentRuleGoverns: true,
+  // HELD MERGE, SENT BACK. A person who will not merge what QA approved is
+  // disagreeing with the verdict; the task goes back to Changes asked with the
+  // person's reason as the note, so Build again is offered and carries it.
+  // Before, a rejected card left the task "accepted" and the feature could not
+  // be built again (#131 attempt 187, 2026-09-28: approved on a URL shot taken
+  // mid-debounce and a loading skeleton).
+  onRejected: async (ctx, input, _runId, reason) => {
+    const taskId = typeof input.taskId === 'number' ? input.taskId : null;
+    if (taskId !== null) {
+      await holdMerge(ctx.orgId, taskId, reason);
+    }
+  },
 });
+
+/**
+ * A person held the merge: the task reads Changes asked, the reason is QA's note.
+ * @param orgId - The workspace.
+ * @param taskId - The task the merge card was for.
+ * @param reason - What the person said, if anything.
+ */
+export async function holdMerge(orgId: string, taskId: number, reason?: string): Promise<void> {
+  const { db } = await import('@/libs/DB');
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const [task] = await db.select({ meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, taskId))).limit(1);
+  if (!task) {
+    return;
+  }
+  const verdict = ((task.meta ?? {}) as Record<string, unknown>).verdict as Record<string, unknown> | undefined;
+  const held = { ...(verdict ?? {}), value: 'changes', heldBy: 'person', note: `A person held the merge: ${reason?.trim() || 'no reason given'}`.slice(0, 400) };
+  await db
+    .update(businessObjectSchema)
+    .set({ status: 'changes_requested', metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ status: 'changes_requested', verdict: held })}::jsonb`, updatedAt: new Date() })
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, taskId)));
+  const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
+  await recomputeRollupsForObject(orgId, taskId).catch(() => undefined);
+}
 
 /**
  * Is the verdict about the commit being merged? A verdict is evidence about
