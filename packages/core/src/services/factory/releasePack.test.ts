@@ -28,8 +28,8 @@ describe('linkRelease', () => {
     const [reqType] = await createObjectType({ slug: 'request', label: 'Request' }, ORG);
     const [taskType] = await createObjectType({ slug: 'engineering_task', label: 'Task' }, ORG);
     const [relType] = await createObjectType({ slug: 'release', label: 'Release' }, ORG);
-    const [request] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: reqType!.id, title: 'Request a file', status: 'active', metadata: { state: 'building' } }).returning();
-    const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: taskType!.id, title: 'Request a file', status: 'accepted', metadata: { requestId: request!.id, prUrl: `${PR}/70`, verdict: { value: 'approve', proven: 6, total: 6 } } }).returning();
+    const [request] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: reqType!.id, title: 'Request a file', status: 'active', metadata: { state: 'building', acceptance: [{ statement: 'Send someone a link to upload a file.' }, { statement: 'It arrives in your library.' }] } }).returning();
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: taskType!.id, title: 'Request a file', status: 'accepted', metadata: { requestId: request!.id, prUrl: `${PR}/70`, verdict: { value: 'approve', proven: 6, total: 6, criteria: [{ criterion: 'Send someone a link to upload a file.', status: 'proven', evidence: 'artifact 1201' }, { criterion: 'It arrives in your library.', status: 'unproven' }] } } }).returning();
     const [reverted] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: taskType!.id, title: 'Find a document', status: 'accepted', metadata: { requestId: 999, prUrl: `${PR}/66` } }).returning();
     const [shot] = await db.insert(artifactSchema).values({ orgId: ORG, kind: 'image', title: 'Request dialog', recordType: 'object', recordId: String(task!.id), recordRole: 'qa-screenshot' }).returning();
     const [release] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: relType!.id, title: 'app 0f0f0f0', status: 'active', metadata: { releasedAt: '2026-09-27T20:00:00Z', prUrls: [`${PR}/70`, `${PR}/66`], commits: ['abc1234 revert: find a document (#66)', '0f0f0f0 feat: request a file (#70)'] } }).returning();
@@ -46,6 +46,11 @@ describe('linkRelease', () => {
     const [req] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, request!.id));
 
     expect(req!.metadata).toMatchObject({ state: 'shipped', shippedAt: '2026-09-27T20:00:00Z', shippedIn: release!.id });
+    // Met from QA's proof, paired by words; what QA did not prove stays unmet.
+    expect((req!.metadata as { acceptance: unknown[] }).acceptance).toEqual([
+      { statement: 'Send someone a link to upload a file.', met: true, evidence: 'artifact 1201' },
+      { statement: 'It arrives in your library.' },
+    ]);
     expect(reverted).toBeDefined();
     // Idempotent: the same release links the same pack.
     expect(await linkRelease(ORG, release!.id)).toEqual(pack);

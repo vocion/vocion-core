@@ -118,8 +118,23 @@ export async function linkRelease(orgId: string, releaseId: number): Promise<{ r
     verificationArtifactIds: shots.map(s => s.id),
   });
   const releasedAt = typeof meta.releasedAt === 'string' ? meta.releasedAt : new Date().toISOString();
-  for (const id of requestIds) {
-    await mergeMeta(orgId, id, { state: 'shipped', shippedAt: releasedAt, shippedIn: releaseId });
+  // THE CONTRACT HOLDS, SAID FROM QA'S PROOF. The Done row counts the
+  // request's own acceptance lines as met or unmet, and nothing ever marked
+  // them: #131 shipped at "QA approve, 8 of 8 proven" and read "6 of 6 unmet"
+  // at the top of Done. Each line is paired by words with the shipped task's
+  // verdict (the same pairing the verdict uses); a proven line is met, with
+  // its evidence. A line QA did not prove stays unmet — that is the gate.
+  const { alignToContract } = await import('@/services/agents/tools/recordVerdict');
+  const requests = (await objectsOfType(orgId, 'request')).filter(r => requestIds.includes(r.id));
+  for (const request of requests) {
+    const acceptance = Array.isArray(request.meta.acceptance) ? request.meta.acceptance as Array<Record<string, unknown>> : [];
+    const task = tasks.find(t => Number(t.meta.requestId) === request.id);
+    const judged = (((task?.meta.verdict ?? {}) as { criteria?: unknown }).criteria ?? []) as Parameters<typeof alignToContract>[1];
+    const aligned = acceptance.length > 0 && Array.isArray(judged) && judged.length > 0
+      ? alignToContract(acceptance.map(a => String(a.statement ?? a.criterion ?? '')), judged)
+      : [];
+    const marked = acceptance.map((a, i) => (aligned[i]?.status === 'proven' ? { ...a, met: true, evidence: aligned[i]!.evidence ?? `QA, release #${releaseId}` } : a));
+    await mergeMeta(orgId, request.id, { state: 'shipped', shippedAt: releasedAt, shippedIn: releaseId, ...(aligned.length > 0 ? { acceptance: marked } : {}) });
   }
   const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
   await recomputeRollupsForObject(orgId, releaseId).catch(() => undefined);
