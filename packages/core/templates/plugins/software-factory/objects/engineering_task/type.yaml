@@ -13,6 +13,8 @@ description: >-
 icon: hammer
 schema:
   type: object
+  # A Review item about a task closes itself once the task ends (backlog 039).
+  x-settled: {field: status, in: [accepted, rejected, abandoned]}
   properties:
     repoSlug:
       x-display: {label: Repository, format: link, to: repo, group: Where}

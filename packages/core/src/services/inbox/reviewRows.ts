@@ -43,7 +43,8 @@ export type ReviewRow = {
   described: ActionDescription;
 };
 
-const DECIDED_STATUSES = ['done', 'rejected', 'executing', 'approved', 'undone'];
+// `closed`: the review sweep closed it because its reason was gone (backlog 039).
+const DECIDED_STATUSES = ['done', 'rejected', 'executing', 'approved', 'undone', 'closed'];
 
 /**
  * Action-plane rows for one tab. `limit` bounds the decided tab, which is
@@ -90,6 +91,7 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
       decidedAt: actionRunSchema.decidedAt,
       decidedBy: actionRunSchema.decidedBy,
       approvedByAgent: actionRunSchema.approvedByAgent,
+      error: actionRunSchema.error,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       assignedTo: reviewAssignmentSchema.assignedTo,
@@ -110,7 +112,8 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
     approvedByAgent: row.approvedByAgent === true,
     undoable: row.status === 'done' && getAction(row.actionId)?.undo !== undefined,
     snoozedUntil: row.snoozedUntil ?? null,
-    note: row.note ?? null,
+    // A run the sweep closed carries its reason in `error` ("closed: … — link"): that IS its note.
+    note: row.status === 'closed' ? (row.error ?? null) : (row.note ?? null),
     assignedTo: row.assignedTo ?? null,
     input: row.input ?? {},
     proposal: (row.proposal as Record<string, unknown> | null) ?? null,

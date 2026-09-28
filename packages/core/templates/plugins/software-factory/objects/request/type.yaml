@@ -18,6 +18,9 @@ schema:
   # request filed from chat lands on Work at once (Chris, 2026-09-28: "it
   # should probably auto file, and the card should be to start the build").
   x-moderation: none
+  # When a question about a request stops being a question (backlog 039): a
+  # Review item asking about one closes itself once the request ends here.
+  x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
   properties:
     kind:
       x-display: {label: Kind, format: badge, group: Triage, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}

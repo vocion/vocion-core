@@ -1,6 +1,7 @@
 import { and, count, eq, gte } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, agentSchema, askSchema } from '@/models/Schema';
+import { assessReviewItems } from './ReviewTruthService';
 
 /**
  * THE PROPOSAL BUDGET — no runaway queues.
@@ -92,25 +93,38 @@ export type OpenProposal = { kind: 'run' | 'ask'; id: number; title: string; cre
 
 /**
  * What this agent is holding in front of a person right now: its pending
- * action runs and its open asks, oldest first.
+ * action runs and its open asks that are still TRUE, oldest first.
+ *
+ * The same definition Review uses (backlog 039): an expired run already left
+ * Review, and an item whose reason is gone — its record deleted, decided on
+ * its own record, the question's subject settled, superseded by a newer one
+ * — is not in front of anyone, whatever its status column still says. On
+ * 2026-09-28 seven of the eight items that refused the product-manager were
+ * like that. The review sweep closes them; this count does not wait for it.
  * @param orgId - The project.
  * @param agentSlug - The agent.
+ * @param now - The clock.
  */
-export async function openProposals(orgId: string, agentSlug: string): Promise<OpenProposal[]> {
+export async function openProposals(orgId: string, agentSlug: string, now: Date = new Date()): Promise<OpenProposal[]> {
   const invokedBy = `agent:${agentSlug}`;
   const [runs, asks] = await Promise.all([
     db
-      .select({ id: actionRunSchema.id, input: actionRunSchema.input, actionId: actionRunSchema.actionId, createdAt: actionRunSchema.createdAt })
+      .select({ id: actionRunSchema.id, orgId: actionRunSchema.orgId, input: actionRunSchema.input, actionId: actionRunSchema.actionId, dedupKey: actionRunSchema.dedupKey, expiresAt: actionRunSchema.expiresAt, createdAt: actionRunSchema.createdAt })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.invokedBy, invokedBy), eq(actionRunSchema.status, 'pending'))),
     db
-      .select({ id: askSchema.id, title: askSchema.title, createdAt: askSchema.createdAt })
+      .select({ id: askSchema.id, orgId: askSchema.orgId, title: askSchema.title, objectRefs: askSchema.objectRefs, createdAt: askSchema.createdAt })
       .from(askSchema)
       .where(and(eq(askSchema.orgId, orgId), eq(askSchema.agentSlug, agentSlug), eq(askSchema.status, 'open'))),
   ]);
+  const truth = await assessReviewItems(orgId, { runs, asks }, now);
   const out: OpenProposal[] = [
-    ...runs.map(r => ({ kind: 'run' as const, id: r.id, title: String((r.input as { title?: unknown }).title ?? r.actionId), createdAt: r.createdAt })),
-    ...asks.map(a => ({ kind: 'ask' as const, id: a.id, title: a.title, createdAt: a.createdAt })),
+    ...runs
+      .filter(r => truth.get(`run:${r.id}`)?.true !== false)
+      .map(r => ({ kind: 'run' as const, id: r.id, title: String((r.input as { title?: unknown }).title ?? r.actionId), createdAt: r.createdAt })),
+    ...asks
+      .filter(a => truth.get(`ask:${a.id}`)?.true !== false)
+      .map(a => ({ kind: 'ask' as const, id: a.id, title: a.title, createdAt: a.createdAt })),
   ];
   out.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   return out;
@@ -155,7 +169,7 @@ export type BudgetVerdict
  */
 export async function checkProposalBudget(opts: { orgId: string; agentSlug: string; actionId?: string; now?: Date; queuesForPerson?: boolean }): Promise<BudgetVerdict> {
   const budget = await proposalBudgetFor(opts.orgId, opts.agentSlug);
-  const open = await openProposals(opts.orgId, opts.agentSlug);
+  const open = await openProposals(opts.orgId, opts.agentSlug, opts.now);
   // THE REVIEW LIMIT IS ABOUT REVIEW (backlog 038): a proposal the trust
   // ladder will execute within bounds never lands in front of a person, so it
   // is not refused for what is already waiting there. The planner was refused

@@ -27,7 +27,7 @@ export type ActionRunStatus = {
   fetchedAt: number;
 };
 
-export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'rejected', 'undone']);
+export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'rejected', 'undone', 'closed']);
 
 const MIN_MS = 2_000;
 const MAX_MS = 30_000;

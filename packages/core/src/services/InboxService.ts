@@ -102,7 +102,7 @@ export type InboxItem = {
   confidence?: number | null;
   amount?: number | null;
   currency?: string | null;
-  /** Decided tab: what was chosen — `approved`, `rejected`, `undone`, or `done for you` when the ladder released it. */
+  /** Decided tab: what was chosen — `approved`, `rejected`, `undone`, `done for you` when the ladder released it, or `closed` when its reason was gone (the note says why). */
   decision?: string | null;
   /** Decided tab: a done run the row can put back in place. */
   undoable?: boolean;
@@ -182,14 +182,19 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
     href: inboxHref('proposal', r.id),
     detail: r.status === 'awaiting_execution'
       ? `Approved${r.decidedBy ? ` by ${r.decidedBy.replace(/^agent:/, '')}` : ''} — waiting to be done by hand`
-      : tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
+      : tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date()
+        ? `Snoozed until ${r.snoozedUntil.toLocaleString()}`
+        // Surfaced once by the review sweep (backlog 039): still true, and old.
+        : tab !== 'decided' && typeof r.proposal?.stillWaitingSince === 'string'
+          ? `Still waiting since ${r.proposal.stillWaitingSince.slice(0, 10)}`
+          : undefined,
     reviewId: r.id,
     actionId: r.actionId,
     confidence: r.described.confidence,
     amount: r.described.amount,
     currency: r.described.currency,
     ...(tab === 'decided'
-      ? { decision: r.status === 'rejected' ? 'rejected' : r.status === 'undone' ? 'undone' : r.approvedByAgent ? 'done for you' : 'approved', decidedBy: r.decidedBy, note: r.note, undoable: r.undoable }
+      ? { decision: r.status === 'rejected' ? 'rejected' : r.status === 'undone' ? 'undone' : r.status === 'closed' ? 'closed' : r.approvedByAgent ? 'done for you' : 'approved', decidedBy: r.decidedBy, note: r.note, undoable: r.undoable }
       : {}),
   };
 }

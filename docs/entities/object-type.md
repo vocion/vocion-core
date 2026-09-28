@@ -90,6 +90,23 @@ fewShotExamples:
     label: Clear first substantive conversation.
 ```
 
+## Settled
+
+A type says when one of its records is finished with `x-settled` on its schema:
+the metadata field to read and the values that mean it has settled. Review
+reads it to stay true — an undecided item that asks about a record which has
+since settled (a request shipped, a task accepted), or that is the review of a
+candidate decided on its own record (a plan approved on the plan), is closed by
+the review sweep with the reason and a link, never silently. Core itself knows
+only that a record `rejected` or `archived` has settled.
+
+```yaml
+# objects/request/type.yaml
+schema:
+  type: object
+  x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
+```
+
 ## Rules
 
 - Slugs are unique across object types.

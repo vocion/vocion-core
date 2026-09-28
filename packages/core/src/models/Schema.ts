@@ -3468,7 +3468,7 @@ export const actionRunSchema = pgTable(
     /** Registered action id, e.g. `gmail.send`. */
     actionId: text('action_id').notNull(),
     input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
-    /** pending | approved | executing | done | failed | rejected | undone (a done run a person put back) */
+    /** pending | approved | executing | done | failed | rejected | undone (a done run a person put back) | closed (the review sweep closed it: its reason was gone, `error` says why) */
     status: text('status').default('pending').notNull(),
     result: jsonb('result').$type<Record<string, unknown>>(),
     error: text('error'),

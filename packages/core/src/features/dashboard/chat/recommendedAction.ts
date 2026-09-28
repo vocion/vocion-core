@@ -175,6 +175,9 @@ export function describeCardState(s: CardStateInput, time: (iso: string) => stri
       return { label: `Rejected${by}${at}`, tone: 'red' };
     case 'undone':
       return { label: `Undone${by}${at}`, tone: 'muted' };
+    case 'closed':
+      // The review sweep closed it: nobody decided, its reason was gone.
+      return { label: `Closed — no longer needed${at}`, tone: 'muted' };
     case 'failed':
       return { label: 'Failed', tone: 'red' };
     case 'snoozed':
