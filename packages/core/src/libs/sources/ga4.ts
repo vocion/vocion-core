@@ -2,7 +2,9 @@
  * GA4 (Google Analytics Data API) connector — ingest analytics/CRO rows as
  * retrievable documents. The CRO half of the Daylyte reporting deployment.
  *
- * Auth: OAuth access token in `ctx.credentials.token`. Incremental: when
+ * Auth: the workspace's Google credential — a refresh token plus the OAuth
+ * client pair, exchanged for an access token by `resolveGoogleAccessToken`,
+ * or a short-lived `credentials.token` as the legacy stopgap. Incremental: when
  * `ctx.since` is set the report's `startDate` is that day; otherwise 30 days
  * back. One IngestDoc per report row. (GA4 runReport is offset/limit, not
  * cursor-paginated; we pull a single capped report — enough for daily syncs.)
@@ -11,6 +13,7 @@
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { resolveGoogleAccessToken } from './googleAuth';
 
 const ga4ConfigSchema = z.object({
   propertyId: z.string().min(1),
@@ -36,10 +39,11 @@ export const ga4Connector: SourceConnector<typeof ga4ConfigSchema> = {
   configSchema: ga4ConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = ga4ConfigSchema.parse(ctx.config);
-    const token = ctx.credentials?.token as string | undefined;
-    if (!token) {
-      throw new Error('GA4 connector requires credentials.token');
-    }
+    // The Google credential the Sources screen saves holds a refresh token and
+    // no access token, so reading `credentials.token` directly failed every
+    // sync, and a pasted access token died within the hour (vocion-core#129).
+    // The same resolution every other Google connector uses.
+    const token = await resolveGoogleAccessToken(ctx.credentials);
     const startDate = ctx.since ? isoDate(ctx.since) : '30daysAgo';
     const res = await fetch(`${cfg.baseUrl}/properties/${cfg.propertyId}:runReport`, {
       method: 'POST',
