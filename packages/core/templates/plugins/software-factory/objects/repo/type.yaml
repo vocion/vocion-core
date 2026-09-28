@@ -60,9 +60,10 @@ schema:
       type: object
       additionalProperties: {type: array, items: {type: string}}
       description: >-
-        A map from a product slug to the path globs a change to that product may
-        touch, e.g. `send: [apps/send-api/**, apps/send-web/**]`. A request built
-        with no plan takes its allowed paths from here.
+        A map from a product slug, or `<product>.<surface>`, to the path globs a
+        change to it may touch, e.g. `send: [apps/send-api/**, apps/send-web/**]`
+        and `send.data: [apps/send-api/**]`. A request built with no plan takes its
+        allowed paths from here, its surface's entry first.
     riskDefaults:
       x-display: {label: Risk floor by path, role: prose, format: steps, order: 2}
       type: object

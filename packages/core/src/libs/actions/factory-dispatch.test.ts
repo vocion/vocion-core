@@ -92,6 +92,13 @@ describe('a contract from the records alone', () => {
     expect(contractGaps(c)).toEqual([]);
   });
 
+  it('takes the paths for the request\'s surface before the whole product (#201: an api-only bug refused for spanning two packages)', () => {
+    const withSurface = { ...repo, productPaths: { 'northwind': ['apps/web/**', 'packages/api/**'], 'northwind.data': ['packages/api/**'] } };
+    const c = deriveContract({ given: {}, request: { ...request, product: 'northwind', surface: 'data' }, plan: null, repo: withSurface });
+
+    expect(c.allowedPaths).toEqual(['packages/api/**', 'packages/api/tests/**']);
+  });
+
   it('opens a ui app\'s src/** when the plan names only a file in it (#126: a visible criterion needs its component)', () => {
     const libOnly = { ...plan, components: ['apps/web/src/lib/upload.ts — multipart with retry', 'packages/api/src/routes/links.ts — part signing'] };
     const c = deriveContract({ given: {}, request, plan: libOnly, repo });

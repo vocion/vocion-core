@@ -275,7 +275,11 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // its acceptance and the file at fault) skipped planning, and Build answered
   // "task #0 has no allowedPaths, requiredChecks, repo" (2026-09-28). With no
   // plan, the repo record says which paths a product's change may touch.
-  const productPaths = ((repo.productPaths ?? {}) as Record<string, string[]>)[String(r.product ?? '')] ?? [];
+  // Keyed `<product>.<surface>` first, then `<product>`: #201 is an api-only
+  // bug (surface data), and a contract spanning api and web needs a plan the
+  // request never had, so the worker refused it (run 401, 2026-09-28).
+  const byProduct = (repo.productPaths ?? {}) as Record<string, string[]>;
+  const productPaths = byProduct[`${String(r.product ?? '')}.${String(r.surface ?? '')}`] ?? byProduct[String(r.product ?? '')] ?? [];
   const componentPaths = pathsFromComponents(list(p, 'components'));
   const planPaths = givenPaths.length > 0 ? givenPaths : componentPaths.length > 0 ? componentPaths : productPaths.filter(isPath);
   // A GENERATED FILE BRINGS ITS SOURCE. #124's plan named
