@@ -32,6 +32,39 @@ beforeEach(() => {
   actionStatus.mockResolvedValue({ id: 41, status: 'done', undoable: true });
 });
 
+describe('done reads as done, and a draft asks for the draft (Chris, 2026-09-28, request #124)', () => {
+  it('an executed card names what it changed, and is set apart from one waiting on you', async () => {
+    actionStatus.mockResolvedValue({ id: 41, status: 'done', undoable: true, approvedByAgent: true, summary: 'changed request #124: outcome, mainRisk' });
+    await render(<TooltipProvider><RecommendedActionCard rec={{ ...rec, actionId: 'objects.update_meta', label: 'Write the narrowed scope onto 124', runId: 41 }} /></TooltipProvider>);
+
+    await expect.element(page.getByTestId('recommended-action-state')).toHaveTextContent('Done for you — changed request #124: outcome, mainRisk');
+    await expect.element(page.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="recommended-action-card"]')?.className).toContain('border-emerald-500/40');
+  });
+
+  it('a filing that misses its bar says Draft needed, files nothing, and its one button asks for the draft', async () => {
+    const asked: unknown[] = [];
+    const listener = (e: Event) => {
+      asked.push((e as CustomEvent).detail);
+      e.preventDefault();
+    };
+    window.addEventListener('vocion:open-agent-surface', listener);
+    try {
+      await render(<TooltipProvider><RecommendedActionCard rec={{ ...rec, actionId: 'objects.propose_candidate', label: 'File in-app notifications as its own request in core', input: { objectType: 'request', title: 'Add in-app notifications to core' }, draft: { prompt: 'Draft the full request "Add in-app notifications to core" from this conversation.', missing: 'story; acceptance' } }} /></TooltipProvider>);
+
+      await expect.element(page.getByTestId('recommended-action-state')).toHaveTextContent('Draft needed');
+      await expect.element(page.getByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+
+      await page.getByRole('button', { name: 'Draft the full request' }).click();
+
+      expect(asked).toEqual([expect.objectContaining({ prompt: 'Draft the full request "Add in-app notifications to core" from this conversation.', send: true })]);
+      expect(propose).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('vocion:open-agent-surface', listener);
+    }
+  });
+});
+
 describe('a card the server files', () => {
   it('adopts the run id when it arrives, and never proposes itself', async () => {
     const { rerender } = await render(<TooltipProvider><RecommendedActionCard rec={rec} /></TooltipProvider>);

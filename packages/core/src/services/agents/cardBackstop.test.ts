@@ -263,6 +263,82 @@ describe('a build of something nobody filed is a filing (conversation 351, 2026-
   });
 });
 
+describe('a filing card is written through file_<type>, and one that misses the bar is drafted, not dropped (conversation 355)', () => {
+  const LABEL = 'File in-app notifications as its own request in core';
+  // The card as the writer filled it in production: free-form fields, no story, no acceptance.
+  const filingCard: Card = {
+    label: LABEL,
+    delayMs: 0,
+    args: { action_id: FILE_ACTION, action_input: { objectType: 'request', title: 'Add in-app notifications to core', fields: { product: 'vocion', kind: 'gap' }, dedupOn: ['title', 'product'] }, label: LABEL, rationale: 'Split out of 124 when push was cut.' },
+  };
+  const BAR = 'Not proposed: this request fails the "proposal-ready" bar: story: write the story as one person in their words; acceptance: write three to six acceptance lines a person can check on the screen';
+  const hasBar = (input: Record<string, unknown>) => {
+    const f = (input.fields ?? {}) as Record<string, unknown>;
+    return typeof f.story === 'string' && Array.isArray(f.acceptance) && f.acceptance.length >= 3;
+  };
+
+  /**
+   * The typed filing tool, schema only, and a card writer that answers the
+   * typed pass with `typedArgs` and the card pass with the card as written.
+   * @param typedArgs - What the model writes into file_request, or null for no call.
+   */
+  function typed(typedArgs: Record<string, unknown> | null) {
+    const bound: string[] = [];
+    const typedTool = { name: 'file_request' } as never;
+    const filingTool: CardBackstopDeps['filingTool'] = objectType => (objectType === 'request'
+      ? { tool: typedTool, label: 'request', input: args => ({ objectType: 'request', title: String(args.title ?? ''), fields: { ...args, title: String(args.title ?? '') }, dedupOn: ['title'] }) }
+      : undefined);
+    const cardModel = async () => ({
+      bindTools: (_tools: unknown[], opts?: { tool_choice?: string }) => {
+        bound.push(String(opts?.tool_choice ?? ''));
+        return {
+          invoke: async () => (opts?.tool_choice === 'file_request'
+            ? { content: '', tool_calls: typedArgs ? [{ name: 'file_request', args: typedArgs }] : [] }
+            : { content: '', tool_calls: [{ name: 'recommend_action', args: filingCard.args }] }),
+        };
+      },
+    }) as never;
+    return { bound, filingTool, cardModel };
+  }
+
+  it('the typed pass writes story, outcome and acceptance from the conversation, and the card carries them', async () => {
+    const t = typed({ title: 'Add in-app notifications to core', story: 'As a founder, I want to see what happened in the app without checking my email.', outcome: 'Every event that emails also shows in an in-app list.', acceptance: [{ statement: 'A list shows each notification.' }, { statement: 'Each can be marked read.' }, { statement: 'No push anywhere.' }], product: 'vocion' });
+    const h = harness([filingCard], { filingTool: t.filingTool, cardModel: t.cardModel, precheck: async (_id, input) => (hasBar(input) ? undefined : BAR) });
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.', conversation: 'Person: remove push notifications from scope' }, h.deps);
+    const card = h.events.find(e => e.type === 'recommended_action') as Extract<AgentEvent, { type: 'recommended_action' }>;
+
+    expect(t.bound).toContain('file_request');
+    expect(out).toMatchObject({ emitted: 1, typed: 1, drafts: 0, notes: [] });
+    expect(card.recommendation).toMatchObject({ actionId: FILE_ACTION, label: LABEL, input: { objectType: 'request', fields: { story: expect.stringContaining('As a founder'), acceptance: expect.any(Array) } } });
+    expect(card.recommendation.draft).toBeUndefined();
+  });
+
+  it('still missing the bar, the card says Draft needed with a prompt that asks for the whole request — never a dead line', async () => {
+    const t = typed({ title: 'Add in-app notifications to core', product: 'vocion' });
+    const h = harness([filingCard], { filingTool: t.filingTool, cardModel: t.cardModel, precheck: async (_id, input) => (hasBar(input) ? undefined : BAR) });
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.' }, h.deps);
+    const card = h.events.find(e => e.type === 'recommended_action') as Extract<AgentEvent, { type: 'recommended_action' }>;
+
+    expect(out).toMatchObject({ emitted: 1, drafts: 1, refused: 0, notes: [] });
+    expect(card.recommendation.draft).toEqual({
+      missing: 'this request fails the "proposal-ready" bar: story: write the story as one person in their words; acceptance: write three to six acceptance lines a person can check on the screen',
+      prompt: 'Draft the full request "Add in-app notifications to core" from this conversation — this request fails the "proposal-ready" bar: story: write the story as one person in their words; acceptance: write three to six acceptance lines a person can check on the screen. Write every field it needs, in my words where I gave them, then file it.',
+    });
+    expect(h.record).toHaveBeenCalledWith(expect.objectContaining({ output: expect.stringMatching(/^draft needed: /) }));
+  });
+
+  it('an agent without a typed tool keeps the old behaviour: the refusal is one line', async () => {
+    const h = harness([filingCard], { precheck: async () => BAR });
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.' }, h.deps);
+
+    expect(out).toMatchObject({ emitted: 0, refused: 1 });
+    expect(out.notes[0]).toMatch(/not a card: this request fails the "proposal-ready" bar/);
+  });
+});
+
 describe('the pieces', () => {
   it('reads the list leniently and drops what is not a decision', () => {
     expect(parseTouches('Here: [{"label":"Approve it","why":"now","action":"gmail.send"},{"why":"no label"}] done')).toEqual([{ label: 'Approve it', why: 'now', actionId: 'gmail.send' }]);

@@ -85,8 +85,19 @@ export function readRecommendedAction(raw: unknown): RecommendedActionCheck {
       ...(runId === undefined ? {} : { runId }),
       ...(advises ? { suggestedDecision: decision as 'approve' | 'reject' | 'snooze', suggestedDecisionReason: reason } : {}),
       ...cardLink(r.href, r.hrefLabel),
+      ...draftOf(r.draft),
     },
   };
+}
+
+/**
+ * A "Draft needed" card's prompt and what the bar said, when both are text.
+ * @param raw - `draft` as it arrived.
+ */
+export function draftOf(raw: unknown): { draft: { prompt: string; missing: string } } | Record<string, never> {
+  const d = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
+  const prompt = text(d?.prompt);
+  return prompt ? { draft: { prompt: prompt.slice(0, 2000), missing: text(d?.missing).slice(0, 600) } } : {};
 }
 
 /**
@@ -155,6 +166,10 @@ export type CardStateInput = {
   approvedByAgent?: boolean;
   /** The turn tried to file the card and could not (`card_update` state `unfiled`); nothing is in Review. */
   unfiled?: boolean;
+  /** What a done run did, from its result — "changed request #124: outcome, mainRisk". */
+  summary?: string | null;
+  /** The filing misses its type's bar; nothing is filed until a draft is written. */
+  draft?: boolean;
 };
 
 /**
@@ -174,6 +189,14 @@ export function describeCardState(s: CardStateInput, time: (iso: string) => stri
   if (s.unfiled && s.status === null) {
     return { label: 'Not filed', tone: 'red' };
   }
+  // A filing that misses its bar is not waiting on a decision — it is
+  // waiting on a draft, and the card's one button asks for it.
+  if (s.draft && s.status === null) {
+    return { label: 'Draft needed', tone: 'amber' };
+  }
+  // DONE SAYS WHAT WAS DONE (Chris, 2026-09-28: "Done for you · Undo" did not
+  // telegraph that it had already run). The run's own result names it.
+  const did = s.summary?.trim() ? ` — ${s.summary.trim()}` : '';
   switch (s.status) {
     case null:
     case 'pending':
@@ -184,8 +207,8 @@ export function describeCardState(s: CardStateInput, time: (iso: string) => stri
         : { label: `Approved${by} · running`, tone: 'amber' };
     case 'done':
       return s.approvedByAgent
-        ? { label: 'Done for you', tone: 'green' }
-        : { label: `Approved${by}${at}`, tone: 'green' };
+        ? { label: `Done for you${did}`, tone: 'green' }
+        : { label: `Approved${by}${at}${did}`, tone: 'green' };
     case 'rejected':
       return { label: `Rejected${by}${at}`, tone: 'red' };
     case 'undone':

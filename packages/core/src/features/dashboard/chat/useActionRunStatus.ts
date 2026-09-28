@@ -24,6 +24,8 @@ export type ActionRunStatus = {
   undoable?: boolean;
   /** Why it ran on its own, when it did. */
   reason?: string | null;
+  /** What a done run did, from its result: "changed request #124: outcome, mainRisk" (`libs/actions/doneSummary.ts`). */
+  summary?: string | null;
   /** The page of the record the run made (a filed request), once it has run. */
   recordHref?: string | null;
   /** The words on that link: "Open feature". */
@@ -73,7 +75,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
 
     const tick = async () => {
       try {
-        const res = await client.review.actionStatus({ id }) as { status: string; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null };
+        const res = await client.review.actionStatus({ id }) as { status: string; summary?: string | null; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null };
         if (cancelled) {
           return;
         }
@@ -84,7 +86,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
             unchanged = 0;
             delay = MIN_MS;
           }
-          return { status: res.status, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, recordHref: res.recordHref ?? null, recordHrefLabel: res.recordHrefLabel ?? null, fetchedAt: Date.now() };
+          return { status: res.status, summary: res.summary ?? null, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, recordHref: res.recordHref ?? null, recordHrefLabel: res.recordHrefLabel ?? null, fetchedAt: Date.now() };
         });
         if (TERMINAL_STATUSES.has(res.status)) {
           return;

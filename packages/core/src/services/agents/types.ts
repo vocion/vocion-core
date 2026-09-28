@@ -84,6 +84,14 @@ export type RecommendedActionPayload = {
   href?: string;
   /** The words on that link, from the page's name: "Open feature". */
   hrefLabel?: string;
+  /**
+   * DRAFT NEEDED: a filing that still misses its type's bar after the typed
+   * pass (`cardBackstop.ts`). Nothing is filed; the card's one button sends
+   * `prompt` to the agent, which drafts the full record in the conversation
+   * (Chris, 2026-09-28: "not a card: this request fails the proposal-ready
+   * bar" was a dead line). `missing` is what the bar said.
+   */
+  draft?: { prompt: string; missing: string };
 };
 
 /**

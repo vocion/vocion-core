@@ -301,8 +301,12 @@ export const actionStatusRoute = os
     const { openLabelFor } = await import('@/libs/workspace/recordHref');
     // A type is only a record type when the run named one; an action's own id is not.
     const recordLink = made && made.type !== row.actionId ? await recordHref(orgId, { objectType: made.type, id: made.id }).catch(() => null) : null;
+    // What it did, from its own result — the words a done card reads.
+    const { doneSummary } = await import('@/libs/actions/doneSummary');
+    const summary = row.status === 'done' ? doneSummary({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, made) : null;
     return {
       status: row.status,
+      summary,
       recordHref: recordLink,
       recordHrefLabel: recordLink ? openLabelFor(recordLink) : null,
       decidedBy: row.name ?? row.email ?? row.decidedBy,

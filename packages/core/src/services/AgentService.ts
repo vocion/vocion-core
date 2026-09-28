@@ -1579,7 +1579,13 @@ export async function runAgentDeep(opts: {
       // the answer (Chris, 2026-09-25 and 2026-09-28).
       const { realCardBackstopDeps, runCardBackstop } = await import('./agents/cardBackstop');
       const out = await runCardBackstop(
-        { answer: finalText, already: [...emittedCards], agentPrompt: compiled.agentRow.systemPrompt ?? '' },
+        {
+          answer: finalText,
+          already: [...emittedCards],
+          agentPrompt: compiled.agentRow.systemPrompt ?? '',
+          // A filing card is written from the conversation, not the answer alone.
+          conversation: [...(opts.conversationHistory ?? []).slice(-8).map(t => `${t.role === 'user' ? 'Person' : 'You'}: ${String(t.content ?? '').slice(0, 3_000)}`), `Person: ${opts.message.split('\n\n--- ')[0]!.slice(0, 3_000)}`].join('\n\n'),
+        },
         await realCardBackstopDeps({ ctx: compiled.ctx, orgId: opts.orgId, agentSlug: opts.agentSlug, userId: opts.userId, emit }),
       );
       cardsOnScreen += out.emitted;
@@ -1593,7 +1599,7 @@ export async function runAgentDeep(opts: {
       // Say what happened: a silent backstop cannot be told from one that
       // never ran (2026-09-24: eight production turns, zero cards, no way to
       // know which). One line per pass, in the app log.
-      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length - out.emitted, listed: out.listed, emitted: out.emitted, refused: out.refused, mapped: out.mapped, noted: out.notes.length, textChars: finalText.length });
+      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length - out.emitted, listed: out.listed, emitted: out.emitted, refused: out.refused, mapped: out.mapped, typed: out.typed ?? 0, drafts: out.drafts ?? 0, noted: out.notes.length, textChars: finalText.length });
     } catch (err) {
       /* backstop is best-effort — never fails the turn */
       console.warn('card backstop failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });

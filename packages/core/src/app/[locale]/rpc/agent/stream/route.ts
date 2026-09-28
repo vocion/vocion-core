@@ -316,7 +316,8 @@ export async function POST(request: Request): Promise<Response> {
             write: writeEvent,
             collector,
             where: { conversationId, agentSlug },
-            ...(autonomy === 'act-within-bounds'
+            // A "Draft needed" card is never filed as it stands (`surfaceCard`).
+            ...(autonomy === 'act-within-bounds' && !card.draft
               ? { file: (c: Card) => fileRecommendation({ orgId, userId, rec: cardAsRecommendation(c) }) }
               : {}),
           }));

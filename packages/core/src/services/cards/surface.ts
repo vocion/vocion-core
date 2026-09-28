@@ -36,13 +36,15 @@ export type SurfaceDeps = {
  * @param deps - Where it goes.
  */
 export async function surfaceCard(card: Card, deps: SurfaceDeps): Promise<void> {
-  deps.collector?.onCard({ id: card.id, kind: card.kind, label: card.title, actionId: card.actions[0]?.actionId ?? '', input: card.actions[0]?.input, runId: card.runId, state: card.state, href: card.href, hrefLabel: card.hrefLabel });
+  deps.collector?.onCard({ id: card.id, kind: card.kind, label: card.title, actionId: card.actions[0]?.actionId ?? '', input: card.actions[0]?.input, runId: card.runId, state: card.state, href: card.href, hrefLabel: card.hrefLabel, ...(card.draft ? { draft: card.draft } : {}) });
   deps.write({ type: 'card', card });
   // One line per card lifecycle (backlog 025 § testable): a card that never
   // shows up in the log never showed up at all — that is how finding 18 was
   // established a day late.
   console.warn('card: surfaced', { ...deps.where, cardId: card.id, kind: card.kind, title: card.title, ledger: Boolean(deps.collector), filing: Boolean(deps.file) && card.runId === undefined });
-  if (!deps.file || card.runId !== undefined) {
+  // A draft is not filed: it misses the bar as it stands, and its button
+  // asks for the draft that would pass it.
+  if (!deps.file || card.runId !== undefined || card.draft) {
     return;
   }
   // A CARD THAT SAID IT WOULD BE FILED SAYS WHETHER IT WAS. Conversation

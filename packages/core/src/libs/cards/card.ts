@@ -54,6 +54,12 @@ export const CardSchema = z.object({
   suggestedDecisionReason: z.string().optional(),
   rationale: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
+  /**
+   * DRAFT NEEDED: a filing that misses its type's bar (`cardBackstop.ts`).
+   * Never filed as it stands; its button sends `prompt` to the agent, which
+   * drafts the whole record in the conversation.
+   */
+  draft: z.object({ prompt: z.string().min(1), missing: z.string() }).optional(),
 });
 export type Card = z.infer<typeof CardSchema>;
 
@@ -143,6 +149,7 @@ export function cardFromRecommendation(rec: RecommendedActionPayload, id?: strin
     ...(rec.rationale ? { rationale: rec.rationale } : {}),
     ...(typeof rec.confidence === 'number' ? { confidence: rec.confidence } : {}),
     ...(rec.href ? { href: rec.href, ...(rec.hrefLabel ? { hrefLabel: rec.hrefLabel } : {}) } : {}),
+    ...(rec.draft ? { draft: rec.draft } : {}),
   });
 }
 
@@ -166,5 +173,6 @@ export function recommendationFromCard(card: Card): RecommendedActionPayload & {
     ...(card.runId !== undefined ? { runId: card.runId } : {}),
     ...(card.suggestedDecision ? { suggestedDecision: card.suggestedDecision, suggestedDecisionReason: card.suggestedDecisionReason } : {}),
     ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}),
+    ...(card.draft ? { draft: card.draft } : {}),
   };
 }

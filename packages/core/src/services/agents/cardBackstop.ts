@@ -82,6 +82,12 @@ export type CardBackstopDeps = {
   precheck: (actionId: string, input: Record<string, unknown>) => Promise<string | undefined>;
   /** Is there a request record with this id in the workspace? */
   requestExists: (id: number) => Promise<boolean>;
+  /**
+   * The agent's typed filing tool for a type (`file_<slug>`, `tools/fileRecord.ts`),
+   * when it has one: its schema is the type's own, required fields marked, so a
+   * filing card is written through it rather than as free-form fields.
+   */
+  filingTool?: (objectType: string) => TypedFiling | undefined;
   /** Charge one model call's usage. */
   charge: (role: ModelRole, response: unknown) => Promise<void>;
   /** Write one tool_call row for a card attempt. */
@@ -94,9 +100,16 @@ export type CardBackstopDeps = {
   log?: (message: string, detail: Record<string, unknown>) => void;
 };
 
+/** A type's filing tool as the card pass uses it: its schema, how its arguments become the input, the type's word. */
+export type TypedFiling = { tool: StructuredToolInterface; input: (args: Record<string, unknown>) => Record<string, unknown>; label: string };
+
 export type CardBackstopResult = {
   /** Decisions the list step named (after dedup). */
   listed: number;
+  /** Filing cards written through the type's own tool. */
+  typed?: number;
+  /** Filings that still missed the bar, put up as "Draft needed". */
+  drafts?: number;
   /** Cards put up. */
   emitted: number;
   /** Cards whose action was refused (by the tool or the action's own checks). */
@@ -321,17 +334,62 @@ export function noteLine(label: string, reason: string): string {
 }
 
 /**
+ * The prompt a "Draft needed" card sends when pressed: the agent drafts the
+ * whole record in the conversation, the fields the bar named first, and files it.
+ * @param kind - The record's type, in words ("request").
+ * @param title - What it is.
+ * @param missing - What the bar said is missing.
+ */
+export function draftPrompt(kind: string, title: string, missing: string): string {
+  return `Draft the full ${kind} "${title}" from this conversation — ${missing.replace(/[.\s]+$/, '')}. Write every field it needs, in my words where I gave them, then file it.`;
+}
+
+/**
+ * A FILING CARD IS WRITTEN THROUGH ITS TYPE'S TOOL (Chris, 2026-09-28: "File
+ * in-app notifications as its own request in core — not a card: this request
+ * fails the proposal-ready bar: story… acceptance…"). The card writer had
+ * filled objects.propose_candidate's free-form `fields` and missed a bar it
+ * cannot see. One call with `file_<slug>` bound and CHOSEN makes the model
+ * write the type's required fields — story, outcome, acceptance — from the
+ * conversation; its arguments become the card's input. The tool is never
+ * invoked here: the card still goes up as a recommendation, on the trust bar.
+ * @param opts - The card, the typed tool and the model.
+ * @param opts.label - The card's label.
+ * @param opts.why - Why the card.
+ * @param opts.answer - The answer.
+ * @param opts.conversation - The conversation so far, as text.
+ * @param opts.rules - The agent's card rules.
+ * @param opts.filing - The typed tool.
+ * @param opts.model - The card writer's model.
+ * @param opts.callbacks - Langfuse callbacks.
+ * @returns The typed input (null when no call came back) and the response, for charging.
+ */
+async function typedFilingInput(opts: { label: string; why: string; answer: string; conversation?: string; rules: string; filing: TypedFiling; model: BaseChatModel; callbacks?: BaseCallbackHandler[] }): Promise<{ input: Record<string, unknown> | null; response: unknown }> {
+  const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+  if (!opts.model.bindTools) {
+    return { input: null, response: null };
+  }
+  const bound = opts.model.bindTools([opts.filing.tool], { tool_choice: opts.filing.tool.name } as never);
+  const sys = `${opts.rules}\n\nFILING CARD: the answer below was already delivered. Write the ${opts.filing.label} it recommends filing — "${opts.label}" — by calling ${opts.filing.tool.name} ONCE. Its arguments ARE the ${opts.filing.label}'s fields: fill every required one from the conversation and the answer, in the person's words where they gave them and yours where the thread settled it. Never a placeholder. Output the tool call only.`;
+  const human = `${opts.conversation ? `THE CONVERSATION:\n${opts.conversation}\n\n` : ''}CARD FOR: ${opts.label}\nWhy: ${opts.why || 'named in the answer'}\n\nTHE ANSWER:\n${opts.answer}`;
+  const response = await bound.invoke([new SystemMessage(sys), new HumanMessage(human)], { signal: AbortSignal.timeout(CARD_TIMEOUT_MS), callbacks: opts.callbacks } as never);
+  const call = ((response as { tool_calls?: Array<{ name: string; args: Record<string, unknown> }> }).tool_calls ?? []).find(c => c.name === opts.filing.tool.name);
+  return { input: call ? opts.filing.input(call.args ?? {}) : null, response };
+}
+
+/**
  * Run the pass over a finished answer.
  * @param input - What the pass reads.
  * @param input.answer - The answer the person already has.
  * @param input.already - Labels of the cards already on screen.
  * @param input.agentPrompt - The agent's system prompt (its card rules and voice).
+ * @param input.conversation
  * @param deps - Everything outside.
  */
-export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
+export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string; conversation?: string }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
   const log = deps.log ?? ((m: string, d: Record<string, unknown>) => console.warn(m, d));
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-  const result: CardBackstopResult = { listed: 0, emitted: 0, refused: 0, mapped: 0, notes: [] };
+  const result: CardBackstopResult = { listed: 0, emitted: 0, refused: 0, mapped: 0, typed: 0, drafts: 0, notes: [] };
   const rules = cardRulesOf(input.agentPrompt);
   const onScreen = [...input.already];
 
@@ -405,12 +463,53 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
     };
     const started = Date.now();
     const actionId = String(shaped.action_id ?? '');
-    const actionInput = shaped.action_input as Record<string, unknown>;
+    let actionInput = shaped.action_input as Record<string, unknown>;
+    // A filing of a typed record is written through the type's own tool.
+    const objectType = typeof actionInput.objectType === 'string' ? actionInput.objectType : '';
+    const filing = actionId === FILE_ACTION && objectType ? deps.filingTool?.(objectType) : undefined;
+    if (filing) {
+      const typed = await typedFilingInput({ label: touch.label, why: touch.why, answer: input.answer, conversation: input.conversation, rules, filing, model: await deps.cardModel(), callbacks: deps.callbacks })
+        .catch((err: Error) => {
+          log('card backstop: the typed filing call failed; the card keeps its own fields', { label, message: err.message });
+          return { input: null, response: null };
+        });
+      if (typed.response) {
+        await deps.charge('extractor', typed.response);
+      }
+      if (typed.input) {
+        actionInput = typed.input;
+        shaped.action_input = actionInput;
+        result.typed = (result.typed ?? 0) + 1;
+      }
+    }
     // A card with nothing to press is not a card, and a card whose action
     // refuses it can only fail when pressed: both become a line under the answer.
     const refusal = !actionId
       ? 'no action can carry it; it stays in the answer'
       : await deps.precheck(actionId, actionInput).catch((err: Error) => err.message);
+    if (refusal && filing) {
+      // A FILING THAT MISSES THE BAR IS DRAFTED, NOT DROPPED: one card that
+      // says "Draft needed", whose button asks the agent to draft the whole
+      // record here. Nothing is filed until that draft passes the bar.
+      const title = String(actionInput.title ?? '').trim() || thingOf(label);
+      const missing = refusal.replace(/\s+/g, ' ').replace(/^Not proposed:\s*/i, '').trim().slice(0, 400);
+      deps.emit({
+        type: 'recommended_action',
+        recommendation: {
+          actionId,
+          input: actionInput,
+          label,
+          ...(typeof shaped.rationale === 'string' ? { rationale: shaped.rationale } : {}),
+          draft: { prompt: draftPrompt(filing.label, title, missing), missing },
+        },
+      });
+      await deps.record({ input: shaped, output: `draft needed: ${missing}`.slice(0, 2000), durationMs: Date.now() - started });
+      log('card backstop: a filing missed the bar; put up as Draft needed', { label, actionId, reason: missing.slice(0, 300) });
+      result.emitted += 1;
+      result.drafts = (result.drafts ?? 0) + 1;
+      settle();
+      return;
+    }
     if (refusal) {
       release();
       result.refused += 1;
@@ -453,7 +552,7 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
  * @param opts.emit - The turn's emit (counts cards as they go up).
  */
 export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: string; agentSlug: string; userId?: string; emit: (event: AgentEvent) => void }): Promise<CardBackstopDeps> {
-  const [{ buildChatModelForOrg }, { recommendActionTool }, registry, { chargeModelCall }, { FEATURES }, { persistToolCall }, { createLangfuseCallback }] = await Promise.all([
+  const [{ buildChatModelForOrg }, { recommendActionTool }, registry, { chargeModelCall }, { FEATURES }, { persistToolCall }, { createLangfuseCallback }, { filingInputOf, filingSchema }, { tool }] = await Promise.all([
     import('@/libs/llm'),
     import('./tools/recommendAction'),
     import('@/libs/actions/registry'),
@@ -461,6 +560,8 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
     import('@/libs/Langfuse/features'),
     import('./toolCallRecord'),
     import('@/libs/Langfuse'),
+    import('./tools/fileRecord'),
+    import('@langchain/core/tools'),
   ]);
   // Its own trace (`chat.cards:<agent>`), so the pass's latency reads on its
   // own; charged through `chargeModelCall`, never through the trace hook.
@@ -486,6 +587,15 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
     requestExists: async (id) => {
       const { readRecord } = await import('@/libs/actions/factory-dispatch');
       return (await readRecord(opts.orgId, id))?.typeSlug === 'request';
+    },
+    filingTool: (objectType) => {
+      const spec = (ctx.filingTypes ?? []).find(t => t.slug === objectType && (ctx.objectTypeSlugs ?? []).includes(t.slug));
+      if (!spec) {
+        return undefined;
+      }
+      // The schema only: the card is still a recommendation on the trust bar.
+      const schemaOnly = tool(async () => '', { name: spec.toolName, description: `File one ${spec.label.toLowerCase()} record; the arguments ARE its fields.`, schema: filingSchema(spec) }) as unknown as StructuredToolInterface;
+      return { tool: schemaOnly, input: args => filingInputOf(spec, args), label: spec.label.toLowerCase() };
     },
     charge: (role, response) => chargeModelCall({ orgId: opts.orgId, agentSlug: opts.agentSlug, feature: FEATURES.CHAT_CARDS, role, response }),
     record: row => persistToolCall({ ctx, tool: 'recommend_action', ns: '', ...row }),

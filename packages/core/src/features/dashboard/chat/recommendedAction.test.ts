@@ -117,6 +117,28 @@ describe('describeCardState', () => {
     expect(describeCardState({ status: 'executing', approvedByAgent: true }, time).label).toBe('Done for you · running');
     expect(describeCardState({ status: 'snoozed' }, time).label).toBe('Deferred');
   });
+
+  it('a done card says what was done, from the run (Chris, 2026-09-28: "Done for you · Undo" did not say it ran)', () => {
+    expect(describeCardState({ status: 'done', approvedByAgent: true, summary: 'changed request #124: outcome, mainRisk' }, time))
+      .toEqual({ label: 'Done for you — changed request #124: outcome, mainRisk', tone: 'green' });
+    expect(describeCardState({ status: 'done', decidedBy: 'Dana Reyes', summary: 'filed request #131' }, time).label).toBe('Approved by Dana Reyes — filed request #131');
+    // Only a done run says what it did; a waiting one does not claim it.
+    expect(describeCardState({ status: 'pending', summary: 'changed request #124: outcome' }, time).label).toBe('Waiting on you');
+  });
+
+  it('a filing that misses its bar reads "Draft needed" until a run exists', () => {
+    expect(describeCardState({ status: null, draft: true }, time)).toEqual({ label: 'Draft needed', tone: 'amber' });
+    expect(describeCardState({ status: 'pending', draft: true }, time).label).toBe('Waiting on you');
+  });
+});
+
+describe('a "Draft needed" card at the boundary', () => {
+  it('keeps its prompt and what was missing, and drops a draft with no prompt', () => {
+    const rec = { actionId: 'objects.propose_candidate', label: 'File in-app notifications', input: { objectType: 'request' } };
+
+    expect(readRecommendedAction({ ...rec, draft: { prompt: 'Draft the full request "In-app notifications".', missing: 'story; acceptance' } })).toMatchObject({ ok: true, rec: { draft: { prompt: 'Draft the full request "In-app notifications".', missing: 'story; acceptance' } } });
+    expect(readRecommendedAction({ ...rec, draft: { missing: 'story' } })).toMatchObject({ ok: true, rec: expect.not.objectContaining({ draft: expect.anything() }) });
+  });
 });
 
 describe('a card\'s record link (2026-09-28: "click through to the feature detail page")', () => {

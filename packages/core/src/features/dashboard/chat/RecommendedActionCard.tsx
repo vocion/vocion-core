@@ -1,7 +1,7 @@
 'use client';
 
 import type { RecommendedAction } from './types';
-import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X, Zap } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, Clock3, FilePen, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cardDedupKey } from '@/libs/actions/cardDedupKey';
@@ -9,6 +9,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { openAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
 import { describeActionEffect, describeCardState } from './recommendedAction';
@@ -56,6 +57,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   onProposed?: (runId: number) => void;
 }) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
+  const [drafting, setDrafting] = useState(false);
   // The decision goes into the conversation as a typed user turn (backlog
   // 025), so the next turn binds "approve" to THIS card, never to words.
   const recordDecision = useRecordCardDecision();
@@ -254,7 +256,22 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   const recordLink = live?.recordHref
     ? { href: live.recordHref, label: live.recordHrefLabel ?? 'Open record' }
     : rec.href ? { href: rec.href, label: rec.hrefLabel ?? 'Open record' } : null;
-  const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent, unfiled }, fmtTime);
+  const draft = rec.draft && phase.runId === undefined ? rec.draft : null;
+  const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent, unfiled, summary: live?.summary, draft: Boolean(draft) }, fmtTime);
+  // Done reads as done at a glance: a green edge, not the card that waits on you.
+  const done = status === 'done';
+  // Draft needed → one tap asks the agent for the whole record, here.
+  const askForDraft = () => {
+    if (!draft) {
+      return;
+    }
+    setDrafting(true);
+    // The dock or the full-page chat claims it and sends it in THIS
+    // conversation; with neither mounted, the chat page picks it up.
+    openAgentSurface({ prompt: draft.prompt, send: true }, (href) => {
+      window.location.assign(href);
+    });
+  };
   const toneClass = state.tone === 'green'
     ? 'text-emerald-600 dark:text-emerald-400'
     : state.tone === 'red'
@@ -267,17 +284,19 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   // states the machine is actually working get one.
   const stateIcon = unfiled && status === null
     ? <X className="size-3 shrink-0" aria-hidden />
-    : status === null || status === 'pending'
-      ? <Clock3 className="size-3 shrink-0" aria-hidden />
-      : status === 'snoozed'
-        ? <CalendarClock className="size-3 shrink-0" aria-hidden />
-        : !terminal
-            ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden />
-            : status === 'done'
-              ? <Check className="size-3 shrink-0" aria-hidden />
-              : status === 'undone'
-                ? <RotateCcw className="size-3 shrink-0" aria-hidden />
-                : <X className="size-3 shrink-0" aria-hidden />;
+    : draft
+      ? <FilePen className="size-3 shrink-0" aria-hidden />
+      : status === null || status === 'pending'
+        ? <Clock3 className="size-3 shrink-0" aria-hidden />
+        : status === 'snoozed'
+          ? <CalendarClock className="size-3 shrink-0" aria-hidden />
+          : !terminal
+              ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden />
+              : status === 'done'
+                ? <Check className="size-3 shrink-0" aria-hidden />
+                : status === 'undone'
+                  ? <RotateCcw className="size-3 shrink-0" aria-hidden />
+                  : <X className="size-3 shrink-0" aria-hidden />;
   const stateText = (
     <span className={`inline-flex min-w-0 items-center gap-1 font-medium ${toneClass}`} data-testid="recommended-action-state">
       {stateIcon}
@@ -285,12 +304,12 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
     </span>
   );
   // Why it ran on its own is one hover away from the words that say it did.
-  const whyNot = unfiled && status === null ? rec.unfiledReason : undefined;
+  const whyNot = unfiled && status === null ? rec.unfiledReason : draft ? draft.missing : undefined;
   const stateLabel = whyNot
     ? (
         <Tooltip>
           <TooltipTrigger asChild>{stateText}</TooltipTrigger>
-          <TooltipContent>{`Not filed: ${whyNot}`}</TooltipContent>
+          <TooltipContent>{draft ? `Missing: ${whyNot}` : `Not filed: ${whyNot}`}</TooltipContent>
         </Tooltip>
       )
     : live?.approvedByAgent && live.reason
@@ -303,11 +322,11 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       : stateText;
 
   return (
-    <div data-testid="recommended-action-card" data-run-status={status ?? undefined} className="mt-2.5 flex flex-col overflow-hidden rounded-xl border border-border bg-card">
+    <div data-testid="recommended-action-card" data-run-status={status ?? undefined} data-draft={draft ? 'needed' : undefined} className={`mt-2.5 flex flex-col overflow-hidden rounded-xl border bg-card ${done ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border'}`}>
       {/* Header — compact: label + confidence, rationale clamped */}
       <div className="flex items-start gap-2 px-3 pt-2.5">
-        <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
-          {isEmail ? <Mail className="size-3.5" aria-hidden /> : <Sparkles className="size-3.5" aria-hidden />}
+        <span className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full ${done ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-brand-amber-tint text-brand-amber-deep'}`}>
+          {done ? <Check className="size-3.5" aria-hidden /> : isEmail ? <Mail className="size-3.5" aria-hidden /> : <Sparkles className="size-3.5" aria-hidden />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold break-words">
@@ -365,7 +384,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       <div className="mx-3 mt-2 flex min-w-0 items-center gap-1.5 text-xs text-foreground/80">
         <span className="flex min-w-0 items-center gap-1.5" data-testid="recommended-action-effect">
           <Zap className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="truncate">{effect}</span>
+          <span className="truncate">{draft ? 'Nothing is filed until the draft meets the bar' : effect}</span>
         </span>
         {recordLink && (
           <Link href={recordLink.href} data-testid="recommended-action-record-link" className="ml-auto inline-flex shrink-0 items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
@@ -407,100 +426,113 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
             )}
           </>
         )}
-        {!deferredUntil && phase.status === 'proposed'
+        {draft && !deferredUntil
           ? (
-              <>
-                {status === 'pending' && canApprove && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void decide('approve')}
-                      disabled={deciding !== null}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-                    >
-                      {deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void decide('reject')}
-                      disabled={deciding !== null}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
-                    >
-                      Reject
-                    </button>
-                    {deferButton}
-                  </>
-                )}
-                <Link
-                  href={phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal'}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
-                >
-                  {status === 'pending' ? 'Decide in review' : 'Open in review'}
-                  <ArrowRight className="size-3.5" aria-hidden />
-                </Link>
-                {decideError && (
-                  <span className="text-xs text-destructive">
-                    Couldn’t decide it:
-                    {' '}
-                    {decideError}
-                  </span>
-                )}
-              </>
+              <button
+                type="button"
+                onClick={askForDraft}
+                disabled={drafting}
+                data-testid="recommended-draft"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+              >
+                {drafting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <FilePen className="size-4" aria-hidden />}
+                {drafting ? 'Asked for the draft' : `Draft the full ${String(rec.input.objectType ?? 'record').replace(/[_-]+/g, ' ')}`}
+              </button>
             )
-          : deferredUntil || !rec.actionId
-            // A card that names no action has nothing to approve (red team,
-            // 2026-09-26: "Approve build" whose Approve answered "This
-            // recommendation named no action"). It reads as a note; no button
-            // that can only fail.
-            ? null
-            : (
-                <>
-                  {/* One click when the suggestion is already right. Approving
+          : !deferredUntil && phase.status === 'proposed'
+              ? (
+                  <>
+                    {status === 'pending' && canApprove && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void decide('approve')}
+                          disabled={deciding !== null}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                        >
+                          {deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void decide('reject')}
+                          disabled={deciding !== null}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
+                        >
+                          Reject
+                        </button>
+                        {deferButton}
+                      </>
+                    )}
+                    <Link
+                      href={phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal'}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
+                    >
+                      {status === 'pending' ? 'Decide in review' : 'Open in review'}
+                      <ArrowRight className="size-3.5" aria-hidden />
+                    </Link>
+                    {decideError && (
+                      <span className="text-xs text-destructive">
+                        Couldn’t decide it:
+                        {' '}
+                        {decideError}
+                      </span>
+                    )}
+                  </>
+                )
+              : deferredUntil || !rec.actionId
+              // A card that names no action has nothing to approve (red team,
+              // 2026-09-26: "Approve build" whose Approve answered "This
+              // recommendation named no action"). It reads as a note; no button
+              // that can only fail.
+                ? null
+                : (
+                    <>
+                      {/* One click when the suggestion is already right. Approving
                     used to mean "Prepare for review", then find the card again,
                     then "Approve" — two clicks and a context switch to agree
                     with something you had already read. Chris, 2026-09-17:
                     *"I wanted to approve. I shouldn't have to click twice."*
                     Preparing is still offered, for when you want to look first
                     or edit the draft. */}
-                  {canApprove && !isDraft && (
-                    <button
-                      type="button"
-                      onClick={() => void prepareAndApprove()}
-                      disabled={busy || deciding !== null}
-                      data-testid="recommended-approve-now"
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-                    >
-                      {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
-                      {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
-                    </button>
-                  )}
-                  {canApprove && !isDraft
-                    ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button type="button" onClick={prepare} disabled={busy} aria-label={busy ? 'Preparing…' : 'Review first'} className={QUIET_ICON}>
-                              {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Review first</TooltipContent>
-                        </Tooltip>
-                      )
-                    : (
-                        // The only way forward on this card, so it keeps its words.
+                      {canApprove && !isDraft && (
                         <button
                           type="button"
-                          onClick={prepare}
-                          disabled={busy}
+                          onClick={() => void prepareAndApprove()}
+                          disabled={busy || deciding !== null}
+                          data-testid="recommended-approve-now"
                           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
                         >
-                          {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
-                          {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
+                          {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
+                          {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
                         </button>
                       )}
-                  {canApprove && deferButton}
-                </>
-              )}
+                      {canApprove && !isDraft
+                        ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button type="button" onClick={prepare} disabled={busy} aria-label={busy ? 'Preparing…' : 'Review first'} className={QUIET_ICON}>
+                                  {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>Review first</TooltipContent>
+                            </Tooltip>
+                          )
+                        : (
+                      // The only way forward on this card, so it keeps its words.
+                            <button
+                              type="button"
+                              onClick={prepare}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                            >
+                              {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                              {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
+                            </button>
+                          )}
+                      {canApprove && deferButton}
+                    </>
+                  )}
         {isDraft && phase.status !== 'proposed' && (
           <span className="text-[11px] text-muted-foreground">saves to Gmail Drafts — nothing sends without you</span>
         )}

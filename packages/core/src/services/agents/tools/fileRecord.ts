@@ -365,6 +365,27 @@ export function filingSchema(spec: FilingType): z.ZodObject {
 }
 
 /**
+ * The objects.propose_candidate input a typed filing's arguments make: the
+ * type's fields, its title, and the TYPE's identity — the one shape both the
+ * tool and a card written from the tool's schema file (`cardBackstop.ts`).
+ * @param spec - The filing type.
+ * @param args - The tool's arguments.
+ */
+export function filingInputOf(spec: FilingType, args: Record<string, unknown>): { objectType: string; title: string; fields: Record<string, unknown>; dedupOn: string[] } {
+  const title = String(args.title ?? '').trim();
+  const fields: Record<string, unknown> = {};
+  for (const name of Object.keys(spec.properties)) {
+    if (args[name] !== undefined) {
+      fields[name] = args[name];
+    }
+  }
+  if (spec.titleIsField || spec.dedupOn.includes('title')) {
+    fields.title = title;
+  }
+  return { objectType: spec.slug, title, fields, dedupOn: spec.dedupOn };
+}
+
+/**
  * The typed filing tool for one type.
  * @param ctx - The turn.
  * @param spec - The filing type.
@@ -375,16 +396,7 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
   const built = tool(
     async (raw) => {
       const args = raw as Record<string, unknown>;
-      const title = String(args.title ?? '').trim();
-      const fields: Record<string, unknown> = {};
-      for (const name of Object.keys(spec.properties)) {
-        if (args[name] !== undefined) {
-          fields[name] = args[name];
-        }
-      }
-      if (spec.titleIsField || spec.dedupOn.includes('title')) {
-        fields.title = title;
-      }
+      const { title, fields } = filingInputOf(spec, args);
       const c = ENVELOPE[0] in spec.properties ? undefined : args.confidence;
       const confidence = typeof c === 'number' && c >= 0 && c <= 1 ? c : 0.8;
       const r = ENVELOPE[1] in spec.properties ? undefined : args.rationale;

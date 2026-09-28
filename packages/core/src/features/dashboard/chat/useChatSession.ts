@@ -22,7 +22,7 @@ import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
-import { cardLink, readRecommendedAction } from './recommendedAction';
+import { cardLink, draftOf, readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
@@ -174,7 +174,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
     // is not a client-side ornament that a reload forgets.
     const recommendations: RecommendedAction[] = runsRaw
       .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
-      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), ...cardLink(r.href, r.hrefLabel), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
+      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), ...cardLink(r.href, r.hrefLabel), ...draftOf(r.draft), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
     return {
       ...(typeof row.id === 'number' ? { id: row.id } : {}),
       role: row.role,
@@ -755,12 +755,12 @@ export function useChatSession({
         // The typed form (backlog 025): on the ledger already, on the wire
         // now, filed later if at all — `card_update` carries the proposal id.
         flushDeltas();
-        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string };
+        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string; draft?: unknown };
         const link = cardLink(c.href, c.hrefLabel);
         const primary = c.actions?.[0];
         let rec: RecommendedAction;
         if (primary) {
-          const checked = readRecommendedAction({ actionId: primary.actionId, input: primary.input ?? {}, label: c.title, rationale: c.rationale, confidence: c.confidence, agentSlug: c.source?.agentSlug, runId: c.runId, suggestedDecision: c.suggestedDecision, suggestedDecisionReason: c.suggestedDecisionReason });
+          const checked = readRecommendedAction({ actionId: primary.actionId, input: primary.input ?? {}, label: c.title, rationale: c.rationale, confidence: c.confidence, agentSlug: c.source?.agentSlug, runId: c.runId, suggestedDecision: c.suggestedDecision, suggestedDecisionReason: c.suggestedDecisionReason, draft: c.draft });
           if (!checked.ok) {
             console.warn(`useChatSession: dropped an invalid card — ${checked.reason}`);
             return;
