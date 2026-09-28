@@ -25,6 +25,23 @@ import type { RawCredentials } from '@/services/SourceCredentialService';
 
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
+/**
+ * The OAuth scopes each Google connector needs; `npm run google:oauth` asks
+ * for the scopes of every connector it is given.
+ *
+ * Every connector the `google` platform credential covers must be listed. A
+ * connector left out still gets a refresh token, but the access tokens it
+ * mints are refused by that connector's API (vocion-core#129: Google Ads had
+ * no scope here, so every Ads sync got a 403).
+ */
+export const GOOGLE_OAUTH_SCOPES_BY_SOURCE: Readonly<Record<string, readonly string[]>> = {
+  'gmail': ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'],
+  'drive': ['https://www.googleapis.com/auth/drive.readonly'],
+  'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
+  'google-calendar': ['https://www.googleapis.com/auth/calendar.readonly'],
+  'google-ads': ['https://www.googleapis.com/auth/adwords'],
+};
+
 /** access-token cache keyed by refresh token — refreshes are rate-limited by Google. */
 const cache = new Map<string, { token: string; expiresAt: number }>();
 
