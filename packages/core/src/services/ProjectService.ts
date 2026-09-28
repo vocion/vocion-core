@@ -10,8 +10,8 @@
 
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { accountMembershipSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
-import { accessibleProjectIds, effectiveRole, enforcementEnabled } from '@/services/WorkspaceAccessService';
+import { projectSchema, tenantAccountSchema } from '@/models/Schema';
+import { accessibleProjectIds, effectiveRole, enforcementEnabled, membershipFor } from '@/services/WorkspaceAccessService';
 
 export type ProjectSummary = {
   id: string;
@@ -37,15 +37,15 @@ const summaryColumns = {
 
 /**
  * The account the user belongs to, or null.
+ *
+ * Read through {@link membershipFor}, the same ordered pick tenancy makes,
+ * so a person in two accounts sees the same account in the URL, the
+ * workspace switcher and the workspace itself on every request
+ * (vocion-core#128).
  * @param userId - Auth.js user id.
  */
 async function accountIdForUser(userId: string): Promise<string | null> {
-  const [membership] = await db
-    .select({ accountId: accountMembershipSchema.accountId })
-    .from(accountMembershipSchema)
-    .where(eq(accountMembershipSchema.userId, userId))
-    .limit(1);
-  return membership?.accountId ?? null;
+  return (await membershipFor(userId))?.accountId ?? null;
 }
 
 /**
