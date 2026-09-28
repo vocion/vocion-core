@@ -166,7 +166,7 @@ async function redraw(orgId: string, id: number, meta: Record<string, unknown>, 
  * @param orgId - The workspace.
  * @param id - The record.
  */
-async function bodyBefore(orgId: string, id: number): Promise<void> {
+export async function bodyBefore(orgId: string, id: number): Promise<void> {
   try {
     const { ensureRecordBody } = await import('@/services/objects/recordBody');
     await ensureRecordBody(orgId, id);
@@ -175,7 +175,7 @@ async function bodyBefore(orgId: string, id: number): Promise<void> {
   }
 }
 
-async function bodyAfter(input: { orgId: string; id: number; reason: string; written: string[]; invokedBy?: string; reviewedBy?: string; runId?: number }): Promise<{ status: string; version?: number; reason?: string }> {
+export async function bodyAfter(input: { orgId: string; id: number; reason: string; written: string[]; invokedBy?: string; reviewedBy?: string; runId?: number }): Promise<{ status: string; version?: number; artifactId?: number; reason?: string }> {
   try {
     const { writeRecordBodyVersion } = await import('@/services/objects/recordBody');
     return await writeRecordBodyVersion({ orgId: input.orgId, objectId: input.id, reason: input.reason, written: input.written, invokedBy: input.invokedBy ?? null, reviewedBy: input.reviewedBy ?? null, actionRunId: input.runId ?? null });
@@ -413,6 +413,9 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       previous,
       ...(visual === null ? {} : { visual }),
       ...(body.status === 'written' || body.status === 'unchanged' ? { bodyVersion: body.version } : {}),
+      // Which version this write made, from which — what a page showing the
+      // record diffs to mark what changed (`version_written`).
+      ...(body.status === 'written' && body.artifactId && body.version ? { bodyArtifactId: body.artifactId, bodyFrom: body.version > 1 ? body.version - 1 : null } : {}),
       reason: input.reason,
       writtenBy: ctx.invokedBy ?? null,
       reviewedBy: ctx.reviewedBy ?? null,
@@ -436,6 +439,6 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // Undo is a write too, so it is a version: history never shows a record
     // saying something its body does not.
     const body = await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: `Undid run #${ctx.runId ?? '?'}: ${input.reason}`.slice(0, 500), written: Object.keys(previous).sort(), invokedBy: ctx.reviewedBy ?? ctx.invokedBy, runId: ctx.runId });
-    return { restored: Object.keys(previous), restoredAt: new Date().toISOString(), ...(body.status === 'written' ? { bodyVersion: body.version } : {}) };
+    return { restored: Object.keys(previous), restoredAt: new Date().toISOString(), ...(body.status === 'written' && body.version ? { bodyVersion: body.version, ...(body.artifactId ? { bodyArtifactId: body.artifactId, bodyFrom: body.version - 1 } : {}) } : {}) };
   },
 };

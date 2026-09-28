@@ -18,6 +18,7 @@ import { FEATURES } from '@/libs/Langfuse/features';
 import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostMicroCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
+import { versionLinksDelta } from '@/libs/versions/versionRef';
 import { agentSchema } from '@/models/Schema';
 import { flatHistory, historyMessages } from '@/services/chat/historyTools';
 import { preambleOnly } from '@/services/chat/turnStatus';
@@ -598,6 +599,8 @@ export async function runAgentDeep(opts: {
   // Records the turn made (a data room, a proposal) — linked at the end of the
   // answer if the model forgot to (`appendRecordLinks`).
   const createdRecords: import('@/services/chat/pageContext').RecordRef[] = [];
+  // Versions the turn wrote (a record changed) — linked at the end (`versionLinksDelta`).
+  const writtenVersions: import('@/libs/versions/versionRef').WrittenVersion[] = [];
   const emit = (event: import('./agents/types').AgentEvent): void => {
     if (event.type === 'documents' && activeSpecialist) {
       for (const d of event.documents) {
@@ -611,6 +614,9 @@ export async function runAgentDeep(opts: {
     }
     if (event.type === 'record_created') {
       createdRecords.push(event.record);
+    }
+    if (event.type === 'version_written') {
+      writtenVersions.push({ ref: event.ref, to: event.to });
     }
     recordedEvents.push(event);
     rawEmit(event);
@@ -1408,9 +1414,11 @@ export async function runAgentDeep(opts: {
       const { buildDomainTools } = await import('./agents/tools/registry');
       const updateTool = buildDomainTools(boundCtx).find(t => t.name === 'update_object');
       const { getBusinessObject } = await import('./BusinessObjectService');
+      // The page's record is writable whatever the agent's objectTypes say (`tools/recordWrite.ts`).
+      const { recordWritable } = await import('./agents/tools/recordWrite');
       const row = updateTool ? await getBusinessObject(pageRecordId, opts.orgId) : null;
       const typeSlug = row?.type?.slug ?? null;
-      if (updateTool && row && typeSlug && boundCtx.objectTypeSlugs.includes(typeSlug)) {
+      if (updateTool && row && typeSlug && recordWritable(boundCtx, typeSlug, row.id)) {
         emit({ type: 'status', label: `Changing ${typeSlug} #${row.id}` });
         const { recordHref } = await import('./objects/recordHref');
         const href = await recordHref(opts.orgId, { objectType: typeSlug, id: row.id }).catch(() => pageRecord?.href ?? null);
@@ -1480,6 +1488,14 @@ export async function runAgentDeep(opts: {
       emit({ type: 'response_delta', delta: linked.slice(finalText.length) });
       finalText = linked;
     }
+  }
+
+  // A record the turn CHANGED is linked to the version the change made, in
+  // its history (backlog 035): "Changed …" is one click from how it changed.
+  const versionDelta = versionLinksDelta(finalText, writtenVersions);
+  if (versionDelta) {
+    emit({ type: 'response_delta', delta: versionDelta });
+    finalText += versionDelta;
   }
 
   // Card backstop (structural, workspace-opt-in) — AFTER the guarantees, so

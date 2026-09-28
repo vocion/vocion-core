@@ -309,6 +309,14 @@ export type AgentEvent
     | { type: 'composing'; tool: string }
     | { type: 'record_created'; record: import('@/services/chat/pageContext').RecordRef }
     /**
+     * A write in this turn made a new version of something a page may be
+     * showing — a record (its body artifact) or an artifact (backlog 035).
+     * The page or pane showing `ref` refetches in place and marks what
+     * changed between `from` and `to`; the answer links version `to` in the
+     * history. `fields` names what the write touched, for a record.
+     */
+    | { type: 'version_written'; ref: import('@/services/chat/pageContext').RecordRef; artifactId: number; from: number | null; to: number; fields?: string[] }
+    /**
      * Record mentions in the finished answer ("#201", "request 201") and the
      * page each opens — applied to the answer's text, live and stored
      * (`libs/chat/recordMentions.ts`), so a record the answer names is one

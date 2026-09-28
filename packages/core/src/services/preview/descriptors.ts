@@ -208,12 +208,17 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
       const parts = recordPreviewParts({ id: obj.id, title: obj.title, status: obj.status ?? null, createdAt: obj.createdAt ?? null, meta }, obj.type?.schema ?? null);
       const summary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
       const href = await recordHref(ctx.orgId, { objectType: typeSlug, id: obj.id });
+      // Its versions, the way an artifact's preview shows them (backlog 035):
+      // the version as a fact, the history one click away in this pane.
+      const { recordBody } = await import('@/services/objects/recordBody');
+      const bodyRow = await recordBody(ctx.orgId, obj.id).catch(() => null);
+      const historyLink = bodyRow ? `[History — v${bodyRow.currentVersion}](?preview=${encodeURIComponent(`record_history:${obj.id}`)})` : '';
       return {
         ref,
         title: obj.title,
         sourceLabel: obj.type?.label ?? 'Record',
-        facts: facts(...parts.facts, obj.status && { label: 'Status', value: obj.status }),
-        ...body([summary, parts.body].filter(Boolean).join('\n\n')),
+        facts: facts(...parts.facts, obj.status && { label: 'Status', value: obj.status }, bodyRow && { label: 'Version', value: `v${bodyRow.currentVersion}` }),
+        ...body([summary, parts.body, historyLink].filter(Boolean).join('\n\n')),
         href,
         hrefLabel: openRecordLabel(href),
       };
@@ -592,7 +597,9 @@ registerPreview('lead', {
  */
 registerPreview('record_history', {
   sourceLabel: 'History',
-  href: ref => `/dashboard/objects/${encodeURIComponent(ref.id)}`,
+  // `214` is the history; `214@5` is the history with version 5 marked —
+  // where the chat's "Changed …" line points (`libs/versions/versionRef.ts`).
+  href: ref => `/dashboard/objects/${Number.parseInt(ref.id, 10)}`,
   resolve: async (ref, ctx) => {
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id) || id <= 0) {

@@ -246,9 +246,13 @@ export function asksToChange(request: string): boolean {
  * @param id - The record.
  */
 export function changedInTurn(toolCalls: ReadonlyArray<{ tool: string; input?: Record<string, unknown>; output?: string }>, id: number): boolean {
-  return toolCalls.some(c => c.tool === 'update_object'
+  return toolCalls.some(c => (c.tool === 'update_object'
     && Number(c.input?.id) === id
-    && !/^\s*(?:update refused|refused|update failed|not written|update to \S+ #\d+ did not land)/i.test(c.output ?? ''));
+    && !/^\s*(?:update refused|refused|update failed|not written|update to \S+ #\d+ did not land)/i.test(c.output ?? ''))
+  // The artifact path to the same record (backlog 035): update_artifact on
+  // its body answers "<type> #<id> … changed" or "The change to <type> #<id>
+  // … is PENDING".
+  || (c.tool === 'update_artifact' && new RegExp(`#${id}\\b[^\\n]*(?:changed —|is PENDING)|^Renamed to`).test(c.output ?? '')));
 }
 
 /**

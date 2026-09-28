@@ -195,24 +195,3 @@ export const restore = os
       throw ApiError.badRequest((err as Error).message);
     }
   });
-
-/**
- * Change on a record: the selected words, replaced with the person's new
- * wording, as an `objects.update_meta` write of the field they belong to.
- */
-export const change = os
-  .input(z.object({
-    id: z.number().int().positive(),
-    quote: z.string().trim().min(1).max(4000),
-    instruction: z.string().trim().min(1).max(4000),
-    field: z.string().max(120).optional(),
-  }))
-  .handler(async ({ input }) => {
-    const { orgId, userId } = await guardAuth();
-    const { proposeRecordChange } = await import('@/services/objects/recordBody');
-    try {
-      return await proposeRecordChange({ orgId, objectId: input.id, quote: input.quote, instruction: input.instruction, field: input.field ?? null, userId: userId ?? 'unknown' });
-    } catch (err) {
-      throw ApiError.badRequest((err as Error).message);
-    }
-  });

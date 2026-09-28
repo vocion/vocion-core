@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { bodyFields, fieldDiff, locateChange, recordBodyEnabled, recordFields, renderRecordBody, replaceQuote, restoreSet } from './recordBodyFormat';
+import { bodyFields, fieldDiff, recordBodyEnabled, recordFields, renderRecordBody, restoreSet } from './recordBodyFormat';
 
 const REQUEST = parse(readFileSync(join(__dirname, '../../../templates/plugins/software-factory/objects/request/type.yaml'), 'utf8')) as { schema: Record<string, unknown> };
 
@@ -34,9 +34,11 @@ describe('what is body and what is headmatter', () => {
     expect(bodyFields(schema).map(f => f.key)).toEqual(['notes']);
   });
 
-  it('turns on for request by default and for any type that says so', () => {
+  it('turns on for every type unless its schema opts out', () => {
     expect(recordBodyEnabled('request', REQUEST.schema)).toBe(true);
-    expect(recordBodyEnabled('product', {})).toBe(false);
+    expect(recordBodyEnabled('product', {})).toBe(true);
+    expect(recordBodyEnabled('engineering_task', null)).toBe(true);
+    expect(recordBodyEnabled('product', { 'x-record-body': false })).toBe(false);
     expect(recordBodyEnabled('product', { 'x-record-body': true })).toBe(true);
     expect(recordBodyEnabled('request', { 'x-record-body': false })).toBe(false);
   });
@@ -67,22 +69,5 @@ describe('diff and restore', () => {
     expect(restoreSet({ priority: 90, state: 'in_scope' }, { state: 'in_scope' }, ['priority', 'state'])).toEqual({ priority: null });
     expect(restoreSet({ priority: 90 }, { priority: 90 }, ['priority'])).toEqual({});
     expect(restoreSet({ title: 'x' }, { title: 'y' }, ['title'])).toEqual({});
-  });
-});
-
-describe('change — finding the selected words', () => {
-  it('replaces words as written, or as they read on screen', () => {
-    expect(replaceQuote('A **bold** claim', 'A bold claim', 'A plain claim')).toBe('A plain claim');
-    expect(replaceQuote('See [the docs](https://docs.example/x) for more', 'the docs for', 'the guide for')).toBe('See the guide for more');
-    expect(replaceQuote('one\ntwo', 'one two', 'three')).toBe('three');
-    expect(replaceQuote('snake_case stays', 'snake_case', 'kebab-case')).toBe('kebab-case stays');
-    expect(replaceQuote('nothing here', 'absent', 'x')).toBeNull();
-  });
-
-  it('prefers the field the page named, then the body in reading order', () => {
-    const fields = { outcome: 'Faster close', story: 'Faster close is the point.' };
-
-    expect(locateChange(REQUEST.schema, fields, 'Faster close', 'Quicker close')!.key).toBe('outcome');
-    expect(locateChange(REQUEST.schema, fields, 'Faster close', 'Quicker close', 'The story')!.key).toBe('story');
   });
 });

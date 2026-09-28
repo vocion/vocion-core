@@ -74,8 +74,25 @@ describe('presence and the ACL', () => {
   it('refuses a type outside the agent\'s objectTypes before anything is proposed', async () => {
     const out = await toolFor(['request']).invoke({ object_type: 'product', id: requestId, set: { promises: [] }, reason: 'r', confidence: 0.9 });
 
-    expect(out).toBe('Refused: this agent does not work with "product" records. It may write: request. A type is added under objectTypes in the agent\'s YAML, not here.');
+    expect(out).toBe(`Refused: product #${requestId} is not on the person's page, and this agent does not work with "product" records (it may write: request). Ask the person to open the record, or add the type under objectTypes in the agent's YAML.`);
     expect(await db.select().from(actionRunSchema)).toHaveLength(0);
+  });
+
+  it('writes the record on the person\'s page whatever the agent\'s objectTypes say (backlog 035)', async () => {
+    const ctx = { ...ctxFor([]), pageContext: { path: `/dashboard/p/feature/${requestId}`, title: 'CSV export', record: { type: 'object' as const, id: String(requestId) } } };
+    const [t] = updateObjectTools(ctx);
+
+    expect(t).toBeDefined();
+
+    const out = await t!.invoke({ object_type: 'request', id: requestId, set: { priority: 60 }, reason: 'The person asked for it on the feature page.', confidence: 0.95 });
+
+    expect(out).toMatch(/updated — priority written/);
+
+    const [row] = await db.select({ metadata: businessObjectSchema.metadata }).from(businessObjectSchema).where(eq(businessObjectSchema.id, requestId));
+
+    expect(row!.metadata).toMatchObject({ priority: 60 });
+    // The page showing it hears about the new version.
+    expect(ctx.events.find(e => e.type === 'version_written')).toMatchObject({ ref: { type: 'object', id: String(requestId) }, from: 1, to: 2, fields: ['priority'] });
   });
 });
 
@@ -83,7 +100,7 @@ describe('the write', () => {
   it('writes declared fields done-for-you and says the record changed', async () => {
     const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { priority: 82, state: 'in_scope' }, reason: 'Seven asked.', confidence: 0.9 });
 
-    expect(out).toMatch(/^request #\d+ "CSV export" updated — priority, state written \(run #\d+, confidence 0\.9\)\. Done for you/);
+    expect(out).toMatch(/^request #\d+ "CSV export" updated — priority, state written \(run #\d+, confidence 0\.9\), now version 2 of its history\. Done for you/);
 
     const [row] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, requestId));
 

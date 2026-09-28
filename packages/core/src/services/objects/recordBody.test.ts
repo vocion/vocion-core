@@ -10,8 +10,7 @@
  *   - history reads as a field-level diff between consecutive versions;
  *   - Restore goes back through `objects.update_meta` and lands version N+1
  *     equal to N's fields;
- *   - Change on selected words produces an `objects.update_meta` write of the
- *     right field, done for the person with Undo.
+ *   - (Change is the artifact gesture: `tools/recordArtifactPath.test.ts`.)
  *
  * The object type is the software factory's request shape, trimmed; every
  * name is fictional.
@@ -27,7 +26,7 @@ const { actionRunSchema, artifactSchema, artifactVersionSchema, businessObjectSc
 const { forgetCachedObjectTypes } = await import('@/libs/actions/objects-propose-candidate');
 const { proposeAction, undoAction } = await import('@/services/ActionService');
 const { listArtifactVersions } = await import('@/services/ArtifactService');
-const { proposeRecordChange, recordBody, recordHistory, restoreRecordVersion, writeRecordBodyVersion } = await import('./recordBody');
+const { recordBody, recordHistory, restoreRecordVersion, writeRecordBodyVersion } = await import('./recordBody');
 const { and, eq } = await import('drizzle-orm');
 
 const ORG = 'org_record_body';
@@ -145,11 +144,16 @@ describe('recordBody — created from the row on first use', () => {
     expect(await bodies()).toHaveLength(1);
   });
 
-  it('gives no body to a type that has not opted in', async () => {
-    const [type] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'vendor', label: 'Vendor', schema: { type: 'object', properties: { notes: { type: 'string' } } } }).returning({ id: businessObjectTypeSchema.id });
-    const [row] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'Contoso Supply', metadata: { notes: 'Net 30.' } }).returning({ id: businessObjectSchema.id });
+  it('gives every type a body — a vendor as much as a request — and none to a type that opts out', async () => {
+    const [vendor] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'vendor', label: 'Vendor', schema: { type: 'object', properties: { notes: { type: 'string' } } } }).returning({ id: businessObjectTypeSchema.id });
+    const [row] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: vendor!.id, title: 'Contoso Supply', metadata: { notes: 'Net 30.' } }).returning({ id: businessObjectSchema.id });
+    const [ledger] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'sync_cursor', label: 'Sync cursor', schema: { 'type': 'object', 'x-record-body': false, 'properties': { at: { type: 'string' } } } }).returning({ id: businessObjectTypeSchema.id });
+    const [cursor] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: ledger!.id, title: 'cursor', metadata: { at: 'x' } }).returning({ id: businessObjectSchema.id });
 
-    expect(await recordBody(ORG, row!.id)).toBeNull();
+    const body = await recordBody(ORG, row!.id);
+
+    expect((body!.spec as MarkdownSpec).md).toContain('## Notes\n\nNet 30.');
+    expect(await recordBody(ORG, cursor!.id)).toBeNull();
   });
 });
 
@@ -314,55 +318,5 @@ describe('restore — back through objects.update_meta', () => {
 
     expect(await readMeta()).toMatchObject({ actualCents: 9900 });
     expect(await readMeta()).not.toHaveProperty('priority');
-  });
-});
-
-describe('change — selected words become an update of the right field', () => {
-  it('replaces the selected acceptance line through objects.update_meta, done with Undo', async () => {
-    const out = await proposeRecordChange({
-      orgId: ORG,
-      objectId: requestId,
-      quote: 'Existing exports keep working',
-      instruction: 'Existing PDF and XLSX exports still download unchanged',
-      userId: PERSON,
-    });
-
-    expect(out.status).toBe('done');
-    expect(out.field).toBe('acceptance');
-    expect(out.version).toBe(2);
-
-    const meta = await readMeta();
-
-    expect(meta.acceptance).toEqual([
-      { statement: 'A CSV of the ledger downloads from the ledger page', met: false },
-      { statement: 'Existing PDF and XLSX exports still download unchanged' },
-    ]);
-
-    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId!));
-
-    expect(run!.actionId).toBe('objects.update_meta');
-    expect((run!.input as { set: Record<string, unknown> }).set).toHaveProperty('acceptance');
-    expect((run!.input as { reason: string }).reason).toContain('Existing PDF and XLSX exports still download unchanged');
-
-    const history = await recordHistory(ORG, requestId);
-
-    expect(history!.versions[0]).toMatchObject({ version: 2, authorKind: 'human', authorId: PERSON });
-    expect(history!.versions[0]!.changes.map(c => c.key)).toEqual(['acceptance']);
-
-    await undoAction(out.runId!, ORG, { by: PERSON });
-
-    expect(((await readMeta()).acceptance as Array<{ statement: string }>)[1]!.statement).toBe('Existing exports keep working');
-  });
-
-  it('finds words as they read on screen, markdown and all', async () => {
-    const out = await proposeRecordChange({ orgId: ORG, objectId: requestId, quote: 'copies the ledger into a sheet', instruction: 'exports the ledger to a sheet', userId: PERSON });
-
-    expect(out.field).toBe('story');
-    expect((await readMeta()).story).toBe('Every month end someone at Northwind exports the ledger to a sheet by hand.');
-  });
-
-  it('refuses words that are not in the record, so nothing is written', async () => {
-    await expect(proposeRecordChange({ orgId: ORG, objectId: requestId, quote: 'Bellwater Hall', instruction: 'x', userId: PERSON })).rejects.toThrow(/not in a field/);
-    expect(await db.select().from(actionRunSchema)).toHaveLength(0);
   });
 });

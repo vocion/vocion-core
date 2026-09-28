@@ -34,7 +34,6 @@ import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegene
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
-  change as changeObject,
   create as createObject,
   createType,
   generateSummary,
@@ -167,7 +166,6 @@ export const router = {
     generateSummary,
     history: objectHistory,
     restore: restoreObject,
-    change: changeObject,
   },
   context: {
     readPrimitive,

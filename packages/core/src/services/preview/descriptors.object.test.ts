@@ -76,6 +76,9 @@ describe('a record\'s preview reads the record (journey 4, 2026-09-28: "No text 
     expect(doc.body).toContain('**The story**');
     expect(doc.body).toContain('- A Download CSV button appears beside "Who opened it".');
     expect(doc.facts).toEqual(expect.arrayContaining([{ label: 'State', value: 'triaged' }, { label: 'Status', value: 'approved' }]));
+    // Its versions, the way an artifact's preview shows them (backlog 035).
+    expect(doc.facts).toEqual(expect.arrayContaining([{ label: 'Version', value: 'v1' }]));
+    expect(doc.body).toContain(`[History — v1](?preview=record_history%3A${row!.id})`);
     expect(doc.href).toBe(`/w/northwind/dashboard/p/feature/${row!.id}`);
     expect(doc.hrefLabel).toBe('Open feature');
   });

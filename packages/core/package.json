@@ -70,6 +70,7 @@
     "stripe:setup-price": "dotenv -c production -- tsx ./scripts/createStripePrice.ts",
     "e2e:demo": "dotenv -c -- tsx src/scripts/e2e-demo.ts",
     "connectors:backfill-credentials": "dotenv -c -- tsx src/scripts/backfill-connector-credentials.ts",
+    "objects:backfill-bodies": "dotenv -c -- tsx src/scripts/backfill-record-bodies.ts",
     "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts",
     "consolidate:run": "dotenv -c -- tsx src/scripts/run-consolidation.ts",
     "artifacts:sweep": "dotenv -c -- tsx src/scripts/sweep-artifacts.ts",

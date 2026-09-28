@@ -82,6 +82,13 @@ describe('what counts as the record changed in the turn', () => {
     expect(changedInTurn([{ tool: 'update_object', input: { id: 13 }, output: 'request #13 updated — priority written (run #9).' }], 214)).toBe(false);
     expect(changedInTurn([{ tool: 'read_object', input: { id: 214 }, output: '{}' }], 214)).toBe(false);
   });
+
+  it('the artifact path to the record counts too, so the pass never writes it twice (backlog 035)', () => {
+    expect(changedInTurn([{ tool: 'update_artifact', input: {}, output: 'request #214 "Download CSV" changed — acceptance written (run #9), now version 3 of its history.' }], 214)).toBe(true);
+    expect(changedInTurn([{ tool: 'update_artifact', input: {}, output: 'The change to request #214 (acceptance) is PENDING a person\'s decision (run #9).' }], 214)).toBe(true);
+    expect(changedInTurn([{ tool: 'update_artifact', input: {}, output: 'Refused: request #214 is not on the person\'s page' }], 214)).toBe(false);
+    expect(changedInTurn([{ tool: 'update_artifact', input: {}, output: 'request #2140 "Other" changed — priority written (run #9).' }], 214)).toBe(false);
+  });
 });
 
 describe('the line the person reads', () => {

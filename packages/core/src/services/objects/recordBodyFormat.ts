@@ -25,22 +25,18 @@ const MD_LIMIT = 60_000;
 type Prop = Record<string, unknown>;
 type Schema = { properties?: Record<string, Prop>; [k: string]: unknown } | null | undefined;
 
-/** Object types whose records get a body until a type says otherwise (spec §5: start with `request`). */
-const DEFAULT_BODY_TYPES: ReadonlySet<string> = new Set(['request']);
-
 /**
- * Whether records of this type carry a body artifact. `request` does by
- * default; any type opts in or out with `x-record-body` on its schema, so the
- * next type costs a line in its `type.yaml`, not a change here.
- * @param slug - The object type slug.
+ * Whether records of this type carry a body artifact. Every type does: a
+ * record is a noun that is edited, versioned, previewed and cited, so it is
+ * an artifact (principle 7) — the request was first (#815), and every other
+ * type followed (backlog 035). A type opts OUT with `x-record-body: false`
+ * on its schema, for records that are machine bookkeeping nobody reads.
+ * @param _slug - The object type slug (kept so callers need not change when a type is special-cased).
  * @param schema - Its JSON Schema.
  */
-export function recordBodyEnabled(slug: string, schema: Schema): boolean {
+export function recordBodyEnabled(_slug: string, schema: Schema): boolean {
   const flag = (schema as Prop | null | undefined)?.['x-record-body'];
-  if (typeof flag === 'boolean') {
-    return flag;
-  }
-  return DEFAULT_BODY_TYPES.has(slug.trim().toLowerCase());
+  return typeof flag === 'boolean' ? flag : true;
 }
 
 function propsOf(schema: Schema): Record<string, Prop> {
@@ -259,169 +255,4 @@ export function restoreSet(current: Record<string, unknown>, target: Record<stri
     }
   }
   return set;
-}
-
-/* ------------------------------------------------------------------ */
-/* Change: the selected words, replaced                                */
-/* ------------------------------------------------------------------ */
-
-/**
- * The text as it reads on screen, with a map from each visible character
- * back to its index in the source. Markdown markers (`**`, backticks, a
- * link's `](url)`, a heading's `#`, a list's `- `) are not on screen, so a
- * selection never contains them; whitespace runs collapse to one space.
- * @param raw - The markdown source.
- */
-function visibleText(raw: string): { text: string; map: number[] } {
-  let text = '';
-  const map: number[] = [];
-  let i = 0;
-  let lineStart = true;
-  const push = (ch: string, at: number) => {
-    const space = /\s/.test(ch);
-    if (space && (text.length === 0 || text.endsWith(' '))) {
-      return;
-    }
-    text += space ? ' ' : ch;
-    map.push(at);
-  };
-  while (i < raw.length) {
-    if (lineStart) {
-      const marker = /^(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ x]\]\s+)?|\d+[.)]\s+)/.exec(raw.slice(i));
-      lineStart = false;
-      if (marker) {
-        i += marker[0].length;
-        continue;
-      }
-    }
-    const ch = raw[i]!;
-    if (ch === '\n') {
-      push(' ', i);
-      lineStart = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '*' || ch === '`' || ch === '~') {
-      i += 1;
-      continue;
-    }
-    if (ch === '_' && !(/\w/.test(raw[i - 1] ?? '') && /\w/.test(raw[i + 1] ?? ''))) {
-      i += 1;
-      continue;
-    }
-    if (ch === '[') {
-      i += 1;
-      continue;
-    }
-    if (ch === ']' && raw[i + 1] === '(') {
-      const close = raw.indexOf(')', i + 2);
-      i = close === -1 ? i + 1 : close + 1;
-      continue;
-    }
-    push(ch, i);
-    i += 1;
-  }
-  return { text, map };
-}
-
-function collapse(s: string): string {
-  return s.replace(/\s+/g, ' ').trim();
-}
-
-/**
- * `raw` with the first occurrence of `quote` replaced — matched as written,
- * else as it reads on screen (markdown markers and line breaks ignored).
- * @param raw - The field's text.
- * @param quote - What the person selected.
- * @param replacement - What it should say instead.
- * @returns The new text, or null when the quote is not in it.
- */
-export function replaceQuote(raw: string, quote: string, replacement: string): string | null {
-  const q = quote.trim();
-  if (!q) {
-    return null;
-  }
-  const at = raw.indexOf(q);
-  if (at !== -1) {
-    return raw.slice(0, at) + replacement + raw.slice(at + q.length);
-  }
-  const { text, map } = visibleText(raw);
-  const want = collapse(q.replace(/[*`~]/g, ''));
-  const found = text.indexOf(want);
-  if (found === -1 || want.length === 0) {
-    return null;
-  }
-  let start = map[found]!;
-  let end = map[found + want.length - 1]! + 1;
-  // Take the markup that wraps the words with them, balanced: `**bold**`
-  // selected as "bold" is replaced whole, but an opener whose closer lies
-  // outside the selection stays, so the rest of the text keeps its markup.
-  const EMPHASIS = /[*_~`]/;
-  let k = 0;
-  while (start - k - 1 >= 0 && end + k < raw.length && EMPHASIS.test(raw[start - k - 1]!) && raw[start - k - 1] === raw[end + k]) {
-    k += 1;
-  }
-  start -= k;
-  end += k;
-  // A link's `[` goes with it when the link's `](url)` is inside the span or
-  // right after it; then the tail goes too.
-  if (raw[start - 1] === '[') {
-    const tail = /^\]\([^)]*\)/.exec(raw.slice(end));
-    if (tail) {
-      start -= 1;
-      end += tail[0].length;
-    } else if (raw.slice(start, end).includes('](')) {
-      start -= 1;
-    }
-  }
-  return raw.slice(0, start) + replacement + raw.slice(end);
-}
-
-export type LocatedChange = { key: string; label: string; before: unknown; after: unknown };
-
-/**
- * Which field the selected words belong to, and what it says once they are
- * replaced. The hinted field first (the region the selection was in), then
- * the body in reading order, then any other text field.
- * @param schema - The type's JSON Schema.
- * @param fields - The record's fields now.
- * @param quote - The selected words.
- * @param replacement - The new wording.
- * @param hint - A field key or label the page named for the region.
- */
-export function locateChange(schema: Schema, fields: Record<string, unknown>, quote: string, replacement: string, hint?: string | null): LocatedChange | null {
-  const body = bodyFields(schema);
-  const props = propsOf(schema);
-  const textKeys = declaredOrder(schema).filter(k => props[k]?.type === 'string' && !Array.isArray(props[k]?.enum) && typeof props[k]?.format !== 'string' && !RESERVED_OBJECT_KEYS.has(k));
-  const hinted = hint
-    ? [...body.map(b => b.key), ...textKeys].find(k => k === hint || fieldLabel(schema, k).toLowerCase() === hint.trim().toLowerCase())
-    : undefined;
-  const order = [...new Set([...(hinted ? [hinted] : []), ...body.map(b => b.key), ...textKeys])];
-  for (const key of order) {
-    const value = fields[key];
-    const shape = body.find(b => b.key === key);
-    if (typeof value === 'string') {
-      const next = replaceQuote(value, quote, replacement);
-      if (next !== null) {
-        return { key, label: fieldLabel(schema, key), before: value, after: next };
-      }
-      continue;
-    }
-    if (Array.isArray(value) && shape && shape.shape !== 'text') {
-      const sk = shape.statementKey ?? 'statement';
-      for (let i = 0; i < value.length; i++) {
-        const item = value[i];
-        const words = typeof item === 'string' ? item : item && typeof item === 'object' && typeof (item as Record<string, unknown>)[sk] === 'string' ? (item as Record<string, string>)[sk]! : null;
-        if (words === null) {
-          continue;
-        }
-        const next = replaceQuote(words, quote, replacement);
-        if (next !== null) {
-          const after = value.map((it, j) => (j !== i ? it : typeof it === 'string' ? next : { ...(it as Record<string, unknown>), [sk]: next }));
-          return { key, label: fieldLabel(schema, key), before: value, after };
-        }
-      }
-    }
-  }
-  return null;
 }
