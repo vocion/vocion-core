@@ -6,7 +6,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
 import { canOpenArtifact } from '@/libs/share/audience';
-import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
+import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
 import { registerPreview } from './registry';
 
@@ -442,6 +442,63 @@ registerPreview('worker_run', {
         run.claimedAt && { label: 'Started', value: when(run.claimedAt) ?? '' },
         run.completedAt && { label: 'Ended', value: when(run.completedAt) ?? '' },
         input.task?.repo && { label: 'Repo', value: input.task.repo },
+      ),
+      ...tailBody(text || 'This run has reported nothing yet.'),
+    };
+  },
+});
+
+// AN AGENT RUN READS AS WHAT IT DID. Every agent-run row on a feature's
+// Activity opened "Nothing in Vocion reads this kind of reference yet" (Chris,
+// 2026-09-28, run 5507). The run's brief, each task with its status, output
+// and error, the tools it called, and on a failed run the same Claude Code
+// block an engineering run carries.
+registerPreview('mission_run', {
+  sourceLabel: 'Agent run',
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const [run] = await db.select().from(missionRunSchema).where(and(eq(missionRunSchema.orgId, ctx.orgId), eq(missionRunSchema.id, id))).limit(1);
+    if (!run) {
+      return null;
+    }
+    const tasks = ((run.plan ?? {}) as { tasks?: Array<{ title?: string; status?: string; ownerAgentSlug?: string; output?: unknown; error?: unknown }> }).tasks ?? [];
+    const calls = await db
+      .select({ tool: toolCallSchema.tool, error: toolCallSchema.error, ms: toolCallSchema.durationMs })
+      .from(toolCallSchema)
+      .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.missionRunId, id)))
+      .orderBy(toolCallSchema.id)
+      .limit(60);
+    const failed = run.status === 'failed';
+    const { appBaseUrl } = await import('@/libs/links');
+    const firstError = run.error ?? tasks.map(t => (t.error ? String(t.error) : '')).find(Boolean) ?? null;
+    const text = [
+      failed ? `**Stopped** — ${firstError ? firstError.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}` : null,
+      run.brief ? `**Brief**\n\n${run.brief.slice(0, 1200)}${run.brief.length > 1200 ? '…' : ''}` : null,
+      ...tasks.map((t, i) => [
+        `**${i + 1}. ${t.title ?? 'Task'}** — ${t.status ?? 'unknown'}${t.ownerAgentSlug ? ` · ${t.ownerAgentSlug}` : ''}`,
+        t.error ? `Error: ${String(t.error).slice(0, 600)}` : null,
+        typeof t.output === 'string' && t.output.trim() ? t.output.slice(0, 4000) : null,
+      ].filter(Boolean).join('\n\n')),
+      calls.length > 0 ? `**Tools called**\n\n${calls.map(c => `- \`${c.tool}\`${c.error ? ' — failed' : ''}${c.ms ? ` · ${(c.ms / 1000).toFixed(1)}s` : ''}`).join('\n')}` : null,
+      failed
+        ? `**Fix it from Claude Code** — paste this into a session:\n\n\`\`\`\nVocion agent run #${run.id} failed (${run.title}).\n${firstError ? `Why: ${firstError.split('\n')[0]!.slice(0, 400)}\n` : ''}Run: ${appBaseUrl()}/dashboard/missions/runs/${run.id}\nFind why it stopped, fix the gap in Vocion, ship it, then run it again.\n\`\`\``
+        : null,
+    ].filter(Boolean).join('\n\n');
+    return {
+      ref,
+      title: run.title,
+      sourceLabel: 'Agent run',
+      href: `/dashboard/missions/runs/${run.id}`,
+      facts: facts(
+        { label: 'Run', value: `#${run.id}` },
+        { label: 'Status', value: run.status },
+        (run.team as { lead?: string } | null)?.lead && { label: 'Agent', value: (run.team as { lead: string }).lead },
+        { label: 'Started', value: when(run.createdAt) ?? '' },
+        { label: 'Tasks', value: String(tasks.length) },
+        calls.length > 0 && { label: 'Tool calls', value: String(calls.length) },
       ),
       ...tailBody(text || 'This run has reported nothing yet.'),
     };

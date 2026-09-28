@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { workerRunSchema } = await import('@/models/Schema');
+const { missionRunSchema, workerRunSchema } = await import('@/models/Schema');
 await import('./descriptors');
 const { resolvePreview } = await import('./registry');
 
@@ -29,5 +29,18 @@ describe('an engineering run\'s preview', () => {
 
     expect(doc.body ?? '').not.toContain('Fix it from Claude Code');
     expect(doc.facts).toEqual(expect.arrayContaining([{ label: 'Stage', value: 'claude' }]));
+  });
+});
+
+describe('an agent run\'s preview', () => {
+  it('reads as what the run did, never "nothing reads this kind of reference" (Chris, 2026-09-28, run 5507)', async () => {
+    const [run] = await db.insert(missionRunSchema).values({ orgId: ORG, title: 'contract-red-team-evidence: Every criterion is proven', brief: 'Review PR #71 against its contract.', status: 'failed', error: 'one or more tasks failed', team: { lead: 'change-reviewer', members: [] }, plan: { tasks: [{ title: 'Review the change', status: 'failed', ownerAgentSlug: 'change-reviewer', error: 'overloaded_error' }] } } as never).returning();
+    const doc = await resolvePreview({ type: 'mission_run', id: String(run!.id) }, { orgId: ORG, userId: null });
+
+    expect(doc.unresolved).toBeUndefined();
+    expect(doc.title).toBe('contract-red-team-evidence: Every criterion is proven');
+    expect(doc.href).toBe(`/dashboard/missions/runs/${run!.id}`);
+    expect(doc.body).toContain('**1. Review the change** — failed · change-reviewer');
+    expect(doc.body).toContain('**Fix it from Claude Code**');
   });
 });
