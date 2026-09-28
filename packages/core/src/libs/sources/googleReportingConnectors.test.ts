@@ -14,8 +14,10 @@
 import type { SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listPlatforms } from '@/libs/platforms/registry';
 import { ga4Connector } from './ga4';
 import { googleAdsConnector } from './googleAds';
+import { GOOGLE_OAUTH_SCOPES_BY_SOURCE } from './googleAuth';
 
 type Call = { url: string; authorization: string | null; developerToken: string | null };
 
@@ -110,5 +112,16 @@ describe('Google Ads connector auth', () => {
 
     await expect(collect(googleAdsConnector.sync(context({ customerId: '1234567890' }, credentials)))).rejects.toThrow('developer token');
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('Google OAuth consent scopes', () => {
+  it('asks for a scope for every connector the Google credential covers, Ads included', () => {
+    const google = listPlatforms().find(platform => platform.id === 'google')!;
+
+    const withoutAScope = google.connectorSlugs.filter(slug => !GOOGLE_OAUTH_SCOPES_BY_SOURCE[slug]?.length);
+
+    expect(withoutAScope).toEqual([]);
+    expect(GOOGLE_OAUTH_SCOPES_BY_SOURCE['google-ads']).toContain('https://www.googleapis.com/auth/adwords');
   });
 });
