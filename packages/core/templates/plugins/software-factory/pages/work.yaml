@@ -48,6 +48,7 @@ description: What is running, what is proposed, and what just landed.
 icon: list-checks
 nav: {section: Software factory, order: 2}
 archetype: list
+pluginPanel: false
 source: {kind: objects, objectType: request}
 # Seven states, three lanes, and every sentence on the row: see
 # libs/workspace/workQueue.ts, which is also where the mapping is argued with.

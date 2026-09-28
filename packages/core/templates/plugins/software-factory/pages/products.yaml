@@ -50,6 +50,7 @@ description: How are my products doing?
 icon: layout-dashboard
 nav: {section: Software factory, order: 1}
 archetype: list
+pluginPanel: false
 layout: block
 source: {kind: objects, objectType: product}
 # One sentence per product, derived from its rollups and its health: what a

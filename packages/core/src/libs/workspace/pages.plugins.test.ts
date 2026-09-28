@@ -150,10 +150,10 @@ describe('plugin pages', () => {
     // Runs came back under More on 2026-09-28 (Chris: "a log of runs with
     // active and historical run detail pages … fail clearly so we can attach
     // and fix"): the machine's record, one tap away, never in the main nav.
-    expect(mine.map(p => p.slug).sort()).toEqual(['feature', 'products', 'releases', 'runs', 'work']);
+    expect(mine.map(p => p.slug).sort()).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(mine.every(p => p.nav.section === 'Software factory')).toBe(true);
     expect(mine.filter(p => !p.nav.hidden && !p.nav.secondary).map(p => p.slug)).toEqual(['products', 'work', 'releases']);
-    expect(mine.filter(p => p.nav.secondary).map(p => p.slug)).toEqual(['runs']);
+    expect(mine.filter(p => p.nav.secondary).map(p => p.slug).sort()).toEqual(['configure', 'runs']);
     // Only the per-record work item stays off the nav: it is reached from the
     // row that names it.
     expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);

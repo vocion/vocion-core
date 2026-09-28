@@ -687,7 +687,9 @@ export default async function WorkspacePage(props: {
   // they move underneath it, and the prose goes behind "About this data":
   // the method is evidence about the rows, and evidence is level three.
   const rowsLead = manifest.archetype === 'list' || manifest.archetype === 'queue';
-  const pluginPanel = ownedBy ? <PluginPanel orgId={orgId} slug={ownedBy} /> : null;
+  // Chris, 2026-09-28: "doesn't need to be on every page. Maybe give it its
+  // own Configure page" — a page opts out with `pluginPanel: false`.
+  const pluginPanel = ownedBy && manifest.pluginPanel !== false ? <PluginPanel orgId={orgId} slug={ownedBy} /> : null;
   const about = content && manifest.archetype !== 'markdown'
     ? (
         rowsLead

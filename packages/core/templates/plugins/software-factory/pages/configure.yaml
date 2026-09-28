@@ -1,0 +1,11 @@
+# Configure. What drives the factory, in one place: the measures its team
+# declared, its agents, its skills and playbooks (each overridable), and what it
+# learned from use. It used to sit under every list; now the lists are lists
+# and this is one tap away under More (Chris, 2026-09-28).
+slug: configure
+title: Configure
+description: What drives the software factory — its measures, agents, skills and playbooks, and what it learned from use.
+icon: settings
+nav: {section: Software factory, order: 9, secondary: true}
+archetype: markdown
+pluginPanel: true

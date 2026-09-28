@@ -16,6 +16,7 @@ description: Every deploy that reached people, with product, version, what it ca
 icon: rocket
 nav: {section: Software factory, order: 3}
 archetype: list
+pluginPanel: false
 source: {kind: objects, objectType: release}
 sort: {field: meta.releasedAt, dir: desc}
 groupBy: meta.product

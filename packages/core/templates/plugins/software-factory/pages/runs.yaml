@@ -17,6 +17,7 @@ description: Every run, engineering and agent, newest first — what is running 
 icon: activity
 nav: {section: Software factory, order: 6, secondary: true}
 archetype: list
+pluginPanel: false
 source: {kind: workerRuns, kinds: [worker], agentRuns: true, limit: 200}
 live: {every: 15}
 sort: {field: createdAt, dir: desc}

@@ -62,7 +62,7 @@ describe('the shipped catalogue', () => {
     expect(factory.missions).toEqual(['close-the-gap', 'prove-the-contract', 'tell-the-requester']);
     expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'standard-from-shipped', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
-    expect(factory.pages).toEqual(['feature', 'products', 'releases', 'runs', 'work']);
+    expect(factory.pages).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
   });
 
@@ -306,7 +306,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.14.0');
+    expect(ws.sha).toContain('+software-factory@2.15.0');
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {

@@ -540,6 +540,12 @@ export const PageManifestSchema = z.object({
    * team report) beside its own pages without duplicating it.
    */
   archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'wiki']),
+  /**
+   * Whether this page carries its plugin's "How <plugin> is doing" panel.
+   * On by default; a plugin with many pages keeps it on one of them (the
+   * software factory's Configure page) rather than under every list.
+   */
+  pluginPanel: z.boolean().default(true),
   /** Required by `link`: the route the row opens. */
   href: z.string().min(1).optional(),
 
