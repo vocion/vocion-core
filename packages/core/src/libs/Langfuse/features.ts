@@ -49,6 +49,8 @@ export const FEATURES = {
   DISCOVERY_CLASSIFY: 'discovery.classify',
   /** The `generate_image` agent tool — the priciest single call an agent makes. */
   TOOL_IMAGE: 'tool.image',
+  /** The kit-inspection vision tool: the full-frame compare, its retry, and the zoomed re-counts. */
+  TOOL_VISION: 'tool.vision',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];
