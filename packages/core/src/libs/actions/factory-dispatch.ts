@@ -290,7 +290,7 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const prevVerdict = (prev?.meta.verdict ?? null) as { note?: string; criteria?: Array<{ criterion?: string; status?: string; evidence?: string }> } | null;
   const owed = (prevVerdict?.criteria ?? []).filter(c => c.status !== 'proven' && c.criterion);
   const carried = prev && prevVerdict
-    ? `\n\nThe last attempt (task #${prev.id}${str(prev.meta, 'prUrl') ? `, ${str(prev.meta, 'prUrl')}` : ''}) was sent back by QA: ${prevVerdict.note ?? 'changes asked'}${owed.length > 0 ? `\nProve each of these with evidence a reviewer can open (a named test, a screenshot of that exact state):\n${owed.map(c => `- ${c.criterion}${c.evidence ? ` (QA: ${c.evidence})` : ''}`).join('\n')}` : ''}`
+    ? `\n\nThe last attempt (task #${prev.id}${str(prev.meta, 'prUrl') ? `, ${str(prev.meta, 'prUrl')}` : ''}) was sent back by ${(prevVerdict as { heldBy?: string }).heldBy === 'person' ? 'the person who merges' : 'QA'}: ${String(prevVerdict.note ?? 'changes asked').replace(/^A person held the merge: /, '')}${owed.length > 0 ? `\nProve each of these with evidence a reviewer can open (a named test, a screenshot of that exact state):\n${owed.map(c => `- ${c.criterion}${c.evidence ? ` (QA: ${c.evidence})` : ''}`).join('\n')}` : ''}`
     : '';
   const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + carried;
   // A ui change is refused without a QA flow (the worker screenshots it

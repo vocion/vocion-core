@@ -82,6 +82,13 @@ describe('a contract from the records alone', () => {
     ]);
   });
 
+  it('says a held merge came from the person who merges, in their words (2026-09-28)', () => {
+    const previous = { id: 190, meta: { prUrl: 'https://github.com/Acme/northwind-core/pull/89', verdict: { value: 'changes', heldBy: 'person', note: 'A person held the merge: the cleanup rule is not applied in production.', criteria: [{ criterion: 'A button sits beside Upload.', status: 'proven' }] } } };
+    const c = deriveContract({ given: {}, request, plan, repo, previous });
+
+    expect(String(c.objective)).toContain('was sent back by the person who merges: the cleanup rule is not applied in production.');
+  });
+
   it('fills every field the worker needs from the request, the plan and the repo', () => {
     const c = deriveContract({ given: {}, request, plan, repo });
 
