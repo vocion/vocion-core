@@ -73,7 +73,7 @@ function taskMessage(opts: { brief: string; goal?: string | null; task: Task; pr
  * same UPDATE that wins the resume race (vocion-core#112), before this
  * function ever runs. That means every code path below has to land the run
  * somewhere sane — if setup (reading the run, resolving the mission slug) or
- * a `patch()` call throws, the row is stuck at `running` with the one status
+ * a status write throws, the row is stuck at `running` with the one status
  * that can never be reclaimed (the claim's WHERE only matches
  * `awaiting_review`). The outer try/catch exists to close that gap: any
  * throw that isn't already turned into a per-task failure below gets turned
@@ -101,7 +101,13 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
     const tasks: Task[] = run.plan?.tasks ?? [];
     const artifacts: Artifact[] = [...(run.artifacts ?? [])];
 
-    await patch(runId, { status: 'running', pauseReason: null });
+    // Every status write from here on is refused once a person has cancelled
+    // the run, and a refusal means stop: no further task starts
+    // (vocion-core#123). The task already in flight when the cancel lands
+    // cannot be interrupted, but its output is still kept (`saveProgress`).
+    if (!(await writeUnlessSettled(runId, { status: 'running', pauseReason: null }))) {
+      return await currentStatus(runId);
+    }
 
     for (const task of tasks) {
       if (task.status === 'completed' || task.status === 'skipped') {
@@ -113,20 +119,22 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
       // Autonomy gate: pause for human review before a gated task runs.
       if (taskNeedsApproval(task, level)) {
         task.status = 'awaiting_approval';
-        await patch(runId, {
+        const paused = await writeUnlessSettled(runId, {
           status: 'awaiting_review',
           pauseReason: `awaiting_approval:${task.id}`,
           pausedAt: new Date(),
           plan: { tasks },
         });
-        return 'awaiting_review';
+        return paused ? 'awaiting_review' : await currentStatus(runId);
       }
 
       task.status = 'running';
       // The run page draws each task as a step with its duration.
       task.startedAt = new Date().toISOString();
       delete task.endedAt;
-      await patch(runId, { plan: { tasks } });
+      if (!(await writeUnlessSettled(runId, { plan: { tasks } }))) {
+        return await currentStatus(runId);
+      }
 
       const priorOutputs = tasks
         .filter(t => t.status === 'completed' && t.output)
@@ -159,7 +167,10 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
         log('error', 'mission task failed', { runId, taskId: task.id, error: task.error });
       }
       task.endedAt = new Date().toISOString();
-      await patch(runId, { plan: { tasks }, artifacts });
+      const statusNow = await saveProgress(runId, { plan: { tasks }, artifacts });
+      if (isSettled(statusNow)) {
+        return statusNow;
+      }
     }
 
     const anyFailed = tasks.some(t => t.status === 'failed');
@@ -168,7 +179,7 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
       // Remember the outcome before writing it. If the write itself throws,
       // the catch below needs to know the work actually finished.
       outcome = anyFailed ? 'failed' : 'completed';
-      const settled = await settleRun(runId, {
+      const settled = await writeUnlessSettled(runId, {
         status: outcome,
         completedAt: new Date(),
         error: anyFailed ? 'one or more tasks failed' : null,
@@ -196,7 +207,7 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
       error: message,
     });
     try {
-      await settleRun(runId, {
+      await writeUnlessSettled(runId, {
         status: finalStatus,
         completedAt: new Date(),
         error: finalStatus === 'completed' ? null : message,
@@ -216,7 +227,7 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
 
 /**
  * Raise `mission_run.completed` for a run this loop just settled as
- * completed — once, because `settleRun` said this call was the one that
+ * completed — once, because `writeUnlessSettled` said this call was the one that
  * wrote it. A check-mode run (an automation's mission check) says so in
  * `mode`, so a debrief automation can filter it out; the chain of fires
  * behind the run rides along too, so the automation that started it is
@@ -258,30 +269,71 @@ async function announceCompleted(run: typeof missionRunSchema.$inferSelect, miss
   }
 }
 
-async function patch(runId: number, values: Partial<typeof missionRunSchema.$inferInsert>): Promise<void> {
-  await db.update(missionRunSchema).set(values).where(eq(missionRunSchema.id, runId));
-}
-
 /** A run that reached one of these is done, and nothing here may overwrite it. */
 const SETTLED_STATUSES = ['completed', 'failed', 'cancelled'] as const;
 
 /**
- * Write a run's final status, unless someone already settled it.
+ * Has the run reached an end state — most often, has a person cancelled it?
+ * @param status - A `mission_run.status` value.
+ */
+function isSettled(status: string): boolean {
+  return (SETTLED_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Write to the run, unless someone already settled it.
  *
  * A person can cancel a mission while its tasks are still running, and this
- * loop would otherwise write straight over that with `completed` or
- * `failed` — the cancellation would simply vanish. Keeping the check in the
- * WHERE clause lets the database decide, the same way the resume claim does.
- * @param runId - Which run to settle.
- * @param values - The final status and its accompanying fields.
- * @returns True when this call settled the run, false when it was already settled.
+ * loop would otherwise write straight over that with `running`,
+ * `awaiting_review`, `completed` or `failed` — the cancellation would simply
+ * vanish. Keeping the check in the WHERE clause lets the database decide, the
+ * same way the resume claim does. Every write that changes the status, or
+ * marks a task as started, goes through here.
+ * @param runId - Which run to write.
+ * @param values - The fields to write.
+ * @returns True when the write happened, false when the run was already settled.
  */
-async function settleRun(runId: number, values: Partial<typeof missionRunSchema.$inferInsert>): Promise<boolean> {
-  const settled = await db.update(missionRunSchema)
+async function writeUnlessSettled(runId: number, values: Partial<typeof missionRunSchema.$inferInsert>): Promise<boolean> {
+  const written = await db.update(missionRunSchema)
     .set(values)
     .where(and(eq(missionRunSchema.id, runId), notInArray(missionRunSchema.status, [...SETTLED_STATUSES])))
     .returning({ id: missionRunSchema.id });
-  return settled.length > 0;
+  return written.length > 0;
+}
+
+/**
+ * Save a finished task's output and artifacts, and report the run's status.
+ *
+ * Unlike {@link writeUnlessSettled} this write is never refused: a task that
+ * finished after a person cancelled the run still did its work, and the run
+ * page should show what it produced. It writes no status, so it cannot undo
+ * the cancel. The status it reads back is how the loop learns of a cancel
+ * and stops before starting the next task.
+ * @param runId - Which run the task belongs to.
+ * @param values - The plan and artifacts as they stand after the task.
+ * @returns The run's status after the write.
+ */
+async function saveProgress(runId: number, values: Pick<typeof missionRunSchema.$inferInsert, 'plan' | 'artifacts'>): Promise<string> {
+  const [row] = await db.update(missionRunSchema)
+    .set(values)
+    .where(eq(missionRunSchema.id, runId))
+    .returning({ status: missionRunSchema.status });
+  if (!row) {
+    throw new Error(`mission run ${runId} no longer exists`);
+  }
+  return row.status;
+}
+
+/**
+ * The run's status as stored, read when a write was refused because it was settled.
+ * @param runId - Which run.
+ */
+async function currentStatus(runId: number): Promise<string> {
+  const [row] = await db.select({ status: missionRunSchema.status }).from(missionRunSchema).where(eq(missionRunSchema.id, runId));
+  if (!row) {
+    throw new Error(`mission run ${runId} no longer exists`);
+  }
+  return row.status;
 }
 
 function truncate(s: string, n: number): string {

@@ -1,5 +1,5 @@
 import type { WorkflowManifest, WorkflowStep } from '@/libs/workspace/schemas';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, notInArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { workflowRunSchema, workflowSchema } from '@/models/Schema';
@@ -64,6 +64,17 @@ export class WorkflowRunNotResumableError extends Error {
     super(`workflow_run ${runId} is not resumable: ${reason}`);
     this.name = 'WorkflowRunNotResumableError';
   }
+}
+
+/** A run that reached one of these is done, and the loop may not write its status again. */
+const SETTLED_RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const;
+
+/**
+ * Has the run reached an end state — most often, has a person cancelled it?
+ * @param status - A `workflow_run.status` value.
+ */
+function isSettledRunStatus(status: string): boolean {
+  return (SETTLED_RUN_STATUSES as readonly string[]).includes(status);
 }
 
 export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRunSummary> {
@@ -161,16 +172,36 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
   return runLoop(runId);
 }
 
+/**
+ * Cancel a run that is still going. A loop already running reads the cancel
+ * before its next step and stops there (`runLoop`).
+ *
+ * A run that already ended is returned exactly as it is: cancelling a
+ * completed or failed run used to relabel it `cancelled`, which erased what
+ * really happened to it.
+ * @param runId - The run to cancel.
+ * @param orgId - The caller's org; a run in another org reads as not found.
+ * @param reason - Shown on the run as its error.
+ * @returns The run as it stands after the call.
+ */
 export async function cancelWorkflow(runId: number, orgId: string, reason?: string): Promise<WorkflowRunSummary> {
-  const [run] = await db
+  const [cancelled] = await db
     .update(workflowRunSchema)
     .set({ status: 'cancelled', error: reason ?? null, completedAt: new Date() })
-    .where(and(eq(workflowRunSchema.id, runId), eq(workflowRunSchema.orgId, orgId)))
+    .where(and(
+      eq(workflowRunSchema.id, runId),
+      eq(workflowRunSchema.orgId, orgId),
+      notInArray(workflowRunSchema.status, [...SETTLED_RUN_STATUSES]),
+    ))
     .returning();
-  if (!run) {
+  if (cancelled) {
+    return summarize(cancelled);
+  }
+  const existing = await getWorkflowRun(runId, orgId);
+  if (!existing) {
     throw new Error(`workflow_run ${runId} not found`);
   }
-  return summarize(run);
+  return existing;
 }
 
 export async function getWorkflowRun(runId: number, orgId: string): Promise<WorkflowRunSummary | null> {
@@ -241,7 +272,11 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
       status: 'running',
       startedAt: new Date().toISOString(),
     };
-    await persistState(runId, { stepResults, currentStep: cursor });
+    // Refused once a person has cancelled the run: the step does not start,
+    // and nothing after it does either (vocion-core#123).
+    if (!(await persistState(runId, { stepResults, currentStep: cursor }))) {
+      return await summaryOf(runId);
+    }
 
     try {
       if (step.type === 'sync') {
@@ -400,6 +435,11 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
       return summarize(failed!);
     }
 
+    // The step's output is kept even when the run was cancelled while it
+    // ran, because its work already happened. Then the loop stops.
+    if (isSettledRunStatus(await saveStepResults(runId, stepResults, cursor + 1))) {
+      return await summaryOf(runId);
+    }
     cursor += 1;
   }
 
@@ -423,7 +463,53 @@ type PersistPatch = {
   completedAt?: Date;
 };
 
-async function persistState(runId: number, patch: PersistPatch): Promise<void> {
+/**
+ * The run as stored, for returning once the loop has stopped.
+ * @param runId - Which run.
+ */
+async function summaryOf(runId: number): Promise<WorkflowRunSummary> {
+  const [row] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
+  if (!row) {
+    throw new Error(`workflow_run ${runId} no longer exists`);
+  }
+  return summarize(row);
+}
+
+/**
+ * Save the step results after a step finished, and report the run's status.
+ *
+ * Never refused, and writes no status, so a cancel that landed while the
+ * step ran keeps both the step's output and the `cancelled`. The status read
+ * back is how the loop learns of the cancel before starting the next step.
+ * @param runId - Which run.
+ * @param stepResults - Every step's result so far.
+ * @param nextStep - The cursor after the step that just finished.
+ * @returns The run's status after the write.
+ */
+async function saveStepResults(runId: number, stepResults: Record<string, StepResult>, nextStep: number): Promise<string> {
+  const [row] = await db
+    .update(workflowRunSchema)
+    .set({ stepResults, currentStep: nextStep })
+    .where(eq(workflowRunSchema.id, runId))
+    .returning({ status: workflowRunSchema.status });
+  if (!row) {
+    throw new Error(`workflow_run ${runId} no longer exists`);
+  }
+  return row.status;
+}
+
+/**
+ * Write the loop's state, unless the run has already been settled.
+ *
+ * The status predicate lives in the WHERE clause so a cancel that lands
+ * between the loop's read and this write still wins: before it, the loop's
+ * next write set the run back to `running`, then `completed`, and every
+ * remaining step ran anyway.
+ * @param runId - Which run.
+ * @param patch - The state to write.
+ * @returns True when written, false when the run was already settled.
+ */
+async function persistState(runId: number, patch: PersistPatch): Promise<boolean> {
   const update: Record<string, unknown> = {
     stepResults: patch.stepResults,
     currentStep: patch.currentStep,
@@ -443,7 +529,12 @@ async function persistState(runId: number, patch: PersistPatch): Promise<void> {
   if (patch.completedAt !== undefined) {
     update.completedAt = patch.completedAt;
   }
-  await db.update(workflowRunSchema).set(update).where(eq(workflowRunSchema.id, runId));
+  const written = await db
+    .update(workflowRunSchema)
+    .set(update)
+    .where(and(eq(workflowRunSchema.id, runId), notInArray(workflowRunSchema.status, [...SETTLED_RUN_STATUSES])))
+    .returning({ id: workflowRunSchema.id });
+  return written.length > 0;
 }
 
 function collectOutputs(results: Record<string, StepResult>): Record<string, { output: unknown }> {
