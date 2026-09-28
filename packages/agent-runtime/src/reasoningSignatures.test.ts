@@ -87,6 +87,25 @@ describe('preserveReasoningSignatures', () => {
     expect(sent[1]!.messages[1]!.content[0]!.reasoningContent!.reasoningText.signature).toBe('sig-empty');
   });
 
+  it('restores it when the call streamed first was dropped from the replay', async () => {
+    // Seen live on a mission turn: three tool calls streamed, the first one's
+    // arguments did not parse, and the library replayed only the other two.
+    async function* threeCalls() {
+      yield { contentBlockDelta: { contentBlockIndex: 0, delta: { reasoningContent: { signature: 'sig-three' } } } };
+      yield { contentBlockStop: { contentBlockIndex: 0 } };
+      for (const [index, id] of [[1, 'tooluse_bad'], [2, 'tooluse_B'], [3, 'tooluse_C']] as const) {
+        yield { contentBlockStart: { contentBlockIndex: index, start: { toolUse: { toolUseId: id, name: 'lookup' } } } };
+        yield { contentBlockStop: { contentBlockIndex: index } };
+      }
+    }
+    const { model, sent } = fakeModel(threeCalls);
+
+    await drain(await model.client.send({ input: { messages: [] } }));
+    await model.client.send(nextRequest('', 'tooluse_C'));
+
+    expect(sent[1]!.messages[1]!.content[0]!.reasoningContent!.reasoningText.signature).toBe('sig-three');
+  });
+
   it('never puts one response\'s signature on another tool call', async () => {
     const { model, sent } = fakeModel(() => thinkingThenTool('', 'sig-first', 'tooluse_A'));
 

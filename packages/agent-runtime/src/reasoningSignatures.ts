@@ -20,11 +20,12 @@
  *
  * So this sits on the one seam both directions pass through, the Bedrock
  * client's `send`. As a response streams by it notes each thinking block's
- * signature, in order, against the id of the tool call that response made —
+ * signature, in order, against the id of every tool call that response made —
  * not against the thinking text, because Opus 5 streams its thinking with
- * EMPTY text and only a signature (seen live). The next request carries that
- * same tool call id in the assistant message it replays, and the signatures
- * go back on its thinking blocks in the same order. A response that calls no
+ * EMPTY text and only a signature (seen live). The next request carries those
+ * tool call ids in the assistant message it replays (all but any whose
+ * arguments did not parse, which the library drops), and the signatures go
+ * back on its thinking blocks in the same order. A response that calls no
  * tool is never replayed inside the loop, so it has nothing to restore.
  * Nothing else in either payload is touched. Delete this when the library
  * carries the signature itself.
@@ -52,7 +53,7 @@ const REMEMBERED = 500;
 /**
  * Remember one response's signatures, dropping the oldest past the limit.
  * @param memory - The model's signature memory, keyed by tool call id.
- * @param toolUseId - The first tool call the response made.
+ * @param toolUseId - One of the tool calls the response made.
  * @param signatures - Its thinking blocks' signatures, in order.
  */
 function remember(memory: Map<string, Signatures>, toolUseId: string, signatures: Signatures): void {
@@ -83,8 +84,13 @@ export function restoreSignatures(input: unknown, memory: Map<string, Signatures
       continue;
     }
     const content = message.content ?? [];
-    const toolUseId = content.find(b => b.toolUse?.toolUseId)?.toolUse?.toolUseId;
-    const signatures = toolUseId ? memory.get(toolUseId) : undefined;
+    // Any of its tool calls will do: the library drops a call whose arguments
+    // did not parse, so the first one streamed is not always the first one
+    // replayed (seen live: a mission turn streamed three and replayed two).
+    const signatures = content
+      .map(b => b.toolUse?.toolUseId)
+      .map(id => (id ? memory.get(id) : undefined))
+      .find(Boolean);
     if (!signatures) {
       continue;
     }
@@ -105,18 +111,18 @@ export function restoreSignatures(input: unknown, memory: Map<string, Signatures
 
 /**
  * Pass a Converse stream through unchanged, noting its thinking signatures
- * against the first tool call it makes.
+ * against every tool call it makes.
  * @param source - The response stream.
  * @param memory - The model's signature memory.
  */
 export async function* noteSignatures(source: AsyncIterable<StreamEvent>, memory: Map<string, Signatures>): AsyncGenerator<StreamEvent> {
   const byBlock = new Map<number, string>();
   const order: number[] = [];
-  let toolUseId: string | undefined;
+  const toolUseIds: string[] = [];
   for await (const event of source) {
     const started = event.contentBlockStart?.start?.toolUse?.toolUseId;
-    if (started && !toolUseId) {
-      toolUseId = started;
+    if (started) {
+      toolUseIds.push(started);
     }
     const reasoning = event.contentBlockDelta?.delta?.reasoningContent;
     if (reasoning) {
@@ -130,8 +136,11 @@ export async function* noteSignatures(source: AsyncIterable<StreamEvent>, memory
     }
     yield event;
   }
-  if (toolUseId && order.length > 0) {
-    remember(memory, toolUseId, order.map(index => byBlock.get(index) ?? ''));
+  if (order.length > 0) {
+    const signatures = order.map(index => byBlock.get(index) ?? '');
+    for (const id of toolUseIds) {
+      remember(memory, id, signatures);
+    }
   }
 }
 
@@ -155,10 +164,13 @@ export function preserveReasoningSignatures<T>(model: T): T {
     }
     // A non-streamed answer carries whole blocks, signature included.
     const content = response?.output?.message?.content ?? [];
-    const toolUseId = content.find(b => b.toolUse?.toolUseId)?.toolUse?.toolUseId;
     const signatures = content.filter(b => b.reasoningContent?.reasoningText).map(b => b.reasoningContent?.reasoningText?.signature ?? '');
-    if (toolUseId && signatures.length > 0) {
-      remember(memory, toolUseId, signatures);
+    if (signatures.length > 0) {
+      for (const block of content) {
+        if (block.toolUse?.toolUseId) {
+          remember(memory, block.toolUse.toolUseId, signatures);
+        }
+      }
     }
     return response;
   };
