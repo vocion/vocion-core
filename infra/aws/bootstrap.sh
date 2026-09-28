@@ -6,7 +6,7 @@
 # updates code + restarts services without trashing data.
 #
 #   ssh ec2-user@<host>
-#   sudo bash /opt/vocion/infra/aws/bootstrap.sh [git-ref]
+#   sudo [VOCION_APP_IMAGE=<registry>/<repository>:<tag>] bash /opt/vocion/infra/aws/bootstrap.sh [git-ref]
 #
 # Default git-ref is `main`. Override to deploy a feature branch:
 #
@@ -185,15 +185,29 @@ mkdir -p "${DATA_DIR}"
 docker network inspect corecontext >/dev/null 2>&1 \
   || docker network create corecontext
 
-# ----- 6. Build the Vocion app image -----
-# The build step keeps Turbopack's build cache in a BuildKit cache mount
-# (#670), and `docker build` runs BuildKit only through the buildx plugin.
-# A git-ref from before #670 has neither the script nor the cache mount.
-if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
-  bash "${REPO_DIR}/infra/aws/install-buildx.sh"
+# ----- 6. Get the Vocion app image -----
+# VOCION_APP_IMAGE names an image CI built with push-app-image.sh, so this
+# box compiles nothing (#670): a first build needs about 7.9 GB and competes
+# with the running stack for memory. Left unset, the image builds here.
+if [ -n "${VOCION_APP_IMAGE:-}" ]; then
+  log "pulling prebuilt image ${VOCION_APP_IMAGE}"
+  if [ ! -f "${REPO_DIR}/infra/aws/pull-app-image.sh" ]; then
+    log "ERROR: ${GIT_REF} has no infra/aws/pull-app-image.sh."
+    log "  Run it without VOCION_APP_IMAGE to build the image on the box."
+    exit 1
+  fi
+  EXPECTED_APP_URL="$(grep -E '^NEXT_PUBLIC_APP_URL=' "${ENV_FILE}" | head -1 | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || true)" \
+    bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
+else
+  # The build step keeps Turbopack's build cache in a BuildKit cache mount
+  # (#670), and `docker build` runs BuildKit only through the buildx plugin.
+  # A git-ref from before #670 has neither the script nor the cache mount.
+  if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
+    bash "${REPO_DIR}/infra/aws/install-buildx.sh"
+  fi
+  log "building vocion-app image"
+  docker build -t vocion-app:latest -f "${REPO_DIR}/packages/core/Dockerfile" "${REPO_DIR}"
 fi
-log "building vocion-app image"
-docker build -t vocion-app:latest -f "${REPO_DIR}/packages/core/Dockerfile" "${REPO_DIR}"
 
 # ----- 7. Bring up the Vocion stack -----
 log "starting Vocion stack (app + worker + caddy + langfuse + postgres + otel)"

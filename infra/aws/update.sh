@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # infra/aws/update.sh — Vocion in-place deploy (Phase F).
 #
-# Run from the EC2 to pull a new git ref, rebuild the app image, and
+# Run from the EC2 to pull a new git ref, get the app image, and
 # rolling-restart the app + worker containers. Zero-downtime (Caddy
 # keeps connections open while the new app container starts; old one
 # drains and exits).
 #
 #   ssh ec2-user@<host>
-#   sudo bash /opt/vocion/infra/aws/update.sh [git-ref]
+#   sudo VOCION_APP_IMAGE=<registry>/<repository>:<tag> bash /opt/vocion/infra/aws/update.sh [git-ref]
 #
 # Default: pull HEAD of the current branch. Pass a tag/branch/sha to
 # switch revs.
+#
+# VOCION_APP_IMAGE names an image CI built with push-app-image.sh; the
+# deploy pulls it and compiles nothing here (#670). Left unset, the deploy
+# builds the image on this box, as it always has. That build competes with
+# the running stack for memory, so it's the fallback, not the way to deploy.
 
 set -euo pipefail
 
@@ -31,7 +36,6 @@ fi
 log "pulling latest"
 git pull --ff-only
 
-log "rebuilding vocion-app image"
 # NEXT_PUBLIC_* values are inlined into the client JS bundle at build
 # time — they cannot be overridden at runtime. Source the real prod
 # values from .env.production and pass them as --build-arg so each
@@ -85,30 +89,47 @@ require_build_env() {
   exit 1
 }
 
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$(get_env NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
 NEXT_PUBLIC_APP_URL=$(get_env NEXT_PUBLIC_APP_URL)
-# Langfuse is optional — a deployment can run with tracing off — so only
-# the two the app cannot boot usefully without are required.
-NEXT_PUBLIC_LANGFUSE_BASE_URL=$(get_env NEXT_PUBLIC_LANGFUSE_BASE_URL)
-NEXT_PUBLIC_LANGFUSE_PROJECT_ID=$(get_env NEXT_PUBLIC_LANGFUSE_PROJECT_ID)
-require_build_env NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
-require_build_env NEXT_PUBLIC_APP_URL "${NEXT_PUBLIC_APP_URL}"
 
-# The image's build step keeps Turbopack's build cache in a BuildKit cache
-# mount (#670), so a deploy recompiles only what changed, and `docker build`
-# runs BuildKit only through the buildx plugin. Boxes bootstrapped before
-# #670 may not have it. A ref from before #670 has neither the script nor the
-# cache mount, so a rollback to one skips this and builds as it always did.
-if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
-  bash "${REPO_DIR}/infra/aws/install-buildx.sh"
+if [ -n "${VOCION_APP_IMAGE:-}" ]; then
+  log "pulling prebuilt image ${VOCION_APP_IMAGE}"
+  # A ref from before prebuilt images has no pull script. Stop rather than
+  # build: the caller asked for a particular image.
+  if [ ! -f "${REPO_DIR}/infra/aws/pull-app-image.sh" ]; then
+    log "ERROR: ${GIT_REF:-this checkout} has no infra/aws/pull-app-image.sh."
+    log "  Deploy it without VOCION_APP_IMAGE to build the image on the box."
+    exit 1
+  fi
+  # The image carries the app URL it was built for; one built for another
+  # environment would break sign-in here.
+  EXPECTED_APP_URL="${NEXT_PUBLIC_APP_URL}" \
+    bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
+else
+  log "rebuilding vocion-app image"
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$(get_env NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
+  # Langfuse is optional — a deployment can run with tracing off — so only
+  # the two the app cannot boot usefully without are required.
+  NEXT_PUBLIC_LANGFUSE_BASE_URL=$(get_env NEXT_PUBLIC_LANGFUSE_BASE_URL)
+  NEXT_PUBLIC_LANGFUSE_PROJECT_ID=$(get_env NEXT_PUBLIC_LANGFUSE_PROJECT_ID)
+  require_build_env NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
+  require_build_env NEXT_PUBLIC_APP_URL "${NEXT_PUBLIC_APP_URL}"
+
+  # The image's build step keeps Turbopack's build cache in a BuildKit cache
+  # mount (#670), so a deploy recompiles only what changed, and `docker build`
+  # runs BuildKit only through the buildx plugin. Boxes bootstrapped before
+  # #670 may not have it. A ref from before #670 has neither the script nor the
+  # cache mount, so a rollback to one skips this and builds as it always did.
+  if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
+    bash "${REPO_DIR}/infra/aws/install-buildx.sh"
+  fi
+
+  docker build \
+    --build-arg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \
+    --build-arg "NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}" \
+    --build-arg "NEXT_PUBLIC_LANGFUSE_BASE_URL=${NEXT_PUBLIC_LANGFUSE_BASE_URL}" \
+    --build-arg "NEXT_PUBLIC_LANGFUSE_PROJECT_ID=${NEXT_PUBLIC_LANGFUSE_PROJECT_ID}" \
+    -t vocion-app:latest -f packages/core/Dockerfile .
 fi
-
-docker build \
-  --build-arg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \
-  --build-arg "NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}" \
-  --build-arg "NEXT_PUBLIC_LANGFUSE_BASE_URL=${NEXT_PUBLIC_LANGFUSE_BASE_URL}" \
-  --build-arg "NEXT_PUBLIC_LANGFUSE_PROJECT_ID=${NEXT_PUBLIC_LANGFUSE_PROJECT_ID}" \
-  -t vocion-app:latest -f packages/core/Dockerfile .
 
 # Migrations run BEFORE the containers roll, and a failure here aborts
 # the deploy (set -e) with the old containers still serving.
