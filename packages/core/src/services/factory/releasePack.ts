@@ -69,9 +69,11 @@ export type ReleaseEvidence = { taskId: number; requestId: number | null; prUrl:
  * same release writes the same pack.
  * @param orgId - The workspace.
  * @param releaseId - The release record.
+ * @param opts - How the `release.linked` subscribers run.
+ * @param opts.dispatchMode - `background` from a request, so the deploy's POST is not held open by the draft.
  * @returns The pack written, or null when the release names no pull request.
  */
-export async function linkRelease(orgId: string, releaseId: number): Promise<{ requestIds: number[]; taskIds: number[]; evidence: ReleaseEvidence[]; reverted: string[] } | null> {
+export async function linkRelease(orgId: string, releaseId: number, opts: { dispatchMode?: 'inline' | 'background' } = {}): Promise<{ requestIds: number[]; taskIds: number[]; evidence: ReleaseEvidence[]; reverted: string[] } | null> {
   const [release] = await db
     .select({ meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
@@ -144,5 +146,55 @@ export async function linkRelease(orgId: string, releaseId: number): Promise<{ r
   }
   const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
   await recomputeRollupsForObject(orgId, releaseId).catch(() => undefined);
+  await announceWhatItCanSay(orgId, releaseId, { requestIds, taskIds }, opts.dispatchMode).catch((err) => {
+    console.warn('[release] could not raise release.linked', { releaseId, error: (err as Error).message });
+  });
   return { requestIds, taskIds, evidence, reverted };
+}
+
+/**
+ * VOCION WRITES THE ANNOUNCEMENT. Once the pack is linked the release can be
+ * said, so this reads it the one way every surface reads it
+ * (`libs/workspace/releaseFeed.ts` `readRelease`) and says what follows:
+ *
+ * - Nothing people use changed — no linked feature, only internal or reverted
+ *   changes — and there is nothing to announce: `announcementState:
+ *   not-needed` is written here, in code, and no agent is woken to draft it.
+ * - Otherwise `release.linked` is raised, and the software factory's product
+ *   manager drafts the announcement from the pack (`release-announcement-draft`)
+ *   as `notesSource: agent`, `announcementState: draft`. Publishing stays
+ *   `release.announce`, a gated action a person decides.
+ *
+ * Deduped per release: a deploy that re-posts the same release drafts nothing twice.
+ * @param orgId - The workspace.
+ * @param releaseId - The release just linked.
+ * @param ids - What the pack linked.
+ * @param ids.requestIds - The requests it closes.
+ * @param ids.taskIds - The tasks it shipped.
+ * @param dispatchMode - How the subscribers run.
+ */
+async function announceWhatItCanSay(orgId: string, releaseId: number, ids: { requestIds: number[]; taskIds: number[] }, dispatchMode?: 'inline' | 'background'): Promise<void> {
+  const { loadReleaseLinked, loadReleaseRow } = await import('./releaseData');
+  const { readRelease } = await import('@/libs/workspace/releaseFeed');
+  const row = await loadReleaseRow(orgId, releaseId);
+  if (!row) {
+    return;
+  }
+  const reading = readRelease(row, { linked: await loadReleaseLinked(orgId, [row]) });
+  const state = reading.announcement.state;
+  if (state === 'not-needed' && row.meta.announcementState !== 'not-needed') {
+    await mergeMeta(orgId, releaseId, { announcementState: 'not-needed' });
+  }
+  const { emitEvent, RELEASE_LINKED } = await import('@/services/EventService');
+  const payload: import('@/services/EventService').ReleaseLinkedPayload = {
+    releaseId,
+    product: reading.productSlug,
+    userFacing: reading.userFacing,
+    features: reading.features.length,
+    internal: reading.internal.length,
+    announcementState: state,
+    requestIds: ids.requestIds,
+    taskIds: ids.taskIds,
+  };
+  await emitEvent({ orgId, type: RELEASE_LINKED, payload, dedupeKey: `release.linked:${releaseId}`, invokedBy: 'factory:release-pack', ...(dispatchMode ? { dispatchMode } : {}) });
 }

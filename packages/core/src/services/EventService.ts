@@ -167,6 +167,35 @@ export type AskDecidedPayload = {
   decidedAt: string;
 };
 
+/**
+ * A release record was linked to what it shipped — the requests, tasks and
+ * QA verdicts its pull requests carried (`services/factory/releasePack.ts`
+ * `linkRelease`, run when a deploy posts the release). The moment a release
+ * can be SAID: the software factory's product manager subscribes with
+ * `filter: { userFacing: true, announcementState: not-prepared }` to draft
+ * its announcement from the pack. Deduped per release, so a deploy that
+ * re-posts the same release (its health check, a retry) drafts nothing twice.
+ */
+export const RELEASE_LINKED = 'release.linked';
+
+/** Payload of `release.linked`. Scalars, which `when.filter` compares with `===`, plus the ids it linked. */
+export type ReleaseLinkedPayload = {
+  releaseId: number;
+  /** The product slug the release belongs to, or null. */
+  product: string | null;
+  /** Whether anything people use changed — a linked feature, or a product change no request accounts for. */
+  userFacing: boolean;
+  /** Features the pack linked (one per request). */
+  features: number;
+  /** Changes to the machinery around the product — the worker, the pipeline — which are never announced. */
+  internal: number;
+  /** Where the announcement stands after linking: `not-prepared`, `not-needed`, `draft`, `approved`, `published`. */
+  announcementState: string;
+  /** The requests it closes and the tasks it shipped. Not filterable; read them off the payload. */
+  requestIds: number[];
+  taskIds: number[];
+};
+
 export const LEAD_REPLIED = 'lead.replied';
 export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
 

@@ -96,8 +96,8 @@ recordPage:
         Draft the announcement for this release, following write-release-notes:
         one or two sentences on what people can now do, written only from the
         verified changes on the release page, never from internal or reverted
-        commits. Write it to the release's `announcement` and leave
-        `notesSource: agent`. Do not publish it. Then show me the draft beside
+        commits. Write it to the release's `announcement` with
+        `notesSource: agent` and `announcementState: draft`. Do not publish it. Then show me the draft beside
         the evidence for each claim.
     review:
       label: Review draft
@@ -105,7 +105,8 @@ recordPage:
       prompt: >-
         Show me this release's draft announcement beside the verified changes
         it claims. Flag any sentence the evidence does not support, suggest the
-        fix, and ask me to approve it; when I approve, set `notesSource: human`.
+        fix, and ask me to approve it; when I approve, set `notesSource: human`
+        and `announcementState: approved`.
     publish:
       label: Publish
       agent: product-manager

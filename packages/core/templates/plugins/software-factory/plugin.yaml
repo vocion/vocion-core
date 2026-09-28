@@ -78,6 +78,14 @@
 #   environments it reached; a product's overview lists them under "Where it
 #   runs", and draws nothing when none is recorded.
 #
+# 2.18.0 — Vocion writes the announcement. When a release is linked to what
+#   it shipped, core raises `release.linked`; `release-announcement-draft`
+#   has the PM draft it from the pack (`notesSource: agent`,
+#   `announcementState: draft`), and a release where nothing people use
+#   changed is marked `not-needed` in code. Publishing stays
+#   `release.announce`, a person's decision. The latest release on a product
+#   card opens the release page.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -88,7 +96,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.17.0
+version: 2.18.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and four seats — PM, Design, Eng, QA.
 depends: []
 surfaces: []

@@ -3,9 +3,20 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { artifactSchema, businessObjectSchema } = await import('@/models/Schema');
+const { artifactSchema, businessObjectSchema, eventLogSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
-const { eq } = await import('drizzle-orm');
+const { and, eq } = await import('drizzle-orm');
+const { matchesFilter } = await import('@/services/EventService');
+const { readFileSync } = await import('node:fs');
+const { parse } = await import('yaml');
+const { fromRepoRoot } = await import('@/libs/repo-root');
+
+/** The draft automation's filter, as the plugin ships it. */
+const draftFilter = (parse(readFileSync(fromRepoRoot('packages/core/templates/plugins/software-factory/automations/release-announcement-draft.yaml'), 'utf8')) as { when: { filter: Record<string, unknown> } }).when.filter;
+
+async function linkedEvents(orgId: string) {
+  return db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, orgId), eq(eventLogSchema.type, 'release.linked')));
+}
 const { linkRelease, shippedPrs } = await import('./releasePack');
 
 const ORG = 'org_release_pack';
@@ -54,5 +65,33 @@ describe('linkRelease', () => {
     expect(reverted).toBeDefined();
     // Idempotent: the same release links the same pack.
     expect(await linkRelease(ORG, release!.id)).toEqual(pack);
+
+    // The release can be said now: one release.linked, deduped across the
+    // re-link, and the PM's draft automation is the one it wakes.
+    const events = await linkedEvents(ORG);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toEqual({ releaseId: release!.id, product: null, userFacing: true, features: 1, internal: 0, announcementState: 'not-prepared', requestIds: [request!.id], taskIds: [task!.id] });
+    expect(matchesFilter(events[0]!.payload, draftFilter)).toBe(true);
+  });
+
+  it('marks a release with no linked feature and only internal changes "not needed", and wakes nobody to draft it', async () => {
+    const org = 'org_release_pack_internal';
+    const [relType] = await createObjectType({ slug: 'release', label: 'Release' }, org);
+    await createObjectType({ slug: 'engineering_task', label: 'Task' }, org);
+    await createObjectType({ slug: 'request', label: 'Request' }, org);
+    const [release] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: relType!.id, title: 'app 1a2b3c4', status: 'active', metadata: { product: 'send', releasedAt: '2026-09-28T09:00:00Z', prUrls: [`${PR}/80`], commits: ['1a2b3c4 fix(worker): retry the lease (#80)', '5d6e7f8 ci: cache the build'] } }).returning();
+
+    await linkRelease(org, release!.id);
+
+    const [rel] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, release!.id));
+
+    expect(rel!.metadata).toMatchObject({ announcementState: 'not-needed', shippedLine: 'No linked feature' });
+    expect((rel!.metadata as Record<string, unknown>).announcement).toBeUndefined();
+
+    const [event] = await linkedEvents(org);
+
+    expect(event!.payload).toMatchObject({ userFacing: false, features: 0, internal: 2, announcementState: 'not-needed' });
+    expect(matchesFilter(event!.payload, draftFilter)).toBe(false);
   });
 });

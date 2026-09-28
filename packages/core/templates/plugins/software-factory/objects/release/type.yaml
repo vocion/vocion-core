@@ -144,6 +144,20 @@ schema:
       type: string
       description: 'Who last wrote `notes`: `agent` — the draft, as the skill produced it; `human` — a person edited or approved it, and the agent does not overwrite it again. AI fills, human wins.'
       enum: [agent, human]
+    announcementState:
+      x-display: {label: Announcement state, format: badge, group: Telling people, tones: {not-needed: muted, draft: info, approved: ok, published: ok}}
+      type: string
+      description: >-
+        Where the announcement stands, as it was last written: `not-needed` —
+        written by core when the release is linked and nothing people use
+        changed (no linked feature, only internal or reverted changes), so no
+        draft is made; `draft` — the product manager drafted `announcement`
+        from the pack (`release-announcement-draft`, `notesSource: agent`);
+        `approved` — a person owns the words (`notesSource: human`);
+        `published` — `release.announce` ran. The Releases page reads the
+        state from the words themselves (`announcement`, `notesSource`,
+        `announcedAt`), so this can never make a placeholder read as a draft.
+      enum: [not-needed, draft, approved, published]
     announcement:
       x-display: {label: Announcement, role: prose, order: 2}
       type: string

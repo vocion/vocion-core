@@ -60,7 +60,7 @@ describe('the shipped catalogue', () => {
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'environment', 'product', 'release', 'repo', 'request']);
     // Three missions carry the loop; the eight reporting and hygiene missions are gone.
     expect(factory.missions).toEqual(['close-the-gap', 'prove-the-contract', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'standard-from-shipped', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'release-announcement-draft', 'standard-from-shipped', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
@@ -306,7 +306,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.17.0');
+    expect(ws.sha).toContain('+software-factory@2.18.0');
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {
@@ -423,7 +423,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.missions.find(m => m.slug === 'close-the-gap')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'tell-the-requester')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'prove-the-contract')?.agent).toBe('change-reviewer');
-    expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'standard-from-shipped', 'tell-the-requester-check']);
+    expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'release-announcement-draft', 'standard-from-shipped', 'tell-the-requester-check']);
     // The decision landing is what makes the card the commitment: approve freezes and queues, defer parks.
     expect(ws.automations.find(a => a.slug === 'factory-decision-landed')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
     expect(ws.automations.find(a => a.slug === 'factory-result-check')?.when.schedule).toBe('30 15 * * 1-5');
@@ -438,6 +438,17 @@ describe('loadWorkspace with the software factory', () => {
     expect(debrief.when.event).toEqual(['worker_run.completed', 'worker_run.failed', 'pr.merged']);
     expect(debrief.do.checkMission).toBe('close-the-gap');
     expect(debrief.do.prompt).toContain('Authorize nothing, announce nothing');
+
+    // Vocion writes the announcement: fired by the release being linked, only
+    // where something people use changed and nothing is written yet, and it
+    // must end in the write. Publishing stays release.announce, a person's.
+    const draft = ws.automations.find(a => a.slug === 'release-announcement-draft')!;
+
+    expect(draft).toMatchObject({ agent: 'product-manager', status: 'active' });
+    expect(draft.when).toEqual({ event: 'release.linked', filter: { userFacing: true, announcementState: 'not-prepared' } });
+    expect(draft.do).toMatchObject({ checkMission: 'tell-the-requester', requireTool: 'update_object' });
+    expect(draft.do.prompt).toContain('notesSource agent, announcementState draft');
+    expect(draft.do.prompt).toContain('do not propose release.announce');
 
     // The score and the decision still live on the request record.
     const request = ws.objectTypes.find(o => o.slug === 'request')?.schema as { properties: Record<string, unknown> };

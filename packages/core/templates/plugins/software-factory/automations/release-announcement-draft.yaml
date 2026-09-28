@@ -1,0 +1,54 @@
+# The moment a release is linked to what it shipped, the Product manager
+# drafts its announcement — so a release lands on Releases reading "Draft
+# ready" with words a person can approve, not "Not prepared" waiting for
+# somebody to remember. Vocion writes the draft; a person owns the words and
+# presses publish (`release.announce`, gated), never the agent.
+#
+# Core decides who is woken. `linkRelease` (`services/factory/releasePack.ts`)
+# reads the release the way the Releases page does and raises
+# `release.linked`; a release where nothing people use changed — no linked
+# feature, only internal or reverted changes — is marked
+# `announcementState: not-needed` in code and this filter never matches it.
+# A release that already carries words (a person wrote them, or a re-post)
+# reads as draft or approved, not `not-prepared`, and is left alone.
+slug: release-announcement-draft
+name: Draft the release announcement
+description: >-
+  Fires when a release is linked to the requests, tasks and QA verdicts it
+  shipped and something people use changed. The Product manager drafts the
+  announcement from the pack — the features by title, what each lets a person
+  do now, QA's verdict count — in the product's voice, leaving out internal
+  and worker changes, and writes it as `notesSource: agent`,
+  `announcementState: draft`. Publishes nothing: `release.announce` stays the
+  gated action a person presses.
+status: active
+agent: product-manager
+when:
+  event: release.linked
+  filter:
+    userFacing: true
+    announcementState: not-prepared
+do:
+  checkMission: tell-the-requester
+  requireTool: update_object
+  prompt: >-
+    A release was just linked to what it shipped; the event carries its
+    releaseId, product, requestIds and taskIds. Draft its announcement and
+    write it on the release, and do nothing else. Read the release
+    (lookup_objects, id releaseId): its evidence, shippedLine, commits,
+    healthAfter. Read each request in requestIds for its title and outcome.
+    If the product has a voice page on the wiki (read_wiki_page
+    <product>-voice) write in that voice; otherwise the house-voice playbook.
+    Follow write-release-notes. The announcement is one or two sentences a
+    person could post whole: name each shipped feature by the request's
+    title, say what a person can do now that they could not before, and
+    close with QA's count in plain words ("QA proved 8 of 8 criteria"; "one
+    feature shipped without a QA verdict" when one did). Leave out every
+    internal change — worker, factory, deploy, CI, tests, refactors — and
+    anything reverted in the same deploy; no task ids, shas, file paths or
+    model names. Write it with update_object on the release: announcement
+    (the text), notesSource agent, announcementState draft. Never write over
+    notesSource human. Do not publish, do not propose release.announce, do
+    not tell any asker — a person approves the words and presses publish.
+    Report in one line: the release, the draft, and the evidence each claim
+    rests on.
