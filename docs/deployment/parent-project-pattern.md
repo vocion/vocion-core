@@ -193,8 +193,10 @@ the build stops:
 the --mount option requires BuildKit.
 ```
 
-Amazon Linux's `docker` package may not include the plugin. Run core's
-installer right before your own `docker build`:
+Amazon Linux 2023's own `docker` package ships the plugin (Docker 25.0.14
+with buildx 0.12.1, checked 2026-09-28), so a box set up with `dnf install
+docker` already has it. Other images and older boxes may not. Run core's
+installer right before your own `docker build` either way:
 
 ```bash
 sudo bash <checkout>/vocion-core/infra/aws/install-buildx.sh

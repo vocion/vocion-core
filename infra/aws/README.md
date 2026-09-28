@@ -90,9 +90,12 @@ rolling-restarts only `app` + `worker` (Postgres + Caddy stay untouched).
 
 The image build keeps Turbopack's build cache on the box between deploys
 (#670), so a deploy recompiles only what changed. That needs Docker's buildx
-plugin, so both scripts run `install-buildx.sh` before they build. On a box
-without it, the first deploy logs `installing docker-buildx plugin`, downloads
-a pinned release from GitHub and checks its checksum. A failed download stops
+plugin, so both scripts run `install-buildx.sh` before they build. Amazon
+Linux 2023's `docker` package, which `bootstrap.sh` installs, already ships it
+(buildx 0.12.1 with Docker 25.0.14, checked 2026-09-28), so on most boxes the
+script does nothing. On a box without it, the first deploy logs `installing
+docker-buildx plugin`, downloads a pinned release from GitHub and checks its
+checksum. A failed download stops
 the deploy before the build, with the old containers still serving.
 
 Migrations run **before** the containers roll, and a migration failure
