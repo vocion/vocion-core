@@ -83,6 +83,15 @@ describe('mergeZoomIntoVerdict', () => {
     expect(merged.explanation).toContain('1 more could not be counted and were not zoomed (limit 8 per photo); a person should count them.');
   });
 
+  it('holds the kit when a box left out by the cap was only a minor unreadable and the model said pass', () => {
+    const matched = Array.from({ length: MAX_ZOOM_CROPS }, (_, n) => finding({ region: `box ${n}`, issue: 'ok', severity: 'info' }));
+    const leftOut = finding({ region: 'box 9', issue: 'unreadable', severity: 'minor' });
+
+    const merged = mergeZoomIntoVerdict(verdictWith([...matched, leftOut]), { findings: [...matched, leftOut], zoomed: MAX_ZOOM_CROPS, corrected: MAX_ZOOM_CROPS, skipped: 1 });
+
+    expect(merged.verdict).toBe('hold');
+  });
+
   it('holds the kit when a box left out by the cap is still an unresolved count', () => {
     const leftOut = finding({ region: 'box 9', issue: 'count', severity: 'minor' });
 
