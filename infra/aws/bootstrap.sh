@@ -14,6 +14,8 @@
 #
 # Prerequisites BEFORE running:
 #   1. EC2 instance type ≥ t3.large (8 GB RAM); 32 GB recommended for embedding throughput.
+#      The first image build needs about 7.9 GB, more than a t3.large has
+#      (infra/aws/README.md, Sizing).
 #   2. EBS volume mounted at /opt/vocion-data (100 GB gp3 recommended).
 #   3. .env.production placed at /opt/vocion/infra/aws/.env.production
 #      (operator copies secrets manually; never committed).

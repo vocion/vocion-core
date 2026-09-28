@@ -28,15 +28,17 @@ pgvector HNSW + Postgres FTS in the app DB itself, served by
 
 | Instance | vCPU / RAM | $/hour (us-east-1) | Notes |
 |---|---|---|---|
-| `t3.large` | 2 / 8 GB | ~$0.08 | Demo / pilot. Embedding throughput limited. |
+| `t3.large` | 2 / 8 GB | ~$0.08 | Demo / pilot. Embedding throughput limited. Can't build the app image itself (below). |
 | `r6i.large` | 2 / 16 GB | ~$0.13 | Comfortable for small org corpora. |
 | `r6i.xlarge` | 4 / 32 GB | ~$0.25 | Multiple agents, larger contexts. |
 
-The image builds on the box, beside the running stack. Measured on a laptop
-(#670), the compile peaks at about 6.6 GB on a box's first build, because the
-build cache starts empty, and about 3.3 GB on every build after it. Whether
-the first build fits beside the stack on a `t3.large` hasn't been measured on
-one.
+The image builds on the box, beside the running stack. A box's first build
+starts with an empty build cache and needs about 7.9 GB; every build after it
+reuses the cache and needs about 4.4 GB (measured on a 16 GB GitHub runner,
+#670). So a `t3.large` can't run its own first build, even with the stack
+stopped: a build limited to 2 CPUs and 6.8 GB ran out of memory. On a
+`t3.large`, get the image onto the box some other way, or start on a bigger
+instance.
 
 Plus one **100 GB gp3 EBS** volume attached at `/opt/vocion-data` for
 Postgres + Langfuse persistence. `bootstrap.sh` moves Docker's
