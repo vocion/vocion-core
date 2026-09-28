@@ -200,6 +200,9 @@ describe('a run refused at its contract (red team, run 401, 2026-09-28)', () => 
     expect(stopReason(reason)).toBe(reason);
     expect(stopReason(reason, 200)).toBe('task contract refused: plan: this task needs an approved plan (risk_class schema). A required plan cannot be skipped.');
     expect(stopReason('short reason')).toBe('short reason');
+    // The worker ends a sentence and then appends its own stop (run 401): one stop, and an ellipsis stays.
+    expect(stopReason('A required plan cannot be skipped.. The contract must match the schema.')).toBe('A required plan cannot be skipped. The contract must match the schema.');
+    expect(stopReason('It waited... then stopped.')).toBe('It waited... then stopped.');
     expect(stopReason(`${'word '.repeat(120)}end`)).toMatch(/word…$/);
   });
 

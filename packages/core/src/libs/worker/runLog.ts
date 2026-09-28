@@ -498,7 +498,9 @@ export function refusedBeforeStart(data: RunLogData): boolean {
  * @param max - The most characters to show.
  */
 export function stopReason(text: string, max = 400): string {
-  const first = text.trim().split('\n')[0]!.trim();
+  // A sentence the worker ends and then appends a full stop to reads
+  // "cannot be skipped.." (run 401). A doubled stop is one; an ellipsis stays.
+  const first = text.trim().split('\n')[0]!.trim().replace(/(?<!\.)([.!?])\.(?=\s|$)/g, '$1');
   if (first.length <= max) {
     return first;
   }
