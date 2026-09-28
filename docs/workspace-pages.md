@@ -384,3 +384,40 @@ the fastest way to see how far a workspace can go without touching core:
 
 Read them in that order. The first two prove the data path, the third proves
 the read-only rule, the fourth proves a page can be nothing but prose.
+
+## Guided tours
+
+A workspace can ship walkthroughs of its own dashboard: `pages/tour.yaml` for
+one, and `pages/tours/<slug>.yaml` for as many as it needs. The floating
+launcher lists them; `?tour=<slug>` on any dashboard URL starts one (`?tour=1`
+starts the first), and `&autoplay=1` plays it unattended.
+
+```yaml
+slug: rfi
+title: RFI Writer · Draft the RFI with every claim cited
+description: One line for the launcher menu
+next: change-order          # autoplay chains into this tour at the end
+steps:
+  - route: /dashboard/p/rfis
+    title: Hand it to the role
+    body: Tap the button. The role opens beside the log.
+    selector: '[data-tour=handoff]'
+    advance: click          # the tap on the spotlit element moves the tour
+  - route: /dashboard/p/rfis
+    title: It checks the ASI log first
+    body: Watch for A-601.
+    selector: '[data-testid=agent-rail]'
+    placement: left
+    advance: appear         # moves on once waitFor (with waitForText) is on the page
+    waitFor: '[data-testid=agent-rail]'
+    waitForText: superseded it on Aug 21
+```
+
+A step ends one of three ways: `next` (the button, the default), `click` (the
+audience taps the spotlit element; everything else stays blocked, so the tap
+that moves the tour is the tap that does the work) or `appear` (the tour moves
+on when `waitFor` arrives — for watching an agent work). `selectorText` picks
+one element among many matching a selector (the button labelled *Approve*),
+`interactive: true` lets the page take taps, `routePrefix: true` accepts any
+route beneath `route`, and `dwellMs` sets how long autoplay holds a step.
+Autoplay taps a `click` step's element itself, the way a finger would.

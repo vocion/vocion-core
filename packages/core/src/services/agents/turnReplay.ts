@@ -58,11 +58,20 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => {
  * @param opts.message
  * @param emit - event sink; recorded events are re-emitted through it
  */
+/**
+ * The scripted model plays its own written part (`libs/llm/scripted.ts`), so a
+ * turn on it is never replayed from a recording: the script IS the recording,
+ * and replay mode then only keeps embeddings offline.
+ */
+function scriptedProvider(): boolean {
+  return (process.env.VOCION_LLM_PROVIDER_MAIN ?? process.env.VOCION_LLM_PROVIDER) === 'scripted';
+}
+
 export async function maybeReplayTurn(
   opts: { agentSlug: string; message: string },
   emit: (event: AgentEvent) => void,
 ): Promise<TurnResult | null> {
-  if (llmMode() !== 'replay') {
+  if (llmMode() !== 'replay' || scriptedProvider()) {
     return null;
   }
   const key = turnKey(opts.agentSlug, opts.message);

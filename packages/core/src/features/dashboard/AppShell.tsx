@@ -23,7 +23,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { readWorkspacePages } from '@/libs/workspace/pages';
 import { listPlugins } from '@/libs/workspace/plugins';
-import { readWorkspaceTour } from '@/libs/workspace/tour';
+import { readWorkspaceTours } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
@@ -220,9 +220,9 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
           </PageContextProvider>
         </ShellBarActionsProvider>
         {(() => {
-          const tour = readWorkspaceTour();
-          return tour
-            ? <WorkspaceTour steps={tour.steps} title={tour.title} autoStart={tour.autoStart} />
+          const tours = readWorkspaceTours();
+          return tours.length > 0
+            ? <WorkspaceTour tours={tours} />
             : null;
         })()}
         <WorkspaceDriftBanner />

@@ -44,7 +44,8 @@ export function useListUrlState(config: ListStateConfig): [ListState, (patch: Pa
     const current = parseListState(window.location.search, config);
     const next = applyListState(window.location.search, { ...current, ...patch }, config);
     if (next !== window.location.search) {
-      window.history.replaceState(window.history.state, '', `${window.location.pathname}${next}${window.location.hash}`);
+      // Null state, so Next's router adopts the URL (see features/preview/previewState.ts).
+      window.history.replaceState(null, '', `${window.location.pathname}${next}${window.location.hash}`);
       listeners.forEach(l => l());
     }
   }, [config]);

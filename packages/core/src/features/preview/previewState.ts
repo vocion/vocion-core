@@ -63,7 +63,12 @@ function writeParam(value: string | null): void {
   const search = params.toString();
   const next = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
   // push, not replace: Back must close the preview rather than leave the page.
-  window.history.pushState(window.history.state, '', next);
+  // State is null on purpose: Next's router syncs a native pushState into its
+  // own URL only when the state is not one of its internal entries, and the
+  // current entry's state IS one. Passed along, the router never learns about
+  // `?preview=`, and the next `router.refresh()` (a live page refreshes every
+  // few seconds) puts its stale URL back — closing the preview.
+  window.history.pushState(null, '', next);
   emit();
 }
 

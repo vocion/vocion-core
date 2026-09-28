@@ -89,6 +89,8 @@ export type InboxItem = {
   reviewId?: number;
   /** The action id (`hubspot.update`) — the action-kind filter chips. */
   actionId?: string;
+  /** Which rule held a proposed run for a person — the admission bar reads it. */
+  heldBy?: string | null;
   /** Set when this row is a decision sheet — several open items under one key. */
   groupKey?: string;
   /** Open questions in the sheet — rendered as a quiet tag beside the title, never inside it. */
@@ -185,6 +187,7 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
       : tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
     reviewId: r.id,
     actionId: r.actionId,
+    heldBy: typeof r.proposal?.heldBy === 'string' ? r.proposal.heldBy : null,
     confidence: r.described.confidence,
     amount: r.described.amount,
     currency: r.described.currency,
@@ -234,6 +237,8 @@ function proposalItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
       groupKey: g.key,
       count: g.rows.length,
       actionId: g.rows[0]!.actionId,
+      // A sheet is held if any proposal on it is: one held change makes the record a decision.
+      heldBy: g.rows.map(r => r.proposal?.heldBy).find(h => h === 'held' || h === 'parked') as string | undefined ?? null,
       confidence: confidences.length > 0 ? Math.min(...confidences) : null,
       amount,
       currency: g.rows.find(r => r.described.amount !== null)?.described.currency ?? null,

@@ -51,6 +51,11 @@ export type AdmissionCandidate = {
   body?: string | null;
   /** The action id on a proposed action run, e.g. `notify.requester`. */
   actionId?: string | null;
+  /**
+   * Which rule held a proposed run for a person (`heldBy` on the run). `held`
+   * and `parked` mean the workspace itself pinned this kind at a person.
+   */
+  heldBy?: string | null;
   sourceRef?: string | null;
   /**
    * Grounds the filer declared. It is believed over inference, but it cannot
@@ -170,6 +175,14 @@ function stated(c: AdmissionCandidate): string {
  */
 export function admit(c: AdmissionCandidate): Admission {
   const deny = declared(c);
+
+  // The workspace's own trust ladder outranks the bookkeeping list: a kind a
+  // person pinned at approval — issuing an RFI is a record update, and it is
+  // also the decision that project exists to make — is a decision about who
+  // may act, however routine its action id looks elsewhere.
+  if (c.heldBy === 'held' || c.heldBy === 'parked') {
+    return { admitted: true, grounds: 'authority', because: 'The workspace holds this kind of change for a person to approve.' };
+  }
 
   const action = c.actionId ? BOOKKEEPING_ACTIONS.find(b => c.actionId!.startsWith(b.prefix)) : undefined;
   if (action) {

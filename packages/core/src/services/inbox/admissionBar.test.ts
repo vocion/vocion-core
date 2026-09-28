@@ -166,3 +166,15 @@ describe('admissionBar', () => {
     expect(clearsBar({ kind: 'proposal', title: 'Action · wiki.write_page', actionId: 'wiki.write_page' })).toBe(false);
   });
 });
+
+describe('a kind the workspace holds at a person', () => {
+  it('is admitted even when its action id is bookkeeping', () => {
+    const v = admit({ kind: 'proposal', title: 'Update RFI-0217', actionId: 'objects.update_meta', heldBy: 'held' });
+    expect(v.admitted).toBe(true);
+  });
+
+  it('stays bookkeeping when the default bar held it', () => {
+    const v = admit({ kind: 'proposal', title: 'Update RFI-0217', actionId: 'objects.update_meta', heldBy: 'default' });
+    expect(v.admitted).toBe(false);
+  });
+});
