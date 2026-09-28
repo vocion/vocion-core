@@ -51,6 +51,21 @@ if ! docker compose version >/dev/null 2>&1; then
   chmod +x "${DOCKER_CONFIG}/cli-plugins/docker-compose"
 fi
 
+# The app image's build step keeps Turbopack's build cache in a BuildKit
+# cache mount (#670), and `docker build` runs BuildKit only through the buildx
+# plugin. Keep the version in step with update.sh, which installs it on boxes
+# bootstrapped before this.
+BUILDX_VERSION="v0.37.1"
+if ! docker buildx version >/dev/null 2>&1; then
+  log "installing docker-buildx plugin ${BUILDX_VERSION}"
+  DOCKER_CONFIG="${DOCKER_CONFIG:-/usr/local/lib/docker}"
+  mkdir -p "${DOCKER_CONFIG}/cli-plugins"
+  curl -fsSL --max-time 120 --retry 3 \
+    "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" \
+    -o "${DOCKER_CONFIG}/cli-plugins/docker-buildx"
+  chmod +x "${DOCKER_CONFIG}/cli-plugins/docker-buildx"
+fi
+
 require docker
 require git
 

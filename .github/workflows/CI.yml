@@ -34,14 +34,15 @@ jobs:
 
       # No restore of packages/core/.next/cache before this build. That
       # directory was webpack's compile cache. The build runs on Turbopack
-      # now (#670), and Turbopack writes nothing reusable there unless
-      # `experimental.turbopackFileSystemCacheForBuild` is turned on, which
-      # Next 16 still calls experimental. On this runner a cold Turbopack
-      # compile is slower than a warm webpack one was (99s against 75s), but
-      # the step is still faster (114–117s against webpack's 174s median):
-      # Turbopack has no separate build-trace pass, which cost webpack 63s,
-      # and there is no 7–10s cache restore (#670). A Turbopack build cache
-      # would have to beat that; measure it on CI, not locally.
+      # now (#670), and next.config.ts turns Turbopack's own build cache off
+      # when CI is set: a fresh runner never reuses it, and writing it costs a
+      # cold build ~1.6 GB and a few seconds, and would put it into the build
+      # output this job saves for the E2E shards. On this runner a cold
+      # Turbopack compile is slower than a warm webpack one was (99s against
+      # 75s), but the step is still faster (114–117s against webpack's 174s
+      # median): Turbopack has no separate build-trace pass, which cost webpack
+      # 63s, and there is no 7–10s cache restore (#670). A restored Turbopack
+      # cache would have to beat that; measure it on CI, not locally.
       - name: Build Next.js
         # build-local lives in the @vocion/core workspace, not the repo root.
         # In CI it skips Next's own type-check (next.config.ts): `static`

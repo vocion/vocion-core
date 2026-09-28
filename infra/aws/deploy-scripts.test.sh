@@ -28,6 +28,7 @@ REAL_DOCKER="$(command -v docker)"
 WORK_DIR="$(mktemp -d)"
 SHIM_DIR="${WORK_DIR}/shim"
 FAKE_DOCKER_DIR="${WORK_DIR}/fake-docker-shim"
+FAKE_CURL_DIR="${WORK_DIR}/fake-curl-shim"
 MIGRATIONS_FIXTURE="${WORK_DIR}/migrations"
 FIXTURE_REPO="${WORK_DIR}/repo"
 CALL_LOG="${WORK_DIR}/calls.log"
@@ -168,8 +169,33 @@ echo "docker \$*" >> "${CALL_LOG}"
 if [ "\$1" = "exec" ]; then
   exec "${REAL_DOCKER}" "\$@"
 fi
+# FAKE_DOCKER_BUILDX_MISSING plays a box whose Docker has no buildx plugin.
+if [ "\$1" = "buildx" ] && [ -n "\${FAKE_DOCKER_BUILDX_MISSING:-}" ]; then
+  exit 1
+fi
 exit 0
 FAKE
+  # A `curl` that records its arguments and writes a placeholder to its -o
+  # path, so the buildx install runs without touching the network. It lives in
+  # its own directory, put on PATH only by the tests that expect a download.
+  mkdir -p "${FAKE_CURL_DIR}"
+  cat > "${FAKE_CURL_DIR}/curl" <<FAKE
+#!/usr/bin/env bash
+echo "curl \$*" >> "${CALL_LOG}"
+output_path=""
+while [ "\$#" -gt 0 ]; do
+  if [ "\$1" = "-o" ]; then
+    output_path="\$2"
+    shift
+  fi
+  shift
+done
+if [ -n "\${output_path}" ]; then
+  printf '#!/bin/sh\nexit 0\n' > "\${output_path}"
+fi
+exit 0
+FAKE
+  chmod +x "${FAKE_CURL_DIR}/curl"
   cat > "${FAKE_DOCKER_DIR}/git" <<FAKE
 #!/usr/bin/env bash
 echo "git \$*" >> "${CALL_LOG}"
@@ -281,6 +307,8 @@ run_applier_using_repo_dir() {
 UPDATE_OUTPUT=""
 UPDATE_EXIT=0
 
+# Extra NAME=value arguments are passed to update.sh's environment and win
+# over the defaults here, including PATH.
 run_update_script() {
   : > "${CALL_LOG}"
   UPDATE_OUTPUT=$(
@@ -291,6 +319,7 @@ run_update_script() {
       POSTGRES_USER="${DB_USER}" \
       MIGRATIONS_DIR="${MIGRATIONS_FIXTURE}" \
       DEPLOY_CALL_LOG="${CALL_LOG}" \
+      "$@" \
       bash "${FIXTURE_REPO}/infra/aws/update.sh" 2>&1
   )
   UPDATE_EXIT=$?
@@ -1093,6 +1122,35 @@ test_update_migrates_before_rolling_containers() {
     "rebuilding vocion-app image" "applying any new migrations"
   check_contains "reaches the end" "${UPDATE_OUTPUT}" "done."
   check_contains "rolls app and worker" "$(cat "${CALL_LOG}")" "up -d --no-deps app worker"
+  check_absent "leaves an installed buildx plugin alone" "${UPDATE_OUTPUT}" \
+    "installing docker-buildx plugin"
+}
+
+# The image's build step uses a BuildKit cache mount (#670), which fails on
+# Docker's legacy builder. A box bootstrapped before #670 may have no buildx
+# plugin, so update.sh has to install it before it builds.
+test_update_installs_buildx_before_building() {
+  echo "update.sh: box without the buildx plugin"
+  reset_database
+  seed_two_pending_migrations
+  local plugin_root="${WORK_DIR}/docker-cli-config"
+  rm -rf "${plugin_root}"
+  run_update_script \
+    PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
+    FAKE_DOCKER_BUILDX_MISSING=1 \
+    DOCKER_CONFIG="${plugin_root}"
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_contains "says it is installing buildx" "${UPDATE_OUTPUT}" \
+    "installing docker-buildx plugin"
+  check_order "downloads the pinned buildx release before building the image" \
+    "$(cat "${CALL_LOG}")" \
+    "releases/download/v0.37.1/buildx-v0.37.1.linux-amd64" "docker build --build-arg"
+  if [ -x "${plugin_root}/cli-plugins/docker-buildx" ]; then
+    pass "installs the plugin where the Docker CLI looks for it"
+  else
+    fail "installs the plugin where the Docker CLI looks for it" \
+      "no executable at ${plugin_root}/cli-plugins/docker-buildx"
+  fi
 }
 
 test_update_reads_env_from_infra_aws() {
@@ -1355,6 +1413,7 @@ main() {
   test_default_container_and_database_match_compose
 
   test_update_migrates_before_rolling_containers
+  test_update_installs_buildx_before_building
   test_update_reads_env_from_infra_aws
   test_update_aborts_on_migration_failure
   test_update_with_no_pending_migrations_still_rolls

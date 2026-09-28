@@ -70,6 +70,21 @@ const baseConfig: NextConfig = {
   // standalone` traces into the runtime image.
   serverExternalPackages: ['@temporalio/client', '@temporalio/common', '@temporalio/proto', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
+  experimental: {
+    // `next build` starts one worker per CPU, less one, to collect page data
+    // and prerender: 17 on an 18-CPU laptop, each holding ~450 MB of server
+    // code, for an app where 7 of 215 routes are static. Two workers keep the
+    // step small without slowing it (prerendering took 313 ms on 2 against
+    // 392 ms on 17, #670). It matters most on a warm build cache, where the
+    // compile is small and this step would otherwise be the build's peak.
+    cpus: 2,
+    // Turbopack's build cache (on by default since Next 16.3) lets a repeat
+    // build recompile only what changed: the compile peaked at ~3.3 GB warm
+    // against 6.6 GB cold (#670). A CI runner starts empty and never reuses
+    // it, and writing it costs a cold build ~1.6 GB and ~3s, so CI skips it.
+    // The Docker image keeps it between builds with a cache mount.
+    turbopackFileSystemCacheForBuild: !process.env.CI,
+  },
   outputFileTracingIncludes: {
     // demo/**: the hosted demo sandbox's baked PGlite seed, recorded LLM
     // fixtures, and workspace — inert unless VOCION_LLM_MODE/pglite:// are set.

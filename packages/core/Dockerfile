@@ -5,7 +5,7 @@
 #   Stage 2 (builder) — run `npm run build` to produce .next/standalone.
 #   Stage 3 (runner)  — minimal runtime image, no dev deps, non-root user.
 #
-# Build from the repo root:
+# Build from the repo root (needs BuildKit, Docker's default builder since 23.0):
 #   docker build -t vocion-app -f packages/core/Dockerfile .
 #
 # Run locally:
@@ -96,11 +96,17 @@ WORKDIR /app/packages/core
 # same box while the image builds. That failure was a webpack build. Since
 # #670 the build runs on Turbopack, whose compiler is native code and lives
 # outside V8's heap, so the cap now bounds the JavaScript half of the build
-# (collecting page data, prerendering). Measured in #674 with the builder
-# capped at 2 CPUs: the build's peak memory, file cache included, was
-# 8,037 MB on Turbopack against 7,626 MB on webpack, so the box needs about as
-# much memory as before. `experimental.turbopackMemoryLimit` at 3 GB barely
-# moved it, so it isn't set. The cap stays.
+# (collecting page data, prerendering, the type check). The cap stays.
+#
+# The cache mount on the build step keeps Turbopack's build cache
+# (`.next/cache`) on the box between image builds, so a deploy recompiles only
+# what changed. Measured on Next 16.3.6 (#670): the compile's peak memory is
+# about 3.3 GB on a warm cache, even after editing a file 204 others import,
+# against 6.6 GB for a build that starts with an empty cache. The first build
+# on a new box is that cold one and still needs the full amount. The cache
+# stays out of the image: a mount is never part of a layer. It needs BuildKit,
+# which ships with Docker's buildx plugin; bootstrap.sh and update.sh install
+# the plugin when Docker is missing it.
 # The build says what it is (#417): `public/version.txt` + the account-menu
 # stamp. `npm run build` runs this, but the image calls `next build` directly,
 # so the step is explicit here — the first deploy of #417 shipped an image with
@@ -118,7 +124,8 @@ RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SH
     VOCION_AGENT_RUNTIME_IMAGE="${VOCION_AGENT_RUNTIME_IMAGE}" \
     node scripts/write-version.mjs
 
-RUN NODE_OPTIONS=--max-old-space-size=6144 \
+RUN --mount=type=cache,id=vocion-core-next-build-cache,target=/app/packages/core/.next/cache \
+    NODE_OPTIONS=--max-old-space-size=6144 \
     SKIP_ENV_VALIDATION=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
     DATABASE_URL="postgres://stub@stub/stub" \
