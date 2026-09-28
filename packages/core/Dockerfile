@@ -5,8 +5,14 @@
 #   Stage 2 (builder) — run `npm run build` to produce .next/standalone.
 #   Stage 3 (runner)  — minimal runtime image, no dev deps, non-root user.
 #
-# Build from the repo root (needs BuildKit, Docker's default builder since 23.0):
+# Build from the repo root:
 #   docker build -t vocion-app -f packages/core/Dockerfile .
+#
+# Needs BuildKit, which `docker build` uses only when Docker's buildx plugin is
+# installed. Without it Docker falls back to its legacy builder and stops with
+# "the --mount option requires BuildKit". `infra/aws/install-buildx.sh`
+# installs a pinned, checksum-checked plugin; a parent project's deploy
+# scripts should call it before building this file.
 #
 # Run locally:
 #   docker run --rm -p 3000:3000 --env-file packages/core/.env.local vocion-app
@@ -104,9 +110,13 @@ WORKDIR /app/packages/core
 # about 3.3 GB on a warm cache, even after editing a file 204 others import,
 # against 6.6 GB for a build that starts with an empty cache. The first build
 # on a new box is that cold one and still needs the full amount. The cache
-# stays out of the image: a mount is never part of a layer. It needs BuildKit,
-# which ships with Docker's buildx plugin; bootstrap.sh and update.sh install
-# the plugin when Docker is missing it.
+# stays out of the image: a mount is never part of a layer. It is one
+# directory per box that every build reuses (about 1.3 GB after a local
+# build), and `docker builder prune` clears it. `sharing=locked`
+# makes a second build started on the same box wait for the first, so two
+# builds never write the cache at once. There's no `# syntax=` line: the
+# cache mount is in the Dockerfile frontend built into BuildKit, and a pinned
+# frontend would add a Docker Hub image to every build.
 # The build says what it is (#417): `public/version.txt` + the account-menu
 # stamp. `npm run build` runs this, but the image calls `next build` directly,
 # so the step is explicit here — the first deploy of #417 shipped an image with
@@ -124,7 +134,7 @@ RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SH
     VOCION_AGENT_RUNTIME_IMAGE="${VOCION_AGENT_RUNTIME_IMAGE}" \
     node scripts/write-version.mjs
 
-RUN --mount=type=cache,id=vocion-core-next-build-cache,target=/app/packages/core/.next/cache \
+RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/app/packages/core/.next/cache \
     NODE_OPTIONS=--max-old-space-size=6144 \
     SKIP_ENV_VALIDATION=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \

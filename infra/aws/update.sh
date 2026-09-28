@@ -97,16 +97,10 @@ require_build_env NEXT_PUBLIC_APP_URL "${NEXT_PUBLIC_APP_URL}"
 # The image's build step keeps Turbopack's build cache in a BuildKit cache
 # mount (#670), so a deploy recompiles only what changed, and `docker build`
 # runs BuildKit only through the buildx plugin. Boxes bootstrapped before
-# #670 may not have it. Keep the version in step with bootstrap.sh.
-BUILDX_VERSION="v0.37.1"
-if ! docker buildx version >/dev/null 2>&1; then
-  log "installing docker-buildx plugin ${BUILDX_VERSION}"
-  DOCKER_CONFIG="${DOCKER_CONFIG:-/usr/local/lib/docker}"
-  mkdir -p "${DOCKER_CONFIG}/cli-plugins"
-  curl -fsSL --max-time 120 --retry 3 \
-    "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" \
-    -o "${DOCKER_CONFIG}/cli-plugins/docker-buildx"
-  chmod +x "${DOCKER_CONFIG}/cli-plugins/docker-buildx"
+# #670 may not have it. A ref from before #670 has neither the script nor the
+# cache mount, so a rollback to one skips this and builds as it always did.
+if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
+  bash "${REPO_DIR}/infra/aws/install-buildx.sh"
 fi
 
 docker build \

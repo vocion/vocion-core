@@ -32,6 +32,12 @@ pgvector HNSW + Postgres FTS in the app DB itself, served by
 | `r6i.large` | 2 / 16 GB | ~$0.13 | Comfortable for small org corpora. |
 | `r6i.xlarge` | 4 / 32 GB | ~$0.25 | Multiple agents, larger contexts. |
 
+The image builds on the box, beside the running stack. Measured on a laptop
+(#670), the compile peaks at about 6.6 GB on a box's first build, because the
+build cache starts empty, and about 3.3 GB on every build after it. Whether
+the first build fits beside the stack on a `t3.large` hasn't been measured on
+one.
+
 Plus one **100 GB gp3 EBS** volume attached at `/opt/vocion-data` for
 Postgres + Langfuse persistence. `bootstrap.sh` moves Docker's
 `data-root` onto this volume, which is what puts the named volumes —
@@ -81,6 +87,13 @@ sudo bash /opt/vocion/infra/aws/update.sh main      # back to main
 
 The script rebuilds the app image, applies any new migrations, then
 rolling-restarts only `app` + `worker` (Postgres + Caddy stay untouched).
+
+The image build keeps Turbopack's build cache on the box between deploys
+(#670), so a deploy recompiles only what changed. That needs Docker's buildx
+plugin, so both scripts run `install-buildx.sh` before they build. On a box
+without it, the first deploy logs `installing docker-buildx plugin`, downloads
+a pinned release from GitHub and checks its checksum. A failed download stops
+the deploy before the build, with the old containers still serving.
 
 Migrations run **before** the containers roll, and a migration failure
 aborts the deploy with the old containers still serving. That order does
@@ -162,7 +175,9 @@ migration step really executes against the test database — to assert that
 migrations precede the container roll and that a failed migration aborts
 the deploy instead of reporting success. Everything it creates is removed
 on exit. `bootstrap.sh`'s system-prereq and docker-data-root sections are
-skipped by the fakes; the rest of it runs.
+skipped by the fakes; the rest of it runs. `install-buildx.sh` runs against a
+fake `curl`, so the tests check its checksum and failure handling without
+downloading anything.
 
 ## Logs + ops
 

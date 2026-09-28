@@ -181,6 +181,31 @@ sudo ... bash .../apply-migrations.sh --baseline all
 Then every later deploy is a normal run. Run `--check` first to see what it
 would do.
 
+### Building the app image needs buildx. Call core's installer.
+
+Since #670, `packages/core/Dockerfile` keeps Turbopack's build cache between
+image builds with a BuildKit cache mount, so a repeat deploy's compile needs
+about half the memory. `docker build` runs BuildKit only when Docker's buildx
+plugin is installed. Without it, Docker falls back to its legacy builder and
+the build stops:
+
+```
+the --mount option requires BuildKit.
+```
+
+Amazon Linux's `docker` package may not include the plugin. Run core's
+installer right before your own `docker build`:
+
+```bash
+sudo bash <checkout>/vocion-core/infra/aws/install-buildx.sh
+```
+
+It does nothing when `docker buildx version` already works. Otherwise it
+downloads a pinned release for the box's architecture, checks its SHA-256,
+installs it, and exits non-zero if any of that fails, so the deploy stops
+before it builds. Core's own `bootstrap.sh` and `update.sh` call it the same
+way.
+
 ### Wire the app to the runtime
 
 Provisioning creates the runtime. It does not tell the app to use it — that is

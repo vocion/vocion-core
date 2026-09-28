@@ -51,21 +51,6 @@ if ! docker compose version >/dev/null 2>&1; then
   chmod +x "${DOCKER_CONFIG}/cli-plugins/docker-compose"
 fi
 
-# The app image's build step keeps Turbopack's build cache in a BuildKit
-# cache mount (#670), and `docker build` runs BuildKit only through the buildx
-# plugin. Keep the version in step with update.sh, which installs it on boxes
-# bootstrapped before this.
-BUILDX_VERSION="v0.37.1"
-if ! docker buildx version >/dev/null 2>&1; then
-  log "installing docker-buildx plugin ${BUILDX_VERSION}"
-  DOCKER_CONFIG="${DOCKER_CONFIG:-/usr/local/lib/docker}"
-  mkdir -p "${DOCKER_CONFIG}/cli-plugins"
-  curl -fsSL --max-time 120 --retry 3 \
-    "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" \
-    -o "${DOCKER_CONFIG}/cli-plugins/docker-buildx"
-  chmod +x "${DOCKER_CONFIG}/cli-plugins/docker-buildx"
-fi
-
 require docker
 require git
 
@@ -199,6 +184,12 @@ docker network inspect corecontext >/dev/null 2>&1 \
   || docker network create corecontext
 
 # ----- 6. Build the Vocion app image -----
+# The build step keeps Turbopack's build cache in a BuildKit cache mount
+# (#670), and `docker build` runs BuildKit only through the buildx plugin.
+# A git-ref from before #670 has neither the script nor the cache mount.
+if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
+  bash "${REPO_DIR}/infra/aws/install-buildx.sh"
+fi
 log "building vocion-app image"
 docker build -t vocion-app:latest -f "${REPO_DIR}/packages/core/Dockerfile" "${REPO_DIR}"
 

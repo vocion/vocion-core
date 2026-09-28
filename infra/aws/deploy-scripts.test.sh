@@ -29,9 +29,14 @@ WORK_DIR="$(mktemp -d)"
 SHIM_DIR="${WORK_DIR}/shim"
 FAKE_DOCKER_DIR="${WORK_DIR}/fake-docker-shim"
 FAKE_CURL_DIR="${WORK_DIR}/fake-curl-shim"
+FAKE_DOCKER_NO_BUILDX_DIR="${WORK_DIR}/fake-docker-without-buildx"
 MIGRATIONS_FIXTURE="${WORK_DIR}/migrations"
 FIXTURE_REPO="${WORK_DIR}/repo"
 CALL_LOG="${WORK_DIR}/calls.log"
+# What the fake `curl` serves as the buildx release.
+FAKE_BUILDX_BODY='#!/bin/sh
+exit 0
+'
 
 tests_passed=0
 tests_failed=0
@@ -169,19 +174,29 @@ echo "docker \$*" >> "${CALL_LOG}"
 if [ "\$1" = "exec" ]; then
   exec "${REAL_DOCKER}" "\$@"
 fi
-# FAKE_DOCKER_BUILDX_MISSING plays a box whose Docker has no buildx plugin.
-if [ "\$1" = "buildx" ] && [ -n "\${FAKE_DOCKER_BUILDX_MISSING:-}" ]; then
+# FAKE_DOCKER_BUILDX_MISSING plays a box whose Docker has no buildx plugin,
+# until install-buildx.sh puts an executable one where the CLI looks.
+if [ "\$1" = "buildx" ] && [ -n "\${FAKE_DOCKER_BUILDX_MISSING:-}" ] \\
+  && [ ! -x "\${DOCKER_CONFIG:-}/cli-plugins/docker-buildx" ]; then
   exit 1
 fi
 exit 0
 FAKE
-  # A `curl` that records its arguments and writes a placeholder to its -o
-  # path, so the buildx install runs without touching the network. It lives in
-  # its own directory, put on PATH only by the tests that expect a download.
+  # A `curl` that records its arguments and writes FAKE_BUILDX_BODY to its -o
+  # path, so the buildx install runs without touching the network.
+  # FAKE_CURL_TAMPERED writes something else, so the checksum can't match, and
+  # FAKE_CURL_FAIL fails the way `curl -f` does on a 404. A `uname` answers
+  # FAKE_UNAME_MACHINE (x86_64 by default), so the release picked doesn't
+  # depend on the machine running these tests. Both live in their own
+  # directory, put on PATH only by the tests that expect a download.
   mkdir -p "${FAKE_CURL_DIR}"
   cat > "${FAKE_CURL_DIR}/curl" <<FAKE
 #!/usr/bin/env bash
 echo "curl \$*" >> "${CALL_LOG}"
+if [ -n "\${FAKE_CURL_FAIL:-}" ]; then
+  echo "curl: (22) The requested URL returned error: 404" >&2
+  exit 22
+fi
 output_path=""
 while [ "\$#" -gt 0 ]; do
   if [ "\$1" = "-o" ]; then
@@ -191,11 +206,28 @@ while [ "\$#" -gt 0 ]; do
   shift
 done
 if [ -n "\${output_path}" ]; then
-  printf '#!/bin/sh\nexit 0\n' > "\${output_path}"
+  if [ -n "\${FAKE_CURL_TAMPERED:-}" ]; then
+    printf 'not the release\n' > "\${output_path}"
+  else
+    printf '%s' '${FAKE_BUILDX_BODY}' > "\${output_path}"
+  fi
 fi
 exit 0
 FAKE
-  chmod +x "${FAKE_CURL_DIR}/curl"
+  # A `docker` whose buildx never loads, even once the plugin file is there.
+  mkdir -p "${FAKE_DOCKER_NO_BUILDX_DIR}"
+  cat > "${FAKE_DOCKER_NO_BUILDX_DIR}/docker" <<FAKE
+#!/usr/bin/env bash
+echo "docker \$*" >> "${CALL_LOG}"
+[ "\$1" = "buildx" ] && exit 1
+exit 0
+FAKE
+  chmod +x "${FAKE_DOCKER_NO_BUILDX_DIR}/docker"
+  cat > "${FAKE_CURL_DIR}/uname" <<FAKE
+#!/bin/sh
+echo "\${FAKE_UNAME_MACHINE:-x86_64}"
+FAKE
+  chmod +x "${FAKE_CURL_DIR}/curl" "${FAKE_CURL_DIR}/uname"
   cat > "${FAKE_DOCKER_DIR}/git" <<FAKE
 #!/usr/bin/env bash
 echo "git \$*" >> "${CALL_LOG}"
@@ -234,6 +266,13 @@ build_fixture_repo() {
   cp "${SCRIPT_DIR}/apply-migrations.sh" "${FIXTURE_REPO}/infra/aws/"
   cp "${SCRIPT_DIR}/update.sh" "${FIXTURE_REPO}/infra/aws/"
   cp "${SCRIPT_DIR}/bootstrap.sh" "${FIXTURE_REPO}/infra/aws/"
+  # The fixture's copy pins the fake release's checksum in place of the real
+  # ones, so the install can pass its checksum check without the network.
+  # Everything else in the script is what ships.
+  local fake_sha256
+  fake_sha256="$(printf '%s' "${FAKE_BUILDX_BODY}" | sha256sum | cut -d ' ' -f 1)"
+  sed -E "s/^(BUILDX_SHA256_(AMD64|ARM64))=.*/\\1=\"${fake_sha256}\"/" \
+    "${SCRIPT_DIR}/install-buildx.sh" > "${FIXTURE_REPO}/infra/aws/install-buildx.sh"
   # A .git directory so bootstrap.sh takes the "already cloned" path.
   mkdir -p "${FIXTURE_REPO}/.git"
   write_fixture_env_file
@@ -328,6 +367,7 @@ run_update_script() {
 BOOTSTRAP_OUTPUT=""
 BOOTSTRAP_EXIT=0
 
+# Extra NAME=value arguments work as they do for run_update_script.
 run_bootstrap_script() {
   : > "${CALL_LOG}"
   BOOTSTRAP_OUTPUT=$(
@@ -339,9 +379,41 @@ run_bootstrap_script() {
       POSTGRES_USER="${DB_USER}" \
       MIGRATIONS_DIR="${MIGRATIONS_FIXTURE}" \
       DEPLOY_CALL_LOG="${CALL_LOG}" \
+      "$@" \
       bash "${FIXTURE_REPO}/infra/aws/bootstrap.sh" 2>&1
   )
   BOOTSTRAP_EXIT=$?
+}
+
+INSTALL_BUILDX_OUTPUT=""
+INSTALL_BUILDX_EXIT=0
+BUILDX_PLUGIN_ROOT="${WORK_DIR}/docker-cli-config"
+
+# Runs install-buildx.sh on a box with no buildx plugin, installing into a
+# fresh BUILDX_PLUGIN_ROOT. Extra NAME=value arguments go to its environment.
+run_install_buildx() {
+  : > "${CALL_LOG}"
+  rm -rf "${BUILDX_PLUGIN_ROOT}"
+  INSTALL_BUILDX_OUTPUT=$(
+    env PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
+      FAKE_DOCKER_BUILDX_MISSING=1 \
+      DOCKER_CONFIG="${BUILDX_PLUGIN_ROOT}" \
+      "$@" \
+      bash "${FIXTURE_REPO}/infra/aws/install-buildx.sh" 2>&1
+  )
+  INSTALL_BUILDX_EXIT=$?
+}
+
+# Passes when the plugin directory holds nothing: no plugin, and no
+# half-downloaded file left beside it.
+check_no_buildx_plugin_left() {
+  local leftovers
+  leftovers="$(ls -A "${BUILDX_PLUGIN_ROOT}/cli-plugins" 2>/dev/null)"
+  if [ -z "${leftovers}" ]; then
+    pass "$1"
+  else
+    fail "$1" "found in cli-plugins: ${leftovers}"
+  fi
 }
 
 # ----------------------------------------------------------------------
@@ -1133,24 +1205,117 @@ test_update_installs_buildx_before_building() {
   echo "update.sh: box without the buildx plugin"
   reset_database
   seed_two_pending_migrations
-  local plugin_root="${WORK_DIR}/docker-cli-config"
-  rm -rf "${plugin_root}"
+  rm -rf "${BUILDX_PLUGIN_ROOT}"
   run_update_script \
     PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
     FAKE_DOCKER_BUILDX_MISSING=1 \
-    DOCKER_CONFIG="${plugin_root}"
+    DOCKER_CONFIG="${BUILDX_PLUGIN_ROOT}"
   check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
   check_contains "says it is installing buildx" "${UPDATE_OUTPUT}" \
     "installing docker-buildx plugin"
   check_order "downloads the pinned buildx release before building the image" \
     "$(cat "${CALL_LOG}")" \
     "releases/download/v0.37.1/buildx-v0.37.1.linux-amd64" "docker build --build-arg"
-  if [ -x "${plugin_root}/cli-plugins/docker-buildx" ]; then
+  if [ -x "${BUILDX_PLUGIN_ROOT}/cli-plugins/docker-buildx" ]; then
     pass "installs the plugin where the Docker CLI looks for it"
   else
     fail "installs the plugin where the Docker CLI looks for it" \
-      "no executable at ${plugin_root}/cli-plugins/docker-buildx"
+      "no executable at ${BUILDX_PLUGIN_ROOT}/cli-plugins/docker-buildx"
   fi
+}
+
+# A failed download must stop the deploy before it builds or migrates, with
+# the old containers still serving.
+test_update_stops_when_buildx_cannot_be_installed() {
+  echo "update.sh: buildx download fails"
+  reset_database
+  seed_two_pending_migrations
+  rm -rf "${BUILDX_PLUGIN_ROOT}"
+  run_update_script \
+    PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
+    FAKE_DOCKER_BUILDX_MISSING=1 \
+    FAKE_CURL_FAIL=1 \
+    DOCKER_CONFIG="${BUILDX_PLUGIN_ROOT}"
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "says the download failed" "${UPDATE_OUTPUT}" \
+    "ERROR: could not download"
+  # Not just "docker build", which `docker buildx version` also contains.
+  check_absent "never builds the image" "$(cat "${CALL_LOG}")" "docker build --build-arg"
+  check_absent "never applies migrations" "${UPDATE_OUTPUT}" "applying any new migrations"
+  check_absent "never rolls the containers" "$(cat "${CALL_LOG}")" "up -d --no-deps"
+}
+
+# Rolling back to a ref from before #670 checks out a tree with no
+# install-buildx.sh and no cache mount. The deploy must still build.
+test_update_rolls_back_to_a_ref_without_the_installer() {
+  echo "update.sh: ref from before install-buildx.sh"
+  reset_database
+  seed_two_pending_migrations
+  local saved="${WORK_DIR}/saved-install-buildx.sh"
+  mv "${FIXTURE_REPO}/infra/aws/install-buildx.sh" "${saved}"
+  run_update_script FAKE_DOCKER_BUILDX_MISSING=1
+  mv "${saved}" "${FIXTURE_REPO}/infra/aws/install-buildx.sh"
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_contains "still builds the image" "$(cat "${CALL_LOG}")" "docker build --build-arg"
+}
+
+# ----------------------------------------------------------------------
+# install-buildx.sh tests
+# ----------------------------------------------------------------------
+
+test_install_buildx_does_nothing_when_present() {
+  echo "install-buildx.sh: plugin already there"
+  run_install_buildx FAKE_DOCKER_BUILDX_MISSING=
+  check_exit_code "exits 0" 0 "${INSTALL_BUILDX_EXIT}"
+  check_absent "downloads nothing" "$(cat "${CALL_LOG}")" "curl"
+  check_no_buildx_plugin_left "installs nothing"
+}
+
+test_install_buildx_picks_the_release_for_the_machine() {
+  echo "install-buildx.sh: arm64 box"
+  run_install_buildx FAKE_UNAME_MACHINE=aarch64
+  check_exit_code "exits 0" 0 "${INSTALL_BUILDX_EXIT}"
+  check_contains "downloads the arm64 release" "$(cat "${CALL_LOG}")" \
+    "releases/download/v0.37.1/buildx-v0.37.1.linux-arm64"
+  check_contains "reports the install" "${INSTALL_BUILDX_OUTPUT}" \
+    "docker-buildx v0.37.1 installed"
+}
+
+# A download that doesn't match the pinned checksum is never installed: a
+# swapped release or a proxy's error page must not end up run as root.
+test_install_buildx_rejects_a_checksum_mismatch() {
+  echo "install-buildx.sh: checksum mismatch"
+  run_install_buildx FAKE_CURL_TAMPERED=1
+  check_exit_code "exits non-zero" nonzero "${INSTALL_BUILDX_EXIT}"
+  check_contains "names the mismatch" "${INSTALL_BUILDX_OUTPUT}" "ERROR: checksum mismatch"
+  check_no_buildx_plugin_left "leaves no plugin and no partial download"
+}
+
+test_install_buildx_leaves_nothing_after_a_failed_download() {
+  echo "install-buildx.sh: download fails"
+  run_install_buildx FAKE_CURL_FAIL=1
+  check_exit_code "exits non-zero" nonzero "${INSTALL_BUILDX_EXIT}"
+  check_no_buildx_plugin_left "leaves no plugin and no partial download"
+}
+
+test_install_buildx_refuses_an_unknown_machine() {
+  echo "install-buildx.sh: unsupported machine"
+  run_install_buildx FAKE_UNAME_MACHINE=riscv64
+  check_exit_code "exits non-zero" nonzero "${INSTALL_BUILDX_EXIT}"
+  check_contains "names the machine" "${INSTALL_BUILDX_OUTPUT}" "uname -m: riscv64"
+  check_absent "downloads nothing" "$(cat "${CALL_LOG}")" "curl"
+}
+
+# The Docker CLI can still fail to load a plugin that downloaded and matched,
+# say one built for another libc. The install says so rather than letting the
+# build fall through to the legacy builder's "--mount option requires BuildKit".
+test_install_buildx_checks_the_plugin_loads() {
+  echo "install-buildx.sh: plugin installed but not loadable"
+  run_install_buildx \
+    PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_NO_BUILDX_DIR}:${FAKE_DOCKER_DIR}:${PATH}"
+  check_exit_code "exits non-zero" nonzero "${INSTALL_BUILDX_EXIT}"
+  check_contains "says the plugin still doesn't load" "${INSTALL_BUILDX_OUTPUT}" \
+    "still fails"
 }
 
 test_update_reads_env_from_infra_aws() {
@@ -1272,6 +1437,22 @@ test_bootstrap_applies_migrations_and_completes() {
   fi
 }
 
+# bootstrap.sh builds the image too, so a fresh box needs buildx before that.
+test_bootstrap_installs_buildx_before_building() {
+  echo "bootstrap.sh: box without the buildx plugin"
+  reset_database
+  seed_two_pending_migrations
+  rm -rf "${BUILDX_PLUGIN_ROOT}"
+  run_bootstrap_script \
+    PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
+    FAKE_DOCKER_BUILDX_MISSING=1 \
+    DOCKER_CONFIG="${BUILDX_PLUGIN_ROOT}"
+  check_exit_code "exits 0" 0 "${BOOTSTRAP_EXIT}"
+  check_order "downloads the pinned buildx release before building the image" \
+    "$(cat "${CALL_LOG}")" \
+    "releases/download/v0.37.1/buildx-v0.37.1.linux-amd64" "docker build -t vocion-app:latest"
+}
+
 test_bootstrap_aborts_on_migration_failure() {
   echo "bootstrap.sh: failing migration"
   reset_database
@@ -1334,7 +1515,7 @@ test_scripts_do_not_call_the_missing_context_script() {
 test_all_scripts_parse() {
   echo "static: every deploy script parses"
   local script
-  for script in apply-migrations.sh update.sh bootstrap.sh; do
+  for script in apply-migrations.sh update.sh bootstrap.sh install-buildx.sh; do
     if bash -n "${SCRIPT_DIR}/${script}" 2>/dev/null; then
       pass "${script} parses"
     else
@@ -1414,6 +1595,8 @@ main() {
 
   test_update_migrates_before_rolling_containers
   test_update_installs_buildx_before_building
+  test_update_stops_when_buildx_cannot_be_installed
+  test_update_rolls_back_to_a_ref_without_the_installer
   test_update_reads_env_from_infra_aws
   test_update_aborts_on_migration_failure
   test_update_with_no_pending_migrations_still_rolls
@@ -1424,8 +1607,16 @@ main() {
   test_update_accepts_the_legacy_env_location
 
   test_bootstrap_applies_migrations_and_completes
+  test_bootstrap_installs_buildx_before_building
   test_bootstrap_aborts_on_migration_failure
   test_bootstrap_aborts_without_an_env_file
+
+  test_install_buildx_does_nothing_when_present
+  test_install_buildx_picks_the_release_for_the_machine
+  test_install_buildx_rejects_a_checksum_mismatch
+  test_install_buildx_leaves_nothing_after_a_failed_download
+  test_install_buildx_refuses_an_unknown_machine
+  test_install_buildx_checks_the_plugin_loads
 
   test_scripts_do_not_swallow_migration_failures
   test_bootstrap_no_longer_uses_drizzle_kit
