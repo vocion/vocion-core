@@ -30,6 +30,9 @@ import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGu
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
 import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
 
+/** How long a check waits before its one retry after a transient model error. */
+export const TRANSIENT_RETRY_MS = 20_000;
+
 /**
  * The `automation_run.kind` of a pause or a resume. Not a fire: it dispatches
  * nothing and reads as a person's act in the same log the fires are in, so
@@ -416,7 +419,7 @@ async function dispatchDo(
   const prompt = typeof input.prompt === 'string' && input.prompt.trim() !== '' ? input.prompt : doCfg.prompt;
   const startedAt = new Date();
   const before = await queueSnapshot(orgId);
-  const run = await startMission({
+  const missionArgs = {
     orgId,
     missionSlug,
     // The automation's authored execution prompt rides the brief; the mission
@@ -429,12 +432,22 @@ async function dispatchDo(
     // mission, so `Check: <mission name>` made them identical in Activity and
     // only `created_by` told them apart.
     title: `${slug}: ${template.name}`,
-    mode: 'check',
+    mode: 'check' as const,
     invokedBy,
     // The run knows which fires are behind it, so `mission_run.completed`
     // can say so and never fire this automation again.
     causedBy,
-  });
+  };
+  let run = await startMission(missionArgs);
+  // A PROVIDER HICCUP IS NOT A VERDICT. Review 5839 (#126, 2026-09-28) died
+  // 12 seconds in on an `overloaded_error` streamed mid-response — the kind
+  // the SDK does not retry — and a good build sat as "QA could not finish".
+  // A check that failed only on a transient model error runs once more.
+  if (run.status === 'failed' && transientModelFailure(run.plan)) {
+    console.warn('[automation] check failed on a transient model error; running it once more', { slug, missionRunId: run.id });
+    await new Promise(resolve => setTimeout(resolve, TRANSIENT_RETRY_MS));
+    run = await startMission(missionArgs);
+  }
   // A REQUIRED TOOL IS A GATED BACKSTOP, NOT A PROMPT LINE. The reviewer read
   // a whole pull request and ended without recording a verdict (2026-09-26,
   // run 5471); a second full pass told to "end with it" did the same (fire
@@ -482,6 +495,17 @@ async function dispatchDo(
  * @param missionRunId - The run.
  * @param toolName - The tool the automation requires.
  */
+/**
+ * Whether a failed run failed only on the model provider being busy or the
+ * connection dropping — not on anything the run did.
+ * @param plan - The run's plan (its tasks carry their errors).
+ */
+export function transientModelFailure(plan: unknown): boolean {
+  const tasks = ((plan ?? {}) as { tasks?: Array<{ status?: string; error?: unknown }> }).tasks ?? [];
+  const errors = tasks.filter(t => t.status === 'failed' || t.error).map(t => String(t.error ?? ''));
+  return errors.length > 0 && errors.every(e => /overloaded|rate_limit|\b429\b|\b529\b|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed/i.test(e));
+}
+
 export async function calledRequiredTool(orgId: string, missionRunId: number, toolName: string): Promise<boolean> {
   const rows = await db
     .select({ output: toolCallSchema.output, error: toolCallSchema.error })
