@@ -27,9 +27,19 @@
 const OPEN = '<scratch>';
 const CLOSE = '</scratch>';
 
-type Mode = 'answer' | 'scratch';
+/**
+ * A TOOL CALL WRITTEN AS TEXT never streams either (conversation 355,
+ * 2026-09-28: two `<recommend_action> {json} </recommend_action>` blocks read
+ * as the answer). The block is held back whole and handed to the caller as a
+ * call (`calls`), which executes it as the real tool
+ * (`services/agents/textToolCalls.ts`).
+ */
+const CALL_TAGS = ['recommend_action', 'propose_action'] as const;
+type CallTag = (typeof CALL_TAGS)[number];
 
-export type StreamedText = { answer: string; thinking: string; closed: boolean };
+type Mode = 'answer' | 'scratch' | CallTag;
+
+export type StreamedText = { answer: string; thinking: string; closed: boolean; calls: Array<{ tag: CallTag; body: string }> };
 
 /**
  * The longest suffix of `buf` that is a proper prefix of `tag` — the piece
@@ -46,9 +56,14 @@ function partialTagTail(buf: string, tag: string): number {
   return 0;
 }
 
+/** Every tag that opens a held block in answer mode, with the mode it opens. */
+const OPENERS: Array<{ tag: string; mode: Mode }> = [{ tag: OPEN, mode: 'scratch' }, ...CALL_TAGS.map(t => ({ tag: `<${t}>`, mode: t as Mode }))];
+
 export class AnswerStreamer {
   private buf = '';
   private mode: Mode = 'answer';
+  /** A call block's text so far — never streamed. */
+  private callBody = '';
   /** Whether any answer text has been released yet — leading whitespace before the first word (or the first block) is dropped. */
   private answered = false;
 
@@ -70,6 +85,7 @@ export class AnswerStreamer {
     let answer = '';
     let thinking = '';
     let closed = false;
+    const calls: StreamedText['calls'] = [];
     let progressed = true;
     while (progressed) {
       progressed = false;
@@ -81,17 +97,25 @@ export class AnswerStreamer {
         if (this.buf === '') {
           break;
         }
-        const idx = this.buf.indexOf(OPEN);
-        if (idx !== -1) {
+        // The first block that opens, of any kind.
+        let next: { idx: number; tag: string; mode: Mode } | null = null;
+        for (const o of OPENERS) {
+          const idx = this.buf.indexOf(o.tag);
+          if (idx !== -1 && (next === null || idx < next.idx)) {
+            next = { idx, tag: o.tag, mode: o.mode };
+          }
+        }
+        if (next) {
           // Text before the tag is answer; whitespace alone before the first
           // word is not.
-          const before = this.buf.slice(0, idx);
+          const before = this.buf.slice(0, next.idx);
           if (before.length > 0 && (this.answered || before.trim().length > 0)) {
             answer += before;
             this.answered = true;
           }
-          this.buf = this.buf.slice(idx + OPEN.length);
-          this.mode = 'scratch';
+          this.buf = this.buf.slice(next.idx + next.tag.length);
+          this.mode = next.mode;
+          this.callBody = '';
           progressed = true;
           continue;
         }
@@ -99,7 +123,7 @@ export class AnswerStreamer {
         // streams immediately. At the END of the stream a partial open tag is
         // not text either: a turn that stopped mid-"<scratch>" stored "<sc"
         // as its answer (production turn 552, 2026-09-24). Drop it.
-        const partial = partialTagTail(this.buf, OPEN);
+        const partial = Math.max(...OPENERS.map(o => partialTagTail(this.buf, o.tag)));
         if (final && partial > 0) {
           this.buf = this.buf.slice(0, this.buf.length - partial);
         }
@@ -109,6 +133,31 @@ export class AnswerStreamer {
           answer += this.buf.slice(0, keep);
           this.buf = this.buf.slice(keep);
           this.answered = true;
+        }
+        break;
+      }
+
+      if (this.mode !== 'scratch') {
+        // A call block: held whole until it closes, then handed over.
+        const tag = this.mode;
+        const close = `</${tag}>`;
+        const idx = this.buf.indexOf(close);
+        if (idx !== -1) {
+          calls.push({ tag, body: this.callBody + this.buf.slice(0, idx) });
+          this.callBody = '';
+          this.buf = this.buf.slice(idx + close.length);
+          this.mode = 'answer';
+          progressed = true;
+          continue;
+        }
+        const hold = final ? 0 : partialTagTail(this.buf, close);
+        this.callBody += this.buf.slice(0, this.buf.length - hold);
+        this.buf = this.buf.slice(this.buf.length - hold);
+        if (final) {
+          // Cut off by the end of the stream: still a call, and never text.
+          calls.push({ tag, body: this.callBody });
+          this.callBody = '';
+          this.mode = 'answer';
         }
         break;
       }
@@ -135,6 +184,6 @@ export class AnswerStreamer {
       }
       break;
     }
-    return { answer, thinking, closed };
+    return { answer, thinking, closed, calls };
   }
 }

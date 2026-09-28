@@ -89,6 +89,16 @@ describe('what counts as the record changed in the turn', () => {
     expect(changedInTurn([{ tool: 'update_artifact', input: {}, output: 'Refused: request #214 is not on the person\'s page' }], 214)).toBe(false);
     expect(changedInTurn([{ tool: 'update_artifact', input: {}, output: 'request #2140 "Other" changed — priority written (run #9).' }], 214)).toBe(false);
   });
+
+  it('the same change carried by a card or a proposal counts; a refused one does not', () => {
+    const card = { action_id: 'objects.update_meta', action_input: { objectType: 'request', id: 214, set: { outcome: 'x' } } };
+
+    expect(changedInTurn([{ tool: 'recommend_action', input: card, output: 'Surfaced a one-tap recommendation to the user: "Write it".' }], 214)).toBe(true);
+    expect(changedInTurn([{ tool: 'propose_action', input: card, output: 'objects.update_meta is DONE (run #9, confidence 0.9)' }], 214)).toBe(true);
+    expect(changedInTurn([{ tool: 'recommend_action', input: card, output: '{"ok":false,"error":"action_input for objects.update_meta is invalid"}' }], 214)).toBe(false);
+    expect(changedInTurn([{ tool: 'propose_action', input: card, output: 'Proposal failed: nope' }], 214)).toBe(false);
+    expect(changedInTurn([{ tool: 'recommend_action', input: card, output: 'Surfaced' }], 13)).toBe(false);
+  });
 });
 
 describe('the line the person reads', () => {

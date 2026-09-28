@@ -403,6 +403,9 @@ async function runOutOfProcess(
   // opened there is set aside at this seam, the same way the in-process loop
   // does it, so no harness can put the model's thinking into the transcript.
   const streamer = new AnswerStreamer();
+  // A call written as text never shows as text here either; the other loops
+  // hold no tools in this process to run it with, so it is said, not dropped.
+  const heldCalls: import('./agents/textToolCalls').TextCall[] = [];
   const gated = (event: AgentEvent): void => {
     if (event.type === 'tool_error') {
       failures.push({ tool: event.tool, message: event.message });
@@ -412,7 +415,8 @@ async function runOutOfProcess(
       return;
     }
     if (event.type === 'response_delta') {
-      const { answer, thinking } = streamer.push(event.delta);
+      const { answer, thinking, calls } = streamer.push(event.delta);
+      heldCalls.push(...calls);
       if (thinking) {
         emit({ type: 'thinking_delta', delta: thinking });
       }
@@ -426,11 +430,20 @@ async function runOutOfProcess(
 
   const result = await run(gated);
   const tail = streamer.flush();
+  heldCalls.push(...tail.calls);
   if (tail.thinking) {
     emit({ type: 'thinking_delta', delta: tail.thinking });
   }
   if (tail.answer) {
     emit({ type: 'response_delta', delta: tail.answer });
+  }
+  if (heldCalls.length > 0) {
+    const { extractTextCalls, parseTextCall } = await import('./agents/textToolCalls');
+    const { noteLine } = await import('./agents/cardBackstop');
+    const notes = heldCalls.map(c => noteLine(parseTextCall(c).label, 'it was written as text on a loop outside this process, so it did not run'));
+    const delta = `\n\n${notes.join('\n')}`;
+    emit({ type: 'response_delta', delta });
+    result.response = `${extractTextCalls(result.response).text}${delta}`;
   }
   const response = await applyTurnGuarantees({
     orgId: opts.orgId,
@@ -866,6 +879,10 @@ export async function runAgentDeep(opts: {
   // to the trace as reasoning, so raw data never dumps into the answer. No
   // post-run buffering.
   const answerStreamer = new AnswerStreamer();
+  // Tool calls the model wrote as text (`<recommend_action>{…}</recommend_action>`),
+  // held back by the streamer and executed as the real tool after the loop
+  // (`services/agents/textToolCalls.ts`, conversation 355).
+  const textCalls: import('./agents/textToolCalls').TextCall[] = [];
   let answering = false;
   // THE INVARIANT: a turn ends with words after its last tool call. False
   // from a tool result until the next answer text; a turn that ends false
@@ -995,7 +1012,8 @@ export async function runAgentDeep(opts: {
           }
           if (isLead && text) {
             leadNs = nsFor(ev);
-            const { answer, thinking: scratch, closed } = answerStreamer.push(text);
+            const { answer, thinking: scratch, closed, calls } = answerStreamer.push(text);
+            textCalls.push(...calls);
             routeScratch(scratch, closed);
             if (answer) {
               answeredSinceTool = true;
@@ -1098,6 +1116,7 @@ export async function runAgentDeep(opts: {
     // honestly can.
     {
       const held = answerStreamer.flush();
+      textCalls.push(...held.calls);
       routeScratch(held.thinking, false);
       if (held.answer) {
         finalText += held.answer;
@@ -1343,12 +1362,46 @@ export async function runAgentDeep(opts: {
   // block still open here was cut off by the end of the stream: it is
   // thinking to its last character, and its reasoning node closes with it.
   const tail = answerStreamer.flush();
+  textCalls.push(...tail.calls);
   routeScratch(tail.thinking, true);
   if (tail.answer) {
     finalText += tail.answer;
     emit({ type: 'response_delta', delta: tail.answer });
   }
   finalText = normalizeAnswerHtml(finalText).trim();
+  // A TOOL CALL WRITTEN AS TEXT IS STILL THE CALL (conversation 355). The
+  // streamer held every block back; any that reached the text another way is
+  // taken out here. Each runs as the real tool — same validation, trust and
+  // card path — and one that cannot is a line under the answer, never JSON.
+  {
+    const { extractTextCalls, runTextCalls, tidy } = await import('./agents/textToolCalls');
+    const left = extractTextCalls(finalText);
+    if (left.calls.length > 0) {
+      console.warn('agent turn: tool-call blocks left in the answer text', { orgId: opts.orgId, agentSlug: opts.agentSlug, count: left.calls.length });
+      finalText = left.text;
+      textCalls.push(...left.calls);
+    }
+    if (textCalls.length > 0) {
+      finalText = tidy(finalText);
+      try {
+        const { buildDomainTools } = await import('./agents/tools/registry');
+        const ran = await runTextCalls(textCalls, buildDomainTools(boundCtx));
+        for (const o of ran.outcomes) {
+          toolCallLog.push({ tool: o.tag, input: o.input, output: o.output.slice(0, 2000) });
+          emit({ type: 'tool_start', tool: o.tag, input: o.input });
+          emit(o.ok ? { type: 'tool_end', tool: o.tag, input: o.input, output: o.output.slice(0, 2000) } : { type: 'tool_error', tool: o.tag, message: o.output.slice(0, 500) });
+        }
+        if (ran.notes.length > 0) {
+          const delta = `${finalText ? '\n\n' : ''}${ran.notes.join('\n')}`;
+          finalText += delta;
+          emit({ type: 'response_delta', delta });
+        }
+        console.warn('text tool calls', { orgId: opts.orgId, agentSlug: opts.agentSlug, blocks: textCalls.length, ran: ran.outcomes.filter(o => o.ok).length, noted: ran.notes.length });
+      } catch (err) {
+        console.warn('text tool calls failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
+      }
+    }
+  }
   // Whatever happened above, a tool's bare name is never the last word of an
   // answer: if the continuation narrated it again, it goes, and the log says so.
   if (NARRATED_TOOL.test(finalText)) {

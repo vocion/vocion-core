@@ -246,13 +246,26 @@ export function asksToChange(request: string): boolean {
  * @param id - The record.
  */
 export function changedInTurn(toolCalls: ReadonlyArray<{ tool: string; input?: Record<string, unknown>; output?: string }>, id: number): boolean {
-  return toolCalls.some(c => (c.tool === 'update_object'
-    && Number(c.input?.id) === id
-    && !/^\s*(?:update refused|refused|update failed|not written|update to \S+ #\d+ did not land)/i.test(c.output ?? ''))
-  // The artifact path to the same record (backlog 035): update_artifact on
-  // its body answers "<type> #<id> … changed" or "The change to <type> #<id>
-  // … is PENDING".
-  || (c.tool === 'update_artifact' && new RegExp(`#${id}\\b[^\\n]*(?:changed —|is PENDING)|^Renamed to`).test(c.output ?? '')));
+  return toolCalls.some((c) => {
+    if (c.tool === 'update_object') {
+      return Number(c.input?.id) === id
+        && !/^\s*(?:update refused|refused|update failed|not written|update to \S+ #\d+ did not land)/i.test(c.output ?? '');
+    }
+    // The artifact path to the same record (backlog 035): update_artifact on
+    // its body answers "<type> #<id> … changed" or "The change to <type> #<id>
+    // … is PENDING".
+    if (c.tool === 'update_artifact') {
+      return new RegExp(`#${id}\\b[^\\n]*(?:changed —|is PENDING)|^Renamed to`).test(c.output ?? '');
+    }
+    // The same change as a card or a proposal (a call the model wrote as
+    // text runs as one, `textToolCalls.ts`): it rides objects.update_meta's
+    // trust rule already, so a second write would be the change twice.
+    const input = c.input?.action_input as Record<string, unknown> | undefined;
+    return (c.tool === 'recommend_action' || c.tool === 'propose_action')
+      && c.input?.action_id === 'objects.update_meta'
+      && Number(input?.id) === id
+      && !/^\s*(?:\{"ok":false|proposal (?:failed|refused)|not proposed)/i.test(c.output ?? '');
+  });
 }
 
 /**
@@ -280,9 +293,9 @@ export function changeLine(output: string, label: string, href: string | null, w
  * once the page record is typed (`services/chat/pageRecord.ts`), its type —
  * `/dashboard/p/feature/124` is request 124. Null for a page about no record.
  * @param ref - The page context's record.
- * @param ref.type
- * @param ref.id
- * @param ref.objectType
+ * @param ref.type - Its ref type (`object` is a record).
+ * @param ref.id - Its id.
+ * @param ref.objectType - Its object type, once typed.
  */
 export function owedChangeTarget(ref: { type: string; id: string; objectType?: string } | null | undefined): { id: number; objectType: string | null } | null {
   if (ref?.type !== 'object' || !/^\d+$/.test(ref.id)) {

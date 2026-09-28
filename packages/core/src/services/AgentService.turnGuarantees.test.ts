@@ -788,3 +788,37 @@ describe('the person asked for a record and the turn wrote nothing (conversation
     }
   });
 });
+
+describe('a tool call written as text is the call (conversation 355)', () => {
+  it('never streams the block, runs it as the real tool, and stores the answer without it', async () => {
+    const received: unknown[] = [];
+    toolBelt.tools = [{
+      name: 'recommend_action',
+      invoke: async (input) => {
+        received.push(input);
+        return 'Surfaced a one-tap recommendation to the user: "Write the narrowed scope onto 124".';
+      },
+    }];
+    const block = '<recommend_action>\n{"action_id":"objects.update_meta","action_input":{"objectType":"request","id":124,"set":{"outcome":"Email only."}},"label":"Write the narrowed scope onto 124","confidence":0.55}\n</recommend_action>';
+    streamEvents.mockResolvedValueOnce({ async* [Symbol.asyncIterator]() {
+      for (const piece of ['Scope change taken.\n\n', block.slice(0, 40), block.slice(40), '\n\nWant a sketch first?']) {
+        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(piece) } };
+      }
+    } }).mockResolvedValue(emptyStream());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { result, events } = await run({ message: 'What is left in scope?' });
+      const streamed = events.filter(e => e.type === 'response_delta').map(e => (e as { delta: string }).delta).join('');
+
+      expect(streamed).not.toContain('recommend_action');
+      expect(result.response).not.toContain('action_id');
+      expect(result.response).toContain('Scope change taken.');
+      expect(result.response).toContain('Want a sketch first?');
+      expect(received).toEqual([expect.objectContaining({ action_id: 'objects.update_meta', label: 'Write the narrowed scope onto 124', action_input: { objectType: 'request', id: 124, set: { outcome: 'Email only.' } } })]);
+      expect(result.toolCalls.map(c => c.tool)).toContain('recommend_action');
+    } finally {
+      warn.mockRestore();
+      toolBelt.tools = [];
+    }
+  });
+});
