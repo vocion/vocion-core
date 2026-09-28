@@ -1,6 +1,6 @@
 import type { FeatureReportInput, ReportActionRun, ReportArtifact, ReportAsk, ReportObject, ReportSectionKey, ReportWorkerRun } from './featureReport';
 import { describe, expect, it } from 'vitest';
-import { assembleFeatureReport, formatDuration, moneyLine, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
+import { assembleFeatureReport, executedRun, formatDuration, moneyLine, personName, planStatusOf, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
 
 /**
  * The feature report, assembled from fixtures.
@@ -244,7 +244,8 @@ describe('the plan stage', () => {
     expect(s.absence).toContain('A plan was required and none is on the record');
     expect(s.absence).toContain('the risk class is billing');
     expect(s.absence).toContain('The work ran anyway.');
-    expect(s.facts.find(f => f.label === 'Was a plan required?')?.value).toBe('required, on 1 trigger');
+    // In plain words, with the reason — not the rule's "required, on 1 trigger" (2026-09-28).
+    expect(s.facts.find(f => f.label === 'Was a plan required?')?.value).toMatch(/^Yes — the risk class is billing/);
   });
 
   it('says a plan was offered and nothing was recorded, which is not the same as declined', () => {
@@ -607,12 +608,22 @@ describe('the money line', () => {
     expect(line.actualSource).toBe('summed over 2 worker runs');
   });
 
-  it('says nobody estimated it rather than showing zero', () => {
+  it('says Not estimated rather than showing zero, and computes no variance against nothing', () => {
     const line = moneyLine({ ...request, meta: {} }, [], []);
 
     expect(line.estimateCents).toBeNull();
-    expect(line.estimateSource).toBe('nobody estimated this');
+    expect(line.estimateSource).toBe('Not estimated');
     expect(line.varianceCents).toBeNull();
+  });
+
+  it('reads Not estimated with no variance on the page, and a real estimate gets one', () => {
+    const noEstimate = { ...task, meta: { ...task.meta, estimateCents: undefined } };
+    const bare = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, estimateCents: undefined } }, tasks: [noEstimate] }));
+
+    expect(bare.implementation.costLine).toBe('$14.50 spent · Not estimated');
+    expect(section(bare, 'money').detailLists[0]!.items.join(' ')).not.toContain('Variance');
+
+    expect(assembleFeatureReport(input()).implementation.costLine).toBe('$14.50 spent · estimated $9.00, +$5.50 (+61%)');
   });
 
   it('flags a task rollup that disagrees with what the runs charged', () => {
@@ -800,11 +811,39 @@ describe('done when', () => {
     expect(report.acceptance.frozenAt).not.toBeNull();
   });
 
-  it('is empty, not invented, when nobody wrote a contract', () => {
-    const report = assembleFeatureReport(input({}));
+  it('is empty, not invented, when neither the work nor a task wrote a contract', () => {
+    const bare = { ...task, meta: { ...task.meta, acceptanceContract: [] } };
+    const report = assembleFeatureReport(input({ tasks: [bare] }));
 
     expect(report.acceptance.total).toBe(0);
     expect(report.acceptance.items).toEqual([]);
+    expect(report.acceptance.source).toBeNull();
+  });
+
+  it('reads the task\'s contract when the work carries none, every criterion Unverified (2026-09-28)', () => {
+    const report = assembleFeatureReport(input({}));
+
+    expect(report.acceptance.source).toBe('task');
+    expect(report.acceptance.items.map(i => [i.statement, i.state])).toEqual([
+      ['The share menu offers PDF', 'unverified'],
+      ['The PDF carries every section in order', 'unverified'],
+    ]);
+    // The plan's own verification is the review procedure.
+    expect(report.acceptance.procedure).toMatch(/^Export the fixture room/);
+  });
+
+  it('shows no pass without evidence: met with nothing to open is Unverified, met: false is Failed', () => {
+    const req = { ...request, meta: { ...request.meta, acceptance: [
+      { statement: 'Backed', met: true, evidenceUrl: '/dashboard/artifacts/700' },
+      { statement: 'Claimed', met: true },
+      { statement: 'Broken', met: false },
+      { statement: 'Unchecked' },
+    ] } };
+    const a = assembleFeatureReport(input({ request: req })).acceptance;
+
+    expect(a.items.map(i => i.state)).toEqual(['passed', 'unverified', 'failed', 'unverified']);
+    expect(a.verified).toBe(1);
+    expect(a.items[1]!.note).toBe('Marked met, with no evidence attached.');
   });
 });
 
@@ -1036,5 +1075,224 @@ describe('a task QA sent back', () => {
     expect(taskStatus(columnWins)).toBe('awaiting_review');
 
     expect(assembleFeatureReport(input({ tasks: [accepted], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] })).state.key).toBe('merge');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The overview the page leads with (Chris, 2026-09-28)
+// ---------------------------------------------------------------------------
+
+const proposal = (over: Partial<FeatureReportInput> = {}) => assembleFeatureReport(input({
+  request: { ...request, meta: { ...request.meta, state: 'in_scope', estimateCents: undefined } },
+  tasks: [],
+  plans: [],
+  workerRuns: [],
+  asks: [],
+  actionRuns: [],
+  releases: [],
+  artifacts: [],
+  ...over,
+}));
+
+describe('the status sentence and its one action', () => {
+  it('offers Build it, and Dismiss beside it, on a proposal nothing has started', () => {
+    const r = proposal();
+
+    expect(r.status).toMatchObject({ headline: 'Proposed', action: { kind: 'build', label: 'Build it' }, secondary: { kind: 'dismiss' } });
+    expect(r.canBuild).toBe(true);
+    expect(r.canDismiss).toBe(true);
+  });
+
+  it('says Approve build when a plan is waiting for approval, and that building approves it', () => {
+    const waiting = { ...plan, status: 'candidate', meta: { ...plan.meta, approvedAt: undefined, approvedBy: undefined } };
+    const r = proposal({ plans: [waiting] });
+
+    expect(r.status.action).toEqual({ kind: 'build', label: 'Approve build' });
+    expect(r.status.sentence).toContain('Building it approves the plan.');
+  });
+
+  it('never offers Build while a run is live, and says View progress instead', () => {
+    const dispatched = { ...task, status: 'running', meta: { ...task.meta, status: 'running' } };
+    const r = proposal({ tasks: [dispatched], workerRuns: [run({ status: 'running', completedAt: null, result: null })] });
+
+    expect(r.canBuild).toBe(false);
+    expect(r.status.action).toEqual({ kind: 'drawer', label: 'View progress', drawer: 'implementation' });
+    expect(r.status.sentence).toMatch(/not established until it finishes/);
+  });
+
+  it('never offers Build over a live run even when the task record still reads ready', () => {
+    const ready = { ...task, status: 'ready', meta: { ...task.meta, status: 'ready' } };
+    const r = proposal({ tasks: [ready], workerRuns: [run({ status: 'claimed', completedAt: null, result: null })] });
+
+    expect(r.canBuild).toBe(false);
+    expect(r.status.action?.kind).not.toBe('build');
+  });
+
+  it('offers Build again, never Dismiss, once work has started', () => {
+    const stopped = { ...task, status: 'rejected', meta: { ...task.meta, status: 'dispatched' } };
+    const r = proposal({ tasks: [stopped], workerRuns: [run({ status: 'failed', error: 'Claude produced no changes' })] });
+
+    expect(r.status.action).toEqual({ kind: 'build', label: 'Build again' });
+    expect(r.canDismiss).toBe(false);
+    expect(r.status.secondary).not.toMatchObject({ kind: 'dismiss' });
+  });
+
+  it('says Review requested changes when QA sent it back, with Build again beside it', () => {
+    const sentBack = { ...task, status: 'changes_requested', meta: { ...task.meta, status: 'changes_requested', verdict: { proven: 2, total: 5, note: 'The empty state is missing' } } };
+    const r = proposal({ tasks: [sentBack], workerRuns: [run()] });
+
+    expect(r.status.action).toEqual({ kind: 'drawer', label: 'Review requested changes', drawer: 'acceptance' });
+    expect(r.status.secondary).toEqual({ kind: 'build', label: 'Build again' });
+    expect(r.status.sentence).toBe('QA found problems and sent it back; it proved 2 of 5. The empty state is missing. Nothing from this attempt has merged.');
+  });
+
+  it('says Review the merge when a merge is waiting on a person', () => {
+    const merge: ReportActionRun = { ...handoff, id: 90, actionId: 'git.merge', status: 'pending', decidedAt: null, executedAt: null };
+    const r = proposal({ tasks: [task], workerRuns: [run()], actionRuns: [merge] });
+
+    expect(r.status.action).toEqual({ kind: 'link', label: 'Review the merge', href: '/dashboard/inbox/proposal-90' });
+    expect(r.status.sentence).toContain('It is not live until it merges.');
+  });
+
+  it('says Open feature once it is live, pointing at the running product', () => {
+    const req = { ...request, meta: { ...request.meta, visuals: { surfaceUrl: 'https://portal.northwind.example/rooms' } } };
+    const r = assembleFeatureReport(input({ request: req }));
+
+    expect(r.status).toMatchObject({ headline: 'Live', action: { kind: 'link', label: 'Open feature', href: 'https://portal.northwind.example/rooms' } });
+  });
+
+  it('says Review delivery status when the records disagree about whether it was built', () => {
+    const r = proposal({ request: { ...request, meta: { ...request.meta, state: 'in_scope', taskCount: 3 } } });
+
+    expect(r.status).toMatchObject({ headline: 'Records disagree', action: { label: 'Review delivery status', drawer: 'status' } });
+    expect(r.status.sentence).toContain('is not established');
+  });
+
+  it('is red only for a confirmed blocker', () => {
+    const blocked = proposal({ request: { ...request, meta: { ...request.meta, state: 'in_scope', blocker: { what: 'The DNS record is not delegated', owner: 'Dana', next: 'delegate it' } } } });
+
+    expect(blocked.status.tone).toBe('bad');
+    expect(proposal().status.tone).not.toBe('bad');
+    expect(assembleFeatureReport(input()).notices.every(n => n.severity === 'inconsistency')).toBe(true);
+  });
+});
+
+describe('record problems, said plainly', () => {
+  it('turns each disagreement into what is known, whether it blocks, and one move, keeping the raw sentence as evidence', () => {
+    const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-09T09:00:00Z' } };
+    const notice = assembleFeatureReport(input({ plans: [late] })).notices.find(n => n.key === `plan-late-${plan.id}`)!;
+
+    expect(notice).toMatchObject({
+      severity: 'inconsistency',
+      known: 'The plan was approved after building had already begun.',
+      action: { label: 'Review approval history', drawer: 'plan' },
+    });
+    expect(notice.blocks).toMatch(/^It does not block/);
+    expect(notice.evidence).toContain('A plan approved after the work is a record, not a gate.');
+  });
+
+  it('does not count a refused attempt as work that ran before the plan was approved', () => {
+    const refused = run({ id: 499, status: 'failed', claimedAt: T('2026-09-02T17:30:00Z'), completedAt: T('2026-09-02T17:31:00Z'), error: 'refused: this contract requires an approved plan', cents: 0, result: null });
+    const onTime = run({ claimedAt: T('2026-09-03T10:05:00Z') });
+    const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-02T18:00:00Z' } };
+    const r = assembleFeatureReport(input({ plans: [late], workerRuns: [refused, onTime] }));
+
+    expect(executedRun(refused)).toBe(false);
+    expect(r.notices.some(n => n.key.startsWith('plan-late'))).toBe(false);
+  });
+
+  it('does not call a queued task with no run yet "incomplete history"', () => {
+    const queued = { ...task, status: 'dispatched', meta: { ...task.meta, status: 'dispatched' } };
+    const r = proposal({ tasks: [queued] });
+
+    expect(r.notices.some(n => n.key === 'runs-unlinked')).toBe(false);
+    expect(r.status.headline).toBe('Queued');
+  });
+});
+
+describe('the plan, summarised', () => {
+  it('resolves a candidate status carrying an approval to Approved', () => {
+    expect(planStatusOf({ ...plan, status: 'candidate' })).toBe('Approved');
+    expect(planStatusOf({ ...plan, status: 'candidate', meta: { ...plan.meta, approvedAt: undefined, approvedBy: undefined } })).toBe('Awaiting approval');
+    expect(planStatusOf({ ...plan, meta: { ...plan.meta, supersededBy: 44 } })).toBe('Superseded');
+    expect(planStatusOf({ ...plan, status: 'draft', meta: { requestId: 41 } })).toBe('Draft');
+  });
+
+  it('names the approver, never a raw user id', () => {
+    const byId = { ...plan, meta: { ...plan.meta, approvedBy: 'user_2x9Qk7Lm4Np8Rt' } };
+
+    expect(assembleFeatureReport(input()).planSummary).toMatchObject({ status: 'Approved', approver: 'Chris' });
+    expect(assembleFeatureReport(input({ plans: [byId] })).planSummary.approver).toBe('Approver unavailable');
+    expect(assembleFeatureReport(input({ plans: [byId], people: { user_2x9Qk7Lm4Np8Rt: 'Dana Okafor' } })).planSummary.approver).toBe('Dana Okafor');
+    expect(personName('agent:task-planner')).toBe('an agent (task-planner)');
+  });
+
+  it('summarises scope and the first risk, and says why a plan was needed in plain words', () => {
+    const s = assembleFeatureReport(input()).planSummary;
+
+    expect(s.scope).toBe('Render server side from the room model, not from the DOM, so the PDF matches what the room holds rather than what a browser drew.');
+    expect(s.risk).toMatch(/^A long room times out/);
+    expect(s.steps).toBe(2);
+  });
+});
+
+describe('implementation — build and the change in one', () => {
+  it('leads with the latest attempt, counts the earlier ones, and keeps each delivery fact separate', () => {
+    const first = run({ id: 500, status: 'failed', error: 'verification failed: typecheck failed\nmore', claimedAt: T('2026-09-02T10:05:00Z'), completedAt: T('2026-09-02T11:00:00Z'), result: null });
+    const impl = assembleFeatureReport(input({ workerRuns: [first, run()] })).implementation;
+
+    expect(impl.latest).toMatchObject({ runId: 501, outcome: 'Completed', executed: true });
+    expect(impl.earlier).toBe(1);
+    expect(impl.prUrl).toBe('https://github.com/example/northwind-portal/pull/12');
+    expect(impl.ladder.map(s => [s.key, s.value])).toEqual([
+      ['run', 'Yes'],
+      ['checks', 'Passed'],
+      ['merged', 'Yes'],
+      ['acceptance', '0 of 2'],
+      ['released', 'Live'],
+    ]);
+  });
+
+  it('never makes a completed run into a merge, or a merge into a release', () => {
+    const unmerged = { ...task, status: 'awaiting_review', meta: { ...task.meta, commitSha: undefined } };
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [unmerged], releases: [] }));
+    const ladder = Object.fromEntries(r.implementation.ladder.map(s => [s.key, s.value]));
+
+    expect(ladder.run).toBe('Yes');
+    expect(ladder.merged).toBe('Not recorded as merged');
+    expect(ladder.released).toBe('No');
+  });
+
+  it('names a refused attempt as not executed', () => {
+    const refused = run({ status: 'failed', error: 'Refused: plan required', result: null });
+
+    expect(assembleFeatureReport(input({ workerRuns: [refused] })).implementation.latest?.outcome).toBe('Refused — not executed');
+  });
+});
+
+describe('the release, read honestly', () => {
+  it('is Live with its date when a release shipped it', () => {
+    expect(assembleFeatureReport(input()).release).toMatchObject({ state: 'live', label: 'Live' });
+  });
+
+  it('is Release not verified — never Not released — when the change merged and nothing records a release', () => {
+    expect(assembleFeatureReport(input({ releases: [] })).release).toMatchObject({ state: 'unverified', label: 'Release not verified' });
+  });
+
+  it('is Not released only when nothing has merged', () => {
+    expect(proposal().release).toMatchObject({ state: 'not_released', label: 'Not released' });
+  });
+});
+
+describe('the activity preview', () => {
+  it('is a few meaningful events, newest first, without the contract bookkeeping', () => {
+    const r = assembleFeatureReport(input());
+
+    expect(r.activityPreview.length).toBeLessThanOrEqual(4);
+    expect(r.activityPreview.every(e => e.kind !== 'contract' && e.kind !== 'triaged')).toBe(true);
+
+    const times = r.activityPreview.map(e => e.at!.getTime());
+
+    expect([...times].sort((a, b) => b - a)).toEqual(times);
   });
 });

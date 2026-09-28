@@ -15,8 +15,10 @@ import { client } from '@/libs/Orpc';
  * @param props.requestId - The request.
  * @param props.planId - Its plan, when it has one.
  * @param props.children
+ * @param props.label - What the button says: "Build it", "Approve build" or
+ * "Build again" — the report's status decides (`featureReport.buildStatus`).
  */
-export function FeatureBuild({ requestId, planId, children }: { requestId: number; planId: number | null; children?: React.ReactNode }) {
+export function FeatureBuild({ requestId, planId, children, label = 'Build it' }: { requestId: number; planId: number | null; children?: React.ReactNode; label?: string }) {
   const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'done'; runId: number; workerRunId: number | null } | { s: 'error'; message: string }>({ s: 'idle' });
 
   const build = async () => {
@@ -69,9 +71,9 @@ export function FeatureBuild({ requestId, planId, children }: { requestId: numbe
         className="inline-flex h-9 items-center gap-2 self-start rounded-md bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-60"
       >
         {phase.s === 'working' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Hammer className="size-4" aria-hidden />}
-        {phase.s === 'working' ? 'Starting…' : 'Build it'}
+        {phase.s === 'working' ? 'Starting…' : label}
       </button>
-      {/* The other way out — Dismiss — only while nothing has started. */}
+      {/* The quieter second action — Dismiss only while nothing has started. */}
       {children}
       {phase.s === 'error' && <p className="w-full text-xs text-[var(--brand-fail)]">{phase.message}</p>}
     </div>

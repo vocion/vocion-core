@@ -53,6 +53,14 @@ export const RECORD_TYPES = [
    * record page; the id is the record's own (`business_object.id`).
    */
   'record_history',
+  /**
+   * One part of a feature page opened in the preview pane —
+   * `<requestId>.<key>`: its plan, implementation, acceptance, release,
+   * activity, connected work, cost or delivery status
+   * (`services/factory/featureDrawer.ts`). A drawer is a place, so chat can
+   * name "this plan" while it is open.
+   */
+  'feature_section',
   // The composer can tag the page itself (`@page`).
   'page',
 ] as const;

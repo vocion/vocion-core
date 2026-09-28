@@ -1,187 +1,45 @@
-import type { FeatureReport, LifecycleStep, LiveBuild, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportPhase, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
-import type { Status } from '@/types/Status';
+import type { DotTone } from '@/components/patterns';
+import type { FeatureReport, LiveBuild, ReportAction, ReportEvidence, ReportNotice, ReportStatus, Tone } from '@/services/factory/featureReport';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { StatusPill } from '@/components/ui/status-pill';
+import { Section, StatusDot } from '@/components/patterns';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
-import { formatStamp, money } from '@/services/factory/featureReport';
-import { inboxHref } from '@/services/inbox/inboxRef';
+import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { money } from '@/services/factory/featureReport';
 import { FeatureActivity } from './FeatureActivity';
 import { FeatureBuild } from './FeatureBuild';
 import { FeatureDismiss } from './FeatureDismiss';
+import { FeatureDrawerLink, PreviewOpen } from './FeatureDrawerLink';
+import { LocalDate } from './LocalDate';
 import { MediaCarousel } from './MediaCarousel';
 
 /**
- * The feature report, drawn — one request's whole story in one column.
+ * The feature page, drawn for the person who owns the outcome (Chris,
+ * 2026-09-28).
  *
- * A summary strip, then a vertical timeline with the newest entry LAST, then
- * the nine sections in reading order. Everything is a server-renderable
- * function of the assembled report (`services/factory/featureReport.ts`);
- * nothing here queries, formats money twice, or decides what happened.
+ * One column, in the order a product owner reads it:
  *
- * It reads at 390px because that is where a person checks on a feature: one
- * column throughout, the timeline's rule and dots inside a 20px gutter, every
- * long value (a pull request URL, a branch, a file path) allowed to break
- * rather than widen the page. There is no horizontal scroll on this page at
- * any width — a fact `FeatureReportView.layout.test.tsx` measures.
+ *   1. Introduction — the title and subtitle (the route's title bar), the
+ *      user story as a short paragraph, and what it should change for people
+ *   2. Where it is — one or two sentences and one action
+ *   3. What it looks like — the gallery, intact
+ *   4. Connected work — the three newest conversations and runs
+ *   5. Plan · 6. Implementation · 7. Acceptance · 8. Release · 9. Activity —
+ *      each a few lines, with the full record one tap away in the preview
+ *      pane (`FeatureDrawerLink` → `feature_section:<id>.<key>`)
+ *
+ * Everything the old page printed is still reachable: the sections the report
+ * assembles all render into a drawer (`services/factory/featureDrawer.ts`).
+ * Nothing here queries, formats money twice, or decides what happened — the
+ * assembly (`services/factory/featureReport.ts`) does.
+ *
+ * It reads at 390px: one column throughout, every long value allowed to
+ * break, no horizontal scroll at any width (`FeatureReportView.layout.test.tsx`
+ * measures it).
  */
 
-const TONE_TEXT: Record<Tone, string> = {
-  ok: 'text-[var(--brand-pass)]',
-  warn: 'text-[var(--brand-borderline)]',
-  bad: 'text-[var(--brand-fail)]',
-  info: 'text-foreground',
-  muted: 'text-muted-foreground',
-};
+const DOT_TONE: Record<Tone, DotTone> = { ok: 'pass', warn: 'amber', bad: 'fail', info: 'ink', muted: 'neutral' };
 
-const TONE_DOT: Record<Tone, string> = {
-  ok: 'bg-[var(--brand-pass)]',
-  warn: 'bg-[var(--brand-borderline)]',
-  bad: 'bg-[var(--brand-fail)]',
-  info: 'bg-foreground/60',
-  muted: 'bg-muted-foreground/40',
-};
-
-/**
- * A report tone as the shared status pill's vocabulary.
- * @param tone - The report tone.
- */
-function pillStatus(tone: Tone): Status {
-  switch (tone) {
-    case 'ok':
-      return 'completed';
-    case 'warn':
-      return 'pending';
-    case 'bad':
-      return 'failed';
-    case 'info':
-      return 'running';
-    default:
-      return 'inactive';
-  }
-}
-
-/**
- * One labelled value. A null value is not hidden — it says the record does
- * not carry it, because a missing field is a finding too.
- * @param props - The fact.
- * @param props.fact - The fact to draw.
- */
-/** A value that says nothing — left out rather than drawn (2026-09-26). */
-const EMPTY_VALUE = /^(?:not recorded|nobody(?: yet| estimated this)?|not shipped yet|none|n\/a|—|-)$/i;
-
-function Fact({ fact }: { fact: ReportFact }) {
-  const value = fact.value;
-  // A long passage is prose, not an aside. It used to be set in italics, which
-  // is legible for a phrase and a wall at four paragraphs — the plan's own
-  // approach is four paragraphs. It reads as prose now, held by a quiet rule.
-  const body = value === null
-    ? <span className="text-muted-foreground">not recorded</span>
-    : fact.href
-      ? <a href={fact.href} target="_blank" rel="noreferrer" className="break-words underline underline-offset-2">{value}</a>
-      : fact.format === 'quote'
-        ? <span className="block border-l-2 border-border pl-3 leading-relaxed whitespace-pre-line">{value}</span>
-        : <span className={fact.format === 'mono' || fact.format === 'money' ? 'font-mono break-words tabular-nums' : 'break-words'}>{value}</span>;
-  // TWO SHAPES, decided by what the value is.
-  //
-  // A passage takes the full width with its label above it: 7.5rem of label
-  // beside a wrapping paragraph gave the paragraph a third of a phone screen
-  // and broke every sentence into a column. A figure does NOT — stacking
-  // "$9.00" under its own label turned the money section into six rows of
-  // mostly air, which is the opposite of the problem being fixed.
-  // A URL is not a figure: it is long, it wraps, and beside a 7.5rem label it
-  // gets a third of a phone screen. It stacks like prose.
-  const prose = fact.format === 'quote' || fact.href !== undefined;
-  return (
-    <div className={`gap-x-4 gap-y-0.5 py-2 text-[15px] ${prose ? 'block' : 'grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)]'}`}>
-      <dt className={`text-xs text-muted-foreground ${prose ? 'mb-1.5' : 'leading-6'}`}>{fact.label}</dt>
-      <dd className="min-w-0 leading-relaxed">{body}</dd>
-    </div>
-  );
-}
-
-/**
- * A run's or a pull request's checks — the name, and whether it passed.
- * "Not run" is its own state and never reads as a pass.
- * @param props - The checks.
- * @param props.checks - The list.
- */
-function Checks({ checks }: { checks: ReportCheck[] }) {
-  if (checks.length === 0) {
-    return null;
-  }
-  return (
-    <ul className="mt-2 flex flex-wrap gap-1.5">
-      {checks.map(c => (
-        <li key={c.name} className="flex items-center gap-1.5 rounded border border-border px-2 py-0.5 text-xs">
-          <span className={`inline-block size-1.5 shrink-0 rounded-full ${c.passed === true ? TONE_DOT.ok : c.passed === false ? TONE_DOT.bad : TONE_DOT.muted}`} />
-          <span className="font-mono break-all">{c.name}</span>
-          <span className="text-muted-foreground">{c.passed === true ? 'passed' : c.passed === false ? 'failed' : 'not run'}</span>
-          {c.detail && <span className="text-muted-foreground">{c.detail}</span>}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/**
- * A block inside a section — a task contract, an approval, a run, a pull
- * request, a release.
- * @param props - The entry.
- * @param props.entry - The entry to draw.
- */
-function Entry({ entry }: { entry: ReportEntry }) {
-  return (
-    <article className="border-t border-border/60 py-5 first:border-t-0 first:pt-0">
-      <header className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <h4 className="min-w-0 text-sm font-medium break-words">{entry.title}</h4>
-        {entry.status && <StatusPill status={pillStatus(entry.tone)} label={entry.status} size="sm" />}
-        <span className="ml-auto font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-          {formatStamp(entry.at)}
-          {entry.cents !== null && ` · ${money(entry.cents)}`}
-        </span>
-      </header>
-      {entry.steps !== undefined && entry.steps.length > 0 && (
-        // THE PLAN AS A PERSON APPROVES IT: numbered, in order, one line each.
-        // The reasoning that produced it sits behind the disclosure below —
-        // excellent, and not the thing anybody says yes to.
-        <ol className="mt-3 max-w-prose space-y-2">
-          {entry.steps.map((step, i) => (
-            <li key={step} className="grid grid-cols-[1.6rem_minmax(0,1fr)] gap-x-2 text-[15px] leading-relaxed">
-              <span className="pt-px font-mono text-xs text-muted-foreground tabular-nums">{String(i + 1).padStart(2, '0')}</span>
-              <span className="min-w-0 break-words">{step}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-      {entry.facts.some(f => !EMPTY_VALUE.test(String(f.value ?? '').trim())) && (
-        <dl className="mt-3">
-          {entry.facts.filter(f => !EMPTY_VALUE.test(String(f.value ?? '').trim())).map(f => <Fact key={f.label} fact={f} />)}
-        </dl>
-      )}
-      <Checks checks={entry.checks} />
-      {entry.detailFacts !== undefined && entry.detailFacts.length > 0 && (
-        <details className="mt-3">
-          <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">Why this plan</summary>
-          <dl className="mt-2">
-            {entry.detailFacts.map(f => <Fact key={f.label} fact={f} />)}
-          </dl>
-        </details>
-      )}
-      {entry.flags.map(flag => (
-        <p key={flag} className="mt-2 rounded border border-[var(--brand-fail)]/40 bg-[var(--brand-fail-bg)] px-2.5 py-1.5 text-xs text-[var(--brand-fail)]">{flag}</p>
-      ))}
-    </article>
-  );
-}
-
-/**
- * The QA gallery. Every artifact with a caption under it; a screenshot draws
- * itself, a video or a report is a link that says what it is.
- * @param props - The evidence.
- * @param props.items - The artifacts.
- */
-/** What the tile says when there is no picture to draw — the artifact's own kind, not "report". */
 /** What this evidence is FOR, in the reader's words rather than the field's. */
 const ROLE_WORD: Record<string, string> = {
   'proposed': 'Proposed',
@@ -192,39 +50,19 @@ const ROLE_WORD: Record<string, string> = {
 };
 
 /**
- * SHOW THE THING.
- *
- * This drew a grey square labelled "a document" over every mockup, flow and
- * diagram filed against a work item — a caption where a picture was meant to
- * be, and as useless as the empty field it replaced. Chris, 2026-09-22,
- * looking at two of them: *"Still no screenshots for before, mock or diagrams
- * visible."*
- *
- * So: a picture is drawn, a document is rendered where it sits, and only a
- * link out — the one thing a page genuinely cannot inline — stays a card to
- * open.
+ * SHOW THE THING. A picture is drawn, a document is rendered where it sits,
+ * and only a link out — the one thing a page cannot inline — stays a card.
  * @param props
  * @param props.items - The evidence to draw.
  */
 function Gallery({ items }: { items: ReportEvidence[] }) {
   return (
-    // ONE PER ROW. A mockup is the thing a decision is made against, and two
-    // to a row on a laptop halves the only part of the page that has to be
-    // looked at rather than read. The caption sits under it like a figure's,
-    // not as a header competing with the image above it.
     <ul className="mt-3 space-y-6">
       {items.map(item => (
         <li key={item.id} className="min-w-0">
           {(item.imageUrl !== null || item.body !== null) && (
             <figure className={`m-0 overflow-hidden rounded-xl border bg-surface-soft ${item.role === 'proposed' ? 'border-dashed border-border' : 'border-border'}`}>
               {item.imageUrl !== null && (
-              // A desktop mockup at 430px is a thumbnail — the one thing on
-              // this page that has to be LOOKED at, and at phone width you
-              // cannot read a word of it. So the picture opens the picture,
-              // full size. It used to open `item.url`, the artifact's own
-              // record page, which is exactly what the "Open" link in the
-              // caption below it already does: two tap targets, one outcome,
-              // and no way at all to enlarge the mockup.
                 <a href={item.imageUrl} target="_blank" rel="noreferrer" aria-label={`Open ${item.title} full size`}>
                   <img src={item.imageUrl} alt={item.caption ?? item.title} loading="lazy" className="block w-full" />
                 </a>
@@ -247,431 +85,6 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
         </li>
       ))}
     </ul>
-  );
-}
-
-/**
- * One section. A stage that did not happen keeps its heading and says what
- * is absent, because the absence is the finding.
- * @param props - The section.
- * @param props.section - The section to draw.
- */
-/**
- * SAY NOTHING WHEN THERE IS NOTHING (2026-09-26). A proposal's page carried
- * eight rows reading "not recorded", "nobody yet", "nobody estimated this" —
- * a form, not a feature. A fact with no value is left out, and a section left
- * with nothing to show is not drawn (principle 7's reduction: less evidence
- * makes a smaller page, not a longer list of what is missing).
- */
-
-function trimSection(section: ReportSection): ReportSection | null {
-  const facts = section.facts.filter(f => !EMPTY_VALUE.test(String(f.value ?? '').trim()));
-  // Today's screenshots already lead the carousel; the section keeps the link.
-  const evidence = section.key === 'today' ? [] : section.evidence;
-  const trimmed = { ...section, facts, evidence };
-  const empty = !section.absence && facts.length === 0 && trimmed.entries.length === 0 && trimmed.lists.length === 0 && evidence.length === 0 && trimmed.detailLists.length === 0;
-  return empty ? null : trimmed;
-}
-
-function Section({ section: raw }: { section: ReportSection }) {
-  const section = trimSection(raw);
-  if (!section) {
-    return null;
-  }
-  return (
-    <section id={`report-${section.key}`} data-section={section.key} className="border-t border-border/60 pt-8">
-      <h3 className="mb-3 text-sm font-semibold text-foreground">{section.title}</h3>
-      {section.absence
-        ? <p data-absence className="max-w-prose text-[15px] leading-relaxed text-muted-foreground">{section.absence}</p>
-        : (
-            <>
-              {section.facts.length > 0 && <dl>{section.facts.map(f => <Fact key={f.label} fact={f} />)}</dl>}
-              {section.entries.length > 0 && <div className="mt-3">{section.entries.map(e => <Entry key={e.key} entry={e} />)}</div>}
-              {section.lists.map(l => (
-                <div key={l.label} className="mt-5">
-                  <p className="text-xs text-muted-foreground">{l.label}</p>
-                  <ul className="mt-1.5 max-w-prose list-disc space-y-1.5 pl-5 text-[15px] leading-relaxed">
-                    {l.items.map(item => <li key={item} className="break-words">{item}</li>)}
-                  </ul>
-                </div>
-              ))}
-              {section.evidence.length > 0 && <Gallery items={section.evidence} />}
-              {section.detailLists.length > 0 && (
-                <details className="mt-4">
-                  <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
-                    {section.key === 'plan' ? 'Interfaces, risks and what was rejected' : 'More'}
-                  </summary>
-                  {section.detailLists.map(l => (
-                    <div key={l.label} className="mt-4">
-                      <p className="text-xs text-muted-foreground">{l.label}</p>
-                      <ul className="mt-1.5 max-w-prose list-disc space-y-1.5 pl-5 text-[15px] leading-relaxed">
-                        {l.items.map(item => <li key={item} className="break-words">{item}</li>)}
-                      </ul>
-                    </div>
-                  ))}
-                </details>
-              )}
-            </>
-          )}
-      {section.flags.map(flag => (
-        <p key={flag} className="mt-3 max-w-prose text-[13px] leading-relaxed text-muted-foreground">{flag}</p>
-      ))}
-    </section>
-  );
-}
-
-/**
- * WHERE THIS IS, in four dots.
- *
- * It replaces four whole sections that each said nothing had happened yet:
- * Build, The change, QA, Release, on work nobody had started. A person
- * approving a plan already knows none of that has run — being told four times
- * in four headings is, in Chris's words, "technically transparent but visually
- * exhausting".
- * @param props
- * @param props.steps - The four steps and where the work has got to.
- */
-/**
- * The stage, one line on a phone: dots and the current step's name, with
- * "your decision next" when a person holds it. The full labelled strip below
- * wrapped into two rows at 390px and orphaned "QA → Released" (Chris,
- * 2026-09-24).
- * @param props
- * @param props.steps - The lifecycle.
- * @param props.needsYou - Whether a person is the one holding it up.
- */
-function LifecycleDots({ steps, needsYou }: { steps: LifecycleStep[]; needsYou: boolean }) {
-  const nowIndex = steps.findIndex(s => s.state === 'now');
-  const current = steps[nowIndex] ?? steps.find(s => s.state === 'todo') ?? steps[steps.length - 1];
-  return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground sm:hidden" aria-label="Where this work has got to" data-testid="lifecycle-dots">
-      <span className="flex items-center gap-1" aria-hidden>
-        {steps.map(step => (
-          <span key={step.key} className={`inline-block size-1.5 rounded-full ${step.state === 'done' ? 'bg-brand-ok' : step.state === 'now' ? 'bg-brand-amber' : 'bg-border'}`} />
-        ))}
-      </span>
-      <span>
-        <span className="font-medium text-foreground">{current?.label}</span>
-        {' · '}
-        {(nowIndex >= 0 ? nowIndex : 0) + 1}
-        {' of '}
-        {steps.length}
-        {needsYou && <span className="text-brand-amber-deep"> · your decision next</span>}
-      </span>
-    </div>
-  );
-}
-
-/**
- * Which sections LEAD in each phase. Everything else is still rendered when it
- * has something to say, and silently dropped when all it would say is that it
- * has not happened.
- */
-const PHASE_LEADS: Record<ReportPhase, readonly string[]> = {
-  asked: ['visuals', 'today', 'result', 'plan'],
-  decided: ['visuals', 'today', 'result', 'plan'],
-  planned: ['plan', 'contract', 'visuals', 'result'],
-  building: ['runs', 'plan'],
-  qa: ['qa', 'change', 'visuals'],
-  released: ['result', 'release', 'qa'],
-};
-
-/**
- * Should this section be on the page at all?
- *
- * A section with content always earns its place. A section whose only content
- * is an absence earns it only while it is the thing being decided — so
- * "nothing has been built yet" is worth saying to somebody watching a build
- * stall, and is noise to somebody approving a plan.
- * @param section - The section.
- * @param phase - The phase the page is in.
- */
-function showsOnPage(section: ReportSection, phase: ReportPhase): boolean {
-  if (section.group !== 'story') {
-    return false;
-  }
-  if (section.absence === null) {
-    return true;
-  }
-  return PHASE_LEADS[phase].includes(section.key);
-}
-
-/**
- * The same action, stuck to the bottom of a phone screen, only while the work
- * is actually waiting on a person. It is not shown from `sm` up, where the
- * header above is never more than a scroll away.
- * @param props
- * @param props.state - The derived state.
- */
-function StickyAction({ state }: { state: ReportState }) {
-  if (!state.needsYou || state.action === null) {
-    return null;
-  }
-  return (
-    <div className="pointer-events-none sticky bottom-3 z-30 -mx-1 flex justify-center sm:hidden">
-      <a
-        href={state.action.href}
-        data-testid="report-sticky-action"
-        className="pointer-events-auto inline-flex h-11 items-center gap-2 rounded-full bg-brand-amber px-5 text-sm font-medium text-white shadow-(--shadow-pop)"
-      >
-        <span className="opacity-80">{state.label}</span>
-        <span>{state.action.label}</span>
-      </a>
-    </div>
-  );
-}
-
-/**
- * DONE WHEN — the contract, high on the page.
- *
- * This is what a person is looking at when they ask how close it is, and it
- * used to be several screens down inside the per-task contracts, drawn once
- * per attempt. Unchecked is drawn as unchecked, never as failed: nobody has
- * looked is a different fact from it does not hold, and collapsing the two is
- * how a page starts lying about a contract.
- * @param props
- * @param props.acceptance - The criteria and the count.
- */
-function DoneWhen({ acceptance }: { acceptance: ReportAcceptance }) {
-  if (acceptance.total === 0) {
-    return (
-      <section id="report-acceptance" className="rounded-lg border border-dashed border-border p-3">
-        <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Done when</h2>
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          Nothing says what done means for this work. Until somebody writes it, there is no way to tell whether it was delivered — only whether it ran.
-        </p>
-      </section>
-    );
-  }
-  return (
-    <section id="report-acceptance" className="rounded-lg border border-border p-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Done when</h2>
-        <span className="font-mono text-xs text-muted-foreground tabular-nums">
-          {acceptance.met}
-          {' of '}
-          {acceptance.total}
-          {acceptance.frozenAt === null ? ' · still a draft' : ''}
-        </span>
-      </div>
-      <ul className="mt-2 space-y-1.5">
-        {acceptance.items.map(item => (
-          <li key={item.statement} className="flex items-start gap-2 text-sm">
-            <span
-              aria-hidden
-              className={`mt-[3px] inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border text-[9px] leading-none ${
-                item.met === true
-                  ? 'border-brand-ok bg-brand-ok text-white'
-                  : 'border-border text-transparent'
-              }`}
-            >
-              ✓
-            </span>
-            <span className={`min-w-0 break-words ${item.met === true ? 'text-muted-foreground' : 'text-foreground'}`}>
-              {item.statement}
-              {/* The empty circle already says it. Seven repetitions of "not
-                  checked" wrapped every row onto two lines on a phone; the
-                  words stay for a screen reader, which has no circle. */}
-              {item.met === null && <span className="ml-1.5 hidden text-xs text-muted-foreground sm:inline">not checked</span>}
-              {item.met === null && <span className="sr-only">not checked</span>}
-              {item.evidenceUrl !== null && (
-                <a href={item.evidenceUrl} className="ml-1.5 text-xs text-muted-foreground underline hover:text-foreground">evidence</a>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/**
- * Six figures across the top: asked, shipped, elapsed, what it cost, how
- * many times a person decided, how many attempts it took.
- * @param props - The report.
- * @param props.report - The assembled report.
- */
-function SummaryStrip({ report }: { report: FeatureReport }) {
-  const s = report.summary;
-  const cells: Array<[string, string]> = [
-    ['Asked', s.askedAt ? formatStamp(s.askedAt) : 'not recorded'],
-    ['Shipped', s.shippedAt ? formatStamp(s.shippedAt) : 'nothing has shipped'],
-    ['Elapsed', s.elapsed === null ? 'not measurable' : s.elapsedOpen ? `${s.elapsed} so far` : s.elapsed],
-    ['Total cost', money(s.totalCents)],
-    // `null` means no record is linked, which the assembly refuses to render
-    // as a zero — the contradictions block above says why.
-    ['Human decisions', s.humanDecisions === null ? 'not linked' : String(s.humanDecisions)],
-    ['Attempts', s.attempts === null ? 'not linked' : String(s.attempts)],
-  ];
-  return (
-    <dl id="report-summary" className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-3 lg:grid-cols-6">
-      {cells.map(([label, value]) => (
-        <div key={label} className="min-w-0 bg-background p-3">
-          <dd className="font-mono text-sm font-semibold break-words tabular-nums">{value}</dd>
-          <dt className="mt-1 text-xs text-muted-foreground">{label}</dt>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-/**
- * The timeline: oldest first, newest last, each entry stamped with its time
- * and, where money was spent, its cost.
- * @param props - The report.
- * @param props.report - The assembled report.
- */
-/**
- * WATCH THE BUILD (backlog 007): the step the worker is on, how long it has
- * run, how long since it last spoke, and the tail of what it printed — from
- * the run's own heartbeat, re-read every five seconds while any run is live.
- * A build that has gone quiet says so in words; nothing here is an animation.
- * @param props - The live view.
- * @param props.live - What the run last reported.
- */
-function WatchTheBuild({ live }: { live: LiveBuild }) {
-  const since = live.sinceSec === null ? null : duration(live.sinceSec);
-  const quiet = live.quietSec !== null && live.quietSec > 90 ? `quiet for ${duration(live.quietSec)}` : null;
-  return (
-    <div className="mt-2 rounded-md border border-border/60 bg-muted/30 p-2.5" data-testid="watch-the-build">
-      <p className="text-xs text-foreground/90">
-        <span className="font-medium">{live.step ?? 'Working'}</span>
-        {since && <span className="text-muted-foreground">{` · ${since} so far`}</span>}
-        {quiet && <span className="text-brand-amber-deep">{` · ${quiet}`}</span>}
-      </p>
-      {live.log.length > 0 && (
-        <pre className="mt-1.5 max-h-40 overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre text-muted-foreground">{live.log.join('\n')}</pre>
-      )}
-    </div>
-  );
-}
-
-/**
- * Seconds as a person reads them: "45s", "3m 10s", "1h 12m".
- * @param sec - Seconds.
- */
-function duration(sec: number): string {
-  if (sec < 60) {
-    return `${sec}s`;
-  }
-  if (sec < 3600) {
-    return `${Math.floor(sec / 60)}m ${sec % 60}s`;
-  }
-  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
-}
-
-function Timeline({ report }: { report: FeatureReport }) {
-  if (report.timeline.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nothing on this request is dated, so there is no order to show.</p>;
-  }
-  return (
-    <ol id="report-timeline" className="relative ml-1.5 border-l border-border pl-4">
-      {report.timeline.some(e => e.live) && <LiveRefresh everyMs={5000} />}
-      {report.timeline.map(entry => (
-        <li key={entry.key} data-timeline-entry={entry.key} className="relative pb-4 last:pb-0">
-          <span className={`absolute top-1.5 left-[-1.3125rem] size-2 rounded-full ring-2 ring-background ${TONE_DOT[entry.tone]}`} />
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className="font-mono text-[11px] whitespace-nowrap text-muted-foreground tabular-nums">{formatStamp(entry.at)}</span>
-            {entry.cents !== null && (
-              <span className="font-mono text-[11px] whitespace-nowrap text-muted-foreground tabular-nums">{money(entry.cents)}</span>
-            )}
-          </div>
-          <p className={`text-sm break-words ${TONE_TEXT[entry.tone]}`}>
-            {entry.href
-              ? <a href={entry.href} className="break-all underline underline-offset-2">{entry.title}</a>
-              : entry.title}
-          </p>
-          {entry.detail && <p className="mt-0.5 line-clamp-3 text-xs break-words text-muted-foreground">{entry.detail}</p>}
-          {entry.live && <WatchTheBuild live={entry.live} />}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-/**
- * WHICH WORK THIS IS — product, size, spend, age. The breadcrumb names the
- * factory and a row id; neither of those is the product a person means.
- *
- * It renders inside the title block, under the goal, because that is where it
- * belongs and because the alternative bit us: as the first child of the report
- * column it needed a negative top margin to sit close to the title, and that
- * column is a scroll container (`overflow-x-hidden` beside the shell's
- * `overflow-y: auto`). A scrollport does not extend above its own top edge, so
- * `-mt-4` put the line 16px above the origin and the browser clipped all but
- * its bottom 3px. Production rendered two grey specks — the descenders of
- * "change" and "ago" — while `getBoundingClientRect` still reported a full
- * 398x19 box. Layout said it was there; paint said it was not.
- * Chris, 2026-09-23.
- * @param props - The context bits.
- * @param props.bits - Short facts, in reading order.
- */
-export function ReportContextLine({ bits }: { bits: readonly string[] }) {
-  if (bits.length === 0) {
-    return null;
-  }
-  return (
-    <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-      {bits.map((bit, i) => (
-        <span key={bit} className="flex items-center gap-2">
-          {i > 0 && <span aria-hidden className="text-border">·</span>}
-          {bit}
-        </span>
-      ))}
-    </p>
-  );
-}
-
-/**
- * The whole page body.
- * @param props - The report.
- * @param props.report - The assembled report.
- */
-/** Sections that are how it was made, not what it is: below the feature, in Activity, once the work has landed. */
-const BUILD_DETAIL_KEYS: ReadonlySet<string> = new Set(['runs', 'money', 'approvals']);
-
-/**
- * A process warning in plain words, one line. The full discrepancy stays one
- * tap away; it must not push the feature off the screen (Chris, 2026-09-25:
- * "This feature was built without the required plan").
- * @param c - The contradiction as recorded.
- */
-export function plainWarning(c: string): string {
-  if (/plan rule required a plan/i.test(c)) {
-    return 'This feature was built without the required plan.';
-  }
-  const first = c.split(/(?<=[.!?])\s/)[0] ?? c;
-  return first.length > 120 ? `${first.slice(0, 117)}…` : first;
-}
-
-/**
- * WHAT NEEDS YOU, in one line: the thing waiting, how long, and the one
- * button that opens it where it is decided. The whole draft used to sit on
- * the feature page — process narration, internal labels, a cost, raw
- * `**Approve**` — and it pushed the feature off the first screen.
- * @param props
- * @param props.state - The derived state.
- */
-function ActionStrip({ state }: { state: ReportState }) {
-  const d = state.decision;
-  const href = state.action?.href ?? (d ? inboxHref(d.kind === 'ask' ? 'ask' : 'proposal', d.id) : null);
-  if (!state.needsYou && !d) {
-    return null;
-  }
-  const what = state.question ?? state.label;
-  return (
-    <section id="report-state" data-testid="report-action-strip" className="flex min-w-0 items-center gap-3 rounded-lg border border-brand-amber/40 bg-brand-amber-tint/60 px-3 py-2">
-      <span className="size-2 shrink-0 rounded-full bg-brand-amber" aria-hidden />
-      <p className="min-w-0 flex-1 truncate text-sm">
-        <span className="font-medium text-foreground">{what}</span>
-        {state.detail && <span className="text-muted-foreground">{` · ${state.detail}`}</span>}
-      </p>
-      {href && (
-        <a href={href} data-testid="report-primary-action" className="inline-flex h-8 shrink-0 items-center rounded-md bg-brand-amber px-3 text-[13px] font-medium text-white transition-colors hover:bg-brand-amber-deep">
-          Review
-        </a>
-      )}
-    </section>
   );
 }
 
@@ -705,21 +118,412 @@ function HeroMedia({ pictures, docs }: { pictures: ReportEvidence[]; docs: Repor
   );
 }
 
+/**
+ * Seconds as a person reads them: "45s", "3m 10s", "1h 12m".
+ * @param sec - Seconds.
+ */
+function duration(sec: number): string {
+  if (sec < 60) {
+    return `${sec}s`;
+  }
+  if (sec < 3600) {
+    return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  }
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+}
+
+/**
+ * WATCH THE BUILD (backlog 007): the step the worker is on, how long it has
+ * run, how long since it last spoke, and the tail of what it printed. A build
+ * that has gone quiet says so in words.
+ * @param props - The live view.
+ * @param props.live - What the run last reported.
+ */
+function WatchTheBuild({ live }: { live: LiveBuild }) {
+  const since = live.sinceSec === null ? null : duration(live.sinceSec);
+  const quiet = live.quietSec !== null && live.quietSec > 90 ? `quiet for ${duration(live.quietSec)}` : null;
+  return (
+    <div className="mt-3 rounded-md border border-border/60 bg-muted/30 p-2.5" data-testid="watch-the-build">
+      <p className="text-xs text-foreground/90">
+        <span className="font-medium">{live.step ?? 'Working'}</span>
+        {since && <span className="text-muted-foreground">{` · ${since} so far`}</span>}
+        {quiet && <span className="text-brand-amber-deep">{` · ${quiet}`}</span>}
+      </p>
+      {live.log.length > 0 && (
+        <pre className="mt-1.5 max-h-40 overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre text-muted-foreground">{live.log.join('\n')}</pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * WHICH WORK THIS IS — product, size, spend, age — under the subtitle in the
+ * title block, smaller and muted (it is metadata, not the headline). It lives
+ * inside the title block because a negative margin inside the scrolling
+ * report column once clipped it to two grey specks (2026-09-23).
+ * @param props - The context bits.
+ * @param props.bits - Short facts, in reading order.
+ */
+export function ReportContextLine({ bits }: { bits: readonly string[] }) {
+  if (bits.length === 0) {
+    return null;
+  }
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+      {bits.map((bit, i) => (
+        <span key={bit} className="flex items-center gap-2">
+          {i > 0 && <span aria-hidden className="text-border">·</span>}
+          {bit}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/**
+ * A process warning in plain words, one line. Kept for any caller that still
+ * holds a raw contradiction; the page itself reads `report.notices`.
+ * @param c - The contradiction as recorded.
+ */
+export function plainWarning(c: string): string {
+  if (/plan rule required a plan/i.test(c)) {
+    return 'This feature was built without the required plan.';
+  }
+  const first = c.split(/(?<=[.!?])\s/)[0] ?? c;
+  return first.length > 120 ? `${first.slice(0, 117)}…` : first;
+}
+
+/**
+ * The one action, drawn by kind: the Build button, a drawer, or a link.
+ * @param props
+ * @param props.action - The action.
+ * @param props.report - The report, for the ids a Build needs.
+ * @param props.primary - Whether this is the page's one primary action.
+ * @param props.children - A quieter second action, placed beside Build.
+ */
+function ActionButton({ action, report, primary, children }: { action: ReportAction; report: FeatureReport; primary: boolean; children?: React.ReactNode }) {
+  if (action.kind === 'build') {
+    return (
+      <div data-testid="feature-decide">
+        <FeatureBuild requestId={report.requestId} planId={report.planId} label={action.label}>{children}</FeatureBuild>
+      </div>
+    );
+  }
+  if (action.kind === 'drawer') {
+    return <FeatureDrawerLink requestId={report.requestId} drawer={action.drawer} look={primary ? 'primary' : 'quiet'} testId={primary ? 'report-primary-action' : undefined}>{action.label}</FeatureDrawerLink>;
+  }
+  const external = /^https?:\/\//i.test(action.href);
+  return (
+    <a
+      href={action.href}
+      {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
+      data-testid={primary ? 'report-primary-action' : undefined}
+      className={primary
+        ? 'inline-flex h-9 items-center rounded-md bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90'
+        : 'inline-flex h-8 items-center rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground'}
+    >
+      {action.label}
+    </a>
+  );
+}
+
+/**
+ * WHERE IT IS, AND THE ONE MOVE. One or two sentences — what is known, and
+ * what is not established — and one action that follows the state.
+ * @param props
+ * @param props.report - The report.
+ */
+function StatusBlock({ report }: { report: FeatureReport }) {
+  const s: ReportStatus = report.status;
+  const secondary = s.secondary === null
+    ? null
+    : s.secondary.kind === 'dismiss'
+      ? <FeatureDismiss requestId={report.requestId} />
+      : <ActionButton action={s.secondary} report={report} primary={false} />;
+  return (
+    <section id="report-state" data-testid="report-status" aria-label="Where this work is" className="space-y-3">
+      <p className="max-w-prose text-[15px] leading-relaxed text-foreground">
+        <StatusDot tone={DOT_TONE[s.tone]} label={<span className="font-semibold">{s.headline}</span>} className="mr-2 align-baseline" />
+        <span data-testid="report-status-sentence">{s.sentence}</span>
+      </p>
+      {s.action && (
+        <div className="flex flex-wrap items-center gap-2">
+          {s.action.kind === 'build'
+            ? <ActionButton action={s.action} report={report} primary>{secondary}</ActionButton>
+            : (
+                <>
+                  <ActionButton action={s.action} report={report} primary />
+                  {secondary}
+                </>
+              )}
+        </div>
+      )}
+      {report.notices.length > 0 && <Notices notices={report.notices} requestId={report.requestId} />}
+    </section>
+  );
+}
+
+/**
+ * RECORD PROBLEMS, QUIETLY. Each says what is known, whether it blocks, and
+ * one specific move; the raw disagreement is in the drawer. None of these is
+ * red — a disagreement between records is not an outage (Chris, 2026-09-28).
+ * @param props
+ * @param props.notices - The notices.
+ * @param props.requestId - The request, for the drawer.
+ */
+function Notices({ notices, requestId }: { notices: ReportNotice[]; requestId: number }) {
+  return (
+    <ul id="report-notices" data-testid="report-notices" className="space-y-1.5">
+      {notices.map(n => (
+        <li key={n.key} data-severity={n.severity} className="flex max-w-prose items-start gap-2 text-[13px] leading-relaxed text-muted-foreground">
+          <span aria-hidden className={`mt-[7px] size-1.5 shrink-0 rounded-full ${n.severity === 'blocking' ? 'bg-brand-fail' : 'bg-brand-borderline'}`} />
+          <span className="min-w-0">
+            <span className="text-foreground/90">{n.known}</span>
+            {` ${n.blocks} `}
+            <FeatureDrawerLink requestId={requestId} drawer={n.action.drawer} look="link" className="text-[13px]">{n.action.label}</FeatureDrawerLink>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * PLAN — the scope in a sentence, its status in a word, who approved it and
+ * when, and a risk it names. Steps, rationale, boundaries, paths and the
+ * approval history are in "View plan".
+ * @param props
+ * @param props.report - The report.
+ */
+function PlanBlock({ report }: { report: FeatureReport }) {
+  const p = report.planSummary;
+  const tone: DotTone = p.status === 'Approved' ? 'pass' : p.status === 'Superseded' || p.status === 'Rejected' ? 'neutral' : 'amber';
+  return (
+    <Section id="report-plan" data-testid="report-plan" eyebrow="Plan" action={<FeatureDrawerLink requestId={report.requestId} drawer="plan">View plan</FeatureDrawerLink>}>
+      {p.status === null
+        ? <p className="text-[15px] text-muted-foreground">{p.absence}</p>
+        : (
+            <div className="space-y-1.5">
+              {p.scope && <p className="max-w-prose text-[15px] leading-relaxed text-foreground">{p.scope}</p>}
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+                <StatusDot tone={tone} label={<span className="text-foreground">{p.status}</span>} />
+                {p.approver && <span>{`· ${p.approver}`}</span>}
+                {p.approvedAt && (
+                  <span>
+                    {'· '}
+                    <LocalDate at={p.approvedAt} />
+                  </span>
+                )}
+                {p.steps > 0 && <span>{`· ${p.steps} step${p.steps === 1 ? '' : 's'}`}</span>}
+              </p>
+              {p.risk && (
+                <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
+                  <span className="text-foreground/80">Risk it names: </span>
+                  {p.risk}
+                </p>
+              )}
+            </div>
+          )}
+    </Section>
+  );
+}
+
+/**
+ * IMPLEMENTATION — build and the change as one. The latest attempt as a row,
+ * the earlier ones counted, the five delivery facts kept apart (run completed
+ * ≠ checks passed ≠ merged ≠ acceptance verified ≠ released), and the spend.
+ * @param props
+ * @param props.report - The report.
+ */
+function ImplementationBlock({ report }: { report: FeatureReport }) {
+  const impl = report.implementation;
+  const live = report.timeline.find(e => e.live)?.live ?? null;
+  const pr = impl.prUrl ? /\/pull\/(\d+)/.exec(impl.prUrl)?.[1] : null;
+  return (
+    <Section id="report-implementation" data-testid="report-implementation" eyebrow="Implementation" action={<FeatureDrawerLink requestId={report.requestId} drawer="implementation">Details</FeatureDrawerLink>}>
+      {impl.latest === null
+        ? <p className="text-[15px] text-muted-foreground">{impl.absence}</p>
+        : (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px]" data-testid="report-latest-run">
+                <StatusDot tone={DOT_TONE[impl.latest.tone]} label={<span className="font-medium text-foreground">{impl.latest.outcome}</span>} />
+                <span className="text-[13px] text-muted-foreground tabular-nums">
+                  {`Latest run · ${impl.latest.ago}${impl.latest.cents !== null ? ` · ${money(impl.latest.cents)}` : ''}`}
+                </span>
+                {impl.prUrl && (
+                  <a href={impl.prUrl} target="_blank" rel="noreferrer" className="text-[13px] break-all text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
+                    {pr ? `Pull request #${pr}` : 'Pull request'}
+                  </a>
+                )}
+                <PreviewOpen recordRef={{ type: 'worker_run', id: String(impl.latest.runId) }} testId="report-view-run">View run</PreviewOpen>
+              </div>
+              {impl.latest.why && impl.latest.tone !== 'ok' && <p className="max-w-prose text-[13px] leading-relaxed break-words text-muted-foreground">{impl.latest.why}</p>}
+              {live && <WatchTheBuild live={live} />}
+              {impl.earlier > 0 && (
+                <FeatureDrawerLink requestId={report.requestId} drawer="implementation" testId="report-earlier-attempts">
+                  {`${impl.earlier} earlier attempt${impl.earlier === 1 ? '' : 's'}`}
+                </FeatureDrawerLink>
+              )}
+            </div>
+          )}
+      <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[13px]" data-testid="report-ladder" aria-label="Delivery, step by step">
+        {impl.ladder.map(step => (
+          <li key={step.key} data-step={step.key} data-state={step.state}>
+            <StatusDot
+              // "Not released" is a fact, not a failure: only a step that
+              // went wrong (a failed run, failed checks, a failed criterion) is red.
+              tone={step.state === 'yes' ? 'pass' : step.state === 'no' && step.key !== 'released' ? 'fail' : 'neutral'}
+              label={(
+                <span className="text-muted-foreground">
+                  {`${step.label}: `}
+                  <span className="text-foreground">{step.value}</span>
+                </span>
+              )}
+            />
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-[13px] text-muted-foreground tabular-nums" data-testid="report-cost">
+        {impl.costLine}
+        {' · '}
+        <FeatureDrawerLink requestId={report.requestId} drawer="cost">Cost breakdown</FeatureDrawerLink>
+      </p>
+    </Section>
+  );
+}
+
+const CRITERION_WORD = { passed: 'Passed', failed: 'Failed', unverified: 'Unverified' } as const;
+const CRITERION_TONE: Record<keyof typeof CRITERION_WORD, DotTone> = { passed: 'pass', failed: 'fail', unverified: 'neutral' };
+
+/**
+ * ACCEPTANCE — "N of M verified" and the criteria, each Unverified, Passed or
+ * Failed. Passed needs evidence; each criterion opens it. The review
+ * procedure is one click away.
+ * @param props
+ * @param props.report - The report.
+ */
+function AcceptanceBlock({ report }: { report: FeatureReport }) {
+  const a = report.acceptance;
+  return (
+    <Section
+      id="report-acceptance"
+      data-testid="report-acceptance"
+      eyebrow={a.total === 0 ? 'Acceptance' : `Acceptance · ${a.verified} of ${a.total} verified`}
+      commentField="Acceptance"
+      action={<FeatureDrawerLink requestId={report.requestId} drawer="acceptance">{a.procedure ? 'How it is reviewed' : 'Details'}</FeatureDrawerLink>}
+    >
+      {a.total === 0
+        ? <p className="max-w-prose text-[15px] text-muted-foreground">Nothing says what done means for this work yet, so it can be shown to run but not shown to be done.</p>
+        : (
+            <ul className="-mx-2 space-y-0.5">
+              {a.items.map((c, i) => (
+                <li key={c.statement}>
+                  <FeatureDrawerLink requestId={report.requestId} drawer={`criterion-${i}`} look="row" className="flex items-start gap-3 px-2 py-1.5" testId="report-criterion">
+                    <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
+                      <StatusDot tone={CRITERION_TONE[c.state]} label={<span className={c.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{CRITERION_WORD[c.state]}</span>} />
+                    </span>
+                    <span className="min-w-0 flex-1 text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
+                  </FeatureDrawerLink>
+                </li>
+              ))}
+            </ul>
+          )}
+    </Section>
+  );
+}
+
+/**
+ * RELEASE — Live (with its evidence), Release not verified, or Not released
+ * (confirmed: nothing merged). Deployment detail is in the drawer.
+ * @param props
+ * @param props.report - The report.
+ */
+function ReleaseBlock({ report }: { report: FeatureReport }) {
+  const r = report.release;
+  const external = r.href !== null && /^https?:\/\//i.test(r.href);
+  return (
+    <Section id="report-release" data-testid="report-release" eyebrow="Release" action={<FeatureDrawerLink requestId={report.requestId} drawer="release">Details</FeatureDrawerLink>}>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
+        <StatusDot tone={r.state === 'live' ? 'pass' : r.state === 'unverified' ? 'amber' : 'neutral'} label={<span className="font-medium text-foreground">{r.label}</span>} />
+        <span className="text-[13px] text-muted-foreground">
+          {r.state === 'live' && r.at
+            ? (
+                <>
+                  {'since '}
+                  <LocalDate at={r.at} />
+                </>
+              )
+            : r.sentence}
+        </span>
+        {r.href && (
+          <a href={r.href} {...(external ? { target: '_blank', rel: 'noreferrer' } : {})} className="text-[13px] text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
+            {r.state === 'live' ? 'Open it' : 'Open the record'}
+          </a>
+        )}
+      </p>
+    </Section>
+  );
+}
+
+/**
+ * ACTIVITY — the few events worth a glance, newest first. The whole log is
+ * "View all activity".
+ * @param props
+ * @param props.report - The report.
+ */
+function ActivityBlock({ report }: { report: FeatureReport }) {
+  return (
+    <Section id="report-activity" data-testid="report-activity" eyebrow="Activity" action={<FeatureDrawerLink requestId={report.requestId} drawer="activity">View all activity</FeatureDrawerLink>}>
+      {report.activityPreview.length === 0
+        ? <p className="text-[13px] text-muted-foreground">Nothing on this work is dated yet.</p>
+        : (
+            <ol className="space-y-1.5">
+              {report.activityPreview.map(e => (
+                <li key={e.key} data-timeline-entry={e.key} className="flex min-w-0 items-baseline gap-3 text-[13px]">
+                  <span className="w-24 shrink-0 whitespace-nowrap text-muted-foreground tabular-nums">{e.ago}</span>
+                  <span className="min-w-0 flex-1 truncate text-foreground/90">{e.title}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+    </Section>
+  );
+}
+
+/**
+ * The same action, stuck to the bottom of a phone screen, only while the work
+ * is waiting on a person. Not shown from `sm` up.
+ * @param props
+ * @param props.report - The report.
+ */
+function StickyAction({ report }: { report: FeatureReport }) {
+  const a = report.status.action;
+  if (!report.state.needsYou || a === null || a.kind === 'build') {
+    return null;
+  }
+  const label = (
+    <>
+      <span className="opacity-80">{report.status.headline}</span>
+      <span>{a.label}</span>
+    </>
+  );
+  const look = 'pointer-events-auto inline-flex h-11 items-center gap-2 rounded-full bg-brand-amber px-5 text-sm font-medium text-white shadow-(--shadow-pop)';
+  return (
+    <div className="pointer-events-none sticky bottom-3 z-30 -mx-1 flex justify-center sm:hidden" data-testid="report-sticky-action">
+      {a.kind === 'drawer'
+        ? <FeatureDrawerLink requestId={report.requestId} drawer={a.drawer} className={look}>{label}</FeatureDrawerLink>
+        : <a href={a.href} className={look}>{label}</a>}
+    </div>
+  );
+}
+
 export function FeatureReportView({ report }: { report: FeatureReport }) {
   const visuals = report.sections.find(x => x.key === 'visuals');
   const today = report.sections.find(x => x.key === 'today');
-  // THE BEST REAL PICTURE LEADS: what shipped, then the product today, then
-  // a mockup somebody made — and the platform's own drawing only when there
-  // is nothing else. The drawing led on request 87 (2026-09-25) as a broken
-  // image while the real Share dialog sat in a thumbnail beside it, and a real
-  // screenshot of today sat below the fold on 105 under "Preview pending".
-  //
-  // Before it is built, the PROPOSAL leads: the mockup, then its flow and
-  // diagram, then the screen as it is today for comparison. A screenshot of
-  // today leading a proposal (2026-09-25) showed the thing being replaced
-  // first. The platform's own drawing only appears when nothing else does.
+  // THE BEST REAL PICTURE LEADS: what shipped, then the product today, then a
+  // mockup somebody made — the platform's own drawing only when nothing else
+  // exists. Before it is built the proposal leads (2026-09-25).
   const drawn = (e: ReportEvidence) => e.role === 'proposed' && e.title === 'Proposed change';
-  // Once the work has landed, how it was made is Activity, not the page.
   const landed = report.phase === 'released' || report.phase === 'qa';
   const rank = (e: ReportEvidence) => (e.role === 'shipped' ? 0 : drawn(e) ? 4 : e.role === 'today' ? (landed ? 1 : 3) : 2);
   const ranked = [...(visuals?.evidence ?? []), ...(today?.evidence ?? [])]
@@ -727,102 +531,55 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
     .sort((a, b) => rank(a) - rank(b));
   const pictures = ranked.some(p => !drawn(p)) ? ranked.filter(p => !drawn(p)) : ranked;
   const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
-  const onTop = (x: ReportSection) => showsOnPage(x, report.phase) && x.key !== 'visuals' && !(landed && BUILD_DETAIL_KEYS.has(x.key));
-  const buildDetails = landed ? report.sections.filter(x => BUILD_DETAIL_KEYS.has(x.key) && showsOnPage(x, report.phase)) : [];
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
-      {/* THE FIRST SCREEN ANSWERS FOUR QUESTIONS (Chris, 2026-09-25): what is
-          it (the title above), who wanted it and why (the story), what it
-          looks like (the picture), and what needs me now (one line). The
-          process — a warning, the stage — is one line each under that. */}
-      <div className="space-y-4">
-        {report.story !== null && (
-          <div id="report-story" className="prose prose-sm max-w-prose text-foreground dark:prose-invert prose-p:my-0 prose-p:text-[16px] prose-p:leading-relaxed">
-            <Markdown remarkPlugins={[remarkGfm]}>{report.story}</Markdown>
+      {/* One pane for every drawer on this page, and for every peek. */}
+      <PreviewPanel />
+      {report.timeline.some(e => e.live) && <LiveRefresh everyMs={5000} />}
+
+      {/* 1 + 2. THE INTRODUCTION, THEN WHERE IT IS. The title, subtitle and
+          context line are the route's title bar; the story is a short plain
+          paragraph, and what it should change for people sits with it. */}
+      <div className="space-y-5">
+        {(report.story !== null || report.expectedBenefit !== null) && (
+          <div id="report-story" className="max-w-prose space-y-2">
+            {report.story !== null && (
+              <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-p:my-0 prose-p:text-[15px] prose-p:leading-relaxed">
+                <Markdown remarkPlugins={[remarkGfm]}>{report.story}</Markdown>
+              </div>
+            )}
+            {report.expectedBenefit !== null && (
+              <p className="text-[15px] leading-relaxed text-foreground" data-testid="report-benefit">
+                <span className="text-muted-foreground">Expected benefit: </span>
+                {report.expectedBenefit}
+              </p>
+            )}
           </div>
         )}
-        <HeroMedia pictures={pictures} docs={docs} />
-        <ActionStrip state={report.state} />
-        {/* ONE DECISION, TWO WAYS (2026-09-26): build it or dismiss it, right
-            under the picture — the page used to offer only Dismiss. */}
-        {report.canBuild && (
-          <div data-testid="feature-decide">
-            <FeatureBuild requestId={report.requestId} planId={report.planId}>
-              <FeatureDismiss requestId={report.requestId} />
-            </FeatureBuild>
-          </div>
-        )}
-        <LifecycleDots steps={report.lifecycle} needsYou={report.state.needsYou} />
-        {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} />}
-        {report.contradictions.length > 0 && (
-          <details id="report-contradictions" className="group text-sm">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-[var(--brand-fail)]">
-              <span className="size-1.5 shrink-0 rounded-full bg-[var(--brand-fail)]" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{plainWarning(report.contradictions[0]!)}</span>
-              <span className="shrink-0 text-xs underline underline-offset-2">Evidence</span>
-            </summary>
-            <ul className="mt-2 space-y-1 rounded-lg border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)] p-3 text-[13px] text-[var(--brand-fail)]">
-              {report.contradictions.map(c => <li key={c} className="break-words">{c}</li>)}
-              <li className="text-xs opacity-80">Both facts are shown as recorded. Nothing here was resolved for you.</li>
-            </ul>
-          </details>
-        )}
+        <StatusBlock report={report} />
       </div>
 
-      {/* THE STORY, in the order a person follows it: what we are going to
-          make, what was built, the evidence, what remains, what it cost. The
-          machinery that produced it — the original ask, the triage figures,
-          the per-task contracts, the approval records — is all still here,
-          one level down, where it is traceable without being in the way. */}
-      {/* THE ORDER A PERSON READS IT IN (Chris, 2026-09-23): the outcome, then
-          the mock, then the story, then where to go and see how it works
-          today, then the plan and what counts as done. The mock comes before
-          the prose because it answers the question the prose is about. */}
-      <div className="space-y-8">
-        {report.sections.filter(onTop).map(section => <Section key={section.key} section={section} />)}
+      {/* 3. WHAT IT LOOKS LIKE — the gallery, as it was. */}
+      <HeroMedia pictures={pictures} docs={docs} />
+
+      {/* 4. CONNECTED WORK — compact; the whole list opens in the pane. */}
+      {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} requestId={report.requestId} />}
+
+      {/* 5–9. Each stage in a few lines, the full record one tap away. */}
+      <div>
+        <PlanBlock report={report} />
+        <ImplementationBlock report={report} />
+        <AcceptanceBlock report={report} />
+        <ReleaseBlock report={report} />
+        <ActivityBlock report={report} />
       </div>
 
-      {/* WHAT COUNTS AS DONE, under the proposal rather than above it: it is
-          the last thing read before approving, not the first. */}
-      <DoneWhen acceptance={report.acceptance} />
+      <p className="text-[13px] text-muted-foreground">
+        <FeatureDrawerLink requestId={report.requestId} drawer="details">The records behind this page</FeatureDrawerLink>
+        {' — the ask as written, triage, the contracts and the approvals.'}
+      </p>
 
-      {/* HISTORY, at the bottom. The timeline is genuinely useful and it was
-          the second thing on the page, which made the database the
-          protagonist. The work is the protagonist; this is what happened to
-          it, for a reader who has got that far and wants it. */}
-      {/* HISTORY behind a tap. Good audit data, and nobody approving a plan
-          needs to scroll a timestamped event stream to understand a feature. */}
-      <details id="report-activity" className="border-t border-border/60 pt-6">
-        <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
-          Activity
-          <span className="ml-2 text-xs">
-            {buildDetails.length > 0 ? 'build details · ' : ''}
-            {report.timeline.length}
-            {report.timeline.length === 1 ? ' event' : ' events'}
-          </span>
-        </summary>
-        <div className="mt-4 space-y-8">
-          {buildDetails.map(section => <Section key={section.key} section={section} />)}
-          <Timeline report={report} />
-        </div>
-      </details>
-
-      {report.sections.some(x => x.group === 'detail') && (
-        <details id="report-technical" className="border-t border-border/60 pt-6">
-          <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
-            Details
-            <span className="ml-2 text-xs">the ask as written, triage, the contracts, the approvals, the figures</span>
-          </summary>
-          <div className="mt-4 space-y-8">
-            {report.sections.filter(x => x.group === 'detail' || !showsOnPage(x, report.phase)).map(section => <Section key={section.key} section={section} />)}
-            <SummaryStrip report={report} />
-          </div>
-        </details>
-      )}
-
-      <StickyAction state={report.state} />
-
-      {/* The footer about where figures come from is gone: every figure links its record. */}
+      <StickyAction report={report} />
     </div>
   );
 }

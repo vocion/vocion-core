@@ -1,21 +1,36 @@
 import type { FeatureReportInput } from '@/services/factory/featureReport';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { closePreview } from '@/features/preview/previewState';
 import { assembleFeatureReport } from '@/services/factory/featureReport';
 import { FeatureReportView, plainWarning, ReportContextLine } from './FeatureReportView';
 import '@/styles/global.css';
 
 /**
- * The feature report, drawn — at a desk and on a phone.
+ * The feature page, drawn — at a desk and on a phone.
  *
- * A report is read where the question is asked, which is often on a phone
- * between other things, and the values on it are the widest strings in the
- * product: a pull request URL, a branch, a file path, a commit. The page has
- * to hold them without pushing the document sideways, so this measures
- * geometry rather than class names — the next person to restyle this should
- * find out here whether they reintroduced a horizontal scroll.
+ * The reader is a product owner (Chris, 2026-09-28): the introduction, where
+ * it is and the one move, the gallery, the connected work, then Plan,
+ * Implementation, Acceptance, Release and Activity as a few lines each, with
+ * the full record one tap away in the preview pane. This measures geometry
+ * and order rather than class names — the next person to restyle it should
+ * find out here whether they reintroduced a horizontal scroll, a red warning
+ * over a record disagreement, or a Build button over a live build.
  */
+
+// The pane's chat button reads the router, and the pane fetches its content;
+// neither matters to the page's layout.
+vi.mock('@/libs/I18nNavigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  usePathname: () => '/dashboard/p/feature/41',
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
+}));
+// A live build re-reads the page every few seconds through Next's router.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {}, push: () => {}, replace: () => {} }) }));
+vi.mock('@/libs/Orpc', () => ({
+  client: { preview: { get: vi.fn(async (input: { type: string; id: string }) => ({ ref: input, title: 'A drawer', sourceLabel: 'Feature', body: 'The full record.' })) } },
+}));
 
 const T = (iso: string) => new Date(iso);
 
@@ -33,9 +48,11 @@ function fixture(over: Partial<FeatureReportInput> = {}) {
         channel: 'dogfood',
         product: 'northwind-portal',
         body: 'I can read the room on screen but I cannot hand it to my board. Give me a PDF.',
+        story: 'A room owner hands their board a PDF of the room from the share menu.',
+        expectedResult: 'Board packs stop being screenshots.',
         askedBy: { name: 'Dana Okafor' },
         askedAt: '2026-09-01T09:00:00Z',
-        state: 'shipped',
+        state: 'building',
         severity: 'p2',
         decisionCost: 5,
         recommendedOutcome: 'build',
@@ -105,106 +122,139 @@ async function draw(report: ReturnType<typeof fixture>) {
   );
 }
 
-describe('the feature report, drawn', () => {
-  it('leads with the work and keeps the machinery behind Technical details', async () => {
-    // It used to read ask · triage · plan · contract · approvals · runs ·
-    // change · qa · release · money — the internal entities, in the order the
-    // records were written. The story a person follows comes first now; the
-    // ask as written, the triage figures, the contracts and the approval
-    // records are still on the page, one level down.
+describe('the feature page, in the order a product owner reads it', () => {
+  it('goes introduction, status, gallery, then plan, implementation, acceptance, release, activity', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const keys = [...document.querySelectorAll('[data-section]')].map(el => el.getAttribute('data-section'));
+    const order = ['report-story', 'report-state', 'report-visuals', 'report-plan', 'report-implementation', 'report-acceptance', 'report-release', 'report-activity']
+      .map(id => document.getElementById(id));
 
-    // The fixture is a RELEASED feature, so the sections that lead are the
-    // result and its evidence; the plan is still on the page, behind Details,
-    // because it has nothing left to decide.
-    // Asserted as a property, because which sections lead depends on the
-    // PHASE now: a released feature leads with its result and its evidence,
-    // and a section whose only content is "this has not happened" is dropped
-    // rather than drawn.
-    // Asserted as a property, because which sections LEAD depends on the
-    // phase now. This fixture is mid-build, so Build leads and Release — which
-    // would only be able to say it has not happened — drops behind Details.
-    const leads = keys.slice(0, keys.indexOf('ask'));
+    expect(order.every(el => el !== null)).toBe(true);
 
-    expect(leads).toContain('runs');
-    expect(leads).not.toContain('release');
-
-    // Nothing is lost: every section is still on the page somewhere.
-    for (const k of ['ask', 'triage', 'contract', 'approvals', 'plan', 'release']) {
-      expect(keys).toContain(k);
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
 
-    // Nothing was dropped on the way.
-    expect(keys).toHaveLength(13);
-
-    // And the four that moved are inside the disclosure, not merely after it.
-    const technical = document.querySelector('#report-technical')!;
-
-    for (const key of ['ask', 'triage', 'contract', 'approvals']) {
-      expect(technical.querySelector(`[data-section="${key}"]`)).not.toBeNull();
-    }
+    expect(document.querySelector('[data-testid="report-benefit"]')!.textContent).toContain('Board packs stop being screenshots.');
   });
 
-  it('puts the newest timeline entry last', async () => {
+  it('says where it is in one sentence with one action that follows the state', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const entries = [...document.querySelectorAll('[data-timeline-entry]')].map(el => el.getAttribute('data-timeline-entry'));
-
-    expect(entries[0]).toBe('asked');
-    expect(entries.at(-1)).toBe('run-502-pr');
+    // Accepted by QA, not merged by a release: ready to merge, not live.
+    expect(document.querySelector('[data-testid="report-status-sentence"]')!.textContent).toContain('It is not live until it merges.');
+    expect(document.querySelector('[data-testid="report-primary-action"]')!.textContent).toBe('Review the merge');
   });
 
-  it('shows the six summary figures and the money line', async () => {
+  it('draws a record disagreement quietly, never red, with what it blocks and one move', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const strip = document.querySelector('#report-summary')!;
+    const notice = document.querySelector('#report-notices [data-severity="inconsistency"]')!;
 
-    expect(strip.textContent).toContain('Asked');
-    expect(strip.textContent).toContain('nothing has shipped');
-    expect(strip.textContent).toContain('Attempts');
-    expect(document.querySelector('#report-money')?.textContent ?? document.querySelector('[data-section="money"]')!.textContent).toContain('+$5.50');
+    expect(notice.textContent).toContain('Run 502 is recorded as failed, but its pull request merged.');
+    expect(notice.textContent).toContain('This does not block anything');
+    expect(notice.querySelector('[data-preview-key="feature_section:41.status"]')).not.toBeNull();
+    expect(document.querySelector('#report-notices .bg-brand-fail')).toBeNull();
   });
 
-  it('says what did not happen instead of hiding it', async () => {
+  it('keeps run completed, checks, merged, acceptance and released apart', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const absences = [...document.querySelectorAll('[data-absence]')].map(el => el.textContent);
+    const steps = [...document.querySelectorAll('[data-testid="report-ladder"] [data-step]')].map(el => [el.getAttribute('data-step'), el.getAttribute('data-state')]);
 
-    expect(absences).toContain('Not ready for review — nobody has looked at this running yet.');
-    expect(absences).toContain('Not released. Nothing has carried this work to people yet.');
+    expect(steps).toEqual([['run', 'no'], ['checks', 'yes'], ['merged', 'yes'], ['acceptance', 'unknown'], ['released', 'unknown']]);
+    expect(document.querySelector('[data-testid="report-cost"]')!.textContent).toContain('$14.50 spent');
   });
 
-  it('flags the failed run whose pull request merged, in red, above the fold', async () => {
+  it('shows acceptance as N of M verified with no pass that has no evidence', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const banner = document.querySelector('#report-contradictions')!;
+    const acceptance = document.querySelector('#report-acceptance')!;
 
-    expect(banner.textContent).toContain('Run 502 is recorded as failed');
-    expect(banner.textContent).toContain('Nothing here was resolved for you.');
+    expect(acceptance.textContent).toContain('0 of 1 verified');
+    expect(acceptance.textContent).toContain('Unverified');
+    expect(acceptance.textContent).not.toContain('Passed');
+    expect(acceptance.querySelector('[data-preview-key="feature_section:41.criterion-0"]')).not.toBeNull();
   });
 
-  it('does not scroll sideways at 390px, with a pull request URL and a commit on it', async () => {
+  it('opens a drawer in the one preview pane, in the URL so Back closes it', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    document.querySelector<HTMLButtonElement>('[data-preview-key="feature_section:41.activity"]')!.click();
+
+    expect(new URLSearchParams(window.location.search).get('preview')).toBe('feature_section:41.activity');
+
+    closePreview();
+
+    expect(new URLSearchParams(window.location.search).get('preview')).toBeNull();
+  });
+
+  it('does not scroll sideways at 390px, with a long pull request on it', async () => {
     await page.viewport(390, 844);
     await draw(fixture());
 
-    expect(document.body.textContent).toContain('9f2c1ab7d4e5f60918273645aabbccddeeff0011');
+    expect(document.body.textContent).toContain('Pull request #1284');
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
 
+  it('does not scroll sideways at a desk either', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
+  });
+});
+
+describe('the action follows the state', () => {
+  const proposal = (over: Partial<FeatureReportInput> = {}) => fixture({
+    request: { id: 41, title: 'Export a room as a PDF', status: 'in_scope', createdAt: T('2026-09-01T09:00:00Z'), meta: { state: 'in_scope' } },
+    tasks: [],
+    workerRuns: [],
+    ...over,
+  });
+
+  it('offers Build it and Dismiss on a proposal nothing has started', async () => {
+    await page.viewport(1440, 900);
+    await draw(proposal());
+
+    await expect.element(page.getByTestId('feature-build')).toHaveTextContent('Build it');
+    await expect.element(page.getByTestId('feature-dismiss')).toBeInTheDocument();
+  });
+
+  it('never draws Build over a live run, and says View progress', async () => {
+    await page.viewport(1440, 900);
+    await draw(proposal({
+      tasks: [{ id: 77, title: 'Room PDF export', status: 'running', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41 } }],
+      workerRuns: [{ id: 503, agentSlug: 'task-engineer', kind: 'worker', status: 'running', attempt: 1, cents: null, model: null, summary: null, error: null, createdAt: T('2026-09-21T11:00:00Z'), claimedAt: T('2026-09-21T11:01:00Z'), completedAt: null, input: {}, result: null, progress: { step: 'Running the checks' } }],
+    }));
+
+    expect(document.querySelector('[data-testid="feature-build"]')).toBeNull();
+    expect(document.querySelector('[data-testid="report-primary-action"]')!.textContent).toBe('View progress');
+  });
+
+  it('offers Build again, never Dismiss, once an attempt has run', async () => {
+    await page.viewport(1440, 900);
+    await draw(proposal({
+      tasks: [{ id: 77, title: 'Room PDF export', status: 'rejected', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41, status: 'dispatched' } }],
+      workerRuns: [{ id: 503, agentSlug: 'task-engineer', kind: 'worker', status: 'failed', attempt: 1, cents: 120, model: null, summary: null, error: 'Claude produced no changes', createdAt: T('2026-09-20T11:00:00Z'), claimedAt: T('2026-09-20T11:01:00Z'), completedAt: T('2026-09-20T11:30:00Z'), input: {}, result: null, progress: {} }],
+    }));
+
+    await expect.element(page.getByTestId('feature-build')).toHaveTextContent('Build again');
+    expect(document.querySelector('[data-testid="feature-dismiss"]')).toBeNull();
+  });
+});
+
+describe('the pieces that carried over', () => {
   it('draws the context line inside the scrollport, never above its top edge', async () => {
-    // It lived at the top of the report column under a `-mt-4`, to sit close
-    // to the title. That column is a scroll container, and a scrollport does
-    // not extend above its own top edge: the line was clipped to its bottom
-    // 3px and production showed two grey specks where "Send · minor change ·
-    // asked 1d ago" should have been — while getBoundingClientRect still
-    // reported a full-width box. Measure the paint, not the class name.
+    // It lived at the top of the report column under a `-mt-4`, and a
+    // scrollport does not extend above its own top edge: production showed
+    // two grey specks while getBoundingClientRect reported a full box.
     await page.viewport(390, 844);
     await render(
       <div className="h-[200px] overflow-x-hidden overflow-y-auto">
@@ -220,11 +270,6 @@ describe('the feature report, drawn', () => {
   });
 
   it('opens the mockup full screen when it is tapped, at any width', async () => {
-    // At 430px a desktop mockup is an illegible thumbnail, and it is the one
-    // thing on this page that has to be looked at rather than read. The tap
-    // used to open the artifact's record page — which is exactly what the
-    // caption's "Open" link already does — so the page offered two tap
-    // targets with one outcome and no way to enlarge the mockup.
     await page.viewport(390, 844);
     await draw(fixture({
       artifacts: [{
@@ -240,8 +285,6 @@ describe('the feature report, drawn', () => {
       }],
     }));
 
-    // Since 2026-09-25 the tap opens the full-screen viewer (swipe, tap to
-    // zoom) on the same picture rather than the raw file in a new tab.
     const slide = document.querySelector<HTMLButtonElement>('[data-testid="report-slide"]');
 
     expect(slide).not.toBeNull();
@@ -252,30 +295,13 @@ describe('the feature report, drawn', () => {
 
     expect(big).not.toBeNull();
     expect(big!.getAttribute('src')).toBe(slide!.querySelector('img')!.getAttribute('src'));
-    expect(big!.getAttribute('src')).not.toBe('');
   });
 
-  it('does not scroll sideways at a desk either', async () => {
-    await page.viewport(1440, 900);
-    await draw(fixture());
-
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
-  });
-});
-
-describe('the first screen leads with the feature (Chris, 2026-09-25)', () => {
-  it('says "Preview pending" rather than stretching an icon, and keeps a process warning to one line', async () => {
+  it('says "Preview pending" rather than stretching an icon', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
     await expect.element(page.getByTestId('report-preview-pending')).toBeInTheDocument();
-
-    // The fixture has a worker run and no plan: the warning is one plain line, the evidence behind a tap.
-    const warning = document.querySelector('#report-contradictions summary');
-    if (warning) {
-      expect(warning.textContent).not.toMatch(/THE RECORDS DISAGREE/i);
-      expect((document.querySelector('#report-contradictions') as HTMLDetailsElement).open).toBe(false);
-    }
   });
 
   it('says a missing plan in plain words', () => {

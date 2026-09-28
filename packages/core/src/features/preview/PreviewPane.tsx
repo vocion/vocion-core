@@ -2,7 +2,7 @@
 
 import type { PreviewDoc } from '@/libs/preview/types';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
-import { ArrowLeft, Bot, ExternalLink, FileText, History, Inbox, MessageSquareText, Newspaper, Play, Rocket, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
+import { ArrowLeft, Bot, ExternalLink, FileText, History, Inbox, ListTree, MessageSquareText, Newspaper, Play, Rocket, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -13,8 +13,9 @@ import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/a
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
-import { PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
-import { closePreview } from './previewState';
+import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
+import { RECORD_TYPES } from '@/services/chat/pageContext';
+import { closePreview, openPreview } from './previewState';
 
 /**
  * The preview PANE — the content, with no geometry of its own.
@@ -53,6 +54,7 @@ const RECORD_ICON: Partial<Record<RecordType, typeof FileText>> = {
   lead: User,
   conversation: MessageSquareText,
   record_history: History,
+  feature_section: ListTree,
 };
 
 /**
@@ -77,6 +79,40 @@ function PreviewIcon({ type, doc }: { type: RecordType; doc: PreviewDoc }) {
       <span className="sr-only">{doc.sourceLabel}</span>
     </>
   );
+}
+
+/**
+ * A link inside a preview's body. One written as `?preview=<type>:<id>` is a
+ * peek at another record: it swaps this pane for that one in place — same
+ * pane, pushed to history so Back returns — rather than reloading the page
+ * (a feature's "View all work" lists runs and conversations this way).
+ * Everything else is an ordinary link.
+ * @param props - The anchor's props from the markdown renderer.
+ * @param props.href - Where it points.
+ * @param props.children - The link text.
+ */
+function PeekLink({ href, children }: { href?: string; children?: React.ReactNode }) {
+  const peek = href?.startsWith(`?${PREVIEW_PARAM}=`) ? parsePreviewKey(decodeURIComponent(href.slice(PREVIEW_PARAM.length + 2)), isRecordType) : null;
+  if (peek) {
+    return (
+      <a
+        href={href}
+        onClick={(e) => {
+          e.preventDefault();
+          openPreview(peek, e.currentTarget);
+        }}
+        data-testid="preview-peek-link"
+      >
+        {children}
+      </a>
+    );
+  }
+  const external = href !== undefined && /^https?:\/\//i.test(href);
+  return <a href={href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>{children}</a>;
+}
+
+function isRecordType(s: string): s is RecordType {
+  return (RECORD_TYPES as readonly string[]).includes(s);
 }
 
 function Body(props: { doc: PreviewDoc }) {
@@ -117,7 +153,7 @@ function Body(props: { doc: PreviewDoc }) {
       {doc.body
         ? (
             <div className="prose prose-sm max-w-none border-t border-rule pt-3 dark:prose-invert">
-              <Markdown remarkPlugins={[remarkGfm]}>{doc.body}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm]} components={{ a: PeekLink }}>{doc.body}</Markdown>
             </div>
           )
         : <p className="border-t border-rule pt-3 text-sm text-muted-foreground">No text was synced for this reference.</p>}

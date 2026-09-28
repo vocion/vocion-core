@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { artifactSchema, businessObjectSchema, businessObjectTypeSchema, conversationSchema, toolCallSchema } = await import('@/models/Schema');
+const { artifactSchema, businessObjectSchema, businessObjectTypeSchema, conversationSchema, toolCallSchema, userSchema } = await import('@/models/Schema');
 const { loadFeatureReport } = await import('./featureReportData');
 
 const ORG = 'org_report_visuals';
@@ -49,5 +49,21 @@ describe('the pictures on a feature page', () => {
     const report = await loadFeatureReport('org_activity', request!.id, new Date('2026-09-25T12:00:00Z'));
 
     expect(report!.activity!.map(a => [a.kind, a.id, a.status])).toEqual([['conversation', conv!.id, 'wrote']]);
+  });
+
+  it('names the plan\'s approver from the directory, never by their raw user id', async () => {
+    const orgId = 'org_report_people';
+    const [reqType] = await db.insert(businessObjectTypeSchema).values({ orgId, slug: 'request', label: 'Request', schema: { type: 'object', properties: {} } } as never).returning({ id: businessObjectTypeSchema.id });
+    const [planType] = await db.insert(businessObjectTypeSchema).values({ orgId, slug: 'architecture_plan', label: 'Plan', schema: { type: 'object', properties: {} } } as never).returning({ id: businessObjectTypeSchema.id });
+    await db.insert(userSchema).values({ id: 'user_7kestrelfixture01', name: 'Priya Kestrel', email: 'priya@kestrel.example' } as never);
+    const [request] = await db.insert(businessObjectSchema).values({ orgId, typeId: reqType!.id, title: 'Expiring links', metadata: { state: 'in_scope' } } as never).returning({ id: businessObjectSchema.id });
+    await db.insert(businessObjectSchema).values({ orgId, typeId: planType!.id, title: 'Sign the link', status: 'candidate', metadata: { requestId: request!.id, approvedBy: 'user_7kestrelfixture01', approvedAt: '2026-09-24T10:00:00Z' } } as never);
+    await db.insert(businessObjectSchema).values({ orgId, typeId: planType!.id, title: 'Sign it again', status: 'candidate', metadata: { requestId: request!.id, approvedBy: 'user_9nobodyfixture02', approvedAt: '2026-09-25T10:00:00Z', supersededBy: 1 } } as never);
+
+    const report = await loadFeatureReport(orgId, request!.id, new Date('2026-09-26T12:00:00Z'));
+
+    // "candidate" with an approval on it resolves to Approved, by name.
+    expect(report!.planSummary).toMatchObject({ status: 'Approved', approver: 'Priya Kestrel' });
+    expect(JSON.stringify(report!.sections.find(s => s.key === 'plan'))).not.toContain('user_9nobodyfixture02');
   });
 });

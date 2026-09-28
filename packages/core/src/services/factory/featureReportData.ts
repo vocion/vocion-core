@@ -23,7 +23,7 @@
 import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, ReportAsk, ReportObject, ReportWorkerRun } from './featureReport';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { actionRunSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
 import { assembleFeatureReport } from './featureReport';
@@ -248,7 +248,23 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     createdAt: a.createdAt,
   }));
 
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now });
+  // WHO APPROVED IT, BY NAME. A plan's `approvedBy` is often the approver's
+  // user id, and a raw id is not a person (2026-09-28). Read the names for
+  // every id the records carry; one that resolves to nobody reads
+  // "Approver unavailable", never the id.
+  const personIds = [...new Set([
+    ...plans.map(p => p.meta.approvedBy),
+    ...tasks.map(t => ((t.meta.plan ?? {}) as Record<string, unknown>).approvedBy),
+  ].filter((v): v is string => typeof v === 'string' && v.trim() !== ''))];
+  const people: Record<string, string> = {};
+  if (personIds.length > 0) {
+    const rows = await db.select({ id: userSchema.id, name: userSchema.name, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, personIds));
+    for (const u of rows) {
+      people[u.id] = u.name?.trim() || u.email;
+    }
+  }
+
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people });
   return { ...report, activity: await loadActivity(orgId, requestId, taskIds, workerRuns) };
 }
 

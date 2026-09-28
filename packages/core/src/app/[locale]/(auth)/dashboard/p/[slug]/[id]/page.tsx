@@ -122,8 +122,11 @@ export default async function WorkspaceReportPage(props: {
               (report.goal ?? null) === null && report.context.length === 0
                 ? undefined
                 : (
+                    // The subtitle reads at body size and normal contrast —
+                    // it is what the work is FOR; the context line under it
+                    // is metadata, smaller and muted (Chris, 2026-09-28).
                     <>
-                      {report.goal}
+                      {report.goal && <span className="block text-[15px] leading-relaxed text-foreground">{report.goal}</span>}
                       <ReportContextLine bits={report.context} />
                     </>
                   )

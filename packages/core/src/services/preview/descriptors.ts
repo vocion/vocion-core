@@ -597,3 +597,29 @@ registerPreview('page', {
     };
   },
 });
+
+/**
+ * A feature page's drawer — `feature_section:<requestId>.<key>`. The page
+ * shows each stage as a few lines; the full record of that stage (the plan's
+ * steps and approval history, every attempt, each criterion's evidence, the
+ * whole activity log) opens here, in the same pane every other peek uses,
+ * rather than in a second drawer system (Chris, 2026-09-28). No link out: the
+ * full page IS the feature page the reader is standing on.
+ */
+registerPreview('feature_section', {
+  sourceLabel: 'Feature',
+  resolve: async (ref, ctx) => {
+    const { featureDrawer, parseFeatureDrawerId } = await import('@/services/factory/featureDrawer');
+    const parsed = parseFeatureDrawerId(ref.id);
+    if (!parsed) {
+      return null;
+    }
+    const { loadFeatureReport } = await import('@/services/factory/featureReportData');
+    const report = await loadFeatureReport(ctx.orgId, parsed.requestId);
+    const drawer = report ? featureDrawer(report, parsed.key) : null;
+    if (!drawer) {
+      return null;
+    }
+    return { ref, sourceLabel: 'Feature', title: drawer.title, subtitle: drawer.subtitle, facts: drawer.facts, ...body(drawer.body, LOG_LIMIT) };
+  },
+});
