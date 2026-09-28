@@ -32,7 +32,7 @@
 
 import type { WorkspaceRole } from '@/services/authz';
 import process from 'node:process';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
   accountMembershipSchema,
@@ -88,11 +88,25 @@ export function enforcementEnabled(): boolean {
 
 type Membership = { accountId: string; role: 'admin' | 'member' };
 
-async function membershipFor(userId: string): Promise<Membership | null> {
+/**
+ * The account membership every request for this person resolves against.
+ *
+ * Self-hosted, a person belongs to one account and this is simply that one.
+ * A person with two used to get whichever row Postgres returned first, which
+ * could change between requests and move them between tenants mid-session
+ * (vocion-core#128). The oldest membership wins, with the account id as the
+ * tie-break, so the answer is the same on every read. Tenancy resolution
+ * (`libs/tenancy.ts`) and the workspace-access checks here share this one
+ * lookup, so they can never disagree about which account a person is in.
+ * @param userId - The signed-in person.
+ * @returns Their membership, or null for a person in no account.
+ */
+export async function membershipFor(userId: string): Promise<Membership | null> {
   const [row] = await db
     .select({ accountId: accountMembershipSchema.accountId, role: accountMembershipSchema.role })
     .from(accountMembershipSchema)
     .where(eq(accountMembershipSchema.userId, userId))
+    .orderBy(asc(accountMembershipSchema.createdAt), asc(accountMembershipSchema.accountId))
     .limit(1);
   return row ? { accountId: row.accountId, role: row.role as 'admin' | 'member' } : null;
 }
