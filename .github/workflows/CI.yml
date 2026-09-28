@@ -36,8 +36,12 @@ jobs:
       # directory was webpack's compile cache. The build runs on Turbopack
       # now (#670), and Turbopack writes nothing reusable there unless
       # `experimental.turbopackFileSystemCacheForBuild` is turned on, which
-      # Next 16 still calls experimental. A cold Turbopack build (27s compile
-      # locally) is faster than a warm webpack one was (59–74s on CI).
+      # Next 16 still calls experimental. On this runner a cold Turbopack
+      # compile is slower than a warm webpack one was (99s against 75s), but
+      # the step is still faster (114–117s against webpack's 174s median):
+      # Turbopack has no separate build-trace pass, which cost webpack 63s,
+      # and there is no 7–10s cache restore (#670). A Turbopack build cache
+      # would have to beat that; measure it on CI, not locally.
       - name: Build Next.js
         # build-local lives in the @vocion/core workspace, not the repo root.
         # In CI it skips Next's own type-check (next.config.ts): `static`

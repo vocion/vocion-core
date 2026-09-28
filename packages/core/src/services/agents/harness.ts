@@ -425,9 +425,11 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   // mounts something. The middleware requires initialized state fields and
   // fails in the webpack production bundle ("Middleware SkillsMiddleware
   // has required state fields that must be initialized") — dev/Turbopack
-  // tolerated it, so this broke PROD chat only. With nothing mounted the
-  // middleware buys nothing; bodies still mount via initialFiles for the
-  // file tools.
+  // tolerated it, so this broke PROD chat only while production built with
+  // webpack. Production builds on Turbopack since #670, and nobody has checked
+  // whether a Turbopack production build tolerates it too, so the gate stays.
+  // With nothing mounted the middleware buys nothing; bodies still mount via
+  // initialFiles for the file tools.
   const [playbookCount] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(playbookSchema)

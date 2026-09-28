@@ -62,7 +62,8 @@ const baseConfig: NextConfig = {
   // again inside every build job (#629). Only CI skips it: a deploy or a
   // local build still refuses to produce an app with a type error in it.
   typescript: { ignoreBuildErrors: !!process.env.CI },
-  // Temporal's client can't be webpack-bundled: its gRPC/proto data files
+  // Temporal's client breaks when bundled (seen under webpack before #670;
+  // it stays external under Turbopack too): its gRPC/proto data files
   // don't ride into the bundle, so Connection.connect() throws at runtime
   // (the dashboard then shows "not scheduled yet" for every schedule).
   // Externalizing keeps it a real node_modules dependency, which `output:
@@ -116,9 +117,13 @@ if (!process.env.NEXT_PUBLIC_SENTRY_DISABLED) {
     // side errors will fail.
     tunnelRoute: '/monitoring',
 
-    // Webpack-only: Turbopack builds (#670) ignore both options below, so a
-    // Sentry-on build loses component names on breadcrumbs and replays. The
-    // source-map upload still runs, through Sentry's after-compile hook.
+    // Webpack-only: Turbopack builds (#670) ignore this whole block, so a
+    // Sentry-on build loses component names on breadcrumbs and replays, and
+    // ships the SDK's debug logging. Turbopack also turns off Sentry's
+    // build-time auto-instrumentation (server functions, middleware, app
+    // routes), so server errors reach Sentry only through Next's own
+    // instrumentation hooks. The source-map upload still runs, through
+    // Sentry's after-compile hook.
     webpack: {
       reactComponentAnnotation: {
         enabled: true,

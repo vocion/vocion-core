@@ -96,8 +96,11 @@ WORKDIR /app/packages/core
 # same box while the image builds. That failure was a webpack build. Since
 # #670 the build runs on Turbopack, whose compiler is native code and lives
 # outside V8's heap, so the cap now bounds the JavaScript half of the build
-# (collecting page data, prerendering). It stays until a Turbopack build has
-# been measured against it.
+# (collecting page data, prerendering). Measured in #674 with the builder
+# capped at 2 CPUs: the build's peak memory, file cache included, was
+# 8,037 MB on Turbopack against 7,626 MB on webpack, so the box needs about as
+# much memory as before. `experimental.turbopackMemoryLimit` at 3 GB barely
+# moved it, so it isn't set. The cap stays.
 # The build says what it is (#417): `public/version.txt` + the account-menu
 # stamp. `npm run build` runs this, but the image calls `next build` directly,
 # so the step is explicit here — the first deploy of #417 shipped an image with
