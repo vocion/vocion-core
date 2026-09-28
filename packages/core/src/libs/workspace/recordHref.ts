@@ -135,3 +135,13 @@ export function recordLinker(links: RecordLinks): RecordLinker {
 
 /** The resolver with no pages declared — what a pure assembler uses when its caller passed none. */
 export const genericRecordLinker: RecordLinker = recordLinker(NO_RECORD_PAGES);
+
+/**
+ * "Open feature" from `/w/acme/dashboard/p/feature/12` — the name of the page
+ * the workspace opens the record on, so the words follow the workspace.
+ * @param href - The record's link.
+ */
+export function openLabelFor(href: string): string {
+  const page = /\/p\/([^/]+)\/[^/]+$/.exec(href)?.[1];
+  return page ? `Open ${decodeURIComponent(page).replace(/[-_]+/g, ' ')}` : 'Open record';
+}

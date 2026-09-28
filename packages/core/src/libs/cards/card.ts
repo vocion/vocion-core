@@ -40,6 +40,10 @@ export const CardSchema = z.object({
   source: z.object({ agentSlug: z.string().optional(), tool: z.string().optional() }).default({}),
   /** The proposal this card was filed as, once it was. */
   runId: z.number().int().optional(),
+  /** The page of the record the card is about — its title links there. */
+  href: z.string().min(1).optional(),
+  /** The words on that link: "Open feature". */
+  hrefLabel: z.string().min(1).optional(),
   /** The record the card's action created when it ran — the id the next turn needs. */
   ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),
@@ -138,6 +142,7 @@ export function cardFromRecommendation(rec: RecommendedActionPayload, id?: strin
     ...(rec.suggestedDecision ? { suggestedDecision: rec.suggestedDecision, suggestedDecisionReason: rec.suggestedDecisionReason } : {}),
     ...(rec.rationale ? { rationale: rec.rationale } : {}),
     ...(typeof rec.confidence === 'number' ? { confidence: rec.confidence } : {}),
+    ...(rec.href ? { href: rec.href, ...(rec.hrefLabel ? { hrefLabel: rec.hrefLabel } : {}) } : {}),
   });
 }
 
@@ -160,5 +165,6 @@ export function recommendationFromCard(card: Card): RecommendedActionPayload & {
     ...(card.source.agentSlug ? { agentSlug: card.source.agentSlug } : {}),
     ...(card.runId !== undefined ? { runId: card.runId } : {}),
     ...(card.suggestedDecision ? { suggestedDecision: card.suggestedDecision, suggestedDecisionReason: card.suggestedDecisionReason } : {}),
+    ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}),
   };
 }

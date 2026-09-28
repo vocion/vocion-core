@@ -280,6 +280,8 @@ export const actionStatusRoute = os
         approvedByAgent: actionRunSchema.approvedByAgent,
         actionId: actionRunSchema.actionId,
         proposal: actionRunSchema.proposal,
+        input: actionRunSchema.input,
+        result: actionRunSchema.result,
         name: userSchema.name,
         email: userSchema.email,
       })
@@ -291,8 +293,18 @@ export const actionStatusRoute = os
       throw ApiError.notFound(`no action ${input.id}`);
     }
     const { getAction } = await import('@/libs/actions/registry');
+    // The record the run made (a filed request), so the card that filed it
+    // links to it the moment it exists (Chris, 2026-09-28).
+    const { refOf } = await import('@/services/chat/autoPropose');
+    const made = row.status === 'done' ? refOf({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, label: '' }, row.result as Record<string, unknown> | null) : null;
+    const { recordHref } = await import('@/services/objects/recordHref');
+    const { openLabelFor } = await import('@/libs/workspace/recordHref');
+    // A type is only a record type when the run named one; an action's own id is not.
+    const recordLink = made && made.type !== row.actionId ? await recordHref(orgId, { objectType: made.type, id: made.id }).catch(() => null) : null;
     return {
       status: row.status,
+      recordHref: recordLink,
+      recordHrefLabel: recordLink ? openLabelFor(recordLink) : null,
       decidedBy: row.name ?? row.email ?? row.decidedBy,
       decidedAt: row.decidedAt?.toISOString() ?? null,
       // Done for you: the ladder released it, and the kind can be put back.

@@ -25,6 +25,20 @@ function text(v: unknown): string {
 }
 
 /**
+ * A card's record link, only when it is a path inside the app — a card is
+ * agent output, and a link it carries must not leave the product.
+ * @param href - The link as it arrived.
+ * @param label - Its words.
+ */
+export function cardLink(href: unknown, label: unknown): { href: string; hrefLabel?: string } | Record<string, never> {
+  const h = text(href);
+  if (!h.startsWith('/') || h.startsWith('//')) {
+    return {};
+  }
+  return { href: h, ...(text(label) ? { hrefLabel: text(label) } : {}) };
+}
+
+/**
  * Validate one `recommended_action` payload.
  *
  * Required: an `actionId` (what would be proposed) and a `label` (what the
@@ -70,6 +84,7 @@ export function readRecommendedAction(raw: unknown): RecommendedActionCheck {
       ...(text(r.agentSlug) ? { agentSlug: text(r.agentSlug) } : {}),
       ...(runId === undefined ? {} : { runId }),
       ...(advises ? { suggestedDecision: decision as 'approve' | 'reject' | 'snooze', suggestedDecisionReason: reason } : {}),
+      ...cardLink(r.href, r.hrefLabel),
     },
   };
 }

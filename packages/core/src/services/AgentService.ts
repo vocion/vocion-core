@@ -60,65 +60,6 @@ const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withd
  */
 const NARRATED_TOOL = new RegExp(`(?:^|\\n)\\s*(?:(?:CARD|Card)\\s*)?\`\`\`[a-z]*\\s*(${TOOL_NAMES})\\b[\\s\\S]*?\`\`\`\\s*$|(?:^|[\\s*_\`])(${TOOL_NAMES})[*_\`]*\\s*$|(?:^|\\n)\\s*(?:\\*\\*|#{1,4}\\s*)?\`?(${TOOL_NAMES})\\b[^\\n]*\\n\\s*\`\`\`[a-z]*\\n[\\s\\S]*?\`\`\``);
 /**
- * What a tool handed back: `{ok:false, error}` is a refusal, anything else counts as done.
- * @param raw
- */
-/**
- * The backstop model's call, made to fit the tool's schema: every field the tool requires, present.
- * @param args
- */
-function shapeRecommendCall(args: Record<string, unknown>): Record<string, unknown> {
-  const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
-  const input = args.action_input && typeof args.action_input === 'object' && !Array.isArray(args.action_input) ? args.action_input as Record<string, unknown> : {};
-  return {
-    ...args,
-    action_id: str(args.action_id) ?? '',
-    action_input: input,
-    label: (str(args.label) ?? str(args.title) ?? str(input.title) ?? 'Recommendation').slice(0, 120),
-    ...(str(args.rationale) ? { rationale: str(args.rationale) } : {}),
-  };
-}
-
-/**
- * A streamed tool call's arguments, assembled from their chunks. Unparseable
- * JSON (a call cut off by the deadline) is an empty call, which the card's own
- * shaping and refusal handle — one bad call never ends the pass.
- * @param raw - The concatenated argument chunks.
- */
-export function parseCallArgs(raw: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(raw || '{}') as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * One tool call that cannot end the pass: a thrown schema error is a refusal with its message.
- * @param tool
- * @param tool.invoke
- * @param args
- */
-async function invokeRecommend(tool: { invoke: (args: never) => Promise<unknown> }, args: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
-  try {
-    return readToolResult(await tool.invoke(args as never));
-  } catch (err) {
-    return { ok: false, error: (err as Error).message.replace(/\s+/g, ' ').slice(0, 300) };
-  }
-}
-
-function readToolResult(raw: unknown): { ok: boolean; error?: string } {
-  const text = typeof raw === 'string' ? raw : typeof (raw as { content?: unknown })?.content === 'string' ? (raw as { content: string }).content : '';
-  try {
-    const parsed = JSON.parse(text) as { ok?: boolean; error?: string };
-    return parsed && parsed.ok === false ? { ok: false, error: parsed.error } : { ok: true };
-  } catch {
-    return { ok: true };
-  }
-}
-
-/**
  * A card written out as prose: a heading line beginning "CARD —" (or "Card:")
  * and everything under it to the end of the answer. Stripped only when a real
  * card is on screen, so a turn is never left with neither.
@@ -1491,92 +1432,28 @@ export async function runAgentDeep(opts: {
   let cardsOnScreen = emittedCards.length;
   if (backstopOn && emittedCards.length < 3 && finalText.length > 300) {
     try {
-      const { recommendActionTool } = await import('./agents/tools/recommendAction');
-      const recTool = recommendActionTool(compiled.ctx);
-      const { buildChatModelForOrg } = await import('@/libs/llm');
-      const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-      // THE FAST MODEL, and it says so. The pass lifts cards out of an answer
-      // that is already written — extraction, not reasoning — and on the main
-      // model with thinking it held the person on "Working…" for ~40s after
-      // the answer (Chris, 2026-09-25: "why does it take 40 seconds to render
-      // the card … show your work").
-      emit({ type: 'status', label: 'Writing the decision cards' });
-      const base = await buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: true, maxTokens: 4000 });
-      if (!base.bindTools) {
-        throw new Error('model does not support tools');
-      }
-      const model = base.bindTools([recTool]);
-      const already = emittedCards.length > 0
-        ? `\nAlready carded (do NOT duplicate these): ${emittedCards.map(l => `"${l}"`).join(', ')}.`
-        : '';
-      const sys = `${compiled.agentRow.systemPrompt ?? ''}\n\nBACKSTOP PASS: the answer below was ALREADY delivered to the user — do not rewrite it. Your ONLY job now: emit the recommend_action tool calls your rules above require for the owed/actionable touches NAMED in that answer (top 3–5 by leverage).${already} Real, ready-to-send bodies. If every named touch is already carded or none are actionable, call nothing. Output tool calls only — no prose.`;
-      let emitted = 0;
-      let refused = 0;
-      // The tool REFUSES a card whose action is unknown or whose input
-      // fails the action's schema, and emits nothing. For a day every such
-      // refusal counted here as a card on screen (finding 20, 2026-09-25:
-      // "emitted: 1", no card anywhere). A refused recommendation is still
-      // the agent's recommendation: it goes up without the pressable action,
-      // so the person reads it and the log says what to fix.
-      // The model's call may miss the tool's OWN schema (no action_input,
-      // no label) and the tool throws — on walk 16 (2026-09-25) that threw
-      // out of the loop and took every other card with it. Each call is
-      // shaped first, and a call that still fails is one refusal, not the
-      // end of the pass.
-      const putUp = async (args: Record<string, unknown>): Promise<void> => {
-        const shaped = shapeRecommendCall(args);
-        const first = await invokeRecommend(recTool, shaped);
-        if (first.ok) {
-          emitted += 1;
-          emit({ type: 'status', label: `Card ${emitted} ready · writing the next` });
-          return;
-        }
-        refused += 1;
-        // The tool's schema wants both fields; empty is "no action", which it accepts and emits.
-        const second = await invokeRecommend(recTool, { ...shaped, action_id: '', action_input: {} });
-        if (second.ok) {
-          emitted += 1;
-        }
-        console.warn('card backstop: a recommendation was refused and re-put without its action', { orgId: opts.orgId, agentSlug: opts.agentSlug, label: shaped.label, reason: first.error, shown: second.ok });
-      };
-      // STREAMED, one card at a time. The pass writes three to five cards
-      // with ready-to-send bodies; as one `invoke` every card waited for the
-      // last, and the person waited ~40s after the answer for any of them
-      // (Chris, 2026-09-25). A call is complete when the next one starts, or
-      // when the stream ends, and it goes up the moment it is.
-      const pending = new Map<number, { name?: string; args: string }>();
-      const flush = async (index: number): Promise<void> => {
-        const call = pending.get(index);
-        pending.delete(index);
-        if (!call || call.name !== 'recommend_action') {
-          return;
-        }
-        await putUp(parseCallArgs(call.args));
-      };
-      const stream = await model.stream([new SystemMessage(sys), new HumanMessage(finalText)], { signal: AbortSignal.timeout(45_000) });
-      for await (const chunk of stream) {
-        for (const part of (chunk as { tool_call_chunks?: Array<{ index?: number; name?: string; args?: string }> }).tool_call_chunks ?? []) {
-          const index = part.index ?? 0;
-          if (!pending.has(index)) {
-            // A new call began: every earlier one is finished.
-            for (const done of [...pending.keys()].filter(k => k < index)) {
-              await flush(done);
-            }
-            pending.set(index, { args: '' });
-          }
-          const call = pending.get(index)!;
-          call.name = call.name || part.name;
-          call.args += part.args ?? '';
-        }
-      }
-      for (const index of [...pending.keys()].sort((a, b) => a - b)) {
-        await flush(index);
+      // TWO STEPS, IN SECONDS (services/agents/cardBackstop.ts): a fast call
+      // lists the decisions the answer names, then one call per card writes
+      // it, all at once, each card up the moment its own call returns. One
+      // sequential call writing every body held the last card ~40s behind
+      // the answer (Chris, 2026-09-25 and 2026-09-28).
+      const { realCardBackstopDeps, runCardBackstop } = await import('./agents/cardBackstop');
+      const out = await runCardBackstop(
+        { answer: finalText, already: [...emittedCards], agentPrompt: compiled.agentRow.systemPrompt ?? '' },
+        await realCardBackstopDeps({ ctx: compiled.ctx, orgId: opts.orgId, agentSlug: opts.agentSlug, userId: opts.userId, emit }),
+      );
+      cardsOnScreen += out.emitted;
+      // A decision that could not be a card is one line UNDER the answer —
+      // added, never edited in: no dead card with nothing to press.
+      if (out.notes.length > 0) {
+        const delta = `\n\n${out.notes.join('\n')}`;
+        emit({ type: 'response_delta', delta });
+        finalText += delta;
       }
       // Say what happened: a silent backstop cannot be told from one that
       // never ran (2026-09-24: eight production turns, zero cards, no way to
       // know which). One line per pass, in the app log.
-      cardsOnScreen += emitted;
-      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length, emitted, refused, textChars: finalText.length });
+      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length - out.emitted, listed: out.listed, emitted: out.emitted, refused: out.refused, mapped: out.mapped, noted: out.notes.length, textChars: finalText.length });
     } catch (err) {
       /* backstop is best-effort — never fails the turn */
       console.warn('card backstop failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
@@ -1591,6 +1468,16 @@ export async function runAgentDeep(opts: {
   if (cardsOnScreen > 0 && NARRATED_CARD.test(finalText)) {
     console.warn('agent turn: narrated card stripped from the answer', { orgId: opts.orgId, agentSlug: opts.agentSlug, cardsOnScreen });
     finalText = finalText.replace(NARRATED_CARD, '').trim();
+  }
+
+  // A record the answer names ("#201", "request 201") links to its page —
+  // live and stored, from one typed event (libs/chat/recordMentions.ts).
+  const { recordMentionLinks } = await import('@/services/chat/recordMentionLinks');
+  const mentionLinks = await recordMentionLinks(opts.orgId, finalText);
+  if (mentionLinks.length > 0) {
+    const { linkRecordMentions } = await import('@/libs/chat/recordMentions');
+    emit({ type: 'record_links', links: mentionLinks });
+    finalText = linkRecordMentions(finalText, mentionLinks);
   }
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });

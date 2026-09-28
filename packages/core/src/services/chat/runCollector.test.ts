@@ -69,4 +69,19 @@ describe('RunCollector', () => {
 
     expect(c.touchedArtifactIds).toEqual([12]);
   });
+
+  it('links the answer\'s record mentions in the stored text, and keeps a card\'s record link (2026-09-28)', () => {
+    const c = new RunCollector();
+    c.onTextDelta('Build #201 next.');
+    c.onCard({ label: 'Approve build: link expiry', actionId: 'factory.dispatch_task', input: { requestId: 201 }, href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
+    c.onTextDelta('Then request 202.');
+    c.onRecordLinks([{ text: '#201', href: '/w/kestrel/dashboard/p/feature/201' }, { text: 'request 202', href: '/w/kestrel/dashboard/p/feature/202' }]);
+
+    const { text, runs } = c.finalise();
+
+    expect(text).toBe('Build [#201](/w/kestrel/dashboard/p/feature/201) next.\n\nThen [request 202](/w/kestrel/dashboard/p/feature/202).');
+    expect(runs.find(r => r.type === 'card')).toMatchObject({ href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
+    // Finalised twice (the done event, then the write): the same text.
+    expect(c.finalise().text).toBe(text);
+  });
 });

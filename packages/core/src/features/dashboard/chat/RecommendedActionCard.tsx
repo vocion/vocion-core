@@ -248,6 +248,12 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   const unfiled = rec.state === 'unfiled' && phase.runId === undefined;
   const terminal = status ? TERMINAL_STATUSES.has(status) : false;
   const effect = describeActionEffect(rec.actionId);
+  // The record this card is about opens from the card; once the card's action
+  // has made a record (a filed request), the link is to THAT record (Chris,
+  // 2026-09-28: "I want to click through to the feature detail page").
+  const recordLink = live?.recordHref
+    ? { href: live.recordHref, label: live.recordHrefLabel ?? 'Open record' }
+    : rec.href ? { href: rec.href, label: rec.hrefLabel ?? 'Open record' } : null;
   const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent, unfiled }, fmtTime);
   const toneClass = state.tone === 'green'
     ? 'text-emerald-600 dark:text-emerald-400'
@@ -304,7 +310,11 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
           {isEmail ? <Mail className="size-3.5" aria-hidden /> : <Sparkles className="size-3.5" aria-hidden />}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold break-words">{rec.label}</div>
+          <div className="text-sm font-semibold break-words">
+            {rec.href
+              ? <Link href={rec.href} className="hover:underline" data-testid="recommended-action-title-link">{rec.label}</Link>
+              : rec.label}
+          </div>
           {rec.rationale && <p className="mt-0.5 line-clamp-2 text-xs break-words text-muted-foreground">{rec.rationale}</p>}
         </div>
         {pct !== null && (
@@ -352,12 +362,21 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
           "I don't understand what the first card did. Is it an auto approve
           recommendation? Make that clear."). The effect comes from the action
           id, never the agent's title. */}
-      <div className="mx-3 mt-2 flex min-w-0 items-center gap-1.5 text-xs text-foreground/80" data-testid="recommended-action-effect">
-        <Zap className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="truncate">{effect}</span>
+      <div className="mx-3 mt-2 flex min-w-0 items-center gap-1.5 text-xs text-foreground/80">
+        <span className="flex min-w-0 items-center gap-1.5" data-testid="recommended-action-effect">
+          <Zap className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="truncate">{effect}</span>
+        </span>
+        {recordLink && (
+          <Link href={recordLink.href} data-testid="recommended-action-record-link" className="ml-auto inline-flex shrink-0 items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
+            {recordLink.label}
+            <ArrowRight className="size-3" aria-hidden />
+          </Link>
+        )}
       </div>
       <div className="mx-3 mt-1 flex min-w-0 items-center gap-2 text-xs" data-testid="recommended-action-status">
-        {stateLabel}
+        {/* Nothing waits on anyone for a card with nothing to press. */}
+        {(rec.actionId || phase.runId !== undefined) && stateLabel}
         {status === 'done' && live?.undoable && (
           <button
             type="button"

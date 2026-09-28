@@ -27,6 +27,11 @@ export const FEATURES = {
   FEEDBACK_DEDUPE: 'feedback.dedupe',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
+  /**
+   * The card pass after a chat answer: one fast call lists the decisions the
+   * answer names, then one call per card writes it (`services/agents/cardBackstop.ts`).
+   */
+  CHAT_CARDS: 'chat.cards',
   /** A thread's name, written by the classifier model after its first reply. */
   CHAT_TITLE: 'chat.title',
   /** OAuth token-refresh round-trips for Source plugins. */

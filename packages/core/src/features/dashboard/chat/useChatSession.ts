@@ -12,6 +12,7 @@ import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
+import { linkRecordMentions } from '@/libs/chat/recordMentions';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { firstMessageTitle } from '@/libs/chat/threadTitle';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
@@ -19,7 +20,7 @@ import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
-import { readRecommendedAction } from './recommendedAction';
+import { cardLink, readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
@@ -171,7 +172,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
     // is not a client-side ornament that a reload forgets.
     const recommendations: RecommendedAction[] = runsRaw
       .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
-      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
+      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), ...cardLink(r.href, r.hrefLabel), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
     return {
       ...(typeof row.id === 'number' ? { id: row.id } : {}),
       role: row.role,
@@ -707,6 +708,18 @@ export function useChatSession({
         });
         return;
       }
+      case 'record_links': {
+        // The records the answer names, linked to their pages — the same
+        // pure pass the stored transcript gets (libs/chat/recordMentions.ts).
+        flushDeltas();
+        const links = (evt as unknown as { links: Array<{ text: string; href: string }> }).links ?? [];
+        appendToLatestAgent(m => ({
+          ...m,
+          ...(m.content ? { content: linkRecordMentions(m.content, links) } : {}),
+          ...(m.runs ? { runs: m.runs.map(r => (r.type === 'text' ? { ...r, text: linkRecordMentions(r.text, links) } : r)) } : {}),
+        }));
+        return;
+      }
       case 'record_created': {
         // A room or proposal the turn just made opens beside the conversation
         // (Chris, 2026-09-18: "maybe preview should open automatically").
@@ -731,7 +744,8 @@ export function useChatSession({
         // The typed form (backlog 025): on the ledger already, on the wire
         // now, filed later if at all — `card_update` carries the proposal id.
         flushDeltas();
-        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string };
+        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string };
+        const link = cardLink(c.href, c.hrefLabel);
         const primary = c.actions?.[0];
         let rec: RecommendedAction;
         if (primary) {
@@ -740,7 +754,7 @@ export function useChatSession({
             console.warn(`useChatSession: dropped an invalid card — ${checked.reason}`);
             return;
           }
-          rec = { ...checked.rec, id: c.id, state: c.state ?? (c.runId !== undefined ? 'filed' : 'proposed') };
+          rec = { ...checked.rec, ...link, id: c.id, state: c.state ?? (c.runId !== undefined ? 'filed' : 'proposed') };
         } else if (typeof c.title === 'string' && c.title.trim()) {
           // A recommendation with nothing to press (its action was refused,
           // finding 20): still the agent's recommendation, read not pressed.

@@ -287,8 +287,10 @@ export async function POST(request: Request): Promise<Response> {
           } else if (event.type === 'artifact' && !event.pending) {
             collector.onArtifact(event.artifact.id);
           } else if (event.type === 'recommended_action') {
-            const r = event.recommendation as { label: string; actionId: string; input?: Record<string, unknown>; runId?: number };
-            collector.onCard({ label: r.label, actionId: r.actionId, input: r.input, runId: r.runId });
+            const r = event.recommendation as { label: string; actionId: string; input?: Record<string, unknown>; runId?: number; href?: string; hrefLabel?: string };
+            collector.onCard({ label: r.label, actionId: r.actionId, input: r.input, runId: r.runId, href: r.href, hrefLabel: r.hrefLabel });
+          } else if (event.type === 'record_links') {
+            collector.onRecordLinks(event.links);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));

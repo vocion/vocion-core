@@ -46,7 +46,7 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number }; href?: string; hrefLabel?: string }
     /** A person's decision on a card, written as a user turn. */
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
@@ -119,6 +119,10 @@ export type RecommendedAction = {
   /** The agent's own recommendation for the queue card, and why. Both or neither. */
   suggestedDecision?: 'approve' | 'reject' | 'snooze';
   suggestedDecisionReason?: string;
+  /** The page of the record the card is about; the title links there. */
+  href?: string;
+  /** The words on that link: "Open feature". */
+  hrefLabel?: string;
 };
 
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */

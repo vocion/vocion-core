@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
+import { cardLink, describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
 
 /**
  * On 2026-09-15 two `client.review.propose` calls 400'd with "Invalid input:
@@ -116,5 +116,20 @@ describe('describeCardState', () => {
     expect(describeCardState({ status: 'rejected' }, time).label).toBe('Rejected');
     expect(describeCardState({ status: 'executing', approvedByAgent: true }, time).label).toBe('Done for you · running');
     expect(describeCardState({ status: 'snoozed' }, time).label).toBe('Deferred');
+  });
+});
+
+describe('a card\'s record link (2026-09-28: "click through to the feature detail page")', () => {
+  it('keeps a link inside the app and drops one that leaves it', () => {
+    expect(cardLink('/w/kestrel/dashboard/p/feature/201', 'Open feature')).toEqual({ href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
+    expect(cardLink('https://evil.example/x', 'Open')).toEqual({});
+    expect(cardLink('//evil.example/x', 'Open')).toEqual({});
+    expect(cardLink('javascript:alert(1)', 'Open')).toEqual({});
+  });
+
+  it('rides the recommendation through the event boundary', () => {
+    const checked = readRecommendedAction({ actionId: 'factory.dispatch_task', label: 'Approve build', input: { requestId: 201 }, href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
+
+    expect(checked.ok && checked.rec).toMatchObject({ href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
   });
 });

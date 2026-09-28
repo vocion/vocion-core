@@ -15,13 +15,63 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { actionInputHints, getAction, listActions } from '@/libs/actions/registry';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { openLabelFor } from '@/libs/workspace/recordHref';
 
-export function recommendActionTool(ctx: RuntimeContext) {
-  const available = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
+/**
+ * The record a card is ABOUT, read off its action's input: a record named by
+ * type and id, or the request a build answers. Null when the card names none.
+ * @param input - The card's action payload.
+ */
+export function cardRecordRef(input: Record<string, unknown>): { objectType: string; id: number } | null {
+  const num = (v: unknown): number | null => {
+    const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v) : Number.NaN;
+    return Number.isInteger(n) && n > 0 ? n : null;
+  };
+  if (typeof input.objectType === 'string' && input.objectType && num(input.id) !== null) {
+    return { objectType: input.objectType, id: num(input.id)! };
+  }
+  // `factory.dispatch_task` answers a request; its card is about that feature.
+  if (num(input.requestId) !== null) {
+    return { objectType: 'request', id: num(input.requestId)! };
+  }
+  return null;
+}
+
+/**
+ * The link a card carries to the record it is about — the page the workspace
+ * opens that record on. Never throws: a card without its link is still a card.
+ * @param orgId - Tenant.
+ * @param input - The card's action payload.
+ */
+export async function cardHref(orgId: string | undefined, input: Record<string, unknown>): Promise<{ href: string; hrefLabel: string } | null> {
+  const ref = cardRecordRef(input);
+  if (!ref || !orgId) {
+    return null;
+  }
+  try {
+    const { recordHref } = await import('@/services/objects/recordHref');
+    const href = await recordHref(orgId, ref);
+    return { href, hrefLabel: openLabelFor(href) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param ctx - The turn.
+ * @param opts - Options.
+ * @param opts.actionIds - Describe only these actions (the card pass writes one card
+ *   per call and names its action up front); every registered action when omitted.
+ *   Validation always runs against the whole registry.
+ */
+export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: readonly string[] } = {}) {
+  const described = opts.actionIds?.length ? opts.actionIds.map(id => getAction(id)).filter((a): a is NonNullable<typeof a> => !!a) : [];
+  const shown = described.length > 0 ? described : listActions();
+  const available = shown.map(a => `${a.id} — ${a.description}`).join('\n');
   // The field names, with * on the required ones — read off the schemas, so
   // a card is not refused for `object_type` where the action says `objectType`
   // (finding 20, 2026-09-25: every refused card was a guessed field name).
-  const inputs = actionInputHints();
+  const inputs = actionInputHints(described.length > 0 ? described.map(a => a.id) : undefined);
 
   return tool(
     async (input) => {
@@ -59,12 +109,16 @@ export function recommendActionTool(ctx: RuntimeContext) {
           return JSON.stringify({ ok: false, error: `action_input for ${action_id} is invalid — ${issues}. Fill those fields from what you know, or recommend without an action id.` });
         }
       }
+      // The record the card is about opens from the card (Chris, 2026-09-28:
+      // "I want to click through to the feature detail page").
+      const link = action_id ? await cardHref(ctx.orgId, action_input ?? {}) : null;
       ctx.emit({
         type: 'recommended_action',
         recommendation: {
           actionId: action_id,
           input: action_input ?? {},
           label,
+          ...(link ?? {}),
           rationale,
           confidence,
           agentSlug: ctx.agentSlug,

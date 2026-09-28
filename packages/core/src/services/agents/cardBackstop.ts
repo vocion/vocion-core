@@ -1,0 +1,495 @@
+/**
+ * THE CARD PASS — the cards a finished answer owes, in seconds.
+ *
+ * When an agent's harness sets `recommendActionBackstop` and a turn put up
+ * fewer than three cards, this pass reads the answer the person already has
+ * and puts up the cards it names. It used to be ONE call that wrote three to
+ * five cards with their ready-to-send bodies, one after another, and a card
+ * reached the screen only when the model had finished writing it: up to ~40s
+ * after the answer for the last one (Chris, 2026-09-25: "why does it take 40
+ * seconds to render the card"). The time was all output — a card body is a
+ * few hundred tokens and the calls wrote them in sequence.
+ *
+ * Two steps now:
+ *
+ *   1. **List.** One fast, small call (the `classifier` role) names the
+ *      decisions the answer names — a label, one line of why, the action that
+ *      carries it — at most five, minus those already carded. Tiny output.
+ *   2. **Write, in parallel.** One call per card (the `extractor` role), each
+ *      told only which card it writes and handed the agent's card rules, the
+ *      one action it uses and the answer. Each card goes up the moment its own
+ *      call returns, so the first lands in the time of one card, not five, and
+ *      the last in the time of the slowest.
+ *
+ * What it keeps, structurally: a card already on screen is never written
+ * twice; the answer is never rewritten (a card that cannot go up is added
+ * under it as one line, never edited into it); every model call is charged;
+ * every card attempt is a tool_call row on the conversation.
+ *
+ * NO DEAD CARDS (Chris, 2026-09-28, conversation 351): a card whose action is
+ * refused used to go up anyway with its action stripped — "Nothing to run:
+ * this is a note · Waiting on you", nothing to press. A card now either
+ * carries an action its own checks accept or it is not a card: it becomes one
+ * line under the answer saying what it was and why it is not a card. And a
+ * card that recommends building something no request was filed for becomes
+ * the filing (`objects.propose_candidate`, a request), so the filing gates run
+ * — the proposal-ready bar, the check against what already ships — instead of
+ * a build card that can only fail.
+ */
+
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import type { AgentEvent, RuntimeContext } from './types';
+import type { ModelRole } from '@/libs/llm';
+
+/** At most this many cards per pass — the agents' own rule is "top 3–5 by leverage". */
+export const MAX_CARDS = 5;
+
+/** The card rules a writer gets whole below this size; above it, the paragraphs about cards and voice. */
+const WHOLE_PROMPT_CHARS = 16_000;
+
+/** Cap on the extracted card rules. */
+const RULES_CAP_CHARS = 8_000;
+
+/** How long one call may take before its card is given up on. */
+const LIST_TIMEOUT_MS = 15_000;
+const CARD_TIMEOUT_MS = 30_000;
+
+/** The build action, and the filing a build of an unfiled idea becomes. */
+export const BUILD_ACTION = 'factory.dispatch_task';
+export const FILE_ACTION = 'objects.propose_candidate';
+
+/** One decision the answer names, as the list step returns it. */
+export type OwedTouch = { label: string; why: string; actionId: string };
+
+/** What a tool handed back: `{ok:false, error}` is a refusal, anything else counts as done. */
+type ToolOutcome = { ok: boolean; error?: string; output: string };
+
+/** Everything the pass reaches outside itself — real in production, scripted in tests. */
+export type CardBackstopDeps = {
+  /** The list step's model (`classifier`). */
+  listModel: () => Promise<BaseChatModel>;
+  /** The card writers' model (`extractor`); built once per card. */
+  cardModel: () => Promise<BaseChatModel>;
+  /** `recommend_action`, describing only these actions. */
+  tool: (actionIds: readonly string[]) => StructuredToolInterface;
+  /** `id — first sentence of its description`, for every registered action. */
+  actionCatalog: () => string;
+  /** Is there an action by this id? */
+  hasAction: (id: string) => boolean;
+  /** The action's own checks on this input — schema, then its `precheck`. A reason to refuse, or nothing. */
+  precheck: (actionId: string, input: Record<string, unknown>) => Promise<string | undefined>;
+  /** Is there a request record with this id in the workspace? */
+  requestExists: (id: number) => Promise<boolean>;
+  /** Charge one model call's usage. */
+  charge: (role: ModelRole, response: unknown) => Promise<void>;
+  /** Write one tool_call row for a card attempt. */
+  record: (row: { input: Record<string, unknown>; output?: string; error?: string; durationMs: number }) => Promise<void>;
+  /** The turn's event stream. */
+  emit: (event: AgentEvent) => void;
+  /** Langfuse callbacks for the pass's model calls. */
+  callbacks?: BaseCallbackHandler[];
+  /** Log line sink (console.warn in production). */
+  log?: (message: string, detail: Record<string, unknown>) => void;
+};
+
+export type CardBackstopResult = {
+  /** Decisions the list step named (after dedup). */
+  listed: number;
+  /** Cards put up. */
+  emitted: number;
+  /** Cards whose action was refused (by the tool or the action's own checks). */
+  refused: number;
+  /** Build cards turned into the filing. */
+  mapped: number;
+  /** One line each for the decisions that could not be cards, to add under the answer. */
+  notes: string[];
+};
+
+/**
+ * Words to compare labels by: lower case, letters and digits only.
+ * @param s
+ */
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Is this label the same card as one already up? Equal after normalising, or
+ * one contains the other when both are long enough to mean something.
+ * @param label - The new card's label.
+ * @param already - Labels already on screen.
+ */
+export function isSameCard(label: string, already: readonly string[]): boolean {
+  const a = norm(label);
+  if (!a) {
+    return false;
+  }
+  return already.some((b0) => {
+    const b = norm(b0);
+    return !!b && (a === b || (Math.min(a.length, b.length) >= 12 && (a.includes(b) || b.includes(a))));
+  });
+}
+
+/**
+ * The part of the agent's system prompt a card writer needs: the whole of it
+ * when it is small (the input side is cheap; it was never the slow part), and
+ * otherwise the opening (who the agent is, how it speaks) plus every
+ * paragraph about cards, decisions, drafts and voice, in order, capped.
+ * @param prompt - The agent's system prompt.
+ */
+export function cardRulesOf(prompt: string): string {
+  const text = prompt.trim();
+  if (text.length <= WHOLE_PROMPT_CHARS) {
+    return text;
+  }
+  const paragraphs = text.split(/\n\s*\n/);
+  const about = /recommend_action|\bcards?\b|decid|decision|approv|draft|subject|\bbody\b|voice|tone|phone|ready-to-send|sign[- ]off|never say|do not say/i;
+  const kept: string[] = [];
+  let size = 0;
+  for (const [i, p] of paragraphs.entries()) {
+    if (i < 2 || about.test(p)) {
+      if (size + p.length > RULES_CAP_CHARS) {
+        break;
+      }
+      kept.push(p);
+      size += p.length + 2;
+    }
+  }
+  return kept.join('\n\n');
+}
+
+/**
+ * The backstop model's call, made to fit the tool's schema: every field the tool requires, present.
+ * @param args - The call's arguments as the model wrote them.
+ */
+export function shapeRecommendCall(args: Record<string, unknown>): Record<string, unknown> {
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const input = args.action_input && typeof args.action_input === 'object' && !Array.isArray(args.action_input) ? args.action_input as Record<string, unknown> : {};
+  return {
+    ...args,
+    action_id: str(args.action_id) ?? '',
+    action_input: input,
+    label: (str(args.label) ?? str(args.title) ?? str(input.title) ?? 'Recommendation').slice(0, 120),
+    ...(str(args.rationale) ? { rationale: str(args.rationale) } : {}),
+  };
+}
+
+function positiveInt(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v) : Number.NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * "Dispatch: link expiry" → "link expiry": the thing, without the verb the card put in front of it.
+ * @param label
+ */
+function thingOf(label: string): string {
+  return label.replace(/^\s*(?:approve (?:the )?build|start (?:the )?build|build|dispatch|ship|implement)\s*[:—–-]\s*/i, '').trim() || label.trim();
+}
+
+/**
+ * A BUILD OF SOMETHING NOBODY FILED IS A FILING. A card that recommends
+ * `factory.dispatch_task` names the request it builds (`requestId`) or the
+ * task (`taskId`); one that names neither — or a request that does not exist
+ * — is an idea, and the one move for an idea is to file it as a request, where
+ * the filing gates judge it. Conversation 351 (2026-09-28) is the specimen:
+ * "Dispatch: StampSend link expiry & auto-disable", no request behind it, the
+ * action refused, a card with nothing to press.
+ * @param shaped - The shaped call.
+ * @param requestExists - Is there a request by this id?
+ */
+export async function buildOrFiling(shaped: Record<string, unknown>, requestExists: (id: number) => Promise<boolean>): Promise<{ call: Record<string, unknown>; mapped: boolean }> {
+  if (shaped.action_id !== BUILD_ACTION) {
+    return { call: shaped, mapped: false };
+  }
+  const input = shaped.action_input as Record<string, unknown>;
+  if (positiveInt(input.taskId) !== null) {
+    return { call: shaped, mapped: false };
+  }
+  const requestId = positiveInt(input.requestId);
+  if (requestId !== null && await requestExists(requestId).catch(() => false)) {
+    return { call: shaped, mapped: false };
+  }
+  const contract = input.contract && typeof input.contract === 'object' ? input.contract as Record<string, unknown> : {};
+  const title = thingOf(typeof contract.title === 'string' && contract.title.trim() ? contract.title : String(shaped.label ?? '')).slice(0, 200);
+  const summary = [contract.objective, shaped.rationale].find(v => typeof v === 'string' && v.trim()) as string | undefined;
+  return {
+    mapped: true,
+    call: {
+      ...shaped,
+      action_id: FILE_ACTION,
+      label: `File as a feature request: ${title}`.slice(0, 120),
+      action_input: {
+        objectType: 'request',
+        title,
+        fields: { title, ...(summary ? { summary } : {}) },
+        dedupOn: ['title'],
+        ...(summary ? { summary: summary.slice(0, 5000) } : {}),
+      },
+    },
+  };
+}
+
+/**
+ * The list step's JSON, read leniently: the first array in the reply, each
+ * entry with a label; anything else is no decisions.
+ * @param text - The model's reply.
+ */
+export function parseTouches(text: string): OwedTouch[] {
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start === -1 || end <= start) {
+    return [];
+  }
+  try {
+    const raw = JSON.parse(text.slice(start, end + 1)) as unknown;
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return raw.flatMap((e) => {
+      const o = e && typeof e === 'object' ? e as Record<string, unknown> : {};
+      const label = typeof o.label === 'string' ? o.label.trim() : '';
+      if (!label) {
+        return [];
+      }
+      return [{ label: label.slice(0, 120), why: typeof o.why === 'string' ? o.why.trim().slice(0, 300) : '', actionId: typeof o.action === 'string' ? o.action.trim() : typeof o.actionId === 'string' ? o.actionId.trim() : '' }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function textOf(response: unknown): string {
+  const c = (response as { content?: unknown } | null)?.content;
+  if (typeof c === 'string') {
+    return c;
+  }
+  if (Array.isArray(c)) {
+    return c.map(b => (b && typeof b === 'object' && 'text' in b ? String((b as { text: unknown }).text) : '')).join('');
+  }
+  return '';
+}
+
+function readToolResult(raw: unknown): ToolOutcome {
+  const text = typeof raw === 'string' ? raw : typeof (raw as { content?: unknown })?.content === 'string' ? (raw as { content: string }).content : '';
+  try {
+    const parsed = JSON.parse(text) as { ok?: boolean; error?: string };
+    return parsed && parsed.ok === false ? { ok: false, error: parsed.error, output: text } : { ok: true, output: text };
+  } catch {
+    return { ok: true, output: text };
+  }
+}
+
+/**
+ * One tool call that cannot end the pass: a thrown schema error is a refusal with its message.
+ * @param tool - `recommend_action`.
+ * @param args - The shaped call.
+ */
+async function invokeRecommend(tool: StructuredToolInterface, args: Record<string, unknown>): Promise<ToolOutcome> {
+  try {
+    return readToolResult(await tool.invoke(args as never));
+  } catch (err) {
+    const error = (err as Error).message.replace(/\s+/g, ' ').slice(0, 300);
+    return { ok: false, error, output: '' };
+  }
+}
+
+/**
+ * The live line: what the pass is doing, with counts.
+ * @param total
+ * @param ready
+ * @param noted
+ */
+function progress(total: number, ready: number, noted: number): string {
+  const cards = `${total} decision card${total === 1 ? '' : 's'}`;
+  const tail = noted > 0 ? ` · ${noted} noted under the answer` : '';
+  return ready + noted >= total
+    ? `${ready} of ${cards} ready${tail}`
+    : `Writing ${cards} · ${ready} of ${total} ready${tail}`;
+}
+
+/**
+ * The one line under the answer for a decision that could not be a card.
+ * @param label - The card's label.
+ * @param reason - Why it is not a card.
+ */
+export function noteLine(label: string, reason: string): string {
+  const why = reason.replace(/\s+/g, ' ').replace(/^Not proposed:\s*/i, '').trim().slice(0, 240);
+  return `- **${label.replace(/[*_`[\]]/g, '')}** — not a card: ${why}${/[.!?]$/.test(why) ? '' : '.'}`;
+}
+
+/**
+ * Run the pass over a finished answer.
+ * @param input - What the pass reads.
+ * @param input.answer - The answer the person already has.
+ * @param input.already - Labels of the cards already on screen.
+ * @param input.agentPrompt - The agent's system prompt (its card rules and voice).
+ * @param deps - Everything outside.
+ */
+export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
+  const log = deps.log ?? ((m: string, d: Record<string, unknown>) => console.warn(m, d));
+  const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+  const result: CardBackstopResult = { listed: 0, emitted: 0, refused: 0, mapped: 0, notes: [] };
+  const rules = cardRulesOf(input.agentPrompt);
+  const onScreen = [...input.already];
+
+  // 1. LIST — small and fast: labels and a line of why, never a body.
+  deps.emit({ type: 'status', label: 'Finding the decisions in the answer' });
+  const lister = await deps.listModel();
+  const listSys = `You read an answer an agent already gave a person and list the decisions it NAMES that a registered action can carry — the owed, actionable next moves (approve this build, file this request, send this reply). Top ${MAX_CARDS} at most, by leverage. Only what the answer itself names; never invent one. Skip anything already carded. If there are none, return [].
+
+Reply with JSON only, no prose: [{"label": "<button label, under 80 chars, starts with the verb>", "why": "<one line: why now>", "action": "<one action id from the list>"}]
+
+Registered actions:
+${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as a card:\n${rules.slice(0, 4_000)}` : ''}`;
+  const already = onScreen.length > 0 ? `Already carded (do NOT list these): ${onScreen.map(l => `"${l}"`).join(', ')}\n\n` : '';
+  const listed = await lister.invoke([new SystemMessage(listSys), new HumanMessage(`LIST THE DECISIONS\n\n${already}THE ANSWER:\n${input.answer}`)], { signal: AbortSignal.timeout(LIST_TIMEOUT_MS), callbacks: deps.callbacks } as never);
+  await deps.charge('classifier', listed);
+  const touches: OwedTouch[] = [];
+  for (const t of parseTouches(textOf(listed))) {
+    if (touches.length >= MAX_CARDS) {
+      break;
+    }
+    if (isSameCard(t.label, [...onScreen, ...touches.map(x => x.label)])) {
+      continue;
+    }
+    touches.push(t);
+  }
+  result.listed = touches.length;
+  if (touches.length === 0) {
+    return result;
+  }
+
+  // 2. WRITE — one call per card, all at once; each goes up when it returns.
+  // A card that turns out to be a twin, or whose call fails, leaves the count.
+  let total = touches.length;
+  deps.emit({ type: 'status', label: progress(total, 0, 0) });
+  const settle = (): void => deps.emit({ type: 'status', label: progress(total, result.emitted, result.notes.length) });
+  const writeOne = async (touch: OwedTouch): Promise<void> => {
+    const actionIds = deps.hasAction(touch.actionId)
+      ? (touch.actionId === BUILD_ACTION ? [BUILD_ACTION, FILE_ACTION] : [touch.actionId])
+      : [];
+    const tool = deps.tool(actionIds);
+    const base = await deps.cardModel();
+    if (!base.bindTools) {
+      throw new Error('model does not support tools');
+    }
+    const model = base.bindTools([tool], { tool_choice: 'recommend_action' } as never);
+    const sys = `${rules}\n\nCARD PASS: the answer below was ALREADY delivered to the person — do not rewrite it. Your ONLY job: call recommend_action ONCE, for exactly this decision: "${touch.label}"${touch.why ? ` (${touch.why})` : ''}. Follow your rules above for what the card carries: a real, ready-to-send payload with every field its action needs, filled from the answer — never a placeholder. ${actionIds.includes(BUILD_ACTION) ? `A build names the request it builds (requestId) or the task (taskId); when the answer names no filed request for it, file it instead with ${FILE_ACTION} (objectType "request"). ` : ''}Output the tool call only — no prose.`;
+    const response = await model.invoke([new SystemMessage(sys), new HumanMessage(`CARD FOR: ${touch.label}\nWhy: ${touch.why || 'named in the answer'}\n\nTHE ANSWER:\n${input.answer}`)], { signal: AbortSignal.timeout(CARD_TIMEOUT_MS), callbacks: deps.callbacks } as never);
+    await deps.charge('extractor', response);
+    const call = ((response as { tool_calls?: Array<{ name: string; args: Record<string, unknown> }> }).tool_calls ?? []).find(c => c.name === 'recommend_action');
+    if (!call) {
+      result.notes.push(noteLine(touch.label, 'the card pass wrote no card for it'));
+      log('card backstop: no card written for a listed decision', { label: touch.label });
+      settle();
+      return;
+    }
+    const { call: shaped, mapped } = await buildOrFiling(shapeRecommendCall(call.args ?? {}), deps.requestExists);
+    if (mapped) {
+      result.mapped += 1;
+    }
+    const label = String(shaped.label);
+    if (isSameCard(label, onScreen)) {
+      log('card backstop: skipped a card already on screen', { label });
+      total -= 1;
+      settle();
+      return;
+    }
+    // Claimed now, before anything awaits, so a twin written in parallel stops above.
+    onScreen.push(label);
+    const release = (): void => {
+      onScreen.splice(onScreen.indexOf(label), 1);
+    };
+    const started = Date.now();
+    const actionId = String(shaped.action_id ?? '');
+    const actionInput = shaped.action_input as Record<string, unknown>;
+    // A card with nothing to press is not a card, and a card whose action
+    // refuses it can only fail when pressed: both become a line under the answer.
+    const refusal = !actionId
+      ? 'no action can carry it; it stays in the answer'
+      : await deps.precheck(actionId, actionInput).catch((err: Error) => err.message);
+    if (refusal) {
+      release();
+      result.refused += 1;
+      result.notes.push(noteLine(touch.label, refusal));
+      await deps.record({ input: shaped, error: `not put up: ${refusal}`.slice(0, 2000), durationMs: Date.now() - started });
+      log('card backstop: a card was refused, noted under the answer', { label, actionId, reason: refusal.slice(0, 300), mapped });
+      settle();
+      return;
+    }
+    const outcome = await invokeRecommend(tool, shaped);
+    await deps.record({ input: shaped, ...(outcome.ok ? { output: outcome.output } : { error: outcome.error ?? 'refused' }), durationMs: Date.now() - started });
+    if (outcome.ok) {
+      result.emitted += 1;
+    } else {
+      release();
+      result.refused += 1;
+      result.notes.push(noteLine(touch.label, outcome.error ?? 'its action refused it'));
+      log('card backstop: a card was refused, noted under the answer', { label, actionId, reason: outcome.error, mapped });
+    }
+    settle();
+  };
+  // One card's failure (a timeout, a dropped connection) is that card's
+  // alone: the others still go up, and the count stops waiting for it.
+  await Promise.all(touches.map(touch => writeOne(touch).catch((err: Error) => {
+    log('card backstop: one card call failed', { label: touch.label, message: err?.message });
+    total -= 1;
+    settle();
+  })));
+  return result;
+}
+
+/**
+ * The pass wired to the product: the org's models, the registry, the budget,
+ * the tool_call ledger and Langfuse.
+ * @param opts - The turn.
+ * @param opts.ctx - The turn's runtime context (org, conversation, trace, emit).
+ * @param opts.orgId - Tenant.
+ * @param opts.agentSlug - The agent whose turn this is.
+ * @param opts.userId - Who asked.
+ * @param opts.emit - The turn's emit (counts cards as they go up).
+ */
+export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: string; agentSlug: string; userId?: string; emit: (event: AgentEvent) => void }): Promise<CardBackstopDeps> {
+  const [{ buildChatModelForOrg }, { recommendActionTool }, registry, { chargeModelCall }, { FEATURES }, { persistToolCall }, { createLangfuseCallback }] = await Promise.all([
+    import('@/libs/llm'),
+    import('./tools/recommendAction'),
+    import('@/libs/actions/registry'),
+    import('@/services/budget/chargeModelCall'),
+    import('@/libs/Langfuse/features'),
+    import('./toolCallRecord'),
+    import('@/libs/Langfuse'),
+  ]);
+  // Its own trace (`chat.cards:<agent>`), so the pass's latency reads on its
+  // own; charged through `chargeModelCall`, never through the trace hook.
+  const { handler } = createLangfuseCallback({ feature: FEATURES.CHAT_CARDS, slug: opts.agentSlug, orgId: opts.orgId, userId: opts.userId ?? 'system', metadata: { parentTraceId: opts.ctx.traceId ?? null, conversationId: opts.ctx.conversationId ?? null } });
+  const ctx = { ...opts.ctx, orgId: opts.ctx.orgId ?? opts.orgId, agentSlug: opts.ctx.agentSlug ?? opts.agentSlug, emit: opts.emit } as RuntimeContext;
+  return {
+    listModel: () => buildChatModelForOrg('classifier', opts.orgId, { temperature: 0, streaming: false, maxTokens: 600 }),
+    cardModel: () => buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: false, maxTokens: 2_000 }),
+    tool: actionIds => recommendActionTool(ctx, { actionIds }),
+    actionCatalog: () => registry.listActions().map(a => `${a.id} — ${a.description.split(/(?<=\.)\s/)[0]!.slice(0, 160)}`).join('\n'),
+    hasAction: id => !!id && registry.getAction(id) !== undefined,
+    precheck: async (actionId, input) => {
+      const action = registry.getAction(actionId);
+      if (!action) {
+        return `no registered action "${actionId}"`;
+      }
+      const parsed = action.inputSchema.safeParse(input);
+      if (!parsed.success) {
+        return `its input does not fit ${actionId}: ${parsed.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`;
+      }
+      return (await action.precheck?.({ orgId: opts.orgId, invokedBy: `agent:${opts.agentSlug}` }, parsed.data)) || undefined;
+    },
+    requestExists: async (id) => {
+      const { readRecord } = await import('@/libs/actions/factory-dispatch');
+      return (await readRecord(opts.orgId, id))?.typeSlug === 'request';
+    },
+    charge: (role, response) => chargeModelCall({ orgId: opts.orgId, agentSlug: opts.agentSlug, feature: FEATURES.CHAT_CARDS, role, response }),
+    record: row => persistToolCall({ ctx, tool: 'recommend_action', ns: '', ...row }),
+    emit: opts.emit,
+    callbacks: [handler],
+  };
+}

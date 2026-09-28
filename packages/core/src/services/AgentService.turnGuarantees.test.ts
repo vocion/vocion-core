@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const streamEvents = vi.fn();
-const backstop = vi.hoisted(() => ({ on: false, calls: [] as Array<{ name: string; args: Record<string, unknown> }>, onCall: undefined as undefined | ((mark: string) => void) }));
+const backstop = vi.hoisted(() => ({ on: false, calls: [] as Array<{ name: string; args: Record<string, unknown> }>, delays: [] as number[], onCall: undefined as undefined | ((mark: string) => void) }));
 
 vi.mock('@/services/agents/harness', () => ({
   // The turn says which model answers it (`run_meta`); the mock keeps the agent's defaults.
@@ -38,23 +38,29 @@ vi.mock('@/services/agents/harness', () => ({
 
 vi.mock('@/libs/llm', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/llm')>()),
-  // The card pass streams: each recorded call arrives as tool_call_chunks,
-  // its arguments split across two chunks, as a provider sends them.
-  buildChatModelForOrg: vi.fn(async () => ({
-    bindTools: () => ({
-      invoke: async () => ({ tool_calls: backstop.calls }),
-      stream: async () => (async function* () {
-        for (const [index, call] of backstop.calls.entries()) {
-          const json = JSON.stringify(call.args);
-          const cut = Math.floor(json.length / 2);
-          backstop.onCall?.(`model starts card ${index + 1}`);
-          yield { tool_call_chunks: [{ index, name: call.name, args: json.slice(0, cut) }] };
-          yield { tool_call_chunks: [{ index, args: json.slice(cut) }] };
-          backstop.onCall?.(`model finishes card ${index + 1}`);
-        }
-      })(),
-    }),
-  })),
+  // The card pass is two steps (services/agents/cardBackstop.ts): the
+  // classifier lists the decisions (labels only), then one extractor call per
+  // card writes it. Each recorded call is one card; `delays` holds a writer
+  // back by that many ms so a test can see the cards land out of order.
+  buildChatModelForOrg: vi.fn(async (role: string) => (role === 'classifier'
+    ? { invoke: async () => ({ content: JSON.stringify(backstop.calls.map(c => ({ label: c.args.label ?? c.args.title, why: 'named in the answer', action: c.args.action_id }))) }) }
+    : {
+        bindTools: () => ({
+          invoke: async (messages: Array<{ content: unknown }>) => {
+            const human = String(messages.at(-1)?.content ?? '');
+            const index = backstop.calls.findIndex(c => human.startsWith(`CARD FOR: ${String(c.args.label ?? c.args.title)}\n`));
+            // Any other pass (the owed-write filing) gets every recorded call.
+            if (index === -1) {
+              return { tool_calls: backstop.calls };
+            }
+            const call = backstop.calls[index]!;
+            backstop.onCall?.(`model starts card ${index + 1}`);
+            await new Promise(r => setTimeout(r, backstop.delays[index] ?? 0));
+            backstop.onCall?.(`model finishes card ${index + 1}`);
+            return { tool_calls: [{ name: call.name, args: call.args }] };
+          },
+        }),
+      })),
 }));
 // The agent's tool belt, as the filing pass builds it: empty unless a test puts propose_action on it.
 const toolBelt = vi.hoisted(() => ({ tools: [] as Array<{ name: string; invoke: (input: unknown) => Promise<unknown> }> }));
@@ -444,7 +450,7 @@ describe('the tool-call log an eval reads', () => {
     expect(logged?.output).toBe(page);
   });
 
-  it('the card backstop counts only cards that were put up: a refused action is re-put without it, and the log says so (finding 20)', async () => {
+  it('a card whose action is refused is not a dead card: it is one line under the answer, and the log says so (finding 20, conversation 351)', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     backstop.on = true;
     backstop.calls.length = 0;
@@ -453,15 +459,13 @@ describe('the tool-call log an eval reads', () => {
     streamEvents.mockResolvedValue(longAnswerStream());
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const { events } = await run({ message: 'Seven customers lost uploads.', deliverable: 'answer', conversationId: conv.id });
+      const { events, result } = await run({ message: 'Seven customers lost uploads.', deliverable: 'answer', conversationId: conv.id });
 
-      const cards = events.filter(e => e.type === 'recommended_action') as Array<{ recommendation: { label: string; actionId: string } }>;
-
-      expect(cards).toHaveLength(1);
-      expect(cards[0]?.recommendation.label).toBe('File this as a request');
-      expect(cards[0]?.recommendation.actionId).toBeFalsy();
-      expect(warn.mock.calls.some(c => String(c[0]).includes('refused and re-put'))).toBe(true);
-      expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop' && (c[1] as { emitted: number; refused: number }).emitted === 1 && (c[1] as { refused: number }).refused === 1)).toBe(true);
+      expect(events.filter(e => e.type === 'recommended_action')).toHaveLength(0);
+      expect(result.response).toMatch(/\*\*File this as a request\*\* — not a card: no registered action "no\.such\.action"/);
+      expect(events.some(e => e.type === 'response_delta' && e.delta.includes('not a card'))).toBe(true);
+      expect(warn.mock.calls.some(c => String(c[0]).includes('refused, noted under the answer'))).toBe(true);
+      expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop' && (c[1] as { emitted: number; refused: number }).emitted === 0 && (c[1] as { refused: number }).refused === 1)).toBe(true);
     } finally {
       warn.mockRestore();
       backstop.on = false;
@@ -514,7 +518,7 @@ describe('the tool-call log an eval reads', () => {
     backstop.calls.length = 0;
     // No action_input at all, and the label under `title` — the shape the model produced on walk 16.
     backstop.calls.push({ name: 'recommend_action', args: { action_id: 'no.such.action', title: 'Approve P1 fix: mobile upload lost on cellular' } });
-    backstop.calls.push({ name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Tell the requester' } });
+    backstop.calls.push({ name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'ops@kestrel.example', subject: 'Uploads', body: 'We are fixing it.', draft: true }, label: 'Tell the requester' } });
     streamEvents.mockClear();
     streamEvents.mockResolvedValue(longAnswerStream());
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -527,7 +531,8 @@ describe('the tool-call log an eval reads', () => {
         console.error('WARNS', JSON.stringify(warn.mock.calls.map(c => [String(c[0]), c[1]]).slice(-6)));
       }
 
-      expect(cards.map(c => c.recommendation.label)).toEqual(['Approve P1 fix: mobile upload lost on cellular', 'Tell the requester']);
+      // The refused one is a line under the answer, never a card with nothing to press.
+      expect(cards.map(c => c.recommendation.label)).toEqual(['Tell the requester']);
       expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop failed')).toBe(false);
     } finally {
       warn.mockRestore();
@@ -583,17 +588,19 @@ describe('the answer pass streams (2026-09-25: "the response just pops in")', ()
   });
 });
 
-describe('the card pass streams (2026-09-25: "waiting like 40 seconds for the cards")', () => {
-  it('puts the first card up before the model has started writing the second', async () => {
+describe('the card pass writes every card at once (2026-09-25/28: "waiting like 40 seconds for the cards")', () => {
+  it('starts every card call before any returns, and puts each up the moment its own call does', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     backstop.on = true;
     backstop.calls.length = 0;
     backstop.calls.push(
-      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Approve the P1 upload fix', rationale: 'seven reports' } },
-      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Defer the admin panel', rationale: 'no demand yet' } },
+      { name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'ops@kestrel.example', subject: 'P1 fix', body: 'Approving the upload fix today.', draft: true }, label: 'Approve the P1 upload fix', rationale: 'seven reports' } },
+      { name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'pm@kestrel.example', subject: 'Admin panel', body: 'Deferring the admin panel.', draft: true }, label: 'Defer the admin panel', rationale: 'no demand yet' } },
     );
     const order: string[] = [];
     backstop.onCall = mark => order.push(mark);
+    // Card 1 is the slow one: card 2 must not wait for it.
+    backstop.delays = [60, 5];
     streamEvents.mockClear();
     streamEvents.mockResolvedValue(longAnswerStream());
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -611,32 +618,33 @@ describe('the card pass streams (2026-09-25: "waiting like 40 seconds for the ca
         },
       });
 
-      // Card 1 is on screen as soon as card 2 begins — before the model has
-      // finished writing card 2, let alone the last one.
+      // Both calls in flight before either returns; each card on screen right
+      // after ITS call, so the fast one lands first.
       expect(order).toEqual([
         'model starts card 1',
-        'model finishes card 1',
         'model starts card 2',
-        'on screen: Approve the P1 upload fix',
         'model finishes card 2',
         'on screen: Defer the admin panel',
+        'model finishes card 1',
+        'on screen: Approve the P1 upload fix',
       ]);
     } finally {
       warn.mockRestore();
       backstop.on = false;
       backstop.onCall = undefined;
+      backstop.delays = [];
     }
   });
 });
 
 describe('the live line says what is happening (2026-09-25: "Working is such a lazy progress label")', () => {
-  it('names the card pass and each card as it lands', async () => {
+  it('names the card pass and counts the cards as they land', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     backstop.on = true;
     backstop.calls.length = 0;
     backstop.calls.push(
-      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Approve the Kestrel upload fix', rationale: 'seven reports' } },
-      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Defer the admin panel', rationale: 'no demand yet' } },
+      { name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'ops@kestrel.example', subject: 'P1 fix', body: 'Approving the upload fix today.', draft: true }, label: 'Approve the Kestrel upload fix', rationale: 'seven reports' } },
+      { name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'pm@kestrel.example', subject: 'Admin panel', body: 'Deferring the admin panel.', draft: true }, label: 'Defer the admin panel', rationale: 'no demand yet' } },
     );
     streamEvents.mockClear();
     streamEvents.mockResolvedValue(longAnswerStream());
@@ -656,7 +664,8 @@ describe('the live line says what is happening (2026-09-25: "Working is such a l
         },
       });
 
-      expect(statuses).toEqual(['Writing the decision cards', 'Card 1 ready · writing the next', 'Card 2 ready · writing the next']);
+      // What is happening, with counts — never a static label.
+      expect(statuses).toEqual(['Finding the decisions in the answer', 'Writing 2 decision cards · 0 of 2 ready', 'Writing 2 decision cards · 1 of 2 ready', '2 of 2 decision cards ready']);
     } finally {
       warn.mockRestore();
       backstop.on = false;

@@ -13,6 +13,7 @@
  */
 
 import type { ConversationRun, ConversationTraceNode } from '@/services/ConversationService';
+import { linkRecordMentions } from '@/libs/chat/recordMentions';
 import { stepLabelFor } from '@/libs/chat/stepLabels';
 
 export type CollectedDoc = { document_id: string; semantic_identifier: string; link: string; source_type: string; blurb: string; citationIndex?: number; foundBy?: string };
@@ -32,6 +33,8 @@ export class RunCollector {
    * artifact and nothing in the history says which turn made which.
    */
   private readonly artifactIds = new Set<number>();
+  /** The answer's record mentions and their pages (`record_links`), applied to the stored text. */
+  private mentionLinks: Array<{ text: string; href: string }> = [];
 
   onArtifact(id: number): void {
     if (Number.isInteger(id) && id > 0) {
@@ -97,7 +100,17 @@ export class RunCollector {
     this.runs.push({ type: 'tool', name, input });
   }
 
-  onCard(card: { id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string }): void {
+  /**
+   * The answer's record mentions, linked (`record_links`): applied to every
+   * text passage when the turn is written down, so a reload links what the
+   * live transcript linked.
+   * @param links - The mentions and their pages.
+   */
+  onRecordLinks(links: Array<{ text: string; href: string }>): void {
+    this.mentionLinks.push(...links);
+  }
+
+  onCard(card: { id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; href?: string; hrefLabel?: string }): void {
     // Written once: the route tees a card when it is first seen AND again
     // when the auto-filed copy is written to the stream (finding 18).
     if (this.hasCard(card.label, card.actionId)) {
@@ -107,7 +120,7 @@ export class RunCollector {
       return;
     }
     this.flushText();
-    this.runs.push({ type: 'card', ...(card.id ? { id: card.id } : {}), ...(card.kind ? { kind: card.kind } : {}), label: card.label, actionId: card.actionId, input: card.input, runId: card.runId, ...(card.state ? { state: card.state } : {}) });
+    this.runs.push({ type: 'card', ...(card.id ? { id: card.id } : {}), ...(card.kind ? { kind: card.kind } : {}), label: card.label, actionId: card.actionId, input: card.input, runId: card.runId, ...(card.state ? { state: card.state } : {}), ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}) });
   }
 
   /**
@@ -207,6 +220,13 @@ export class RunCollector {
 
   finalise(): { text: string; runs: ConversationRun[]; documents: CollectedDoc[]; trace: ConversationTraceNode[] } {
     this.flushText();
+    if (this.mentionLinks.length > 0) {
+      for (const r of this.runs) {
+        if (r.type === 'text') {
+          r.text = linkRecordMentions(r.text, this.mentionLinks);
+        }
+      }
+    }
     const text = this.runs
       .filter((r): r is { type: 'text'; text: string } => r.type === 'text')
       .map(r => r.text)

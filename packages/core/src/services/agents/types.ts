@@ -80,6 +80,10 @@ export type RecommendedActionPayload = {
    */
   suggestedDecision?: SuggestedDecision;
   suggestedDecisionReason?: string;
+  /** The page of the record the card is about (a feature, a deal) — the card's title links there. */
+  href?: string;
+  /** The words on that link, from the page's name: "Open feature". */
+  hrefLabel?: string;
 };
 
 /**
@@ -304,6 +308,13 @@ export type AgentEvent
     /** The model is writing a tool call — its name is known before the call completes; a long argument (a whole document) otherwise reads as 'Working'. */
     | { type: 'composing'; tool: string }
     | { type: 'record_created'; record: import('@/services/chat/pageContext').RecordRef }
+    /**
+     * Record mentions in the finished answer ("#201", "request 201") and the
+     * page each opens — applied to the answer's text, live and stored
+     * (`libs/chat/recordMentions.ts`), so a record the answer names is one
+     * click away.
+     */
+    | { type: 'record_links'; links: Array<{ text: string; href: string }> }
     | { type: 'run_meta'; model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' }
     /**
      * The workspace chose the agent for this turn because nobody named one

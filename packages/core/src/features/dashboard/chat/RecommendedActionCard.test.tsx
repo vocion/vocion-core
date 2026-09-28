@@ -103,3 +103,31 @@ describe('what a card does, and where it stands', () => {
     expect(text('recommended-action-effect')).toBe('Starts the build');
   });
 });
+
+/**
+ * Chris, 2026-09-28, conversation 351: "should this have been a card? what
+ * action was taken? what's the CTA? … I want to click through to the feature
+ * detail page, either inline or in the action card."
+ */
+describe('a card links to the record it is about', () => {
+  it('the title and an "Open feature" link go to the feature page', async () => {
+    await render(<TooltipProvider><RecommendedActionCard rec={{ ...rec, actionId: 'factory.dispatch_task', input: { requestId: 201 }, label: 'Approve build: link expiry', href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' }} /></TooltipProvider>);
+
+    await expect.element(page.getByTestId('recommended-action-title-link')).toHaveAttribute('href', '/w/kestrel/dashboard/p/feature/201');
+    await expect.element(page.getByTestId('recommended-action-record-link')).toHaveTextContent('Open feature');
+    expect(text('recommended-action-effect')).toBe('Starts the build');
+  });
+
+  it('a filing that ran links to the record it made', async () => {
+    actionStatus.mockResolvedValue({ id: 41, status: 'done', decidedBy: null, decidedAt: null, recordHref: '/w/kestrel/dashboard/p/feature/233', recordHrefLabel: 'Open feature' });
+    await render(<TooltipProvider><RecommendedActionCard rec={{ ...rec, actionId: 'objects.propose_candidate', label: 'File as a feature request: link expiry', runId: 41 }} /></TooltipProvider>);
+
+    await expect.element(page.getByTestId('recommended-action-record-link')).toHaveAttribute('href', '/w/kestrel/dashboard/p/feature/233');
+  });
+
+  it('a card with nothing to press does not say it is waiting on you', async () => {
+    await render(<TooltipProvider><RecommendedActionCard rec={{ ...rec, actionId: '' }} /></TooltipProvider>);
+
+    expect(document.querySelector('[data-testid="recommended-action-state"]')).toBeNull();
+  });
+});
