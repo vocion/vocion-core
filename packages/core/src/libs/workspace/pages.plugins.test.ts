@@ -101,13 +101,15 @@ describe('plugin pages', () => {
     // what it costs. Plus the rank and the conditional facts, both of which
     // draw nothing when there is nothing to say — and the picture, which is
     // drawn rather than said.
-    expect(keys).toEqual(['title', 'kindIcon', 'visual', 'status', 'blocked', 'gap', 'unmet', 'contract', 'flags', 'detail', 'why', 'cost', 'product', 'rank']);
+    // No fact row of internals under the card: every field is on the row's one line, or it is not on the page (Chris, 2026-09-25).
+    expect(keys).toEqual(['title', 'visual', 'status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product']);
     // Every field sits in the subtitle so the uppercase fact list never
     // draws: five labels a person reads past to reach five values. The
     // picture is the one exception, and it is not in the fact list either —
     // it leads the block, because "PREVIEW" over a thumbnail is a caption
     // saying what a person can already see.
-    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', thumbFallback: 'kindIcon', subtitle: ['status', 'blocked', 'gap', 'unmet', 'contract', 'flags', 'rank', 'detail', 'why', 'cost', 'product'] });
+    // What it is, the user problem, and what it needs — nothing else on the row (Chris, 2026-09-25).
+    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', subtitle: ['status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product'] });
 
     // Sixteen fields became these. The record's own vocabulary is gone.
     // `status` is the derived badge — "Blocked", "Decide" — never the
@@ -322,6 +324,23 @@ describe('plugin pages', () => {
 
       expect(readWorkspacePages({ mounted: true }).pages.map(p => p.slug)).toEqual(expect.arrayContaining(['ours', 'wiki']));
       expect(readWorkspacePages().pages.map(p => p.slug)).toEqual(expect.arrayContaining(['ours', 'wiki']));
+    });
+
+    it('reads the project\'s own folder instead, so it can override a plugin page by slug', () => {
+      workspace('plugins: [wiki]\n', { 'pages/ours.yaml': 'slug: ours\ntitle: Ours\narchetype: markdown\n' });
+      const mine = mkdtempSync(join(tmpdir(), 'pages-own-'));
+      dirs.push(mine);
+      writeFileSync(join(mine, 'workspace.yaml'), 'version: 1\norgId: u\nname: u\nplugins: [software-factory]\n');
+      mkdirSync(join(mine, 'pages'));
+      writeFileSync(join(mine, 'pages', 'work.yaml'), 'slug: work\ntitle: Work\narchetype: markdown\n');
+      const { pages } = readWorkspacePages({ enabledPlugins: ['software-factory'], mounted: false, dir: mine });
+
+      expect(pages.map(p => p.slug)).not.toContain('ours');
+      expect(pages.find(p => p.slug === 'work')?.origin).toBe('workspace');
+      expect(pages.find(p => p.slug === 'work')?.sourceDir).toBe(join(mine, 'pages'));
+      // It keeps the plugin's place in the nav (Work under Software factory).
+      expect(pages.find(p => p.slug === 'work')?.overrides).toBe('plugin:software-factory');
+      expect(pagePlugin(pages.find(p => p.slug === 'work')!)).toBe('software-factory');
     });
 
     it('a project with no plugins of its own sees nothing under a foreign mount', () => {

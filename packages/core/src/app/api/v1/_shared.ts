@@ -1,5 +1,4 @@
 import type { NextResponse as NextResponseType } from 'next/server';
-import type { WorkspaceRole } from '@/services/authz';
 import type { ApiCaller } from '@/services/writeApi';
 import { NextResponse } from 'next/server';
 import { clerkAuth } from '@/libs/Auth';
@@ -20,17 +19,6 @@ import { WriteApiError } from '@/services/writeApi';
  * Both resolve to the same {@link ApiCaller}, so a handler never has to care
  * which one it got, and the authorization check below runs identically for both.
  */
-
-/**
- * A dashboard membership role is coarser than a workspace role. Admins get the
- * unrestricted `owner` bundle; ordinary members get `pm`, which is also
- * unrestricted — that matches how the dashboard behaved before these endpoints
- * were authorized at all, so no browser flow loses access.
- */
-const MEMBERSHIP_ROLE_TO_WORKSPACE_ROLE: Record<'admin' | 'member', WorkspaceRole> = {
-  admin: 'owner',
-  member: 'pm',
-};
 
 /**
  * Authenticate an API request as a tenant token or a dashboard session.
@@ -55,7 +43,7 @@ export async function authApi(req?: Request): Promise<ApiCaller | NextResponseTy
     };
   }
 
-  const { userId, orgId, role } = await clerkAuth();
+  const { userId, orgId, role, workspaceRole } = await clerkAuth();
   if (!userId || !orgId) {
     return jsonError('UNAUTHORIZED', 'Missing or invalid credentials', 401);
   }
@@ -65,7 +53,11 @@ export async function authApi(req?: Request): Promise<ApiCaller | NextResponseTy
     principal: {
       kind: 'user',
       id: userId,
-      role: MEMBERSHIP_ROLE_TO_WORKSPACE_ROLE[role ?? 'member'],
+      // The role held in THIS workspace, resolved per request by
+      // `resolveTenancyForUser`. The account role is the fallback for a session
+      // issued before that field existed; the two vocabularies are the same
+      // two names now, so there is no mapping left to apply.
+      role: workspaceRole ?? role ?? 'member',
       scope: { orgId },
     },
     source: 'session',

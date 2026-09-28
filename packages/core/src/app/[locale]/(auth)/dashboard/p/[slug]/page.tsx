@@ -11,6 +11,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PageBlocks } from '@/features/dashboard/pages/PageBlocks';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
+import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
@@ -525,7 +526,10 @@ export default async function WorkspacePage(props: {
     // A named derivation runs FIRST, over every row: it is what turns stored
     // states into the lanes and sentences the page is declared in, and it
     // needs the whole set to count what it then leaves out.
-    const loaded = await loadRows(manifest, orgId);
+    // A URL filter narrows the rows BEFORE the derivation counts them, so a
+    // lane note under "Send only" counts Send, not the whole factory (Chris,
+    // 2026-09-24: "3 to decide · 5 more queued" over four rows).
+    const loaded = applyQueryFilters(await loadRows(manifest, orgId), queryFilters);
     const derived = manifest.derive === 'workQueue'
       ? deriveWorkQueue(loaded, { now: new Date(now) })
       : manifest.derive === 'releaseOutcome'
@@ -538,7 +542,6 @@ export default async function WorkspacePage(props: {
     // each row shows (`services/workspace/pageImages.ts`).
     const drawn = await resolveRowImages(orgId, derived, manifest.fields ?? []);
     rows = applyFilter(drawn, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
-    rows = applyQueryFilters(rows, queryFilters);
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {
@@ -690,16 +693,17 @@ export default async function WorkspacePage(props: {
       {!rowsLead && about}
 
       {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} />}
+      {manifest.prompts && manifest.prompts.length > 0 && <PagePrompts prompts={manifest.prompts} page={manifest.title} />}
       {queryFilters.length > 0 && (
         <p className="mb-4 flex flex-wrap items-center gap-2 text-sm" data-testid="page-query-filters">
           {queryFilters.map(f => (
             <span key={f.param} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
-              <span className="text-foreground">{f.value}</span>
+              <span className="text-foreground">{f.value.charAt(0).toUpperCase() + f.value.slice(1)}</span>
               {' '}
               only
             </span>
           ))}
-          <Link href={`/dashboard/p/${manifest.slug}`} className="text-xs text-muted-foreground underline-offset-2 hover:underline">Show all</Link>
+          <Link href={`/dashboard/p/${manifest.slug}${queryFilters.some(f => manifest.queryFilters?.find(q => q.param === f.param)?.default !== undefined) ? `?${queryFilters.map(f => `${f.param}=all`).join('&')}` : ''}`} className="text-xs text-muted-foreground underline-offset-2 hover:underline">Show all</Link>
         </p>
       )}
       {activeView?.note && <p className="mb-4 max-w-3xl text-sm text-muted-foreground">{activeView.note}</p>}
@@ -808,6 +812,7 @@ export default async function WorkspacePage(props: {
             rowLink={manifest.rowLink}
             rowActions={manifest.rowActions}
             rowActionsAs={manifest.rowActionsAs}
+            omitConstants={queryFilters.map(f => f.field)}
             groupLabel={groupLabel}
             now={now}
             links={links}

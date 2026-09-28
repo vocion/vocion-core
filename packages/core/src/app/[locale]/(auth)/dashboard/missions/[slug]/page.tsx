@@ -4,7 +4,6 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { StatusPill } from '@/components/ui/status-pill';
 import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
-import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionCheckButton } from '@/features/dashboard/MissionCheckButton';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
@@ -74,11 +73,9 @@ export default async function MissionDetailPage(props: {
       {/* Highlight anything in the charter: Ask, or Change (the agent edits the
           file through write_mission, reviewed). The source pane below has its
           own toolbar over the file itself. */}
-      <AskAboutThis variant="none" selectionRoot="[data-mission-charter]" record={record} agentSlug={mission.agentSlug ?? undefined} changeable />
       <TitleBar
         title={mission.name}
         description={mission.description ?? 'Standing mission'}
-        actions={<AskAboutThis record={record} agentSlug={mission.agentSlug ?? undefined} />}
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-2">

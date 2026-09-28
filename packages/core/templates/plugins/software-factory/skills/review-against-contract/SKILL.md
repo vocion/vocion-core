@@ -98,6 +98,15 @@ for the next contract, and do not hold the change for it. This is what keeps
 review from becoming an unbounded opinion surface, and it is why the contract
 is written before the work rather than inferred after it.
 
+Write each finding on the task, typed, beside the verdict — `verdict.findings[]:
+{against: criterion|path|check, ref, severity: block|fix|note, what, closeBy}`
+— `against` and `ref` say what on the contract it fails, in the contract's own
+words; `severity` says what it does: **block** keeps the merge ask from being
+filed (the merge action refuses it and names the finding), **fix** rides on the
+next attempt's contract line, **note** goes to the PM for the next contract. A
+`block` finding and an `approve` verdict cannot both be true; if you have one,
+the verdict is `changes` or `reject`.
+
 ## The three verdicts
 
 - **approve** — every criterion met, every required check run and passed
@@ -142,13 +151,16 @@ take.
 
 ## The verdict is about one commit
 
-Write the verdict ON THE TASK, through `update_object`: `verdict: {value,
-commitSha, at, by, note, independentChecks}`. `commitSha` is the head you read
-the diff and the evidence at, and it must equal the task's own `commitSha`; a
-branch that moves after your review carries an approval of code nobody read,
-and the merge card says STALE until you re-read the head (review,
-2026-09-24). `note` is the one sentence for the person who will merge: what
-they are accepting and the one risk to know.
+Record the verdict with **`record_verdict`** — it is the review's output, and
+a review that does not end in it did not happen. Pass every criterion judged
+`proven` (with the link, check or screenshot that settles it), `unproven` or
+`unchecked`; the findings; and `note`, the one sentence for the person who will
+merge: what they are accepting and the one risk to know. The server reads the
+PR's head from GitHub and binds the verdict to it (a branch that moves after
+your review reads STALE on the merge card), counts the proven criteria itself,
+refuses an approve that carries an unproven criterion or a `block` finding,
+sets the task to `accepted`, `changes_requested` or `rejected`, and on approve
+files the merge card. You never file the merge separately.
 
 Withholding the engineer's conversation does not make the engineer's own
 verification independent. `independentChecks` lists the checks that ran on

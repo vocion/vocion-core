@@ -573,8 +573,10 @@ export function ChatComposer({
   };
 
   return (
-    <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-3 pt-3 pb-3 sm:px-6 sm:pt-4">
-      <div ref={rootRef} className="relative mx-auto max-w-3xl">
+    <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-4">
+      {/* `min-w-0` + `wrap-anywhere`: a long id, URL or file name inside the
+          bar breaks rather than pushing the whole page sideways on a phone. */}
+      <div ref={rootRef} className="relative mx-auto w-full max-w-3xl min-w-0 wrap-anywhere">
         {/* The surface's own stack — same column, same left edge as the box. */}
         {above}
         {menuMode && (
@@ -643,7 +645,7 @@ export function ChatComposer({
                 and size. Each ✕ drops the chip; the artifact row stays (it is
                 the person's file, in their artifacts list). */}
             {attachments.map(a => (
-              <span key={a.id} data-testid="composer-attachment" className="inline-flex max-w-72 items-center gap-1.5 rounded-lg border border-border bg-muted/40 py-0.5 pr-1 pl-1.5 text-xs">
+              <span key={a.id} data-testid="composer-attachment" className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-muted/40 py-0.5 pr-1 pl-1.5 text-xs sm:max-w-72">
                 {a.kind === 'image'
                   ? <img src={a.url} alt="" className="size-6 rounded object-cover" />
                   : <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}

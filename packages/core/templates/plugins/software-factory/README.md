@@ -33,7 +33,7 @@ so they are gone. Reporting returns when use demands it.
 | decided | PM prepares the commitment — draft contract, main risk, expected result, how we check, the mockup — then **the product owner decides** from ONE card: Approve build · Request changes · Defer | `state: in_scope` with `acceptanceFrozenAt`; or `deferred` with a reason and a revisit date; or an honest answer proposed as a reply. Answers and duplicates never enter the build path |
 | planned | PM, before the card; an `architecture_plan` only when the work needs one, as an explicit exception | the `engineering_task` contract, drafted before approval and frozen by it |
 | building | Eng, as an external worker in its own checkout | a `factory/` branch, a pull request, verification artifacts. Waits have names — awaiting dispatch, awaiting QA, ready to merge; **Blocked** only when `request.blocker` names an obstacle, its owner and the next move. Three failed attempts escalate with a revised recommendation |
-| QA | QA reads the contract, the diff and the evidence, never the conversation | `verdict` on the task, bound to the commit it was read at; then **the engineering owner merges** from a card carrying the commit, the verdict, the risk class and the rollback |
+| QA | QA reads the contract, the diff and the evidence, never the conversation | `record_verdict` on the task, bound to the head it was read at, which files the merge card; then **the engineering owner merges** from a card carrying the commit, the verdict, the risk class and the rollback |
 | released | whatever deployed writes the `release`; PM tells the asker on their channel and writes `told` on the request | a `release` with `healthAfter`; `told.status: sent`; and after `checkAfter`, `result`: helped / did not help / not enough evidence |
 
 A person can view and progress any of it from chat: the PM surfaces the ask
@@ -66,11 +66,11 @@ the trust ladder; this plugin ships what the fields mean.
 Three missions: **close-the-gap** (no request waits more than a week, and
 every shipped one carries a result — PM), **tell-the-requester** (every asker
 hears back — PM), **prove-the-contract** (every criterion proven or named
-unproven, every verdict bound to a commit — QA). Ten automations wake them: a
+unproven, every verdict bound to a commit — QA). Nine automations wake them: a
 request arrives, a build decision lands, the weekday planning pass, a failed
 check on a factory branch, work finished, the two-hourly reply pass, the
-weekday result pass, and QA's three red-team reads (the proposal at triage,
-the diff at PR open, the evidence when checks pass).
+weekday result pass, and QA's two reads (the proposal at triage, and one review per
+pull request head when its checks pass, which must end in `record_verdict`).
 
 ## Trust
 

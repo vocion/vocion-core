@@ -13,15 +13,19 @@
  * `runAgent` engine until we flip the default.
  */
 
+import type { Card } from '@/libs/cards/card';
 import type { AgentEvent } from '@/services/agents/types';
+import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { cardFromRecommendation } from '@/libs/cards/card';
 import { openStream, wasStopped } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
 import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
+import { cardAsRecommendation, surfaceCard } from '@/services/cards/surface';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
 import { RunCollector } from '@/services/chat/runCollector';
 import { stoppedShort } from '@/services/chat/turnStatus';
@@ -52,7 +56,7 @@ export async function POST(request: Request): Promise<Response> {
   // record page sends it; the model reads it under the message, the log
   // keeps the message as typed.
   const { mergeScopeRef, readContextRefs, readPageContext, withPageContext } = await import('@/services/chat/pageContext');
-  const { autoProposeRecommendation, readAutonomy } = await import('@/services/chat/autoPropose');
+  const { autoProposeRecommendationDetailed, readAutonomy } = await import('@/services/chat/autoPropose');
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
   const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
@@ -91,8 +95,9 @@ export async function POST(request: Request): Promise<Response> {
   // agent; absent, the lead answers as before.
   let agentSlug = body.agent_slug as string | undefined;
   let routing: import('@/services/agents/router').RoutingDecision | null = null;
+  const roster = await listAgents(orgId);
   if (!agentSlug || body.route === true) {
-    const agents = await listAgents(orgId);
+    const agents = roster;
     if (agents.length === 0) {
       return new Response(
         JSON.stringify({ error: 'No agents authored for this project. See /dashboard/chat for setup.' }),
@@ -108,8 +113,13 @@ export async function POST(request: Request): Promise<Response> {
     agentSlug = routing?.chosen
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
   }
-  const routedAgent = routing ? (await listAgents(orgId)).find(a => a.slug === routing!.chosen) ?? null : null;
-  const clientHistory = (body.conversation_history as Array<{ role: 'user' | 'assistant'; content: string }>) ?? [];
+  const routedAgent = routing ? roster.find(a => a.slug === routing!.chosen) ?? null : null;
+  // Who speaks this turn, as a fact the client renders and the row records —
+  // never a guess the composer made from its tags before the turn ran
+  // (backlog 009). The name is the roster's; a slug the roster no longer
+  // knows is sent as itself and the client says so rather than inventing one.
+  const turnAgent = { slug: agentSlug, name: roster.find(a => a.slug === agentSlug)?.name ?? agentSlug };
+  const clientHistory = (body.conversation_history as HistoryTurn[]) ?? [];
   // Optional persistence — when the client supplies a conversation_id
   // we replay server-side history (authoritative) and persist the new
   // turn(s) on stream completion. When omitted, the route still works
@@ -185,6 +195,8 @@ export async function POST(request: Request): Promise<Response> {
     // not the contents — so the agent asks rather than guesses.
     // Stamped with when each turn was sent, so the model can tell yesterday's
     // question from one asked a minute ago (`toHistoryTurns`).
+    // …and each agent turn carries its runs, replayed as the tool calls and
+    // cards they were — see `services/chat/historyTools.ts`.
     conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })), { timeZone });
     const userMsg = await appendMessage({
       orgId,
@@ -265,6 +277,9 @@ export async function POST(request: Request): Promise<Response> {
             collector.onTraceNode(event as unknown as Record<string, unknown>);
           } else if (event.type === 'artifact' && !event.pending) {
             collector.onArtifact(event.artifact.id);
+          } else if (event.type === 'recommended_action') {
+            const r = event.recommendation as { label: string; actionId: string; input?: Record<string, unknown>; runId?: number };
+            collector.onCard({ label: r.label, actionId: r.actionId, input: r.input, runId: r.runId });
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -276,11 +291,20 @@ export async function POST(request: Request): Promise<Response> {
       // finaliser waits for them before closing the stream.
       const pending: Promise<void>[] = [];
       const sendEvent = (event: AgentEvent) => {
-        if (event.type === 'recommended_action' && autonomy === 'act-within-bounds' && event.recommendation.runId === undefined) {
-          pending.push((async () => {
-            const runId = await autoProposeRecommendation({ orgId, userId, rec: event.recommendation });
-            writeEvent(runId === null ? event : { ...event, recommendation: { ...event.recommendation, runId } });
-          })());
+        if (event.type === 'recommended_action') {
+          // Every recommendation becomes a CARD at this door (backlog 025):
+          // on the ledger and on the wire first, filed second under
+          // done-for-you, with the proposal id arriving as a `card_update`.
+          // The reverse order lost cards on 2026-09-25 (finding 18).
+          const card = cardFromRecommendation(event.recommendation);
+          pending.push(surfaceCard(card, {
+            write: writeEvent,
+            collector,
+            where: { conversationId, agentSlug },
+            ...(autonomy === 'act-within-bounds'
+              ? { file: (c: Card) => autoProposeRecommendationDetailed({ orgId, userId, rec: cardAsRecommendation(c) }) }
+              : {}),
+          }));
           return;
         }
         writeEvent(event);
@@ -298,6 +322,9 @@ export async function POST(request: Request): Promise<Response> {
       if (routing && routedAgent) {
         writeEvent({ type: 'routed', routing, agent: { slug: routedAgent.slug, name: routedAgent.name } });
       }
+      // Always, routed or named: the turn's speaker is a typed frame the
+      // transcript consumes, the same fact the assistant row is stamped with.
+      writeEvent({ type: 'turn_agent', agent: turnAgent });
 
       try {
         await runAgentDeep({
@@ -438,6 +465,7 @@ export async function POST(request: Request): Promise<Response> {
                 trace,
                 status: ending,
                 ...(endingReason ? { statusReason: endingReason } : {}),
+                agentSlug,
               });
               const touched = collector.touchedArtifactIds;
               if (touched.length > 0) {
@@ -459,7 +487,7 @@ export async function POST(request: Request): Promise<Response> {
                   void learnFromWorkCorrection({ orgId, agentSlug, userId, correction })
                     .then(async ({ receipt }) => {
                       if (receipt) {
-                        await appendMessage({ orgId, conversationId, role: 'assistant', content: receipt });
+                        await appendMessage({ orgId, conversationId, role: 'assistant', content: receipt, agentSlug });
                       }
                     })
                     .catch(() => {});

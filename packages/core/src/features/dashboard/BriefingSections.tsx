@@ -2,9 +2,7 @@
 
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { recordRef } from '@/services/chat/recordContext';
 import { splitSections } from './briefingSectionsModel';
-import { AskAboutThis } from './context/AskAboutThis';
 
 /**
  * A pre-v2 briefing — markdown, rendered section by section. Every brief
@@ -33,7 +31,6 @@ import { AskAboutThis } from './context/AskAboutThis';
  * @param props.agentSlug
  */
 export function BriefingSections(props: { briefingId: number; briefingTitle: string; content: string; agentSlug?: string }) {
-  const record = recordRef('briefing', props.briefingId, props.briefingTitle);
   const sections = splitSections(props.content);
 
   return (
@@ -50,14 +47,6 @@ export function BriefingSections(props: { briefingId: number; briefingTitle: str
           {sec.heading && (
             <div className="not-prose mt-6 mb-2 flex flex-wrap items-baseline justify-between gap-2 first:mt-0">
               <h2 className="text-base font-semibold tracking-tight">{sec.heading}</h2>
-              <AskAboutThis
-                record={record}
-                variant="icon"
-                label={`Ask about “${sec.heading}”`}
-                prompt={`About the "${sec.heading}" section of this brief: `}
-                agentSlug={props.agentSlug}
-                fallbackContext={props.content}
-              />
             </div>
           )}
           <Markdown remarkPlugins={[remarkGfm]}>{sec.body}</Markdown>

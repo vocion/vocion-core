@@ -12,7 +12,7 @@
  * where the person is. A picker on a phone is a second decision.
  */
 
-const DEFER_DAYS = 7;
+export const DEFER_DAYS = 7;
 
 /**
  * When a deferred card comes back: a week from now at 09:00 local time.

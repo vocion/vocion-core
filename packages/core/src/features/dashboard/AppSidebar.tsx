@@ -151,16 +151,19 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // A plugin's Workspace rows join the pinnable WORK rows, pinned by default —
   // turning a plugin on puts its door beside Chat and Review, not under More.
   // A core route a plugin owns is rendered from the plugin's list, once.
-  const pluginWorkspace = useMemo(() => pluginNav?.sections.find(s => s.label === PLUGIN_NAV_WORKSPACE)?.items ?? [], [pluginNav]);
+  const pluginWorkspace = useMemo(() => (pluginNav?.sections.find(s => s.label === PLUGIN_NAV_WORKSPACE)?.items ?? []).filter(i => !i.secondary), [pluginNav]);
+  // A route a plugin only OFFERS (secondary) is never a pinned door: it joins
+  // the Pages group's "More pages ›" like a forensic page would.
+  const pluginSecondary = useMemo(() => (pluginNav?.sections.find(s => s.label === PLUGIN_NAV_WORKSPACE)?.items ?? []).filter(i => i.secondary), [pluginNav]);
   // Named-app sections: a plugin's `nav.section: GTM` rows and the workspace's
   // own surfaces under the same heading render as ONE group, never two "GTM"s.
   const appSections = useMemo(() => {
-    const out = new Map<string, Array<{ title: string; url: string; icon: LucideIcon }>>();
+    const out = new Map<string, Array<{ title: string; url: string; icon: LucideIcon; secondary?: boolean }>>();
     for (const s of groupEnabledSurfaces(enabledSurfaces)) {
       out.set(s.label, s.items.map(i => ({ title: i.label, url: i.url, icon: pluginIcon(i.url, i.icon) })));
     }
     for (const s of pluginNav?.sections.filter(x => x.label !== PLUGIN_NAV_WORKSPACE) ?? []) {
-      out.set(s.label, [...(out.get(s.label) ?? []), ...s.items.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon) }))]);
+      out.set(s.label, [...(out.get(s.label) ?? []), ...s.items.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon), ...(i.secondary ? { secondary: true } : {}) }))]);
     }
     return [...out.entries()].map(([label, items]) => ({ label, items }));
   }, [enabledSurfaces, pluginNav]);
@@ -185,16 +188,19 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // Tenant pages only. Artifacts used to join this group as "saved canvases";
   // they are a WORK row of their own now (registry), with their own log.
   const pageItems = useMemo<PinnableItem[]>(
-    () => workspacePages.map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft, origin: 'page' as const })),
-    [workspacePages],
+    () => [
+      ...workspacePages.map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft, origin: 'page' as const })),
+      ...pluginSecondary.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon), origin: 'page' as const })),
+    ],
+    [workspacePages, pluginSecondary],
   );
 
   // Forensic pages sort last and the cut is made just above them, so they end
   // up under "More" whatever the page count — while ordinary overflow still
   // applies to everything before them.
   const secondaryUrls = useMemo(
-    () => new Set(workspacePages.filter(p => p.secondary).map(p => p.url)),
-    [workspacePages],
+    () => new Set([...workspacePages.filter(p => p.secondary).map(p => p.url), ...pluginSecondary.map(i => i.url)]),
+    [workspacePages, pluginSecondary],
   );
 
   // Every MANAGE destination — pages and their tabs — so a pin to either resolves.
@@ -301,7 +307,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                     the plugins that belong to the app (plugin.yaml `nav.section: GTM`),
                     one group per heading. Renders nothing when none are on. */}
                 {appSections.map(section => (
-                  <AppSidebarNav key={`app:${section.label}`} label={section.label} items={section.items} />
+                  <AppSidebarNav key={`app:${section.label}`} label={section.label} items={section.items} moreLabel={t('more')} />
                 ))}
 
                 {/* Bottom cluster: invite card (dismissible, remembered),

@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ClipboardCopy, MessagesSquare, MoreHorizontal, SquarePen } from 'lucide-react';
+import { Check, ClipboardCopy, MessagesSquare, MoreHorizontal } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import {
@@ -30,12 +30,11 @@ import { chatHotkeyLabel } from './chatHotkeys';
  */
 
 export type ChatMenuProps = {
-  onNewChat: () => void;
   /** The thread as plain text, built only when someone asks for it. Absent on a surface with nothing to copy yet. */
   onCopy?: (() => string) | null;
 };
 
-export function ChatMenu({ onNewChat, onCopy }: ChatMenuProps) {
+export function ChatMenu({ onCopy }: ChatMenuProps) {
   const t = useTranslations('Chat');
   const [copied, setCopied] = useState(false);
   // TAKING THE ANSWER WITH YOU.
@@ -75,11 +74,6 @@ export function ChatMenu({ onNewChat, onCopy }: ChatMenuProps) {
         <TooltipContent side="bottom" align="end" collisionPadding={8}>{t('chat_options')}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" collisionPadding={8} className="w-56">
-        <DropdownMenuItem onClick={onNewChat}>
-          <SquarePen className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />
-          {t('new_chat')}
-          <DropdownMenuShortcut>{chatHotkeyLabel('new-chat')}</DropdownMenuShortcut>
-        </DropdownMenuItem>
         {onCopy && (
           <DropdownMenuItem
             data-testid="copy-conversation"

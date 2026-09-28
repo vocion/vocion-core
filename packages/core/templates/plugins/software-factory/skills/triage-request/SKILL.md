@@ -29,6 +29,13 @@ still running on it.
 
 ## Read it as it arrived
 
+**The asker is the person talking to you**, unless they say they are relaying
+someone else. A request that arrives in chat is filed with that person as
+`askedBy` and the chat as its `channel` — never "who should I attach this to?"
+(2026-09-24: an incident answer named the release, the rollback and the risk,
+then asked who the asker was, and filed nothing). File first; ask only what
+the record cannot already answer.
+
 The `body` is the asker's own words. Read them before the summary, before the
 product guess, before anything. The `channel` tells you how much context they
 had: a store review was written in thirty seconds with no idea of a roadmap; a
@@ -140,6 +147,17 @@ operating intent's constraints are refusals, not preferences.
   on; that is the gap the mission exists to close.
 
 A P1 bug skips the decision. An incident skips it. Everything else is decided.
+
+**Name the platform piece, and add to core when it is missing.** Every in-scope
+decision says which shared capability it uses or extends (the wiki page tagged
+`platform` lists what core is). When the request needs a capability every
+product would need and that page does not have — a share-link rule, a seat
+rule, a notification path, an import — add ONE line to that page's
+"Candidates for core" section as part of the same turn (`write_wiki_page`):
+the date, the capability in a sentence, the request id, the products it would
+serve. That is the mechanism (Chris, 2026-09-25) by which the platform's
+feature set is maintained while planning, not afterwards; a candidate nobody
+adds while deciding is a package nobody extracts.
 
 ## The honest answer
 

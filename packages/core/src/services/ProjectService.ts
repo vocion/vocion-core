@@ -11,6 +11,7 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
+import { accessibleProjectIds, effectiveRole, enforcementEnabled } from '@/services/WorkspaceAccessService';
 
 export type ProjectSummary = {
   id: string;
@@ -74,7 +75,13 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
   if (!accountId) {
     return [];
   }
-  return db.select(summaryColumns).from(projectSchema).where(eq(projectSchema.accountId, accountId));
+  const all = await db.select(summaryColumns).from(projectSchema).where(eq(projectSchema.accountId, accountId));
+  if (!enforcementEnabled()) {
+    return all;
+  }
+  // The switcher shows what a person holds, not what the account owns.
+  const reachable = new Set(await accessibleProjectIds(userId));
+  return all.filter(p => reachable.has(p.id));
 }
 
 /**
@@ -101,7 +108,17 @@ export async function resolveProjectForUser(userId: string, selector: { id: stri
     .from(projectSchema)
     .where(and(eq(projectSchema.accountId, accountId), match))
     .limit(1);
-  return project ?? null;
+  if (!project) {
+    return null;
+  }
+  if (enforcementEnabled() && !(await effectiveRole(userId, project.id))) {
+    // Null, exactly as for a project on another account — the caller turns
+    // both into the same 404, so "not yours" and "no such thing" are one
+    // answer. On a deployment where workspaces are named after people, the
+    // difference between them is itself a disclosure.
+    return null;
+  }
+  return project;
 }
 
 /**
@@ -123,6 +140,7 @@ export async function activeWorkspaceForUser(userId: string, preferredProjectId?
     return null;
   }
   const columns = { id: projectSchema.id, slug: projectSchema.slug };
+  const enforced = enforcementEnabled();
   const preferred = preferredProjectId?.trim();
   if (preferred) {
     const [chosen] = await db
@@ -130,9 +148,20 @@ export async function activeWorkspaceForUser(userId: string, preferredProjectId?
       .from(projectSchema)
       .where(and(eq(projectSchema.id, preferred), eq(projectSchema.accountId, accountId)))
       .limit(1);
-    if (chosen) {
+    if (chosen && (!enforced || await effectiveRole(userId, chosen.id))) {
       return { ...chosen, accountId };
     }
+  }
+  if (enforced) {
+    // The first workspace they actually hold, ordered so a person's landing
+    // workspace does not change between requests.
+    const reachable = (await accessibleProjectIds(userId)).sort();
+    const firstId = reachable[0];
+    if (!firstId) {
+      return null;
+    }
+    const [row] = await db.select(columns).from(projectSchema).where(eq(projectSchema.id, firstId)).limit(1);
+    return row ? { ...row, accountId } : null;
   }
   // Ordered for the same reason as `resolveTenancyForUser`: an unordered
   // "first project" is whatever the planner returns, which stops being a

@@ -57,4 +57,19 @@ describe('the pass', () => {
     } })).toBeNull();
     expect(await runAnswerBackstop({ orgId: 'org', request: 'x', finalText: 'I\'ll check.', toolCalls: calls, compose: async () => '   ' })).toBeNull();
   });
+
+  it('a turn whose last event was a tool result owes an answer whatever its length', async () => {
+    const longButUnanswered = 'I\'ll pull the records on this before answering. I have to correct something: my previous turn said I had read the record, and I had not. Let me actually do the work now, properly, and read every task.';
+    let called = 0;
+    const compose = async () => {
+      called += 1;
+      return 'Three of five tasks are blocked on the DNS record for stampsend.com; the other two wait on them.';
+    };
+
+    expect(owesAnswer(longButUnanswered, calls, false)).toBe(false);
+    expect(owesAnswer(longButUnanswered, calls, true)).toBe(true);
+    expect(owesAnswer(longButUnanswered, [], true)).toBe(false);
+    expect(await runAnswerBackstop({ orgId: 'org', request: 'What unblocks the rename?', finalText: longButUnanswered, toolCalls: calls, compose, endedOnTool: true })).toContain('DNS record');
+    expect(called).toBe(1);
+  });
 });

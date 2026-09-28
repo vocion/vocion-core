@@ -1,6 +1,6 @@
 import type { FeatureReportInput, ReportActionRun, ReportArtifact, ReportAsk, ReportObject, ReportSectionKey, ReportWorkerRun } from './featureReport';
 import { describe, expect, it } from 'vitest';
-import { assembleFeatureReport, formatDuration, moneyLine, qaEvidenceRole, REPORT_SECTION_KEYS, runChange } from './featureReport';
+import { assembleFeatureReport, formatDuration, moneyLine, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
 
 /**
  * The feature report, assembled from fixtures.
@@ -691,6 +691,13 @@ describe('the goal, as a subtitle', () => {
     expect(report.goal).toBe('Launch the product as Stamp at stampsend.com without breaking existing links.');
   });
 
+  it('reads the outcome first, the line every surface leads with (2026-09-25)', () => {
+    const base = input({});
+    const report = assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, body: 'The document page offers only Copy link.', outcome: 'Send a link by email and use the phone share sheet.' } } });
+
+    expect(report.goal).toBe('Send a link by email and use the phone share sheet.');
+  });
+
   it('does not end a sentence inside a domain name', () => {
     expect(withBody('Serve it at stampsend.com from Monday.').goal).toBe('Serve it at stampsend.com from Monday.');
   });
@@ -993,5 +1000,41 @@ describe('which work this is', () => {
     // real fact, so it is the only thing the line carries.
     expect(r.context).toHaveLength(1);
     expect(r.context[0]).toMatch(/^asked /);
+  });
+});
+
+describe('a task QA sent back', () => {
+  const sentBack = { ...task, status: 'changes_requested', meta: { ...task.meta, status: 'changes_requested', verdict: { value: 'changes', proven: 0, total: 8, note: 'One screenshot cannot show five states.' } } };
+
+  it('reads as Changes asked, with the count and the sentence, and offers Build again', () => {
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [sentBack], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
+
+    expect(r.state).toMatchObject({ key: 'changes', label: 'Changes asked', needsYou: true, detail: 'QA proved 0 of 8: One screenshot cannot show five states.', action: { label: 'Build again' } });
+    expect(r.canBuild).toBe(true);
+  });
+
+  it('reads as QA could not finish when the review ended without a verdict, and offers Build again', () => {
+    const failed = { ...task, status: 'review_failed', meta: { ...task.meta, status: 'review_failed', reviewFailure: { at: '2026-09-27T16:50:00Z' } } };
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [failed], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
+
+    expect(r.state).toMatchObject({ key: 'stuck', label: 'QA could not finish', needsYou: true, detail: 'the review ended without a verdict; Build again starts a fresh attempt', action: { label: 'Build again' } });
+    expect(r.canBuild).toBe(true);
+  });
+
+  it('reads Engineering stopped with the run\'s reason when the newest run failed, and offers Build even if a stale copy says dispatched (#126 attempt 194)', () => {
+    const stopped = { ...task, status: 'rejected', meta: { ...task.meta, status: 'dispatched' } };
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'failed', error: 'verification failed: Claude produced no changes in the working tree (checks on the base: typecheck=passed)' })] }));
+
+    expect(r.state).toMatchObject({ key: 'stuck', label: 'Engineering stopped', needsYou: true, detail: 'the run failed: Claude produced no changes in the working tree (checks on the base: typecheck=passed)', action: { label: 'Build again' } });
+    expect(r.canBuild).toBe(true);
+  });
+
+  it('reads the record\'s status column first, the metadata copy only under a generic lifecycle value', () => {
+    const accepted = { ...task, status: 'active', meta: { ...task.meta, status: 'accepted' } };
+    const columnWins = { ...task, status: 'awaiting_review', meta: { ...task.meta, status: 'accepted' } };
+
+    expect(taskStatus(columnWins)).toBe('awaiting_review');
+
+    expect(assembleFeatureReport(input({ tasks: [accepted], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] })).state.key).toBe('merge');
   });
 });

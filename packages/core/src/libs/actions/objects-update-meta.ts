@@ -36,8 +36,7 @@
 
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
-import { doneRefusal } from './doneGate';
-import { gapRefusal } from './gapGate';
+import { evaluateGates, gateRefusal, gatesOf } from '@/libs/gates/handoffGate';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
 
 const UPDATE_ACTION_ID = 'objects.update_meta';
@@ -247,7 +246,21 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
   // The ladder's key: one ledger per object type, so `product` can be held
   // at approval while `request` earns its way. A rule for the bare id binds
   // to nothing, as with `git.merge`.
-  policyKeyFor: input => `${UPDATE_ACTION_ID}.${input.objectType.trim().toLowerCase()}`,
+  //
+  // A PRODUCT DECISION IS ITS OWN KIND (red team, 2026-09-26: asked "what
+  // should I decide right now", the PM deferred a proposal itself, done for
+  // you). Writing a request's verdict — deferred, out of scope, answered, a
+  // recommendation approved or rejected — keys to `…request.decision`, so a
+  // workspace can hold decisions at a person while every other field earns.
+  policyKeyFor: (input) => {
+    const type = input.objectType.trim().toLowerCase();
+    const set = (input.set ?? {}) as Record<string, unknown>;
+    const decides = type === 'request' && (
+      ['deferred', 'out_of_scope', 'answered'].includes(String(set.state ?? ''))
+      || ['approved', 'rejected', 'deferred'].includes(String(set.recommendationState ?? ''))
+    );
+    return decides ? `${UPDATE_ACTION_ID}.request.decision` : `${UPDATE_ACTION_ID}.${type}`;
+  },
   async precheck(ctx, input) {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
     if (!objectType) {
@@ -261,23 +274,21 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (!row) {
       return `No ${objectType.label.toLowerCase()} #${input.id} in this workspace. Look the record up first; the id is the record's own, not a name.`;
     }
-    // A work item may not call itself done while its own contract is unmet,
-    // and may not be planned until somebody has checked it is still missing
-    // from the running product. Refused here rather than asked for in a
-    // prompt: a worker cannot talk its way past a check it is never shown
-    // (`libs/actions/doneGate.ts`, `libs/actions/gapGate.ts`).
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
-    const done = doneRefusal(meta, input.set);
-    if (done) {
-      return done;
+    // DECLARED gates (`gates:` on the type): the deterministic half of the
+    // handoff check. A failing transition is refused, and the record is
+    // marked returned to the seat that produced it so Work says so — the
+    // seat fixes the work; nobody is interrupted (libs/gates/handoffGate.ts).
+    const failure = evaluateGates(gatesOf(objectType.schema), meta, input.set);
+    if (failure) {
+      await writeMetadata(ctx.orgId, row.id, {
+        ...meta,
+        returnedTo: failure.gate.producedBy,
+        gate: { name: failure.gate.name, to: failure.to, failed: failure.failed, at: new Date().toISOString() },
+      }).catch(() => undefined);
+      return gateRefusal(failure, objectType.label);
     }
-    // The gap gate applies only where the workspace has MODELLED the check:
-    // this action is domain-free, and `in_scope` is not a reserved word — a
-    // type in some other workspace may use it for something that owes no
-    // check at all. A type that declares `gapCheck` is a type whose author
-    // asked for the gate; one that does not is untouched.
-    const declaresGapCheck = 'gapCheck' in ((objectType.schema?.properties ?? {}) as Record<string, unknown>);
-    return declaresGapCheck ? gapRefusal(meta, input.set) : undefined;
+    return undefined;
   },
   async reviewCard(ctx: ActionContext, input): Promise<ReviewCard> {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
@@ -324,8 +335,28 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // history should read the same however it was stored.
     const keys = Object.keys(input.set).sort();
     const previous = previousValues(row.metadata, keys);
-    const next = applySet(row.metadata, input.set);
+    // A write that crosses a gated transition and passes clears the return:
+    // the seat did the work the gate asked for.
+    const crossedGates = gatesOf(objectType.schema).filter(g => typeof input.set[g.when.field] === 'string' && g.when.becomes.includes(input.set[g.when.field] as string) && row.metadata[g.when.field] !== input.set[g.when.field]);
+    const crossed = crossedGates.length > 0;
+    const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...input.set, returnedTo: null, gate: null } : input.set);
     await writeMetadata(ctx.orgId, row.id, next);
+    // THE JUDGE runs after the write, best-effort and off the request's
+    // critical path: the deterministic gate passed, and now the seat's
+    // rubric reads the record. Pass stamps it; return undoes the transition
+    // and marks the seat; escalate files an ask (services/gates/handoffJudge.ts).
+    for (const gate of crossedGates) {
+      if (!gate.judge) {
+        continue;
+      }
+      const judge = gate.judge;
+      void (async () => {
+        const { judgeHandoff, realJudgeDeps } = await import('@/services/gates/handoffJudge');
+        const deps = await realJudgeDeps(ctx.orgId, row.id, gate.producedBy);
+        const out = await judgeHandoff({ typeLabel: objectType.label, gate, judge, recordId: row.id, title: row.title, previous: row.metadata[gate.when.field], after: next }, deps);
+        console.warn('handoff judge', { gate: gate.name, recordId: row.id, ran: out.ran, outcome: out.outcome, confidence: out.verdict?.confidence, reasonCode: out.verdict?.reasonCode });
+      })().catch(err => console.warn('handoff judge crashed', { gate: gate.name, recordId: row.id, message: (err as Error).message }));
+    }
     // The picture the board draws this outcome as, redrawn from what the
     // record now says. It hangs off the write rather than being asked of an
     // agent, because a visual an agent has to remember is a visual sixteen of

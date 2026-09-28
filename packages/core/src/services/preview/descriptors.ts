@@ -6,7 +6,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
 import { canOpenArtifact } from '@/libs/share/audience';
-import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema } from '@/models/Schema';
+import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
 import { registerPreview } from './registry';
 
@@ -25,12 +25,19 @@ import { registerPreview } from './registry';
 /** Long bodies are cut; the panel links to the page that holds the rest. */
 const BODY_LIMIT = 6000;
 
-function body(text: string | null | undefined): { body?: string; truncated?: boolean } {
+function body(text: string | null | undefined, limit = BODY_LIMIT): { body?: string; truncated?: boolean } {
   const t = (text ?? '').trim();
   if (!t) {
     return {};
   }
-  return t.length > BODY_LIMIT ? { body: `${t.slice(0, BODY_LIMIT)}…`, truncated: true } : { body: t };
+  return t.length > limit ? { body: `${t.slice(0, limit)}…`, truncated: true } : { body: t };
+}
+
+/** A thread or a run log is read to the end: a larger cap, the newest kept. */
+const LOG_LIMIT = 40_000;
+function tailBody(text: string): { body?: string; truncated?: boolean } {
+  const t = text.trim();
+  return t.length > LOG_LIMIT ? { body: `…${t.slice(-LOG_LIMIT)}`, truncated: true } : body(t, LOG_LIMIT);
 }
 
 function when(date: Date | null | undefined): string | null {
@@ -334,11 +341,20 @@ registerPreview('conversation', {
       return null;
     }
     const messages = await db
-      .select({ role: conversationMessageSchema.role, content: conversationMessageSchema.content })
+      .select({ role: conversationMessageSchema.role, content: conversationMessageSchema.content, at: conversationMessageSchema.createdAt })
       .from(conversationMessageSchema)
       .where(eq(conversationMessageSchema.conversationId, id))
       .orderBy(asc(conversationMessageSchema.id))
-      .limit(12);
+      .limit(40);
+    // THE AGENT'S WORK, not just its words: every tool call in the thread,
+    // placed before the reply it led to, with whether it failed (Chris,
+    // 2026-09-25: "I want to see log history for agent runs").
+    const calls = await db
+      .select({ tool: toolCallSchema.tool, error: toolCallSchema.error, ms: toolCallSchema.durationMs, at: toolCallSchema.createdAt })
+      .from(toolCallSchema)
+      .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.conversationId, id)))
+      .orderBy(asc(toolCallSchema.createdAt))
+      .limit(200);
     return {
       ref,
       title: row.title,
@@ -349,7 +365,58 @@ registerPreview('conversation', {
         row.createdBy && { label: 'Started by', value: row.createdBy },
         { label: 'Started', value: when(row.createdAt) ?? '' },
       ),
-      ...body(messages.map(m => `**${m.role}**\n\n${m.content}`).join('\n\n')),
+      ...body(messages.map((m, i) => {
+        const since = i === 0 ? null : messages[i - 1]!.at;
+        const steps = m.role === 'assistant'
+          ? calls.filter(c => c.at <= m.at && (since === null || c.at > since))
+          : [];
+        const log = steps.length > 0
+          ? `${steps.map(c => `- \`${c.tool}\`${c.error ? ' — failed' : ''}${c.ms ? ` · ${(c.ms / 1000).toFixed(1)}s` : ''}`).join('\n')}\n\n`
+          : '';
+        return `**${m.role}** · ${when(m.at) ?? ''}\n\n${log}${m.content}`;
+      }).join('\n\n---\n\n'), LOG_LIMIT),
+    };
+  },
+});
+
+registerPreview('worker_run', {
+  sourceLabel: 'Engineering run',
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const [run] = await db.select().from(workerRunSchema).where(and(eq(workerRunSchema.orgId, ctx.orgId), eq(workerRunSchema.id, id))).limit(1);
+    if (!run) {
+      return null;
+    }
+    const progress = (run.progress ?? {}) as Record<string, unknown>;
+    const logLines = Array.isArray(progress.log) ? (progress.log as unknown[]).map(String) : typeof progress.log === 'string' ? progress.log.split('\n') : [];
+    const failures = Array.isArray(run.failures) ? (run.failures as Array<{ scope?: string; message?: string }>) : [];
+    const input = (run.input ?? {}) as { task?: { task_id?: string; objective?: string; repo?: string } };
+    const text = [
+      input.task?.objective ? `**Objective** — ${input.task.objective}` : null,
+      run.summary ? `**Summary**\n\n${run.summary}` : null,
+      run.error ? `**Error** — ${run.error}` : null,
+      failures.length > 0 ? `**Failures**\n\n${failures.map(f => `- ${f.scope ?? 'run'}: ${f.message ?? ''}`).join('\n')}` : null,
+      typeof progress.step === 'string' ? `**Last step** — ${progress.step}` : null,
+      logLines.length > 0 ? `**Log (last ${Math.min(logLines.length, 80)} lines)**\n\n\`\`\`\n${logLines.slice(-80).join('\n')}\n\`\`\`` : null,
+    ].filter(Boolean).join('\n\n');
+    return {
+      ref,
+      title: input.task?.task_id ?? `Engineering run ${run.id}`,
+      sourceLabel: 'Engineering run',
+      facts: facts(
+        { label: 'Status', value: run.status },
+        { label: 'Agent', value: run.agentSlug },
+        run.model && { label: 'Model', value: run.model },
+        typeof run.cents === 'number' && { label: 'Cost', value: `$${(run.cents / 100).toFixed(2)}` },
+        { label: 'Queued', value: when(run.createdAt) ?? '' },
+        run.claimedAt && { label: 'Started', value: when(run.claimedAt) ?? '' },
+        run.completedAt && { label: 'Ended', value: when(run.completedAt) ?? '' },
+        input.task?.repo && { label: 'Repo', value: input.task.repo },
+      ),
+      ...tailBody(text || 'This run has reported nothing yet.'),
     };
   },
 });

@@ -47,12 +47,22 @@ export const BRIEFED_WINDOWS = [
 ] as const;
 export type BriefedWindow = (typeof BRIEFED_WINDOWS)[number]['key'];
 
+/**
+ * A lead whose last attempt failed: a regenerate that did not land, a draft
+ * or a brief that errored (Valerie, 2026-09-24: "a way in the personalization
+ * queue to filter for errors so that I can regenerate them in bulk"). A chip
+ * beside the briefed windows so it rides the same URL parameter to the bulk
+ * page, but it narrows rather than widens: the windows are OR'd together,
+ * and this one is AND'd with them.
+ */
+export const ERROR_CHIP = { key: 'errored', label: 'Has an error' } as const;
+
 /** The page opens where the work is; the clean URL means this state. */
 export const QUEUE_LIST: ListStateConfig = {
   defaults: { tab: 'ready_for_review', q: '', sort: 'arrived', dir: 'desc' as const, chips: [] },
   tabs: QUEUE_LANES.map(l => l.key),
   sorts: QUEUE_SORTS.map(s => s.key),
-  chips: BRIEFED_WINDOWS.map(w => w.key),
+  chips: [...BRIEFED_WINDOWS.map(w => w.key), ERROR_CHIP.key],
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -98,12 +108,14 @@ export function filterQueueRows(rows: readonly BriefRow[], view: QueueView, now:
     .filter(b => !q
       || b.contactName.toLowerCase().includes(q)
       || (b.companyName ?? '').toLowerCase().includes(q));
-  if (view.chips.length === 0) {
-    return inLane;
+  const errored = view.chips.includes(ERROR_CHIP.key) ? inLane.filter(b => Boolean(b.lastError)) : inLane;
+  const windows = view.chips.filter(c => c !== ERROR_CHIP.key);
+  if (windows.length === 0) {
+    return errored;
   }
-  return inLane.filter((b) => {
+  return errored.filter((b) => {
     const w = briefedWindowOf(b.briefedAt, now);
-    return w !== null && view.chips.includes(w);
+    return w !== null && windows.includes(w);
   });
 }
 
@@ -128,6 +140,9 @@ export function describeQueueView(view: QueueView): string {
   const windows = BRIEFED_WINDOWS.filter(w => view.chips.includes(w.key)).map(w => w.label.toLowerCase());
   if (windows.length > 0) {
     parts.push(windows.join(' or '));
+  }
+  if (view.chips.includes(ERROR_CHIP.key)) {
+    parts.push('with an error');
   }
   if (view.q.trim()) {
     parts.push(`matching “${view.q.trim()}”`);

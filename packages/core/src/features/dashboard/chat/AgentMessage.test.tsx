@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { AgentMessage } from './AgentMessage';
+// The phone-width test below is about CSS — the real stylesheet, not the component tree.
+import '@/styles/global.css';
 
 describe('AgentMessage inline citations', () => {
   it('renders [n] markers in the prose as tappable citations wired to the handler', async () => {
@@ -564,5 +566,32 @@ describe('AgentMessage — a turn that died part-way (#114)', () => {
 
     await expect.element(page.getByText(/cut off at a time limit/)).toBeInTheDocument();
     expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
+  });
+});
+
+describe('agent prose fits a phone (backlog 023)', () => {
+  it('a wide table, an unbroken id and a long URL never widen the column past its box', async () => {
+    const wide = `| What | State | Owner | Cost | Risk | Since |\n|---|---|---|---|---|---|\n| Request #121 — Send/share from file detail | Triaged, recommended build, plan exists | Product manager | $18–30 | Email deliverability | 2026-09-22 |\n\nRun id: ${'a1b2c3d4'.repeat(30)}\n\nhttps://example.com/${'segment/'.repeat(40)}`;
+    const screen = await render(
+      <div style={{ width: 320 }} data-testid="phone-column">
+        <AgentMessage agentName="Product manager" message={{ role: 'assistant', content: wide, runs: [{ type: 'text', text: wide }] }} />
+      </div>,
+    );
+
+    await expect.element(page.getByText(/Run id:/)).toBeInTheDocument();
+
+    const column = screen.container.querySelector('[data-testid="phone-column"]') as HTMLElement;
+
+    // The column itself never grows; a table scrolls INSIDE its own box.
+    expect(column.scrollWidth).toBeLessThanOrEqual(column.clientWidth);
+
+    const hanging = Array.from(column.querySelectorAll('*')).filter((el) => {
+      const r = el.getBoundingClientRect();
+      const c = column.getBoundingClientRect();
+      // Cells inside a scrolling table are allowed past the edge; nothing else is.
+      return r.right > c.right + 1 && !el.closest('.overflow-x-auto');
+    });
+
+    expect(hanging.map(el => el.tagName)).toEqual([]);
   });
 });

@@ -3,8 +3,11 @@ import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { parseConversationParam } from '@/features/dashboard/chat/resumeRule';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { listArtifactsByIds } from '@/services/ArtifactService';
+import { attachmentFromArtifact } from '@/services/chat/attachments';
 import { buildWorkspaceChips } from '@/services/chat/suggestions';
 import { workspaceGreeting } from '@/services/chat/workspaceLabel';
+import { parseAttachParam } from '@/services/share/intake';
 
 /**
  * Chat surface. Server-loads the project's agents from the DB so the
@@ -13,7 +16,8 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
  * entry, so the list is empty only when no workspace resolved at all; the
  * shell renders an empty state for that instead of failing to pick a default.
  *
- * Deep-linkable: `?prompt=<text>` pre-fills the composer without sending and
+ * Deep-linkable: `?prompt=<text>` pre-fills the composer without sending,
+ * `?attach=<ids>` starts uploaded files in it (Share to Vocion), and
  * `?conversation=<id>` resumes a thread — otherwise the page opens a NEW
  * conversation with the one workspace agent (agent-chat-surface.md §9, §9.10).
  * `?agent=<slug>` is still accepted for old links but no longer picks an
@@ -28,10 +32,10 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
  */
 export default async function ChatPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string; new?: string }>;
+  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string; new?: string; attach?: string }>;
 }) {
   const { locale } = await props.params;
-  const { prompt: seededPrompt, conversation, new: startNew } = await props.searchParams;
+  const { prompt: seededPrompt, conversation, new: startNew, attach } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
 
@@ -51,6 +55,19 @@ export default async function ChatPage(props: {
     ? await buildWorkspaceChips({ orgId, agents, coordinatorSlug })
     : [];
 
+  // `?attach=<ids>` — files the phone's share sheet already uploaded
+  // (`/api/mobile/share`) start in the composer as chips. Only this
+  // workspace's person-authored `file` artifacts qualify, the same rule the
+  // stream route applies when the turn is sent; a video is kept out because
+  // no model reads one (it is named in the seeded prompt instead).
+  const attachIds = parseAttachParam(attach);
+  const initialAttachments = orgId && attachIds.length > 0
+    ? (await listArtifactsByIds({ orgId, ids: attachIds }))
+        .filter(row => row.kind === 'file' && row.lastAuthorKind === 'human')
+        .map(attachmentFromArtifact)
+        .filter(a => !a.contentType.startsWith('video/'))
+    : [];
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ChatShell
@@ -58,6 +75,7 @@ export default async function ChatPage(props: {
         greeting={greeting}
         suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
         initialComposerValue={seededPrompt}
+        initialAttachments={initialAttachments.length > 0 ? initialAttachments : undefined}
         conversationId={parseConversationParam(conversation)}
         // `?new=1` — ⌘⇧O or the palette from a page with no chat surface: start
         // a fresh thread instead of resuming this browser session's.

@@ -26,6 +26,8 @@ export type PageLink = {
 export type PageStructure = {
   /** Every JSON-LD block on the page, parsed. Order is document order. */
   jsonLd?: unknown[];
+  /** Every JSON-LD block is also in the page text, whole. */
+  jsonLdInText?: boolean;
   /** The og:image, made absolute against the page URL. */
   ogImage?: string;
   /**
@@ -76,6 +78,9 @@ export function pageMetadata(structure: PageStructure | undefined): Record<strin
   const { kept: jsonLd, truncated: jsonLdCut } = capJsonLd(structure.jsonLd ?? []);
   if (jsonLd.length) {
     out.jsonLd = jsonLd;
+    if (structure.jsonLdInText === true) {
+      out.jsonLdInText = true;
+    }
   }
   truncated ||= jsonLdCut;
 

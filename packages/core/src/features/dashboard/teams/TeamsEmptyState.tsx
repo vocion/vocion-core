@@ -31,7 +31,7 @@ export function TeamsEmptyState() {
   const alternatives = SAMPLE_WORKSPACES.filter(w => w.slug !== DEFAULT_SAMPLE_WORKSPACE.slug);
 
   const onSeed = async (slug: string) => {
-    // eslint-disable-next-line no-alert -- house confirm pattern (MembersPanel)
+    // eslint-disable-next-line no-alert -- house confirm pattern (MembersScreen)
     if (!window.confirm(t('seed_confirm'))) {
       return;
     }

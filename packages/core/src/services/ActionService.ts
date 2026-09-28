@@ -80,6 +80,12 @@ const DAY_IN_MS = 86_400_000;
 /** What blocks a fresh card by default, for an action that opted in at all. */
 const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
 
+/** A chat card's idempotency key starts with this (`libs/actions/cardDedupKey.ts`). */
+export const CARD_DEDUP_PREFIX = 'card:';
+
+/** Every status that means a card's run already happened, or is happening. */
+const CARD_STATUSES_THAT_BLOCK = ['done', 'rejected', 'undone', 'executing', 'awaiting_execution'] as const;
+
 /**
  * The envelope as the column holds it: a recommendation is either there with
  * its reason, or the keys are absent. The null a caller passes to say "nothing
@@ -89,6 +95,36 @@ type StoredProposal<T> = Omit<T, 'suggestedDecision' | 'suggestedDecisionReason'
   suggestedDecision?: SuggestedDecision;
   suggestedDecisionReason?: string;
 };
+
+/**
+ * What a refresh stores on an open run: the action's own `refresh` result when
+ * it has one and that result still parses as the action's input, otherwise the
+ * new input and proposal whole.
+ * @param action - The action being proposed.
+ * @param existing - The open run as read under the lock.
+ * @param existing.input - Its stored input.
+ * @param existing.proposal - Its stored proposal.
+ * @param parsed - The new, parsed input.
+ * @param proposal - The new proposal in stored shape.
+ */
+function storedOnRefresh(
+  action: Action,
+  existing: { input: unknown; proposal: unknown },
+  parsed: Record<string, unknown>,
+  proposal: Record<string, unknown> | null,
+): { input: Record<string, unknown>; proposal: Record<string, unknown> | null } {
+  if (!action.refresh) {
+    return { input: parsed, proposal };
+  }
+  const merged = action.refresh(
+    { input: (existing.input ?? {}) as Record<string, unknown>, proposal: (existing.proposal ?? null) as Record<string, unknown> | null },
+    { input: parsed, proposal },
+  );
+  const checked = action.inputSchema.safeParse(merged.input);
+  return checked.success
+    ? { input: checked.data as Record<string, unknown>, proposal: merged.proposal }
+    : { input: parsed, proposal };
+}
 
 /**
  * The proposal envelope as it should be stored.
@@ -137,10 +173,19 @@ async function findDecidedRunForKey(
   dedupKey: string,
   config: Action['dedupAgainstDecided'],
 ): Promise<{ id: number; status: 'done' | 'failed' | 'rejected'; decidedAt: Date } | undefined> {
-  if (!config) {
+  // A chat card's own key (`card:…`, `cardDedupKey`) is an idempotency key:
+  // one card, one run, whatever its status. The card proposes itself when it
+  // mounts under done-for-you, and it mounts again when the streamed turn is
+  // swapped for the stored one — on 2026-09-25 (walk 20) every such card filed
+  // its ask twice, both executed, because an executed run matched neither the
+  // open-run refresh nor a decided-run rule the action had not opted into.
+  const cardKey = dedupKey.startsWith(CARD_DEDUP_PREFIX);
+  if (!config && !cardKey) {
     return undefined;
   }
-  const statuses = config.statuses ?? [...DECIDED_STATUSES_THAT_BLOCK];
+  const statuses = cardKey
+    ? [...CARD_STATUSES_THAT_BLOCK]
+    : config?.statuses ?? [...DECIDED_STATUSES_THAT_BLOCK];
   const [row] = await db
     .select({
       id: actionRunSchema.id,
@@ -165,7 +210,7 @@ async function findDecidedRunForKey(
   // through carries `executedAt` instead, and `createdAt` is the last resort
   // so the window below always has a date to measure from.
   const decidedAt = row.decidedAt ?? row.executedAt ?? row.createdAt;
-  if (config.reproposeAfterDays !== undefined) {
+  if (!cardKey && config?.reproposeAfterDays !== undefined) {
     const staleAt = decidedAt.getTime() + config.reproposeAfterDays * DAY_IN_MS;
     if (Date.now() >= staleAt) {
       return undefined;
@@ -336,24 +381,32 @@ export async function proposeAction(input: {
   // key alone would rewrite the other action's row with this input and run
   // this action's `onProposed` against a run it does not own.
   if (dedupKey) {
-    const [existing] = await db
-      .select({ id: actionRunSchema.id })
-      .from(actionRunSchema)
-      .where(and(
-        eq(actionRunSchema.orgId, input.orgId),
-        eq(actionRunSchema.actionId, action.id),
-        eq(actionRunSchema.dedupKey, dedupKey),
-        inArray(actionRunSchema.status, ['pending', 'failed']),
-      ))
-      .limit(1);
-    if (existing) {
-      await db
+    const refreshed = await db.transaction(async (tx) => {
+      const lookup = tx
+        .select({ id: actionRunSchema.id, input: actionRunSchema.input, proposal: actionRunSchema.proposal })
+        .from(actionRunSchema)
+        .where(and(
+          eq(actionRunSchema.orgId, input.orgId),
+          eq(actionRunSchema.actionId, action.id),
+          eq(actionRunSchema.dedupKey, dedupKey),
+          inArray(actionRunSchema.status, ['pending', 'failed']),
+        ))
+        .limit(1);
+      // An action that merges into the stored payload reads it under a row
+      // lock: a sync proposes several documents at once, and two of them can
+      // refresh the same run.
+      const [existing] = action.refresh ? await lookup.for('update') : await lookup;
+      if (!existing) {
+        return null;
+      }
+      const stored = storedOnRefresh(action, existing, parsed as Record<string, unknown>, proposalForStorage(input.proposal));
+      await tx
         .update(actionRunSchema)
         .set({
           status: 'pending',
           error: null,
-          input: parsed as Record<string, unknown>,
-          proposal: proposalForStorage(input.proposal),
+          input: stored.input,
+          proposal: stored.proposal as never,
           expiresAt: input.expiresAt ?? null,
           // The refresh is the completion edge of a regeneration: the new
           // payload landing on the same pending run clears the in-flight
@@ -376,16 +429,19 @@ export async function proposeAction(input: {
           decidedAt: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
+      return { id: existing.id, input: stored.input };
+    });
+    if (refreshed) {
       // Keep the action's own domain row in step with the refreshed payload.
       // `onProposed` is documented idempotent precisely so it can run here as
       // well as on first creation; without this a re-proposed candidate would
       // show the reviewer a stale record.
       await action.onProposed?.(
         { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
-        parsed,
-        existing.id,
+        refreshed.input,
+        refreshed.id,
       );
-      return { runId: existing.id, status: 'pending', outcome: 'refreshed' };
+      return { runId: refreshed.id, status: 'pending', outcome: 'refreshed' };
     }
 
     // Nothing open, but a person may have judged this exact record already.

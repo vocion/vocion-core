@@ -33,17 +33,24 @@ export type AnswerBackstopToolCall = { tool: string; input?: Record<string, unkn
 const PER_TOOL_CHARS = 2_500;
 const TOTAL_CHARS = 14_000;
 
-/** The model call, injectable for tests: system prompt + one human turn in, prose out. */
-export type AnswerComposer = (input: { orgId: string; system: string; human: string }) => Promise<string>;
+/**
+ * The model call, injectable for tests: system prompt + one human turn in,
+ * prose out. `onDelta`, when given, receives the answer as it is written, so
+ * the person watches it arrive instead of seeing it land whole.
+ */
+export type AnswerComposer = (input: { orgId: string; system: string; human: string; onDelta?: (delta: string) => void }) => Promise<string>;
 
 /**
  * Does this finished turn owe an answer? Tool calls ran and the text is
  * shorter than an answer — the same rule the route classifies `stalled` with.
  * @param text - The turn's finished text.
  * @param toolCalls - The turn's tool calls.
+ * @param endedOnTool
  */
-export function owesAnswer(text: string, toolCalls: ReadonlyArray<AnswerBackstopToolCall>): boolean {
-  return stoppedShort({ text, toolCalls: toolCalls.length });
+export function owesAnswer(text: string, toolCalls: ReadonlyArray<AnswerBackstopToolCall>, endedOnTool = false): boolean {
+  // A turn whose LAST event was a tool result owes an answer whatever its
+  // length: the words it has are the words from before it went looking.
+  return (endedOnTool && toolCalls.length > 0) || stoppedShort({ text, toolCalls: toolCalls.length });
 }
 
 /**
@@ -76,7 +83,7 @@ export function evidenceBlock(toolCalls: ReadonlyArray<AnswerBackstopToolCall>):
  * @param steps - How many tool steps ran.
  */
 export function answerPassSystem(systemPrompt: string | undefined, steps: number): string {
-  return `${systemPrompt ?? ''}\n\nANSWER PASS. You ran ${steps} tool step${steps === 1 ? '' : 's'} and ended your turn without answering the person; your reply so far is a sentence saying you would look. The results of those steps are below. Answer the person NOW, from those results, in your own voice. Phone-length: the one thing to do first, then at most one screen of why; detail belongs to a follow-up. Do not call tools and do not narrate what you are about to do. If the results do not settle something, say exactly what you could not establish and what would — never guess. If the person asked for something to be filed, decided or recommended and you did not do it, say so plainly and say what you need from them to do it.`.trim();
+  return `${systemPrompt ?? ''}\n\nYou ran ${steps} tool step${steps === 1 ? '' : 's'} and ended your turn without answering the person; your reply so far is a sentence saying you would look. The results of those steps are below. Answer the person NOW, from those results, in your own voice. Phone-length: the one thing to do first, then at most one screen of why; detail belongs to a follow-up. Do not call tools and do not narrate what you are about to do. If the results do not settle something, say exactly what you could not establish and what would — never guess. If the person asked for something to be filed, decided or recommended and you did not do it, say so plainly and say what you need from them to do it. Speak as yourself: never mention this pass, a "live tool turn", or how your turns work — the person sees one answer from one agent (2026-09-25: a reply said "I cannot file those from the ANSWER PASS").`.trim();
 }
 
 /**
@@ -88,6 +95,8 @@ export function answerPassSystem(systemPrompt: string | undefined, steps: number
  * @param input.toolCalls - The turn's tool calls, with their outputs.
  * @param input.systemPrompt - The agent's system prompt.
  * @param input.compose - The model call (injected in tests).
+ * @param input.endedOnTool
+ * @param input.onDelta - Receives the answer as it streams.
  * @returns The text to append, or null when the turn already answered or the pass could not.
  */
 export async function runAnswerBackstop(input: {
@@ -97,8 +106,10 @@ export async function runAnswerBackstop(input: {
   toolCalls: ReadonlyArray<AnswerBackstopToolCall>;
   systemPrompt?: string;
   compose: AnswerComposer;
+  endedOnTool?: boolean;
+  onDelta?: (delta: string) => void;
 }): Promise<string | null> {
-  if (!owesAnswer(input.finalText, input.toolCalls)) {
+  if (!owesAnswer(input.finalText, input.toolCalls, input.endedOnTool)) {
     return null;
   }
   const human = [
@@ -107,7 +118,7 @@ export async function runAnswerBackstop(input: {
     `What you already did and found:\n\n${evidenceBlock(input.toolCalls)}`,
   ].join('\n\n---\n\n');
   try {
-    const answer = (await input.compose({ orgId: input.orgId, system: answerPassSystem(input.systemPrompt, input.toolCalls.length), human })).trim();
+    const answer = (await input.compose({ orgId: input.orgId, system: answerPassSystem(input.systemPrompt, input.toolCalls.length), human, onDelta: input.onDelta })).trim();
     return answer.length > 0 ? answer : null;
   } catch {
     return null;
@@ -115,20 +126,43 @@ export async function runAnswerBackstop(input: {
 }
 
 /**
- * The real pass: the org's main model, no tools, one call, bounded.
- * @param root0
- * @param root0.orgId
- * @param root0.system
- * @param root0.human
+ * Text out of one streamed chunk: a string, or the text blocks of a content
+ * array (a thinking block is not the answer).
+ * @param content - The chunk's content.
  */
-export const composeAnswerWithModel: AnswerComposer = async ({ orgId, system, human }) => {
-  const { buildChatModelForOrg } = await import('@/libs/llm');
-  const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-  const model = await buildChatModelForOrg('main', orgId, { temperature: 0.2, streaming: false, maxTokens: 2_000 });
-  const res = await model.invoke([new SystemMessage(system), new HumanMessage(human)], { signal: AbortSignal.timeout(60_000) });
-  const content = res.content;
+export function chunkText(content: unknown): string {
   if (typeof content === 'string') {
     return content;
   }
+  if (!Array.isArray(content)) {
+    return '';
+  }
   return (content as Array<{ type?: string; text?: string }>).map(c => (c.type === 'text' ? c.text ?? '' : '')).join('');
+}
+
+/**
+ * The real pass: the org's main model, no tools, one call, bounded — and
+ * STREAMED. It used to be one `invoke`, so after "Working 40s" the whole
+ * answer appeared at once (Chris, 2026-09-25: "After thinking the response
+ * just pops in. It should stream in").
+ * @param root0 - See {@link AnswerComposer}.
+ * @param root0.orgId - The org the call is made for.
+ * @param root0.system - The pass's system prompt.
+ * @param root0.human - The turn laid out for the pass.
+ * @param root0.onDelta - Receives the answer as it is written.
+ */
+export const composeAnswerWithModel: AnswerComposer = async ({ orgId, system, human, onDelta }) => {
+  const { buildChatModelForOrg } = await import('@/libs/llm');
+  const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+  const model = await buildChatModelForOrg('main', orgId, { temperature: 0.2, streaming: true, maxTokens: 2_000 });
+  const stream = await model.stream([new SystemMessage(system), new HumanMessage(human)], { signal: AbortSignal.timeout(60_000) });
+  let text = '';
+  for await (const chunk of stream) {
+    const delta = chunkText(chunk.content);
+    if (delta) {
+      text += delta;
+      onDelta?.(delta);
+    }
+  }
+  return text;
 };

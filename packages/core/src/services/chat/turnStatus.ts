@@ -123,6 +123,11 @@ const ANSWER_FLOOR = 120;
  */
 export function stoppedShort(turn: { text: string; toolCalls: number }): boolean {
   const text = turn.text.trim();
+  // Nothing at all — no words, whatever ran — is the emptiest answer there is
+  // (MCP turns 667/675, 2026-09-25: two reasoning nodes, zero characters).
+  if (text.length === 0) {
+    return true;
+  }
   // "Let me look" with NO tool call behind it is the emptiest stall of all
   // (production turn 577, 2026-09-24): a promise, then silence.
   if (text.length > 0 && preambleOnly(text)) {

@@ -209,6 +209,40 @@ describe('extraction prompt containment', () => {
     expect(block).not.toContain('#999');
   });
 
+  it('names the opening every document of a sync shares, known block included, page excluded', () => {
+    const first = build();
+    const second = buildExtractionPrompt({
+      config,
+      rules: REAL_RULES,
+      known: '#41 | 2026-11-12 | Open Mic Night | every Thursday',
+      jsonLd: '',
+      pageText: 'A different page altogether.',
+      uri: 'https://bellwaterhall.example/other',
+      maxInputTokens: 10_000,
+    });
+
+    expect(first.human.startsWith(first.humanPrefix)).toBe(true);
+    expect(first.humanPrefix).toContain('<known>');
+    expect(first.humanPrefix).not.toContain('<page');
+    expect(first.humanPrefix).not.toContain('<jsonld>');
+    expect(second.humanPrefix).toBe(first.humanPrefix);
+  });
+
+  it('still names a shared opening when there are no known cards', () => {
+    const built = buildExtractionPrompt({
+      config,
+      rules: '',
+      known: '',
+      jsonLd: '',
+      pageText: 'Only a page.',
+      maxInputTokens: 10_000,
+    });
+
+    expect(built.humanPrefix).toContain('<<<DOCUMENT>>>');
+    expect(built.human.startsWith(built.humanPrefix)).toBe(true);
+    expect(built.humanPrefix).not.toContain('Only a page.');
+  });
+
   it('counts a long operator policy in its overhead, so the per-call cap holds', () => {
     const long = (n: number) => 'x'.repeat(n);
     const heavy = candidateExtractorConfigSchema.parse({

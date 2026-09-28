@@ -48,14 +48,22 @@ const mockSession = vi.mocked(clerkAuth);
  * A signed-in dashboard session, as `clerkAuth` reports one.
  * @param role - Membership role on the active project.
  * @param userId
+ * @param workspaceRole
  */
-function sessionOf(role: 'admin' | 'member' | null, userId: string | null = 'u_drew') {
+function sessionOf(
+  role: 'admin' | 'member' | null,
+  userId: string | null = 'u_drew',
+  // Defaults to null so every existing case still exercises the FALLBACK map.
+  // A session issued before this field existed carries exactly that.
+  workspaceRole: 'admin' | 'member' | null = null,
+) {
   return {
     userId,
     orgId: userId ? 'org1' : null,
     accountId: 'acct1',
     projectId: 'org1',
     role,
+    workspaceRole,
     has: () => true,
   };
 }
@@ -75,7 +83,7 @@ beforeEach(() => {
 
 describe('authApi — bearer token', () => {
   it('resolves a valid token to a token-sourced caller', async () => {
-    const principal: Principal = { kind: 'user', id: 'token:t1', role: 'owner', scope: { orgId: 'org1' }, grants: ['*'] };
+    const principal: Principal = { kind: 'user', id: 'token:t1', role: 'admin', scope: { orgId: 'org1' }, grants: ['*'] };
     mockBearer.mockResolvedValue({ orgId: 'org1', tokenId: 't1', principal } as never);
 
     const caller = await authApi(requestWith({ authorization: 'Bearer vcn_live_t1_secret' }));
@@ -100,8 +108,39 @@ describe('authApi — bearer token', () => {
   });
 });
 
+describe('authApi — the workspace role the session carries', () => {
+  it('uses the role held in THIS workspace, not the account role', async () => {
+    // The whole point of the change: a person who is an account member but an
+    // admin of one workspace reaches authz.ts as that workspace's admin.
+    mockSession.mockResolvedValue(sessionOf('member', 'u_drew', 'admin'));
+
+    const caller = await authApi(requestWith());
+
+    expect(caller).toMatchObject({ principal: { role: 'admin' } });
+  });
+
+  it('does not let an account admin override a narrower workspace role', async () => {
+    // Administering the deployment is not a grant inside every workspace.
+    mockSession.mockResolvedValue(sessionOf('admin', 'u_drew', 'member'));
+
+    const caller = await authApi(requestWith());
+
+    expect(caller).toMatchObject({ principal: { role: 'member' } });
+  });
+
+  it('falls back to the account role when the session carries none', async () => {
+    // A session issued before the field existed, and every request while
+    // enforcement is off. Behaviour here must be exactly what it always was.
+    mockSession.mockResolvedValue(sessionOf('member', 'u_drew', null));
+
+    const caller = await authApi(requestWith());
+
+    expect(caller).toMatchObject({ principal: { role: 'member' } });
+  });
+});
+
 describe('authApi — dashboard session', () => {
-  it('maps an admin membership to the owner workspace role', async () => {
+  it('carries an admin membership through as the admin workspace role', async () => {
     mockSession.mockResolvedValue(sessionOf('admin'));
 
     const caller = await authApi(requestWith());
@@ -110,17 +149,17 @@ describe('authApi — dashboard session', () => {
       orgId: 'org1',
       actorId: 'u_drew',
       source: 'session',
-      principal: { kind: 'user', id: 'u_drew', role: 'owner', scope: { orgId: 'org1' } },
+      principal: { kind: 'user', id: 'u_drew', role: 'admin', scope: { orgId: 'org1' } },
     });
     expect(mockBearer).not.toHaveBeenCalled();
   });
 
-  it('maps a plain member to pm', async () => {
+  it('carries a plain member through as member', async () => {
     mockSession.mockResolvedValue(sessionOf('member'));
 
     const caller = await authApi(requestWith());
 
-    expect(caller).toMatchObject({ principal: { role: 'pm' } });
+    expect(caller).toMatchObject({ principal: { role: 'member' } });
   });
 
   it('treats a session with no role as a member', async () => {
@@ -128,7 +167,7 @@ describe('authApi — dashboard session', () => {
 
     const caller = await authApi(requestWith());
 
-    expect(caller).toMatchObject({ principal: { role: 'pm' } });
+    expect(caller).toMatchObject({ principal: { role: 'member' } });
   });
 
   it('authenticates the session when no request is passed at all', async () => {
@@ -160,15 +199,17 @@ describe('authApi — dashboard session', () => {
 
 describe('requireCapability', () => {
   const callerWith = (principal: Principal) => ({ orgId: 'org1', actorId: principal.id, principal, source: 'token' as const });
-  const owner: Principal = { kind: 'user', id: 'u1', role: 'owner', scope: { orgId: 'org1' }, grants: ['*'] };
-  const specialist: Principal = { kind: 'user', id: 'u2', role: 'specialist', scope: { orgId: 'org1' }, grants: ['draft'] };
+  const owner: Principal = { kind: 'user', id: 'u1', role: 'admin', scope: { orgId: 'org1' }, grants: ['*'] };
+  // Narrower than any role: both roles carry `['*']`, so the caller a
+  // capability check can refuse is one with explicit grants and no role.
+  const restricted: Principal = { kind: 'user', id: 'u2', scope: { orgId: 'org1' }, grants: ['draft'] };
 
   it('returns null when the caller holds the capability', () => {
     expect(requireCapability(callerWith(owner), 'approve')).toBeNull();
   });
 
   it('returns a 403 body naming the capability when the caller does not', async () => {
-    const denied = requireCapability(callerWith(specialist), 'approve');
+    const denied = requireCapability(callerWith(restricted), 'approve');
 
     expect(denied).not.toBeNull();
 

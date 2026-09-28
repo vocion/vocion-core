@@ -54,6 +54,15 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  // An installed app never zooms and never scrolls sideways: content fits the
+  // width or scrolls inside its own box (Chris, 2026-09-25: "it should act
+  // more like an app"). Pinch and double-tap zoom are off; inputs are 16px so
+  // iOS has no reason to zoom them either (ChatComposer).
+  maximumScale: 1,
+  userScalable: false,
+  // The keyboard shrinks the layout instead of covering the composer
+  // (Android; iOS already resizes the visual viewport).
+  interactiveWidget: 'resizes-content',
   // The installed app draws under the notch and the home indicator rather
   // than letterboxing itself inside them.
   viewportFit: 'cover',

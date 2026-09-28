@@ -401,6 +401,119 @@ describe('the candidate row', () => {
   });
 });
 
+describe('a refresh from another page', () => {
+  const EVENT_PAGE = 'https://listings.example.org/events/open-mic-night';
+  const LISTING = 'https://listings.example.org/events';
+  const IDENTITY = { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'The Corvina' };
+
+  /**
+   * What the event's own page files: the page links to itself (trailing slash and all).
+   * @param over
+   */
+  function fromItsOwnPage(over: Record<string, unknown> = {}) {
+    return candidate({
+      sourceUrl: EVENT_PAGE,
+      sourceListingUrl: `${EVENT_PAGE}/`,
+      rawExtractRef: 'knowledge_document:1',
+      fields: { ...IDENTITY, categories: ['Music'], ticketUrl: 'https://tickets.example.org/open-mic' },
+      ...over,
+    });
+  }
+
+  /**
+   * What a listing files for the same event: a line, no link of its own.
+   * @param over
+   */
+  function fromTheListing(over: Record<string, unknown> = {}) {
+    return candidate({
+      sourceUrl: undefined,
+      sourceListingUrl: LISTING,
+      rawExtractRef: 'knowledge_document:2',
+      summary: 'Open mic.',
+      fields: { ...IDENTITY, categories: ['Comedy'], price: 'Free' },
+      ...over,
+    });
+  }
+
+  async function propose(input: Record<string, unknown>, proposal?: Record<string, unknown>) {
+    return proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input,
+      ...(proposal ? { proposal: proposal as never } : {}),
+    });
+  }
+
+  async function stored(runId: number) {
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId));
+    return { input: row!.input as Record<string, any>, proposal: row!.proposal as Record<string, any> | null };
+  }
+
+  it('keeps what the event page wrote when a listing re-reads the card, and only adds what the card lacked', async () => {
+    const first = await propose(fromItsOwnPage(), { confidence: 0.9, rationale: 'Read from the event page.' });
+    const second = await propose(fromTheListing(), { confidence: 0.5, rationale: 'Read from the listing.' });
+
+    expect(second.runId).toBe(first.runId);
+    expect(second.outcome).toBe('refreshed');
+
+    const { input, proposal } = await stored(first.runId);
+
+    expect(input.fields).toEqual({ ...IDENTITY, categories: ['Music'], ticketUrl: 'https://tickets.example.org/open-mic', price: 'Free' });
+    expect(input.sourceUrl).toBe(EVENT_PAGE);
+    expect(input.sourceListingUrl).toBe(`${EVENT_PAGE}/`);
+    expect(input.rawExtractRef).toBe('knowledge_document:1');
+    expect(input.summary).toBe('Sign-ups at 7, music at 7:30.');
+    expect(proposal).toMatchObject({ confidence: 0.9, rationale: 'Read from the event page.' });
+    // The object row follows the card, not the listing's line.
+    expect((await objectsFor())[0]!.summary).toBe('Sign-ups at 7, music at 7:30.');
+  });
+
+  it('never adds a field the listing only labelled', async () => {
+    const first = await propose(fromItsOwnPage());
+    await propose(fromTheListing({ fields: { ...IDENTITY, seriesMatch: 'yes' } }), { confidence: 0.5, labels: ['seriesMatch'] });
+
+    const { input } = await stored(first.runId);
+
+    expect(input.fields).not.toHaveProperty('seriesMatch');
+  });
+
+  it('lets the event page itself replace the card', async () => {
+    const first = await propose(fromItsOwnPage());
+    await propose(fromItsOwnPage({ summary: 'Now $5 at the door.', fields: { ...IDENTITY, price: '$5' } }));
+
+    const { input } = await stored(first.runId);
+
+    expect(input.summary).toBe('Now $5 at the door.');
+    expect(input.fields).toEqual({ ...IDENTITY, price: '$5' });
+  });
+
+  it('lets an agent or a person correct a card the event page wrote', async () => {
+    const first = await propose(fromItsOwnPage());
+    await propose(fromTheListing({ rawExtractRef: undefined, summary: 'Corrected by hand.' }));
+
+    expect((await stored(first.runId)).input.summary).toBe('Corrected by hand.');
+  });
+
+  it('never treats two missing links as the same page', async () => {
+    const first = await propose(fromItsOwnPage({ sourceUrl: undefined, sourceListingUrl: undefined }));
+    await propose(fromTheListing());
+
+    expect((await stored(first.runId)).input.summary).toBe('Open mic.');
+  });
+
+  it('replaces a card whose identity rests on a blank field, since another record may share its key', async () => {
+    const blankVenue = { ...IDENTITY, venue: '' };
+    const first = await propose(fromItsOwnPage({ fields: { ...blankVenue, ticketUrl: 'https://tickets.example.org/open-mic' } }));
+    await propose(fromTheListing({ fields: blankVenue }));
+
+    const { input } = await stored(first.runId);
+
+    expect(input.summary).toBe('Open mic.');
+    expect(input.fields).not.toHaveProperty('ticketUrl');
+  });
+});
+
 describe('the review card', () => {
   it('labels and orders the payload from the object type, not from core', async () => {
     const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());

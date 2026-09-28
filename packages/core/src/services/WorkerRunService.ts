@@ -2,6 +2,7 @@ import type { TokenUsage } from '@/libs/pricing';
 import type { WORKER_RUN_COMPLETED, WORKER_RUN_FAILED, WorkerRunEndedPayload } from '@/services/EventService';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { boundProgress } from '@/libs/worker/progress';
 import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
@@ -282,7 +283,7 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
   const [updated] = await db.update(workerRunSchema).set({
     heartbeatAt: now,
     leaseExpiresAt: new Date(now.getTime() + run.leaseSeconds * 1000),
-    progress: input.progress ?? run.progress,
+    progress: input.progress ? boundProgress(input.progress) : run.progress,
     cursor: input.cursor ?? run.cursor,
     counts: input.counts ? { ...run.counts, ...input.counts } : run.counts,
     tokens: run.tokens + tokens,
@@ -411,6 +412,12 @@ async function announceEnded(run: WorkerRun, type: typeof WORKER_RUN_COMPLETED |
       payload,
       dedupeKey: type === 'worker_run.failed' ? `${type}:${run.id}:${run.attempt}` : `${type}:${run.id}`,
       invokedBy: `worker_run:${run.id}`,
+      // BACKGROUND: an automation on this event runs an agent for a minute or
+      // more (the evidence pass), and the worker's complete call waited for it
+      // — twice past its 20s timeout on run 363, and run 361 failed on it
+      // (2026-09-26). The worker needs its answer; the automation does not
+      // need the worker to wait.
+      dispatchMode: 'background',
     });
   } catch (error) {
     console.warn(`[worker-run] could not raise ${type} for run ${run.id}`, error);

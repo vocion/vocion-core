@@ -4,6 +4,7 @@ import {
   authorize,
   AuthzDeniedError,
   enforce,
+  normalizeWorkspaceRole,
   requiresApprovalForMutation,
   scopeAllows,
 } from '@/services/authz';
@@ -56,10 +57,12 @@ describe('authorize — discovery', () => {
     expect(authorize(agent, { kind: 'document', scope: { orgId: ORG, clientId: 'b' } }, 'discover').allowed).toBe(false);
   });
 
-  it('owner spans all clients', () => {
-    const owner: Principal = { kind: 'user', id: 'u1', role: 'owner', scope: { orgId: ORG } };
+  it('a person with a workspace role spans all clients', () => {
+    const admin: Principal = { kind: 'user', id: 'u1', role: 'admin', scope: { orgId: ORG } };
+    const member: Principal = { kind: 'user', id: 'u2', role: 'member', scope: { orgId: ORG } };
 
-    expect(authorize(owner, { kind: 'document', scope: { orgId: ORG, clientId: 'b' } }, 'discover').allowed).toBe(true);
+    expect(authorize(admin, { kind: 'document', scope: { orgId: ORG, clientId: 'b' } }, 'discover').allowed).toBe(true);
+    expect(authorize(member, { kind: 'document', scope: { orgId: ORG, clientId: 'b' } }, 'discover').allowed).toBe(true);
   });
 });
 
@@ -81,8 +84,18 @@ describe('authorize — mutation', () => {
   });
 
   it('humans with the grant act directly (no gate)', () => {
-    const owner: Principal = { kind: 'user', id: 'u1', role: 'owner', scope: { orgId: ORG } };
-    const d = authorize(owner, { kind: 'action', action: 'send_email', external: true }, 'mutate');
+    const admin: Principal = { kind: 'user', id: 'u1', role: 'admin', scope: { orgId: ORG } };
+    const d = authorize(admin, { kind: 'action', action: 'send_email', external: true }, 'mutate');
+
+    expect(d).toEqual({ allowed: true, gate: 'none', reason: 'human-grant' });
+  });
+
+  // Decision Q4, 25 Sep 2026: collapsing four role names to two is a rename,
+  // not a policy change. `member` was `pm`, `pm` was `['*']`, and approving an
+  // agent-proposed action is the grant that actually gates something today.
+  it('a member may approve', () => {
+    const member: Principal = { kind: 'user', id: 'u2', role: 'member', scope: { orgId: ORG } };
+    const d = authorize(member, { kind: 'action', action: 'approve' }, 'mutate');
 
     expect(d).toEqual({ allowed: true, gate: 'none', reason: 'human-grant' });
   });
@@ -93,6 +106,42 @@ describe('authorize — mutation', () => {
 
     expect(d.allowed).toBe(false);
     expect(d.reason).toBe('out-of-scope');
+  });
+});
+
+/**
+ * A deploy applies migrations before it swaps the container, so both
+ * vocabularies are live at once for the length of the drain. `api_token.role`
+ * is the column that still holds the old one.
+ */
+describe('normalizeWorkspaceRole', () => {
+  it('passes the two names through', () => {
+    expect(normalizeWorkspaceRole('admin')).toBe('admin');
+    expect(normalizeWorkspaceRole('member')).toBe('member');
+  });
+
+  it('maps every legacy name, so a token issued before the rename still acts', () => {
+    expect(normalizeWorkspaceRole('owner')).toBe('admin');
+    expect(normalizeWorkspaceRole('pm')).toBe('member');
+    expect(normalizeWorkspaceRole('specialist')).toBe('member');
+    expect(normalizeWorkspaceRole('client_reviewer')).toBe('member');
+  });
+
+  it('falls to the NARROWER role on anything it does not recognise', () => {
+    // A role nobody recognises must not be the one that grants everything.
+    expect(normalizeWorkspaceRole('superuser')).toBe('member');
+    expect(normalizeWorkspaceRole(null)).toBe('member');
+    expect(normalizeWorkspaceRole(undefined)).toBe('member');
+    expect(normalizeWorkspaceRole('')).toBe('member');
+  });
+
+  it('keeps a legacy-role token unrestricted, which is what it was', () => {
+    // The regression this exists to stop: `ROLE_GRANTS['owner']` is undefined
+    // now, so an unnormalized cast gives the token no grants at all and every
+    // call it makes is refused.
+    const token: Principal = { kind: 'user', id: 'token:t1', role: normalizeWorkspaceRole('owner'), scope: { orgId: ORG }, grants: [] };
+
+    expect(authorize(token, { kind: 'action', action: 'send_email', external: true }, 'mutate').allowed).toBe(true);
   });
 });
 

@@ -170,6 +170,27 @@ describe('candidate extractor, one document end to end', () => {
     }
   });
 
+  it('sends the structured data on its own when the page text does not carry it whole', async () => {
+    invoke.mockResolvedValue(answer());
+
+    await run(context());
+
+    const human = String((invoke.mock.calls[0]?.[0] as Array<{ content: unknown }>)[1]?.content);
+
+    expect(human).toContain('<jsonld>');
+  });
+
+  it('does not send the structured data twice when the page text already carries it whole', async () => {
+    invoke.mockResolvedValue(answer());
+
+    await run(context({ document: { ...document, metadata: { ...document.metadata, jsonLdInText: true } } }));
+
+    const human = String((invoke.mock.calls[0]?.[0] as Array<{ content: unknown }>)[1]?.content);
+
+    expect(human).not.toContain('<jsonld>');
+    expect(human).toContain('Open Mic Night, every Thursday');
+  });
+
   it('returns a counts shape the run report can add up', async () => {
     invoke.mockResolvedValue(answer());
 

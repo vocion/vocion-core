@@ -56,6 +56,13 @@ export function isAgentsOwnSchedule(ctx: { userId?: string | null; conversationI
   if (ctx.missionRunId) {
     return true;
   }
+  // A person's own client (red team, 2026-09-26): an MCP call made with a
+  // workspace token is the token holder acting, directly — "approve 4270"
+  // from Claude is the same decision as the card's button. It carries no
+  // conversation, and that used to read as the agent acting on its own.
+  if (ctx.userId?.startsWith('token:')) {
+    return false;
+  }
   if (!ctx.conversationId) {
     return true;
   }

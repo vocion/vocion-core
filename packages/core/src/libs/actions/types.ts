@@ -364,11 +364,36 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   precheck?: (ctx: ActionContext, input: z.infer<S>) => Promise<string | void>;
   /**
+   * Fields a refinement requires that the shape marks optional — so the
+   * input hints a model reads (`actionInputHints`) can mark them required.
+   * `objects.propose_candidate` requires `dedupOn` this way (2026-09-25:
+   * the last refusal standing on walk 17).
+   */
+  inputRequired?: readonly string[];
+  /**
    * Called once per created action_run, right after the row exists (pending or
    * about to execute). For back-linking the run onto the domain record it
    * reviews (e.g. discovery_candidate.reviewActionRunId). Must be idempotent.
    */
   onProposed?: (ctx: ActionContext, input: z.infer<S>, runId: number) => Promise<void>;
+  /**
+   * What an open run stores when it is proposed again with the same dedup key.
+   * Absent, the new input and proposal replace the stored ones whole. For an
+   * action whose re-proposals can come from a less complete source than the
+   * one that wrote the run. The regeneration stamps and the decision fields
+   * are cleared either way, so a run whose hook kept its payload still reads
+   * as refreshed.
+   * @param previous - The open run's stored input and proposal.
+   * @param previous.input - The stored input, as read back from the row.
+   * @param previous.proposal - The stored proposal, or null.
+   * @param next - The new proposal: its parsed input and its proposal in stored shape.
+   * @param next.input - The parsed input.
+   * @param next.proposal - The proposal as it would be stored, or null.
+   */
+  refresh?: (
+    previous: { input: Record<string, unknown>; proposal: Record<string, unknown> | null },
+    next: { input: z.infer<S>; proposal: Record<string, unknown> | null },
+  ) => { input: Record<string, unknown>; proposal: Record<string, unknown> | null };
   /**
    * Build the structured review card for a pending run of this action.
    * Runs server-side at queue-list time, so it may resolve fresh context

@@ -11,6 +11,7 @@ vi.mock('@/libs/Orpc', () => ({
     conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), latestForScope: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(), feedback: vi.fn() },
     teams: { list: vi.fn(async () => ({ workspace: null, teams: [] })) },
     missions: { list: vi.fn(async () => []) },
+    preview: { get: vi.fn(async () => ({ type: 'worker_run', id: '148', title: 'send-t148', blocks: [] })) },
   },
 }));
 
@@ -231,16 +232,18 @@ describe('ChatDock', () => {
     await expect.element(page.getByRole('slider', { name: 'Resize the conversation' })).toBeInTheDocument();
   });
 
-  it('carries the chat menu (new chat only — no agent picker, §9.10) and, unscoped, a history popover with the recent threads', async () => {
+  it('carries New chat as an icon (no agent picker, §9.10) and, unscoped, a history popover with the recent threads', async () => {
     vi.mocked(client.conversations.list).mockResolvedValue([
       { id: 7, title: 'Earlier about the queue', messageCount: 4, updatedAt: new Date().toISOString() },
     ] as never);
     localStorage.setItem(COLLAPSE_KEY, '0');
     await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" />));
 
+    await expect.element(page.getByRole('button', { name: 'New chat' })).toBeVisible();
+
     await userEvent.click(page.getByRole('button', { name: 'Chat options' }));
 
-    await expect.element(page.getByRole('menuitem', { name: /New chat/ })).toBeVisible();
+    expect(page.getByRole('menuitem', { name: /New chat/ }).elements()).toHaveLength(0);
 
     await userEvent.keyboard('{Escape}');
 
@@ -459,6 +462,26 @@ describe('ChatDock', () => {
     await expect.element(page.getByText('The entrance path sets it.')).toBeInTheDocument();
     expect(vi.mocked(client.conversations.latestForScope)).toHaveBeenCalledWith({ scopeRef: SCOPE });
     expect(vi.mocked(client.conversations.get)).toHaveBeenCalledWith({ id: 41 });
+  });
+
+  it('on a phone, closing the sheet closes the preview in it, with one close control (2026-09-27)', async () => {
+    await page.viewport(390, 844);
+    window.history.replaceState(null, '', `${window.location.pathname}?preview=worker_run:148`);
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Rowan Pike" defaultCollapsed={false} />));
+
+    const sheet = page.getByRole('dialog');
+
+    await expect.element(sheet).toBeInTheDocument();
+    // The pane's header owns the close; the sheet draws no second X over it.
+    expect(document.querySelectorAll('[data-slot="sheet-close"]:not(.hidden), button.hidden').length).toBeLessThanOrEqual(1);
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(sheet).not.toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('preview')).toBeNull();
+
+    window.history.replaceState(null, '', window.location.pathname);
+    await page.viewport(1280, 800);
   });
 
   it('collapses to the reopen button and the choice persists', async () => {

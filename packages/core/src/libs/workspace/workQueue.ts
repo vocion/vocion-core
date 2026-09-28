@@ -1,4 +1,5 @@
 import type { PageRow } from './pageFields';
+import { seatLabel } from '@/libs/gates/handoffGate';
 import { readReasons, reasonPhrase } from './reasonCodes';
 
 /**
@@ -212,6 +213,14 @@ function decideOrder(a: PageRow, b: PageRow, time: (r: PageRow) => number): numb
     || time(a) - time(b);
 }
 
+/**
+ * A proposal a person dismissed: out of scope, or its recommendation rejected.
+ * @param row - The row.
+ */
+export function isDismissed(row: PageRow): boolean {
+  return str(row, 'state') === 'out_of_scope' || str(row, 'recommendationState') === 'rejected';
+}
+
 export function laneOf(row: PageRow): WorkLane {
   const state = str(row, 'state');
   if (state && DONE_STATES.has(state)) {
@@ -290,11 +299,13 @@ export function stageOf(row: PageRow): WorkStage {
  * Which wait a building outcome is in, when it is not actually running.
  * @param row - The row.
  */
-function waitOf(row: PageRow): 'merge' | 'qa' | 'dispatch' | null {
+function waitOf(row: PageRow): 'merge' | 'qa' | 'stuck' | 'changes' | 'dispatch' | null {
   const tasks = num(row, 'taskCount') ?? 0;
   const running = num(row, 'runningTaskCount') ?? 0;
   const review = num(row, 'awaitingReviewTaskCount') ?? 0;
   const accepted = num(row, 'acceptedTaskCount') ?? 0;
+  const changes = num(row, 'changesRequestedTaskCount') ?? 0;
+  const stuck = num(row, 'reviewFailedTaskCount') ?? 0;
   if (running > 0) {
     return null;
   }
@@ -303,6 +314,14 @@ function waitOf(row: PageRow): 'merge' | 'qa' | 'dispatch' | null {
   }
   if (review > 0) {
     return 'qa';
+  }
+  if (stuck > 0) {
+    return 'stuck';
+  }
+  // QA SENT IT BACK, AND THAT IS THE READER'S MOVE (2026-09-26: #131 read
+  // "Awaiting QA; no action needed" under a verdict of 0 of 8 proven).
+  if (changes > 0) {
+    return 'changes';
   }
   return tasks > 0 ? 'dispatch' : null;
 }
@@ -335,12 +354,22 @@ export function stateOf(row: PageRow, lane: WorkLane, opts: { staged?: boolean }
   if (lane !== 'done' && isBlocked(row)) {
     return 'Blocked';
   }
+  // A gate sent it back: the seat named owes the fix, and the row says so
+  // before anything else — a returned outcome is not waiting on a person.
+  const returnedTo = str(row, 'returnedTo');
+  if (lane !== 'done' && returnedTo) {
+    return `Returned to ${seatLabel(returnedTo)}`;
+  }
   if (lane === 'progress') {
     switch (waitOf(row)) {
       case 'merge':
         return 'Ready to merge';
       case 'qa':
         return 'Awaiting QA';
+      case 'stuck':
+        return 'QA could not finish';
+      case 'changes':
+        return 'Changes asked';
       case 'dispatch':
         return 'Awaiting dispatch';
       default:
@@ -458,6 +487,19 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
     const who = blocker.owner ? `${blocker.owner} to ${blocker.next ?? 'clear it'}` : blocker.next ?? 'nobody is named to clear it';
     return `${blocker.what}. ${who}.`;
   }
+  const returnedTo = str(row, 'returnedTo');
+  if (lane !== 'done' && returnedTo) {
+    const gate = meta(row).gate as { name?: string; failed?: Array<{ field: string; why: string }>; judged?: string; reasonCode?: string; example?: string; note?: string } | undefined;
+    const first = gate?.failed?.[0];
+    if (first) {
+      return `Gate "${gate?.name}": ${first.why}${(gate?.failed?.length ?? 0) > 1 ? ` (+${gate!.failed!.length - 1} more)` : ''}. No action needed from you.`;
+    }
+    if (gate?.judged === 'return') {
+      const what = gate.example || gate.note || gate.reasonCode || 'did not pass the rubric';
+      return `Gate "${gate.name}" sent it back: ${what}. No action needed from you.`;
+    }
+    return 'Sent back by a gate. No action needed from you.';
+  }
   if (lane === 'progress') {
     const tasks = num(row, 'taskCount') ?? 0;
     const noun = tasks === 1 ? 'task' : 'tasks';
@@ -466,6 +508,10 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
         return 'QA approved. The merge is waiting on a person.';
       case 'qa':
         return 'Engineering finished. Awaiting QA; no action needed from you.';
+      case 'stuck':
+        return 'The review ended without a verdict. Build again starts a fresh attempt.';
+      case 'changes':
+        return 'QA sent it back with what would settle each criterion. Build again carries it.';
       case 'dispatch':
         return `${tasks} ${noun} written, none picked up yet. No action needed from you.`;
       default:
@@ -504,7 +550,12 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
       const ahead = opts.ahead ?? 0;
       return `Behind ${ahead} decision${ahead === 1 ? '' : 's'} — moves up as they land.`;
     }
-    return verb ? `Vocion recommends we ${verb}` : null;
+    // The action, and how long it has waited — "Decide whether to build ·
+    // waiting 2 days" — not a sentence about who recommended what.
+    const since = date(meta(row).recommendedAt) ?? date(meta(row).rankedAt);
+    const days = since ? Math.floor((now.getTime() - since.getTime()) / 86_400_000) : null;
+    const waited = days === null ? '' : days < 1 ? ' · waiting since today' : ` · waiting ${days} day${days === 1 ? '' : 's'}`;
+    return verb ? `Decide whether to ${verb}${waited}` : `Decide${waited}`;
   }
   // A queued row's state is already on its badge. Saying "queued" underneath
   // a badge reading "Queued" is the repetition this page was redrawn to lose.
@@ -520,8 +571,12 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
  * @param lane - The lane it landed in.
  */
 export function costLine(row: PageRow, lane: WorkLane): string | null {
-  const estimate = num(row, 'estimateCents');
-  const actual = num(row, 'actualCents');
+  // A zero is not a figure (2026-09-26: "$0.00 of about $0.00", "$13.04 of
+  // about $0.00" on the Work page). An estimate of nothing is no estimate,
+  // and nothing spent yet is not worth a line.
+  const positive = (n: number | null): number | null => (n !== null && n > 0 ? n : null);
+  const estimate = positive(num(row, 'estimateCents'));
+  const actual = positive(num(row, 'actualCents'));
   if (lane === 'done') {
     return actual === null ? null : dollars(actual);
   }
@@ -586,7 +641,9 @@ export function acceptanceOf(row: PageRow): { total: number; met: number; frozen
 export function acceptanceLine(row: PageRow, lane: WorkLane): string | null {
   const { total, met } = acceptanceOf(row);
   if (lane === 'proposed') {
-    return total === 0 ? 'no criteria' : `${total} ${total === 1 ? 'criterion' : 'criteria'}`;
+    // Nothing, rather than "no criteria" on every row that has none: the gap
+    // is on the feature page, and a phrase repeated down a list is noise.
+    return total === 0 ? null : `${total} ${total === 1 ? 'criterion' : 'criteria'}`;
   }
   if (lane === 'progress' && total > 0) {
     return `${met} of ${total} met`;
@@ -690,8 +747,10 @@ export function visualArtifactId(row: PageRow, lane: WorkLane): number | null {
   // The platform's own drawing is the floor under the picture, never the
   // gate: the card shows it when nothing real exists, and `visualGap` keeps
   // saying `no mock` until Design files one (review, 2026-09-24).
-  const drawn = Number.isInteger(v.drawnArtifactId) && (v.drawnArtifactId as number) > 0 ? v.drawnArtifactId as number : null;
-  const proposed = first('beforeArtifactIds') ?? drawn;
+  // The row's picture is a REAL one — a mockup somebody filed, or the
+  // after-shot once it shipped. The platform's drawing is the feature page's
+  // fallback, not a list thumbnail (Chris, 2026-09-25).
+  const proposed = first('beforeArtifactIds');
   return lane === 'done' ? first('afterArtifactIds') ?? proposed : proposed;
 }
 
@@ -774,9 +833,8 @@ function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked
   if (counts.queued > 0 && counts.ranked === 0) {
     parts.push(`nothing ranked, no reason recorded on ${counts.queued}`);
   }
-  if (counts.noVisual > 0) {
-    parts.push(`${counts.noVisual} without a visual`);
-  }
+  // "N without a visual" was a complaint in the heading; the gap is on each
+  // row's own badge where it can be acted on (Chris, 2026-09-24).
   if (hidden > 0) {
     parts.push(`${hidden} more queued`);
   }
@@ -814,7 +872,11 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date, decideShown = DEC
   // queue whatever its reason or age, because it is the only work here that
   // moves the moment it is read.
   const deferred = rows.filter(r => str(r, 'state') === 'deferred');
-  const live = rows.filter(r => str(r, 'state') !== 'deferred');
+  // DISMISSED leaves the page (Chris, 2026-09-25: "a mechanism to dismiss a
+  // proposal"). Out of scope, or a recommendation a person rejected, is a
+  // decision already made; it stays on the record and in search, not in the
+  // queue of things to decide.
+  const live = rows.filter(r => str(r, 'state') !== 'deferred' && !isDismissed(r));
   const waiting = live.filter(r => isWaitingOnPerson(r));
   const queued = live.filter(r => !isWaitingOnPerson(r));
   const rankable = queued.filter(r => readReasons(meta(r)).recorded);
@@ -919,6 +981,9 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           laneKey: lane,
           laneNote: note ?? undefined,
           order: laneIndex * 1000 + i,
+          // The one line the row leads with: the outcome (what a person can
+          // do afterwards), else the summary the record was filed with.
+          problem: (str(row, 'outcome') ?? str(row, 'summary')) ?? undefined,
           rank: rank === null ? undefined : String(rank),
           state,
           stage: stageOf(row),
@@ -928,7 +993,9 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           kindIcon: kindIconOf(row),
           acceptanceLine: acceptanceLine(row, lane) ?? undefined,
           contractGap: contractGap(row, lane) ?? undefined,
-          whyLine: whyLine(row) ?? undefined,
+          // Why it is worth doing is the proposal's argument; once it is
+          // building or done the row says what is happening, not why.
+          whyLine: lane === 'proposed' ? (whyLine(row) ?? undefined) : undefined,
           workLine: workLine(row, lane, now, { staged, ahead }) ?? undefined,
           costLine: costLine(row, lane) ?? undefined,
           flags: flags.length > 0 ? flags : undefined,

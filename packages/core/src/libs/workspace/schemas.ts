@@ -168,6 +168,15 @@ export const WorkspaceManifestSchema = z.object({
       openMax: z.number().int().min(0).optional(),
       weeklyMax: z.number().int().min(0).optional(),
     }).optional(),
+    /**
+     * How strict the handoff judges are in THIS workspace: overrides every
+     * gate's `judge.sampleRate` / `judge.escalateBelow` at apply time. The
+     * plugin declares the gates; the workspace turns the dial.
+     */
+    gates: z.object({
+      sampleRate: z.number().min(0).max(1).optional(),
+      escalateBelow: z.number().min(0).max(1).optional(),
+    }).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -1191,11 +1200,21 @@ export const AutomationManifestSchema = z.object({
      * scheduled-check brief when omitted.
      */
     prompt: z.string().optional(),
+    /**
+     * The tool a `checkMission` fire's work must end in — e.g. `record_verdict`
+     * for a review. A pass that never calls it (or only has it refused) gets
+     * one recording pass over its own report with the tool chosen; a miss
+     * after that fails the fire, visibly.
+     */
+    requireTool: z.string().min(1).optional(),
     /** Fixed input passed to the workflow run / job. */
     input: z.record(z.string(), z.unknown()).optional(),
   }).refine(
     d => [d.workflow, d.checkMission, d.job].filter(Boolean).length === 1,
     { message: 'do must have exactly one of workflow | checkMission | job' },
+  ).refine(
+    d => !d.requireTool || !!d.checkMission,
+    { message: 'do.requireTool requires do.checkMission — only a mission check runs an agent whose tools can be required' },
   ).refine(
     d => !d.prompt || !!d.checkMission,
     { message: 'do.prompt requires do.checkMission — only mission checks carry an execution prompt' },
@@ -1324,6 +1343,68 @@ export const RollupSchema = z.object({
 }).refine(r => [r.sum, r.min, r.max].filter(v => v !== undefined).length <= 1, { message: 'a rollup is a sum, a min, a max or a count of children, not two of them' });
 export type Rollup = z.infer<typeof RollupSchema>;
 
+/**
+ * One thing a record must satisfy to cross a gate. Grown on 2026-09-25 to
+ * express the two gates that were TypeScript until then (backlog 011): a
+ * requirement can apply only `if` another field has one of some values, can
+ * demand that `allItems` of a list carry a field equal to a value, can pass
+ * when `anyOf` several alternatives pass, and can say something different for
+ * each bad value (`valueMessages`) and for a missing one (`missingMessage`).
+ * Messages may carry `{to}`, `{value}`, `{days}`, `{unmet}`, `{total}` and
+ * `{first}`.
+ */
+export type GateRequirementManifest = {
+  field: string;
+  present?: boolean;
+  minItems?: number;
+  oneOf?: string[];
+  maxAgeDays?: number;
+  allItems?: { field: string; equals: string | number | boolean; label?: string };
+  anyOf?: GateRequirementManifest[];
+  if?: { field: string; oneOf: string[] };
+  valueMessages?: Record<string, string>;
+  missingMessage?: string;
+  message?: string;
+};
+const GateRequirementSchema: z.ZodType<GateRequirementManifest> = z.lazy(() => z.object({
+  field: z.string().min(1),
+  present: z.boolean().optional(),
+  minItems: z.number().int().min(0).optional(),
+  oneOf: z.array(z.string()).min(1).optional(),
+  maxAgeDays: z.number().min(0).optional(),
+  allItems: z.object({ field: z.string().min(1), equals: z.union([z.string(), z.number(), z.boolean()]), label: z.string().min(1).optional() }).optional(),
+  anyOf: z.array(GateRequirementSchema).min(2).optional(),
+  if: z.object({ field: z.string().min(1), oneOf: z.array(z.string()).min(1) }).optional(),
+  valueMessages: z.record(z.string(), z.string()).optional(),
+  missingMessage: z.string().optional(),
+  message: z.string().optional(),
+}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems or anyOf' }));
+
+/**
+ * The judgement half of a gate: after the deterministic checks pass, one
+ * model call reads the record against the seat's rubric (a skill) and, when
+ * named, the reference cases (an eval dataset), and says pass, return, or
+ * escalate to a person. The workspace steers the numbers (`defaults.gates`).
+ */
+export const GateJudgeSchema = z.object({
+  rubric: z.string().min(1).describe('skill slug — the seat\'s one-page rubric'),
+  cases: z.string().min(1).optional().describe('eval dataset slug — the reference cases the judge is calibrated on'),
+  /** Below this confidence in its own verdict, the judge escalates to a person instead of deciding. */
+  escalateBelow: z.number().min(0).max(1).default(0.6),
+  /** How often the judge runs at all; 1 = every crossing. Autonomy earned lowers it. */
+  sampleRate: z.number().min(0).max(1).default(1),
+  /** Field values that always go to a person whatever the judge says (e.g. riskClass: [schema, billing]). */
+  alwaysEscalate: z.record(z.string(), z.array(z.string())).optional(),
+});
+
+export const HandoffGateSchema = z.object({
+  name: z.string().min(1),
+  when: z.object({ field: z.string().min(1), becomes: z.array(z.string().min(1)).min(1) }),
+  producedBy: z.string().min(1).describe('the agent slug whose work this is — where a failure is returned'),
+  require: z.array(GateRequirementSchema).min(1),
+  judge: GateJudgeSchema.optional(),
+});
+
 export const ObjectTypeManifestSchema = z.object({
   slug: SlugSchema,
   label: z.string(),
@@ -1336,6 +1417,13 @@ export const ObjectTypeManifestSchema = z.object({
   fewShotExamples: z.array(FewShotExampleSchema).default([]),
   /** Figures computed from another type's rows — see {@link RollupSchema}. */
   rollups: z.array(RollupSchema).optional(),
+  /**
+   * HANDOFF GATES: what must be on a record before it may cross a transition,
+   * and which seat the record goes back to when it is not
+   * (`libs/gates/handoffGate.ts`). Declared here by the plugin, steered by
+   * the workspace, enforced where the record is written — never a prompt.
+   */
+  gates: z.array(HandoffGateSchema).optional(),
 });
 export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
 

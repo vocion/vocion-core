@@ -280,6 +280,14 @@ schema:
         the cycle time the Performance page takes a median of; a request with
         no release has no ship date and is left out of that median rather than
         counted as instant.
+    reviewFailedTaskCount:
+      x-display: {hidden: true}
+      type: integer
+      description: ROLLED UP — tasks whose QA review ended without a verdict, even after the recording pass. Non-zero means the row says so instead of "no action needed".
+    changesRequestedTaskCount:
+      x-display: {hidden: true}
+      type: integer
+      description: ROLLED UP — tasks for this request that QA sent back with changes. Non-zero with nothing running means the next move is Build again.
     rollupsUpdatedAt:
       x-display: {label: Cost as of}
       type: string
@@ -471,6 +479,10 @@ rollups:
   # on QA, and work QA approved waiting on a merge (review, 2026-09-24).
   - {field: awaitingReviewTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [awaiting_review]}}
   - {field: acceptedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [accepted]}}
+  # QA could not finish: the review ended without a verdict (review 5710 sat six hours as "no action needed").
+  - {field: reviewFailedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [review_failed]}}
+  # QA sent an attempt back (record_verdict: changes). The row says so and offers Build again.
+  - {field: changesRequestedTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [changes_requested]}}
   # Rework: the same tasks, narrowed to the ones that were thrown away. Money
   # spent and then answered rather than shipped is NOT here, on purpose.
   - {field: reworkCents, from: {type: engineering_task, by: requestId}, sum: actualCents, where: {field: status, in: [rejected, abandoned]}}
@@ -486,3 +498,114 @@ classificationPrompt: >-
   about and, for a bug or incident, a severity. Compute a dedupe key from the
   product and the thing that is broken or asked for. Report a confidence and
   the words you matched on; when the product is unclear, ask rather than file.
+# HANDOFF GATES (core: libs/gates/handoffGate.ts). The deterministic half of
+# "the next seat rejects weak work without repairing it": a request may not
+# be committed to (`in_scope`) until the PM's card is decision-ready. A write
+# that fails is refused, the record reads "Returned to PM" on Work with the
+# missing things named, and nobody is interrupted. The judge half (rubric +
+# reference cases, escalation to a person) runs only after this passes.
+gates:
+  # PROPOSAL-READY: the bar a proposal meets before it reaches a person's
+  # Proposed lane, taken from the six Stamp proposals Chris called great
+  # (2026-09-27; wiki "What a good proposal looks like", eval
+  # proposal-reference). Runs at the door: objects.propose_candidate refuses a
+  # card that fails it, naming each missing thing, and the proposer fixes it.
+  - name: proposal-ready
+    when: {field: status, becomes: [candidate]}
+    producedBy: product-manager
+    require:
+      - {field: product, present: true, message: name the product this is for}
+      - {field: story, present: true, message: 'write the story as one person in their words — "As a founder who just sent a deck to an investor, I want…"'}
+      - {field: outcome, present: true, message: say what the person can do afterwards}
+      - {field: acceptance, minItems: 3, message: write three to six acceptance lines a person can check on the screen or in a named test}
+      - {field: mainRisk, present: true, message: name the one thing most likely to go wrong, in a sentence}
+      - {field: visuals.surfaceUrl, present: true, message: name the live page this changes, and attach a before-shot of it as it is today}
+      - {field: whyNote, present: true, message: 'say why this does not exist yet: the file, screen or marketing line you checked against what the product already does'}
+  - name: decision-ready
+    when: {field: state, becomes: [in_scope]}
+    producedBy: product-manager
+    require:
+      - {field: product, present: true, message: name the product this is for}
+      - {field: why, present: true, message: record the reason from the closed list, so it can be ranked}
+      - {field: acceptance, minItems: 3, message: 'write at least three criteria a person can check — "done when it works" is not a contract'}
+      - {field: expectedResult, present: true, message: say what will be different if this works}
+      - {field: howWeCheck, present: true, message: say how we will know it worked}
+      - {field: decisionCost, present: true, message: estimate the decision cost so the queue can carry it}
+    # The judgement half: the PM's own rubric reads the card, calibrated on
+    # the reference cases. Return goes back to the PM with a reason code and
+    # an example; a schema/billing/auth/infra risk, or a judge under the bar,
+    # goes to a person. The workspace turns the dials (`defaults.gates`).
+    judge:
+      rubric: rubric-product-manager
+      cases: factory-reference
+      escalateBelow: 0.6
+      sampleRate: 1
+      alwaysEscalate: {riskClass: [schema, billing, auth, infra]}
+  # STILL MISSING? Nobody plans or dispatches a request without checking, on
+  # the running product, that it is still missing: two of the first rows on
+  # this board in September had already shipped. Was libs/actions/gapGate.ts
+  # until 2026-09-25 (backlog 011); the same refusals, declared.
+  - name: still-missing
+    when: {field: state, becomes: [in_scope, building]}
+    producedBy: product-manager
+    require:
+      - field: gapCheck.checkedAt
+        present: true
+        maxAgeDays: 14
+        missingMessage: >-
+          nobody has checked this is still missing. Look at the running product —
+          the route, the screen, the endpoint it asks for — then record
+          gapCheck.finding as one of add (none of it exists), modify (part of it
+          already ships) or none (it all ships), with gapCheck.how naming what you
+          looked at and gapCheck.checkedAt. Two of the first rows checked on this
+          board in September had already shipped; a request is a statement about
+          the product on the day it was asked, not today
+        message: >-
+          the gap was last checked {days} days ago and this product ships most
+          days. Look again before a worker is sent at it, and re-stamp
+          gapCheck.checkedAt with what you find
+      - field: gapCheck.finding
+        oneOf: [add]
+        missingMessage: >-
+          nobody has checked this is still missing. Record gapCheck.finding as one
+          of add (none of it exists), modify (part of it already ships) or none
+          (it all ships), with gapCheck.how and gapCheck.checkedAt
+        message: 'gapCheck.finding is "{value}", which is not one of add, modify or none. Say which of the three the check found'
+        valueMessages:
+          none: >-
+            the gap check found this already ships. Close it with an honest answer
+            saying where it landed and when, in the asker's own terms. Building it
+            again is the one outcome nobody wants
+          modify: >-
+            the gap check found part of this already ships. Narrow the request to
+            the part that does not — rename it and rewrite its story so it asks for
+            that alone — then check the narrowed ask and record the new finding. A
+            request that is half true builds the wrong thing
+  # THE CONTRACT IS MET, AND SEEN. A request may not call itself done while a
+  # criterion is unmet, and a visible change is not finished until somebody has
+  # looked at it. Was libs/actions/doneGate.ts until 2026-09-25 (backlog 011).
+  - name: contract-met
+    when: {field: state, becomes: [shipped, accepted, released, answered]}
+    producedBy: qa
+    require:
+      - field: acceptance
+        allItems: {field: met, equals: true, label: statement}
+        message: >-
+          {unmet} of {total} acceptance criteria are not met — {first}. Check each
+          one against the running product and record the evidence, or come back
+          and change the contract. Passing engineering checks is not the contract
+          being met
+  - name: shown
+    when: {field: state, becomes: [shipped, accepted, released]}
+    producedBy: qa
+    require:
+      - field: visuals
+        if: {field: surface, oneOf: [ui, flow]}
+        anyOf:
+          - {field: visuals.afterArtifactIds, minItems: 1}
+          - {field: visuals.noVisualReason, present: true}
+        message: >-
+          this is a visible change and nothing shows what it looks like now.
+          Capture an after-shot from the running product, or record why there is
+          nothing to show in visuals.noVisualReason. A visible change nobody has
+          looked at is not finished

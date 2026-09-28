@@ -1,6 +1,5 @@
 'use client';
 
-import type { FormEvent } from 'react';
 import type { DateRange, ScorecardPreset } from './periods';
 import type { Scorecard, ScorecardRow } from '@/services/scorecard/ScorecardService';
 import { CalendarRange, Info } from 'lucide-react';
@@ -10,8 +9,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { client } from '@/libs/Orpc';
 import { MAX_SCORECARD_RANGE_DAYS } from '@/libs/scorecard/limits';
 import { cn } from '@/utils/Helpers';
+import { CustomRangeForm } from './CustomRangeForm';
 import { formatScore, NOT_ENOUGH_DATA } from './formatScore';
-import { customRange, DEFAULT_SCORECARD_PRESET, describeRange, rangeForPreset, SCORECARD_PRESETS, toDateInput } from './periods';
+import { DEFAULT_SCORECARD_PRESET, describeRange, rangeForPreset, SCORECARD_PRESETS } from './periods';
 
 /**
  * The agent scorecard — one row per agent: agreement, confidence, usage.
@@ -69,26 +69,6 @@ async function loadScorecard(range: DateRange, isCurrent: () => boolean, onDone:
 /* ------------------------------------------------------------------ */
 
 /**
- * Validate the custom range and either apply it or show why not. Stops the
- * form's own submit — it has nowhere to go.
- * @param event - The form's submit event.
- * @param fromValue - The From input's value.
- * @param toValue - The To input's value.
- * @param onApply - Receives a valid range.
- * @param onError - Receives the message for an invalid one, or null once valid.
- */
-function submitCustomRange(event: FormEvent, fromValue: string, toValue: string, onApply: (range: DateRange) => void, onError: (message: string | null) => void): void {
-  event.preventDefault();
-  const result = customRange(fromValue, toValue, MAX_SCORECARD_RANGE_DAYS);
-  if (result.ok) {
-    onError(null);
-    onApply(result.range);
-  } else {
-    onError(result.message);
-  }
-}
-
-/**
  * The dropdown's choice: a preset becomes its range; "Custom range…" opens the
  * popover and leaves the period alone until a range is applied.
  * @param value - The selected option's value.
@@ -113,40 +93,6 @@ function choosePeriodOption(value: string, openCustom: (open: boolean) => void, 
 function applyCustomPeriod(range: DateRange, openCustom: (open: boolean) => void, onChange: (period: Period) => void): void {
   openCustom(false);
   onChange({ kind: 'custom', range });
-}
-
-/**
- * The custom-range form inside the popover: two date inputs, both days included.
- * @param props - The range to start from, and what to do with a valid one.
- * @param props.initial - The range currently on screen, to prefill the inputs.
- * @param props.onApply - Receives the new range when it is valid.
- */
-function CustomRangeForm(props: { initial: DateRange; onApply: (range: DateRange) => void }) {
-  const lastDay = new Date(props.initial.to.getFullYear(), props.initial.to.getMonth(), props.initial.to.getDate() - 1);
-  const [fromValue, setFromValue] = useState(() => toDateInput(props.initial.from));
-  const [toValue, setToValue] = useState(() => toDateInput(lastDay));
-  const [error, setError] = useState<string | null>(null);
-  const today = toDateInput(new Date());
-
-  return (
-    <form
-      className="space-y-3"
-      onSubmit={event => submitCustomRange(event, fromValue, toValue, props.onApply, setError)}
-    >
-      <div className="grid grid-cols-2 gap-2">
-        <label className="space-y-1 text-[11px] text-muted-foreground">
-          <span>From</span>
-          <input type="date" value={fromValue} max={today} onChange={event => setFromValue(event.target.value)} className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground" />
-        </label>
-        <label className="space-y-1 text-[11px] text-muted-foreground">
-          <span>To</span>
-          <input type="date" value={toValue} max={today} onChange={event => setToValue(event.target.value)} className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground" />
-        </label>
-      </div>
-      {error && <p className="text-[11px] text-destructive" role="alert">{error}</p>}
-      <button type="submit" className="w-full rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background">Apply</button>
-    </form>
-  );
 }
 
 /**
@@ -182,6 +128,7 @@ function PeriodPicker(props: { period: Period; onChange: (period: Period) => voi
         <PopoverContent className="w-72 p-3">
           <CustomRangeForm
             initial={props.period.range}
+            maxDays={MAX_SCORECARD_RANGE_DAYS}
             onApply={range => applyCustomPeriod(range, setCustomOpen, props.onChange)}
           />
         </PopoverContent>

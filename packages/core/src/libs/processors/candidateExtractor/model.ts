@@ -28,16 +28,19 @@
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { BaseMessage } from '@langchain/core/messages';
 import type { SyncBudget } from '../budget';
 import type { CandidateExtractorConfig } from './config';
 import type { ExtractionPrompt } from './prompt';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { HumanMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModelForOrg, resolvedModelId } from '@/libs/llm/langchain';
+import { cachedThroughPrefix } from '@/libs/llm/promptCache';
+import { logger } from '@/libs/Logger';
 import { SERIES_NOTE_CAP } from './prompt';
 
 /** One record as the model returned it, before any validation. */
@@ -308,7 +311,7 @@ function isTimeout(error: unknown): boolean {
 type UsageMetadata = {
   input_tokens?: number;
   output_tokens?: number;
-  input_token_details?: { cache_read?: number };
+  input_token_details?: { cache_read?: number; cache_creation?: number };
 };
 
 /**
@@ -355,6 +358,9 @@ export async function extractRecords(opts: {
 
   const model: BaseChatModel = await buildChatModelForOrg('extractor', opts.orgId, {
     temperature: 0,
+    // One bounded reading task. Models that think by default would bill the
+    // thinking as output and spend the call's deadline on it.
+    thinking: 'off',
     // The answer's ceiling, and in practice the real limit on how many records
     // one document can yield: at roughly 250 tokens a record — fields, a
     // verdict, the sentence explaining it, a verdict per referenced object —
@@ -382,10 +388,12 @@ export async function extractRecords(opts: {
   // call: without the context signal an abandoned document keeps spending.
   const signal = AbortSignal.any([opts.signal, AbortSignal.timeout(opts.budget.caps.modelTimeoutMs)]);
 
-  const messages: Array<SystemMessage | HumanMessage> = [
-    new SystemMessage(opts.prompt.system),
-    new HumanMessage(opts.prompt.human),
-  ];
+  const { messages, callOptions }: { messages: BaseMessage[]; callOptions: Record<string, unknown> } = cachedThroughPrefix(
+    model,
+    opts.prompt.system,
+    opts.prompt.humanPrefix,
+    opts.prompt.human.slice(opts.prompt.humanPrefix.length),
+  );
 
   let calls = 0;
   let lastFailure: ExtractionSkip = 'model_invalid';
@@ -404,7 +412,7 @@ export async function extractRecords(opts: {
     });
     calls += 1;
     try {
-      const res = await model.invoke(messages as never, { signal });
+      const res = await model.invoke(messages as never, { ...callOptions, signal });
       const raw = contentText(res.content);
       const usage = (res as unknown as { usage_metadata?: UsageMetadata }).usage_metadata;
       generation.end({
@@ -414,13 +422,15 @@ export async function extractRecords(opts: {
               input: usage.input_tokens,
               output: usage.output_tokens,
               cache_read_input_tokens: usage.input_token_details?.cache_read,
+              cache_creation_input_tokens: usage.input_token_details?.cache_creation,
             })
           : undefined,
       });
       if (usage) {
-        // `input_tokens` already includes the cached tokens, and `pricing.ts`
-        // only subtracts `cacheReadTokens` when it is given, without this,
-        // cached input is billed at the full rate.
+        // `input_tokens` already includes cache reads and writes, and
+        // `pricing.ts` prices each at its own rate only when it is given. A
+        // spend row that fails to land is not a bad answer: treating it as one
+        // would pay for a corrective call that fixes nothing.
         await chargeUsage({
           orgId: opts.orgId,
           agentSlug: opts.config.agentSlug,
@@ -429,7 +439,13 @@ export async function extractRecords(opts: {
             inputTokens: usage.input_tokens,
             outputTokens: usage.output_tokens,
             cacheReadTokens: usage.input_token_details?.cache_read,
+            cacheWriteTokens: usage.input_token_details?.cache_creation,
           },
+        }).catch((error: unknown) => {
+          logger.warn('candidate extractor: could not record model spend', {
+            sourceSlug: opts.sourceSlug,
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
       }
 

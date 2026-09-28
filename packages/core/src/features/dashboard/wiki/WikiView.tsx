@@ -1,11 +1,10 @@
 'use client';
 
 import type { WikiReadingPage } from '@/libs/wiki/reading';
-import { BookOpen, ChevronLeft, ChevronRight, History, MessageSquareText, Pencil, Search } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, History, Pencil, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { Link } from '@/libs/I18nNavigation';
 import { filterWikiPages, orderWikiPages, rewriteWikiLink, wikiHome, wikiNeighbours, wikiSections } from '@/libs/wiki/reading';
 import { cn } from '@/utils/Helpers';
@@ -49,7 +48,7 @@ function authorLabel(kind: string): string {
   return kind === 'agent' ? 'an agent' : kind === 'human' ? 'a person' : kind === 'system' ? 'the workspace' : kind;
 }
 
-export function WikiView({ base, pages, current, guideHref, askAgentSlug, editBase }: Props) {
+export function WikiView({ base, pages, current, guideHref, editBase }: Props) {
   const editHref = (page: WikiReadingPage) => `${editBase}/${page.id}`;
   const [query, setQuery] = useState('');
   const [railOpen, setRailOpen] = useState(false);
@@ -58,17 +57,6 @@ export function WikiView({ base, pages, current, guideHref, askAgentSlug, editBa
   const home = wikiHome(pages);
   const isHome = current === null || (home !== null && current.slug === home.slug);
   const neighbours = current ? wikiNeighbours(ordered, current.slug) : { prev: null, next: null };
-
-  const ask = () => {
-    const page = current ?? home;
-    requestAgentSurface({
-      agentSlug: askAgentSlug ?? undefined,
-      prompt: page ? `About the wiki page "${page.title}": ` : 'About the wiki: ',
-      context: page
-        ? { path: `${base}/${page.slug}`, title: page.title, record: { type: 'artifact', id: String(page.id), label: page.title, href: editHref(page) } }
-        : { path: base, title: 'Wiki' },
-    });
-  };
 
   const rail = (
     <nav aria-label="Wiki pages" className="text-[13.5px]">
@@ -150,10 +138,6 @@ export function WikiView({ base, pages, current, guideHref, askAgentSlug, editBa
               </span>
               {current.tags.map(t => <span key={t} className="rounded-full border border-rule px-2 py-px font-mono text-[10.5px]">{t}</span>)}
               <span className="ml-auto flex items-center gap-3">
-                <button type="button" onClick={ask} className="inline-flex items-center gap-1 hover:text-foreground">
-                  <MessageSquareText className="size-3.5" aria-hidden />
-                  Ask about this
-                </button>
                 <Link href={editHref(current)} className="inline-flex items-center gap-1 hover:text-foreground">
                   <Pencil className="size-3.5" aria-hidden />
                   Edit
@@ -226,10 +210,6 @@ export function WikiView({ base, pages, current, guideHref, askAgentSlug, editBa
               )}
           {pages.length > 0 && (
             <div className="mt-2 flex items-center gap-3 text-[12.5px] text-muted-foreground">
-              <button type="button" onClick={ask} className="inline-flex items-center gap-1 hover:text-foreground">
-                <MessageSquareText className="size-3.5" aria-hidden />
-                Ask the wiki
-              </button>
             </div>
           )}
         </article>

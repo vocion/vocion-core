@@ -1,4 +1,4 @@
-import { Skeleton } from '@/components/ui/skeleton';
+import { ListSkeleton } from '@/components/patterns/Skeletons';
 
 /**
  * The workspace pages' loading state — Work, Products, Performance, Activity.
@@ -19,27 +19,8 @@ import { Skeleton } from '@/components/ui/skeleton';
  * A shell is only safe where the page actually renders a page. This one does:
  * its own redirects sit on paths a reader does not arrive on — a broken
  * session, an unknown slug, a manifest that declares `href` — not on the
- * normal render.
+ * normal render. The shape is the list archetype's (`patterns/Skeletons`).
  */
 export default function WorkspacePageLoading() {
-  return (
-    <div aria-busy aria-label="Loading">
-      <div className="mb-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="mt-2.5 h-4 w-80 max-w-full" />
-      </div>
-
-      {/* Widths vary: a column of identical bars reads as a progress bar
-          rather than as content waiting to arrive. */}
-      <div className="flex flex-col gap-3">
-        {[88, 72, 94, 64, 80].map((w, i) => (
-          <div key={w} className="rounded-lg border border-border p-4">
-            <Skeleton className="h-5" style={{ width: `${w > 80 ? 62 : 48}%` }} />
-            <Skeleton className="mt-2.5 h-3.5" style={{ width: `${w}%` }} />
-            {i % 2 === 0 && <Skeleton className="mt-2 h-3.5 w-1/3" />}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  return <ListSkeleton />;
 }

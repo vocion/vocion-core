@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 /**
@@ -37,11 +38,36 @@ export type PageGroup = {
  * @param root0.groups - The groups, in the order the page sorted them.
  */
 export function PageGroupTabs({ groups }: { groups: PageGroup[] }) {
+  const first = groups[0]?.key ?? '';
+  const [value, setValue] = useState(first);
+  // THE TAB IS IN THE URL (Chris, 2026-09-25: "tabs should be hashtags with
+  // hash nav so I can back button to it"). A tap pushes `#<key>`, so opening
+  // a row and pressing Back lands on the tab you left, and a link can name a
+  // tab. The hash is read after mount: the server cannot see it.
+  useEffect(() => {
+    const read = () => {
+      const h = decodeURIComponent(window.location.hash.slice(1));
+      setValue(groups.some(g => g.key === h) ? h : first);
+    };
+    read();
+    window.addEventListener('hashchange', read);
+    window.addEventListener('popstate', read);
+    return () => {
+      window.removeEventListener('hashchange', read);
+      window.removeEventListener('popstate', read);
+    };
+  }, [groups, first]);
   if (groups.length === 0) {
     return null;
   }
+  const choose = (key: string) => {
+    setValue(key);
+    if (window.location.hash.slice(1) !== key) {
+      window.history.pushState(null, '', `${window.location.pathname}${window.location.search}#${encodeURIComponent(key)}`);
+    }
+  };
   return (
-    <Tabs defaultValue={groups[0]!.key} className="mb-8 gap-0">
+    <Tabs value={value} onValueChange={choose} className="mb-8 gap-0">
       <TabsList variant="line" className="mb-1 w-full justify-start overflow-x-auto">
         {groups.map(g => (
           <TabsTrigger key={g.key} value={g.key} className="gap-2" data-testid={`page-tab-${g.key}`}>

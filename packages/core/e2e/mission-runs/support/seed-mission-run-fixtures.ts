@@ -217,13 +217,13 @@ async function main(): Promise<void> {
   const primaryToken = await issueToken({
     orgId: primaryOrgId,
     name: TOKEN_NAME_PRIMARY,
-    role: 'owner',
+    role: 'admin',
     createdBy: 'e2e-seed-mission-run-fixtures',
   });
   const otherOrgToken = await issueToken({
     orgId: otherOrgId,
     name: TOKEN_NAME_OTHER,
-    role: 'owner',
+    role: 'admin',
     createdBy: 'e2e-seed-mission-run-fixtures',
   });
 

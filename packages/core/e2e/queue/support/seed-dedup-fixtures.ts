@@ -102,7 +102,7 @@ async function seed(): Promise<void> {
     orgId,
     name: TOKEN_NAME,
     createdBy: 'e2e',
-    role: 'owner',
+    role: 'admin',
   });
 
   // Written with process.stdout.write rather than console.log because the

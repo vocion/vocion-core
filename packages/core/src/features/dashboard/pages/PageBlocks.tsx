@@ -1,7 +1,9 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
+import { PendingIcon } from '@/components/patterns/PendingIcon';
 import { Badge } from '@/components/ui/badge';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
+import { Link } from '@/libs/I18nNavigation';
 import { fieldIsEmptyOn, interpolateHref, resolveRowActionHref, tableLayout } from '@/libs/workspace/pageFields';
 import { RowMenu } from './RowMenu';
 
@@ -132,6 +134,9 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
           put their status somewhere different is a column you cannot scan.
           The title takes the space it can (`min-w-0`) and wraps inside
           itself; the badges hold the top right on every row. */}
+      {/* The headline alone on its line; the state leads the line under it as
+          the first chip, so a card never spends a whole row on one word
+          (phone, 2026-09-24). On a wide card the badges still hold the right. */}
       <div className="flex flex-col gap-1 @md:flex-row @md:items-start @md:justify-between @md:gap-x-3">
         <span className="min-w-0 text-base font-semibold text-foreground">
           {layout.primary
@@ -139,15 +144,21 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
             : row.title}
         </span>
         {badges.some(f => !fieldIsEmptyOn(row, f, now)) && (
-          <span className="flex flex-wrap items-center gap-1.5 @md:shrink-0">
+          <span className="hidden items-center gap-1.5 @md:flex @md:shrink-0">
             {badges.filter(f => !fieldIsEmptyOn(row, f, now)).map(f => (
               <FieldValue key={f.key} row={row} field={f} now={now} links={links} />
             ))}
           </span>
         )}
       </div>
-      {rest.some(f => !fieldIsEmptyOn(row, f, now)) && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+      {(rest.some(f => !fieldIsEmptyOn(row, f, now)) || badges.some(f => !fieldIsEmptyOn(row, f, now))) && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+          {badges.filter(f => !fieldIsEmptyOn(row, f, now)).map(f => (
+            <span key={f.key} className="flex items-center gap-1.5 @md:hidden">
+              <FieldValue row={row} field={f} now={now} links={links} />
+              <span aria-hidden className="text-muted-foreground/50">·</span>
+            </span>
+          ))}
           {/* The separator TRAILS its fact rather than leading the next one.
               Led, it wrapped onto the start of a new line as a stray "·"
               floating before the value it was meant to divide. */}
@@ -198,8 +209,17 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
         </div>
       );
   const className = 'block min-w-0 overflow-hidden rounded-lg border border-border bg-background text-left';
+  // A real `<Link>`, not an anchor: it is prefetched as it scrolls into view
+  // and its own transition is readable, so the tap is acknowledged at once —
+  // the card dims and a corner spinner appears — before the new page has
+  // rendered a thing (backlog 013). `active:` answers the finger itself.
   const card = href
-    ? <a href={href} className={`${className} transition-colors hover:bg-muted/40`}>{inner}</a>
+    ? (
+        <Link href={href} className={`${className} relative transition-colors hover:bg-muted/40 active:bg-muted/60 has-[[data-link-pending]]:opacity-60`}>
+          {inner}
+          <PendingIcon className={`absolute top-3 size-4 text-muted-foreground ${menuItems.length > 0 ? 'right-10' : 'right-3'}`} />
+        </Link>
+      )
     : <div className={className}>{inner}</div>;
   // The menu sits OUTSIDE the anchor — a button inside a link is a tap that
   // does two things — at the card's corner, over the room the body left it.
@@ -224,18 +244,21 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
  * @param root0.rowLink - Where a block opens, with `{id}` interpolated.
  * @param root0.rowActions - Trailing links on each block.
  * @param root0.rowActionsAs
+ * @param root0.omitConstants
  * @param root0.now - The instant a `relative` value is measured against.
  * @param root0.links - Resolved record references, by key.
  * @param root0.groupLabel - The group heading, on a grouped page.
  * @param root0.id - DOM id for the section.
  */
-export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], rowActionsAs = 'links', now, links, groupLabel, id }: {
+export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], rowActionsAs = 'links', omitConstants = [], now, links, groupLabel, id }: {
   rows: PageRow[];
   fields: PageField[];
   primary?: PagePrimary;
   rowLink?: string;
   rowActions?: PageRowAction[];
   rowActionsAs?: 'links' | 'menu';
+  /** Fields (by `from` path) whose constant value the page already states — a URL filter — so the constant line does not say it twice. */
+  omitConstants?: string[];
   now: number;
   links?: LinkMap;
   groupLabel?: string | null;
@@ -250,7 +273,7 @@ export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], ro
           <Badge variant="outline">{rows.length}</Badge>
         </h2>
       )}
-      <ConstantLine constants={layout.constants} />
+      <ConstantLine constants={layout.constants.filter(c => !omitConstants.includes(c.field.from ?? c.field.key))} />
       {rows.length === 0
         ? (
             <p className="rounded-lg border border-border px-4 py-8 text-center text-sm text-muted-foreground">Nothing here yet.</p>

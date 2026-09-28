@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentSurfaceRequest } from './agentSurface';
-import type { AgentOption } from './types';
+import type { AgentOption, ChatAttachment } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -10,9 +10,11 @@ import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { client } from '@/libs/Orpc';
 import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
+import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -21,7 +23,7 @@ import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
 import { QuotedPassage } from './QuotedPassage';
-import { hasWorkspaceAgents, parseSearchCommand } from './routing';
+import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
@@ -59,6 +61,8 @@ export type ChatShellProps = {
   agents: AgentOption[];
   /** Pre-fills the composer without sending (e.g. the org chart's seeded "how's the quarter?" prompt). */
   initialComposerValue?: string;
+  /** `?attach=<ids>` — files already uploaded (Share to Vocion) that start in the composer. */
+  initialAttachments?: ChatAttachment[];
   /** Dynamic workspace-scoped empty-state chips (urgency + capability). */
   suggestions?: Array<{ label: string; prompt: string }>;
   /** Empty-state greeting: org eyebrow + "Ask <workspace>". */
@@ -88,6 +92,7 @@ export type ChatShellProps = {
  * @param props - Component props.
  * @param props.agents - Agents available to pick from. Empty renders the empty state.
  * @param props.initialComposerValue - Text to pre-fill the composer with.
+ * @param props.initialAttachments - Uploaded files that start in the composer.
  * @param props.suggestions - Empty-state chips.
  * @param props.greeting - Empty-state greeting.
  * @param props.conversationId
@@ -96,6 +101,7 @@ export type ChatShellProps = {
 export function ChatShell({
   agents,
   initialComposerValue,
+  initialAttachments,
   suggestions = [],
   greeting,
   conversationId = null,
@@ -109,6 +115,7 @@ export function ChatShell({
     <ChatShellInner
       agents={agents}
       initialComposerValue={initialComposerValue}
+      initialAttachments={initialAttachments}
       suggestions={suggestions}
       greeting={greeting}
       conversationId={conversationId}
@@ -139,6 +146,7 @@ function NoAgentsToChatWith() {
 function ChatShellInner({
   agents,
   initialComposerValue,
+  initialAttachments,
   suggestions = [],
   greeting,
   conversationId = null,
@@ -165,7 +173,16 @@ function ChatShellInner({
       openedFrom: true as const,
     };
   }, [intent, pathname]);
-  const session = useChatSession({ agents, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId, pageContext });
+  const session = useChatSession({ agents, initialComposerValue, initialAttachments, suggestions, greeting, resumeConversationId: conversationId, pageContext });
+  // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
+  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+    if (session.conversationId === null) {
+      return;
+    }
+    void client.conversations.recordCardDecision({ id: session.conversationId, ...d }).catch((err: unknown) => {
+      console.warn('card decision was not written to the conversation', err);
+    });
+  }, [session.conversationId]);
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;
@@ -290,7 +307,12 @@ function ChatShellInner({
       </ShellBarActionsPortal>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-1 flex-col">
+        {/* `min-w-0` is load-bearing. A flex item's floor is its min-content,
+            and one unbroken line in the stream (a reasoning preview, a tool
+            result) made that 800px on a 390px phone: the transcript AND the
+            composer widened with it and this row's `overflow-hidden` cut the
+            right side off (2026-09-25, Safari, measured live in WebKit). */}
+        <div className="flex min-w-0 flex-1 flex-col">
           {/* The approval gate is a BLOCK IN THE TRANSCRIPT (058's mechanism,
               the same one the dock's review cards use), after the turn that
               raised it — not a strip pinned above the composer. `afterIndex`
@@ -324,18 +346,22 @@ function ChatShellInner({
                     : <NoAgentsState />
                 )
               : (
-                  <MessageList
-                    messages={session.messages}
-                    agentName={session.workspaceName}
-                    streaming={session.isStreaming}
-                    activity={session.activity}
-                    onShowSources={session.handleShowSources}
-                    onCitationClick={session.handleCitationClick}
-                    onFeedback={session.handleFeedback}
-                    autonomy={session.autonomy}
-                    conversationId={session.conversationId}
-                    blocks={gateBlocks}
-                  />
+                  <CardDecisionProvider value={recordCardDecision}>
+                    <MessageList
+                      messages={session.messages}
+                      agentName={session.workspaceName}
+                      // The workspace speaks through its lead; a specialist's turn is attributed.
+                      ownAgentSlug={defaultAgentSlug(agents)}
+                      streaming={session.isStreaming}
+                      activity={session.activity}
+                      onShowSources={session.handleShowSources}
+                      onCitationClick={session.handleCitationClick}
+                      onFeedback={session.handleFeedback}
+                      autonomy={session.autonomy}
+                      conversationId={session.conversationId}
+                      blocks={gateBlocks}
+                    />
+                  </CardDecisionProvider>
                 )}
 
           <ChatComposer

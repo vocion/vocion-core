@@ -82,7 +82,7 @@ describe('WorkTimeline three-level transcript', () => {
     await expect.element(page.getByRole('button', { name: 'Collapse all' })).not.toBeInTheDocument();
   });
 
-  it('a streaming turn shows the working verb AND the live rows as they land, reasoning folded to its first line (§9)', async () => {
+  it('a streaming turn is folded: the status line says what is happening, the rows wait for a tap (Chris, 2026-09-25)', async () => {
     const live: TraceNode[] = [
       { ...TRACE[0]!, status: 'done' },
       { ...TRACE[1]!, status: 'done' },
@@ -90,11 +90,16 @@ describe('WorkTimeline three-level transcript', () => {
     ];
     await render(<WorkTimeline runs={[]} streaming trace={live} activity="Rewriting section 4" />);
 
-    await expect.element(page.getByText('Rewriting section 4')).toBeInTheDocument();
-    await expect.element(page.getByText('Searched the data room')).toBeInTheDocument();
-    await expect.element(page.getByText('Editing proposal.md…')).toBeInTheDocument();
-    // Reasoning shows its first sentence on the folded line; the full text waits for a tap.
-    await expect.element(page.getByText(/The angle rests on two sourced facts\./)).toBeInTheDocument();
+    // One shimmering line says what is happening now.
+    await expect.element(page.getByRole('status')).toHaveTextContent('Rewriting section 4');
+    await expect.element(page.getByTestId('work-steps-live')).not.toBeInTheDocument();
+
+    await userEvent.click(page.getByRole('button', { name: /2 steps/ }));
+
+    const rows = page.getByTestId('work-steps-live');
+
+    await expect.element(rows.getByText('Searched the data room')).toBeInTheDocument();
+    await expect.element(rows.getByText('Editing proposal.md…')).toBeInTheDocument();
     await expect.element(page.getByText('Found the precedent table')).not.toBeInTheDocument();
   });
 
@@ -117,6 +122,7 @@ describe('the running step says where the call has got to', () => {
 
   it('shows the note on the headline and on the step, not on a surface of its own', async () => {
     const { container } = await render(<WorkTimeline runs={[]} streaming trace={building} activity={null} />);
+    await userEvent.click(page.getByRole('button', { name: /1 step/ }));
 
     const headline = container.querySelector('[data-testid="work-timeline-live"] > div > .work-shimmer');
     const step = container.querySelector('[data-testid="work-steps-live"] li');
@@ -134,5 +140,30 @@ describe('the running step says where the call has got to', () => {
 
     expect(container.textContent).toContain('Rendered the document');
     expect(container.textContent).not.toContain('sheet 7 of 12');
+  });
+});
+
+describe('a live step is the same one-line row as a finished one', () => {
+  const LIVE: TraceNode[] = [
+    { id: 'l1', actor, kind: 'tool', status: 'done', label: 'Looked up requests', detail: 'request records', result: '54 records', tool: 'lookup_objects', args: '{"type":"request"}', resultDetail: 'request #126 Retry uploads' },
+    { id: 'l2', actor, kind: 'tool', status: 'start', label: 'Retrieving the briefing', tool: 'get_briefing' },
+  ];
+
+  it('puts label, detail and result on one line, with the call behind a tap on the row', async () => {
+    await render(<WorkTimeline runs={[]} streaming trace={LIVE} />);
+    await userEvent.click(page.getByRole('button', { name: /2 steps/ }));
+    const steps = page.getByTestId('work-steps-live');
+
+    // No second line with a "Show call" link: the row itself is the control.
+    await expect.element(steps.getByText(/Show call/)).not.toBeInTheDocument();
+
+    const row = steps.getByRole('button', { name: /Looked up requests · request records/ });
+
+    await expect.element(row).toBeInTheDocument();
+    await expect.element(steps.getByText('54 records')).toBeInTheDocument();
+
+    await userEvent.click(row);
+
+    await expect.element(page.getByText(/request #126 Retry uploads/)).toBeInTheDocument();
   });
 });

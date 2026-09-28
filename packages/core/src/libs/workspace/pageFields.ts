@@ -679,7 +679,12 @@ export const PageManifestSchema = z.object({
    * This is how one card on Products opens Work AS that product's work
    * rather than a second page — see {@link applyQueryFilters}.
    */
-  queryFilters: z.array(z.object({ param: z.string().min(1), field: z.string().min(1), label: z.string().optional() })).optional(),
+  /**
+   * The page's own asks: buttons that open a NEW chat with the prompt already
+   * sent (to `agent` when named). The words are the workspace's to manage.
+   */
+  prompts: z.array(z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() })).optional(),
+  queryFilters: z.array(z.object({ param: z.string().min(1), field: z.string().min(1), label: z.string().optional(), default: z.string().min(1).optional() })).optional(),
   /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
   live: LiveSchema.optional(),
 
@@ -728,6 +733,8 @@ export type LoadedPage = PageManifest & {
   sourceDir: string;
   /** `workspace`, or the slug of the plugin that ships it. */
   origin: 'workspace' | `plugin:${string}`;
+  /** A workspace page that replaces a plugin's page of the same slug keeps that plugin's place in the nav. */
+  overrides?: `plugin:${string}`;
 };
 export type PageField = z.infer<typeof FieldSchema>;
 export type PageView = z.infer<typeof ViewSchema>;
@@ -894,11 +901,15 @@ export type ActiveQueryFilter = { param: string; field: string; label: string; v
  * @param declared - The page's `queryFilters`.
  * @param searchParams - The request's search params.
  */
-export function activeQueryFilters(declared: Array<{ param: string; field: string; label?: string }> | undefined, searchParams: Record<string, string | string[] | undefined>): ActiveQueryFilter[] {
+export function activeQueryFilters(declared: Array<{ param: string; field: string; label?: string; default?: string }> | undefined, searchParams: Record<string, string | string[] | undefined>): ActiveQueryFilter[] {
   return (declared ?? []).flatMap((q) => {
     const raw = searchParams[q.param];
-    const value = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? '';
-    return value === '' ? [] : [{ param: q.param, field: q.field, label: q.label ?? q.param, value }];
+    // A DEFAULT is the filter a page opens with when the URL names none — a
+    // factory that builds one product opens on that product. `all` is the
+    // way out, and the only value that means "no filter" rather than a match.
+    const given = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+    const value = given === undefined ? (q.default ?? '') : given;
+    return value === '' || value.toLowerCase() === 'all' ? [] : [{ param: q.param, field: q.field, label: q.label ?? q.param, value }];
   });
 }
 

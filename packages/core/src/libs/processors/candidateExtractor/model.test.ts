@@ -36,7 +36,7 @@ const config = candidateExtractorConfigSchema.parse({
   promptFragment: 'Only public events.',
 });
 
-const prompt = { system: 'system', human: 'human', estimatedTokens: 500, trimmed: [] };
+const prompt = { system: 'system', human: 'shared human', humanPrefix: 'shared', estimatedTokens: 500, trimmed: [] };
 
 function call(overrides: Partial<Parameters<typeof extractRecords>[0]> = {}) {
   return extractRecords({
@@ -92,7 +92,7 @@ describe('candidate extractor model call', () => {
     expect(vi.mocked(buildChatModelForOrg)).toHaveBeenCalledWith(
       'extractor',
       'org_extract',
-      { temperature: 0, maxTokens: 16_000, streaming: false },
+      { temperature: 0, thinking: 'off', maxTokens: 16_000, streaming: false },
     );
   });
 
@@ -281,6 +281,30 @@ describe('candidate extractor model call', () => {
       agentSlug: 'event-ingestion-lead',
       usage: { inputTokens: 1000, outputTokens: 40, cacheReadTokens: 800 },
     }));
+  });
+
+  it('bills cache writes as writes, not as plain input', async () => {
+    invoke.mockResolvedValue(goodAnswer({
+      input_tokens: 5000,
+      output_tokens: 40,
+      input_token_details: { cache_read: 2900, cache_creation: 2000 },
+    }));
+
+    await call();
+
+    expect(chargeUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: { inputTokens: 5000, outputTokens: 40, cacheReadTokens: 2900, cacheWriteTokens: 2000 },
+    }));
+  });
+
+  it('keeps the answer and spends no retry when the spend row fails to land', async () => {
+    invoke.mockResolvedValue(goodAnswer({ input_tokens: 1000, output_tokens: 40 }));
+    chargeUsage.mockRejectedValueOnce(new Error('connection reset'));
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 
   it('truncates an over-long series note instead of failing the answer', async () => {

@@ -107,3 +107,24 @@ describe('the write', () => {
     expect(out).toMatch(/^Update refused \(VALIDATION_FAILED\): Object type "request" declares no field "severity"\. Fields it declares: priority, state\. Add the field to the type before writing it\.$/);
   });
 });
+
+describe('the shape the model sends (backlog 006, 2026-09-25)', () => {
+  it('reads `set` sent as JSON text as the object it is', async () => {
+    const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: '{"priority": 64}', reason: 'Asked twice.', confidence: 0.9 } as never);
+
+    expect(out).toMatch(/updated — priority written/);
+  });
+
+  it('takes a write with no reason or confidence instead of throwing, and lets the ladder judge it', async () => {
+    const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { priority: 40 } } as never);
+
+    expect(out).not.toMatch(/did not match expected schema/);
+    expect(out).toMatch(/request #\d+/);
+  });
+
+  it('names the allowed values when a value is not one of them', async () => {
+    const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { state: 'shipping' }, reason: 'r', confidence: 0.9 });
+
+    expect(out).toContain('"new", "in_scope"');
+  });
+});

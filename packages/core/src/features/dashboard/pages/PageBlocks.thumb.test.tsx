@@ -16,6 +16,11 @@ import '@/styles/global.css';
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
 }));
+// The card is the app's `<Link>` (workspace-prefixed, prefetched); the test
+// only needs an anchor with the href.
+vi.mock('@/libs/I18nNavigation', () => ({
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
+}));
 
 const { PageBlocks } = await import('./PageBlocks');
 

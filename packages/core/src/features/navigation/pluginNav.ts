@@ -25,12 +25,14 @@ export type PluginPageInput = {
   icon?: string;
   nav: { section: string; order: number; hidden: boolean };
   origin: string;
+  /** Set when a workspace page replaces this plugin's page by slug. */
+  overrides?: string;
   /** A `link` page's route — the row opens it directly instead of `/dashboard/p/<slug>`. */
   href?: string;
 };
 
 /** A core route a plugin owns, as the registry declares it. */
-export type PluginRouteInput = { url: string; title: string; plugin?: string; iconName?: string };
+export type PluginRouteInput = { url: string; title: string; plugin?: string; offeredBy?: string; iconName?: string };
 
 export type PluginNavItem = {
   title: string;
@@ -39,6 +41,8 @@ export type PluginNavItem = {
   icon: string;
   plugin: string;
   order: number;
+  /** Sits under the section's "More ›" whatever the row count — a core route the plugin offers but does not own. */
+  secondary?: boolean;
 };
 
 export type PluginNavSection = {
@@ -88,7 +92,7 @@ export function pluginNav(input: {
     // Its pages — a page's own nav.section wins when it names one (the page
     // schema's default is Workspace, which for a plugin page means "with the plugin").
     for (const page of input.pages) {
-      if (page.origin !== `plugin:${plugin.slug}` || page.nav.hidden) {
+      if ((page.origin !== `plugin:${plugin.slug}` && page.overrides !== `plugin:${plugin.slug}`) || page.nav.hidden) {
         continue;
       }
       claimedPages.push(page.slug);
@@ -97,11 +101,17 @@ export function pluginNav(input: {
     }
     // The core routes it owns.
     for (const route of input.routes) {
-      if (route.plugin !== plugin.slug) {
+      const owned = route.plugin === plugin.slug;
+      const offered = !owned && route.offeredBy === plugin.slug;
+      if (!owned && !offered) {
         continue;
       }
-      claimedRoutes.push(route.url);
-      push(section, { title: route.title, url: route.url, icon: route.iconName ?? 'folder-open', plugin: plugin.slug, order: base });
+      if (owned) {
+        claimedRoutes.push(route.url);
+      }
+      // An offered route is listed last and secondary: one row under "More ›",
+      // never a pinned door — its own group keeps it for everyone else.
+      push(section, { title: route.title, url: route.url, icon: route.iconName ?? 'folder-open', plugin: plugin.slug, order: offered ? base + 99 : base, ...(offered ? { secondary: true } : {}) });
     }
     // The surfaces it switches on.
     for (const id of plugin.surfaces) {

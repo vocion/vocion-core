@@ -50,7 +50,7 @@ const REAL_EVENTS = new Set([
   'ci.check_failed',
 ]);
 
-const GATES = ['contract-red-team-proposal', 'contract-red-team-change', 'contract-red-team-evidence'];
+const GATES = ['contract-red-team-proposal', 'contract-red-team-evidence'];
 
 /**
  * A `when.event` may name one event or several; both have to be real.

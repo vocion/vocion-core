@@ -15,7 +15,7 @@ const mockAuth = vi.mocked(authenticateBearer);
 const identity = {
   orgId: 'org_http',
   tokenId: 'tk1',
-  principal: { kind: 'user' as const, id: 'token:tk1', role: 'owner' as const, scope: { orgId: 'org_http' }, grants: ['*'] },
+  principal: { kind: 'user' as const, id: 'token:tk1', role: 'admin' as const, scope: { orgId: 'org_http' }, grants: ['*'] },
 };
 
 beforeEach(() => {

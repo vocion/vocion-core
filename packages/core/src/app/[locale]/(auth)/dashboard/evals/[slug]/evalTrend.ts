@@ -33,17 +33,34 @@ export type Series = {
   /** Null on the provider's own pass-rate line. */
   evaluatorSlug: string | null;
   label: string;
-  color: string;
+  /** Which categorical colour the line wears; see `SERIES_SLOT_CLASSES` in the chart. */
+  colorSlot: number;
   /** Evaluator lines are drawn lighter, so the pass rate stays the headline. */
   dashed: boolean;
   points: EvalTrendPoint[];
 };
 
 /**
- * Colours are assigned by position in the provider list, not by id, so a
- * third provider is a new entry here and nothing else.
+ * How many categorical colours the chart has (the validated palette, minus
+ * red, which is kept for errored runs).
  */
-const SERIES_COLORS = ['var(--brand-pass, #10b981)', 'var(--brand-teal, #14b8a6)', 'var(--brand-accent, #f59e0b)', '#8b5cf6'];
+export const SERIES_SLOT_COUNT = 7;
+
+/**
+ * A grader's colour follows the grader, never its position in a list: Vocion
+ * is always blue and AgentCore always orange, whichever of them has runs in
+ * the period on screen. A grader added later takes the next free slot.
+ */
+const PROVIDER_SLOTS: Record<string, number> = { vocion: 0, agentcore: 1 };
+
+/**
+ * The colour slot for a grader's own line.
+ * @param providerId - The grader.
+ * @param providerIndex - Its position in the provider list, for a grader with no fixed slot.
+ */
+function providerSlot(providerId: string, providerIndex: number): number {
+  return PROVIDER_SLOTS[providerId] ?? (2 + providerIndex) % SERIES_SLOT_COUNT;
+}
 
 /**
  * Group the points into one line per provider, in the order the providers
@@ -53,7 +70,7 @@ const SERIES_COLORS = ['var(--brand-pass, #10b981)', 'var(--brand-teal, #14b8a6)
  */
 export function buildSeries(points: EvalTrendPoint[], providers: Array<{ id: string; label: string }>): Series[] {
   const series: Series[] = [];
-  for (const provider of providers) {
+  for (const [providerIndex, provider] of providers.entries()) {
     const mine = points.filter(point => point.provider === provider.id);
     if (mine.length === 0) {
       continue;
@@ -65,20 +82,20 @@ export function buildSeries(points: EvalTrendPoint[], providers: Array<{ id: str
         key: provider.id,
         evaluatorSlug: null,
         label: provider.label,
-        color: SERIES_COLORS[series.length % SERIES_COLORS.length]!,
+        colorSlot: providerSlot(provider.id, providerIndex),
         dashed: false,
         points: passRatePoints,
       });
     }
     // One line per evaluator underneath the grader that ran it, named so the
     // legend reads "AgentCore · trajectory" rather than two unlabelled lines.
-    for (const evaluatorSlug of evaluatorsIn(mine)) {
+    for (const [evaluatorIndex, evaluatorSlug] of evaluatorsIn(mine).entries()) {
       series.push({
         provider: provider.id,
         key: `${provider.id}:${evaluatorSlug}`,
         evaluatorSlug,
         label: `${provider.label} · ${evaluatorSlug}`,
-        color: SERIES_COLORS[series.length % SERIES_COLORS.length]!,
+        colorSlot: evaluatorIndex % SERIES_SLOT_COUNT,
         dashed: true,
         points: sortedByTime(mine.filter(point => point.evaluatorSlug === evaluatorSlug)),
       });
@@ -142,4 +159,66 @@ export function versionBoundaries(points: EvalTrendPoint[]): Array<{ at: number;
     previous = version;
   }
   return boundaries;
+}
+
+/**
+ * The lines the main chart draws: each grader's own pass rate, and nothing
+ * per evaluator — seven overlapping lines on one axis is a picture nobody can
+ * read, and the per-evaluator numbers live in the breakdown table instead.
+ *
+ * The one exception is a grader with no pass rate at all (AgentCore grading
+ * only on its own rating scales): its evaluator lines stay, because without
+ * them that grader would vanish from the chart entirely.
+ * @param series - Everything `buildSeries` built.
+ */
+export function chartSeries(series: Series[]): Series[] {
+  const withOwnLine = new Set(series.filter(line => line.evaluatorSlug === null).map(line => line.provider));
+  return series.filter(line => line.evaluatorSlug === null || !withOwnLine.has(line.provider));
+}
+
+export type EvaluatorSummary = {
+  provider: string;
+  providerLabel: string;
+  evaluatorSlug: string;
+  /** The newest run's score, 0–1. */
+  latest: number;
+  /** Mean over the period, 0–1. */
+  average: number;
+  /** How the newest score sits against the period's mean. */
+  direction: 'up' | 'down' | 'flat';
+  runs: number;
+};
+
+/** How far from the mean, 0–1, the latest score must sit to count as moving. */
+const MOVEMENT_THRESHOLD = 0.02;
+
+/**
+ * One row per evaluator for the breakdown table: where its score is now, what
+ * it averaged over the period, and which way the newest run moved it.
+ *
+ * Latest against the mean rather than against the run before, because one
+ * noisy run would otherwise flip the arrow on every page load.
+ * @param points - Every plottable point; only evaluator points are read.
+ * @param providers - Who grades this dataset, in display order.
+ */
+export function summariseEvaluators(points: EvalTrendPoint[], providers: Array<{ id: string; label: string }>): EvaluatorSummary[] {
+  const rows: EvaluatorSummary[] = [];
+  for (const line of buildSeries(points, providers)) {
+    if (line.evaluatorSlug === null || line.points.length === 0) {
+      continue;
+    }
+    const latest = line.points.at(-1)!.passRate;
+    const average = line.points.reduce((sum, point) => sum + point.passRate, 0) / line.points.length;
+    const gap = latest - average;
+    rows.push({
+      provider: line.provider,
+      providerLabel: providers.find(provider => provider.id === line.provider)?.label ?? line.provider,
+      evaluatorSlug: line.evaluatorSlug,
+      latest,
+      average,
+      direction: gap > MOVEMENT_THRESHOLD ? 'up' : gap < -MOVEMENT_THRESHOLD ? 'down' : 'flat',
+      runs: line.points.length,
+    });
+  }
+  return rows;
 }

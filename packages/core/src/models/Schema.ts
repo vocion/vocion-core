@@ -55,11 +55,11 @@ const tsvector = customType<{ data: string; driverData: string }>({
 /**
  * The role a person holds IN ONE WORKSPACE. Mirrors `WorkspaceRole` in
  * `services/authz.ts`, which owns the grant model these map to; the DDL pins
- * the same four with a CHECK. Declared here rather than imported so the schema
+ * the same two with a CHECK. Declared here rather than imported so the schema
  * stays free of service imports — `workspaceAccessRole.test.ts` fails if the
  * two ever drift.
  */
-type WorkspaceAccessRole = 'owner' | 'pm' | 'specialist' | 'client_reviewer';
+type WorkspaceAccessRole = 'admin' | 'member';
 
 /** A person. Drizzle adapter shape for auth.js v5. */
 export const userSchema = pgTable('user', {
@@ -1130,7 +1130,7 @@ export const automationSchema = pgTable(
      */
     whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number }>().notNull(),
     /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
-    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> }>().notNull(),
+    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> }>().notNull(),
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
     ownerAgentSlug: text('owner_agent_slug'),
     /**
@@ -1645,13 +1645,24 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    */
   routingJson: jsonb('routing_json').$type<import('@/services/agents/router').RoutingDecision>(),
   /**
+   * Which agent spoke an assistant turn — the slug the runtime actually ran,
+   * stamped when the row is written. The transcript's "via <specialist>"
+   * eyebrow reads THIS after a reload, never a guess made on the client
+   * before the turn ran (backlog 009: a label that said "via QA" on a turn
+   * the product manager answered). NULL on user rows and on turns written
+   * before the column existed.
+   */
+  agentSlug: text('agent_slug'),
+  /**
    * Structured breadcrumb array for the chat UI: a series of text
    * runs interleaved with tool breadcrumbs. Tool entries are dropped
    * when this row is replayed as history to the agent.
    */
   runsJson: jsonb('runs_json').$type<Array<
     | { type: 'text'; text: string }
-    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string }
+    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
+    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
   >>(),
   /**
    * Cited/pulled source documents for this assistant turn — so inline `[n]`
@@ -2021,7 +2032,12 @@ export const evalRunSchema = pgTable('eval_run', {
   }>().default({}).notNull(),
   startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { mode: 'date' }),
-});
+}, table => [
+  // Every read of a dataset's runs filters on org and dataset and then orders
+  // or ranges on start time: the paged list, the trend chart and the period
+  // summary. Built concurrently: migrations/concurrent/0016_*.
+  index('eval_run_org_dataset_started_idx').on(table.orgId, table.datasetId, table.startedAt),
+]);
 
 export const evalCaseResultSchema = pgTable('eval_case_result', {
   id: serial('id').primaryKey(),
@@ -2100,7 +2116,7 @@ export const evalScoreSchema = pgTable('eval_score', {
   /** TOOL_CALL | TRACE | SESSION — the grain this evaluator judges at. */
   level: text('level').default('TRACE').notNull(),
   /** Numeric score, normally 0..1. NULL when the evaluator only returns a label. */
-  value: real('value'),
+  value: doublePrecision('value'),
   /**
    * The provider's own categorical verdict, stored exactly as it came back.
    * Never coerced to pass/fail: "Perfectly Correct" and "Yes" come from
@@ -3085,6 +3101,49 @@ export const sourceSyncCheckpointSchema = pgTable(
  * because a minted row now carries ciphertext too, so a rewritten `platform`
  * alone would leave a row the constraint happily accepts as a supplied key.
  */
+/* ------------------------------------------------------------------ */
+/* OAuth 2.1 for assistants (backlog 027)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A client that registered itself to sign a person in — Claude.ai, ChatGPT,
+ * Claude Code, Cursor. Public clients (PKCE, no secret): the redirect list
+ * is what identifies them. Ported from Slate's `oauth_clients` (2026-09-25).
+ */
+export const oauthClientSchema = pgTable('oauth_client', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  redirectUris: jsonb('redirect_uris').$type<string[]>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+/**
+ * One sign-in attempt: created at /oauth/authorize, approved by the person on
+ * the consent page (which stamps who and which workspace), exchanged once at
+ * /oauth/token. Ten minutes to live.
+ */
+export const oauthRequestSchema = pgTable(
+  'oauth_request',
+  {
+    id: text('id').primaryKey(),
+    clientId: text('client_id').notNull(),
+    redirectUri: text('redirect_uri').notNull(),
+    codeChallenge: text('code_challenge').notNull(),
+    state: text('state'),
+    scope: text('scope'),
+    userId: text('user_id'),
+    orgId: text('org_id'),
+    /** The authorization code, set when the person approves; cleared when exchanged. */
+    code: text('code'),
+    status: text('status').default('pending').notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('oauth_request_code_idx').on(table.code),
+  ],
+);
+
 export const apiTokenSchema = pgTable(
   'api_token',
   {

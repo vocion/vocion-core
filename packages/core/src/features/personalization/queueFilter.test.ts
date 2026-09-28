@@ -1,6 +1,6 @@
 import type { BriefRow } from './PersonalizationQueue';
 import { describe, expect, it } from 'vitest';
-import { briefedWindowOf, BULK_NONE, describeQueueView, distinctValues, filterBulkRows, filterQueueRows } from './queueFilter';
+import { briefedWindowOf, BULK_NONE, describeQueueView, distinctValues, ERROR_CHIP, filterBulkRows, filterQueueRows } from './queueFilter';
 
 const DAY = 24 * 3_600_000;
 const NOW = Date.parse('2026-09-23T12:00:00.000Z');
@@ -99,5 +99,25 @@ describe('distinctValues', () => {
     const rows = [row({ id: 1, contactName: 'A', utmContent: 'b' }), row({ id: 2, contactName: 'B', utmContent: null }), row({ id: 3, contactName: 'C', utmContent: 'a' }), row({ id: 4, contactName: 'D', utmContent: 'b' })];
 
     expect(distinctValues(rows, r => r.utmContent)).toEqual(['a', 'b']);
+  });
+});
+
+describe('the error chip', () => {
+  const rows = [
+    row({ id: 1, contactName: 'Ada', lastError: 'skill turn produced an answer that does not validate' }),
+    row({ id: 2, contactName: 'Bo', lastError: null }),
+    row({ id: 3, contactName: 'Cy', lastError: 'Cannot find module', briefedAt: new Date(NOW - 30 * DAY).toISOString() }),
+  ];
+
+  it('keeps only leads whose last attempt failed', () => {
+    expect(filterQueueRows(rows, { lane: 'ready_for_review', q: '', chips: [ERROR_CHIP.key] }, NOW).map(r => r.id)).toEqual([1, 3]);
+  });
+
+  it('narrows the briefed windows rather than widening them', () => {
+    expect(filterQueueRows(rows, { lane: 'ready_for_review', q: '', chips: ['week', ERROR_CHIP.key] }, NOW).map(r => r.id)).toEqual([1]);
+  });
+
+  it('says so in the bulk heading', () => {
+    expect(describeQueueView({ lane: 'ready_for_review', q: '', chips: [ERROR_CHIP.key] })).toBe('Review · with an error');
   });
 });

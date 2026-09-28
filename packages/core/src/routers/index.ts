@@ -53,6 +53,7 @@ import {
   get as getConv,
   latestForScope as latestConvForScope,
   list as listConvs,
+  recordCardDecision as recordConvCardDecision,
   remove as removeConv,
   rename as renameConv,
   search as searchConvs,
@@ -72,6 +73,14 @@ import {
   onlineTearDown as onlineEvalTearDown,
   run as runEval,
 } from './Evals';
+import {
+  create as createGroupRoute,
+  overview as groupsOverviewRoute,
+  removeDirect as removeDirectGrantRoute,
+  remove as removeGroupRoute,
+  setGrant as setGroupGrantRoute,
+  setMember as setGroupMemberRoute,
+} from './Groups';
 import {
   add as addLearning,
   check as checkLearning,
@@ -232,6 +241,14 @@ export const router = {
     revealPlatformKey: revealPlatformKeyRoute,
     revoke: revokeTokenRoute,
   },
+  groups: {
+    overview: groupsOverviewRoute,
+    create: createGroupRoute,
+    remove: removeGroupRoute,
+    setMember: setGroupMemberRoute,
+    setGrant: setGroupGrantRoute,
+    removeDirect: removeDirectGrantRoute,
+  },
   members: {
     list: listMembersRoute,
     invites: listInvitesRoute,
@@ -275,6 +292,7 @@ export const router = {
     search: searchConvs,
     tail: tailConv,
     feedback: feedbackConvMessage,
+    recordCardDecision: recordConvCardDecision,
     setAutonomy: setConvAutonomy,
     setModel: setConvModel,
   },

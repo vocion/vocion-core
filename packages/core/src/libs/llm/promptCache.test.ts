@@ -27,6 +27,7 @@ import process from 'node:process';
 import { HumanMessage } from '@langchain/core/messages';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  cachedThroughPrefix,
   CachingChatAnthropic,
   CachingChatBedrockConverse,
   DEFAULT_CACHE_CONTROL,
@@ -242,5 +243,50 @@ describe('minimumCacheableTokens', () => {
     expect(MINIMUM_CACHEABLE_TOKENS['claude-haiku-4-5']).toBeGreaterThan(
       MINIMUM_CACHEABLE_TOKENS['claude-sonnet-4-6']!,
     );
+  });
+});
+
+describe('cachedThroughPrefix', () => {
+  it('puts the Bedrock cache point after the shared prefix and none after the document', async () => {
+    const model = new CachingChatBedrockConverse({ model: 'us.anthropic.claude-sonnet-4-6', region: 'us-east-1' });
+    const send = vi.fn(async () => ({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      $metadata: {},
+    }));
+    (model as unknown as { client: { send: typeof send } }).client.send = send;
+
+    const { messages, callOptions } = cachedThroughPrefix(model, 'system prompt', 'shared head', 'this document');
+    await model.invoke(messages, callOptions);
+
+    const input = (send.mock.calls[0] as unknown as [{ input: { system: unknown[]; messages: Array<{ content: unknown[] }> } }])[0].input;
+
+    expect(input.messages[0]?.content).toEqual([{ text: 'shared head' }, { cachePoint: { type: 'default' } }, { text: 'this document' }]);
+    expect(input.system.at(-1)).toEqual({ cachePoint: { type: 'default' } });
+  });
+
+  it('marks the system prompt and the shared prefix for Anthropic, with no request-level instruction', () => {
+    const model = new CachingChatAnthropic({ model: 'claude-sonnet-4-6', apiKey: 'test-key' });
+
+    const { messages, callOptions } = cachedThroughPrefix(model, 'system prompt', 'shared head', 'this document');
+
+    expect(messages[0]?.content).toEqual([{ type: 'text', text: 'system prompt', cache_control: DEFAULT_CACHE_CONTROL }]);
+    expect(messages[1]?.content).toEqual([
+      { type: 'text', text: 'shared head', cache_control: DEFAULT_CACHE_CONTROL },
+      { type: 'text', text: 'this document' },
+    ]);
+    expect('cache_control' in callOptions).toBe(true);
+    expect(callOptions.cache_control).toBeUndefined();
+  });
+
+  it('gives a model that is not caching one plain human turn', async () => {
+    const { ChatBedrockConverse: PlainBedrock } = await import('@langchain/aws');
+    const model = new PlainBedrock({ model: 'us.anthropic.claude-sonnet-4-6', region: 'us-east-1' });
+
+    const { messages, callOptions } = cachedThroughPrefix(model, 'system prompt', 'shared head', ' this document');
+
+    expect(messages[1]?.content).toBe('shared head this document');
+    expect(callOptions).toEqual({});
   });
 });

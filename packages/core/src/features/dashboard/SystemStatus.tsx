@@ -1,7 +1,7 @@
 'use client';
 
 import { Activity, AlertTriangle, CheckCircle2, Database, ExternalLink, Loader2, RefreshCw, XCircle } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type ServiceCheck = {
   name: string;
@@ -46,7 +46,15 @@ export const SystemStatus = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // One request at a time: a poll that outlives the interval must not start a
+  // second one on top of it (2026-09-25, calls piled up and the app ran out of
+  // heap).
+  const inFlight = useRef(false);
   const fetchStatus = useCallback(async () => {
+    if (inFlight.current) {
+      return;
+    }
+    inFlight.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -59,6 +67,7 @@ export const SystemStatus = () => {
     } catch (err: any) {
       setError(err.message);
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
   }, []);

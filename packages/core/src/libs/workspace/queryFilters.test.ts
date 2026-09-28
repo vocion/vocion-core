@@ -21,4 +21,12 @@ describe('a filter the URL switches on', () => {
     expect(activeQueryFilters(declared, { product: ' ' })).toEqual([]);
     expect(applyQueryFilters(rows, []).map(r => r.id)).toEqual([1, 2, 3]);
   });
+
+  it('opens on a declared default, and `all` turns it off', () => {
+    const withDefault = [{ ...declared[0]!, default: 'send' }];
+
+    expect(applyQueryFilters(rows, activeQueryFilters(withDefault, {})).map(r => r.id)).toEqual([1]);
+    expect(activeQueryFilters(withDefault, { product: 'all' })).toEqual([]);
+    expect(activeQueryFilters(withDefault, { product: 'slate' })[0]!.value).toBe('slate');
+  });
 });

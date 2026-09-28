@@ -21,8 +21,8 @@ import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
-import { formatElapsed, useElapsed } from './useElapsed';
-import { WorkTimeline } from './WorkTimeline';
+import { useElapsed } from './useElapsed';
+import { LiveStatus, WorkTimeline } from './WorkTimeline';
 
 /** One glyph per dashboard entity family, so a chip reads before its label does. */
 /** The abstract levels' words for the turn footer — the same words the composer's control shows; never a vendor or a model id. */
@@ -172,7 +172,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -246,7 +246,16 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <AgentMark name={agentName} />
           {via && (
-            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case" title={viaReason}>{via}</span>
+            viaReason
+              ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="start" collisionPadding={8}>{viaReason}</TooltipContent>
+                  </Tooltip>
+                )
+              : <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
           )}
           {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (
@@ -343,7 +352,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                     // (the owner's screenshot, 2026-09-19). Wrapping is the
                     // answer for prose; a genuinely wide block gets its own
                     // scroller instead (the `table` renderer below).
-                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none break-words dark:prose-invert">
+                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none min-w-0 break-words wrap-anywhere dark:prose-invert">
                       <Markdown
                         remarkPlugins={[remarkGfm]}
                         // Keep our private citation scheme; react-markdown's default
@@ -437,26 +446,14 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             and a group the agent has written past folds to one line.
           */}
           {streaming && (
-            <div
-              className="mt-3 flex items-center gap-2 text-[12px] text-muted-foreground"
-              role="status"
-              aria-live="polite"
-              data-testid="streaming-indicator"
-            >
-              <span className="relative flex size-1.5 shrink-0" aria-hidden>
-                <span className="absolute inline-flex size-full rounded-full bg-brand-amber opacity-60 motion-safe:animate-ping" />
-                <span className="relative inline-flex size-1.5 rounded-full bg-brand-amber" />
-              </span>
-              <span>{activity ?? 'Working'}</span>
-              {elapsed >= 3 && (
-                <span className="font-mono text-[11px] text-muted-foreground/70 tabular-nums">{formatElapsed(elapsed)}</span>
-              )}
+            <div className="mt-3 min-w-0" data-testid="streaming-indicator">
+              <LiveStatus text={activity ?? 'Working…'} elapsed={elapsed} />
             </div>
           )}
           {/* One card renders directly; several become the in-chat triage
               stepper (skip / save-for-later / queue-all). */}
           {(message.recommendations?.length ?? 0) > 0 && (
-            <RecommendedActionStack recs={message.recommendations!} autoPropose={autonomy === 'act-within-bounds'} />
+            <RecommendedActionStack recs={message.recommendations!} />
           )}
           {(message.artifacts?.length ?? 0) > 0 && (
             <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
