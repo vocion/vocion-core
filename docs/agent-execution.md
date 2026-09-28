@@ -217,6 +217,7 @@ harness execution role. An org's own stored key does not reach it.
 |---|---|
 | `harness.runsOn` on the agent | Wins over the `modelProvider` default |
 | `VOCION_AGENT_PROVIDER` | Forces one target fleet-wide, over every agent's own setting. Accepts either spelling |
+| `VOCION_DEFAULT_RUNS_ON` | The target for an agent that named none (after the `modelProvider: bedrock` default). The way to move a fleet onto the container: agents that said `external-worker`, `aws-managed-harness` or `in-process` stay put. Only `in-process` and `agentcore-container` are accepted |
 | `VOCION_DISABLE_RUNTIME=1` | Sends `agentcore-container` agents back to the in-process loop. For a dev machine with nothing on `:8080` |
 | `VOCION_DISABLE_AGENTCORE=1` | Same idea for `aws-managed-harness` agents — for a machine with no AWS credentials or no provisioned harness, where such an agent would otherwise be unchattable |
 | `VOCION_AGENT_RUNTIME_ARN` | Set: invoke the deployed AgentCore runtime over SigV4. Unset: plain HTTP to `VOCION_AGENT_RUNTIME_URL` (default `http://localhost:8080`) |

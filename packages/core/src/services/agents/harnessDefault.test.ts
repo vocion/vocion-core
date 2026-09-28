@@ -24,6 +24,9 @@ const runAgentOnAgentCoreHarness = vi.fn(async () => ({ response: 'from the mana
 
 vi.mock('@/services/agents/providers/runtime', () => ({ runAgentOnRuntime }));
 vi.mock('@/services/agents/providers/agentcore', () => ({ runAgentOnAgentCoreHarness }));
+vi.mock('@/services/agents/providers/externalWorker', () => ({
+  queueExternalWorkerTurn: vi.fn(async () => ({ response: 'queued for the worker', traceId: '', toolCalls: [] })),
+}));
 
 // The in-process loop is the "neither provider ran" signal. Stubbing the
 // harness keeps the test off deepagents and off a live model.
@@ -186,6 +189,62 @@ describe('harness provider defaults', () => {
   it('ignores an unrecognised fleet-wide override rather than failing the turn', async () => {
     process.env.VOCION_AGENT_PROVIDER = 'lambda';
     await insertAgent('plain-agent', {});
+
+    await expect(run('plain-agent')).rejects.toThrow('in-process loop reached');
+  });
+});
+
+/**
+ * `VOCION_DEFAULT_RUNS_ON` moves the agents that said nothing, and only them.
+ * The override above moves every agent, including the ones that must stay: an
+ * `external-worker` engineer and an agent pinned to AWS's managed harness.
+ */
+describe('the fleet default', () => {
+  afterEach(() => {
+    delete process.env.VOCION_DEFAULT_RUNS_ON;
+  });
+
+  it('sends an agent that named no target to the container', async () => {
+    process.env.VOCION_DEFAULT_RUNS_ON = 'agentcore-container';
+    await insertAgent('plain-agent', { modelProvider: 'anthropic', model: 'claude-opus-5' });
+
+    await expect(run('plain-agent')).resolves.toBe('from the artifact');
+  });
+
+  it('leaves an external worker where its author put it', async () => {
+    process.env.VOCION_DEFAULT_RUNS_ON = 'agentcore-container';
+    await insertAgent('task-engineer', { runsOn: 'external-worker' });
+
+    await expect(run('task-engineer')).resolves.toBe('queued for the worker');
+    expect(runAgentOnRuntime).not.toHaveBeenCalled();
+  });
+
+  it('leaves an agent pinned to the managed harness, or to this process, alone', async () => {
+    process.env.VOCION_DEFAULT_RUNS_ON = 'agentcore-container';
+    await insertAgent('managed', { provider: 'agentcore' });
+    await insertAgent('pinned-local', { runsOn: 'in-process' });
+
+    await expect(run('managed')).resolves.toBe('from the managed harness');
+    await expect(run('pinned-local')).rejects.toThrow('in-process loop reached');
+    expect(runAgentOnRuntime).not.toHaveBeenCalled();
+  });
+
+  it('is still overridden by the kill switch', async () => {
+    process.env.VOCION_DEFAULT_RUNS_ON = 'agentcore-container';
+    process.env.VOCION_DISABLE_RUNTIME = '1';
+    await insertAgent('plain-agent', {});
+
+    await expect(run('plain-agent')).rejects.toThrow('in-process loop reached');
+    expect(runAgentOnRuntime).not.toHaveBeenCalled();
+  });
+
+  it('refuses to make an external worker or the managed harness the default', async () => {
+    await insertAgent('plain-agent', {});
+    process.env.VOCION_DEFAULT_RUNS_ON = 'external-worker';
+
+    await expect(run('plain-agent')).rejects.toThrow('in-process loop reached');
+
+    process.env.VOCION_DEFAULT_RUNS_ON = 'aws-managed-harness';
 
     await expect(run('plain-agent')).rejects.toThrow('in-process loop reached');
   });

@@ -233,6 +233,30 @@ function defaultHarnessTargetFor(
   return undefined;
 }
 
+/**
+ * Where this installation runs an agent that named no target at all:
+ * `VOCION_DEFAULT_RUNS_ON`, read last.
+ *
+ * `VOCION_AGENT_PROVIDER` already moves a whole fleet, but it is an OVERRIDE —
+ * read first, above every agent's own `runsOn` — so it also moves the agents
+ * that must not move: an `external-worker` engineer whose runs a process
+ * outside Vocion claims, an agent pinned to AWS's managed harness. A deployment
+ * moving its fleet onto the container wants the opposite precedence: every
+ * agent that said nothing goes, every agent that said something stays. Without
+ * this, that meant an `extends: core` override per plugin agent, and an
+ * override replaces the whole `harness:` block, so each one had to restate the
+ * plugin's grants and backstops too.
+ *
+ * Only the two loops Vocion owns are accepted. A fleet default of
+ * `external-worker` would queue every chat turn for a process that may not
+ * exist, and `aws-managed-harness` strips the loop to one tool; both stay
+ * per-agent decisions.
+ */
+function fleetDefaultHarnessTarget(): HarnessTarget | undefined {
+  const target = normalizeHarnessTarget(process.env.VOCION_DEFAULT_RUNS_ON);
+  return target === 'in-process' || target === 'agentcore-container' ? target : undefined;
+}
+
 /* ------------------------------------------------------------------ */
 /* End-of-turn guarantees — structural, not prompted                   */
 /* ------------------------------------------------------------------ */
@@ -700,7 +724,8 @@ export async function runAgentDeep(opts: {
     ? 'in-process'
     : normalizeHarnessTarget(process.env.VOCION_AGENT_PROVIDER)
       ?? normalizeHarnessTarget(harness?.runsOn ?? harness?.provider)
-      ?? defaultHarnessTargetFor(harness?.modelProvider);
+      ?? defaultHarnessTargetFor(harness?.modelProvider)
+      ?? fleetDefaultHarnessTarget();
   if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
     return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, conversationHistory: flatHistory(opts.conversationHistory), onEvent: run }));
