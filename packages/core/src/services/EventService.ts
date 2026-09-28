@@ -35,8 +35,15 @@ export type EmitEventInput = {
    * the fire, answers with its `automationRunId`, and completes the pass after
    * the response (Next's `after`), so a click that emits an event is never
    * held open for minutes. Only a caller in a request scope may pass it.
+   *
+   * `auto` is for an emitter that cannot know where it runs — a record
+   * written from a chat turn, a job on the Temporal worker, an action a trust
+   * rule executed inside another event's pass. Inside a request scope a
+   * `job` automation (plain code, milliseconds) runs where the event was
+   * raised and anything that runs an agent goes to the background; outside
+   * one, everything runs inline, since nobody is waiting on the caller.
    */
-  dispatchMode?: 'inline' | 'background';
+  dispatchMode?: 'inline' | 'background' | 'auto';
   /**
    * Skip the per-automation fire ceiling for this event. Only for a caller
    * that is itself the pacing: the bulk regenerate workflow walks its leads
@@ -108,6 +115,51 @@ export type SourceSyncCompletedPayload = {
  * `filter: { folder: wiki }` to index pages for search (`index-artifact`).
  */
 export const ARTIFACT_SAVED = 'artifact.saved';
+
+/**
+ * A business object was created — by a person in the app, an agent's
+ * proposal, a worker over the API, or a service. Raised from every create
+ * path (`services/objects/objectCreated.ts`), so a plugin can start work the
+ * moment a record exists instead of waiting for a schedule to notice it: the
+ * software factory's intake subscribes with `filter: { objectType: request }`
+ * and starts the build a person asked for in chat. Deduped on the object id.
+ */
+export const OBJECT_CREATED = 'object.created';
+
+/** Payload of `object.created`. Scalars only — `when.filter` compares with `===`. */
+export type ObjectCreatedPayload = {
+  objectId: number;
+  /** The object type's slug, e.g. `request`. What a filter should match on. */
+  objectType: string;
+  title: string;
+  /** `app` (a person in the dashboard) | `proposal` (an agent's approved proposal) | `api` | `service`. */
+  source: string;
+  /** The conversation the record was filed from, when it was filed in one. */
+  conversationId: number | null;
+  /** Who wrote it: a user id, `agent:<slug>`, `token:<id>`, or `system`. */
+  actor: string;
+  /** True when a person asked for it — their own write, or their turn in a conversation. */
+  byPerson: boolean;
+  /** `orgId` rides along so a job reading the payload never has to guess the tenant. */
+  orgId: string;
+};
+
+/**
+ * An architecture plan was approved — by a person, or within the trust bar
+ * (`factory.approve_plan`). The software factory subscribes so the build the
+ * plan was written for dispatches itself with the plan's id; nobody has to
+ * press Build a second time. Payload: `planId`, `requestId`, `approvedBy`,
+ * `byPerson`.
+ */
+export const PLAN_APPROVED = 'plan.approved';
+
+/**
+ * The factory needs a plan before it can build: the plan rule (or the
+ * worker's own refusal) said so. The software factory's planner subscribes
+ * and writes the `architecture_plan`. Payload: `requestId`, `title`, `why`
+ * (the rule's trigger sentences, joined), `attempt`.
+ */
+export const FACTORY_PLAN_REQUESTED = 'factory.plan_requested';
 
 /** Payload of `artifact.saved`. Scalars only — `when.filter` compares with `===`. */
 export type ArtifactSavedPayload = {
@@ -410,6 +462,37 @@ export type AutomationRunCompletedPayload = {
 };
 
 /**
+ * Whether this code is running inside a request, where `after` can hold work
+ * until the response is sent. Asked by scheduling nothing: `after` throws
+ * outside a request scope (a script, the Temporal worker).
+ */
+async function inRequestScope(): Promise<boolean> {
+  try {
+    const { after } = await import('next/server');
+    after(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How one subscriber's fire runs for this event's dispatch mode.
+ * @param mode - The emitter's `dispatchMode`.
+ * @param doConfig - The automation's `do`; a `job` is plain code.
+ * @param doConfig.job
+ */
+async function runsInBackground(mode: EmitEventInput['dispatchMode'], doConfig: { job?: string } | null | undefined): Promise<boolean> {
+  if (mode === 'background') {
+    return true;
+  }
+  if (mode !== 'auto' || doConfig?.job) {
+    return false;
+  }
+  return inRequestScope();
+}
+
+/**
  * Dispatch an event: dedupe, find subscribed workflows, start each match.
  * @param input
  */
@@ -562,7 +645,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
         skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'rate_limited' });
         continue;
       }
-      if (input.dispatchMode === 'background') {
+      if (await runsInBackground(input.dispatchMode, a.doConfig)) {
         // The fire's row exists before we answer; the pass itself runs after
         // the response. A mission check holds an agent loop for minutes, and
         // the caller here is a request a person is waiting on.

@@ -19,7 +19,7 @@ import { client } from '@/libs/Orpc';
  * "Build again" — the report's status decides (`featureReport.buildStatus`).
  */
 export function FeatureBuild({ requestId, planId, children, label = 'Build it' }: { requestId: number; planId: number | null; children?: React.ReactNode; label?: string }) {
-  const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'done'; runId: number; workerRunId: number | null } | { s: 'error'; message: string }>({ s: 'idle' });
+  const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'done'; runId: number; workerRunId: number | null; planning: string | null } | { s: 'error'; message: string }>({ s: 'idle' });
 
   const build = async () => {
     setPhase({ s: 'working' });
@@ -32,8 +32,10 @@ export function FeatureBuild({ requestId, planId, children, label = 'Build it' }
         suggestedDecision: null,
         suggestedDecisionReason: null,
       }) as { runId: number; status: string };
-      const decided = res.status === 'done' ? null : await client.review.decideAction({ id: res.runId, decision: 'approve' }) as { result?: { workerRunId?: number } } | null;
-      setPhase({ s: 'done', runId: res.runId, workerRunId: decided?.result?.workerRunId ?? null });
+      const decided = res.status === 'done' ? null : await client.review.decideAction({ id: res.runId, decision: 'approve' }) as { result?: { workerRunId?: number; planning?: boolean; why?: string } } | null;
+      // Build is one path through the plan gate: when the rule needs a plan,
+      // pressing Build starts planning and the approved plan builds itself.
+      setPhase({ s: 'done', runId: res.runId, workerRunId: decided?.result?.workerRunId ?? null, planning: decided?.result?.planning ? (decided.result.why ?? 'the plan rule needs a plan first') : null });
     } catch (err) {
       setPhase({ s: 'error', message: (err as Error).message });
     }
@@ -53,7 +55,7 @@ export function FeatureBuild({ requestId, planId, children, label = 'Build it' }
     return (
       <p className="flex items-center gap-2 text-sm" data-testid="feature-building">
         <span className="size-1.5 rounded-full bg-brand-amber" aria-hidden />
-        Building — queued for the engineer.
+        {phase.planning ? `Planning first — ${phase.planning}. The build starts once the plan is approved.` : 'Building — queued for the engineer.'}
         <button type="button" onClick={() => void undo(phase.runId)} className="inline-flex items-center gap-1 text-muted-foreground underline underline-offset-2 hover:text-foreground">
           <RotateCcw className="size-3.5" aria-hidden />
           Undo

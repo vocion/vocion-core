@@ -1,0 +1,20 @@
+# EXISTING STUCK REQUESTS (backlog 038). The same recovery as a failed run's
+# event, for requests that were already stuck when it shipped — the newest
+# engineering run failed, nothing is running, no ask is open, and it is not
+# deferred or rejected — so they continue without anyone pressing Build. Also
+# notices a plan that was approved while nothing dispatched, and one that was
+# asked for and never written. Hourly: idempotent, and a request it has acted
+# on is marked, so a second pass does nothing.
+slug: factory-recover-stuck
+name: Carry stuck requests on
+description: >-
+  Every hour, recover requests whose newest engineering run failed and that
+  nothing is carrying. Deterministic: a built-in job on a schedule.
+status: active
+agent: product-manager
+when:
+  schedule: '5 * * * *'
+do:
+  job: factory-sweep
+  input:
+    limit: 10

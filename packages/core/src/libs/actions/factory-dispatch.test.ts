@@ -224,3 +224,21 @@ describe('a retry is its own trust key', () => {
     expect(factoryDispatchAction.dedupKeyFor?.({ requestId: 131, reason: 'x', autoRetryOf: 164 } as never)).toBe('factory.dispatch_task:request-131:retry-164');
   });
 });
+
+describe('the factory\'s own starts are their own trust keys (backlog 038)', () => {
+  it('keys each automatic start apart, and one recovery per failed run', () => {
+    expect(factoryDispatchAction.policyKeyFor?.({ requestId: 131, reason: 'x', trigger: 'request' } as never)).toBe('factory.dispatch_task.from_request');
+    expect(factoryDispatchAction.policyKeyFor?.({ requestId: 131, reason: 'x', trigger: 'recovery', recoveryOfRun: 401 } as never)).toBe('factory.dispatch_task.recovery');
+    expect(factoryDispatchAction.policyKeyFor?.({ requestId: 131, reason: 'x', trigger: 'plan', planId: 9 } as never)).toBe('factory.dispatch_task.from_plan');
+    expect(factoryDispatchAction.dedupKeyFor?.({ requestId: 131, reason: 'x', trigger: 'recovery', recoveryOfRun: 401 } as never)).toBe('factory.dispatch_task:request-131:recovery-401');
+    expect(factoryDispatchAction.dedupKeyFor?.({ requestId: 131, reason: 'x', trigger: 'plan', planId: 9 } as never)).toBe('factory.dispatch_task:request-131:plan-9');
+    expect(factoryDispatchAction.dedupKeyFor?.({ requestId: 131, reason: 'x', trigger: 'request' } as never)).toBe('factory.dispatch_task:request-131:from-request');
+    expect(factoryDispatchAction.inputSchema.safeParse({ requestId: 131, trigger: 'someone' }).success).toBe(false);
+  });
+
+  it('carries a note — the person\'s, or the failing checks\' — into the objective', () => {
+    const c = deriveContract({ given: {}, request: { title: 'Request a file', outcome: 'Send a link.' }, plan: null, repo: null, note: 'Make the test pass: expected 2, got 3.' });
+
+    expect(String(c.objective)).toBe('Send a link.\n\nFor this attempt: Make the test pass: expected 2, got 3.');
+  });
+});

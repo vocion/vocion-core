@@ -1,0 +1,27 @@
+# FILING STARTS THE WORK (backlog 038). A P1 filed in chat on 2026-09-28 sat in
+# Proposed: nothing inside Vocion raised an event when a request was written,
+# and the PM's Build card was a prompt the model could skip. Core now raises
+# `object.created` from every create path, and this runs the intake in code.
+#
+# A fix a person asked for in a conversation — a bug, an incident or a P1, with
+# its acceptance written — starts its build within the trust bar
+# (`factory.dispatch_task.from_request`), and Undo cancels it until a worker
+# claims it. Anything else that is ready to build gets the Build card, filed
+# here; a request with no acceptance yet is left to triage
+# (`factory-request-intake`). A plan the rule requires comes first, on the same
+# path (the dispatch plans instead of sending a contract the worker refuses).
+slug: factory-request-filed
+name: A request was filed
+description: >-
+  The moment a request record exists, start the fix a person asked for in chat,
+  or put the Build card in front of a person — in code, not by the PM choosing
+  to. Deterministic: a built-in job on `object.created`.
+status: active
+agent: product-manager
+when:
+  event: object.created
+  filter:
+    objectType: request
+  maxFiresPer10m: 30
+do:
+  job: factory-intake

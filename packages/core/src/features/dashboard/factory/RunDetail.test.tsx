@@ -141,6 +141,13 @@ describe('the run page', () => {
     expect(log).not.toHaveBeenCalled();
   });
 
+  it('says what the factory did about a stopped run, under why it stopped (backlog 038)', async () => {
+    const data = live({ status: 'failed', endedAt: new Date().toISOString(), error: 'verification failed: required checks failed: test', recovery: 'Recovered: sending it again because the required checks failed (test).' });
+    render(<RunDetail initial={data} pollMs={100} />);
+
+    await expect.element(page.getByTestId('run-recovery')).toHaveTextContent('Recovered: sending it again because the required checks failed (test).');
+  });
+
   it('holds a long log line inside its box on a phone — the page never scrolls sideways', async () => {
     await page.viewport(390, 844);
     render(<RunDetail initial={live()} pollMs={60_000} />);

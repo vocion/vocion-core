@@ -49,6 +49,48 @@ rules:
     enabled: false
     rung: execute-with-approval
     risk: medium
+  # THE FACTORY CARRIES A REQUEST THROUGH (backlog 038). Three starts the
+  # factory makes on its own, each its own key so a workspace can hold any one
+  # of them at a person's tap. Each counts toward the limit — three automatic
+  # attempts per request since a person last acted, then one ask — and each
+  # is undone by cancelling the run until a worker claims it.
+  #
+  # A fix a person asked for in a conversation (a bug, an incident or a P1,
+  # its acceptance written): the ask in chat was the decision.
+  - action: factory.dispatch_task.from_request
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
+  # A failed run sent again: with the failing checks' output, once after the
+  # infrastructure failed, or with a contract the records have since changed.
+  - action: factory.dispatch_task.recovery
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
+  # The build an approved plan was written for. The approval was the decision.
+  - action: factory.dispatch_task.from_plan
+    autoApproveAbove: 0.9
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
+  # A plan the factory asked for. The factory is 0.9 sure of a plan that states
+  # its approach, what changes, what was rejected, how it is verified and what
+  # happens to existing data, for work a revert can undo; 0.6 of anything else
+  # — so a plan for auth, billing, schema, infra or a promise is always a
+  # person's, and so is one with a gap, on a card that recommends sending it back.
+  - action: factory.approve_plan
+    autoApproveAbove: 0.85
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
+  # Filing the plan is not approving it: the record lands in review.
+  - action: objects.propose_candidate.architecture_plan
+    autoApproveAbove: 0.5
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
   - action: git.push_branch
     autoApproveAbove: 0.7
     enabled: true

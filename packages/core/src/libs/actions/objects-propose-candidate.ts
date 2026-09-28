@@ -1029,6 +1029,15 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
         + 'Apply the workspace object type, then re-propose.',
       );
     }
+    // The record now exists as an approved record: say so, with where it was
+    // asked for, so an automation can start its work (backlog 038).
+    const { announceObjectCreated } = await import('@/services/objects/objectCreated');
+    await announceObjectCreated(ctx.orgId, { id: objectId, title: input.title }, input.objectType, {
+      source: 'proposal',
+      conversationId: ctx.origin?.conversationId ?? null,
+      actor: ctx.origin?.userId ?? ctx.reviewedBy ?? ctx.invokedBy ?? null,
+      byPerson: ctx.origin ? ctx.origin.byPerson === true : Boolean(ctx.reviewedBy),
+    });
 
     return {
       mode: 'recorded',

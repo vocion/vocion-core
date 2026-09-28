@@ -32,6 +32,11 @@ export type ActionContext = {
    * record without core ever calling that system.
    */
   externalRef?: { system: string; id: string };
+  /**
+   * Where the proposal was made, when a conversation made it: the thread and
+   * the person whose turn it was. Present on `execute` only.
+   */
+  origin?: { conversationId?: number | null; userId?: string | null; byPerson?: boolean };
 };
 
 /**

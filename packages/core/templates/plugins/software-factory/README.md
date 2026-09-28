@@ -74,13 +74,31 @@ check on a factory branch, work finished, the two-hourly reply pass, the
 weekday result pass, and QA's two reads (the proposal at triage, and one review per
 pull request head when its checks pass, which must end in `record_verdict`).
 
+The factory also carries a request through on its own (backlog 038), as plain
+code on typed events rather than an agent choosing to press something. A
+request filed in chat as a fix starts its build (`factory-request-filed` on
+`object.created`); anything else ready to build gets the Build card. A contract
+the plan rule gates plans first (`factory-plan-request`), the plan's approval
+goes on the trust bar (`factory-plan-filed`), and the approved plan builds
+itself (`factory-plan-approved`). A failed run is classified and recovered
+(`factory-run-failed`) — plan first, send it again with what the checks said,
+once more after the infrastructure failed, again only if the contract changed —
+within three automatic attempts per request since a person last acted, then one
+ask (`factory-recovery-answered` takes the answer). `factory-recover-stuck`
+carries on, hourly, requests that were already stuck. The feature page and the
+Work row say Planning, Recovering (attempt N of 3) or Stopped, each with what
+happens next; every step is a line on the feature's Activity and on the run.
+
 ## Trust
 
 `trust.yaml` covers the eight actions core registers. A branch push is the
 worker's own; a merge, a reply to an asker, an announcement, a deploy, a
 provision, a cloud mutation and a credential write are a person's until the
 workspace's ledger says otherwise. Every rule but the push ships disabled: the
-workspace names who owns a merge.
+workspace names who owns a merge. The exceptions are the factory's own starts —
+`factory.dispatch_task.from_request`, `.recovery`, `.from_plan` and
+`factory.approve_plan` — which run within the bar with Undo until a worker
+claims the run, because each follows a decision a person already made.
 
 ## What this deliberately does not include
 

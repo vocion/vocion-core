@@ -69,7 +69,7 @@ export const create = os
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
     const { userId } = await auth();
-    const obj = await createBusinessObject(input, orgId, userId ?? 'unknown');
+    const obj = await createBusinessObject(input, orgId, userId ?? 'unknown', { source: 'app', actor: userId ?? null, byPerson: Boolean(userId) });
     logger.info(`Business object "${input.title}" created (type: ${input.typeSlug})`);
     return obj;
   });

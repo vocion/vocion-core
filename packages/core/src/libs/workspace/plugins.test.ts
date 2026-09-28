@@ -60,7 +60,7 @@ describe('the shipped catalogue', () => {
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'environment', 'product', 'release', 'repo', 'request']);
     // Three missions carry the loop; the eight reporting and hygiene missions are gone.
     expect(factory.missions).toEqual(['close-the-gap', 'prove-the-contract', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'release-announcement-draft', 'standard-from-shipped', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-result-check', 'factory-run-failed', 'product-debrief', 'release-announcement-draft', 'standard-from-shipped', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
@@ -294,7 +294,7 @@ describe('loadWorkspace with the software factory', () => {
     // The trust ladder covers the eight actions core registers and nothing
     // else. A push runs on its own; a merge is a person's at the high bar;
     // every other rule ships disabled for the workspace to turn on.
-    expect(ws.trust?.rules.map(r => r.action)).toEqual(['objects.update_meta.request.decision', 'objects.propose_candidate.request', 'objects.propose_candidate.environment', 'factory.dispatch_task', 'factory.dispatch_task.retry', 'git.push_branch', 'git.merge', 'notify.requester', 'notify.requester.completion', 'notify.requester.sensitive', 'release.announce', 'deploy.release', 'deploy.provision', 'aws.mutate', 'credentials.write']);
+    expect(ws.trust?.rules.map(r => r.action)).toEqual(['objects.update_meta.request.decision', 'objects.propose_candidate.request', 'objects.propose_candidate.environment', 'factory.dispatch_task', 'factory.dispatch_task.retry', 'factory.dispatch_task.from_request', 'factory.dispatch_task.recovery', 'factory.dispatch_task.from_plan', 'factory.approve_plan', 'objects.propose_candidate.architecture_plan', 'git.push_branch', 'git.merge', 'notify.requester', 'notify.requester.completion', 'notify.requester.sensitive', 'release.announce', 'deploy.release', 'deploy.provision', 'aws.mutate', 'credentials.write']);
     // A routine completion may earn its way; a decline or an incident is a person's every time.
     expect(ws.trust?.rules.find(r => r.action === 'notify.requester.completion')).toMatchObject({ enabled: false, risk: 'medium', autoApproveAbove: 0.9 });
     expect(ws.trust?.rules.find(r => r.action === 'notify.requester.sensitive')).toMatchObject({ enabled: false, risk: 'high', autoApproveAbove: 1 });
@@ -306,7 +306,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.18.0');
+    expect(ws.sha).toContain('+software-factory@2.19.0');
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {
@@ -423,12 +423,17 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.missions.find(m => m.slug === 'close-the-gap')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'tell-the-requester')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'prove-the-contract')?.agent).toBe('change-reviewer');
-    expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'release-announcement-draft', 'standard-from-shipped', 'tell-the-requester-check']);
+    expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-result-check', 'factory-run-failed', 'product-debrief', 'release-announcement-draft', 'standard-from-shipped', 'tell-the-requester-check']);
     // The decision landing is what makes the card the commitment: approve freezes and queues, defer parks.
     expect(ws.automations.find(a => a.slug === 'factory-decision-landed')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
     expect(ws.automations.find(a => a.slug === 'factory-result-check')?.when.schedule).toBe('30 15 * * 1-5');
     expect(ws.automations.filter(a => a.agent === 'change-reviewer').map(a => a.slug).sort()).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal']);
-    expect(ws.automations.every(a => ws.missions.some(m => m.slug === a.do.checkMission))).toBe(true);
+    // An automation either checks a mission, or runs plain code — the jobs
+    // that carry a request through the factory (backlog 038).
+    expect(ws.automations.every(a => (a.do.job ? true : ws.missions.some(m => m.slug === a.do.checkMission)))).toBe(true);
+    expect(ws.automations.filter(a => a.do.job).map(a => a.do.job).sort()).toEqual(['factory-intake', 'factory-plan-build', 'factory-plan-review', 'factory-recover', 'factory-recovery-answer', 'factory-sweep']);
+    expect(ws.automations.find(a => a.slug === 'factory-request-filed')?.when).toMatchObject({ event: 'object.created', filter: { objectType: 'request' } });
+    expect(ws.automations.find(a => a.slug === 'factory-run-failed')?.when).toMatchObject({ event: 'worker_run.failed', filter: { recordType: 'engineering_task' } });
 
     // The debrief: the factory finished something, the record learns it. On
     // core's completion events, authorizing and announcing nothing.

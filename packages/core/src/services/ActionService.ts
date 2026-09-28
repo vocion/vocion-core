@@ -154,6 +154,21 @@ function proposalForStorage<T extends { suggestedDecision?: SuggestedDecision | 
   return rest as StoredProposal<T>;
 }
 
+/** Where a proposal was made — see `proposeAction`'s `origin`. */
+export type ActionOrigin = { conversationId?: number | null; userId?: string | null; byPerson?: boolean };
+
+/**
+ * The stored envelope with the proposal's origin on it, when it has one.
+ * @param proposal - The envelope as `proposalForStorage` shaped it.
+ * @param origin - Where it was made.
+ */
+function withOrigin<T extends Record<string, unknown>>(proposal: T | null, origin: ActionOrigin | undefined): (T & { origin?: ActionOrigin }) | null {
+  if (!origin || (!origin.conversationId && !origin.userId)) {
+    return proposal;
+  }
+  return { ...(proposal ?? {}), origin } as T & { origin?: ActionOrigin };
+}
+
 /**
  * The run of this dedup key a person already decided, when the action says a
  * repeat proposal should collapse into it.
@@ -313,8 +328,16 @@ export async function proposeAction(input: {
    * it runs on its own, whatever the kind's policy says.
    */
   conversationAutonomy?: 'ask' | 'act';
+  /**
+   * Where the proposal was made, when it was made in a conversation: the
+   * thread and the person whose turn it was. Stored on the envelope and handed
+   * to the action on execute (`ctx.origin`), so a record it files can say it
+   * was asked for in chat (backlog 038: a P1 filed there starts its build).
+   */
+  origin?: ActionOrigin;
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
+  const storedProposal = withOrigin(proposalForStorage(input.proposal), input.origin);
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${input.actionId}`);
   }
@@ -399,7 +422,7 @@ export async function proposeAction(input: {
       if (!existing) {
         return null;
       }
-      const stored = storedOnRefresh(action, existing, parsed as Record<string, unknown>, proposalForStorage(input.proposal));
+      const stored = storedOnRefresh(action, existing, parsed as Record<string, unknown>, storedProposal);
       await tx
         .update(actionRunSchema)
         .set({
@@ -484,7 +507,7 @@ export async function proposeAction(input: {
       status: gated ? 'pending' : 'approved',
       invokedBy: input.invokedBy ?? input.principal.id,
       sourceSlug: action.sourceSlug ?? null,
-      proposal: proposalForStorage(input.proposal),
+      proposal: storedProposal as never,
       dedupKey: dedupKey ?? null,
       expiresAt: input.expiresAt ?? null,
     })
@@ -580,7 +603,7 @@ export async function proposeAction(input: {
         .update(actionRunSchema)
         .set({
           proposal: {
-            ...(proposalForStorage(input.proposal) ?? {}),
+            ...(storedProposal ?? {}),
             autoApproved: true,
             autoApprovedThreshold: verdict.threshold ?? undefined,
             autoApprovedReason: verdict.reason,
@@ -715,6 +738,7 @@ export async function executeAction(
       reviewedBy: opts?.reviewedBy,
       runId,
       externalRef: opts?.externalRef,
+      origin: ((run.proposal ?? {}) as { origin?: ActionOrigin }).origin,
     }, run.input);
     await db
       .update(actionRunSchema)

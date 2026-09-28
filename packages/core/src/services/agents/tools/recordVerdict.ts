@@ -267,6 +267,13 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
     return task.meta.autoRetryOf ? 'This attempt was already the automatic retry, so the next build is a person\'s call.' : null;
   }
   try {
+    // ONE LIMIT FOR EVERY AUTOMATIC STEP (backlog 038): a QA send-back retry
+    // counts toward the same three per request as a recovery does.
+    const { stopIfAtLimit } = await import('@/services/factory/carry');
+    const stopped = await stopIfAtLimit(orgId, requestId, `QA sent attempt #${task.id} back`);
+    if (stopped) {
+      return stopped;
+    }
     const { proposeAction } = await import('@/services/ActionService');
     const planId = Number(task.meta.planId);
     const res = await proposeAction({

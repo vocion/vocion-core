@@ -3571,6 +3571,8 @@ export const actionRunSchema = pgTable(
       scores?: Record<string, number>;
       /** Adopted rules the proposer said decided its verdict. Absent: not recorded. [] : checked, none did. */
       matchedRules?: Array<{ id: string; title?: string; text: string; evidence?: string }>;
+      /** Where it was proposed, when a conversation proposed it — the thread and the person whose turn it was. */
+      origin?: { conversationId?: number | null; userId?: string | null; byPerson?: boolean };
     }>(),
     /**
      * Idempotency/upsert key for agent-suggested actions — the review-card

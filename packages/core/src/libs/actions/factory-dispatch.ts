@@ -61,17 +61,47 @@ const dispatchInput = z.object({
    * attempt that was itself a retry is never retried again.
    */
   autoRetryOf: z.coerce.number().int().positive().optional(),
+  /**
+   * What the person pressing Build wants this attempt to do differently, in
+   * their words (Chris, 2026-09-28: "can be triggered from the UI with prompt
+   * from user"), or what the factory carries into a recovery (the failing
+   * checks' output). It rides the objective, where the engineer reads.
+   */
+  note: z.string().trim().min(1).max(4000).optional(),
+  /**
+   * WHO STARTED IT, when it was not a person (backlog 038). `request` — the
+   * intake started a fix a person asked for in chat; `recovery` — the factory
+   * sent a failed run again; `plan` — an approved plan dispatched its build.
+   * Each is its own trust key (`factory.dispatch_task.from_request`,
+   * `.recovery`, `.from_plan`), so a workspace decides each separately, and
+   * each counts toward the automatic-attempt limit (`services/factory/recovery.ts`).
+   */
+  trigger: z.enum(['request', 'recovery', 'plan']).optional(),
+  /** The failed run a recovery answers — its own dedup key, one recovery per failure. */
+  recoveryOfRun: z.coerce.number().int().positive().optional(),
+  /** What that run's failure was (`classifyFailure`), kept on the task. */
+  recoveryClass: z.string().max(40).optional(),
+  /** The worker's own "plan is required" sentence: plan first, whatever the rule reads. */
+  planFirst: z.string().max(1000).optional(),
 }).refine(v => v.taskId !== undefined || v.requestId !== undefined, { message: 'Name the engineering task (taskId), or the request (requestId) — the contract is filled from the request, its plan and the repo.' });
 
 type Meta = Record<string, unknown>;
-type Rec = { id: number; title: string; typeId: number; meta: Meta };
+type Rec = { id: number; title: string; typeId: number; meta: Meta; status?: string | null };
 
-async function readRecord(orgId: string, id: number): Promise<(Rec & { typeSlug: string }) | null> {
+/** A record with its type's slug, as the factory reads one. */
+export type FactoryRecord = Rec & { typeSlug: string };
+
+/**
+ * One record, scoped to the org.
+ * @param orgId - Tenant.
+ * @param id - The object id.
+ */
+export async function readRecord(orgId: string, id: number): Promise<FactoryRecord | null> {
   const { and, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
   const [row] = await db
-    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, typeId: businessObjectSchema.typeId, meta: businessObjectSchema.metadata, typeSlug: businessObjectTypeSchema.slug })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, typeId: businessObjectSchema.typeId, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, typeSlug: businessObjectTypeSchema.slug })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)))
@@ -79,7 +109,24 @@ async function readRecord(orgId: string, id: number): Promise<(Rec & { typeSlug:
   return row ? { ...row, meta: (row.meta ?? {}) as Meta } : null;
 }
 
-async function writeMeta(orgId: string, id: number, set: Meta): Promise<void> {
+/**
+ * Whether a plan record is approved: its own status says so, or it names who approved it.
+ * @param meta - The plan's metadata.
+ */
+export function planIsApproved(meta: Meta): boolean {
+  if (meta.status === 'rejected' || meta.status === 'superseded') {
+    return false;
+  }
+  return meta.status === 'approved' || (typeof meta.approvedBy === 'string' && meta.approvedBy.trim() !== '');
+}
+
+/**
+ * Merge fields onto a record's metadata.
+ * @param orgId - Tenant.
+ * @param id - The object id.
+ * @param set - The fields.
+ */
+export async function writeMeta(orgId: string, id: number, set: Meta): Promise<void> {
   const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
@@ -252,8 +299,9 @@ export function riskFromPaths(paths: string[], defaults: Record<string, string>)
  * @param input.plan
  * @param input.repo
  * @param input.previous
+ * @param input.note - What the person pressing Build (or the factory's recovery) asks of this attempt.
  */
-export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null }): Meta {
+export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null; note?: string }): Meta {
   const g = input.given;
   const r = input.request ?? {};
   const p = input.plan ?? {};
@@ -323,7 +371,8 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const carried = prev && prevVerdict
     ? `\n\nThe last attempt (task #${prev.id}${str(prev.meta, 'prUrl') ? `, ${str(prev.meta, 'prUrl')}` : ''}) was sent back by ${(prevVerdict as { heldBy?: string }).heldBy === 'person' ? 'the person who merges' : 'QA'}: ${String(prevVerdict.note ?? 'changes asked').replace(/^A person held the merge: /, '')}${owed.length > 0 ? `\nProve each of these with evidence a reviewer can open (a named test, a screenshot of that exact state):\n${owed.map(c => `- ${c.criterion}${c.evidence ? ` (QA: ${c.evidence})` : ''}`).join('\n')}` : ''}`
     : '';
-  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + carried;
+  const asked = input.note ? `\n\nFor this attempt: ${input.note}` : '';
+  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + carried + asked;
   // A ui change is refused without a QA flow (the worker screenshots it
   // before and after). The request says where it lives; that page is the flow.
   const visuals = (r.visuals ?? {}) as Meta;
@@ -405,10 +454,79 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     const planRepo = plan && Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') : null;
     const repo = await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? str(request.meta, 'ownerRepo'), str(request.meta, 'product'));
     const previous = await sentBackTask(ctx.orgId, request.id);
-    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous });
+    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, note: input.note });
     task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
   }
   return { task, plan, request };
+}
+
+/**
+ * The worker's contract this dispatch would send, without sending it — what a
+ * recovery compares against the contract a failed run was given.
+ * @param orgId - Tenant.
+ * @param raw - The dispatch input.
+ */
+export async function previewContract(orgId: string, raw: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  const parsed = dispatchInput.safeParse(raw);
+  if (!parsed.success) {
+    return null;
+  }
+  const { task, plan, request } = await loadAll({ orgId }, parsed.data);
+  if (!task) {
+    return null;
+  }
+  const approved = plan && planIsApproved(plan.meta) ? { id: plan.id, approach: str(plan.meta, 'approach'), approvedBy: String(plan.meta.approvedBy ?? 'a person'), approvedAt: String(plan.meta.approvedAt ?? '') } : undefined;
+  return contractFromTask(task, { product: request ? str(request.meta, 'product') : null, plan: approved });
+}
+
+/**
+ * THE PLAN GATE FOR THIS DISPATCH: would it build, or plan first? A plan the
+ * dispatch names counts as approved when it already is, or when a person is
+ * approving this card (approving the build approves its plan, as before).
+ * @param task - The contract as a record.
+ * @param task.id - Its id (0 before it is created).
+ * @param task.title - Its title.
+ * @param task.meta - Its fields.
+ * @param plan - The named plan.
+ * @param request - The request.
+ * @param opts - The decision.
+ * @param opts.personApproving - A person is approving this dispatch.
+ * @param opts.planFirst - The worker's own refusal, when a run gave one.
+ */
+async function gateFor(task: { id: number; title: string; meta: Meta }, plan: Rec | null, request: Rec | null, opts: { personApproving: boolean; planFirst?: string }) {
+  const { planGate } = await import('@/services/factory/recovery');
+  const approved = Boolean(plan && (opts.personApproving || planIsApproved(plan.meta)));
+  const contract = contractFromTask(task, { product: request ? str(request.meta, 'product') : null, plan: approved && plan ? { id: plan.id, approach: str(plan.meta, 'approach'), approvedBy: 'a person', approvedAt: '' } : undefined });
+  return planGate({ contract, planApproved: approved, planFirst: opts.planFirst ?? null });
+}
+
+/** The trust key each automatic start answers to. */
+const TRIGGER_KEY = { request: 'from_request', recovery: 'recovery', plan: 'from_plan' } as const;
+
+/**
+ * The dedup suffix of an automatic start: one per failed run for a recovery,
+ * one per plan for a plan's build, one for the intake — so a pending Build
+ * card never swallows the factory's own start, nor the other way round.
+ * @param input - The dispatch input.
+ */
+function triggerKey(input: z.infer<typeof dispatchInput>): string {
+  if (input.trigger === 'recovery') {
+    return `:recovery-${input.recoveryOfRun ?? 'sweep'}`;
+  }
+  if (input.trigger === 'plan') {
+    return `:plan-${input.planId ?? 'none'}`;
+  }
+  return input.trigger === 'request' ? ':from-request' : '';
+}
+
+/**
+ * A start the factory made on its own, as opposed to one a person made or
+ * approved. Only these count toward the automatic-attempt limit.
+ * @param input - The dispatch input.
+ * @param ctx - The execution context; a person approving makes it theirs.
+ */
+function isAutomatic(input: z.infer<typeof dispatchInput>, ctx: ActionContext): boolean {
+  return Boolean(input.trigger || input.autoRetryOf) && !ctx.reviewedBy;
 }
 
 export const factoryDispatchAction: Action<typeof dispatchInput> = {
@@ -418,8 +536,8 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   inputSchema: dispatchInput,
   grant: 'factory_write',
   external: true,
-  dedupKeyFor: input => `${DISPATCH_ACTION_ID}:${input.taskId ?? `request-${input.requestId}`}${input.autoRetryOf ? `:retry-${input.autoRetryOf}` : ''}`,
-  policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : DISPATCH_ACTION_ID),
+  dedupKeyFor: input => `${DISPATCH_ACTION_ID}:${input.taskId ?? `request-${input.requestId}`}${input.autoRetryOf ? `:retry-${input.autoRetryOf}` : ''}${triggerKey(input)}`,
+  policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : input.trigger ? `${DISPATCH_ACTION_ID}.${TRIGGER_KEY[input.trigger]}` : DISPATCH_ACTION_ID),
   async precheck(ctx, input) {
     const { externalWorkersEnabled } = await import('@/services/WorkerRunService');
     if (!externalWorkersEnabled()) {
@@ -435,7 +553,9 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         return `No request #${input.requestId} in this workspace.`;
       }
     }
-    const gaps = contractGaps(task.meta);
+    // A request whose records name no files is not refused: it is a request
+    // that needs a plan to say which, and the dispatch plans (execute).
+    const gaps = contractGaps(task.meta).filter(g => !(g === 'allowedPaths' && task.id === 0 && !(plan && planIsApproved(plan.meta))));
     if (gaps.length > 0) {
       return task.id > 0
         ? `Engineering task #${task.id} is not ready to build: it has no ${gaps.join(', ')}. Fill them on the task, then start it.`
@@ -455,6 +575,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   async reviewCard(ctx, input): Promise<ReviewCard> {
     const { task, plan, request } = await loadAll(ctx, input);
     const m = task?.meta ?? {};
+    const gate = task ? await gateFor(task, plan, request, { personApproving: true, planFirst: input.planFirst }) : { go: true as const };
     const budget = typeof m.tokenBudget === 'number' ? `$${m.tokenBudget}` : 'the worker default';
     return {
       title: `Start the build: ${request?.title ?? task?.title ?? `task #${input.taskId}`}`,
@@ -471,7 +592,9 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         { label: 'Budget', value: budget },
         { label: 'Done when', value: `${list(m, 'acceptanceContract').length} criteria` },
       ],
-      nextAction: plan ? 'Approving approves the plan and starts the engineer on the task. Undo works until a worker picks it up.' : 'Approving starts the engineer on the task. Undo works until a worker picks it up.',
+      nextAction: !gate.go
+        ? `Approving plans first — ${gate.why}. The build starts on its own once the plan is approved.`
+        : plan ? 'Approving approves the plan and starts the engineer on the task. Undo works until a worker picks it up.' : 'Approving starts the engineer on the task. Undo works until a worker picks it up.',
       verbs: { approve: 'Start build', reject: 'Not yet' },
     };
   },
@@ -483,11 +606,30 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     if (!task) {
       throw new Error(`No engineering task #${input.taskId}.`);
     }
+    const automatic = isAutomatic(input, ctx);
+    const at = new Date().toISOString();
+    // BUILD IS ONE PATH THROUGH THE PLAN GATE (backlog 038: run 401 went out
+    // with a contract spanning two packages and the worker refused it, "plan
+    // is required"). The rule the worker enforces is read here first; a
+    // required plan with none approved does not create a run — it plans, and
+    // the approved plan dispatches its own build.
+    const noPaths = list(task.meta, 'allowedPaths').length === 0 && !(plan && (ctx.reviewedBy || planIsApproved(plan.meta)));
+    const gate = noPaths
+      ? { go: false as const, why: 'nothing on the records says which files the change may touch' }
+      : await gateFor(task, plan, request, { personApproving: Boolean(ctx.reviewedBy), planFirst: input.planFirst });
+    if (!gate.go) {
+      if (!request) {
+        throw new Error(`A plan is required before this builds (${gate.why}), and task #${task.id} names no request to plan.`);
+      }
+      const { startPlanning } = await import('@/services/factory/carry');
+      const planning = await startPlanning(ctx.orgId, { request, plan, why: gate.why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
+      return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous };
+    }
     let createdTaskId: number | null = null;
     if (!input.taskId) {
       const { createBusinessObject } = await import('@/services/BusinessObjectService');
       const { title, ...rest } = task.meta as Meta & { title?: string };
-      const created = await createBusinessObject({ typeSlug: 'engineering_task', title: String(title ?? task.title), status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready', ...(input.autoRetryOf ? { autoRetryOf: input.autoRetryOf } : {}) } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
+      const created = await createBusinessObject({ typeSlug: 'engineering_task', title: String(title ?? task.title), status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready', ...(input.autoRetryOf ? { autoRetryOf: input.autoRetryOf } : {}), dispatchTrigger: input.trigger ?? (input.autoRetryOf ? 'retry' : 'person'), ...(input.recoveryOfRun ? { recoveryOfRun: input.recoveryOfRun, recoveryClass: input.recoveryClass ?? null } : {}) } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
       createdTaskId = (created as { id: number }).id;
       task = { ...task, id: createdTaskId };
       // THE WORKER'S KEY on the task it will report to (2026-09-26: run 357
@@ -536,7 +678,16 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     const run = await createWorkerRun({ orgId: ctx.orgId, agentSlug, input: { task: contract, record: { id: task.id, type: 'engineering_task' } }, capCents, createdBy: approvedBy });
     const previousTask = { status: task.meta.status ?? null, workerRunId: task.meta.workerRunId ?? null };
     await writeMeta(ctx.orgId, task.id, { status: 'dispatched', workerRunId: run.id, ...(plan ? { planId: plan.id } : {}) });
+    let previousRecovery: unknown = null;
     if (request) {
+      // THE COUNT (backlog 038): an automatic start is one attempt of the
+      // limit; a person's start begins the count again.
+      const { logLine, noteAttempt, personActed, readRecovery } = await import('@/services/factory/recovery');
+      previousRecovery = request.meta.recovery ?? null;
+      const state = readRecovery(request.meta);
+      const recovery = automatic
+        ? noteAttempt(state, { at, kind: 'build', trigger: input.trigger ?? 'retry', runId: run.id, taskId: task.id, line: input.reason })
+        : logLine(personActed(state, at, `Build started by ${approvedBy}.`), `Run #${run.id} queued for task #${task.id}.`, at, run.id);
       // The card was the decision: the acceptance is frozen as the contract
       // and the recommendation is approved, in the same action.
       await writeMeta(ctx.orgId, request.id, {
@@ -544,11 +695,20 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         recommendationState: 'approved',
         decidedAt: approvedAt,
         ...(request.meta.acceptanceFrozenAt ? {} : { acceptanceFrozenAt: approvedAt }),
+        recovery,
       });
     }
-    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, previousTask, previousPlan, previousRequestState: request ? (request.meta.state ?? null) : null, previousRequest: request ? { recommendationState: request.meta.recommendationState ?? null, decidedAt: request.meta.decidedAt ?? null, acceptanceFrozenAt: request.meta.acceptanceFrozenAt ?? null } : null };
+    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, previousTask, previousPlan, previousRequestState: request ? (request.meta.state ?? null) : null, previousRequest: request ? { recommendationState: request.meta.recommendationState ?? null, decidedAt: request.meta.decidedAt ?? null, acceptanceFrozenAt: request.meta.acceptanceFrozenAt ?? null } : null, previousRecovery };
   },
   async undo(ctx, _input, result) {
+    // Planning started instead of a build: nothing ran, so the request goes
+    // back to where it stood. A plan already being written stays a draft.
+    if (result.planning) {
+      if (result.requestId) {
+        await writeMeta(ctx.orgId, Number(result.requestId), { recovery: result.previousRecovery ?? null });
+      }
+      return { stoppedPlanning: true };
+    }
     const { cancelWorkerRun, getWorkerRun } = await import('@/services/WorkerRunService');
     const runId = Number(result.workerRunId);
     const run = await getWorkerRun(ctx.orgId, runId);
@@ -567,7 +727,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       await writeMeta(ctx.orgId, Number(result.planId), { status: pp.status ?? 'proposed', approvedBy: pp.approvedBy ?? null, approvedAt: pp.approvedAt ?? null });
     }
     if (result.requestId && result.previousRequestState !== undefined) {
-      await writeMeta(ctx.orgId, Number(result.requestId), { state: result.previousRequestState, ...((result.previousRequest ?? {}) as Meta) });
+      await writeMeta(ctx.orgId, Number(result.requestId), { state: result.previousRequestState, ...((result.previousRequest ?? {}) as Meta), ...(result.previousRecovery !== undefined ? { recovery: result.previousRecovery } : {}) });
     }
     return { cancelledRun: runId };
   },

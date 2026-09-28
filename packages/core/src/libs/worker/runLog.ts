@@ -86,6 +86,8 @@ export type RunHeader = {
   progress: { phase: string | null; note: string | null; log: string[] };
   checks: RunCheck[];
   failures: Array<{ scope: string; message: string }>;
+  /** What the factory did about this run when it stopped — "Recovered: …" or "Stopped after 3 attempts: …" (backlog 038). */
+  recovery?: string | null;
 };
 
 /** Everything the run page draws, and what a poll returns. */

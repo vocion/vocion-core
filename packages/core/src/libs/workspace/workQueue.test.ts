@@ -577,3 +577,29 @@ describe('a dismissed proposal', () => {
     expect(deriveWorkQueue([open, outOfScope, rejected], { now: NOW }).map(r => r.id)).toEqual([50]);
   });
 });
+
+describe('the factory carrying it (backlog 038)', () => {
+  it('reads Planning, Recovering (attempt N of 3) and Stopped, each with what happens next', () => {
+    const planning = row(40, 'Fleet status', { state: 'triaged', recovery: { stage: 'planning', line: 'Planning — the allowed paths span 2 packages.' } });
+
+    expect(laneOf(planning)).toBe('progress');
+    expect(stateOf(planning, 'progress')).toBe('Planning');
+    expect(workLine(planning, 'progress', NOW)).toBe('Planning — the allowed paths span 2 packages. No action needed from you.');
+
+    const attempt = { n: 1, kind: 'build', trigger: 'recovery', line: 'x', at: NOW.toISOString(), runId: 7, taskId: 70, failure: null };
+    const recovering = row(41, 'Invite link', { state: 'building', taskCount: 2, runningTaskCount: 1, recovery: { stage: 'recovering', line: 'Recovering (attempt 2 of 3): the required checks failed (test).', attempts: [attempt, { ...attempt, n: 2 }] } });
+
+    expect(stateOf(recovering, 'progress')).toBe('Recovering (attempt 2 of 3)');
+
+    const stopped = row(42, 'Room order', { state: 'building', taskCount: 3, recovery: { stage: 'stopped', line: 'Stopped after 3 attempts: the required checks failed (test). What would unblock it: read the check.', attempts: [attempt, attempt, attempt] } });
+
+    expect(stateOf(stopped, 'progress')).toBe('Stopped after 3 attempts');
+    expect(workLine(stopped, 'progress', NOW)).toBe('Stopped after 3 attempts: the required checks failed (test). A person decides next.');
+  });
+
+  it('lets a wait with a person on it speak for itself', () => {
+    const qa = row(43, 'Invite link', { state: 'building', taskCount: 1, awaitingReviewTaskCount: 1, recovery: { stage: 'recovering', line: 'Recovering (attempt 2 of 3): x', attempts: [] } });
+
+    expect(stateOf(qa, 'progress')).toBe('Awaiting QA');
+  });
+});

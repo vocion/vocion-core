@@ -1,0 +1,24 @@
+# A FAILED RUN RECOVERS (backlog 038). Two requests stopped on 2026-09-28 with
+# the fix named in their own error — "plan is required", "no changes" — and the
+# only listener on a failed run was the debrief, which writes the failure down.
+#
+# This classifies the failure from the run's own error and failures and acts on
+# it within the limit (3 automatic attempts per request since the last person
+# action): plan first; send it again with the failing checks' output; send it
+# again once after the infrastructure failed; send it again only if the
+# contract the records give has changed — or stop and ask a person once, with
+# every attempt and what would unblock it. Each recovery is its own trust key
+# (`factory.dispatch_task.recovery`) with Undo until a worker claims it.
+slug: factory-run-failed
+name: Recover a failed run
+description: >-
+  When an engineering run fails, classify it and recover within the limit, or
+  ask a person once. Deterministic: a built-in job on `worker_run.failed`.
+status: active
+agent: product-manager
+when:
+  event: worker_run.failed
+  filter:
+    recordType: engineering_task
+do:
+  job: factory-recover

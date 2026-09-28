@@ -19,12 +19,18 @@
  *   - `sweep-idle-conversations` — ends conversations nobody has spoken in for
  *     the window and raises `conversation.ended` for each, so a debrief can
  *     read the thread. Scheduled by the wiki plugin. `services/jobs/sweepIdleConversations.ts`.
+ *   - `factory-intake`, `factory-plan-review`, `factory-plan-build`,
+ *     `factory-recover`, `factory-recovery-answer`, `factory-sweep` — the
+ *     software factory carrying a request from filing to a build and through
+ *     a failed run, in code. Subscribed by the software-factory plugin.
+ *     `services/jobs/factoryCarry.ts`.
  *
  * (Discovery-call detection, the job that used to live here, became
  * agent-driven — an hourly `checkMission` automation.)
  */
 
 import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport';
+import { factoryCarryJobs } from './factoryCarry';
 import { INDEX_ARTIFACT_JOB, runIndexArtifactJob } from './indexArtifact';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
 import { REFRESH_EVALS_JOB, runRefreshEvalsJob } from './refreshEvals';
@@ -38,6 +44,7 @@ const JOBS: Record<string, BuiltInJob> = {
   [REFRESH_EVALS_JOB]: runRefreshEvalsJob,
   [INDEX_ARTIFACT_JOB]: runIndexArtifactJob,
   [SWEEP_IDLE_CONVERSATIONS_JOB]: (orgId, input) => runSweepIdleConversationsJob(orgId, input),
+  ...factoryCarryJobs,
 };
 
 export function builtInJobNames(): string[] {

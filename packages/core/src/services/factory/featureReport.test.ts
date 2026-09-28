@@ -1074,8 +1074,43 @@ describe('a task QA sent back', () => {
     const stopped = { ...task, status: 'rejected', meta: { ...task.meta, status: 'dispatched' } };
     const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'failed', error: 'verification failed: Claude produced no changes in the working tree (checks on the base: typecheck=passed)' })] }));
 
-    expect(r.state).toMatchObject({ key: 'stuck', label: 'Engineering stopped', needsYou: true, detail: 'the run failed: Claude produced no changes in the working tree (checks on the base: typecheck=passed)', action: { label: 'Build again' } });
+    expect(r.state).toMatchObject({ key: 'stuck', label: 'Engineering stopped', needsYou: false, detail: 'the last run failed: Claude produced no changes in the working tree (checks on the base: typecheck=passed); next, the factory sends it again if the contract has changed since, and asks you if it has not — or Build again starts a fresh attempt now', action: { label: 'Build again' } });
     expect(r.canBuild).toBe(true);
+  });
+
+  it('says a refusal as a sentence with what happens next, never the label twice or the raw refusal (#201, 2026-09-28)', () => {
+    const stopped = { ...task, status: 'rejected', meta: { ...task.meta, status: 'dispatched' } };
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'failed', error: 'contract refused: 1 problem: plan is required: allowed_paths spans 2 packages (apps/web, packages/core), over the 1 the rule allows without a plan.. Nothing was cloned.' })] }));
+
+    expect(r.status.headline).toBe('Engineering stopped');
+    expect(r.status.sentence).toBe('The last run failed: the change needs a plan first: the change spans 2 packages (apps/web, packages/core); next, the factory writes the plan first, and the build starts once it is approved — or Build again starts a fresh attempt now. Nothing from this attempt has merged.');
+    expect(r.status.sentence).not.toMatch(/Engineering stopped|contract refused|\.\./);
+  });
+
+  it('says what the factory is doing about it: planning, recovering, stopped (backlog 038)', () => {
+    const at = '2026-09-28T12:00:00.000Z';
+    const stopped = { ...task, status: 'rejected', meta: { ...task.meta, status: 'dispatched' } };
+    const failed = run({ status: 'failed', error: 'verification failed: required checks failed: test' });
+    const planning = { stage: 'planning', line: 'Planning — the allowed paths span 2 packages (apps/web, packages/core)', attempts: [{ n: 1, kind: 'plan', trigger: 'recovery', line: 'x', at, runId: null, taskId: null, failure: null }], log: [{ at, text: 'Recovered: planning first because the allowed paths span 2 packages', runId: 12 }] };
+    const planned = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building', recovery: planning } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [failed] }));
+
+    expect(planned.state).toMatchObject({ key: 'planning', label: 'Planning', detail: 'the allowed paths span 2 packages (apps/web, packages/core)', needsYou: false });
+    expect(planned.status.sentence).toBe('A plan comes first because the allowed paths span 2 packages (apps/web, packages/core). The build starts on its own once the plan is approved.');
+    expect(planned.timeline.some(e => e.title === 'Recovered: planning first because the allowed paths span 2 packages' && e.href === '/dashboard/p/runs/12')).toBe(true);
+
+    const recovering = { ...planning, stage: 'recovering', line: 'Recovering (attempt 2 of 3): the required checks failed (test)', attempts: [...planning.attempts, { ...planning.attempts[0], n: 2, kind: 'build' }] };
+    const live = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building', recovery: recovering } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [failed, run({ id: 999, status: 'running' })] }));
+
+    expect(live.state).toMatchObject({ key: 'recovering', label: 'Recovering (attempt 2 of 3)', detail: 'the required checks failed (test)' });
+    expect(live.status.sentence).toMatch(/^The required checks failed \(test\)\./);
+    expect(live.status.sentence).not.toContain('Recovering (attempt');
+
+    const halted = { ...recovering, stage: 'stopped', line: 'Stopped after 3 attempts: the required checks failed (test). What would unblock it: read the failing check.' };
+    const done = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building', recovery: halted } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [failed] }));
+
+    expect(done.state).toMatchObject({ key: 'stuck', label: 'Stopped after 2 attempts', needsYou: true });
+    expect(done.status.headline).toBe('Stopped after 2 attempts');
+    expect(done.status.sentence).toBe('The required checks failed (test). What would unblock it: read the failing check. A person decides what happens next; nothing from these attempts has merged.');
   });
 
   it('reads the record\'s status column first, the metadata copy only under a generic lifecycle value', () => {
@@ -1226,6 +1261,8 @@ describe('the plan, summarised', () => {
     expect(planStatusOf({ ...plan, status: 'candidate', meta: { ...plan.meta, approvedAt: undefined, approvedBy: undefined } })).toBe('Awaiting approval');
     expect(planStatusOf({ ...plan, meta: { ...plan.meta, supersededBy: 44 } })).toBe('Superseded');
     expect(planStatusOf({ ...plan, status: 'draft', meta: { requestId: 41 } })).toBe('Draft');
+    // A plan filed done for you marks the ROW approved; the plan's own status says it is in review (backlog 038).
+    expect(planStatusOf({ ...plan, status: 'approved', meta: { requestId: 41, status: 'in_review' } })).toBe('Awaiting approval');
   });
 
   it('names the approver, never a raw user id', () => {

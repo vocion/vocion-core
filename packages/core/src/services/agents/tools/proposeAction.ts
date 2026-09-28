@@ -75,6 +75,9 @@ export function proposeActionTool(ctx: RuntimeContext) {
             autonomy: 2,
           },
           invokedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId,
+          // The thread and the person whose turn it was, so a record this
+          // files can say it was asked for (a P1 filed in chat starts its build).
+          origin: ctx.conversationId ? { conversationId: ctx.conversationId, userId: ctx.userId ?? null, byPerson: !isAgentsOwnSchedule(ctx) } : undefined,
           proposal: {
             confidence,
             rationale,

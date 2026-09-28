@@ -326,6 +326,7 @@ async function workerHeader(run: WorkerRunRow, events: RunLogEvent[]): Promise<R
     progress: { phase: str(progress, 'phase'), note: str(progress, 'note') ?? str(progress, 'step'), log: progressLog(progress) },
     checks: readChecks(result),
     failures: (Array.isArray(run.failures) ? run.failures : []).map(f => ({ scope: f.scope ?? 'run', message: f.message ?? '' })),
+    recovery: result.recovery && typeof result.recovery === 'object' ? str(result.recovery as Record<string, unknown>, 'line') : null,
   };
 }
 

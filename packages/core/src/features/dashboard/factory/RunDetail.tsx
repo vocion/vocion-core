@@ -130,6 +130,9 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
             {header.error ? stopReason(header.error) : 'the run ended without saying why'}
           </p>
         )}
+        {stopped && header.recovery && (
+          <p className="mt-1.5 text-sm break-words text-muted-foreground" data-testid="run-recovery">{header.recovery}</p>
+        )}
       </header>
 
       <Section eyebrow="Steps" commentField={null} action={steps.length > 0 ? <span className="text-muted-foreground tabular-nums">{steps.length}</span> : undefined}>

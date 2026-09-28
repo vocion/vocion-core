@@ -170,6 +170,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
       input: (r.input ?? {}) as Record<string, unknown>,
       result: (r.result ?? null) as Record<string, unknown> | null,
       progress: (r.progress ?? {}) as Record<string, unknown>,
+      failures: (r.failures ?? []) as Array<{ scope?: string; message?: string }>,
     }));
 
   const asks: ReportAsk[] = askRows

@@ -17,6 +17,11 @@ description: >-
 icon: compass
 schema:
   type: object
+  # Filing a plan is not approving it (backlog 038). The record lands done for
+  # you under objects.propose_candidate.architecture_plan with status
+  # in_review; its approval is factory.approve_plan, on the trust bar, and the
+  # approved plan dispatches its own build.
+  x-moderation: none
   properties:
     requestId:
       x-display: {label: Request, format: link, to: request, group: What this plans}

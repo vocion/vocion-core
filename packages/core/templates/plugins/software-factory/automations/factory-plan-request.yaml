@@ -1,0 +1,37 @@
+# PLAN FIRST (backlog 038). Build is one path through the plan gate: when the
+# plan rule (or the worker's own refusal) says the work needs a plan and none is
+# approved, the dispatch does not send a contract the worker would refuse — it
+# raises `factory.plan_requested`, and the PM writes the plan here. Filing it is
+# the whole job: its approval goes on the trust bar in code
+# (`factory-plan-filed`), and the approved plan dispatches its own build
+# (`factory-plan-approved`).
+slug: factory-plan-request
+name: Write the plan the build needs
+description: >-
+  The factory asked for an architecture plan before it builds a request. The PM
+  writes one plan, per write-architecture-plan, and files it; approval and the
+  build follow on their own.
+status: active
+agent: product-manager
+when:
+  event: factory.plan_requested
+  maxFiresPer10m: 6
+do:
+  checkMission: close-the-gap
+  requireTool: propose_action
+  prompt: >-
+    Request #{{requestId}} ("{{title}}") needs an architecture plan before it is
+    built. The plan rule says why: {{why}}. Read the request, its acceptance and
+    the product it lands in, and follow write-architecture-plan — check the gap
+    is still there first. Then file ONE plan with propose_action
+    objects.propose_candidate: objectType architecture_plan, dedupOn
+    [requestId], fields requestId {{requestId}}, productSlug, repoSlugs, approach
+    (one paragraph, the reason included), components (one line per package or
+    app, the path first, "apps/web — what changes"; these become the contract's
+    allowed paths, so name every package the change touches, its tests and any
+    migrations directory), interfaces, dataImpact ("None" is an answer),
+    risks (each with its cost), alternatives (each with why not), verification,
+    writtenBy agent, status in_review, ruleLevel required, ruleTriggers [the
+    rule's sentences above, one per item]. Do not dispatch, approve or file a
+    card: the plan's approval and the build follow on their own. Report in one
+    line: the plan id, its components, and anything you could not establish.

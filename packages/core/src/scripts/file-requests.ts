@@ -26,6 +26,7 @@ import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { announceObjectCreated } from '@/services/objects/objectCreated';
 
 /** One request as the file declares it. Everything but title/dedupeKey optional. */
 type Incoming = {
@@ -93,7 +94,7 @@ async function main() {
   }
 
   for (const r of toFile) {
-    await db.insert(businessObjectSchema).values({
+    const [row] = await db.insert(businessObjectSchema).values({
       orgId: project,
       typeId: type.id,
       title: r.title,
@@ -112,7 +113,10 @@ async function main() {
         ...(r.source ? { source: r.source } : {}),
         ...(r.evidence ? { evidence: r.evidence } : {}),
       },
-    });
+    }).returning({ id: businessObjectSchema.id, title: businessObjectSchema.title });
+    if (row) {
+      await announceObjectCreated(project, row, 'request', { source: 'service', actor: 'system' });
+    }
   }
   console.log(`\nfiled ${toFile.length} requests`);
   process.exit(0);

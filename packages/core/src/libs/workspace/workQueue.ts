@@ -1,5 +1,6 @@
 import type { PageRow } from './pageFields';
 import { seatLabel } from '@/libs/gates/handoffGate';
+import { recoveryStage } from '@/services/factory/recovery';
 import { readReasons, reasonPhrase } from './reasonCodes';
 
 /**
@@ -226,7 +227,9 @@ export function laneOf(row: PageRow): WorkLane {
   if (state && DONE_STATES.has(state)) {
     return 'done';
   }
-  return state === 'building' ? 'progress' : 'proposed';
+  // The factory carrying it — planning, recovering, stopped at the limit — is
+  // work in progress whatever the request's own state says (backlog 038).
+  return state === 'building' || recoveryStage(meta(row)) !== null ? 'progress' : 'proposed';
 }
 
 /** The stages of the loop, in the order a person sees them. `answered` and `deferred` are the two exits. */
@@ -326,6 +329,28 @@ function waitOf(row: PageRow): 'merge' | 'qa' | 'stuck' | 'changes' | 'dispatch'
   return tasks > 0 ? 'dispatch' : null;
 }
 
+/**
+ * The factory's own stage on a building row, when it is the truest thing to
+ * say: planning while nothing runs, an automatic attempt out after a failure,
+ * or stopped at the limit. A wait with a person's name on it (QA, a merge,
+ * changes asked) still reads as that wait.
+ * @param row - The row.
+ */
+function carryingLabel(row: PageRow): ReturnType<typeof recoveryStage> {
+  const carrying = recoveryStage(meta(row));
+  if (!carrying) {
+    return null;
+  }
+  const wait = waitOf(row);
+  if (carrying.stage === 'stopped') {
+    return carrying;
+  }
+  if (carrying.stage === 'planning') {
+    return (num(row, 'runningTaskCount') ?? 0) > 0 ? null : carrying;
+  }
+  return wait === null || wait === 'dispatch' ? carrying : null;
+}
+
 /** What a queued outcome is called before anyone has started it. */
 const PROPOSED_STATE_LABEL: Record<string, string> = {
   new: 'Not triaged',
@@ -361,6 +386,10 @@ export function stateOf(row: PageRow, lane: WorkLane, opts: { staged?: boolean }
     return `Returned to ${seatLabel(returnedTo)}`;
   }
   if (lane === 'progress') {
+    const carrying = carryingLabel(row);
+    if (carrying) {
+      return carrying.label;
+    }
     switch (waitOf(row)) {
       case 'merge':
         return 'Ready to merge';
@@ -501,6 +530,10 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
     return 'Sent back by a gate. No action needed from you.';
   }
   if (lane === 'progress') {
+    const carrying = carryingLabel(row);
+    if (carrying) {
+      return carrying.stage === 'stopped' ? `${firstSentence(carrying.line)} A person decides next.` : `${firstSentence(carrying.line)} No action needed from you.`;
+    }
     const tasks = num(row, 'taskCount') ?? 0;
     const noun = tasks === 1 ? 'task' : 'tasks';
     switch (waitOf(row)) {

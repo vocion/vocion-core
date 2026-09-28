@@ -86,6 +86,20 @@
 #   `release.announce`, a person's decision. The latest release on a product
 #   card opens the release page.
 #
+# 2.19.0 — the factory carries a request through (backlog 038). Filing starts
+#   the work: core raises `object.created` from every create path and
+#   `factory-request-filed` starts a fix a person asked for in chat within the
+#   trust bar (`factory.dispatch_task.from_request`), or files the Build card,
+#   in code. Build is one path through the plan gate: a required plan with none
+#   approved plans (`factory-plan-request`) instead of sending a contract the
+#   worker refuses; the plan's approval is `factory.approve_plan` on the trust
+#   bar (`factory-plan-filed`) and the approved plan dispatches its own build
+#   (`factory-plan-approved`). A failed run recovers (`factory-run-failed`):
+#   classified, sent again or planned within three automatic attempts per
+#   request since a person last acted, then one ask (`factory-recovery-answered`
+#   takes the answer); `factory-recover-stuck` carries on requests already
+#   stuck. Plans are filed done for you (`x-moderation: none`), in review.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -96,7 +110,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.18.0
+version: 2.19.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and four seats — PM, Design, Eng, QA.
 depends: []
 surfaces: []

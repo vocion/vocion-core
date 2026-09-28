@@ -1,0 +1,18 @@
+# The plan the factory asked for is written: its approval goes on the trust bar
+# (`factory.approve_plan`) in code. A plan that answers what a plan must, for
+# work a revert can undo, is approved with Undo; anything else is one card with
+# the recommendation (backlog 038). A plan filed when the factory did not ask
+# for one is left alone — the Build card still approves it the way it always has.
+slug: factory-plan-filed
+name: A plan was filed
+description: >-
+  When a plan the factory asked for is filed, propose its approval on the trust
+  bar. Deterministic: a built-in job on `object.created`.
+status: active
+agent: product-manager
+when:
+  event: object.created
+  filter:
+    objectType: architecture_plan
+do:
+  job: factory-plan-review

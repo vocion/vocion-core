@@ -1,7 +1,9 @@
+import type { ObjectOrigin } from '@/services/objects/objectCreated';
 import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeInput, UpdateBusinessObjectInput } from '@/validations/BusinessObjectValidation';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { businessObjectSchema, businessObjectTypeSchema, objectDocumentLinkSchema } from '@/models/Schema';
+import { announceObjectCreated } from '@/services/objects/objectCreated';
 import { recomputeRollupsForObject } from '@/services/objects/rollups';
 
 /* ------------------------------------------------------------------ */
@@ -72,10 +74,19 @@ export const getBusinessObject = async (id: number, orgId: string) => {
   });
 };
 
+/**
+ * Create one object. Raises `object.created` once the row is in, so an
+ * automation can act on the record the moment it exists (backlog 038).
+ * @param input - The object.
+ * @param orgId - Tenant.
+ * @param userId - Who wrote it, for `created_by`.
+ * @param origin - Where it came from; a service write when omitted.
+ */
 export const createBusinessObject = async (
   input: CreateBusinessObjectInput,
   orgId: string,
   userId: string,
+  origin?: ObjectOrigin,
 ) => {
   const objType = await getObjectTypeBySlug(orgId, input.typeSlug);
   if (!objType) {
@@ -108,6 +119,9 @@ export const createBusinessObject = async (
     );
   }
 
+  if (obj) {
+    await announceObjectCreated(orgId, obj, input.typeSlug, origin ?? { source: 'service', actor: userId });
+  }
   return obj;
 };
 
@@ -137,7 +151,7 @@ export const upsertBusinessObjectByExternalKey = async (
   actorId: string,
 ): Promise<{ object: typeof businessObjectSchema.$inferSelect; created: boolean }> => {
   if (!input.externalKey) {
-    const created = await createBusinessObject({ typeSlug: input.typeSlug, title: input.title, status: input.status, metadata: input.metadata }, orgId, actorId);
+    const created = await createBusinessObject({ typeSlug: input.typeSlug, title: input.title, status: input.status, metadata: input.metadata }, orgId, actorId, { source: 'api', actor: actorId });
     return { object: created!, created: true };
   }
   const objType = await getObjectTypeBySlug(orgId, input.typeSlug);
@@ -162,6 +176,7 @@ export const upsertBusinessObjectByExternalKey = async (
     .returning();
   if (inserted) {
     await recomputeRollupsForObject(orgId, inserted.id);
+    await announceObjectCreated(orgId, inserted, input.typeSlug, { source: 'api', actor: actorId });
   }
   return { object: inserted!, created: true };
 };

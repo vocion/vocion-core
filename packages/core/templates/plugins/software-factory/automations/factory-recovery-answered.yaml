@@ -1,0 +1,17 @@
+# The person answered the stop (backlog 038). Whatever they chose, the count of
+# automatic attempts starts again; approving builds again as them, carrying the
+# note they wrote into the objective.
+slug: factory-recovery-answered
+name: A stop was answered
+description: >-
+  When a person decides the factory's "Stopped" ask, start the count again and,
+  on approve, build again as them with their note. Deterministic: a built-in
+  job on `ask.decided`.
+status: active
+agent: product-manager
+when:
+  event: ask.decided
+  filter:
+    sourceRefPrefix: 'factory-recovery:'
+do:
+  job: factory-recovery-answer

@@ -70,6 +70,7 @@ import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { planRecordFromTask, planRequirementForTask } from './planRule';
+import { bare, classifyFailure, nextAfter, readRecovery, recoveryStage } from './recovery';
 
 /** A business object as the report reads it — request, task or release. */
 export type ReportObject = {
@@ -110,6 +111,8 @@ export type ReportWorkerRun = {
   input: Record<string, unknown>;
   result: Record<string, unknown> | null;
   progress: Record<string, unknown>;
+  /** The run's own failures (`check:<name>`, `contract`, …), when it failed. */
+  failures?: Array<{ scope?: string; message?: string }>;
 };
 
 /** An `ask` row — a ruling or recommendation a person decided. */
@@ -1845,6 +1848,22 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
     });
   }
 
+  // THE FACTORY'S OWN ACCOUNT (backlog 038): why it started, planned,
+  // recovered or stopped, one line each, so the reason is on the page where
+  // the work is read and not only in an automation log.
+  for (const [i, line] of readRecovery(meta).log.entries()) {
+    out.push({
+      key: `carry-${i}`,
+      at: asDate(line.at),
+      kind: line.runId ? 'run' : 'decision',
+      title: line.text,
+      detail: null,
+      cents: null,
+      tone: line.text.startsWith('Stopped') ? 'warn' : 'info',
+      href: line.runId ? `/dashboard/p/runs/${line.runId}` : null,
+    });
+  }
+
   // Oldest first. An entry with no time sorts last rather than to the epoch,
   // and keeps its order among the other undated ones.
   return out
@@ -2006,7 +2025,7 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>, line: Mo
  * them, and a stored one eventually does.
  */
 export type ReportState = {
-  key: 'blocked' | 'decide' | 'approve' | 'building' | 'qa' | 'changes' | 'stuck' | 'merge' | 'released' | 'waiting';
+  key: 'blocked' | 'decide' | 'approve' | 'building' | 'planning' | 'recovering' | 'qa' | 'changes' | 'stuck' | 'merge' | 'released' | 'waiting';
   /** "Blocked", "Building" — the badge. */
   label: string;
   /** "waiting on you", "no action needed" — the half that says whose move it is. */
@@ -2106,9 +2125,19 @@ function buildState(input: FeatureReportInput): ReportState {
     const detail = result === 'helped' ? 'live, and it helped' : result === 'did_not_help' ? 'live, and it did not help' : told === 'sent' ? 'live; the asker has been told; result not checked yet' : 'live for people; result not checked yet';
     return { key: 'released', label: 'Released', detail, needsYou: false, question: null, action: { label: 'See the release', href: '#report-release' }, decision: null };
   }
+  // THE FACTORY CARRYING IT (backlog 038): planning first, an automatic
+  // attempt out after a failure, or stopped at the limit — each says what
+  // happens next, in the factory's own sentence.
+  const carrying = recoveryStage(input.request.meta);
   const running = input.workerRuns.filter(r => !TERMINAL_BAD.has(r.status) && r.status !== 'completed');
   if (running.length > 0) {
+    if (carrying?.stage === 'recovering') {
+      return { key: 'recovering', label: carrying.label, detail: carrying.line.replace(/^Recovering \(attempt \d+ of \d+\):\s*/, ''), needsYou: false, question: null, action: { label: 'View progress', href: '#report-runs' }, decision: null };
+    }
     return { key: 'building', label: 'Building', detail: 'no action needed from you', needsYou: false, question: null, action: { label: 'View progress', href: '#report-runs' }, decision: null };
+  }
+  if (carrying?.stage === 'planning') {
+    return { key: 'planning', label: 'Planning', detail: carrying.line.replace(/^Planning\s*—\s*/, ''), needsYou: false, question: null, action: { label: 'See the plan', href: '#report-plan' }, decision: null };
   }
   const accepted = input.tasks.filter(t => taskStatus(t) === 'accepted');
   if (accepted.length > 0) {
@@ -2131,8 +2160,20 @@ function buildState(input: FeatureReportInput): ReportState {
   // had no stage line and no Build button (2026-09-28).
   if (engineeringStopped(input)) {
     const newestRun = [...input.workerRuns].sort((a, b) => b.id - a.id)[0]!;
-    const why = String(newestRun.error ?? '').replace(/^verification failed: /, '').split(/(?<=[.)])\s/)[0]?.slice(0, 160);
-    return { key: 'stuck', label: 'Engineering stopped', detail: why ? `the run failed: ${why}` : 'the run failed', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
+    if (carrying?.stage === 'stopped') {
+      return { key: 'stuck', label: carrying.label, detail: carrying.line.replace(/^Stopped(?: after \d+ attempts?)?:\s*/, ''), needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
+    }
+    if (carrying?.stage === 'recovering') {
+      return { key: 'recovering', label: carrying.label, detail: 'the run failed; the next attempt starts on its own', needsYou: false, question: null, action: { label: 'View run', href: '#report-runs' }, decision: null };
+    }
+    // SAID FOR A PERSON (2026-09-28, #201 read "Engineering stopped:
+    // contract refused: 1 problem: plan is required: … without a plan.."):
+    // the failure in a sentence, and what happens next. The worker's own text
+    // stays on the run page and in the Status drawer.
+    const failure = classifyFailure({ status: newestRun.status, error: newestRun.error, failures: newestRun.failures ?? [] });
+    const handled = readRecovery(input.request.meta).handledRunIds.includes(newestRun.id);
+    const next = handled ? 'Build again starts a fresh attempt' : `next, ${nextAfter(failure)} — or Build again starts a fresh attempt now`;
+    return { key: 'stuck', label: 'Engineering stopped', detail: `the last run failed: ${failure.sentence}; ${next}`, needsYou: handled, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
   }
   const failedReview = [...input.tasks].filter(t => taskStatus(t) === 'review_failed').sort((a, b) => b.id - a.id)[0];
   if (failedReview && !input.tasks.some(t => taskStatus(t) === 'awaiting_review')) {
@@ -2621,7 +2662,11 @@ function buildSummary(input: FeatureReportInput, line: MoneyLine): FeatureReport
  * @param plan - The plan record.
  */
 export function planStatusOf(plan: ReportObject): PlanStatus {
-  const raw = [plan.status, str(plan.meta, 'status')].map(s => String(s ?? '').toLowerCase());
+  // THE PLAN'S OWN STATUS WINS over the row's (backlog 038): a plan the
+  // factory asked for is filed done for you, which marks the ROW approved (the
+  // candidate was accepted as a record) while the plan itself is in review.
+  const own = String(str(plan.meta, 'status') ?? '').toLowerCase();
+  const raw = ['draft', 'in_review', 'approved', 'rejected', 'superseded'].includes(own) ? [own] : [plan.status, own].map(s => String(s ?? '').toLowerCase());
   if (plan.meta.supersededBy || raw.includes('superseded')) {
     return 'Superseded';
   }
@@ -2842,6 +2887,14 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
  * 8. One screenshot cannot show five states."
  * @param detail - The state's detail ("QA proved 0 of 8: …" or "QA sent it back").
  */
+/**
+ * A clause as the start of a sentence.
+ * @param text - The clause.
+ */
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function changesDetail(detail: string): string {
   const m = /^QA proved (\d+) of (\d+)(?::(.*))?$/.exec(detail);
   if (!m) {
@@ -2905,6 +2958,12 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
             secondary: null,
           }
         : { tone: 'warn', headline: 'Release not verified', sentence: `${release.sentence} Whether it is live is not established.`, action: { kind: 'drawer', label: 'Review delivery status', drawer: 'release' }, secondary: null };
+    case 'planning':
+      return { tone: 'info', headline: 'Planning', sentence: `A plan comes first because ${bare(state.detail)}. The build starts on its own once the plan is approved.`, action: { kind: 'drawer', label: 'See the plan', drawer: 'plan' }, secondary: null };
+    case 'recovering': {
+      const started = impl.latest ? ` The latest run started ${ago(impl.latest.at)}.` : '';
+      return { tone: 'info', headline: state.label, sentence: `${capitalise(bare(state.detail))}.${started} Nothing needs you; after three automatic attempts the factory stops and asks.`, action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null };
+    }
     case 'building': {
       const started = impl.latest ? `The latest run started ${ago(impl.latest.at)}.` : '';
       return { tone: 'info', headline: 'Building', sentence: `Building now. ${started} Nothing needs you; checks, the merge and acceptance are not established until it finishes.`.replace(/\s+/g, ' ').trim(), action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null };
@@ -2916,7 +2975,7 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
     case 'changes':
       return { tone: 'warn', headline: 'Changes requested', sentence: `QA found problems and sent it back${changesDetail(state.detail)} Nothing from this attempt has merged.`, action: { kind: 'drawer', label: 'Review requested changes', drawer: 'acceptance' }, secondary: canBuild ? { kind: 'build', label: 'Build again' } : null };
     case 'stuck':
-      return { tone: 'warn', headline: state.label, sentence: `${state.label}: ${state.detail.replace(/^the run failed: /, '')}. Nothing from this attempt has merged.`, action: canBuild ? { kind: 'build', label: 'Build again' } : { kind: 'drawer', label: 'View run', drawer: 'implementation' }, secondary: canBuild ? { kind: 'drawer', label: 'View run', drawer: 'implementation' } : null };
+      return { tone: 'warn', headline: state.label, sentence: state.label.startsWith('Stopped after') ? `${capitalise(bare(state.detail))}. A person decides what happens next; nothing from these attempts has merged.` : `${capitalise(bare(state.detail))}. Nothing from this attempt has merged.`, action: canBuild ? { kind: 'build', label: 'Build again' } : { kind: 'drawer', label: 'View run', drawer: 'implementation' }, secondary: canBuild ? { kind: 'drawer', label: 'View run', drawer: 'implementation' } : null };
     default:
       break;
   }
