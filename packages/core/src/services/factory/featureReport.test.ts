@@ -1,5 +1,6 @@
 import type { FeatureReportInput, ReportActionRun, ReportArtifact, ReportAsk, ReportObject, ReportSectionKey, ReportWorkerRun } from './featureReport';
 import { describe, expect, it } from 'vitest';
+import { recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
 import { assembleFeatureReport, executedRun, formatDuration, moneyLine, personName, planStatusOf, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
 
 /**
@@ -535,6 +536,15 @@ describe('the contradiction: a failed run whose pull request merged', () => {
 });
 
 describe('the timeline', () => {
+  it('links the release to its release page where the workspace declares one, the generic record where not', () => {
+    const link = recordLinker(recordLinksOf([{ slug: 'releases', archetype: 'list', source: { kind: 'objects', objectType: 'release' }, recordPage: { kind: 'release', actions: {} } }] as never, 'northwind'));
+    const linked = assembleFeatureReport(input({ link }));
+
+    expect(linked.timeline.find(e => e.key === 'release-9')!.href).toBe('/w/northwind/dashboard/p/releases/9');
+    expect(linked.timeline.find(e => e.key === 'contract-77')!.href).toBe('/w/northwind/dashboard/objects/77');
+    expect(assembleFeatureReport(input()).timeline.find(e => e.key === 'release-9')!.href).toBe('/dashboard/objects/9');
+  });
+
   it('runs oldest first, so the newest entry is last', () => {
     const report = assembleFeatureReport(input());
     const stamps = report.timeline.map(e => e.at?.getTime() ?? Number.POSITIVE_INFINITY);

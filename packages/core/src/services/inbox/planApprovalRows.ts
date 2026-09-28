@@ -21,6 +21,7 @@ import type { PlanDecision, PlanLevel, PlanTrigger } from '@/services/factory/pl
 import type { InboxItem } from '@/services/InboxService';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 import { PLAN_DEFAULT_THRESHOLDS } from '@/services/factory/planRule';
+import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { planApprovalContract, planApprovalDecision } from './planApproval';
 
 type ObjectRow = { id: number; title: string; status: string | null; createdAt: Date | null; updatedAt?: Date | null; metadata: unknown };
@@ -118,6 +119,7 @@ export async function planApprovalRows(orgId: string): Promise<InboxItem[]> {
   for (const r of requestRows) {
     requests.set(r.id, r.title);
   }
+  const link = await recordLinkerForOrg(orgId);
 
   return waiting.map((row) => {
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
@@ -142,7 +144,7 @@ export async function planApprovalRows(orgId: string): Promise<InboxItem[]> {
       status: 'in_review',
       at: row.updatedAt ?? row.createdAt ?? new Date(),
       // The plan is reviewed with the feature it plans, not on a page of its own.
-      href: requestId === null ? `/dashboard/objects/${row.id}` : `/dashboard/p/feature/${requestId}`,
+      href: requestId === null ? link({ objectType: 'architecture_plan', id: row.id }) : link({ objectType: 'request', id: requestId }),
       detail: decision.recommendation,
       contract,
     };

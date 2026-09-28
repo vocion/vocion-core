@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { buildProductOverview } from '@/libs/workspace/productOverview';
+import { recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
 import '@/styles/global.css';
 
 /**
@@ -47,7 +48,7 @@ async function draw(environments: PageRow[] = []) {
     ],
     releases: [row(20, 'Share button', { product: 'send', releasedAt: '2026-09-23T00:00:00Z' })],
     ownerName: 'Dana Reyes',
-    links: { workSlug: 'work', requestLink: '/dashboard/p/feature/{id}', releasesSlug: 'releases', releaseLink: '/dashboard/objects/{id}' },
+    links: { workSlug: 'work', releasesSlug: 'releases', record: recordLinker(recordLinksOf([{ slug: 'feature', archetype: 'report', report: { subject: 'request' } }] as never)) },
     now: NOW,
   });
   render(<ProductOverviewView overview={overview} page={{ slug: 'products', title: 'Products' }} now={NOW.getTime()} />);

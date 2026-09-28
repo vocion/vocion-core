@@ -66,6 +66,8 @@
  */
 
 import type { PlanDecision, PlanRecord } from './planRule';
+import type { RecordLinker } from '@/libs/workspace/recordHref';
+import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { planRecordFromTask, planRequirementForTask } from './planRule';
 
@@ -169,6 +171,8 @@ export type FeatureReportInput = {
   now: Date;
   /** Display names for the user ids the records carry (an approver), so no raw id reaches the page. */
   people?: Record<string, string>;
+  /** Where a record opens in this workspace (`libs/workspace/recordHref.ts`); absent, the generic view. */
+  link?: RecordLinker;
 };
 
 /** One labelled figure in a section. `value` null renders as "not recorded". */
@@ -1692,7 +1696,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       detail: str(plan.meta, 'approach'),
       cents: null,
       tone: 'info',
-      href: `/dashboard/objects/${plan.id}`,
+      href: (input.link ?? genericRecordLinker)({ objectType: 'architecture_plan', id: plan.id }),
     });
     if (asDate(plan.meta.approvedAt)) {
       out.push({
@@ -1705,7 +1709,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
         detail: null,
         cents: null,
         tone: 'ok',
-        href: `/dashboard/objects/${plan.id}`,
+        href: (input.link ?? genericRecordLinker)({ objectType: 'architecture_plan', id: plan.id }),
       });
     }
   }
@@ -1720,7 +1724,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
         detail: null,
         cents: null,
         tone: 'warn',
-        href: `/dashboard/objects/${task.id}`,
+        href: (input.link ?? genericRecordLinker)({ objectType: 'engineering_task', id: task.id }),
       });
     }
   }
@@ -1747,7 +1751,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       detail: str(task.meta, 'objective') ?? task.title,
       cents: num(task.meta, 'estimateCents'),
       tone: 'info',
-      href: `/dashboard/objects/${task.id}`,
+      href: (input.link ?? genericRecordLinker)({ objectType: 'engineering_task', id: task.id }),
     });
   }
 
@@ -1837,7 +1841,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       detail: str(release.meta, 'announcement') ?? str(release.meta, 'notes'),
       cents: null,
       tone: 'ok',
-      href: `/dashboard/objects/${release.id}`,
+      href: (input.link ?? genericRecordLinker)({ objectType: 'release', id: release.id }),
     });
   }
 
@@ -2820,11 +2824,11 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
       label: 'Live',
       sentence: `Live since ${formatStamp(shipped.at)}, in ${name}.`,
       at: shipped.at,
-      href: surfaceUrl ?? `/dashboard/objects/${shipped.r.id}`,
+      href: surfaceUrl ?? (input.link ?? genericRecordLinker)({ objectType: 'release', id: shipped.r.id }),
     };
   }
   if (input.releases.length > 0) {
-    return { state: 'unverified', label: 'Release not verified', sentence: 'A release record names this work and carries no shipped time.', at: null, href: `/dashboard/objects/${input.releases[0]!.id}` };
+    return { state: 'unverified', label: 'Release not verified', sentence: 'A release record names this work and carries no shipped time.', at: null, href: (input.link ?? genericRecordLinker)({ objectType: 'release', id: input.releases[0]!.id }) };
   }
   const mergedSomething = input.tasks.some(t => str(t.meta, 'commitSha') !== null || taskStatus(t) === 'accepted') || [...mergedPrs].length > 0;
   if (mergedSomething || str(input.request.meta, 'state') === 'shipped') {

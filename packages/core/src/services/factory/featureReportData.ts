@@ -26,6 +26,7 @@ import { db } from '@/libs/DB';
 import { actionRunSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
+import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { assembleFeatureReport } from './featureReport';
 
 type ObjectRow = { id: number; title: string; status: string | null; createdAt: Date | null; metadata: unknown; type?: { slug: string } | null };
@@ -264,7 +265,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     }
   }
 
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people });
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link: await recordLinkerForOrg(orgId) });
   return { ...report, activity: await loadActivity(orgId, requestId, taskIds, workerRuns) };
 }
 

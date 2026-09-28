@@ -96,9 +96,9 @@ fields:
   - {key: inProgress, label: In progress, from: meta.inProgressLine, breakBefore: true, href: '/dashboard/p/work?product={meta.slug}#in-progress'}
   - {key: backlog, label: Open requests, from: meta.backlogLine, href: '/dashboard/p/work?product={meta.slug}#proposed'}
   - {key: workNone, label: Work, from: meta.workNoneLine}
-  # The release's own page. Releases open the record today (releases.yaml
-  # `rowLink`); when Releases grows its own release page, point this there.
-  - {key: latest, label: Latest release, from: meta.latestReleaseLine, breakBefore: true, href: '/dashboard/objects/{meta.latestReleaseId}'}
+  # The release's own page (releases.yaml `recordPage`), the same place a
+  # Releases row and every other link to a release opens.
+  - {key: latest, label: Latest release, from: meta.latestReleaseLine, breakBefore: true, href: '/dashboard/p/releases/{meta.latestReleaseId}'}
   - {key: latestWhen, label: Released, from: meta.latestReleaseAt, format: relative}
   - {key: stage, label: Stage, from: meta.lifecycle, breakBefore: true}
   - {key: health, label: Health, from: meta.healthLabel, toneFrom: meta.healthTone}

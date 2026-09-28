@@ -214,7 +214,8 @@ describe('done for you — a confident write lands with its history on the run',
     expect(card.title).toBe('Update request: CSV export of the ledger');
     expect(card.system).toBe('Request');
     expect(card.fields).toEqual([
-      { label: 'Record', value: `CSV export of the ledger (#${requestId})`, href: '/dashboard/objects' },
+      // The record itself (its workspace declares no page for it here), not the objects list.
+      { label: 'Record', value: `CSV export of the ledger (#${requestId})`, href: `/dashboard/objects/${requestId}` },
       { label: 'State', value: 'triaged → in_scope' },
       { label: 'Priority', value: '82' },
     ]);

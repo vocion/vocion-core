@@ -197,7 +197,7 @@ describe('plugin pages', () => {
     expect(byKey('attention')?.href).toEqual(['/dashboard/p/work?product={meta.slug}#{meta.attentionTab}', '/dashboard/p/products/{id}']);
     expect(byKey('inProgress')?.href).toBe('/dashboard/p/work?product={meta.slug}#in-progress');
     expect(byKey('backlog')?.href).toBe('/dashboard/p/work?product={meta.slug}#proposed');
-    expect(byKey('latest')?.href).toBe('/dashboard/objects/{meta.latestReleaseId}');
+    expect(byKey('latest')?.href).toBe('/dashboard/p/releases/{meta.latestReleaseId}');
     // Lifecycle is not a badge with a warning tone: "dogfood" is a stage.
     expect(byKey('stage')?.format).toBe('text');
     expect(byKey('stage')?.from).toBe('meta.lifecycle');

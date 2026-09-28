@@ -192,6 +192,23 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
         ...(cut ? { truncated: true } : {}),
       };
     }
+    // Any other business object: its status and summary, with the page its
+    // workspace opens it at one move away — a release at its release page, a
+    // request at its feature page (`services/objects/recordHref.ts`).
+    const { getBusinessObject } = await import('@/services/BusinessObjectService');
+    const obj = await getBusinessObject(Number.parseInt(ref.id, 10), ctx.orgId);
+    if (obj) {
+      const { recordHref } = await import('@/services/objects/recordHref');
+      const typeSlug = obj.type?.slug ?? null;
+      return {
+        ref,
+        title: obj.title,
+        sourceLabel: obj.type?.label ?? 'Record',
+        facts: facts(obj.status && { label: 'Status', value: obj.status }),
+        ...body(typeof obj.summary === 'string' ? obj.summary : null),
+        href: await recordHref(ctx.orgId, { objectType: typeSlug, id: obj.id }),
+      };
+    }
   }
   return resolveCrmRecord(ref, ctx);
 }

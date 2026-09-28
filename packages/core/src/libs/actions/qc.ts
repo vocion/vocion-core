@@ -51,10 +51,12 @@ async function card(orgId: string, id: number, opts: { title: string; headline: 
   const obj = await loadInspection(orgId, id);
   const m = meta(obj);
   const lines = findingLines(m);
+  const { recordHref } = await import('@/services/objects/recordHref');
+  const href = await recordHref(orgId, { objectType: obj.type?.slug, id: obj.id });
   return {
     title: opts.title,
     system: 'Kit verification',
-    subject: { name: obj.title, company: typeof m.template_id === 'string' ? m.template_id : undefined, href: `/dashboard/objects/${obj.id}` },
+    subject: { name: obj.title, company: typeof m.template_id === 'string' ? m.template_id : undefined, href },
     provenance: [
       ...(typeof m.production_order === 'string' ? [{ label: 'Production order', value: m.production_order }] : []),
       ...(typeof m.captured_at === 'string' ? [{ label: 'Captured', value: m.captured_at }] : []),
@@ -70,7 +72,7 @@ async function card(orgId: string, id: number, opts: { title: string; headline: 
       ...lines.map((l, i) => ({ label: `Finding ${i + 1}`, value: l })),
       ...(opts.extra ?? []),
     ],
-    links: [{ label: 'Open inspection', href: `/dashboard/objects/${obj.id}` }],
+    links: [{ label: 'Open inspection', href }],
     verbs: { approve: opts.approve, reject: 'Decline' },
   };
 }

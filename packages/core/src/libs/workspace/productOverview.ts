@@ -1,7 +1,9 @@
 import type { PageRow } from './pageFields';
 import type { HealthReading } from './productBoard';
-import { groupTabKey, interpolateHref } from './pageFields';
+import type { RecordLinker } from './recordHref';
+import { groupTabKey } from './pageFields';
 import { dependencyLine, healthReading, latestRelease, lifecycleLabel, plural, productWork, releasesFor } from './productBoard';
+import { genericRecordLinker } from './recordHref';
 import { isWaitingOnPerson } from './workQueue';
 
 /**
@@ -21,12 +23,14 @@ import { isWaitingOnPerson } from './workQueue';
 export type OverviewLinks = {
   /** Work's slug, for the product's filtered queue; null when there is no Work page. */
   workSlug: string | null;
-  /** Where one request opens (Work's `rowLink`), e.g. `/dashboard/p/feature/{id}`. */
-  requestLink: string | null;
   /** Releases' slug, for the product's release list. */
   releasesSlug: string | null;
-  /** Where one release opens (Releases' `rowLink`). */
-  releaseLink: string | null;
+  /**
+   * Where one record opens — a request at its feature page, a release at its
+   * release page — as the workspace declares it (`recordHref.ts`), so the
+   * overview never links a record anywhere its own page does not.
+   */
+  record: RecordLinker;
 };
 
 export type OverviewDecision = {
@@ -202,10 +206,6 @@ function readable(v: unknown): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-function link(template: string | null, row: PageRow): string | null {
-  return template ? interpolateHref(row, template) : null;
-}
-
 /** Production first, then the stages people share, local last. */
 const STAGE_ORDER = ['production', 'staging', 'preview', 'development', 'local'];
 
@@ -215,8 +215,9 @@ const SURFACE_LABEL: Record<string, string> = { api: 'API', web: 'Web app', mark
  * This product's environments, as the overview lists them.
  * @param slug - The product's slug.
  * @param rows - Every environment record.
+ * @param record - Where a record opens in this workspace; the generic record when omitted.
  */
-export function environmentsFor(slug: string, rows: PageRow[]): OverviewEnvironment[] {
+export function environmentsFor(slug: string, rows: PageRow[], record: RecordLinker = genericRecordLinker): OverviewEnvironment[] {
   const rank = (r: PageRow) => {
     const i = STAGE_ORDER.indexOf(String(meta(r).stage ?? ''));
     return i === -1 ? STAGE_ORDER.length : i;
@@ -238,7 +239,7 @@ export function environmentsFor(slug: string, rows: PageRow[]): OverviewEnvironm
         deployedSha: sha ? sha.slice(0, 7) : null,
         deployedAt: toDate(m.lastDeployedAt),
         health,
-        href: `/dashboard/objects/${r.id}`,
+        href: record({ objectType: 'environment', id: r.id }),
       };
     });
 }
@@ -297,13 +298,13 @@ export function buildProductOverview(input: {
         risk: str(rm.mainRisk),
         owner: owner?.name ?? null,
         minutes,
-        href: link(links.requestLink, r),
+        href: links.record({ objectType: 'request', id: r.id }),
       };
     });
 
   const blocked = progress
     .filter(r => r.meta.state === 'Blocked')
-    .map(r => ({ id: r.id, title: r.title, blocker: str(r.meta.blockerLine), href: link(links.requestLink, r) }));
+    .map(r => ({ id: r.id, title: r.title, blocker: str(r.meta.blockerLine), href: links.record({ objectType: 'request', id: r.id }) }));
 
   const gaps: string[] = [];
   if (health.state === 'unavailable' || health.state === 'outdated') {
@@ -322,10 +323,10 @@ export function buildProductOverview(input: {
     title: r.title,
     at: toDate(r.meta.releasedAt) ?? r.createdAt,
     healthAfter: str(r.meta.healthAfter),
-    href: link(links.releaseLink, r),
+    href: links.record({ objectType: 'release', id: r.id }),
   }));
 
-  const environments = slug ? environmentsFor(slug, input.environments ?? []) : [];
+  const environments = slug ? environmentsFor(slug, input.environments ?? [], links.record) : [];
 
   // Performance says its unit on every figure. A release here is a deploy
   // that reached people (releases.yaml), so "releases this month" counts
@@ -395,7 +396,7 @@ export function buildProductOverview(input: {
     },
     focus: str(m.currentFocus),
     work: {
-      inProgress: progress.map(r => ({ id: r.id, title: r.title, status: String(r.meta.state ?? ''), next: str(r.meta.workLine), href: link(links.requestLink, r) })),
+      inProgress: progress.map(r => ({ id: r.id, title: r.title, status: String(r.meta.state ?? ''), next: str(r.meta.workLine), href: links.record({ objectType: 'request', id: r.id }) })),
       queued: work.queued,
       workHref: workBase ? `${workBase}#${groupTabKey('In progress')}` : null,
       backlogHref: workBase ? `${workBase}#${groupTabKey('Proposed')}` : null,
@@ -415,7 +416,7 @@ export function buildProductOverview(input: {
       builtOn: dependencyLine(product, input.products),
       notes: str(m.notes),
     },
-    activity: done.slice(0, 8).map(r => ({ id: r.id, title: r.title, line: str(r.meta.workLine), href: link(links.requestLink, r) })),
+    activity: done.slice(0, 8).map(r => ({ id: r.id, title: r.title, line: str(r.meta.workLine), href: links.record({ objectType: 'request', id: r.id }) })),
     technical: { facts, other },
   };
 }

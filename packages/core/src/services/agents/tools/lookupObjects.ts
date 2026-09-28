@@ -3,6 +3,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 import { objectKnowledge } from '@/services/MemoryService';
+import { recordLinkerForOrg } from '@/services/objects/recordHref';
 
 // Metadata keys that are plumbing, not answer material — never surfaced to the
 // model. They invite verbatim dumps: internal ids, deep-links, profile URLs.
@@ -106,13 +107,15 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
       });
       // Tracker records ARE grounding — surface them as explorable sources in
       // the drawer (a lookup-only turn previously had an empty Sources drawer,
-      // which read as "no citations"). Deep-link to the objects page.
+      // which read as "no citations"). Each opens the record's own page — a
+      // release at its release page — where its workspace declares one.
+      const link = await recordLinkerForOrg(ctx.orgId);
       ctx.emit({
         type: 'documents',
         documents: objects.slice(0, 30).map(obj => ({
           document_id: `object-${obj.id}`,
           semantic_identifier: obj.title,
-          link: '/dashboard/objects',
+          link: link({ objectType: obj.type?.slug, id: obj.id }),
           source_type: 'tracker',
           blurb: [obj.status, typeof obj.summary === 'string' ? obj.summary : ''].filter(Boolean).join(' — ').slice(0, 200),
         })),

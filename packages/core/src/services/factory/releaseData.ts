@@ -3,6 +3,7 @@ import type { LinkedRecord, ReleaseLinked } from '@/libs/workspace/releaseFeed';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { artifactSchema, businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { recordLinkerForOrg } from '@/services/objects/recordHref';
 
 /**
  * The reads behind a release: the tasks and requests it names, its product's
@@ -89,7 +90,7 @@ export async function loadReleaseLinked(orgId: string, rows: PageRow[]): Promise
       }
     }
   }
-  return { records, products };
+  return { records, products, link: await recordLinkerForOrg(orgId) };
 }
 
 export type ReleaseArtifact = { id: number; title: string; kind: string; role: string | null };

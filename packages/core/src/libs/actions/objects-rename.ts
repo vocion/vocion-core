@@ -122,12 +122,15 @@ export const objectsRenameAction: Action<typeof renameInput> = {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
     const row = objectType ? await readRow(ctx.orgId, objectType.id, input.id) : null;
     const typeLabel = objectType?.label ?? humanise(input.objectType);
+    // The record itself, where its workspace opens it — not the objects list.
+    const { recordHref } = await import('@/services/objects/recordHref');
+    const href = await recordHref(ctx.orgId, { objectType: input.objectType, id: input.id });
     return {
       title: `Rename ${typeLabel.toLowerCase()} #${input.id}`,
       system: typeLabel,
       summary: input.reason,
       fields: [
-        { label: 'Now', value: row?.title ?? `#${input.id}`, href: '/dashboard/objects' },
+        { label: 'Now', value: row?.title ?? `#${input.id}`, href },
         { label: 'Becomes', value: input.title.trim() },
       ],
       nextAction: 'Approving renames the record everywhere it is listed; the old title stays on this run for Undo.',

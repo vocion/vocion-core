@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { buildProductOverview } from '@/libs/workspace/productOverview';
 import { accountMembershipSchema, projectSchema, userSchema } from '@/models/Schema';
+import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { readPageForOrg } from '@/services/PluginService';
 import { loadObjectRows } from '@/services/workspace/objectRows';
 
@@ -63,9 +64,8 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
   const email = typeof product.meta.accountableUser === 'string' ? product.meta.accountableUser : null;
   const links: OverviewLinks = {
     workSlug: work?.slug ?? null,
-    requestLink: work?.rowLink ?? null,
     releasesSlug: rel?.slug ?? null,
-    releaseLink: rel?.rowLink ?? null,
+    record: await recordLinkerForOrg(orgId),
   };
   return buildProductOverview({ product, products, requests, releases, ownerName: await memberName(orgId, email), links, environments, now });
 }

@@ -3,6 +3,7 @@ import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { recordLinkKey } from '@/features/dashboard/pages/FieldValue';
 import { db } from '@/libs/DB';
 import { businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { recordLinkerForOrg } from '@/services/objects/recordHref';
 
 /**
  * Turning a reference into a link a person can read.
@@ -52,6 +53,9 @@ export async function resolveRecordLinks(orgId: string, refs: RecordRef[]): Prom
   });
 
   const out: LinkMap = {};
+  // Each record opens where its workspace says it does — a release at its
+  // release page, a request at its feature page — and the generic record otherwise.
+  const link = await recordLinkerForOrg(orgId);
   for (const type of types) {
     const values = byType.get(type.slug) ?? [];
     const ids = [...new Set(values.map(asId).filter((n): n is number => n !== null))];
@@ -68,11 +72,11 @@ export async function resolveRecordLinks(orgId: string, refs: RecordRef[]): Prom
       .from(businessObjectSchema)
       .where(and(eq(businessObjectSchema.typeId, type.id), clauses.length === 1 ? clauses[0] : or(...clauses)));
     for (const row of rows) {
-      const link = { href: `/dashboard/objects/${row.id}`, label: row.title };
-      out[recordLinkKey(type.slug, row.id)] = link;
+      const resolved = { href: link({ objectType: type.slug, id: row.id }), label: row.title };
+      out[recordLinkKey(type.slug, row.id)] = resolved;
       const slug = (row.metadata as Record<string, unknown> | null)?.slug;
       if (typeof slug === 'string' && slug !== '') {
-        out[recordLinkKey(type.slug, slug)] = link;
+        out[recordLinkKey(type.slug, slug)] = resolved;
       }
     }
   }

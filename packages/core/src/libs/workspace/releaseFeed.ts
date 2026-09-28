@@ -1,6 +1,8 @@
 import type { PageRow } from './pageFields';
+import type { RecordLinker } from './recordHref';
 import { dayDistance, dayKey, formatDate, formatTime } from '@/libs/time/zone';
 import { relativeLabel } from '@/libs/timeAgo';
+import { genericRecordLinker } from './recordHref';
 import { hoursLive, SOAK_HOURS } from './releaseOutcome';
 
 /**
@@ -70,6 +72,11 @@ export type ReleaseLinked = {
   records: Map<number, LinkedRecord>;
   /** Product slug → the product's own name. */
   products: Map<string, string>;
+  /**
+   * Where a record opens in this workspace (`libs/workspace/recordHref.ts`).
+   * Absent, every record opens the generic view.
+   */
+  link?: RecordLinker;
 };
 
 export const NO_LINKS: ReleaseLinked = { records: new Map(), products: new Map() };
@@ -363,7 +370,7 @@ export function releaseFeatures(meta: Record<string, unknown>, linked: ReleaseLi
       kind: requestKind === 'bug' || requestKind === 'incident' || commitKind === 'fix' ? 'fix' : 'improvement',
       verdict: verdictOf(task, e.verdict),
       prNumbers: pr !== null ? [pr] : [],
-      href: requestId !== null ? `/dashboard/p/feature/${requestId}` : `/dashboard/objects/${e.taskId}`,
+      href: (linked.link ?? genericRecordLinker)(requestId !== null ? { objectType: 'request', id: requestId } : { objectType: 'engineering_task', id: e.taskId }),
     });
   }
   return [...byKey.values()];

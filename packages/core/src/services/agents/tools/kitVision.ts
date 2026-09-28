@@ -38,6 +38,7 @@ import { metadataFromKey, parseS3Config } from '@/libs/sources/s3';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { createBusinessObject, updateBusinessObject } from '@/services/BusinessObjectService';
 import { getNamespace, listNamespaces } from '@/services/MemoryService';
+import { recordHref } from '@/services/objects/recordHref';
 
 export const KIT_VISION_TOOL_NAMES = ['vision_compare_reference', 'vision_detect_labels'] as const;
 
@@ -187,11 +188,11 @@ async function upsertInspection(ctx: RuntimeContext, args: {
   const title = `${args.template ?? 'kit'} · ${String(metadata.production_order ?? path.basename(args.imageKey, path.extname(args.imageKey)))}`;
   if (existing) {
     await updateBusinessObject({ id: existing.id, status: status ?? 'pending', metadata, title }, ctx.orgId);
-    return { id: existing.id, url: `/dashboard/objects/${existing.id}` };
+    return { id: existing.id, url: await recordHref(ctx.orgId, { objectType: INSPECTION_TYPE, id: existing.id }) };
   }
   const input: CreateBusinessObjectInput = { typeSlug: INSPECTION_TYPE, title, status: status ?? 'pending', metadata } as CreateBusinessObjectInput;
   const obj = await createBusinessObject(input, ctx.orgId, ctx.userId ?? `agent:${ctx.agentSlug ?? 'unknown'}`);
-  return obj ? { id: obj.id, url: `/dashboard/objects/${obj.id}` } : null;
+  return obj ? { id: obj.id, url: await recordHref(ctx.orgId, { objectType: INSPECTION_TYPE, id: obj.id }) } : null;
 }
 
 const VerdictSchema = z.object({

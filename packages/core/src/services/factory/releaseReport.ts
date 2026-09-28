@@ -3,6 +3,7 @@ import type { PageRow } from '@/libs/workspace/pageFields';
 import type { ReleaseCommit, ReleaseLinked, ReleaseReading, Tone } from '@/libs/workspace/releaseFeed';
 import { formatDateTime } from '@/libs/time/zone';
 import { formatMoney } from '@/libs/workspace/pageFields';
+import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { NO_LINKS, prNumberOf, readRelease } from '@/libs/workspace/releaseFeed';
 
 /**
@@ -257,10 +258,12 @@ export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseL
       : { key: `e-${id}`, label: `Evidence artifact ${id} is not in this workspace`, href: null };
   });
   const records: ReleaseLink[] = [
+    // The raw record, deliberately: this IS the release's page, and the
+    // generic view is where its fields are edited and its history read.
     { key: 'release', label: `Release record ${row.id}`, href: `/dashboard/objects/${row.id}` },
     ...r.features.flatMap(f => [
       ...(f.requestId !== null ? [{ key: `req-${f.requestId}`, label: `Request ${f.requestId} · ${f.title}`, href: f.href }] : []),
-      ...f.taskIds.map(t => ({ key: `task-${t}`, label: `Engineering task ${t} · ${linked.records.get(t)?.title ?? f.title}`, href: `/dashboard/objects/${t}` })),
+      ...f.taskIds.map(t => ({ key: `task-${t}`, label: `Engineering task ${t} · ${linked.records.get(t)?.title ?? f.title}`, href: (linked.link ?? genericRecordLinker)({ objectType: 'engineering_task', id: t }) })),
     ]),
   ];
   const facts: ReleaseReport['technical']['facts'] = [];

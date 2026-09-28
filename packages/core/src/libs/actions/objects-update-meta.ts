@@ -327,8 +327,10 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     const properties = (objectType?.schema?.properties ?? {}) as Record<string, { title?: string }>;
     const row = objectType ? await readRow(ctx.orgId, objectType.id, input.id) : null;
     const typeLabel = objectType?.label ?? humanise(input.objectType);
+    // The record itself, where its workspace opens it — not the objects list.
+    const { recordHref } = await import('@/services/objects/recordHref');
     const fields: ReviewCard['fields'] = [
-      { label: 'Record', value: row ? `${row.title} (#${input.id})` : `${typeLabel} #${input.id}`, href: '/dashboard/objects' },
+      { label: 'Record', value: row ? `${row.title} (#${input.id})` : `${typeLabel} #${input.id}`, href: await recordHref(ctx.orgId, { objectType: input.objectType, id: input.id }) },
     ];
     for (const [key, value] of Object.entries(input.set)) {
       const before = row && key in row.metadata ? displayValue(row.metadata[key]) : '';

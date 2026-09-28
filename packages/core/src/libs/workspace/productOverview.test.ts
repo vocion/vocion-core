@@ -3,10 +3,16 @@ import type { OverviewLinks } from './productOverview';
 import { describe, expect, it } from 'vitest';
 import { subtitleLines } from './pageFields';
 import { buildProductOverview } from './productOverview';
+import { recordLinker, recordLinksOf } from './recordHref';
 
 const NOW = new Date('2026-09-24T12:00:00Z');
 
-const LINKS: OverviewLinks = { workSlug: 'work', requestLink: '/dashboard/p/feature/{id}', releasesSlug: 'releases', releaseLink: '/dashboard/objects/{id}' };
+// The software factory's pages: a request opens its feature page, a release its release page.
+const RECORD_PAGES = recordLinksOf([
+  { slug: 'feature', archetype: 'report', report: { subject: 'request' } },
+  { slug: 'releases', archetype: 'list', source: { kind: 'objects', objectType: 'release' }, recordPage: { kind: 'release', actions: {} } },
+] as never);
+const LINKS: OverviewLinks = { workSlug: 'work', releasesSlug: 'releases', record: recordLinker(RECORD_PAGES) };
 
 function row(id: number, title: string, meta: Record<string, unknown>): PageRow {
   return { id, title, status: null, createdAt: new Date('2026-09-20T00:00:00Z'), meta };
@@ -121,11 +127,12 @@ describe('work in progress is Work\'s own rows', () => {
 });
 
 describe('recent releases and performance say their units', () => {
-  it('lists releases newest first, each linked', () => {
+  it('lists releases newest first, each linked to its release page', () => {
     const o = build();
 
     expect(o.releases.recent.map(r => r.title)).toEqual(['Email delivery tracking and bounce handling', 'Share button', 'Last month']);
-    expect(o.releases.recent[0]?.href).toBe('/dashboard/objects/20');
+    // The release's own page, not the generic object view (one link for every record).
+    expect(o.releases.recent[0]?.href).toBe('/dashboard/p/releases/20');
     expect(o.releases.allHref).toBe('/dashboard/p/releases?product=send');
   });
 

@@ -264,3 +264,20 @@ describe('CRM names come from the one record namer', () => {
     expect(doc.title).toBe('Fixture Industries');
   });
 });
+
+describe('a business object opens where its workspace opens it', () => {
+  it('previews a release with its release page as the link, workspace-prefixed', async () => {
+    const org = 'proj_preview_release';
+    const { businessObjectSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
+    const { createObjectType } = await import('@/services/BusinessObjectService');
+    await db.insert(tenantAccountSchema).values({ id: 'acct-preview-release', name: 'Northwind', slug: 'northwind-preview' });
+    await db.insert(projectSchema).values({ id: org, accountId: 'acct-preview-release', slug: 'northwind-relay', name: 'Northwind Relay', enabledPlugins: ['software-factory'] });
+    const [type] = await createObjectType({ slug: 'release', label: 'Release' }, org);
+    const [release] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: type!.id, title: 'relay 930a23f', status: 'active', metadata: {} }).returning();
+
+    const doc = await resolvePreview({ type: 'object', id: String(release!.id) }, { orgId: org, userId: null });
+
+    expect(doc).toMatchObject({ title: 'relay 930a23f', sourceLabel: 'Release', href: `/w/northwind-relay/dashboard/p/releases/${release!.id}` });
+    expect(doc.unresolved).toBeUndefined();
+  });
+});

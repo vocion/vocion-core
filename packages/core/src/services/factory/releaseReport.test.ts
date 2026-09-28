@@ -1,6 +1,7 @@
 import type { PageRow } from '@/libs/workspace/pageFields';
 import type { LinkedRecord, ReleaseLinked } from '@/libs/workspace/releaseFeed';
 import { describe, expect, it } from 'vitest';
+import { recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
 import { ANNOUNCEMENT_PLACEHOLDER } from '@/libs/workspace/releaseFeed';
 import { assembleReleaseReport } from './releaseReport';
 
@@ -30,7 +31,12 @@ const TASK: LinkedRecord = {
   title: 'Resumable uploads',
   meta: { requestId: 41, prUrl: 'https://github.example/northwind/relay/pull/96', verdict: { value: 'approve', proven: 8, total: 8, at: '2026-09-28T07:58:00Z', by: 'change-reviewer' } },
 };
-const LINKED: ReleaseLinked = { records: new Map([[41, REQUEST], [52, TASK]]), products: new Map([['relay', 'Relay']]) };
+// The software factory's pages: a request opens its feature page, a release its release page.
+const LINK = recordLinker(recordLinksOf([
+  { slug: 'feature', archetype: 'report', report: { subject: 'request' } },
+  { slug: 'releases', archetype: 'list', source: { kind: 'objects', objectType: 'release' }, recordPage: { kind: 'release', actions: {} } },
+] as never));
+const LINKED: ReleaseLinked = { records: new Map([[41, REQUEST], [52, TASK]]), products: new Map([['relay', 'Relay']]), link: LINK };
 
 const RELEASE: PageRow = {
   id: 197,
@@ -163,6 +169,9 @@ describe('the release page', () => {
     ]);
     expect(technical.commits.map(c => c.label)).toEqual(['Product change', 'Internal']);
     expect(technical.records.map(x => x.label)).toEqual(['Release record 197', 'Request 41 · Uploads that survive a bad connection', 'Engineering task 52 · Resumable uploads']);
+    // The release record is the raw view on purpose (its fields and history);
+    // the request opens its feature page, the task the generic record.
+    expect(technical.records.map(x => x.href)).toEqual(['/dashboard/objects/197', '/dashboard/p/feature/41', '/dashboard/objects/52']);
     expect(technical.facts.find(f => f.label === 'Surfaces deployed')?.value).toBe('api, web');
   });
 

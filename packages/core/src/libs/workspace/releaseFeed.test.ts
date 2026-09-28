@@ -1,6 +1,7 @@
 import type { PageRow } from './pageFields';
 import type { LinkedRecord, ReleaseLinked } from './releaseFeed';
 import { describe, expect, it } from 'vitest';
+import { recordLinker, recordLinksOf } from './recordHref';
 import {
   ANNOUNCEMENT_PLACEHOLDER,
   announcementOf,
@@ -270,8 +271,35 @@ describe('the announcement is a workflow, not a field', () => {
     expect(published.publishedAt?.toISOString()).toBe('2026-09-28T10:00:00.000Z');
   });
 
+  it('reads the product manager\'s draft as a draft ready, with its words', () => {
+    // What `release-announcement-draft` writes on a linked release.
+    const drafted = row(197, { ...FEATURE_RELEASE.meta, announcement: 'Uploads now pick up where they stopped when the signal drops. QA proved 8 of 8 criteria.', notesSource: 'agent', announcementState: 'draft' });
+    const r = readRelease(drafted, { linked: linked([REQUEST, TASK]), now: NOW });
+
+    expect(r.announcement).toMatchObject({ state: 'draft', label: 'Draft ready', text: 'Uploads now pick up where they stopped when the signal drops. QA proved 8 of 8 criteria.', publishedAt: null });
+
+    const [out] = deriveReleaseFeed([drafted], { linked: linked([REQUEST, TASK]), now: NOW });
+
+    expect(out!.meta.communication).toBe('Draft ready');
+  });
+
+  it('reads a release core marked "not needed" as not needed, with no draft', () => {
+    const internalOnly = row(198, { product: 'relay', releasedAt: '2026-09-28T09:00:00Z', commits: ['1a2b3c4 fix(worker): retry the lease (#80)'], announcementState: 'not-needed' });
+
+    expect(readRelease(internalOnly, { now: NOW }).announcement).toMatchObject({ state: 'not-needed', label: 'Not needed', text: null });
+  });
+
   it('keeps words a person wrote even on an internal release', () => {
     expect(announcementOf({ announcement: 'The worker keeps failed work.' }, false).state).toBe('draft');
+  });
+});
+
+describe('where a shipped feature links', () => {
+  it('opens the page the workspace declares for a request, and the generic record with none', () => {
+    const withPages = { ...linked([REQUEST, TASK]), link: recordLinker(recordLinksOf([{ slug: 'feature', archetype: 'report', report: { subject: 'request' } }] as never, 'northwind')) };
+
+    expect(readRelease(FEATURE_RELEASE, { linked: withPages, now: NOW }).features[0]!.href).toBe('/w/northwind/dashboard/p/feature/41');
+    expect(readRelease(FEATURE_RELEASE, { linked: linked([REQUEST, TASK]), now: NOW }).features[0]!.href).toBe('/dashboard/objects/41');
   });
 });
 
