@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { CompositeBackend, createDeepAgent, StateBackend } from 'deepagents';
 import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory.js';
 import { createMemoryDigestMiddleware } from './memoryDigest.js';
-import { buildChatModel } from './model.js';
+import { buildChatModel, resolvedModelId } from './model.js';
 import { readOnlyBackend } from './readOnlyBackend.js';
 import { stepLimitStreamConfig, turnFailureMessage } from './stepLimit.js';
 import { sessionIdFor, withSession } from './telemetry.js';
@@ -251,6 +251,7 @@ async function runTurn(
     userId: req.trace?.userId,
     sessionId: req.sessionId,
     input: { message: req.message },
+    modelId: resolvedModelId(req.agent.model),
     onTurnEnd: turn => emit({ type: 'usage', ...turn }),
   });
 

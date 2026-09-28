@@ -145,7 +145,7 @@ export async function buildChatModel(opts: {
     const { ChatAnthropic } = await import('@langchain/anthropic');
     const { CachingChatAnthropic } = await import('./promptCache.js');
     const Anthropic = caching ? CachingChatAnthropic : ChatAnthropic;
-    const model = opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? ANTHROPIC_DEFAULT;
+    const model = resolvedModelId(opts.model);
     return new Anthropic({
       model,
       ...(anthropicOmitsSampling(model) || opts.temperature === undefined ? {} : { temperature: opts.temperature }),
@@ -159,14 +159,26 @@ export async function buildChatModel(opts: {
   const credentials = opts.readAwsSession
     ? bedrockCredentialProvider(opts.readAwsSession)
     : undefined;
-  const region = process.env.AWS_REGION ?? 'us-west-2';
-  const model = bedrockModelId(opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? BEDROCK_DEFAULT, region);
+  const model = resolvedModelId(opts.model);
   return new Bedrock({
     model,
     // Same models, second transport: Bedrock refuses the same parameters.
     ...(anthropicOmitsSampling(model) || opts.temperature === undefined ? {} : { temperature: opts.temperature }),
     maxTokens: opts.maxTokens ?? 8192,
-    region,
+    region: process.env.AWS_REGION ?? 'us-west-2',
     ...(credentials ? { credentials } : {}),
   });
+}
+
+/**
+ * The model id `buildChatModel` builds for an agent that authored `model`
+ * (or none), on this process's provider. Exported so the usage the loop
+ * reports names the model it actually called — see `createRuntimeTrace`.
+ * @param model - The agent definition's `model`, if it set one.
+ */
+export function resolvedModelId(model?: string): string {
+  if (resolveProvider() === 'anthropic') {
+    return model ?? process.env.VOCION_LLM_MODEL_MAIN ?? ANTHROPIC_DEFAULT;
+  }
+  return bedrockModelId(model ?? process.env.VOCION_LLM_MODEL_MAIN ?? BEDROCK_DEFAULT, process.env.AWS_REGION ?? 'us-west-2');
 }

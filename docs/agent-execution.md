@@ -61,6 +61,29 @@ Because the artifact is generic — the agent travels in the invocation payload 
 editing an agent never redeploys anything. `workspace:apply` stays a database
 sync.
 
+"Same prompt assembly" was not true until 2026-09-28, and what was missing is
+worth knowing because it failed silently. The payload carried the bare
+`system_prompt` column and the deprecated inline `subagents`; the message had
+no NOW line; and each tool call came back to core without the mission run, the
+person's zone, the page they were on, or the workspace's plugin list. So an
+agent moved to the container lost the clock rules and output discipline,
+could not delegate to its registered specialists, had no wiki tools, and — on a
+mission — wrote `tool_call` rows that belonged to no run, which every
+automation check reads as "did nothing". Now `buildAgentDefinition`
+(`services/agents/harness.ts`) builds the one definition both loops run, and
+the signed claim carries `missionRunId`, `timeZone` and `pageContext` beside
+the tenancy fields. Mission runs and automations were never the gap: they go
+through `runAgentDeep` like a chat turn, so `runsOn` reaches them.
+
+Model ids cross as authored. An agent written for Anthropic's API says
+`claude-opus-5`; on a Bedrock container the artifact rewrites a bare `claude-`
+id to its inference profile (`us.anthropic.claude-opus-5`, `bedrockModelId` in
+`packages/agent-runtime/src/model.ts`), so the same row runs on both loops and
+the kill switch needs no re-authoring. An agent that names no model gets the
+container's `VOCION_LLM_MODEL_MAIN`, else `us.anthropic.claude-sonnet-4-6`; an
+account that has not subscribed to that model on Bedrock sets another through
+`EXTRA_ENV_JSON` on `deploy-runtime.sh`.
+
 ### What it means that tools call back
 
 On `agentcore-container` the container holds no database credential and no KMS grant. It

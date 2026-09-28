@@ -41,6 +41,7 @@ vi.mock('deepagents', () => ({
 }));
 
 vi.mock('./model.js', () => ({
+  resolvedModelId: (model?: string) => model ?? 'test-model',
   buildChatModel: (options: { readAwsSession: () => InvocationRequest['aws'] }) => {
     void options;
     return Promise.resolve({});
