@@ -59,6 +59,14 @@ async function stepDuringWhichThePersonCancels(): Promise<never> {
   return { response: 'first step output', traceId: 'trace-1', toolCalls: [] } as never;
 }
 
+/**
+ * An agent step during which a person cancels the run, and which then fails.
+ */
+async function stepThatFailsAfterThePersonCancels(): Promise<never> {
+  await stepDuringWhichThePersonCancels();
+  throw new Error('the sync API timed out');
+}
+
 beforeEach(async () => {
   await db.delete(workflowRunSchema);
   await db.delete(workflowSchema);
@@ -84,6 +92,30 @@ describe('cancelling a workflow run', () => {
     expect(run.stepResults.first?.status).toBe('completed');
     expect(run.stepResults.first?.output).toBe('first step output');
     expect(run.stepResults.second).toBeUndefined();
+  });
+
+  it('still records why a step failed when it failed after the cancel, and stays cancelled', async () => {
+    await seedWorkflow('fails_after_cancel', [agentStep('first'), agentStep('second')]);
+    mockRunAgent.mockImplementationOnce(stepThatFailsAfterThePersonCancels);
+
+    const run = await startWorkflow({ orgId: ORG, slug: 'fails_after_cancel', invokedBy: 'test' });
+
+    expect(run.status).toBe('cancelled');
+    expect(run.error).toBe('stopped by the operator');
+    expect(run.stepResults.first?.status).toBe('failed');
+    expect(run.stepResults.first?.error).toBe('the sync API timed out');
+    expect(run.stepResults.first?.finishedAt).toBeDefined();
+  });
+
+  it('keeps the last step\'s output when the cancel landed while it ran', async () => {
+    await seedWorkflow('last_step_cancel', [agentStep('only')]);
+    mockRunAgent.mockImplementationOnce(stepDuringWhichThePersonCancels);
+
+    const run = await startWorkflow({ orgId: ORG, slug: 'last_step_cancel', invokedBy: 'test' });
+
+    expect(run.status).toBe('cancelled');
+    expect(run.stepResults.only?.status).toBe('completed');
+    expect(run.stepResults.only?.output).toBe('first step output');
   });
 
   it('leaves a run that already completed as completed', async () => {

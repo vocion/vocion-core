@@ -17,7 +17,8 @@ import { clampAutonomyLevel } from './missions/autonomy';
 import { describeTaskFailure } from './missions/failure';
 import { planMission } from './missions/planner';
 import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
-import { executeMissionRun, MISSION_RUN_SETTLED_STATUSES } from './missions/runtime';
+import { executeMissionRun } from './missions/runtime';
+import { SETTLED_RUN_STATUSES } from './settledRunStatus';
 import { assertWorkspaceRunning } from './workspacePause';
 
 export type MissionRunSummary = typeof missionRunSchema.$inferSelect;
@@ -552,7 +553,7 @@ export async function cancelMission(runId: number, orgId: string, reason?: strin
     .where(and(
       eq(missionRunSchema.id, runId),
       eq(missionRunSchema.orgId, orgId),
-      notInArray(missionRunSchema.status, [...MISSION_RUN_SETTLED_STATUSES]),
+      notInArray(missionRunSchema.status, [...SETTLED_RUN_STATUSES]),
     ));
   return (await getMissionRun(runId, orgId))!;
 }

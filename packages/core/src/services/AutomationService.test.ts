@@ -166,6 +166,19 @@ describe('fireAutomation', () => {
     await db.delete(toolCallSchema);
   });
 
+  it('do.requireTool: a run a person cancelled is not forced to record, and the fire does not fail', async () => {
+    const { toolCallSchema } = await import('@/models/Schema');
+    const { forceRequiredTool } = await import('@/services/automations/requiredToolPass');
+    await db.delete(toolCallSchema);
+    await seedAutomation('review-pr-cancelled', { event: 'pr.checks_completed' }, { checkMission: 'prove-the-contract', prompt: 'Review it.', requireTool: 'record_verdict' });
+    vi.mocked(forceRequiredTool).mockClear();
+    vi.mocked(startMission).mockResolvedValueOnce({ id: 405, status: 'cancelled' } as never);
+
+    await expect(fireAutomation(ORG, 'review-pr-cancelled', { input: { number: 51 } })).resolves.toMatchObject({ kind: 'mission_check', runId: 405 });
+    // No paid recording pass for a run someone stopped on purpose.
+    expect(vi.mocked(forceRequiredTool)).not.toHaveBeenCalled();
+  });
+
   it('carries do.prompt into the scheduled-check brief; the mission stays the standing context', async () => {
     await seedAutomation(
       'discovery-sweep',
