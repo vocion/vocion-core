@@ -384,7 +384,11 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // (library search) is `logic` because it touches the API, and shipped with no
   // QA flow and so no picture to prove it (2026-09-26).
   const visible = risk === 'ui' || ['ui', 'flow'].includes(String(r.surface ?? ''));
-  const qa = g.qa ?? (visible ? { surface: str(repo, 'qaSurface') ?? 'app', flows: [{ name: typeof r.title === 'string' ? r.title : 'the change', path: qaPath, sign_in: true }] } : undefined);
+  // A QA flow name fits the worker's contract (≤ 60 characters): #214's title
+  // was 64 and the worker refused the whole contract before cloning (run 404,
+  // 2026-09-28). Cut at a word, never mid-word.
+  const flowName = fitName(typeof r.title === 'string' ? r.title : 'the change', 60);
+  const qa = g.qa ?? (visible ? { surface: str(repo, 'qaSurface') ?? 'app', flows: [{ name: flowName, path: qaPath, sign_in: true }] } : undefined);
   const environment = g.environment ?? (repo.environment && typeof repo.environment === 'object' ? repo.environment : undefined);
   return {
     ...g,
@@ -399,6 +403,21 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     riskClass: risk,
     repoSlug,
   };
+}
+
+/**
+ * A name that fits `max` characters, cut at the last whole word (with an ellipsis).
+ * @param name - The full name.
+ * @param max - The limit the worker's contract sets.
+ */
+export function fitName(name: string, max: number): string {
+  const clean = name.trim();
+  if (clean.length <= max) {
+    return clean;
+  }
+  const cut = clean.slice(0, max - 1);
+  const word = cut.lastIndexOf(' ');
+  return `${(word > max / 2 ? cut.slice(0, word) : cut).replace(/[\s,;:.\-—"'(]+$/, '')}…`;
 }
 
 async function readRepo(orgId: string, slug: string | null, product?: string | null): Promise<Meta | null> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, pathsFromComponents, riskFromPaths } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, pathsFromComponents, riskFromPaths } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -240,5 +240,23 @@ describe('the factory\'s own starts are their own trust keys (backlog 038)', () 
     const c = deriveContract({ given: {}, request: { title: 'Request a file', outcome: 'Send a link.' }, plan: null, repo: null, note: 'Make the test pass: expected 2, got 3.' });
 
     expect(String(c.objective)).toBe('Send a link.\n\nFor this attempt: Make the test pass: expected 2, got 3.');
+  });
+});
+
+describe('a QA flow name fits the worker\'s contract (#214: a 64-character title refused run 404)', () => {
+  it('keeps a short title, and cuts a long one at a whole word within 60 characters', () => {
+    expect(fitName('Find a document', 60)).toBe('Find a document');
+
+    const long = fitName('Download CSV of document viewers from the "Who opened it" panel', 60);
+
+    expect(long.length).toBeLessThanOrEqual(60);
+    expect(long).toBe('Download CSV of document viewers from the "Who opened it…');
+  });
+
+  it('names the derived flow within the limit', () => {
+    const c = deriveContract({ given: {}, request: { title: 'Download CSV of document viewers from the "Who opened it" panel', surface: 'ui', acceptance: [{ statement: 'A button.' }] }, plan: null, repo: { title: 'Acme/northwind-core', riskDefaults: {} } });
+    const flows = (c.qa as { flows: Array<{ name: string }> }).flows;
+
+    expect(flows[0]!.name.length).toBeLessThanOrEqual(60);
   });
 });
