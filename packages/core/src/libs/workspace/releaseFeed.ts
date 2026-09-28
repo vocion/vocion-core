@@ -2,6 +2,7 @@ import type { PageRow } from './pageFields';
 import type { RecordLinker } from './recordHref';
 import { dayDistance, dayKey, formatDate, formatTime } from '@/libs/time/zone';
 import { relativeLabel } from '@/libs/timeAgo';
+import { featureProof, risksLine } from './featureProof';
 import { genericRecordLinker } from './recordHref';
 import { hoursLive, SOAK_HOURS } from './releaseOutcome';
 
@@ -81,7 +82,12 @@ export type ReleaseLinked = {
 
 export const NO_LINKS: ReleaseLinked = { records: new Map(), products: new Map() };
 
-export type FeatureVerdict = { value: string | null; proven: number | null; total: number | null; at: string | null; by: string | null };
+/**
+ * QA's verdict on a shipped feature. `proven`/`total` count the work's own
+ * acceptance lines and `risksHandled`/`risksTotal` the plan-risk lines, both
+ * from `featureProof` — the count the feature's page shows too.
+ */
+export type FeatureVerdict = { value: string | null; proven: number | null; total: number | null; risksHandled: number | null; risksTotal: number | null; at: string | null; by: string | null };
 
 export type ReleaseFeature = {
   requestId: number | null;
@@ -319,12 +325,48 @@ export function releaseCommits(meta: Record<string, unknown>): ReleaseCommit[] {
 function verdictOf(task: LinkedRecord | undefined, fallback: unknown): FeatureVerdict | null {
   const v = obj(task?.meta.verdict);
   if (str(v.value)) {
-    return { value: str(v.value), proven: typeof v.proven === 'number' ? v.proven : null, total: typeof v.total === 'number' ? v.total : null, at: str(v.at), by: str(v.by) };
+    return { value: str(v.value), proven: typeof v.proven === 'number' ? v.proven : null, total: typeof v.total === 'number' ? v.total : null, risksHandled: null, risksTotal: null, at: str(v.at), by: str(v.by) };
   }
-  // The pack's own line: "approve, 8 of 8 proven" or "merged without a QA verdict".
+  // The pack's own line: "approve, 6 of 6 proven · 2 plan risks handled",
+  // "approve, 8 of 8 proven" (before the risk lines were their own group) or
+  // "merged without a QA verdict".
   const line = str(fallback);
   const m = line ? /^(\w+),\s*(\d+) of (\d+) proven/.exec(line) : null;
-  return m ? { value: m[1]!, proven: Number(m[2]), total: Number(m[3]), at: null, by: null } : null;
+  const r = line ? /(?:(\d+) of )?(\d+) plan risks? handled/.exec(line) : null;
+  return m ? { value: m[1]!, proven: Number(m[2]), total: Number(m[3]), risksHandled: r ? Number(r[1] ?? r[2]) : null, risksTotal: r ? Number(r[2]) : null, at: null, by: null } : null;
+}
+
+/**
+ * The verdict counted the one way every surface counts it (`featureProof`):
+ * the work's own acceptance lines, and the plan-risk lines as their own group,
+ * judged on the attempt this release shipped.
+ * @param feature - The feature, with its verdict as the records hold it.
+ * @param linked - The records the release names.
+ */
+function countedVerdict(feature: ReleaseFeature, linked: ReleaseLinked): FeatureVerdict | null {
+  const tasks = feature.taskIds.map(id => linked.records.get(id)).filter((t): t is LinkedRecord => t !== undefined);
+  if (feature.verdict === null || tasks.length === 0) {
+    return feature.verdict;
+  }
+  const request = feature.requestId !== null ? linked.records.get(feature.requestId) ?? null : null;
+  const proof = featureProof({ request, tasks, shippedTaskIds: feature.taskIds });
+  if (proof.attempt === null || proof.total === 0) {
+    return feature.verdict;
+  }
+  return { ...feature.verdict, proven: proof.proven, total: proof.total, risksHandled: proof.risksHandled, risksTotal: proof.risksTotal };
+}
+
+/**
+ * The count a release says for one feature: "6 of 6 criteria proven, 2 plan risks handled".
+ * @param v - The verdict.
+ * @param noun - What the acceptance lines are called.
+ */
+export function verdictCount(v: FeatureVerdict, noun = 'criteria'): string | null {
+  if (v.total === null) {
+    return null;
+  }
+  const risks = v.risksTotal !== null && v.risksHandled !== null ? risksLine({ risksHandled: v.risksHandled, risksTotal: v.risksTotal }) : null;
+  return `${v.proven ?? 0} of ${v.total} ${noun} proven${risks ? `, ${risks}` : ''}`;
 }
 
 /**
@@ -373,7 +415,7 @@ export function releaseFeatures(meta: Record<string, unknown>, linked: ReleaseLi
       href: (linked.link ?? genericRecordLinker)(requestId !== null ? { objectType: 'request', id: requestId } : { objectType: 'engineering_task', id: e.taskId }),
     });
   }
-  return [...byKey.values()];
+  return [...byKey.values()].map(f => ({ ...f, verdict: countedVerdict(f, linked) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -395,7 +437,8 @@ function acceptanceOf(features: ReleaseFeature[]): ReleaseVerification['acceptan
   }
   if (passed.length === 1) {
     const v = passed[0]!.verdict!;
-    return { state: 'passed', line: v.total !== null ? `QA approved, ${v.proven ?? 0} of ${v.total} criteria proven` : 'QA approved' };
+    const count = verdictCount(v);
+    return { state: 'passed', line: count ? `QA approved, ${count}` : 'QA approved' };
   }
   return { state: 'passed', line: `QA approved all ${passed.length} features` };
 }

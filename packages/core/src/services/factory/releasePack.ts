@@ -12,6 +12,7 @@
 
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { featureProof, risksLine } from '@/libs/workspace/featureProof';
 import { artifactSchema, businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
 
 /**
@@ -86,15 +87,35 @@ export async function linkRelease(orgId: string, releaseId: number, opts: { disp
   }
   const tasks = (await objectsOfType(orgId, 'engineering_task'))
     .filter(t => typeof t.meta.prUrl === 'string' && shipped.includes(normalPr(t.meta.prUrl)));
+  const requestIdOf = (t: Row) => {
+    const n = Number(t.meta.requestId);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const wanted = new Set(tasks.map(requestIdOf).filter((id): id is number => id !== null));
+  const requests = wanted.size === 0 ? [] : (await objectsOfType(orgId, 'request')).filter(r => wanted.has(r.id));
+  const shippedIds = tasks.map(t => t.id);
+  // ONE COUNT (`libs/workspace/featureProof.ts`): the work's own acceptance
+  // lines, and the plan-risk lines as their own group, judged on the attempt
+  // this release shipped — the count the feature's page shows.
+  const proofOf = (requestId: number | null) => featureProof({
+    request: requests.find(r => r.id === requestId) ?? null,
+    tasks: tasks.filter(t => requestIdOf(t) === requestId),
+    shippedTaskIds: shippedIds,
+  });
   const evidence: ReleaseEvidence[] = tasks.map((t) => {
     const v = (t.meta.verdict ?? {}) as { value?: string; proven?: number; total?: number };
-    const requestId = Number(t.meta.requestId);
+    const requestId = requestIdOf(t);
+    const proof = proofOf(requestId);
+    const risks = risksLine(proof);
+    const counted = proof.attempt !== null && proof.total > 0
+      ? `${proof.proven} of ${proof.total} proven${risks ? ` · ${risks}` : ''}`
+      : `${v.proven ?? 0} of ${v.total ?? 0} proven`;
     return {
       taskId: t.id,
-      requestId: Number.isFinite(requestId) && requestId > 0 ? requestId : null,
+      requestId,
       prUrl: normalPr(String(t.meta.prUrl)),
       // Shipped without a verdict is said plainly, never dressed up.
-      verdict: v.value ? `${v.value}, ${v.proven ?? 0} of ${v.total ?? 0} proven` : 'merged without a QA verdict',
+      verdict: v.value ? `${v.value}, ${counted}` : 'merged without a QA verdict',
       // The feature's own words travel with the pack, so a release reads as
       // what it shipped even where the task is not loaded beside it.
       title: t.title,
@@ -130,19 +151,22 @@ export async function linkRelease(orgId: string, releaseId: number, opts: { disp
   // request's own acceptance lines as met or unmet, and nothing ever marked
   // them: #131 shipped at "QA approve, 8 of 8 proven" and read "6 of 6 unmet"
   // at the top of Done. Each line is paired by words with the shipped task's
-  // verdict (the same pairing the verdict uses); a proven line is met, with
-  // its evidence. A line QA did not prove stays unmet — that is the gate.
-  const { alignToContract } = await import('@/services/agents/tools/recordVerdict');
-  const requests = (await objectsOfType(orgId, 'request')).filter(r => requestIds.includes(r.id));
+  // verdict (`featureProof`); a proven line is met, with its evidence and the
+  // link it names. A line QA did not prove stays as it was — that is the gate.
+  // The feature page does not depend on this write: it reads the same proof
+  // from the verdict (#126 read "0 of 6 verified" because this wrote
+  // `evidence` and never `evidenceUrl`).
   for (const request of requests) {
     const acceptance = Array.isArray(request.meta.acceptance) ? request.meta.acceptance as Array<Record<string, unknown>> : [];
-    const task = tasks.find(t => Number(t.meta.requestId) === request.id);
-    const judged = (((task?.meta.verdict ?? {}) as { criteria?: unknown }).criteria ?? []) as Parameters<typeof alignToContract>[1];
-    const aligned = acceptance.length > 0 && Array.isArray(judged) && judged.length > 0
-      ? alignToContract(acceptance.map(a => String(a.statement ?? a.criterion ?? '')), judged)
-      : [];
-    const marked = acceptance.map((a, i) => (aligned[i]?.status === 'proven' ? { ...a, met: true, evidence: aligned[i]!.evidence ?? `QA, release #${releaseId}` } : a));
-    await mergeMeta(orgId, request.id, { state: 'shipped', shippedAt: releasedAt, shippedIn: releaseId, ...(aligned.length > 0 ? { acceptance: marked } : {}) });
+    const proof = proofOf(request.id);
+    const judged = proof.attempt !== null && proof.acceptance.some(c => c.from === 'verdict');
+    const marked = acceptance.map((a, i) => {
+      const c = proof.acceptance[i];
+      return c?.from === 'verdict' && c.state === 'passed'
+        ? { ...a, met: true, evidence: c.evidence ?? `QA, release #${releaseId}`, ...(c.evidenceUrl ? { evidenceUrl: c.evidenceUrl } : {}), provenBy: { taskId: proof.attempt!.taskId, releaseId } }
+        : a;
+    });
+    await mergeMeta(orgId, request.id, { state: 'shipped', shippedAt: releasedAt, shippedIn: releaseId, ...(judged && acceptance.length > 0 ? { acceptance: marked } : {}) });
   }
   const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
   await recomputeRollupsForObject(orgId, releaseId).catch(() => undefined);

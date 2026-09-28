@@ -1,10 +1,10 @@
 import type { ReleaseArtifact } from './releaseData';
 import type { PageRow } from '@/libs/workspace/pageFields';
-import type { ReleaseCommit, ReleaseLinked, ReleaseReading, Tone } from '@/libs/workspace/releaseFeed';
+import type { FeatureVerdict, ReleaseCommit, ReleaseLinked, ReleaseReading, Tone } from '@/libs/workspace/releaseFeed';
 import { formatDateTime } from '@/libs/time/zone';
 import { formatMoney } from '@/libs/workspace/pageFields';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
-import { NO_LINKS, prNumberOf, readRelease } from '@/libs/workspace/releaseFeed';
+import { NO_LINKS, prNumberOf, readRelease, verdictCount } from '@/libs/workspace/releaseFeed';
 
 /**
  * THE RELEASE PAGE — one release, read the way the person who owns the
@@ -107,11 +107,13 @@ const COMMIT_LABEL: Record<ReleaseCommit['kind'], string> = {
   reverted: 'Reverted',
 };
 
-function verdictLine(v: { value: string | null; proven: number | null; total: number | null; by: string | null } | null): { line: string; tone: Tone } {
+function verdictLine(v: FeatureVerdict | null): { line: string; tone: Tone } {
   if (v === null) {
     return { line: 'Shipped without a QA verdict', tone: 'warn' };
   }
-  const counted = v.total !== null ? `, ${v.proven ?? 0} of ${v.total} acceptance criteria proven` : '';
+  // The count the feature's own page shows (`libs/workspace/featureProof.ts`).
+  const count = verdictCount(v, 'acceptance criteria');
+  const counted = count ? `, ${count}` : '';
   const who = v.by ? ` (${v.by})` : '';
   if (v.value === 'approve') {
     return { line: `QA approved${counted}${who}`, tone: 'ok' };

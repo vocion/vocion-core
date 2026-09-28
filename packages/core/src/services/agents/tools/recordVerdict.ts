@@ -23,6 +23,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { MERGE_RISK_CLASSES } from '@/libs/actions/factory';
+import { alignToContract, contractOf } from '@/libs/workspace/featureProof';
 
 /**
  * A list the model may have sent as JSON text, read as the list; anything
@@ -43,6 +44,8 @@ export function parseJsonArray(v: unknown): unknown[] {
   }
   return [];
 }
+
+export { alignToContract, contractOf };
 
 export const VERDICT_VALUES = ['approve', 'changes', 'reject'] as const;
 export const CRITERION_STATUSES = ['proven', 'unproven', 'unchecked'] as const;
@@ -114,54 +117,6 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
     }
   }
   return { proven, total, refusal: null };
-}
-
-/**
- * The acceptance contract on a task, as a list of statements.
- * @param meta - The task's metadata.
- */
-export function contractOf(meta: Record<string, unknown>): string[] {
-  const raw = Array.isArray(meta.acceptanceContract) ? meta.acceptanceContract : [];
-  return raw
-    .map(c => (typeof c === 'string' ? c : c && typeof c === 'object' && typeof (c as { statement?: unknown }).statement === 'string' ? (c as { statement: string }).statement : ''))
-    .map(c => c.trim())
-    .filter(Boolean);
-}
-
-function normal(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-/**
- * Pair the reviewer's judgements to the contract, line by line. A judgement
- * matches a line when one's words contain the other's. Never by position: a
- * reviewer that invents as many lines as the contract has would pass it.
- * Every contract line comes back, in contract order, in the contract's own
- * words; a line no judgement named is `unchecked`.
- * @param contract - The frozen contract statements.
- * @param judged - What the reviewer sent.
- */
-export function alignToContract(contract: string[], judged: VerdictCriterion[]): VerdictCriterion[] {
-  const used = new Set<number>();
-  const byText = contract.map((line) => {
-    const n = normal(line);
-    const i = judged.findIndex((j, k) => {
-      if (used.has(k)) {
-        return false;
-      }
-      const m = normal(j.criterion ?? '');
-      return m.length >= 12 && (n.includes(m) || m.includes(n) || n.slice(0, 40) === m.slice(0, 40));
-    });
-    if (i >= 0) {
-      used.add(i);
-    }
-    return i;
-  });
-  return contract.map((line, idx) => {
-    const i = byText[idx]!;
-    const j = i >= 0 ? judged[i] : undefined;
-    return j ? { criterion: line, status: j.status, ...(j.evidence ? { evidence: j.evidence } : {}) } : { criterion: line, status: 'unchecked' as const };
-  });
 }
 
 /**

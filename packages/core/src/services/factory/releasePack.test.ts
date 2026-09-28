@@ -48,18 +48,19 @@ describe('linkRelease', () => {
     const pack = await linkRelease(ORG, release!.id);
 
     expect(pack).toMatchObject({ requestIds: [request!.id], taskIds: [task!.id], reverted: [`${PR}/66`] });
-    expect(pack?.evidence).toEqual([{ taskId: task!.id, requestId: request!.id, prUrl: `${PR}/70`, verdict: 'approve, 6 of 6 proven', title: 'Request a file' }]);
+    expect(pack?.evidence).toEqual([{ taskId: task!.id, requestId: request!.id, prUrl: `${PR}/70`, verdict: 'approve, 1 of 2 proven', title: 'Request a file' }]);
 
     const [rel] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, release!.id));
 
-    expect(rel!.metadata).toMatchObject({ shippedLine: 'Request a file — QA approve, 6 of 6 proven', requestIds: [request!.id], taskIds: [task!.id], verificationArtifactIds: [shot!.id], revertedPrUrls: [`${PR}/66`] });
+    expect(rel!.metadata).toMatchObject({ shippedLine: 'Request a file — QA approve, 1 of 2 proven', requestIds: [request!.id], taskIds: [task!.id], verificationArtifactIds: [shot!.id], revertedPrUrls: [`${PR}/66`] });
 
     const [req] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, request!.id));
 
     expect(req!.metadata).toMatchObject({ state: 'shipped', shippedAt: '2026-09-27T20:00:00Z', shippedIn: release!.id });
     // Met from QA's proof, paired by words; what QA did not prove stays unmet.
+    // The count is the request's lines as judged (1 of 2), not the verdict's stored 6 of 6.
     expect((req!.metadata as { acceptance: unknown[] }).acceptance).toEqual([
-      { statement: 'Send someone a link to upload a file.', met: true, evidence: 'artifact 1201' },
+      { statement: 'Send someone a link to upload a file.', met: true, evidence: 'artifact 1201', provenBy: { taskId: task!.id, releaseId: release!.id } },
       { statement: 'It arrives in your library.' },
     ]);
     expect(reverted).toBeDefined();

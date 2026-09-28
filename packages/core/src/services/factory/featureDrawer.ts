@@ -308,14 +308,19 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
     case 'acceptance': {
       const a = report.acceptance;
       const word = { passed: 'Passed', failed: 'Failed', unverified: 'Unverified' } as const;
-      const items = a.items.map((c, i) => `${i + 1}. **${word[c.state]}** — ${c.statement}${c.evidenceUrl ? ` ([evidence](${evidenceHref(c.evidenceUrl)}))` : ''}${c.note ? `\n   _${c.note}_` : ''}`).join('\n');
+      const line = (c: typeof a.items[number], i: number) => `${i + 1}. **${word[c.state]}** — ${c.statement}${c.evidenceUrl ? ` ([evidence](${evidenceHref(c.evidenceUrl)}))` : ''}${c.note ? `\n   _${c.note}_` : ''}`;
+      const items = a.items.map(line).join('\n');
+      const risks = a.risks.map((c, i) => line(c, a.items.length + i)).join('\n');
+      const attempt = a.attempt ? `Judged on task ${a.attempt.taskId}, ${a.attempt.why === 'shipped' ? 'the attempt that shipped' : 'the newest attempt QA judged'}.` : '';
       const verdict = report.state.key === 'changes' ? `## What QA asked for\n\n${report.state.detail}` : '';
       return {
         title: 'Acceptance',
-        subtitle: a.total === 0 ? 'Nothing says what done means for this work yet.' : `${a.verified} of ${a.total} verified${a.source === 'task' ? ' · criteria from the engineering task' : ''}${a.frozenAt === null && a.source === 'request' ? ' · still a draft' : ''}`,
+        subtitle: a.total === 0 ? 'Nothing says what done means for this work yet.' : `${a.verified} of ${a.total} verified${a.risksLine ? ` · ${a.risksLine}` : ''}${a.source === 'task' ? ' · criteria from the engineering task' : ''}${a.frozenAt === null && a.source === 'request' ? ' · still a draft' : ''}`,
         body: [
           verdict,
+          attempt,
           items ? `## Criteria\n\n${items}` : '',
+          risks ? `## Plan risks · ${a.risksLine}\n\n${risks}` : '',
           a.procedure ? `## How it is reviewed\n\n${a.procedure}` : '## How it is reviewed\n\nNo review procedure is written for this work.',
           sectionMd(section('qa')),
         ].filter(Boolean).join('\n\n'),
@@ -396,7 +401,7 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
       };
     default: {
       const n = Number(/^criterion-(\d+)$/.exec(key)?.[1]);
-      const c = Number.isInteger(n) ? report.acceptance.items[n] : undefined;
+      const c = Number.isInteger(n) ? [...report.acceptance.items, ...report.acceptance.risks][n] : undefined;
       if (!c) {
         return null;
       }
@@ -405,7 +410,9 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
         title: `Criterion ${n + 1} · ${word}`,
         subtitle: c.statement,
         body: [
-          c.evidenceUrl ? `**Evidence:** [open it](${evidenceHref(c.evidenceUrl)})` : 'No evidence is attached to this criterion, so it cannot read as passed.',
+          c.evidenceUrl ? `**Evidence:** [open it](${evidenceHref(c.evidenceUrl)})` : c.evidence ? '' : 'No evidence is attached to this criterion, so it cannot read as passed.',
+          c.evidence ? `> ${c.evidence}` : '',
+          report.acceptance.attempt && c.from === 'verdict' ? `_From task ${report.acceptance.attempt.taskId}'s QA verdict (${report.acceptance.attempt.why === 'shipped' ? 'the attempt that shipped' : 'the newest judged attempt'})._` : '',
           c.note ? `_${c.note}_` : '',
           report.acceptance.procedure ? `## How it is reviewed\n\n${report.acceptance.procedure}` : '',
         ].filter(Boolean).join('\n\n'),

@@ -1055,10 +1055,12 @@ describe('which work this is', () => {
 describe('a task QA sent back', () => {
   const sentBack = { ...task, status: 'changes_requested', meta: { ...task.meta, status: 'changes_requested', verdict: { value: 'changes', proven: 0, total: 8, note: 'One screenshot cannot show five states.' } } };
 
+  // The count is the request's own two lines judged on this attempt (`featureProof`),
+  // the figure the acceptance section shows, not the verdict's stored 0 of 8.
   it('reads as Changes asked, with the count and the sentence, and offers Build again', () => {
     const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [sentBack], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
 
-    expect(r.state).toMatchObject({ key: 'changes', label: 'Changes asked', needsYou: true, detail: 'QA proved 0 of 8: One screenshot cannot show five states.', action: { label: 'Build again' } });
+    expect(r.state).toMatchObject({ key: 'changes', label: 'Changes asked', needsYou: true, detail: 'QA proved 0 of 2: One screenshot cannot show five states.', action: { label: 'Build again' } });
     expect(r.canBuild).toBe(true);
   });
 

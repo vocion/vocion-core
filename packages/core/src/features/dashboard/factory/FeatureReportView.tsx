@@ -408,27 +408,50 @@ function AcceptanceBlock({ report }: { report: FeatureReport }) {
     <Section
       id="report-acceptance"
       data-testid="report-acceptance"
-      eyebrow={a.total === 0 ? 'Acceptance' : `Acceptance · ${a.verified} of ${a.total} verified`}
+      eyebrow={a.total === 0 ? 'Acceptance' : `Acceptance · ${a.verified} of ${a.total} verified${a.risksLine ? ` · ${a.risksLine}` : ''}`}
       commentField="Acceptance"
       action={<FeatureDrawerLink requestId={report.requestId} drawer="acceptance">{a.procedure ? 'How it is reviewed' : 'Details'}</FeatureDrawerLink>}
     >
       {a.total === 0
         ? <p className="max-w-prose text-[15px] text-muted-foreground">Nothing says what done means for this work yet, so it can be shown to run but not shown to be done.</p>
         : (
-            <ul className="-mx-2 space-y-0.5">
-              {a.items.map((c, i) => (
-                <li key={c.statement}>
-                  <FeatureDrawerLink requestId={report.requestId} drawer={`criterion-${i}`} look="row" className="flex items-start gap-3 px-2 py-1.5" testId="report-criterion">
-                    <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
-                      <StatusDot tone={CRITERION_TONE[c.state]} label={<span className={c.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{CRITERION_WORD[c.state]}</span>} />
-                    </span>
-                    <span className="min-w-0 flex-1 text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
-                  </FeatureDrawerLink>
-                </li>
-              ))}
-            </ul>
+            <>
+              <CriterionList report={report} items={a.items} offset={0} testId="report-criterion" />
+              {a.risks.length > 0 && (
+                <>
+                  <p className="mt-3 text-[12px] text-muted-foreground" data-testid="report-risks-line">{`Plan risks · ${a.risksLine}`}</p>
+                  <CriterionList report={report} items={a.risks} offset={a.items.length} testId="report-risk" />
+                </>
+              )}
+            </>
           )}
     </Section>
+  );
+}
+
+/**
+ * One group of criteria, each opening its drawer. `offset` places the group
+ * in the drawer keys: acceptance lines first, then the plan-risk lines.
+ * @param props
+ * @param props.report - The report.
+ * @param props.items - The criteria.
+ * @param props.offset - The first drawer index.
+ * @param props.testId - The row's test id.
+ */
+function CriterionList({ report, items, offset, testId }: { report: FeatureReport; items: FeatureReport['acceptance']['items']; offset: number; testId: string }) {
+  return (
+    <ul className="-mx-2 space-y-0.5">
+      {items.map((c, i) => (
+        <li key={c.statement}>
+          <FeatureDrawerLink requestId={report.requestId} drawer={`criterion-${offset + i}`} look="row" className="flex items-start gap-3 px-2 py-1.5" testId={testId}>
+            <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
+              <StatusDot tone={CRITERION_TONE[c.state]} label={<span className={c.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{CRITERION_WORD[c.state]}</span>} />
+            </span>
+            <span className="min-w-0 flex-1 text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
+          </FeatureDrawerLink>
+        </li>
+      ))}
+    </ul>
   );
 }
 

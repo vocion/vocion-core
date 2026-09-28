@@ -22,6 +22,9 @@ const LINKED_KEYS = [
   'requestId',
   'prUrl',
   'verdict',
+  // `featureProof`: the work's acceptance lines and the attempt's contract.
+  'acceptance',
+  'acceptanceContract',
   'askedBy',
   'told',
   'result',

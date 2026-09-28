@@ -66,7 +66,9 @@
  */
 
 import type { PlanDecision, PlanRecord } from './planRule';
+import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
+import { featureProof, risksLine } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { planRecordFromTask, planRequirementForTask } from './planRule';
@@ -2167,7 +2169,11 @@ function buildState(input: FeatureReportInput): ReportState {
   const sentBack = [...input.tasks].filter(t => taskStatus(t) === 'changes_requested').sort((a, b) => b.id - a.id)[0];
   if (sentBack && !input.tasks.some(t => taskStatus(t) === 'awaiting_review')) {
     const v = (sentBack.meta.verdict ?? {}) as { proven?: number; total?: number; note?: string };
-    const count = typeof v.proven === 'number' && typeof v.total === 'number' ? `QA proved ${v.proven} of ${v.total}` : 'QA sent it back';
+    // The same count the acceptance section and the release read, for this attempt.
+    const proof = featureProof({ request: input.request, tasks: [sentBack] });
+    const count = proof.attempt !== null && proof.total > 0
+      ? `QA proved ${proof.proven} of ${proof.total}${risksLine(proof) ? ` (${risksLine(proof)})` : ''}`
+      : typeof v.proven === 'number' && typeof v.total === 'number' ? `QA proved ${v.proven} of ${v.total}` : 'QA sent it back';
     return { key: 'changes', label: 'Changes asked', detail: v.note ? `${count}: ${v.note}` : count, needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
   }
   // QA COULD NOT FINISH. A review that ended without a verdict, even after
@@ -2296,7 +2302,9 @@ function goalOf(request: ReportObject): string | null {
  *
  * Read off the request rather than the tasks: the contract belongs to the
  * work, not to whichever attempt happened to carry it — which is also why five
- * attempts used to render five copies of it.
+ * attempts used to render five copies of it. Whether each line holds is read
+ * off the attempt that shipped (else the newest judged), through the one count
+ * every surface shares (`libs/workspace/featureProof.ts`).
  */
 /**
  * A criterion's state as a person reads it. `passed` needs evidence: a `met`
@@ -2305,13 +2313,34 @@ function goalOf(request: ReportObject): string | null {
  */
 export type CriterionState = 'unverified' | 'passed' | 'failed';
 
+export type ReportCriterion = {
+  statement: string;
+  /** `met` null means nobody checked, which is not false. */
+  met: boolean | null;
+  /** What proves it, as QA or a person wrote it. */
+  evidence: string | null;
+  evidenceUrl: string | null;
+  state: CriterionState;
+  note: string | null;
+  /** Where the state came from: the counted attempt's QA verdict, or a mark on the request. */
+  from: 'verdict' | 'request' | null;
+};
+
 export type ReportAcceptance = {
-  /** Each criterion and whether it holds. `met` null means nobody checked, which is not false. */
-  items: Array<{ statement: string; met: boolean | null; evidenceUrl: string | null; state: CriterionState; note: string | null }>;
+  /** The work's own acceptance lines. */
+  items: ReportCriterion[];
+  /** The lines the plan's risks added to the contract, as their own group. */
+  risks: ReportCriterion[];
   met: number;
-  /** Criteria that passed WITH evidence — the "N of M verified" figure. */
+  /** Acceptance lines that passed WITH evidence — the "N of M verified" figure. */
   verified: number;
   total: number;
+  risksHandled: number;
+  risksTotal: number;
+  /** "2 plan risks handled", or null when the contract carried none. */
+  risksLine: string | null;
+  /** The attempt whose judgement is read: the one that shipped, else the newest judged. */
+  attempt: { taskId: number; why: 'shipped' | 'judged' } | null;
   /** When the contract stopped being a draft. Null while it still is. */
   frozenAt: Date | null;
   /** Where the criteria were read: the work's own contract, or the newest task's when the work carries none. */
@@ -2321,46 +2350,56 @@ export type ReportAcceptance = {
 };
 
 /**
- * The contract as the page reads it.
- * @param request - The request record.
- * @param tasks - Its tasks, for a contract only the task carries.
- * @param plans - Its plans, for the review procedure.
+ * The attempts a release carried, by id — the ones whose proof went out.
+ * @param releases - The release records naming this work.
  */
-function buildAcceptance(request: ReportObject, tasks: ReportObject[] = [], plans: ReportObject[] = []): ReportAcceptance {
-  const raw = Array.isArray(request.meta.acceptance) ? request.meta.acceptance : [];
-  const stateOf = (met: boolean | null, evidenceUrl: string | null): CriterionState =>
-    met === false ? 'failed' : met === true && evidenceUrl !== null ? 'passed' : 'unverified';
-  let items: ReportAcceptance['items'] = raw
-    .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null)
-    .map((c) => {
-      const met = typeof c.met === 'boolean' ? c.met : null;
-      const evidenceUrl = str(c, 'evidenceUrl');
-      return {
-        statement: str(c, 'statement') ?? 'an unnamed criterion',
-        met,
-        evidenceUrl,
-        state: stateOf(met, evidenceUrl),
-        note: met === true && evidenceUrl === null ? 'Marked met, with no evidence attached.' : str(c, 'note'),
-      };
-    });
-  let source: ReportAcceptance['source'] = items.length > 0 ? 'request' : null;
-  // The work carries no contract, and the task that is building it does: the
-  // criteria are real, and the page reads them rather than saying none exist.
-  if (items.length === 0) {
-    const newest = [...tasks].sort((a, b) => b.id - a.id).find(t => list(t.meta, 'acceptanceContract').length > 0);
-    if (newest) {
-      items = list(newest.meta, 'acceptanceContract').map(statement => ({ statement, met: null, evidenceUrl: null, state: 'unverified' as const, note: null }));
-      source = 'task';
-    }
-  }
+export function shippedTaskIdsOf(releases: ReportObject[]): number[] {
+  return releases.flatMap(r => [
+    ...(Array.isArray(r.meta.taskIds) ? r.meta.taskIds : []),
+    ...(Array.isArray(r.meta.evidence) ? (r.meta.evidence as Array<Record<string, unknown>>).map(e => e?.taskId) : []),
+  ]).map(Number).filter(n => Number.isSafeInteger(n) && n > 0);
+}
+
+/**
+ * The acceptance figure in one phrase: "6 of 6 · 2 plan risks handled".
+ * @param a - The acceptance.
+ */
+export function acceptanceCount(a: Pick<ReportAcceptance, 'verified' | 'total' | 'risksLine'>): string {
+  return `${a.verified} of ${a.total}${a.risksLine ? ` · ${a.risksLine}` : ''}`;
+}
+
+/**
+ * The contract as the page reads it: {@link featureProof}, the one count the
+ * Releases row and page read too, so the two cannot disagree.
+ * @param request - The request record.
+ * @param tasks - Its tasks: the attempt that shipped (or the newest judged) is read.
+ * @param plans - Its plans, for the review procedure.
+ * @param releases - The releases naming this work, for which attempt shipped.
+ */
+function buildAcceptance(request: ReportObject, tasks: ReportObject[] = [], plans: ReportObject[] = [], releases: ReportObject[] = []): ReportAcceptance {
+  const proof = featureProof({ request, tasks, shippedTaskIds: shippedTaskIdsOf(releases) });
+  const toItem = (c: ProofCriterion): ReportCriterion => ({
+    statement: c.statement,
+    met: c.state === 'passed' ? true : c.state === 'failed' ? false : null,
+    evidence: c.evidence,
+    evidenceUrl: c.evidenceUrl,
+    state: c.state,
+    note: c.note,
+    from: c.from,
+  });
   const plan = [...plans].sort((a, b) => b.id - a.id).find(p => str(p.meta, 'verification') !== null);
   return {
-    items,
-    met: items.filter(i => i.met === true).length,
-    verified: items.filter(i => i.state === 'passed').length,
-    total: items.length,
+    items: proof.acceptance.map(toItem),
+    risks: proof.risks.map(toItem),
+    met: proof.proven,
+    verified: proof.proven,
+    total: proof.total,
+    risksHandled: proof.risksHandled,
+    risksTotal: proof.risksTotal,
+    risksLine: risksLine(proof),
+    attempt: proof.attempt ? { taskId: proof.attempt.taskId, why: proof.attempt.why } : null,
     frozenAt: asDate(request.meta.acceptanceFrozenAt),
-    source,
+    source: proof.source,
     procedure: (plan ? str(plan.meta, 'verification') : null) ?? str(request.meta, 'howWeCheck'),
   };
 }
@@ -2854,9 +2893,9 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
       label: 'Acceptance verified',
       ...(acceptance.total === 0
         ? { value: 'No criteria', state: 'unknown' as const }
-        : acceptance.items.some(i => i.state === 'failed')
-          ? { value: `${acceptance.verified} of ${acceptance.total}`, state: 'no' as const }
-          : { value: `${acceptance.verified} of ${acceptance.total}`, state: acceptance.verified === acceptance.total ? 'yes' as const : 'unknown' as const }),
+        : [...acceptance.items, ...acceptance.risks].some(i => i.state === 'failed')
+            ? { value: acceptanceCount(acceptance), state: 'no' as const }
+            : { value: acceptanceCount(acceptance), state: acceptance.verified === acceptance.total && acceptance.risksHandled === acceptance.risksTotal ? 'yes' as const : 'unknown' as const }),
     },
     {
       key: 'released',
@@ -2965,7 +3004,7 @@ function changesDetail(detail: string): string {
 function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBuild: boolean; canDismiss: boolean; plan: ReportPlanSummary; impl: ReportImplementation; release: ReportReleaseSummary; acceptance: ReportAcceptance; surfaceUrl: string | null }): ReportStatus {
   const { canBuild, canDismiss, plan, impl, release, acceptance } = ctx;
   const ago = (d: Date) => formatAge(input.now.getTime() - d.getTime());
-  const verifiedLine = acceptance.total === 0 ? 'No acceptance criteria are written yet.' : `${acceptance.verified} of ${acceptance.total} acceptance criteria verified.`;
+  const verifiedLine = acceptance.total === 0 ? 'No acceptance criteria are written yet.' : `${acceptance.verified} of ${acceptance.total} acceptance criteria verified${acceptance.risksLine ? `; ${acceptance.risksLine}` : ''}.`;
   const buildLabel = input.workerRuns.some(executedRun) || input.tasks.length > 0 ? 'Build again' : plan.status === 'Awaiting approval' ? 'Approve build' : 'Build it';
   const inbox = state.decision ? inboxHref(state.decision.kind === 'ask' ? 'ask' : 'proposal', state.decision.id) : null;
   switch (state.key) {
@@ -3071,7 +3110,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   // action is never "Dismiss" — throwing away an attempt is not what it says.
   const canDismiss = canBuild && input.tasks.length === 0 && runs.length === 0;
   const planId = [...input.plans].filter(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && !p.meta.supersededBy).sort((a, b) => b.id - a.id)[0]?.id ?? null;
-  const acceptance = buildAcceptance(input.request, input.tasks, input.plans);
+  const acceptance = buildAcceptance(input.request, input.tasks, input.plans, input.releases);
   const release = buildReleaseSummary(normalised, mergedPrs);
   const implementation = buildImplementation(normalised, mergedPrs, acceptance, release, line);
   const planSummary = buildPlanSummary(normalised, planId);
