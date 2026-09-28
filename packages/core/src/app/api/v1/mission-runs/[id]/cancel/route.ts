@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cancelMission, getMissionRun } from '@/services/MissionService';
+import { isSettledRunStatus } from '@/services/settledRunStatus';
 import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody } from '../../../_shared';
 
 /**
@@ -42,9 +43,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!run) {
     return jsonError('NOT_FOUND', `No mission run found with id ${id}`, 404);
   }
-  if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+  if (isSettledRunStatus(run.status)) {
     return jsonError('MISSION_RUN_SETTLED', `mission run ${id} is already ${run.status}`, 409);
   }
   const cancelled = await cancelMission(id, caller.orgId, reason);
+  // The run settled between the check above and the cancel, which then
+  // changed nothing: the same 409, not a 200 that reads as a stop.
+  if (cancelled.status !== 'cancelled') {
+    return jsonError('MISSION_RUN_SETTLED', `mission run ${id} is already ${cancelled.status}`, 409);
+  }
   return NextResponse.json({ id: cancelled.id, status: cancelled.status, error: cancelled.error, completedAt: cancelled.completedAt });
 }
