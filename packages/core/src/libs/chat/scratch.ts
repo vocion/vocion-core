@@ -32,6 +32,7 @@ const CLOSE = '</scratch>';
  */
 export function splitScratch(text: string): ScratchSegment[] {
   const out: ScratchSegment[] = [];
+  text = dropTagFragments(text);
   const pushSegment = (kind: ScratchSegment['kind'], raw: string): void => {
     if (raw.trim().length === 0) {
       return;
@@ -66,11 +67,31 @@ export function splitScratch(text: string): ScratchSegment[] {
 }
 
 /**
+ * A tag the model started and never finished, e.g. `<scThe Releases page…`
+ * (conversation 348, 2026-09-28: the reply opened with a truncated `<sc` and
+ * went straight into the answer, and the person read it). A proper prefix of
+ * `<scratch>` or `</scratch>` — at least `<sc` / `</s` — that is not followed
+ * by the rest of the word or by `>` is noise, not an open tag, so it is
+ * dropped. A complete tag is left for the splitter.
+ * @param text - A text run as the model wrote it.
+ */
+function dropTagFragments(text: string): string {
+  if (!text.includes('<s') && !text.includes('</s')) {
+    return text;
+  }
+  return text.replace(/<\/?s(?:c(?:r(?:a(?:t(?:ch?)?)?)?)?)?(?![a-z>])/g, (m) => {
+    const word = m.replace(/^<\/?/, '');
+    return word.length >= (m.startsWith('</') ? 1 : 2) && word !== 'scratch' ? '' : m;
+  }).replace(/<\/?scratch(?![a-z>])/g, '');
+}
+
+/**
  * The answer with every scratch block removed — for a reader who has no way
  * to unfold one. Paragraph breaks left behind are collapsed to one.
- * @param text - A text run or a whole reply.
+ * @param raw - A text run or a whole reply.
  */
-export function stripScratch(text: string): string {
+export function stripScratch(raw: string): string {
+  const text = dropTagFragments(raw);
   if (!text.includes(OPEN) && !text.includes(CLOSE)) {
     return text;
   }
