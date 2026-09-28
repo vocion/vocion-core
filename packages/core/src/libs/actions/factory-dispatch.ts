@@ -271,7 +271,15 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const isPath = (x: string) => /^[\w.@-]+(?:\/[\w.@*-]+)+\/?$/.test(x);
   const repoChecks = Array.isArray(repo.checks) ? (repo.checks as Array<{ name?: string }>).map(c => c.name ?? '').filter(Boolean) : [];
   const givenPaths = list(g, 'allowedPaths').filter(isPath);
-  const basePaths = givenPaths.length > 0 ? givenPaths : pathsFromComponents(list(p, 'components'));
+  const planPaths = givenPaths.length > 0 ? givenPaths : pathsFromComponents(list(p, 'components'));
+  // A GENERATED FILE BRINGS ITS SOURCE. #124's plan named
+  // apps/send-api/prisma/schema/core.prisma, which is rebuilt from
+  // packages/core/prisma/** on every check; with the source out of bounds the
+  // engineer created its tables at runtime instead (2026-09-28). The repo
+  // record names what is generated from what (`generatedFrom`).
+  const generatedFrom = (repo.generatedFrom ?? {}) as Record<string, string>;
+  const sources = planPaths.flatMap(x => Object.entries(generatedFrom).filter(([glob]) => x.startsWith(glob.replace(/\*+$/, '').replace(/\/$/, ''))).map(([, source]) => source));
+  const basePaths = [...new Set([...planPaths, ...sources])];
   // EVERY PACKAGE TOUCHED MAY BE TESTED (QA on PR #36, 2026-09-26: "the control
   // the plan mandates is an integration test, and the contract's allowed paths
   // make writing one impossible"). Each app or package root a path lives in

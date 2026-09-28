@@ -96,6 +96,14 @@ describe('a contract from the records alone', () => {
     expect(c.riskClass).toBe('infra');
   });
 
+  it('brings a generated file\'s source, and its risk class, into the contract (#124: prisma schema)', () => {
+    const withGen = { ...repo, generatedFrom: { 'packages/api/prisma/schema/**': 'packages/core/prisma/**' }, riskDefaults: { ...repo.riskDefaults, 'packages/core/prisma/**': 'schema' } };
+    const c = deriveContract({ given: {}, request, plan: { ...plan, components: ['packages/api/prisma/schema/core.prisma — AlertLog table'] }, repo: withGen });
+
+    expect(c.allowedPaths).toContain('packages/core/prisma/**');
+    expect(c.riskClass).toBe('schema');
+  });
+
   it('says a held merge came from the person who merges, in their words (2026-09-28)', () => {
     const previous = { id: 190, meta: { prUrl: 'https://github.com/Acme/northwind-core/pull/89', verdict: { value: 'changes', heldBy: 'person', note: 'A person held the merge: the cleanup rule is not applied in production.', criteria: [{ criterion: 'A button sits beside Upload.', status: 'proven' }] } } };
     const c = deriveContract({ given: {}, request, plan, repo, previous });

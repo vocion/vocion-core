@@ -45,6 +45,15 @@ schema:
       x-display: {label: Deploy command, format: mono, group: Repository}
       type: string
       description: How this repository reaches production. Recorded so the deploy is a named action a person approves, never a command a worker discovers.
+    generatedFrom:
+      x-display: {label: Generated from, role: prose, format: steps, order: 3}
+      type: object
+      additionalProperties: {type: string}
+      description: >-
+        A map from a generated path glob to the source it is rebuilt from, e.g.
+        `apps/api/prisma/schema/**: packages/core/prisma/**`. A plan that names
+        a generated file brings its source into the engineer's allowed paths,
+        so the change lands where it survives the next build.
     riskDefaults:
       x-display: {label: Risk floor by path, role: prose, format: steps, order: 2}
       type: object
