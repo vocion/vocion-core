@@ -62,7 +62,7 @@ describe('the shipped catalogue', () => {
     expect(factory.missions).toEqual(['close-the-gap', 'prove-the-contract', 'tell-the-requester']);
     expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'factory-ci-failure', 'factory-daily-plan', 'factory-decision-landed', 'factory-request-intake', 'factory-result-check', 'product-debrief', 'standard-from-shipped', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
-    expect(factory.pages).toEqual(['feature', 'products', 'releases', 'work']);
+    expect(factory.pages).toEqual(['feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
   });
 
