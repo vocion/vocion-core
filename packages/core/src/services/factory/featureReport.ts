@@ -68,7 +68,7 @@
 import type { PlanDecision, PlanRecord } from './planRule';
 import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
-import { featureProof, risksLine } from '@/libs/workspace/featureProof';
+import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { planRecordFromTask, planRequirementForTask } from './planRule';
@@ -2348,17 +2348,6 @@ export type ReportAcceptance = {
   /** How a reviewer checks it, when the plan or the record says. */
   procedure: string | null;
 };
-
-/**
- * The attempts a release carried, by id — the ones whose proof went out.
- * @param releases - The release records naming this work.
- */
-export function shippedTaskIdsOf(releases: ReportObject[]): number[] {
-  return releases.flatMap(r => [
-    ...(Array.isArray(r.meta.taskIds) ? r.meta.taskIds : []),
-    ...(Array.isArray(r.meta.evidence) ? (r.meta.evidence as Array<Record<string, unknown>>).map(e => e?.taskId) : []),
-  ]).map(Number).filter(n => Number.isSafeInteger(n) && n > 0);
-}
 
 /**
  * The acceptance figure in one phrase: "6 of 6 · 2 plan risks handled".

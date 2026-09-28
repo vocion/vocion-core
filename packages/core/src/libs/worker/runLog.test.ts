@@ -1,6 +1,6 @@
 import type { AgentCallView, AgentTaskView, RunHeader, RunLogData, RunLogEvent } from './runLog';
 import { describe, expect, it } from 'vitest';
-import { agentSteps, deriveSteps, eventLines, fallbackWorkerSteps, focusStep, formatDuration, mergeRunLog, refusedBeforeStart, stepOfPhase, stopReason, stripAnsi, workerSteps } from './runLog';
+import { agentSteps, deriveSteps, eventLines, fallbackWorkerSteps, fireFailedLine, focusStep, formatDuration, mergeRunLog, refusedBeforeStart, startingFireId, stepOfPhase, stopReason, stripAnsi, workerSteps } from './runLog';
 
 function header(over: Partial<RunHeader> = {}): RunHeader {
   return {
@@ -279,5 +279,22 @@ describe('small print', () => {
     expect(formatDuration(64_000)).toBe('1m 04s');
     expect(formatDuration(3_780_000)).toBe('1h 03m');
     expect(formatDuration(null)).toBe('');
+  });
+});
+
+describe('a mission run under a failed fire (backlog 032)', () => {
+  it('finds the fire that started the run', () => {
+    expect(startingFireId([{ automationSlug: 'contract-red-team-evidence', automationRunId: 7571 }])).toBe(7571);
+    expect(startingFireId([{ automationSlug: 'x' }, { automationSlug: 'y', automationRunId: 12 }])).toBe(12);
+    expect(startingFireId(null)).toBeNull();
+    expect(startingFireId([{ automationSlug: 'x', automationRunId: 'nope' }])).toBeNull();
+  });
+
+  it('says the fire\'s failure in its first clause, without the automation\'s name', () => {
+    expect(fireFailedLine('automation "contract-red-team-evidence": run #5737 ended without record_verdict, and the recording pass did not land it (Not recorded: a search box …)'))
+      .toBe('failed: run #5737 ended without record_verdict');
+    expect(fireFailedLine('abandoned: worker restart or activity timeout — the fire never reported an outcome'))
+      .toBe('failed: abandoned: worker restart or activity timeout');
+    expect(fireFailedLine(null)).toBe('failed: the automation reported an error');
   });
 });

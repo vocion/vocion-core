@@ -574,7 +574,13 @@ export default async function WorkspacePage(props: {
       ? { linked: await loadReleaseLinked(orgId, all), now: new Date(now), timeZone: await workspaceTimeZone(orgId) }
       : null;
     const derived = manifest.derive === 'workQueue'
-      ? deriveWorkQueue(loaded, { now: new Date(now) })
+      // Each row's acceptance count is its feature page's (featureProof), so
+      // the queue reads the attempts and the releases that name them.
+      ? deriveWorkQueue(loaded, {
+          now: new Date(now),
+          tasks: await loadObjectRows(orgId, 'engineering_task'),
+          releases: await loadObjectRows(orgId, 'release'),
+        })
       : manifest.derive === 'releaseOutcome'
         ? deriveReleaseOutcome(loaded, { now: new Date(now) })
         : releaseFeed

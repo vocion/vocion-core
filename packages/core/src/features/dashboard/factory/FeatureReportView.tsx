@@ -7,7 +7,7 @@ import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { money } from '@/services/factory/featureReport';
 import { FeatureActivity } from './FeatureActivity';
-import { FeatureBuild } from './FeatureBuild';
+import { FeatureBuild, FeatureHeadline } from './FeatureBuild';
 import { FeatureDismiss } from './FeatureDismiss';
 import { FeatureDrawerLink, PreviewOpen } from './FeatureDrawerLink';
 import { LocalDate } from './LocalDate';
@@ -242,10 +242,7 @@ function StatusBlock({ report }: { report: FeatureReport }) {
       : <ActionButton action={s.secondary} report={report} primary={false} />;
   return (
     <section id="report-state" data-testid="report-status" aria-label="Where this work is" className="space-y-3">
-      <p className="max-w-prose text-[15px] leading-relaxed text-foreground">
-        <StatusDot tone={DOT_TONE[s.tone]} label={<span className="font-semibold">{s.headline}</span>} className="mr-2 align-baseline" />
-        <span data-testid="report-status-sentence">{s.sentence}</span>
-      </p>
+      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={s.sentence} />
       {s.action && (
         <div className="flex flex-wrap items-center gap-2">
           {s.action.kind === 'build'

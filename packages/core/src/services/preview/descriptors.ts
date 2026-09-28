@@ -499,13 +499,19 @@ registerPreview('mission_run', {
     const report = [...tasks].reverse().find(t => t.output)?.output ?? null;
     const lead = report ? reportLead(report) : null;
     const stoppedWhy = failedTask?.error ? `${failedTask.title}: ${failedTask.error.split('\n')[0]!}` : run.error?.split('\n')[0] ?? null;
-    const outcome = run.status === 'failed'
-      ? `Stopped — ${stoppedWhy ? stopReason(stoppedWhy, 300) : 'the run ended without saying why'}`
-      : run.status === 'completed'
-        ? lead ?? 'Finished without writing a report.'
-        : run.status === 'cancelled'
-          ? 'Cancelled before it finished.'
-          : lead ?? `${RUN_STATUS_WORD[run.status] ?? run.status} — ${tasks.filter(t => t.status === 'completed').length} of ${tasks.length} steps done.`;
+    // The fire that started it is where a review's outcome lands: a run that
+    // finished under a fire that failed is a failed review (backlog 032).
+    const { failedFireLines } = await import('@/services/automations/failedFires');
+    const fireFailed = (await failedFireLines(ctx.orgId, [run])).get(run.id) ?? null;
+    const outcome = fireFailed !== null
+      ? `Its automation ${fireFailed}`
+      : run.status === 'failed'
+        ? `Stopped — ${stoppedWhy ? stopReason(stoppedWhy, 300) : 'the run ended without saying why'}`
+        : run.status === 'completed'
+          ? lead ?? 'Finished without writing a report.'
+          : run.status === 'cancelled'
+            ? 'Cancelled before it finished.'
+            : lead ?? `${RUN_STATUS_WORD[run.status] ?? run.status} — ${tasks.filter(t => t.status === 'completed').length} of ${tasks.length} steps done.`;
     const took = run.completedAt ? formatDuration(run.completedAt.getTime() - run.createdAt.getTime()) : '';
     const attach = await missionRunAttach(run);
     const changed = changes.length === 0
@@ -518,7 +524,7 @@ registerPreview('mission_run', {
       href: `/dashboard/p/runs/agent-${run.id}`,
       subtitle: outcome,
       facts: facts(
-        { label: 'Status', value: RUN_STATUS_WORD[run.status] ?? run.status },
+        { label: 'Status', value: fireFailed !== null ? 'Failed' : RUN_STATUS_WORD[run.status] ?? run.status },
         took && { label: 'Took', value: took },
         // Nothing records what an agent run spent; say so rather than print $0.
         { label: 'Cost', value: 'no cost recorded' },

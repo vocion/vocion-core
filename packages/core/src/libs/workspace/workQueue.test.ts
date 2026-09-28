@@ -53,10 +53,11 @@ describe('lanes', () => {
     const blocked = row(25, 'Connect staging', { state: 'building', taskCount: 2, runningTaskCount: 0, blocker: { what: 'The staging account is not connected', owner: 'chris@example.test', next: 'connect it on /dashboard/connectors' } });
 
     expect(isBlocked(dispatch)).toBe(false);
-    expect(stateOf(dispatch, 'progress')).toBe('Awaiting dispatch');
-    expect(workLine(dispatch, 'progress', NOW)).toBe('3 tasks written, none picked up yet. No action needed from you.');
+    expect(stateOf(dispatch, 'progress', { now: NOW })).toBe('Awaiting dispatch');
+    // Nothing sends written tasks by itself, so this is never "no action needed" (backlog 032).
+    expect(workLine(dispatch, 'progress', NOW)).toBe('3 tasks written, none sent to a worker. Build again sends them · today');
     expect(stateOf(qa, 'progress')).toBe('Awaiting QA');
-    expect(workLine(qa, 'progress', NOW)).toBe('Engineering finished. Awaiting QA; no action needed from you.');
+    expect(workLine(qa, 'progress', NOW)).toBe('Engineering finished. Awaiting QA; no action needed from you · today');
     expect(stageOf(qa)).toBe('qa');
     expect(stateOf(merge, 'progress')).toBe('Ready to merge');
 
@@ -64,14 +65,14 @@ describe('lanes', () => {
     const changes = row(26, 'Find a document', { state: 'building', taskCount: 9, runningTaskCount: 0, changesRequestedTaskCount: 1 });
 
     expect(stateOf(changes, 'progress')).toBe('Changes asked');
-    expect(workLine(changes, 'progress', NOW)).toBe('QA sent it back with what would settle each criterion. Build again carries it.');
-    expect(workLine(merge, 'progress', NOW)).toBe('QA approved. The merge is waiting on a person.');
+    expect(workLine(changes, 'progress', NOW)).toBe('QA sent it back with what would settle each criterion. Build again carries it · today');
+    expect(workLine(merge, 'progress', NOW)).toBe('QA approved. The merge is waiting on a person · today');
 
     // The review ended without a verdict: said as that, never "no action needed" (task 177).
     const stuck = row(26, 'Find a document', { state: 'building', taskCount: 9, runningTaskCount: 0, reviewFailedTaskCount: 1 });
 
     expect(stateOf(stuck, 'progress')).toBe('QA could not finish');
-    expect(workLine(stuck, 'progress', NOW)).toBe('The review ended without a verdict. Build again starts a fresh attempt.');
+    expect(workLine(stuck, 'progress', NOW)).toBe('The review ended without a verdict. Build again starts a fresh attempt · today');
     expect(isBlocked(moving)).toBe(false);
     expect(stateOf(moving, 'progress')).toBe('Building');
     expect(isBlocked(starting)).toBe(false);
@@ -79,7 +80,7 @@ describe('lanes', () => {
     expect(isBlocked(blocked)).toBe(true);
     expect(blockerOf(blocked)).toEqual({ what: 'The staging account is not connected', owner: 'chris@example.test', next: 'connect it on /dashboard/connectors' });
     expect(stateOf(blocked, 'progress')).toBe('Blocked');
-    expect(workLine(blocked, 'progress', NOW)).toBe('The staging account is not connected. chris@example.test to connect it on /dashboard/connectors.');
+    expect(workLine(blocked, 'progress', NOW)).toBe('The staging account is not connected. chris@example.test to connect it on /dashboard/connectors · today');
     // A blocker on finished work is history, not a state.
     expect(isBlocked(row(26, 'done', { state: 'shipped', blocker: { what: 'was stuck once' } }))).toBe(false);
   });
@@ -241,8 +242,8 @@ describe('the lanes carry what they could not draw', () => {
       [11, 'Staged'],
       [10, 'Staged'],
     ]);
-    expect(out[3]!.meta.workLine).toBe('Behind 2 decisions — moves up as they land.');
-    expect(out[4]!.meta.workLine).toBe('Behind 3 decisions — moves up as they land.');
+    expect(out[3]!.meta.workLine).toMatch(/^Behind 2 decisions, moves up as they land · waiting \d+ days?$/);
+    expect(out[4]!.meta.workLine).toMatch(/^Behind 3 decisions, moves up as they land · waiting \d+ days?$/);
     expect(out[0]!.meta.laneNote).toBe('2 to decide · 2 staged behind them');
     expect(out[0]!.meta.decidingCount).toBe(2);
     expect(out[0]!.meta.stagedCount).toBe(2);
@@ -355,7 +356,8 @@ describe('what a row cannot show', () => {
 });
 
 describe('the contract between a person and the factory', () => {
-  const crit = (statement: string, met?: boolean) => (met === undefined ? { statement } : { statement, met });
+  // A line a person marked met carries its proof; the count is featureProof's.
+  const crit = (statement: string, met?: boolean) => (met === undefined ? { statement } : met ? { statement, met, evidence: `seen: https://app.example/${statement}` } : { statement, met });
 
   it('says how many criteria a proposal carries, so a person knows what they are agreeing to', () => {
     const two = row(1, 'a', { state: 'new', acceptance: [crit('links resolve'), crit('sessions unaffected')] });
@@ -381,22 +383,46 @@ describe('the contract between a person and the factory', () => {
       acceptance: [crit('a', true), crit('b', true), crit('c')],
     });
 
-    expect(acceptanceLine(building, 'progress')).toBe('2 of 3 met');
-    expect(acceptanceLine(building, 'done')).toBe('2 of 3 met');
+    expect(acceptanceLine(building, 'progress')).toBe('2 of 3 proven');
+    expect(acceptanceLine(building, 'done')).toBe('2 of 3 proven');
   });
 
   it('says all of them when a finished item met every one', () => {
     const done = row(6, 'f', { state: 'shipped', acceptance: [crit('a', true), crit('b', true)] });
 
-    expect(acceptanceLine(done, 'done')).toBe('all 2 met');
+    expect(acceptanceLine(done, 'done')).toBe('all 2 proven');
   });
 
   it('counts an unchecked criterion as unmet, never as met', () => {
     // Absent is not false and it is certainly not true: nobody has looked.
-    const { total, met } = acceptanceOf(row(7, 'g', { acceptance: [crit('a', true), crit('b'), crit('c', false)] }));
+    const { total, proven } = acceptanceOf(row(7, 'g', { acceptance: [crit('a', true), crit('b'), crit('c', false)] }));
 
     expect(total).toBe(3);
-    expect(met).toBe(1);
+    expect(proven).toBe(1);
+  });
+
+  it('counts the way the feature page does: a mark with no evidence is not proven, a verdict is', () => {
+    // backlog 032: acceptanceOf read the request's `met` flags directly, so a
+    // line marked met with nothing attached counted here and not on the page.
+    const request = row(12, 'l', { state: 'shipped', acceptance: [{ statement: 'Search narrows the library as you type', met: true }, { statement: 'Filters read Live, Killed and Expiring soon' }] });
+
+    expect(acceptanceOf(request).proven).toBe(0);
+
+    const task = { id: 90, meta: { requestId: 12, verdict: { value: 'approve', criteria: [
+      { criterion: 'Search narrows the library as you type', status: 'proven', evidence: 'https://app.example/shot-1.png' },
+      { criterion: 'Filters read Live, Killed and Expiring soon', status: 'proven', evidence: 'https://app.example/shot-2.png' },
+    ] } } };
+
+    expect(acceptanceOf(request, { tasks: [task], shippedTaskIds: [90] })).toMatchObject({ total: 2, proven: 2 });
+
+    const [drawn] = deriveWorkQueue([{ ...request, meta: { ...request.meta, shippedAt: NOW.toISOString() } }], {
+      now: NOW,
+      tasks: [{ id: 90, title: 't', status: null, createdAt: NOW, meta: task.meta }],
+      releases: [{ id: 5, title: 'r', status: null, createdAt: NOW, meta: { taskIds: [90] } }],
+    });
+
+    expect(drawn!.meta.contractGap).toBeUndefined();
+    expect(drawn!.meta.acceptanceLine).toBe('all 2 proven');
   });
 
   it('knows whether the contract was frozen', () => {
@@ -416,13 +442,13 @@ describe('the contract between a person and the factory', () => {
 });
 
 describe('a finished outcome whose contract does not hold', () => {
-  const crit = (statement: string, met?: boolean) => (met === undefined ? { statement } : { statement, met });
+  const crit = (statement: string, met?: boolean) => (met === undefined ? { statement } : met ? { statement, met, evidence: `seen: https://app.example/${statement}` } : { statement, met });
 
   it('says so, in code, rather than trusting a model to notice', () => {
     const shipped = row(1, 'a', { state: 'shipped', acceptance: [crit('a', true), crit('b', false), crit('c')] });
 
     // Shipped with one failed and one unchecked: that is a claim, not done.
-    expect(contractGap(shipped, 'done')).toBe('2 of 3 unmet');
+    expect(contractGap(shipped, 'done')).toBe('1 of 3 proven');
   });
 
   it('is silent when every criterion holds', () => {
@@ -449,7 +475,7 @@ describe('a finished outcome whose contract does not hold', () => {
       row(6, 'f', { state: 'shipped', answeredAt: NOW.toISOString(), acceptance: [crit('a', true), crit('b')] }),
     ], { now: NOW });
 
-    expect(out[0]!.meta.contractGap).toBe('1 of 2 unmet');
+    expect(out[0]!.meta.contractGap).toBe('1 of 2 proven');
   });
 });
 
@@ -477,9 +503,10 @@ describe('the sentences on a row', () => {
     // The badge reads "Not triaged"; a line under it saying so again is the
     // repetition the three-lane redraw existed to lose.
     expect(stateOf(row(1, 'a', { state: 'new' }), 'proposed')).toBe('Not triaged');
-    expect(workLine(row(1, 'a', { state: 'new' }), 'proposed', NOW)).toBeNull();
-    expect(workLine(row(2, 'b', { state: 'in_scope' }), 'proposed', NOW)).toBeNull();
-    expect(workLine(row(3, 'c', { state: 'building', taskCount: 5, runningTaskCount: 2 }), 'progress', NOW)).toBe('5 tasks underway. No action needed from you.');
+    // What it adds is the one thing the badge cannot: when it arrived.
+    expect(workLine(row(1, 'a', { state: 'new' }), 'proposed', NOW)).toBe('Filed today');
+    expect(workLine(row(2, 'b', { state: 'in_scope', askedAt: '2026-09-18T09:00:00Z' }), 'proposed', NOW)).toBe('Filed 3 days ago');
+    expect(workLine(row(3, 'c', { state: 'building', taskCount: 5, runningTaskCount: 2 }), 'progress', NOW)).toBe('5 tasks underway. No action needed from you · today');
     expect(workLine(row(4, 'd', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z' }), 'done', NOW)).toBe('yesterday');
   });
 
@@ -556,7 +583,7 @@ describe('which picture the card shows', () => {
     const out = deriveWorkQueue(rows, { now: NOW });
 
     expect(out[0]!.meta.state).toBe('Returned to PM');
-    expect(out[0]!.meta.workLine).toBe('Gate "decision-ready": acceptance has 1 item; at least 3 needed (+1 more). No action needed from you.');
+    expect(out[0]!.meta.workLine).toBe('Sent back to PM by the "decision-ready" gate: acceptance has 1 item; at least 3 needed (+1 more) · today');
   });
 
   it('a row the judge sent back names the thing that failed', () => {
@@ -564,7 +591,57 @@ describe('which picture the card shows', () => {
     const out = deriveWorkQueue(rows, { now: NOW });
 
     expect(out[0]!.meta.state).toBe('Returned to PM');
-    expect(out[0]!.meta.workLine).toBe('Gate "decision-ready" sent it back: "done when it works". No action needed from you.');
+    expect(out[0]!.meta.workLine).toBe('Sent back to PM by the "decision-ready" gate: "done when it works" · today');
+  });
+});
+
+describe('every row says what happened, and when (backlog 032)', () => {
+  const DAY = 86_400_000;
+  const ago = (days: number) => new Date(NOW.getTime() - days * DAY).toISOString();
+
+  it('stops promising "no action needed" once nothing has moved for a day', () => {
+    const fresh = row(60, 'a', { state: 'building', taskCount: 2, runningTaskCount: 1, rollupsUpdatedAt: ago(0.2) });
+    const still = row(61, 'b', { state: 'building', taskCount: 2, runningTaskCount: 1, rollupsUpdatedAt: ago(3) }, new Date(ago(9)));
+
+    expect(workLine(fresh, 'progress', NOW)).toBe('2 tasks underway. No action needed from you · today');
+    expect(workLine(still, 'progress', NOW)).toBe('2 tasks underway. Nothing has moved in 3 days · 3 days ago');
+  });
+
+  it('reads tasks written and never sent as stalled after a day, and offers Build again (#40)', () => {
+    const stalled = row(62, 'Rename Send to Stamp', { state: 'building', taskCount: 5, runningTaskCount: 0, decidedAt: ago(4) }, new Date(ago(8)));
+
+    expect(stateOf(stalled, 'progress', { now: NOW })).toBe('Stalled');
+    expect(workLine(stalled, 'progress', NOW)).toBe('5 tasks written, none sent to a worker. Build again sends them · 4 days ago');
+    expect(workLine(stalled, 'progress', NOW)).not.toMatch(/no action needed/i);
+
+    const [drawn] = deriveWorkQueue([stalled], { now: NOW });
+
+    expect(drawn!.meta.state).toBe('Stalled');
+  });
+
+  it('says what a gate sent back in its first clause, with the day, never "no action needed" (#121)', () => {
+    const why = '6 of 6 acceptance criteria are not met — Pressing Send mails the link to the address given; A note typed into the dialog arrives; …. Check each one against the running product and record the evidence';
+    const returned = row(63, 'Send a file by email', { state: 'triaged', returnedTo: 'qa', gate: { name: 'contract-met', at: ago(3), failed: [{ field: 'acceptance', why }] } });
+
+    expect(workLine(returned, 'proposed', NOW)).toBe('Sent back to QA by the "contract-met" gate: 6 of 6 acceptance criteria are not met · 3 days ago');
+  });
+
+  it('dates the factory\'s own stage off its log, and closes its sentence (#201)', () => {
+    const planning = row(64, 'Org scope', { state: 'building', recovery: { stage: 'planning', line: 'Planning — the change spans 2 packages (apps/api, apps/web)', planRequestedAt: ago(0.1), log: [{ at: ago(0.1), text: 'Planning first.', runId: null }] } });
+
+    expect(workLine(planning, 'progress', NOW)).toBe('Planning — the change spans 2 packages (apps/api, apps/web). No action needed from you · today');
+  });
+
+  it('dates a staged decision like a leading one', () => {
+    const [, , , staged] = deriveWorkQueue([1, 2, 3, 4].map(i => row(70 + i, `d${i}`, { state: 'new', recommendationState: 'proposed', recommendedOutcome: 'build', recommendedAt: ago(i) })), { now: NOW, decideShown: 3 });
+
+    expect(staged!.meta.workLine).toBe('Behind 3 decisions, moves up as they land · waiting 4 days');
+  });
+
+  it('dates finished work by the day it shipped, never by the last recount (#39)', () => {
+    const shipped = row(65, 'Multi-team membership', { state: 'shipped', shippedAt: ago(8), rollupsUpdatedAt: ago(4) });
+
+    expect(workLine(shipped, 'done', NOW)).toBe('8 days ago');
   });
 });
 
@@ -584,7 +661,7 @@ describe('the factory carrying it (backlog 038)', () => {
 
     expect(laneOf(planning)).toBe('progress');
     expect(stateOf(planning, 'progress')).toBe('Planning');
-    expect(workLine(planning, 'progress', NOW)).toBe('Planning — the allowed paths span 2 packages. No action needed from you.');
+    expect(workLine(planning, 'progress', NOW)).toBe('Planning — the allowed paths span 2 packages. No action needed from you · today');
 
     const attempt = { n: 1, kind: 'build', trigger: 'recovery', line: 'x', at: NOW.toISOString(), runId: 7, taskId: 70, failure: null };
     const recovering = row(41, 'Invite link', { state: 'building', taskCount: 2, runningTaskCount: 1, recovery: { stage: 'recovering', line: 'Recovering (attempt 2 of 3): the required checks failed (test).', attempts: [attempt, { ...attempt, n: 2 }] } });
@@ -594,7 +671,7 @@ describe('the factory carrying it (backlog 038)', () => {
     const stopped = row(42, 'Room order', { state: 'building', taskCount: 3, recovery: { stage: 'stopped', line: 'Stopped after 3 attempts: the required checks failed (test). What would unblock it: read the check.', attempts: [attempt, attempt, attempt] } });
 
     expect(stateOf(stopped, 'progress')).toBe('Stopped after 3 attempts');
-    expect(workLine(stopped, 'progress', NOW)).toBe('Stopped after 3 attempts: the required checks failed (test). A person decides next.');
+    expect(workLine(stopped, 'progress', NOW)).toBe('Stopped after 3 attempts: the required checks failed (test). A person decides next · today');
   });
 
   it('lets a wait with a person on it speak for itself', () => {

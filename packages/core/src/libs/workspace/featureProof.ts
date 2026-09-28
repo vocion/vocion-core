@@ -267,6 +267,17 @@ export function featureProof(input: { request: ProofRecord | null; tasks: ProofR
 }
 
 /**
+ * The attempts a release carried, by id — the ones whose proof went out.
+ * @param releases - The release records naming this work.
+ */
+export function shippedTaskIdsOf(releases: Array<Pick<ProofRecord, 'meta'>>): number[] {
+  return releases.flatMap(r => [
+    ...(Array.isArray(r.meta.taskIds) ? r.meta.taskIds : []),
+    ...(Array.isArray(r.meta.evidence) ? (r.meta.evidence as Array<Record<string, unknown>>).map(e => e?.taskId) : []),
+  ]).map(Number).filter(n => Number.isSafeInteger(n) && n > 0);
+}
+
+/**
  * The plan-risk group in words: "2 plan risks handled", "1 of 2 plan risks
  * handled", or null when the contract carried none.
  * @param proof - The proof.

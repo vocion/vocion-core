@@ -29,7 +29,14 @@ vi.mock('@/libs/I18nNavigation', () => ({
 // A live build re-reads the page every few seconds through Next's router.
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {}, push: () => {}, replace: () => {} }) }));
 vi.mock('@/libs/Orpc', () => ({
-  client: { preview: { get: vi.fn(async (input: { type: string; id: string }) => ({ ref: input, title: 'A drawer', sourceLabel: 'Feature', body: 'The full record.' })) } },
+  client: {
+    preview: { get: vi.fn(async (input: { type: string; id: string }) => ({ ref: input, title: 'A drawer', sourceLabel: 'Feature', body: 'The full record.' })) },
+    review: {
+      propose: vi.fn(async () => ({ runId: 9, status: 'pending' })),
+      decideAction: vi.fn(async () => ({ result: { workerRunId: 3 } })),
+      undoAction: vi.fn(async () => ({})),
+    },
+  },
 }));
 
 const T = (iso: string) => new Date(iso);
@@ -247,6 +254,26 @@ describe('the action follows the state', () => {
 
     await expect.element(page.getByTestId('feature-build')).toHaveTextContent('Build again');
     expect(document.querySelector('[data-testid="feature-dismiss"]')).toBeNull();
+  });
+
+  it('reads the build it just started in the headline, and Undo takes it back (backlog 032)', async () => {
+    await page.viewport(390, 844);
+    await draw(proposal({
+      tasks: [{ id: 77, title: 'Room PDF export', status: 'rejected', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41, status: 'dispatched' } }],
+      workerRuns: [{ id: 503, agentSlug: 'task-engineer', kind: 'worker', status: 'failed', attempt: 1, cents: 120, model: null, summary: null, error: 'Claude produced no changes', createdAt: T('2026-09-20T11:00:00Z'), claimedAt: T('2026-09-20T11:01:00Z'), completedAt: T('2026-09-20T11:30:00Z'), input: {}, result: null, progress: {} }],
+    }));
+    const before = document.querySelector('[data-testid="report-headline"]')!.textContent;
+
+    expect(before).not.toContain('Building');
+
+    await page.getByTestId('feature-build').click();
+
+    await expect.element(page.getByTestId('report-headline')).toHaveTextContent('Building');
+    await expect.element(page.getByTestId('report-status-sentence')).toHaveTextContent('Queued for the engineer just now.');
+
+    await page.getByRole('button', { name: 'Undo' }).click();
+
+    await expect.element(page.getByTestId('report-headline')).toHaveTextContent(before!);
   });
 });
 

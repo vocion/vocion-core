@@ -515,6 +515,31 @@ export function stopReason(text: string, max = 400): string {
 }
 
 /**
+ * The automation fire that started a mission run: the first entry of its
+ * `causedBy` (newest first) that names one.
+ * @param causedBy - The run's `caused_by`.
+ */
+export function startingFireId(causedBy: unknown): number | null {
+  const list = Array.isArray(causedBy) ? causedBy as Array<{ automationRunId?: unknown } | null> : [];
+  const id = list.find(c => c && Number.isSafeInteger(c.automationRunId))?.automationRunId;
+  return typeof id === 'number' && id > 0 ? id : null;
+}
+
+/**
+ * A run whose fire errored, in the fire's words: "failed: run #5737 ended
+ * without record_verdict". The mission run under a failed review can finish
+ * cleanly — the review failed when its verdict did not land — so the fire's
+ * status is the one a person reads (backlog 032: review rows read
+ * "completed" over five failed reviews).
+ * @param error - The fire's `automation_run.error`.
+ */
+export function fireFailedLine(error: string | null): string {
+  const text = (error ?? '').trim().split('\n')[0]!.replace(/^automation "[^"]+":\s*/, '').trim();
+  const clause = text.split(/\s\(|,\s(?:and|but)\s|;\s|\s[—–]\s/)[0]!.trim().replace(/[.,;:]+$/, '');
+  return `failed: ${clause || 'the automation reported an error'}`;
+}
+
+/**
  * An engineering run that sent no lines (every run before backlog 036): the
  * steps it can still show — where it got to with its last lines, each check
  * with its tail, and its failures.

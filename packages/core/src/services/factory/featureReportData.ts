@@ -25,6 +25,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
+import { failedFireLines } from '@/services/automations/failedFires';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { assembleFeatureReport } from './featureReport';
@@ -319,12 +320,14 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
   }
   if (mission.size > 0) {
     const rows = await db
-      .select({ id: missionRunSchema.id, title: missionRunSchema.title, status: missionRunSchema.status })
+      .select({ id: missionRunSchema.id, title: missionRunSchema.title, status: missionRunSchema.status, causedBy: missionRunSchema.causedBy })
       .from(missionRunSchema)
       .where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.id, [...mission.keys()])));
+    // A review whose fire failed reads failed, whatever the run under it says.
+    const fireFailed = await failedFireLines(orgId, rows);
     for (const r of rows) {
       const m = mission.get(r.id)!;
-      out.push({ kind: 'mission_run', id: r.id, title: r.title?.trim() || `Mission run ${r.id}`, at: m.at, status: r.status ?? null, detail: `${m.steps} step${m.steps === 1 ? '' : 's'}` });
+      out.push({ kind: 'mission_run', id: r.id, title: r.title?.trim() || `Mission run ${r.id}`, at: m.at, status: fireFailed.get(r.id) ?? r.status ?? null, detail: `${m.steps} step${m.steps === 1 ? '' : 's'}` });
     }
   }
   for (const w of workerRuns) {
