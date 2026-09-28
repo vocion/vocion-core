@@ -46,7 +46,7 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number } }
     /** A person's decision on a card, written as a user turn. */
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
@@ -105,7 +105,9 @@ export type RecommendedAction = {
   /** The card's id (backlog 025) — how a `card_update` and a decision find it. Absent on a pre-card row. */
   id?: string;
   /** The card's state as the server last said it. */
-  state?: 'proposed' | 'filed' | 'decided' | 'deferred' | 'expired';
+  state?: 'proposed' | 'filed' | 'decided' | 'deferred' | 'expired' | 'unfiled';
+  /** Why a card the turn tried to file was not filed (`state: 'unfiled'`). */
+  unfiledReason?: string;
   actionId: string;
   input: Record<string, unknown>;
   label: string;

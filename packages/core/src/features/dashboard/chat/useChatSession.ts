@@ -171,7 +171,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
     // is not a client-side ornament that a reload forgets.
     const recommendations: RecommendedAction[] = runsRaw
       .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
-      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed') }));
+      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
     return {
       ...(typeof row.id === 'number' ? { id: row.id } : {}),
       role: row.role,
@@ -752,10 +752,10 @@ export function useChatSession({
         return;
       }
       case 'card_update': {
-        const u = evt as unknown as { cardId: string; runId?: number; state?: RecommendedAction['state'] };
+        const u = evt as unknown as { cardId: string; runId?: number; state?: RecommendedAction['state']; reason?: string };
         appendToLatestAgent(m => ({
           ...m,
-          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? { ...r, ...(u.runId !== undefined ? { runId: u.runId } : {}), ...(u.state ? { state: u.state } : {}) } : r)),
+          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? { ...r, ...(u.runId !== undefined ? { runId: u.runId } : {}), ...(u.state ? { state: u.state } : {}), ...(u.reason ? { unfiledReason: u.reason } : {}) } : r)),
         }));
         return;
       }

@@ -104,6 +104,10 @@ describe('describeCardState', () => {
 
   it('names one state, never two at once', () => {
     expect(describeCardState({ status: null }, time).label).toBe('Waiting on you');
+    // Meant to be filed and not: nothing is waiting on anyone (conversation 349).
+    expect(describeCardState({ status: null, unfiled: true }, time)).toEqual({ label: 'Not filed', tone: 'red' });
+    // A person filed it after all: the run's state wins.
+    expect(describeCardState({ status: 'pending', unfiled: true }, time).label).toBe('Waiting on you');
     expect(describeCardState({ status: 'pending' }, time).label).toBe('Waiting on you');
     expect(describeCardState({ status: 'done', approvedByAgent: true, decidedBy: 'Dana Reyes' }, time).label).toBe('Done for you');
     expect(describeCardState({ status: 'done', decidedBy: 'Dana Reyes', decidedAt: '2026-09-28T14:50:00Z' }, time).label)

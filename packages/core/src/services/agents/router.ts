@@ -305,6 +305,73 @@ export function chooseAgent(opts: { agents: RoutableAgent[]; message: string; le
 }
 
 /**
+ * The agent a message names, if any: `@slug`, or "ask the <name>" / "ask
+ * <slug>". Only active agents count; the first one named wins.
+ * @param agents - The roster.
+ * @param message - The message as typed.
+ */
+export function namedAgent(agents: RoutableAgent[], message: string): string | null {
+  const text = (message ?? '').toLowerCase();
+  for (const agent of agents.filter(isActive)) {
+    const slug = agent.slug.toLowerCase();
+    const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const names = [slug, slug.replace(/-/g, ' '), agent.name.toLowerCase()].map(escape);
+    if (new RegExp(`(?:^|\\s)@${escape(slug)}(?![\\w-])`).test(text)) {
+      return agent.slug;
+    }
+    if (names.some(n => new RegExp(`\\bask (?:the |our )?${n}\\b`).test(text))) {
+      return agent.slug;
+    }
+  }
+  return null;
+}
+
+/**
+ * A FOLLOW-UP STAYS WITH THE THREAD'S AGENT (one obvious path).
+ *
+ * Conversation 349 (2026-09-28): the product manager's thread got "You said
+ * nothing was saved. Please file it now.", and the router, scoring every
+ * turn afresh, sent it to change-reviewer ("matched description: file,
+ * nothing", score 2) — an agent that had not been in the thread, answering
+ * for work it never saw. The router chooses who answers a conversation's
+ * FIRST turn. After that the thread's agent answers, unless the person names
+ * another (`@slug`, "ask the <name>") or the thread was handed to another
+ * agent — which is what `threadAgent` reads: the agent of the thread's last
+ * reply, so a hand-off that answered moves the thread with it.
+ *
+ * An agent the person names wins on any turn. Otherwise null when the
+ * router should decide: no reply in the thread yet, or its agent is no
+ * longer active.
+ * @param opts - The roster, the message, the thread's agent, the surface.
+ * @param opts.agents - Every agent the caller may route to.
+ * @param opts.message - The message as typed.
+ * @param opts.threadAgent - The agent of the thread's last reply; null on a first turn.
+ * @param opts.surface - Where the message came from, for the record.
+ */
+export function followUpDecision(opts: { agents: RoutableAgent[]; message: string; threadAgent: string | null; surface: string }): RoutingDecision | null {
+  const at = new Date().toISOString();
+  const named = namedAgent(opts.agents, opts.message);
+  if (named && named !== opts.threadAgent) {
+    return { chosen: named, defaulted: false, reason: `The person named ${named}${opts.threadAgent ? `; the thread was with ${opts.threadAgent}` : ''}.`, candidates: [], surface: opts.surface, at };
+  }
+  if (!opts.threadAgent) {
+    return null;
+  }
+  const thread = opts.agents.find(a => a.slug === opts.threadAgent);
+  if (!thread || !isActive(thread)) {
+    return null;
+  }
+  return {
+    chosen: thread.slug,
+    defaulted: false,
+    reason: `A follow-up in a thread with ${thread.slug} stays with ${thread.slug}; the router picks only a conversation's first turn.`,
+    candidates: [],
+    surface: opts.surface,
+    at,
+  };
+}
+
+/**
  * The projection of an agent row the router reads.
  * @param row
  */

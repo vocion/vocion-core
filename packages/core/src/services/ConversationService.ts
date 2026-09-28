@@ -48,7 +48,7 @@ export type ConversationRun
      * lookup result three times on 2026-09-24 because the card lived only
      * in the browser.
      */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number } }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
@@ -187,6 +187,32 @@ export async function getConversation(opts: { orgId: string; id: number }) {
     .from(conversationSchema)
     .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)));
   return row ?? null;
+}
+
+/**
+ * The agent a thread is with: whoever wrote its last reply (so a turn another
+ * agent answered — a hand-off — moves the thread), else the agent the thread
+ * was opened with. Null while the thread has no reply yet: its first turn is
+ * the router's to route (`followUpDecision`).
+ * @param opts - The org and the conversation.
+ * @param opts.orgId - The workspace.
+ * @param opts.id - The conversation.
+ */
+export async function threadAgentOf(opts: { orgId: string; id: number }): Promise<string | null> {
+  const conv = await getConversation(opts);
+  if (!conv) {
+    return null;
+  }
+  const [last] = await db
+    .select({ agentSlug: conversationMessageSchema.agentSlug })
+    .from(conversationMessageSchema)
+    .where(and(eq(conversationMessageSchema.conversationId, conv.id), eq(conversationMessageSchema.role, 'assistant')))
+    .orderBy(desc(conversationMessageSchema.id))
+    .limit(1);
+  if (!last) {
+    return null;
+  }
+  return last.agentSlug ?? conv.agentSlug ?? null;
 }
 
 export async function deleteConversation(opts: { orgId: string; id: number }) {

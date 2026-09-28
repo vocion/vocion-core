@@ -57,7 +57,7 @@ export async function POST(request: Request): Promise<Response> {
   // record page sends it; the model reads it under the message, the log
   // keeps the message as typed.
   const { mergeScopeRef, readContextRefs, readPageContext, withPageContext } = await import('@/services/chat/pageContext');
-  const { autoProposeRecommendationDetailed, readAutonomy } = await import('@/services/chat/autoPropose');
+  const { fileRecommendation, readAutonomy } = await import('@/services/chat/autoPropose');
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
   const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
@@ -108,8 +108,16 @@ export async function POST(request: Request): Promise<Response> {
     const { getWorkspaceLead } = await import('@/services/TeamService');
     const lead = await getWorkspaceLead(orgId);
     if (body.route === true && typeof message === 'string' && message.trim()) {
-      const { chooseAgent, routableFromRow } = await import('@/services/agents/router');
-      routing = chooseAgent({ agents: agents.map(routableFromRow), message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
+      const { chooseAgent, followUpDecision, routableFromRow } = await import('@/services/agents/router');
+      // A follow-up stays with the agent the thread is with; the router
+      // picks only a conversation's first turn, or an agent the person names
+      // (conversation 349: "Please file it now." left the product manager's
+      // thread for change-reviewer on a keyword score).
+      const { threadAgentOf } = await import('@/services/ConversationService');
+      const threadAgent = typeof body.conversation_id === 'number' ? await threadAgentOf({ orgId, id: body.conversation_id }) : null;
+      const routable = agents.map(routableFromRow);
+      routing = followUpDecision({ agents: routable, message, threadAgent, surface: 'chat' })
+        ?? chooseAgent({ agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
     }
     agentSlug = routing?.chosen
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
@@ -303,7 +311,7 @@ export async function POST(request: Request): Promise<Response> {
             collector,
             where: { conversationId, agentSlug },
             ...(autonomy === 'act-within-bounds'
-              ? { file: (c: Card) => autoProposeRecommendationDetailed({ orgId, userId, rec: cardAsRecommendation(c) }) }
+              ? { file: (c: Card) => fileRecommendation({ orgId, userId, rec: cardAsRecommendation(c) }) }
               : {}),
           }));
           return;

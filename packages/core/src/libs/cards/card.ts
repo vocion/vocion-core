@@ -17,7 +17,7 @@ import type { RecommendedActionPayload } from '@/services/agents/types';
  */
 import { z } from 'zod';
 
-export const CARD_STATES = ['proposed', 'filed', 'decided', 'deferred', 'expired'] as const;
+export const CARD_STATES = ['proposed', 'filed', 'decided', 'deferred', 'expired', 'unfiled'] as const;
 export type CardState = (typeof CARD_STATES)[number];
 
 export const CardActionSchema = z.object({

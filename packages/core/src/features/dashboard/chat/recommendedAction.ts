@@ -138,6 +138,8 @@ export type CardStateInput = {
   decidedBy?: string | null;
   decidedAt?: string | null;
   approvedByAgent?: boolean;
+  /** The turn tried to file the card and could not (`card_update` state `unfiled`); nothing is in Review. */
+  unfiled?: boolean;
 };
 
 /**
@@ -152,6 +154,11 @@ export type CardStateInput = {
 export function describeCardState(s: CardStateInput, time: (iso: string) => string): { label: string; tone: 'muted' | 'amber' | 'green' | 'red' } {
   const by = s.decidedBy ? ` by ${s.decidedBy}` : '';
   const at = s.decidedAt ? ` · ${time(s.decidedAt)}` : '';
+  // A card that was meant to be filed and was not is not waiting on anyone:
+  // "Waiting on you" over no action run was a promise (conversation 349).
+  if (s.unfiled && s.status === null) {
+    return { label: 'Not filed', tone: 'red' };
+  }
   switch (s.status) {
     case null:
     case 'pending':

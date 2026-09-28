@@ -81,34 +81,49 @@ export async function autoProposeRecommendationDetailed(opts: {
   userId?: string;
   rec: RecommendedActionPayload;
 }): Promise<FiledCard | null> {
-  try {
-    const { proposeAction } = await import('@/services/ActionService');
-    const agentId = opts.rec.agentSlug ? `agent:${opts.rec.agentSlug}` : 'agent:unknown';
-    const res = await proposeAction({
-      orgId: opts.orgId,
-      actionId: opts.rec.actionId,
-      input: opts.rec.input,
-      principal: { kind: 'agent', id: agentId, scope: { orgId: opts.orgId }, grants: ['*'], autonomy: 2 },
-      invokedBy: opts.userId ?? agentId,
-      proposal: {
-        confidence: opts.rec.confidence,
-        rationale: opts.rec.rationale,
-        ...recommendedActionAdvice(opts.rec),
-      },
-      // The record the card targets when it names one; otherwise the card's
-      // own key, the same one a person's tap proposes under, so the card is
-      // one run whoever files it (`cardDedupKey`, walk 20 finding 27).
-      dedupKey: deriveRecommendationDedupKey(opts.rec.actionId, opts.rec.input)
-        ?? cardDedupKey({ actionId: opts.rec.actionId, label: opts.rec.label, input: opts.rec.input }),
-    });
-    const out = res as { runId?: number; status?: string; result?: Record<string, unknown> | null };
-    if (typeof out.runId !== 'number') {
-      return null;
-    }
-    return { runId: out.runId, status: out.status ?? 'pending', ...(refOf(opts.rec, out.result) ? { ref: refOf(opts.rec, out.result)! } : {}) };
-  } catch {
+  return fileRecommendation(opts).catch(() => null);
+}
+
+/**
+ * The same filing, saying why when it fails: throws the refusal (the action's
+ * schema, a gate, an unknown action) instead of answering null, so a card
+ * that promised to be filed can say what stopped it (conversation 349,
+ * card_378208d4 — the error was swallowed and the card kept promising).
+ * Null only when the action answered without a run.
+ * @param opts - The recommendation and who is filing.
+ * @param opts.orgId - The workspace.
+ * @param opts.userId - The person whose turn it was.
+ * @param opts.rec - The recommendation.
+ */
+export async function fileRecommendation(opts: {
+  orgId: string;
+  userId?: string;
+  rec: RecommendedActionPayload;
+}): Promise<FiledCard | null> {
+  const { proposeAction } = await import('@/services/ActionService');
+  const agentId = opts.rec.agentSlug ? `agent:${opts.rec.agentSlug}` : 'agent:unknown';
+  const res = await proposeAction({
+    orgId: opts.orgId,
+    actionId: opts.rec.actionId,
+    input: opts.rec.input,
+    principal: { kind: 'agent', id: agentId, scope: { orgId: opts.orgId }, grants: ['*'], autonomy: 2 },
+    invokedBy: opts.userId ?? agentId,
+    proposal: {
+      confidence: opts.rec.confidence,
+      rationale: opts.rec.rationale,
+      ...recommendedActionAdvice(opts.rec),
+    },
+    // The record the card targets when it names one; otherwise the card's
+    // own key, the same one a person's tap proposes under, so the card is
+    // one run whoever files it (`cardDedupKey`, walk 20 finding 27).
+    dedupKey: deriveRecommendationDedupKey(opts.rec.actionId, opts.rec.input)
+      ?? cardDedupKey({ actionId: opts.rec.actionId, label: opts.rec.label, input: opts.rec.input }),
+  });
+  const out = res as { runId?: number; status?: string; result?: Record<string, unknown> | null };
+  if (typeof out.runId !== 'number') {
     return null;
   }
+  return { runId: out.runId, status: out.status ?? 'pending', ...(refOf(opts.rec, out.result) ? { ref: refOf(opts.rec, out.result)! } : {}) };
 }
 
 /**

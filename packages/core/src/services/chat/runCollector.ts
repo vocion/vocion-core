@@ -142,6 +142,21 @@ export class RunCollector {
     }
   }
 
+  /**
+   * A card the turn tried to file and could not: its state says so, and why.
+   * @param label - The card's label.
+   * @param actionId - Its action.
+   * @param why - What the filing said.
+   */
+  onCardUnfiled(label: string, actionId: string, why: string): void {
+    for (const r of this.runs) {
+      if (r.type === 'card' && r.label === label && r.actionId === actionId && r.runId === undefined) {
+        r.state = 'unfiled';
+        r.reason = why.slice(0, 300);
+      }
+    }
+  }
+
   onToolEnd(name: string, output: string): void {
     // Attach the output to the most recent matching tool run, if found.
     for (let i = this.runs.length - 1; i >= 0; i--) {

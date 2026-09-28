@@ -245,9 +245,10 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   const busy = phase.status === 'working';
 
   const status = live?.status ?? (phase.status === 'proposed' ? 'pending' : null);
+  const unfiled = rec.state === 'unfiled' && phase.runId === undefined;
   const terminal = status ? TERMINAL_STATUSES.has(status) : false;
   const effect = describeActionEffect(rec.actionId);
-  const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent }, fmtTime);
+  const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent, unfiled }, fmtTime);
   const toneClass = state.tone === 'green'
     ? 'text-emerald-600 dark:text-emerald-400'
     : state.tone === 'red'
@@ -258,17 +259,19 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   // A spinner promises the thing will change on its own. Waiting on a PERSON
   // spun forever and read as a hung request (Chris, 2026-09-17), so only the
   // states the machine is actually working get one.
-  const stateIcon = status === null || status === 'pending'
-    ? <Clock3 className="size-3 shrink-0" aria-hidden />
-    : status === 'snoozed'
-      ? <CalendarClock className="size-3 shrink-0" aria-hidden />
-      : !terminal
-          ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden />
-          : status === 'done'
-            ? <Check className="size-3 shrink-0" aria-hidden />
-            : status === 'undone'
-              ? <RotateCcw className="size-3 shrink-0" aria-hidden />
-              : <X className="size-3 shrink-0" aria-hidden />;
+  const stateIcon = unfiled && status === null
+    ? <X className="size-3 shrink-0" aria-hidden />
+    : status === null || status === 'pending'
+      ? <Clock3 className="size-3 shrink-0" aria-hidden />
+      : status === 'snoozed'
+        ? <CalendarClock className="size-3 shrink-0" aria-hidden />
+        : !terminal
+            ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden />
+            : status === 'done'
+              ? <Check className="size-3 shrink-0" aria-hidden />
+              : status === 'undone'
+                ? <RotateCcw className="size-3 shrink-0" aria-hidden />
+                : <X className="size-3 shrink-0" aria-hidden />;
   const stateText = (
     <span className={`inline-flex min-w-0 items-center gap-1 font-medium ${toneClass}`} data-testid="recommended-action-state">
       {stateIcon}
@@ -276,14 +279,22 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
     </span>
   );
   // Why it ran on its own is one hover away from the words that say it did.
-  const stateLabel = live?.approvedByAgent && live.reason
+  const whyNot = unfiled && status === null ? rec.unfiledReason : undefined;
+  const stateLabel = whyNot
     ? (
         <Tooltip>
           <TooltipTrigger asChild>{stateText}</TooltipTrigger>
-          <TooltipContent>{live.reason}</TooltipContent>
+          <TooltipContent>{`Not filed: ${whyNot}`}</TooltipContent>
         </Tooltip>
       )
-    : stateText;
+    : live?.approvedByAgent && live.reason
+      ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{stateText}</TooltipTrigger>
+            <TooltipContent>{live.reason}</TooltipContent>
+          </Tooltip>
+        )
+      : stateText;
 
   return (
     <div data-testid="recommended-action-card" data-run-status={status ?? undefined} className="mt-2.5 flex flex-col overflow-hidden rounded-xl border border-border bg-card">
