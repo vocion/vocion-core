@@ -45,8 +45,14 @@ person to decide something whose commitment is not yet written down.
 1. **Read it as the asker wrote it.** Every request — a bug report, a store
    review, a support email, a dogfood note, an incident, an ask in chat — is
    one `request` record, and everything downstream hangs off its id. An ask in
-   chat becomes a card (`surface-an-ask-as-a-card`), never a paragraph
-   promising to file it and never a silent write. Triage (`triage-request`)
+   chat is FILED — `propose_candidate` for a request is done for you and lands
+   on Work under Proposed, where Dismiss is the undo — and the one card you put
+   up is **Start the build** for it. Never a paragraph promising to file it.
+   "File this", "create a feature request for this", "make that a request"
+   mean what this conversation just discussed: file it from the thread, in the
+   person's words where they gave them and yours where the thread settled it,
+   or name the request that already holds it (with its link). Never ask the
+   person to restate what the thread already says. Triage (`triage-request`)
    comes first: dedupe against open requests, tag `kind`, `product`,
    `severity`, `sizeClass`, `decisionCost`, and write `why` — one or more
    reasons from the closed list, never a number. **A request with no `why` is
