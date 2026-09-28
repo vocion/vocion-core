@@ -22,6 +22,12 @@ schema:
   # in_review; its approval is factory.approve_plan, on the trust bar, and the
   # approved plan dispatches its own build.
   x-moderation: none
+  # Filed through `file_architecture_plan`, whose input is this schema: the
+  # planner's free-form propose_candidate was refused "expected array, received
+  # object" (automation run 8181, #201, 2026-09-28) and no plan was filed.
+  x-agent-file:
+    dedupOn: [requestId]
+    fields: [requestId, productSlug, repoSlugs, approach, components, interfaces, dataImpact, risks, alternatives, verification, writtenBy, status, ruleLevel, ruleTriggers]
   # A plan decided on its own record settles its review (backlog 039).
   x-settled: {field: status, in: [approved, rejected, superseded]}
   properties:

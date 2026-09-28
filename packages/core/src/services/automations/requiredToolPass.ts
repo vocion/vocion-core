@@ -75,6 +75,11 @@ export async function forceRequiredTool(opts: {
     missionRunId: opts.missionRunId,
     emit: () => {},
   } as RuntimeContext;
+  // THE TYPED FILING TOOLS TOO. A requirement of `file_<type>` (the planner's
+  // `file_architecture_plan`, 2026-09-28) found no such tool here, because the
+  // pass built its belt without the agent's filing types.
+  const { loadFilingTypes } = await import('@/services/agents/tools/fileRecord');
+  ctx.filingTypes = await loadFilingTypes(opts.orgId, agent.objectTypeSlugs ?? []).catch(() => []);
   const { buildDomainTools } = await import('@/services/agents/tools/registry');
   const tool = buildDomainTools(ctx).find(t => t.name === toolName) as StructuredToolInterface | undefined;
   if (!tool) {

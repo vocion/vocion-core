@@ -20,14 +20,13 @@ do:
   checkMission: close-the-gap
   # The plan filed is the step: a run that ends without it gets the forced
   # recording pass, and one that proposes anything else does not count.
-  requireTool: 'propose_action:objects.propose_candidate.architecture_plan'
+  requireTool: file_architecture_plan
   prompt: >-
     Request #{{requestId}} ("{{title}}") needs an architecture plan before it is
     built. The plan rule says why: {{why}}. Read the request, its acceptance and
     the product it lands in, and follow write-architecture-plan — check the gap
-    is still there first. Then file ONE plan with propose_action
-    objects.propose_candidate: objectType architecture_plan, dedupOn
-    [requestId], fields requestId {{requestId}}, productSlug, repoSlugs, approach
+    is still there first. Then file ONE plan with file_architecture_plan: requestId
+    {{requestId}}, productSlug, repoSlugs, approach
     (one paragraph, the reason included), components (one line per package or
     app, the path first, "apps/web — what changes"; these become the contract's
     allowed paths, so name every package the change touches, its tests and any

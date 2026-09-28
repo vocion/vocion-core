@@ -35,12 +35,15 @@ afterAll(() => {
   }
 });
 
-/** The request type exactly as the applier stores it: the plugin's schema, gates inside as `x-gates`. */
-function storedRequestType(): { slug: string; label: string; description?: string; schema: Record<string, unknown> } {
+/**
+ * The request type exactly as the applier stores it: the plugin's schema, gates inside as `x-gates`.
+ * @param slug
+ */
+function storedRequestType(slug = 'request'): { slug: string; label: string; description?: string; schema: Record<string, unknown> } {
   const dir = mkdtempSync(join(tmpdir(), 'file-record-'));
   dirs.push(dir);
   writeFileSync(join(dir, 'workspace.yaml'), 'version: 1\norgId: test_org\nname: test\nplugins: [software-factory]\n');
-  const ot = loadWorkspace(dir).objectTypes.find(t => t.slug === 'request')!;
+  const ot = loadWorkspace(dir).objectTypes.find(t => t.slug === slug)!;
   return { slug: ot.slug, label: ot.label, description: ot.description, schema: { ...(ot.schema ?? {}), 'x-gates': ot.gates ?? [] } };
 }
 
@@ -106,6 +109,19 @@ describe('the request type\'s filing tool schema', () => {
   });
 
   it('is plain JSON Schema a provider accepts: no x- keywords anywhere', () => {
+    expect(JSON.stringify(schema)).not.toMatch(/"x-/);
+  });
+});
+
+describe('the architecture plan\'s filing tool (#201, 2026-09-28: a free-form plan was refused "expected array, received object")', () => {
+  const spec = filingTypeOf(storedRequestType('architecture_plan'), { product: ['ledger', 'send'] })!;
+  const schema = toJsonSchema(filingSchema(spec) as never) as Js;
+
+  it('is file_architecture_plan, deduped by request, with components and risks typed as arrays', () => {
+    expect(spec.toolName).toBe('file_architecture_plan');
+    expect(spec.dedupOn).toEqual(['requestId']);
+    expect(schema.properties!.components!.type).toBe('array');
+    expect(schema.properties!.risks!.type).toBe('array');
     expect(JSON.stringify(schema)).not.toMatch(/"x-/);
   });
 });
