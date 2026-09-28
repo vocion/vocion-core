@@ -264,6 +264,30 @@ export function readContextRefs(raw: unknown): RecordRef[] {
  * wrong shape, empty, oversized) reads as no context, never as an error.
  * @param raw - `body.page_context` as posted.
  */
+/**
+ * The record a dashboard path is about, when its shape says so:
+ * `/dashboard/objects/<id>`, `/dashboard/p/<page>/<id>` (a report page's
+ * record; `runs` pages are engineering runs), with or without the
+ * `/w/<workspace>` and locale prefixes.
+ * @param path - The page path.
+ * @param title - The page title, for the label.
+ */
+export function recordFromPath(path: string, title = ''): RecordRef | null {
+  const p = path.split(/[?#]/)[0]!.replace(/^\/[a-z]{2}(?=\/)/, '').replace(/^\/w\/[\w-]+/, '');
+  const object = /^\/dashboard\/objects\/(\d+)\/?$/.exec(p);
+  if (object) {
+    return { type: 'object', id: object[1]!, label: title || `#${object[1]}`, href: `/dashboard/objects/${object[1]}` };
+  }
+  const page = /^\/dashboard\/p\/([\w-]+)\/(\d+)\/?$/.exec(p);
+  if (page) {
+    const [, slug, id] = page;
+    return slug === 'runs'
+      ? { type: 'worker_run', id: id!, label: title || `Run #${id}`, href: `/dashboard/p/runs/${id}` }
+      : { type: 'object', id: id!, label: title || `#${id}`, href: `/dashboard/p/${slug}/${id}` };
+  }
+  return null;
+}
+
 export function readPageContext(raw: unknown): PageContext | null {
   if (typeof raw !== 'object' || raw === null) {
     return null;
@@ -275,7 +299,12 @@ export function readPageContext(raw: unknown): PageContext | null {
   }
   const ctx: PageContext = { path, title: str(r.title, MAX) ?? '' };
 
-  const record = readRecordRef(r.record);
+  // THE PAGE ALWAYS NAMES ITS RECORD. A page that does not register one still
+  // has it in its path; the chat on /dashboard/p/feature/40 was handed only the
+  // path, and asked the person to paste the record back to it (Chris,
+  // 2026-09-28: "Vocion at its core should always be able to pull full page
+  // context"). The path is the fallback, never an override.
+  const record = readRecordRef(r.record) ?? recordFromPath(path, ctx.title);
   if (record) {
     ctx.record = record;
   }
