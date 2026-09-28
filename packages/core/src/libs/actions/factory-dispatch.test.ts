@@ -82,6 +82,16 @@ describe('a contract from the records alone', () => {
     ]);
   });
 
+  it('builds a request with no plan from the paths the repo gives its product (#201: a P1 bug filed without a plan)', () => {
+    const withProduct = { ...repo, productPaths: { northwind: ['apps/web/**', 'packages/api/**', 'not a path'] } };
+    const c = deriveContract({ given: {}, request: { ...request, product: 'northwind' }, plan: null, repo: withProduct });
+
+    expect(c.allowedPaths).toEqual(['apps/web/**', 'packages/api/**', 'apps/web/tests/**', 'packages/api/tests/**']);
+    expect(c.requiredChecks).toEqual(['typecheck', 'test']);
+    expect(c.repoSlug).toBe('Acme/northwind-core');
+    expect(contractGaps(c)).toEqual([]);
+  });
+
   it('opens a ui app\'s src/** when the plan names only a file in it (#126: a visible criterion needs its component)', () => {
     const libOnly = { ...plan, components: ['apps/web/src/lib/upload.ts — multipart with retry', 'packages/api/src/routes/links.ts — part signing'] };
     const c = deriveContract({ given: {}, request, plan: libOnly, repo });

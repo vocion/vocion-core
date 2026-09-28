@@ -55,6 +55,14 @@ schema:
         `apps/api/prisma/schema/**: packages/core/prisma/**`. A plan that names
         a generated file brings its source into the engineer's allowed paths,
         so the change lands where it survives the next build.
+    productPaths:
+      x-display: {label: Paths by product, role: prose, format: steps, order: 4}
+      type: object
+      additionalProperties: {type: array, items: {type: string}}
+      description: >-
+        A map from a product slug to the path globs a change to that product may
+        touch, e.g. `send: [apps/send-api/**, apps/send-web/**]`. A request built
+        with no plan takes its allowed paths from here.
     riskDefaults:
       x-display: {label: Risk floor by path, role: prose, format: steps, order: 2}
       type: object

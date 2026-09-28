@@ -271,7 +271,13 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const isPath = (x: string) => /^[\w.@-]+(?:\/[\w.@*-]+)+\/?$/.test(x);
   const repoChecks = Array.isArray(repo.checks) ? (repo.checks as Array<{ name?: string }>).map(c => c.name ?? '').filter(Boolean) : [];
   const givenPaths = list(g, 'allowedPaths').filter(isPath);
-  const planPaths = givenPaths.length > 0 ? givenPaths : pathsFromComponents(list(p, 'components'));
+  // A REQUEST WITH NO PLAN STILL BUILDS. #201 (a P1 access bug, filed with
+  // its acceptance and the file at fault) skipped planning, and Build answered
+  // "task #0 has no allowedPaths, requiredChecks, repo" (2026-09-28). With no
+  // plan, the repo record says which paths a product's change may touch.
+  const productPaths = ((repo.productPaths ?? {}) as Record<string, string[]>)[String(r.product ?? '')] ?? [];
+  const componentPaths = pathsFromComponents(list(p, 'components'));
+  const planPaths = givenPaths.length > 0 ? givenPaths : componentPaths.length > 0 ? componentPaths : productPaths.filter(isPath);
   // A GENERATED FILE BRINGS ITS SOURCE. #124's plan named
   // apps/send-api/prisma/schema/core.prisma, which is rebuilt from
   // packages/core/prisma/** on every check; with the source out of bounds the
@@ -342,8 +348,8 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   };
 }
 
-async function readRepo(orgId: string, slug: string | null): Promise<Meta | null> {
-  if (!slug) {
+async function readRepo(orgId: string, slug: string | null, product?: string | null): Promise<Meta | null> {
+  if (!slug && !product) {
     return null;
   }
   const { and, eq } = await import('drizzle-orm');
@@ -353,9 +359,12 @@ async function readRepo(orgId: string, slug: string | null): Promise<Meta | null
     .select({ title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, 'repo'), eq(businessObjectSchema.title, slug)))
-    .limit(1);
-  return rows[0] ? { ...(rows[0].meta as Meta), title: rows[0].title } : null;
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, 'repo')));
+  // By its title (owner/name), its short slug, then the product it builds.
+  const hit = rows.find(x => slug && x.title === slug)
+    ?? rows.find(x => slug && ((x.meta as Meta).slug === slug || x.title.endsWith(`/${slug}`)))
+    ?? rows.find(x => product && (x.meta as Meta).product === product);
+  return hit ? { ...(hit.meta as Meta), title: hit.title } : null;
 }
 
 /**
@@ -390,7 +399,7 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
   let task = stored;
   if (!stored && request) {
     const planRepo = plan && Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') : null;
-    const repo = await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo);
+    const repo = await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? str(request.meta, 'ownerRepo'), str(request.meta, 'product'));
     const previous = await sentBackTask(ctx.orgId, request.id);
     const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous });
     task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
@@ -424,7 +433,9 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     }
     const gaps = contractGaps(task.meta);
     if (gaps.length > 0) {
-      return `Engineering task #${task.id} is not ready to build: it has no ${gaps.join(', ')}. Fill them on the task, then start it.`;
+      return task.id > 0
+        ? `Engineering task #${task.id} is not ready to build: it has no ${gaps.join(', ')}. Fill them on the task, then start it.`
+        : `This request is not ready to build: nothing says its ${gaps.join(', ')}. Approve a plan that names the files, or give the repo record productPaths for ${str(task.meta, 'product') ?? 'this product'}.`;
     }
     if (input.planId && (!plan || plan.typeSlug !== 'architecture_plan')) {
       return `No architecture plan #${input.planId} in this workspace.`;
