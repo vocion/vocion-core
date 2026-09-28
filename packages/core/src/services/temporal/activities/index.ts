@@ -236,6 +236,7 @@ export * from './bulkRegenerate';
 export * from './fireAutomation';
 /* Daily Langfuse trace pruning (Temporal Schedule). */
 export * from './langfuseRetention';
+export * from './reapMissionRuns';
 export * from './reapWorkerRuns';
 /**
  * Eval runs started by the refresh button or the eval Schedule. Lives in an

@@ -8,10 +8,11 @@
  */
 
 import type { CausalChain } from '@/services/automations/fireGuards';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { AUTOMATION_FIRE_WORKFLOW, automationRefireWorkflowIdFor, getTemporalClient, VOCION_WORKFLOWS_TASK_QUEUE } from '@/libs/temporal/client';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
-import { missionRunSchema, missionSchema, workflowSchema } from '@/models/Schema';
+import { automationRunSchema, missionRunSchema, missionSchema, toolCallSchema, workflowSchema } from '@/models/Schema';
 import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
 import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
@@ -575,4 +576,207 @@ export async function rewriteWorkingNotes(orgId: string, slug: string, notes: st
     .set({ workingNotes: notes })
     .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.slug, slug)));
   return { name: before.name, previous: before.workingNotes ?? null };
+}
+
+/* ------------------------------------------------------------------ */
+/* Stranded-run reaper — mission runs a dead process left behind        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How long a mission run is given without activity before it counts as
+ * stranded. Mission runs execute in-process with no lease (unlike
+ * `worker_run` — ADR 0004, `WorkerRunService.reapLostWorkerRuns`), so a server
+ * restart or a crashed process leaves the row at `running` (or `planning` /
+ * `paused` / `awaiting_review`) for ever. 28 rows were found stuck this way in
+ * prod on 2026-09-28 — 15 `wiki-debrief`, 13 `increase-discovery-calls`, the
+ * oldest since 10 July.
+ *
+ * Override with `VOCION_MISSION_RUN_REAP_AFTER_MS` for a fleet whose
+ * legitimate single-task runs run longer.
+ */
+export const MISSION_RUN_REAP_AFTER_MS = (() => {
+  const configured = Number(process.env.VOCION_MISSION_RUN_REAP_AFTER_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 30 * 60_000;
+})();
+
+/**
+ * A stranded run that an EVENT automation started is worth replaying once —
+ * `regenerate-brief-on-request` or `handoff-on-reply` answers one specific
+ * payload that has nowhere else to come from, and loses it for good if the
+ * run that was carrying it just dies. Older than this the event itself is
+ * stale, so it is left alone instead.
+ */
+export const MISSION_RUN_REFIRE_WINDOW_MS = 24 * 60 * 60_000;
+
+/** Every status but the three terminal ones — "still going" for a mission run. */
+const REAPABLE_MISSION_RUN_STATUSES = ['planning', 'running', 'paused', 'awaiting_review'] as const;
+
+export type MissionRunReapResult = {
+  /** Runs marked `failed` this sweep. */
+  reaped: number;
+  /** Of those, how many were replayed because an event automation started them. */
+  refired: number;
+  ids: number[];
+};
+
+/**
+ * Was there tool activity on this run inside the bound? A single long task
+ * can run the whole bound without touching `mission_run` itself — the row is
+ * only patched at a task's start and its end, never in between
+ * (`services/missions/runtime.ts`) — so `updated_at` alone would reap a run
+ * that is still working. Scoped by org plus a `created_at` floor so the read
+ * rides the existing `tool_call_org_created_idx` rather than needing a new one.
+ * @param orgId - The run's org.
+ * @param missionRunId - The run.
+ * @param cutoff - Activity at or after this time counts as inside the bound.
+ */
+async function hasRecentToolCallActivity(orgId: string, missionRunId: number, cutoff: Date): Promise<boolean> {
+  const rows = await db
+    .select({ id: toolCallSchema.id })
+    .from(toolCallSchema)
+    .where(and(
+      eq(toolCallSchema.orgId, orgId),
+      eq(toolCallSchema.missionRunId, missionRunId),
+      gte(toolCallSchema.createdAt, cutoff),
+    ))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Close out the `automation_run` a stranded run's own fire left `running`
+ * (`mission_run.caused_by[0]`, stamped by `beginAutomationFire` on the exact
+ * fire that started this run), and replay it once when it is worth replaying.
+ *
+ * A schedule fire (`wiki-debrief`, `process-new-mqls`, a mission's own
+ * standing check) is superseded by its next scheduled fire regardless, so it
+ * is only marked `error` here. An event fire is dispatched again — inside
+ * {@link MISSION_RUN_REFIRE_WINDOW_MS} — as its own `automationFire` workflow
+ * rather than run inline: a mission check can take up to 90 minutes
+ * (`services/temporal/workflows/automationFire.ts`), and this sweep needs to
+ * stay fast for every other stranded run behind it. The replay carries the
+ * original fire's merged input (`automation_run.input` — kept exactly to
+ * "reproduce a run from") and is stamped `invokedBy: reap-refire:<original>`,
+ * which does not start with `event:` — so if the replay itself strands, this
+ * same check reads it as a non-event fire and only marks it failed. A re-fire
+ * is never re-fired.
+ * @param orgId - The run's org.
+ * @param automationRunId - The fire to close (`caused_by[0].automationRunId`).
+ * @param missionRunId - The run that was just reaped.
+ * @param now - The clock.
+ */
+async function closeAndMaybeRefireAutomationRun(orgId: string, automationRunId: number, missionRunId: number, now: Date): Promise<boolean> {
+  const [automationRun] = await db
+    .select()
+    .from(automationRunSchema)
+    .where(and(eq(automationRunSchema.id, automationRunId), eq(automationRunSchema.orgId, orgId)));
+  if (!automationRun) {
+    return false;
+  }
+  const closed = await db
+    .update(automationRunSchema)
+    .set({
+      status: 'error',
+      error: `mission run ${missionRunId} was stopped: the server restarted or the process died before it finished`,
+      targetRunId: missionRunId,
+      finishedAt: now,
+    })
+    .where(and(
+      eq(automationRunSchema.id, automationRunId),
+      eq(automationRunSchema.orgId, orgId),
+      eq(automationRunSchema.status, 'running'),
+    ))
+    .returning({ id: automationRunSchema.id });
+  if (closed.length === 0) {
+    // Already closed — by this same sweep on an earlier pass, or by
+    // AutomationService's own 70-minute abandoned-run sweep. Nothing to replay.
+    return false;
+  }
+
+  const invokedBy = automationRun.invokedBy ?? '';
+  const isEventFire = invokedBy.startsWith('event:');
+  const withinReplayWindow = now.getTime() - automationRun.startedAt.getTime() <= MISSION_RUN_REFIRE_WINDOW_MS;
+  if (!isEventFire || !withinReplayWindow) {
+    return false;
+  }
+
+  try {
+    const client = await getTemporalClient();
+    await client.workflow.start(AUTOMATION_FIRE_WORKFLOW, {
+      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
+      workflowId: automationRefireWorkflowIdFor(orgId, automationRunId, missionRunId),
+      args: [{
+        orgId,
+        slug: automationRun.slug,
+        input: (automationRun.input as Record<string, unknown> | null) ?? {},
+        invokedBy: `reap-refire:${invokedBy}`,
+      }],
+    });
+    return true;
+  } catch (error) {
+    console.warn(`[mission-run-reaper] could not replay "${automationRun.slug}" after reaping mission run ${missionRunId}`, { error: (error as Error).message ?? error });
+    return false;
+  }
+}
+
+/**
+ * Mark every mission run whose last activity lapsed as `failed` — the
+ * mission-run analogue of `WorkerRunService.reapLostWorkerRuns` (ADR 0004) for
+ * a run mode with no lease to lapse. Called by the Temporal Schedule in
+ * `MissionRunReaperScheduleService`, same five-minute cadence as the
+ * worker-run reaper; safe to call any time.
+ *
+ * "Last activity" is the later of the row's own `updated_at` (bumped on every
+ * status/plan write, `services/missions/runtime.ts`) and its newest
+ * `tool_call`, so a single long tool-heavy task is never reaped out from
+ * under itself. The plan's own task statuses are left exactly as the crash
+ * left them (`running`, `pending`, …) — the same thing the in-process crash
+ * handler in `missions/runtime.ts` does when it settles a run it did not
+ * expect to end — so a person reading the plan sees where it stopped.
+ * @param now - The clock, injectable for tests.
+ */
+export async function reapStaleMissionRuns(now: Date = new Date()): Promise<MissionRunReapResult> {
+  const cutoff = new Date(now.getTime() - MISSION_RUN_REAP_AFTER_MS);
+  const candidates = await db
+    .select({ id: missionRunSchema.id, orgId: missionRunSchema.orgId, causedBy: missionRunSchema.causedBy })
+    .from(missionRunSchema)
+    .where(and(
+      inArray(missionRunSchema.status, [...REAPABLE_MISSION_RUN_STATUSES]),
+      lt(missionRunSchema.updatedAt, cutoff),
+    ));
+  if (candidates.length === 0) {
+    return { reaped: 0, refired: 0, ids: [] };
+  }
+
+  const minutes = Math.round(MISSION_RUN_REAP_AFTER_MS / 60_000);
+  const error = `Stopped: the run was interrupted (no activity for ${minutes} min; the server restarted or the process died)`;
+  const ids: number[] = [];
+  let refired = 0;
+
+  for (const candidate of candidates) {
+    if (await hasRecentToolCallActivity(candidate.orgId, candidate.id, cutoff)) {
+      continue;
+    }
+
+    const updated = await db
+      .update(missionRunSchema)
+      .set({ status: 'failed', error, completedAt: now })
+      .where(and(
+        eq(missionRunSchema.id, candidate.id),
+        eq(missionRunSchema.orgId, candidate.orgId),
+        inArray(missionRunSchema.status, [...REAPABLE_MISSION_RUN_STATUSES]),
+      ))
+      .returning({ id: missionRunSchema.id });
+    if (updated.length === 0) {
+      // Settled by something else between the read above and this write.
+      continue;
+    }
+    ids.push(candidate.id);
+    const link = candidate.causedBy?.[0];
+
+    if (link?.automationRunId && await closeAndMaybeRefireAutomationRun(candidate.orgId, link.automationRunId, candidate.id, now)) {
+      refired += 1;
+    }
+  }
+  return { reaped: ids.length, refired, ids };
 }

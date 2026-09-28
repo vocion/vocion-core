@@ -39,8 +39,17 @@ export type AutomationFireInput = {
   slug: string;
   /** Set by `scheduleCoalescedFire`: this fire covers the event fires the ceiling held. */
   coalesce?: boolean;
+  /** Set by the mission-run reaper: replay a specific past fire with its original input. */
+  input?: Record<string, unknown>;
+  invokedBy?: string;
 };
 
 export async function automationFire(input: AutomationFireInput) {
-  return acts.fireAutomationActivity({ orgId: input.orgId, slug: input.slug, coalesce: input.coalesce });
+  return acts.fireAutomationActivity({
+    orgId: input.orgId,
+    slug: input.slug,
+    coalesce: input.coalesce,
+    input: input.input,
+    invokedBy: input.invokedBy,
+  });
 }

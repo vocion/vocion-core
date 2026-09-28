@@ -147,6 +147,28 @@ export const WORKER_RUN_REAPER_WORKFLOW = 'workerRunReaperWorkflow';
 export const WORKER_RUN_REAPER_SCHEDULE_ID = 'worker-run-reaper';
 
 /**
+ * Reaps mission runs stranded by a dead process (no lease to lapse — mission
+ * runs execute in-process). One schedule per deployment, not per org, same
+ * shape and cadence as the worker-run reaper above.
+ */
+export const MISSION_RUN_REAPER_WORKFLOW = 'missionRunReaperWorkflow';
+export const MISSION_RUN_REAPER_SCHEDULE_ID = 'mission-run-reaper';
+
+/**
+ * Workflow ID for the one-time replay of an event automation whose run the
+ * mission-run reaper just reaped — `automation-refire-<orgId>-<automationRunId>-<missionRunId>`.
+ * Keyed on both ids so a retried reap sweep that reaches the same stranded
+ * run twice finds the replay already started rather than dispatching a
+ * second one.
+ * @param orgId
+ * @param automationRunId - The fire being replayed.
+ * @param missionRunId - The stranded run that fire started.
+ */
+export function automationRefireWorkflowIdFor(orgId: string, automationRunId: number, missionRunId: number): string {
+  return `automation-refire-${orgId}-${automationRunId}-${missionRunId}`;
+}
+
+/**
  * Schedule ID convention for automations — `automation-<orgId>-<slug>`.
  * @param orgId
  * @param slug

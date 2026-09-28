@@ -17,6 +17,7 @@ import process from 'node:process';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { temporalAddress, temporalNamespace, VOCION_WORKFLOWS_TASK_QUEUE } from '../libs/temporal/client';
 import { applyLangfuseRetentionSchedule } from '../services/LangfuseRetentionScheduleService';
+import { applyMissionRunReaperSchedule } from '../services/MissionRunReaperScheduleService';
 import * as activities from '../services/temporal/activities';
 import { applyWorkerRunReaperSchedule } from '../services/WorkerRunReaperScheduleService';
 
@@ -73,6 +74,11 @@ async function main(): Promise<void> {
     await applyWorkerRunReaperSchedule();
   } catch (error) {
     console.error('[temporal:worker] could not apply the worker-run reaper schedule', error);
+  }
+  try {
+    await applyMissionRunReaperSchedule();
+  } catch (error) {
+    console.error('[temporal:worker] could not apply the mission-run reaper schedule', error);
   }
 
   // A fire whose worker died mid-flight leaves its `automation_run` row
