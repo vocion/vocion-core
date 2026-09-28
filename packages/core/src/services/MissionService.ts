@@ -14,6 +14,7 @@ import { AUTOMATION_FIRE_WORKFLOW, automationRefireWorkflowIdFor, getTemporalCli
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { automationRunSchema, missionRunSchema, missionSchema, toolCallSchema, workflowSchema } from '@/models/Schema';
 import { clampAutonomyLevel } from './missions/autonomy';
+import { describeTaskFailure } from './missions/failure';
 import { planMission } from './missions/planner';
 import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
 import { executeMissionRun } from './missions/runtime';
@@ -363,20 +364,62 @@ export async function startMission(opts: {
 
   // Check mode: one lead task, no planner. Planned mode: decompose first.
   // (Both execute in-process for now; Temporal-durable sessions are Phase 2.)
-  const tasks = opts.mode === 'check'
-    ? [{
-        id: 'scheduled-check',
-        title: charter?.name ? `Scheduled check: ${charter.name}` : 'Scheduled check',
-        ownerAgentSlug: team.lead,
-        type: 'analysis' as const,
-        status: 'pending' as const,
-        dependsOn: [],
-      }]
-    : await planMission({ orgId: opts.orgId, brief, goal, team, userId: opts.invokedBy });
-  await db.update(missionRunSchema).set({ plan: { tasks }, status: 'running' }).where(eq(missionRunSchema.id, run!.id));
+  // The row already exists at `planning`, so a planner that throws has to
+  // land it somewhere a person will see — otherwise it sits at `planning`
+  // with an empty plan until the stranded-run reaper finds it (vocion-core#122).
+  try {
+    const tasks = opts.mode === 'check'
+      ? [{
+          id: 'scheduled-check',
+          title: charter?.name ? `Scheduled check: ${charter.name}` : 'Scheduled check',
+          ownerAgentSlug: team.lead,
+          type: 'analysis' as const,
+          status: 'pending' as const,
+          dependsOn: [],
+        }]
+      : await planMission({ orgId: opts.orgId, brief, goal, team, userId: opts.invokedBy });
+    await db.update(missionRunSchema).set({ plan: { tasks }, status: 'running' }).where(eq(missionRunSchema.id, run!.id));
+  } catch (error) {
+    await recordPlanningFailure(run!.id, opts.orgId, error);
+    return (await getMissionRun(run!.id, opts.orgId))!;
+  }
   await executeMissionRun(run!.id, opts.orgId);
 
   return (await getMissionRun(run!.id, opts.orgId))!;
+}
+
+/**
+ * Mark a run whose planning step threw as `failed`, with the reason, so it is
+ * never left at `planning` with an empty plan.
+ *
+ * `failed` is an attention status (`ActivityService.ATTENTION_STATUSES`), so
+ * the run surfaces in Activity straight away instead of 30 minutes later when
+ * the stranded-run reaper would have closed it. The write only matches a row
+ * still at `planning`: a person who cancelled the run while the planner was
+ * thinking keeps their `cancelled`. `startMission` returns the failed run
+ * rather than throwing, the same way a failed task comes back, so every
+ * caller reads one shape for "this run did not work".
+ * @param runId - The run the planner was planning.
+ * @param orgId - The run's org.
+ * @param error - Whatever the planner (or the write after it) threw.
+ */
+async function recordPlanningFailure(runId: number, orgId: string, error: unknown): Promise<void> {
+  const reason = describeTaskFailure(error);
+  console.error(`[mission] planning failed for mission run ${runId}; marking it failed`, { orgId, error: reason });
+  try {
+    await db
+      .update(missionRunSchema)
+      .set({ status: 'failed', error: `Planning failed: ${reason}`, completedAt: new Date() })
+      .where(and(
+        eq(missionRunSchema.id, runId),
+        eq(missionRunSchema.orgId, orgId),
+        eq(missionRunSchema.status, 'planning'),
+      ));
+  } catch (writeError) {
+    // The database is what broke, so the reaper is the only thing left that
+    // can close this run.
+    console.error(`[mission] could not mark mission run ${runId} failed after planning threw; the stranded-run reaper will close it`, { orgId, error: (writeError as Error).message ?? writeError });
+  }
 }
 
 /**
