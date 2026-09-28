@@ -60,20 +60,20 @@ export default async function WorkspaceReportPage(props: {
       </>
     );
   }
-  // A run's own page (the Runs log's row link): the same preview a row opens,
-  // full width, so a person reads where it stopped and why, and copies the
-  // Claude Code block from it. One shape: the preview pane, not a second view.
+  // A run's own page (the Runs log's row link), read like a runner page: its
+  // steps, each opening onto its log, live while the run is (backlog 036).
+  // `agent-<id>` is an agent run (mission_run) in the same log.
   if (manifest?.source?.kind === 'workerRuns') {
-    await import('@/services/preview/descriptors');
-    const { resolvePreview } = await import('@/services/preview/registry');
+    const { readRunLog } = await import('@/services/runs/RunLogService');
     const { RunDetail } = await import('@/features/dashboard/factory/RunDetail');
-    // `agent-<id>` is an agent run (mission_run) in the same log.
-    const agentRun = /^agent-(\d+)$/.exec(id);
-    const doc = await resolvePreview(agentRun ? { type: 'mission_run', id: agentRun[1]! } : { type: 'worker_run', id }, { orgId, userId: null });
+    const data = await readRunLog(orgId, id);
+    if (!data) {
+      return notFound();
+    }
     return (
       <>
         <TitleBar title={manifest.title} description={manifest.description} />
-        <RunDetail doc={doc} backHref={`/dashboard/p/${manifest.slug}`} />
+        <RunDetail initial={data} backHref={`/dashboard/p/${manifest.slug}`} />
       </>
     );
   }

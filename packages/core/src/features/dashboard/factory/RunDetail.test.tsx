@@ -1,0 +1,155 @@
+import type { RunHeader, RunLogData, RunLogEvent } from '@/libs/worker/runLog';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render } from 'vitest-browser-react';
+import { page, userEvent } from 'vitest/browser';
+import '@/styles/global.css';
+
+const log = vi.fn();
+
+vi.mock('@/libs/Orpc', () => ({
+  client: { runs: { log: (input: unknown) => log(input) } },
+}));
+
+vi.mock('@/libs/I18nNavigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }),
+  usePathname: () => '/dashboard/p/runs/7',
+  Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
+}));
+
+const { RunDetail } = await import('./RunDetail');
+
+/**
+ * The run page, drawn: a runner's step list that opens onto logs, follows a
+ * live run and leaves a finished one alone — at a desk and on a phone.
+ */
+
+function header(over: Partial<RunHeader> = {}): RunHeader {
+  return {
+    kind: 'worker',
+    ref: '7',
+    id: 7,
+    title: 'northwind-t12',
+    objective: 'Add a PDF export to the room share menu.',
+    status: 'running',
+    attempt: 2,
+    startedAt: new Date(Date.now() - 90_000).toISOString(),
+    endedAt: null,
+    cents: 184,
+    model: 'claude-sonnet-4-6',
+    prUrl: null,
+    error: null,
+    summary: null,
+    links: [{ label: 'Transcript', href: '/dashboard/artifacts/91', external: false }],
+    logLinks: { stream: null, stderr: null, checks: {} },
+    attach: null,
+    progress: { phase: null, note: null, log: [] },
+    checks: [],
+    failures: [],
+    ...over,
+  };
+}
+
+function ev(seq: number, phase: string, fields: Record<string, unknown> = {}): RunLogEvent {
+  return { seq, ts: new Date(Date.now() - 80_000 + seq * 1000).toISOString(), phase, step: null, level: null, message: null, fields };
+}
+
+const LONG = `npx vitest run src/features/rooms/${'very-long-segment/'.repeat(12)}ShareMenu.test.tsx`;
+
+function live(over: Partial<RunHeader> = {}): RunLogData {
+  return {
+    header: header(over),
+    events: [
+      ev(1, 'claim'),
+      ev(2, 'prepare', { note: 'clone https://github.com/example/northwind-portal.git' }),
+      ev(3, 'claude', { note: 'model=sonnet' }),
+      ev(4, 'claude.tool', { tool: 'Read', target: 'src/features/rooms/ShareMenu.tsx', ok: true }),
+      ev(5, 'claude.tool', { tool: 'Bash', target: LONG, ok: true }),
+    ],
+    tasks: [],
+    calls: [],
+    cursor: 5,
+  };
+}
+
+function stepRow(name: string) {
+  return page.getByRole('button', { name: new RegExp(name) });
+}
+
+beforeEach(() => {
+  log.mockReset();
+});
+
+describe('the run page', () => {
+  it('lists the steps with their state, the running one open on its log', async () => {
+    await page.viewport(1280, 900);
+    render(<RunDetail initial={live()} backHref="/dashboard/p/runs" pollMs={60_000} />);
+
+    await expect.element(page.getByRole('heading', { name: 'northwind-t12' })).toBeVisible();
+    await expect.element(page.getByText('Attempt 2')).toBeVisible();
+    await expect.element(page.getByText('$1.84')).toBeVisible();
+    await expect.element(page.getByRole('link', { name: 'Transcript' })).toHaveAttribute('href', '/dashboard/artifacts/91');
+    await expect.element(stepRow('Set up')).toHaveAttribute('aria-expanded', 'false');
+    await expect.element(stepRow('Claude Code')).toHaveAttribute('aria-expanded', 'true');
+
+    const running = document.querySelector('[data-item="claude"] [data-step-status]');
+
+    expect(running?.getAttribute('data-step-status')).toBe('running');
+    await expect.element(page.getByText('ok  Read src/features/rooms/ShareMenu.tsx')).toBeVisible();
+  });
+
+  it('opens a step\'s log when it is clicked, with numbered lines', async () => {
+    render(<RunDetail initial={live()} backHref="/dashboard/p/runs" pollMs={60_000} />);
+
+    await userEvent.click(stepRow('Set up'));
+
+    await expect.element(stepRow('Set up')).toHaveAttribute('aria-expanded', 'true');
+
+    const setUp = document.querySelector('[data-item="prepare"] [data-testid="run-step-log"]');
+
+    expect(setUp?.textContent).toContain('prepare  clone https://github.com/example/northwind-portal.git');
+    expect(setUp?.querySelector('td')?.textContent).toBe('1');
+  });
+
+  it('asks for the lines after the last one it has while the run is live, and stops once it finishes', async () => {
+    log.mockResolvedValueOnce({ header: header({ status: 'completed', endedAt: new Date().toISOString() }), events: [ev(6, 'check', { name: 'typecheck', status: 'passed', exit_code: 0 })], tasks: [], calls: [], cursor: 6 });
+    render(<RunDetail initial={live()} backHref="/dashboard/p/runs" pollMs={150} />);
+
+    await expect.poll(() => log.mock.calls.length).toBe(1);
+
+    expect(log).toHaveBeenCalledWith({ ref: '7', after: 5 });
+
+    await expect.element(stepRow('Checks')).toBeVisible();
+    await expect.element(page.getByText('Completed')).toBeVisible();
+
+    await new Promise(r => setTimeout(r, 600));
+
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('never polls a run that has finished, opens the failed step and keeps the Claude Code block', async () => {
+    const data = live({ status: 'failed', endedAt: new Date().toISOString(), error: 'verification failed: required checks failed: test', attach: 'Vocion software factory run #7 failed (northwind-t12).' });
+    data.events.push(ev(6, 'check', { name: 'test', status: 'failed', exit_code: 1, tail: '\u001B[31mFAIL\u001B[39m rooms.test.ts' }), ev(7, 'fail', { note: 'verification failed' }));
+    render(<RunDetail initial={data} backHref="/dashboard/p/runs" pollMs={100} />);
+
+    await expect.element(stepRow('Checks')).toHaveAttribute('aria-expanded', 'true');
+    await expect.element(page.getByText('  FAIL rooms.test.ts')).toBeInTheDocument();
+    await expect.element(page.getByTestId('run-stopped')).toHaveTextContent(/verification failed/);
+    await expect.element(page.getByTestId('run-attach')).toHaveTextContent(/Vocion software factory run #7 failed/);
+
+    await new Promise(r => setTimeout(r, 400));
+
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('holds a long log line inside its box on a phone — the page never scrolls sideways', async () => {
+    await page.viewport(390, 844);
+    render(<RunDetail initial={live()} backHref="/dashboard/p/runs" pollMs={60_000} />);
+
+    await expect.element(page.getByText(LONG, { exact: false })).toBeInTheDocument();
+
+    const box = document.querySelector('[data-item="claude"] [data-testid="run-step-log"]') as HTMLElement;
+
+    expect(box.scrollWidth).toBeGreaterThan(box.clientWidth);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
+  });
+});

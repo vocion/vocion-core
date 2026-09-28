@@ -1370,6 +1370,9 @@ export const missionRunSchema = pgTable('mission_run', {
       output?: string;
       traceId?: string;
       error?: string;
+      /** When the task's turn started and ended (ISO) — the run page's step durations. */
+      startedAt?: string;
+      endedAt?: string;
     }>;
   }>().default({ tasks: [] }),
   /** Resolved team for this run: { lead, members[] }. */
@@ -4168,6 +4171,38 @@ export const workerRunSchema = pgTable(
     index('worker_run_org_status_idx').on(table.orgId, table.status),
     index('worker_run_org_agent_idx').on(table.orgId, table.agentSlug),
     index('worker_run_lease_idx').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
+/**
+ * One line of an engineering run's step log (migration 0149, backlog 036).
+ * The worker sends the lines since its last heartbeat; the run page groups
+ * them into steps. `phase` is the worker's own name for the line (`prepare`,
+ * `claude.tool`, `check`, `pushed` …); `step` is an explicit step the worker
+ * named, else null and derived on read (`libs/runs/runLog.ts`). Bounded by
+ * `services/runs/RunLogService.ts`; swept after 30 days by the reaper.
+ */
+export const workerRunEventSchema = pgTable(
+  'worker_run_event',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    runId: integer('run_id').notNull().references(() => workerRunSchema.id, { onDelete: 'cascade' }),
+    /** Per-run, increasing from 1; the idempotency key with `runId`. */
+    seq: integer('seq').notNull(),
+    /** When the worker emitted it (the worker's clock). */
+    ts: timestamp('ts', { mode: 'date' }).notNull(),
+    phase: text('phase').notNull(),
+    step: text('step'),
+    /** `info` | `warn` | `error`. */
+    level: text('level').default('info').notNull(),
+    message: text('message'),
+    fields: jsonb('fields').$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('worker_run_event_run_seq_uq').on(table.runId, table.seq),
+    index('worker_run_event_created_idx').on(table.createdAt),
   ],
 );
 

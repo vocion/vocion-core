@@ -123,6 +123,9 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
       }
 
       task.status = 'running';
+      // The run page draws each task as a step with its duration.
+      task.startedAt = new Date().toISOString();
+      delete task.endedAt;
       await patch(runId, { plan: { tasks } });
 
       const priorOutputs = tasks
@@ -155,6 +158,7 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
         task.error = describeTaskFailure(err);
         log('error', 'mission task failed', { runId, taskId: task.id, error: task.error });
       }
+      task.endedAt = new Date().toISOString();
       await patch(runId, { plan: { tasks }, artifacts });
     }
 

@@ -52,10 +52,10 @@ org. Worker-side calls must also present the `workerId` that holds the lease.
 | Step | Call | What Vocion does |
 |---|---|---|
 | Claim | `POST /worker-runs/:id/claim { workerId }` | `queued` → `running`, `attempt` +1, lease starts. Checks the agent's period budget first (402 if over). Returns a short-lived **toolClaim** for `/api/internal/agent-tools`. |
-| Heartbeat | `POST /worker-runs/:id/heartbeat { workerId, progress?, cursor?, counts?, usage?, failures? }` | Extends the lease, records progress and cost, charges `usage` to the agent's budget. Replies with the **control signals**. |
+| Heartbeat | `POST /worker-runs/:id/heartbeat { workerId, progress?, cursor?, counts?, usage?, failures?, events? }` | Extends the lease, records progress and cost, charges `usage` to the agent's budget, stores the step log `events`. Replies with the **control signals**. |
 | Checkpoint | `POST /worker-runs/:id/checkpoint { workerId, cursor, … }` | Same contract as heartbeat; `cursor` required. |
-| Complete | `POST /worker-runs/:id/complete { workerId, result?, counts?, summary? }` | Terminal. A run that had been asked to stop is recorded as `cancelled`. `summary` is the worker's own one-paragraph account, shown on the team report. |
-| Fail | `POST /worker-runs/:id/fail { workerId, error, failures? }` | Terminal. |
+| Complete | `POST /worker-runs/:id/complete { workerId, result?, counts?, summary?, events? }` | Terminal. A run that had been asked to stop is recorded as `cancelled`. `summary` is the worker's own one-paragraph account, shown on the team report. |
+| Fail | `POST /worker-runs/:id/fail { workerId, error, failures?, result?, transcriptArtifactId?, promptArtifactId?, logLinks?, events? }` | Terminal. What the run kept and the links to its logs are stored on `result`. |
 | Cancel | `POST /worker-runs/:id/cancel` | The human kill switch. `queued` cancels now; `running` sets `stopRequested`, which the worker learns on its next heartbeat. |
 
 The heartbeat reply is the only channel back to the worker, so everything rides on it:
@@ -66,6 +66,45 @@ The heartbeat reply is the only channel back to the worker, so everything rides 
 
 `stop` is true when a human cancelled, the per-run cap is spent, or the deadline passed. A worker that
 ignores it will be marked `lost` when its lease lapses — Vocion cannot kill a process it does not host.
+
+## The step log — what the run page draws
+
+A heartbeat, complete or fail may carry `events`: the lines the worker printed since its last
+report, which the run page (`/dashboard/p/runs/<id>`) draws as a runner's step list — status mark,
+name, duration, each step opening onto its log, live while the run is.
+
+```json
+{
+  "events": [
+    { "seq": 41, "ts": "2026-09-28T10:04:12Z", "phase": "claude.tool", "fields": { "tool": "Edit", "target": "src/a.ts", "id": "tu_1" } },
+    { "seq": 42, "ts": "2026-09-28T10:04:13Z", "phase": "claude.tool.result", "level": "error", "fields": { "id": "tu_1", "ok": false, "error": "…" } },
+    { "seq": 43, "ts": "2026-09-28T10:06:40Z", "phase": "check", "fields": { "name": "typecheck", "status": "passed", "exit_code": 0, "duration_s": 31, "tail": "…" } }
+  ]
+}
+```
+
+- `seq` is per run, increasing from 1; storing is idempotent on `(run, seq)`, so a retried beat
+  stores nothing twice. The reply carries `eventsAccepted`, the highest seq Vocion has dealt with;
+  the worker drops everything up to it. No `events`, no `eventsAccepted`, and the reply is
+  otherwise unchanged. Lines that cannot be stored never fail the heartbeat.
+- `phase` is the worker's own name for the line (`prepare`, `install`, `claude`, `claude.tool`,
+  `check`, `qa.step.failed`, `pushed`, `pr.opened` …); core groups phases into steps (set up,
+  install, services, Claude Code, checks, QA, named tests, keep work, push and PR, complete) in
+  `libs/worker/runLog.ts`. `level` is optional and read off the line when absent.
+- Bounded server side: 200 lines per request, 5000 per run (later lines are acknowledged and
+  dropped), a `message` of 2000 characters, 8KB of `fields` (long strings cut, then keys dropped,
+  with `_truncated`). A run that is no longer running takes lines only in its complete / fail call.
+- Kept 30 days: the worker-run reaper deletes older lines; the run row and its summary stay.
+- Only the small lines live here. The transcript, the prompt and full check logs are the worker's
+  to store; they arrive as pointers — `transcriptArtifactId` and `promptArtifactId` (artifacts)
+  and `logLinks: { stream, stderr, checks: { <name>: url } }` (presigned `https` links) — on
+  `result` for complete and at the top level of the fail body, and the page links them. Vocion
+  never proxies those bytes.
+
+The page polls `runs.log({ ref, after })` every 3s while the run is live and the tab is visible,
+asking only for lines after the last seq it holds. An agent run (`agent-<id>`) draws on the same
+page: a step per plan task, a line per tool call. A run from before the step log falls back to what
+it kept — its last progress, its check tails, its failures.
 
 ## Statuses
 

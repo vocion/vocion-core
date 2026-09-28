@@ -397,24 +397,9 @@ registerPreview('worker_run', {
     const result = (run.result ?? {}) as { pr_url?: string };
     const stoppedAt = typeof progress.phase === 'string' ? progress.phase : null;
     const failed = ['failed', 'lost', 'cancelled'].includes(run.status);
-    // FAIL CLEARLY, THEN ATTACH (Chris, 2026-09-28: "fail clearly so that we
-    // can attach from here to fix the gap in Vocion SF and re run"). A failed
-    // run carries one block a person pastes into Claude Code: the run, where
-    // it stopped, why, the links and the last lines, and what to do next.
-    const { appBaseUrl } = await import('@/libs/links');
-    const runUrl = `${appBaseUrl()}/dashboard/p/runs/${run.id}`;
-    const attach = failed
-      ? [
-          `Vocion software factory run #${run.id} ${run.status}${input.task?.task_id ? ` (${input.task.task_id})` : ''}.`,
-          stoppedAt ? `Stopped at: ${stoppedAt}` : null,
-          run.error ? `Why: ${run.error.split('\n')[0]!.slice(0, 400)}` : null,
-          `Run: ${runUrl}`,
-          result.pr_url ? `Pull request: ${result.pr_url}` : null,
-          input.task?.repo ? `Repo: ${input.task.repo}` : null,
-          logLines.length > 0 ? `Last lines:\n${logLines.slice(-15).join('\n')}` : null,
-          'Find why the factory stopped here, fix the gap in Vocion (or the worker), ship it, then press Build again on the feature.',
-        ].filter(Boolean).join('\n')
-      : null;
+    // The Claude Code block a stopped run carries — the same one its run page prints.
+    const { workerRunAttach } = await import('@/services/runs/RunLogService');
+    const attach = await workerRunAttach(run);
     const text = [
       failed ? `**Stopped${stoppedAt ? ` at ${stoppedAt}` : ''}** — ${run.error ? run.error.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}` : null,
       input.task?.objective ? `**Objective** — ${input.task.objective}` : null,
@@ -472,8 +457,9 @@ registerPreview('mission_run', {
       .orderBy(toolCallSchema.id)
       .limit(60);
     const failed = run.status === 'failed';
-    const { appBaseUrl } = await import('@/libs/links');
-    const firstError = run.error ?? tasks.map(t => (t.error ? String(t.error) : '')).find(Boolean) ?? null;
+    const { missionRunAttach, missionRunError } = await import('@/services/runs/RunLogService');
+    const firstError = missionRunError(run);
+    const attach = await missionRunAttach(run);
     const text = [
       failed ? `**Stopped** — ${firstError ? firstError.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}` : null,
       run.brief ? `**Brief**\n\n${run.brief.slice(0, 1200)}${run.brief.length > 1200 ? '…' : ''}` : null,
@@ -483,9 +469,7 @@ registerPreview('mission_run', {
         typeof t.output === 'string' && t.output.trim() ? t.output.slice(0, 4000) : null,
       ].filter(Boolean).join('\n\n')),
       calls.length > 0 ? `**Tools called**\n\n${calls.map(c => `- \`${c.tool}\`${c.error ? ' — failed' : ''}${c.ms ? ` · ${(c.ms / 1000).toFixed(1)}s` : ''}`).join('\n')}` : null,
-      failed
-        ? `**Fix it from Claude Code** — paste this into a session:\n\n\`\`\`\nVocion agent run #${run.id} failed (${run.title}).\n${firstError ? `Why: ${firstError.split('\n')[0]!.slice(0, 400)}\n` : ''}Run: ${appBaseUrl()}/dashboard/missions/runs/${run.id}\nFind why it stopped, fix the gap in Vocion, ship it, then run it again.\n\`\`\``
-        : null,
+      attach ? `**Fix it from Claude Code** — paste this into a session:\n\n\`\`\`\n${attach}\n\`\`\`` : null,
     ].filter(Boolean).join('\n\n');
     return {
       ref,

@@ -6358,7 +6358,7 @@
             }
           }
         },
-        "description": "Terminal. A run that had been asked to stop is recorded as `cancelled`.\n`summary` is the worker's own one-paragraph account, shown on the team report.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Terminal. A run that had been asked to stop is recorded as `cancelled`.\n`summary` is the worker's own one-paragraph account, shown on the team report.\n`events` is the run's last batch of step lines, landed before the run closes;\nthe reply's `eventsAccepted` is the highest seq Vocion has dealt with.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",
@@ -6379,6 +6379,9 @@
                 "description": "The fields this endpoint reads.",
                 "properties": {
                   "counts": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "events": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "result": {
@@ -6442,7 +6445,7 @@
             }
           }
         },
-        "description": "Terminal: the worker gave up. The lease holder stays on the row for the audit trail.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Terminal: the worker gave up. The lease holder stays on the row for the audit trail.\n`result` is what the run kept (a draft PR). The links to its transcript,\nprompt and full logs come at the top level of the body — `result` is only\nsent when work was kept — and are stored on `result` beside it, where a\ncompleted run carries them too, so the run page reads one place. `events`\nis the run's last batch of step lines, landed before the run closes.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",
@@ -6463,6 +6466,9 @@
                 "description": "The fields this endpoint reads.",
                 "properties": {
                   "error": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "events": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "failures": {
@@ -6523,7 +6529,7 @@
             }
           }
         },
-        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures?, events? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\n\n`events` is the run's step log since the last beat — `[{ seq, ts, phase,\nlevel?, message?, fields? }]`, at most 200 — and `eventsAccepted` in the\nreply is the highest seq Vocion has dealt with (`services/runs/RunLogService.ts`).\nLines that cannot be stored never fail the heartbeat; the reply then omits\n`eventsAccepted` and the worker resends them.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",
@@ -6547,6 +6553,9 @@
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "cursor": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "events": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "failures": {

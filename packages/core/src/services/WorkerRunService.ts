@@ -7,6 +7,7 @@ import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from 
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
 import { recomputeRollups } from '@/services/objects/rollups';
+import { ingestRunEvents } from '@/services/runs/RunLogService';
 import { assertWorkspaceRunning } from '@/services/workspacePause';
 
 /**
@@ -250,6 +251,8 @@ export type HeartbeatInput = {
   usage?: { model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; cents?: number };
   langfuseTraceId?: string;
   failures?: { scope: string; message: string }[];
+  /** The step lines since the last beat (`services/runs/RunLogService.ts`). */
+  events?: readonly unknown[];
 };
 
 export type HeartbeatReply = {
@@ -260,7 +263,52 @@ export type HeartbeatReply = {
   endsAt: Date | null;
   capRemainingCents: number | null;
   toolClaim: string;
+  /** The highest event seq Vocion has dealt with; absent when none were sent or they could not be stored. */
+  eventsAccepted?: number;
 };
+
+/**
+ * Land a batch of step lines, never failing the call that carried them: a
+ * heartbeat whose lines could not be written still extends the lease and
+ * still returns the control signals. The failure is logged; the worker keeps
+ * the lines and resends them on the next beat.
+ * @param opts - The batch.
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.events
+ * @param opts.final
+ */
+async function landEvents(opts: { orgId: string; runId: number; events?: readonly unknown[]; final?: boolean }): Promise<number | undefined> {
+  if (!opts.events || opts.events.length === 0) {
+    return undefined;
+  }
+  try {
+    const r = await ingestRunEvents({ orgId: opts.orgId, runId: opts.runId, events: opts.events, final: opts.final });
+    return r.ok ? r.accepted : undefined;
+  } catch (err) {
+    warn('worker run events could not be stored', { runId: opts.runId, error: err instanceof Error ? err.message : String(err) });
+    return undefined;
+  }
+}
+
+/**
+ * The run's last lines, sent with complete or fail. Checked against the
+ * lease like the terminal call it rides with, and accepted whatever the
+ * run's status, so a retried complete still lands its lines (once).
+ * @param opts - The batch.
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.workerId
+ * @param opts.events
+ */
+export async function recordFinalRunEvents(opts: { orgId: string; id: number; workerId: string; events?: readonly unknown[] }): Promise<number | undefined> {
+  if (!opts.events || opts.events.length === 0) {
+    return undefined;
+  }
+  const run = await mustGet(opts.orgId, opts.id);
+  mustHoldLease(run, opts.workerId);
+  return landEvents({ orgId: opts.orgId, runId: run.id, events: opts.events, final: true });
+}
 
 /**
  * Extend the lease, record progress and cost, return the control signals.
@@ -303,6 +351,7 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     };
     await chargeUsage({ orgId: run.orgId, agentSlug: run.agentSlug, model: input.usage.model, usage });
   }
+  const eventsAccepted = await landEvents({ orgId: run.orgId, runId: run.id, events: input.events });
   const r = updated!;
   const capLeft = capRemainingCents(r);
   const overCap = capLeft !== null && capLeft <= 0;
@@ -315,6 +364,7 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     endsAt: r.endsAt,
     capRemainingCents: capLeft,
     toolClaim: toolClaimFor(r),
+    ...(eventsAccepted === undefined ? {} : { eventsAccepted }),
   };
 }
 
@@ -355,8 +405,9 @@ export async function completeWorkerRun(opts: { orgId: string; id: number; worke
  * @param opts.workerId
  * @param opts.error
  * @param opts.failures
+ * @param opts.result - What the run kept (a draft PR, links to its transcript and logs).
  */
-export async function failWorkerRun(opts: { orgId: string; id: number; workerId: string; error: string; failures?: { scope: string; message: string }[] }): Promise<WorkerRun> {
+export async function failWorkerRun(opts: { orgId: string; id: number; workerId: string; error: string; failures?: { scope: string; message: string }[]; result?: Record<string, unknown> }): Promise<WorkerRun> {
   const run = await mustGet(opts.orgId, opts.id);
   mustHoldLease(run, opts.workerId);
   const now = new Date();
@@ -367,6 +418,9 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
     status: 'failed',
     error: opts.error,
     failures,
+    // What a failed run kept — its draft PR, and the links to its transcript
+    // and full logs the run page reads — merged over anything already there.
+    result: opts.result ? { ...(run.result ?? {}), ...opts.result } : run.result,
     completedAt: now,
     heartbeatAt: now,
     updatedAt: now,

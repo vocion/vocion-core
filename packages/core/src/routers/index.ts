@@ -139,6 +139,7 @@ import {
   unapproveContentRoute,
   undoActionRoute,
 } from './Review';
+import { logRoute as runLogRoute } from './Runs';
 import { scorecardAgentsRoute } from './Scorecard';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
@@ -189,6 +190,9 @@ export const router = {
   },
   preview: {
     get: getPreviewRoute,
+  },
+  runs: {
+    log: runLogRoute,
   },
   playbooks: {
     list: listPlaybooks,

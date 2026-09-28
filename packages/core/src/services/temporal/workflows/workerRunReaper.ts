@@ -7,7 +7,8 @@ const acts = proxyActivities<typeof activities>({
 });
 
 /**
- * Deployment-wide sweep: mark worker runs whose lease lapsed as `lost`
+ * Deployment-wide sweep: mark worker runs whose lease lapsed as `lost`, and
+ * delete step-log lines past their retention
  * (ADR 0004). Scheduled every few minutes by WorkerRunReaperScheduleService.
  */
 export async function workerRunReaperWorkflow() {

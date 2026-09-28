@@ -389,8 +389,10 @@ export function FactList(props: { facts: ReadonlyArray<Maybe<Fact>>; layout?: 'r
  */
 export type AccordionItem = {
   id: string;
-  /** The row's leading label — "Day 0", "Send 2". */
-  label: ReactNode;
+  /** The row's leading label — "Day 0", "Send 2". Omit it and the title leads. */
+  label?: ReactNode;
+  /** A state icon before the text — a run step's passed / failed / running mark. */
+  icon?: ReactNode;
   /** The title — a subject line. */
   title: ReactNode;
   /** A short trailing fact — "edited", "3 paragraphs". */
@@ -417,7 +419,7 @@ export function Accordion(props: {
 function AccordionRow(props: { item: AccordionItem; open: boolean; onToggle?: (id: string, open: boolean) => void }) {
   const { item, open } = props;
   return (
-    <div data-pattern="accordion-row" data-state={open ? 'open' : 'closed'}>
+    <div data-pattern="accordion-row" data-item={item.id} data-state={open ? 'open' : 'closed'}>
       <button
         type="button"
         aria-expanded={open}
@@ -425,9 +427,14 @@ function AccordionRow(props: { item: AccordionItem; open: boolean; onToggle?: (i
         className="flex min-h-11 w-full items-center gap-3 rounded-md px-1 py-2 text-left transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
       >
         <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground/60 transition-transform', open && 'rotate-90')} aria-hidden />
+        {item.icon && <span className="flex shrink-0 items-center">{item.icon}</span>}
         <span className="min-w-0 flex-1 truncate text-sm">
-          <span className="text-muted-foreground">{item.label}</span>
-          <span className="text-muted-foreground/60"> · </span>
+          {item.label !== undefined && (
+            <>
+              <span className="text-muted-foreground">{item.label}</span>
+              <span className="text-muted-foreground/60"> · </span>
+            </>
+          )}
           <span className="font-medium text-foreground">{item.title}</span>
         </span>
         {item.meta && <span className="shrink-0 text-[12px] text-muted-foreground">{item.meta}</span>}

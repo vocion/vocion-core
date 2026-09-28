@@ -5,9 +5,15 @@ import { obj, str, workerRunErrorResponse } from '../../_lib';
 
 /**
  * POST /api/v1/worker-runs/:id/heartbeat
- *   { workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures? }
+ *   { workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures?, events? }
  * Extends the lease and records what the worker reports. The reply carries the
  * control signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.
+ *
+ * `events` is the run's step log since the last beat — `[{ seq, ts, phase,
+ * level?, message?, fields? }]`, at most 200 — and `eventsAccepted` in the
+ * reply is the highest seq Vocion has dealt with (`services/runs/RunLogService.ts`).
+ * Lines that cannot be stored never fail the heartbeat; the reply then omits
+ * `eventsAccepted` and the worker resends them.
  * @param req - Request.
  * @param context - Route params.
  * @param context.params
@@ -63,6 +69,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       usage,
       langfuseTraceId: str(body, 'langfuseTraceId') ?? undefined,
       failures,
+      events: Array.isArray(body.events) ? body.events : undefined,
     });
     return NextResponse.json({
       leaseExpiresAt: reply.leaseExpiresAt,
@@ -72,6 +79,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       capRemainingCents: reply.capRemainingCents,
       toolClaim: reply.toolClaim,
       status: reply.run.status,
+      ...(reply.eventsAccepted === undefined ? {} : { eventsAccepted: reply.eventsAccepted }),
     });
   } catch (error) {
     return workerRunErrorResponse(error);
