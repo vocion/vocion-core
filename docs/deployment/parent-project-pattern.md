@@ -202,6 +202,15 @@ environment ends up invoking last month's image.
 | `VOCION_AGENTCORE_MEMORY_ID` | SSM `memory-id` | Conversations still work — history rides the payload — but nothing is remembered across conversations. |
 | `VOCION_BEDROCK_SESSION_SECONDS` | optional, default 3600 | Nothing. Only shorten or lengthen the STS session if you have a reason. |
 
+The identity core signs with (a box's instance role, a task role) needs **both**
+`bedrock-agentcore:InvokeAgentRuntime` **and**
+`bedrock-agentcore:InvokeAgentRuntimeForUser` on the runtime. Core sends the
+person as `runtimeUserId`, which AWS turns into the
+`X-Amzn-Bedrock-AgentCore-Runtime-User-Id` header, and with that header present
+AWS refuses a caller that holds only the first action. It fails at the first
+turn, not at deploy: Metacto's instance role had held `InvokeAgentRuntime` since
+July, and the first real turn on 2026-09-28 came back AccessDenied.
+
 `VOCION_TOOL_ENDPOINT_URL` is the one that surprises people. Every domain tool
 an agent has — knowledge search, CRM lookups, learnings, briefings, all of them
 — is executed by core, not by the runtime; the runtime calls back over HTTP

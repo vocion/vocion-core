@@ -160,14 +160,18 @@ export async function buildChatModel(opts: {
     ? bedrockCredentialProvider(opts.readAwsSession)
     : undefined;
   const model = resolvedModelId(opts.model);
-  return new Bedrock({
+  const { preserveReasoningSignatures } = await import('./reasoningSignatures.js');
+  // A model that thinks before a tool call needs its thinking signature back
+  // on the next request, and the library's event-stream path drops it — see
+  // `./reasoningSignatures.ts`.
+  return preserveReasoningSignatures(new Bedrock({
     model,
     // Same models, second transport: Bedrock refuses the same parameters.
     ...(anthropicOmitsSampling(model) || opts.temperature === undefined ? {} : { temperature: opts.temperature }),
     maxTokens: opts.maxTokens ?? 8192,
     region: process.env.AWS_REGION ?? 'us-west-2',
     ...(credentials ? { credentials } : {}),
-  });
+  }));
 }
 
 /**
