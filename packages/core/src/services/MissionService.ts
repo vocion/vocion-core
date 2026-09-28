@@ -458,6 +458,10 @@ export async function resumeMission(runId: number, orgId: string): Promise<Missi
     if (t.status === 'awaiting_approval') {
       t.status = 'pending';
       t.approvalRequired = false; // approved by the human
+      // An external task at autonomy 1–2 is gated by its type, not by the
+      // flag, so clearing the flag alone sent it straight back for approval
+      // on every resume. The loop's gate skips a task a person approved.
+      t.approvedAt = new Date().toISOString();
     }
   }
   const claimed = await db

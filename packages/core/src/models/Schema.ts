@@ -1367,6 +1367,8 @@ export const missionRunSchema = pgTable('mission_run', {
       status: 'pending' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'skipped';
       dependsOn?: string[];
       approvalRequired?: boolean;
+      /** When a person approved this task (ISO). An approved task runs without asking again. */
+      approvedAt?: string;
       output?: string;
       traceId?: string;
       error?: string;

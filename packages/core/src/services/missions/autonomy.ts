@@ -32,15 +32,22 @@ const EXTERNAL_TYPES = new Set(['action']);
  *   allowed unless the task explicitly flags `approvalRequired`.
  * Internal work (analysis, creative, synthesis, artifact, diagnostic) is never
  * auto-gated — it produces drafts, not side-effects.
+ * A task a person already approved (`approvedAt`) is never gated again, or
+ * an external task at level 1–2 would stop for the same approval on every
+ * resume and the run could never finish.
  * @param task
  * @param task.type
  * @param task.approvalRequired
+ * @param task.approvedAt - When a person approved it, if they have.
  * @param level
  */
 export function taskNeedsApproval(
-  task: { type: string; approvalRequired?: boolean },
+  task: { type: string; approvalRequired?: boolean; approvedAt?: string },
   level: AutonomyLevel,
 ): boolean {
+  if (task.approvedAt) {
+    return false;
+  }
   // Delegate to the single gate rule in the authorization model.
   return requiresApprovalForMutation(level, {
     external: EXTERNAL_TYPES.has(task.type),
