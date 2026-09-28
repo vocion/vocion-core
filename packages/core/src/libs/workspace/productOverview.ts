@@ -48,6 +48,24 @@ export type OverviewDecision = {
 export type OverviewWork = { id: string | number; title: string; status: string; next: string | null; href: string | null };
 export type OverviewRelease = { id: string | number; title: string; at: Date | null; healthAfter: string | null; href: string | null };
 export type OverviewFact = { label: string; value: string; href?: string };
+/**
+ * One place the product runs, as the overview lists it: which part and which
+ * stage, where it answers, and what the last deploy left there. The rest of
+ * the record (hosting ids, the pipeline step, rollback) is evidence, on the
+ * record's own page.
+ */
+export type OverviewEnvironment = {
+  id: string | number;
+  /** "API · production" — the surface and stage, or the record's title. */
+  name: string;
+  url: string | null;
+  /** Short commit and when, e.g. "3f2a9c1"; null when no deploy is recorded. */
+  deployedSha: string | null;
+  deployedAt: Date | null;
+  /** The post-deploy check's reading, or null when nothing has checked. */
+  health: 'ok' | 'degraded' | 'down' | null;
+  href: string;
+};
 
 export type ProductOverview = {
   id: string | number;
@@ -70,6 +88,8 @@ export type ProductOverview = {
   focus: string | null;
   work: { inProgress: OverviewWork[]; queued: number; workHref: string | null; backlogHref: string | null };
   releases: { recent: OverviewRelease[]; allHref: string | null };
+  /** Where it runs, production first. Empty when none is recorded, and the section is not drawn. */
+  environments: OverviewEnvironment[];
   performance: {
     /** Each one says its unit: what was counted, and over when. */
     measures: OverviewFact[];
@@ -186,6 +206,43 @@ function link(template: string | null, row: PageRow): string | null {
   return template ? interpolateHref(row, template) : null;
 }
 
+/** Production first, then the stages people share, local last. */
+const STAGE_ORDER = ['production', 'staging', 'preview', 'development', 'local'];
+
+const SURFACE_LABEL: Record<string, string> = { api: 'API', web: 'Web app', marketing: 'Marketing site', worker: 'Worker', mobile: 'Mobile', docs: 'Docs' };
+
+/**
+ * This product's environments, as the overview lists them.
+ * @param slug - The product's slug.
+ * @param rows - Every environment record.
+ */
+export function environmentsFor(slug: string, rows: PageRow[]): OverviewEnvironment[] {
+  const rank = (r: PageRow) => {
+    const i = STAGE_ORDER.indexOf(String(meta(r).stage ?? ''));
+    return i === -1 ? STAGE_ORDER.length : i;
+  };
+  return rows
+    .filter(r => str(meta(r).product) === slug)
+    .sort((a, b) => rank(a) - rank(b) || String(meta(a).surface ?? '').localeCompare(String(meta(b).surface ?? '')))
+    .map((r) => {
+      const m = meta(r);
+      const surface = str(m.surface);
+      const stage = str(m.stage);
+      const name = surface && stage ? `${SURFACE_LABEL[surface] ?? surface} · ${stage}` : r.title;
+      const sha = str(m.lastDeployedSha);
+      const health = m.lastHealth === 'ok' || m.lastHealth === 'degraded' || m.lastHealth === 'down' ? m.lastHealth : null;
+      return {
+        id: r.id,
+        name,
+        url: str(m.url),
+        deployedSha: sha ? sha.slice(0, 7) : null,
+        deployedAt: toDate(m.lastDeployedAt),
+        health,
+        href: `/dashboard/objects/${r.id}`,
+      };
+    });
+}
+
 /**
  * Build the overview.
  * @param input - The rows and the clock.
@@ -195,6 +252,7 @@ function link(template: string | null, row: PageRow): string | null {
  * @param input.releases - Every release (filtered to this product here).
  * @param input.ownerName - The accountable person's name, when they are a member.
  * @param input.links - Where requests and releases open.
+ * @param input.environments - Every environment (filtered to this product here).
  * @param input.now - The clock.
  */
 export function buildProductOverview(input: {
@@ -204,6 +262,7 @@ export function buildProductOverview(input: {
   releases: PageRow[];
   ownerName: string | null;
   links: OverviewLinks;
+  environments?: PageRow[];
   now: Date;
 }): ProductOverview {
   const { product, now, links } = input;
@@ -265,6 +324,8 @@ export function buildProductOverview(input: {
     healthAfter: str(r.meta.healthAfter),
     href: link(links.releaseLink, r),
   }));
+
+  const environments = slug ? environmentsFor(slug, input.environments ?? []) : [];
 
   // Performance says its unit on every figure. A release here is a deploy
   // that reached people (releases.yaml), so "releases this month" counts
@@ -343,6 +404,7 @@ export function buildProductOverview(input: {
       recent,
       allHref: links.releasesSlug && slug ? `/dashboard/p/${links.releasesSlug}?product=${encodeURIComponent(slug)}` : null,
     },
+    environments,
     performance: { measures, connect },
     context: {
       promises: strings(m.promises),

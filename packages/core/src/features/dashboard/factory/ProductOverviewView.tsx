@@ -20,6 +20,7 @@ import { relativeLabel } from '@/libs/timeAgo';
  */
 
 const DOT: Record<string, DotTone> = { ok: 'pass', warn: 'amber', bad: 'fail', muted: 'neutral' };
+const ENV_DOT: Record<'ok' | 'degraded' | 'down', DotTone> = { ok: 'pass', degraded: 'amber', down: 'fail' };
 
 /** Visible hover and focus on every link the page carries. */
 const LINK = 'rounded-sm underline decoration-border underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring';
@@ -193,6 +194,36 @@ export function ProductOverviewView({ overview: o, page, now }: { overview: Prod
               </ul>
             )}
       </Section>
+
+      {/* Where it runs. Drawn only when an environment is recorded: a
+          product with none has one less section, not an empty one. What
+          each one is running and whether the check passed is the line; the
+          hosting ids, the pipeline step and the rollback are the record's. */}
+      {o.environments.length > 0 && (
+        <Section eyebrow="Where it runs" id="environments" data-testid="product-environments">
+          <ul className="divide-y divide-rule">
+            {o.environments.map(e => (
+              <li key={e.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
+                <div className="min-w-0">
+                  <Title href={e.href}>{e.name}</Title>
+                  {e.url && (
+                    <a href={e.url} target="_blank" rel="noopener noreferrer" className={`${LINK} ml-2 text-[13px] text-muted-foreground`}>
+                      {e.url.replace(/^https?:\/\//, '')}
+                    </a>
+                  )}
+                </div>
+                {(e.deployedSha || e.health) && (
+                  <span className="text-[12px] text-muted-foreground">
+                    {e.health
+                      ? <StatusDot tone={ENV_DOT[e.health]} label={[e.deployedSha, ago(e.deployedAt), e.health === 'ok' ? 'healthy' : e.health].filter(Boolean).join(' · ')} />
+                      : [e.deployedSha, ago(e.deployedAt)].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       <Section eyebrow="Product performance" id="performance" data-testid="product-performance">
         <FactList facts={[{ label: 'Health', value: <StatusDot tone={DOT[o.health.tone] ?? 'neutral'} label={`${o.health.label} — ${o.health.detail}`} /> }, ...o.performance.measures]} />

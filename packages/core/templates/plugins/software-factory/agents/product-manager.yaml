@@ -66,6 +66,7 @@ objectTypes:
   - release
   - product
   - repo
+  - environment
 suggestions:
   - label: What should I do right now
     prompt: Read the work in flight and the decisions waiting on me. Tell me the one thing to decide first, what deciding it unblocks, and what is building without me. Every claim with its link.

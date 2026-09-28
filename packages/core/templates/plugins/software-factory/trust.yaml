@@ -28,6 +28,13 @@ rules:
     enabled: true
     rung: execute-within-bounds
     risk: low
+  # Registering an environment: done for you. It is the factory's own
+  # registry of where a product runs; the deploy keeps it current over REST.
+  - action: objects.propose_candidate.environment
+    autoApproveAbove: 0.5
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
   - action: factory.dispatch_task
     autoApproveAbove: 1
     enabled: false

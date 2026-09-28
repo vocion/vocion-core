@@ -183,3 +183,24 @@ describe('a card\'s subtitle breaks into lines', () => {
     expect(lines.map(l => l.map(x => (x as { key: string }).key))).toEqual([['a'], ['c'], ['d']]);
   });
 });
+
+describe('where it runs', () => {
+  const ENVS: PageRow[] = [
+    row(30, 'send-local', { slug: 'send-local', product: 'send', surface: 'api', stage: 'local', url: 'http://localhost:3100' }),
+    row(31, 'send-web-production', { slug: 'send-web-production', product: 'send', surface: 'web', stage: 'production', url: 'https://app.northwind.example' }),
+    row(32, 'send-api-production', { slug: 'send-api-production', product: 'send', surface: 'api', stage: 'production', url: 'https://api.northwind.example', lastDeployedSha: '3f2a9c1d8e7f', lastDeployedAt: '2026-09-24T10:00:00Z', lastHealth: 'ok' }),
+    row(33, 'slate-api-production', { slug: 'slate-api-production', product: 'slate', surface: 'api', stage: 'production' }),
+  ];
+
+  it('lists this product\'s environments, production first, with what the last deploy left there', () => {
+    const o = build({ environments: ENVS });
+
+    expect(o.environments.map(e => e.name)).toEqual(['API · production', 'Web app · production', 'API · local']);
+    expect(o.environments[0]).toMatchObject({ deployedSha: '3f2a9c1', health: 'ok', href: '/dashboard/objects/32' });
+    expect(o.environments[1]).toMatchObject({ deployedSha: null, deployedAt: null, health: null });
+  });
+
+  it('is empty, not a list of blanks, when none is recorded', () => {
+    expect(build().environments).toEqual([]);
+  });
+});

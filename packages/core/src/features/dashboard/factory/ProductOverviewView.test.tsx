@@ -36,8 +36,9 @@ const SEND = row(2, 'Send', {
   shippedThisMonth: 23,
 });
 
-async function draw() {
+async function draw(environments: PageRow[] = []) {
   const overview = buildProductOverview({
+    environments,
     product: SEND,
     products: [SEND],
     requests: [
@@ -97,5 +98,18 @@ describe('the product overview', () => {
     expect(technical.open).toBe(false);
     expect(technical.textContent).toContain('23 releases (deployments, not features)');
     expect(document.querySelector('[data-testid="product-context"]')!.textContent).not.toMatch(/checkedOn|sourceUrl/);
+  });
+
+  it('lists where it runs only when an environment is recorded', async () => {
+    await draw();
+
+    expect(document.querySelector('[data-testid="product-environments"]')).toBeNull();
+
+    await draw([row(40, 'send-api-production', { product: 'send', surface: 'api', stage: 'production', url: 'https://api.northwind.example', lastDeployedSha: '3f2a9c1d8e7f', lastHealth: 'ok' })]);
+    const where = document.querySelector('[data-testid="product-environments"]')!;
+
+    expect(where.textContent).toContain('API · production');
+    expect(where.textContent).toContain('api.northwind.example');
+    expect(where.textContent).toContain('3f2a9c1');
   });
 });

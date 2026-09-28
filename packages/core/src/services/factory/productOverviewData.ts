@@ -53,9 +53,10 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
   if (!product) {
     return null;
   }
-  const [requests, releases, work, rel] = await Promise.all([
+  const [requests, releases, environments, work, rel] = await Promise.all([
     loadObjectRows(orgId, 'request'),
     loadObjectRows(orgId, 'release'),
+    loadObjectRows(orgId, 'environment'),
     readPageForOrg(WORK_PAGE, orgId).catch(() => null),
     readPageForOrg(RELEASES_PAGE, orgId).catch(() => null),
   ]);
@@ -66,5 +67,5 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
     releasesSlug: rel?.slug ?? null,
     releaseLink: rel?.rowLink ?? null,
   };
-  return buildProductOverview({ product, products, requests, releases, ownerName: await memberName(orgId, email), links, now });
+  return buildProductOverview({ product, products, requests, releases, ownerName: await memberName(orgId, email), links, environments, now });
 }

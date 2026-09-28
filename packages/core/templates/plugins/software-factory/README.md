@@ -58,7 +58,9 @@ reply can go out under a policy the product owner turns on.
 `request` (the work item — one intake noun for a bug, a review, an email, an
 incident, an ask), `architecture_plan`, `engineering_task` (the contract, the
 durable record; `worker_run` beneath it is the lease), `release`, `product`,
-`repo`. Core ships the storage, the worker control plane, the review queue and
+`repo`, `environment` (where a product runs and how a change gets there —
+the URL, the account and resource ids, the pipeline step, the health check, the
+rollback — kept current by the deploy itself). Core ships the storage, the worker control plane, the review queue and
 the trust ladder; this plugin ships what the fields mean.
 
 ## Missions and automations

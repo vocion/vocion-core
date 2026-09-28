@@ -34,6 +34,11 @@ schema:
       x-display: {label: Commit, format: mono, group: What shipped}
       type: string
       description: The commit that was deployed. Read against `engineering_task.commitSha` to know which accepted tasks are actually live.
+    environments:
+      x-display: {label: Reached, format: link, to: environment, group: What shipped}
+      type: array
+      items: {type: string}
+      description: Slugs of the `environment` records this deploy reached — `send-api-production`, `send-web-production`. A release that names none is read as having reached the product's production, and "is it live on staging too?" becomes a lookup.
     prUrls:
       x-display: {label: Pull requests, role: prose, format: steps, order: 3}
       type: array

@@ -1,0 +1,144 @@
+slug: environment
+label: Environment
+description: >-
+  One place a product runs, and how a change gets there. A repository says
+  what the code is; an environment says where it answers — the URL a person
+  opens, the account and resources it lives in, the pipeline step that
+  deploys it, the check that proves it is up, and the line to follow when it
+  is not. One record per surface per stage (`send-api-production`,
+  `send-web-staging`, `send-local`), so "is the fix live?" is a lookup and
+  not an archaeology dig through CI files. Written by a person or the PM when
+  it is set up, and kept current by the deploy itself: the pipeline upserts
+  `lastDeployedSha`, `lastDeployedAt` and `lastHealth` over
+  `POST /api/v1/objects` after every run.
+icon: server
+schema:
+  type: object
+  # Internal registry, not a record extracted from outside: filing one from
+  # chat or MCP lands at once under its own trust key
+  # (objects.propose_candidate.environment), and the deploy keeps it current.
+  x-moderation: none
+  properties:
+    slug:
+      x-display: {label: Slug, format: mono, group: Identity}
+      type: string
+      description: 'The handle a release, a runbook and a deploy script name this environment by — `<product>-<surface>-<stage>`, e.g. `send-api-production`. Short, stable, lowercase; the deploy upserts against it, so renaming it forks the row.'
+    product:
+      x-display: {label: Product, format: link, to: product, group: Identity}
+      type: string
+      description: Slug of the `product` this environment serves. The product's overview lists its environments from here.
+    repo:
+      x-display: {label: Repository, format: link, to: repo, group: Identity}
+      type: string
+      description: Slug of the `repo` whose code runs here — the repository a merge must land in before this environment changes.
+    surface:
+      x-display: {label: Surface, format: badge, group: Identity}
+      type: string
+      description: 'Which part of the product this is: `api`, `web`, `marketing`, `worker`, `mobile`, `docs` — whatever the product calls it. Free text, because every product cuts itself differently; kept short so the overview can say "API · production".'
+    stage:
+      x-display: {label: Stage, format: badge, group: Identity, tones: {production: info, staging: muted, development: muted, preview: muted, local: muted}}
+      type: string
+      description: '`production` — people outside the team rely on it. `staging` — a copy for checking before production. `development` / `preview` — shared but disposable. `local` — a developer''s machine, recorded so a new engineer (or worker) can stand it up.'
+      enum: [production, staging, development, preview, local]
+    url:
+      x-display: {label: URL, format: link, group: Where it answers}
+      type: string
+      description: The canonical address — what a person opens and what the health check hits. For `local`, the address on the developer's machine.
+    aliases:
+      x-display: {label: Also answers at, group: Where it answers}
+      type: array
+      items: {type: string}
+      description: 'Other hosts that still reach this environment or redirect to it — an old domain after a rename, `www.`, a load balancer''s own name. Written down so a person retiring a domain knows what still points here.'
+    hosting:
+      x-display: {label: Hosting, role: prose, format: steps, order: 2}
+      type: object
+      description: >-
+        Where it physically lives: the provider, the account and region, and
+        the resource ids a person needs in a console at 2am — the service and
+        cluster, the distribution, the bucket, the image repository, the
+        database. Ids, not descriptions, so each one can be pasted into a
+        search box.
+      properties:
+        provider: {type: string, description: '`aws`, `vercel`, `fly`, `gcp`, `local`.'}
+        account: {type: string, description: 'The account id and its name, e.g. `123456789012 (northwind-prod)`.'}
+        region: {type: string}
+        runtime: {type: string, description: 'What runs the code: `ECS Fargate (arm64)`, `S3 + CloudFront`, `Lambda`, `node on the laptop`.'}
+        resources:
+          type: object
+          description: 'Named resource ids, e.g. `{cluster: send-production-cluster, service: send-production-service, distribution: E1EXAMPLE0DIST, bucket: app-northwind-example}`.'
+          additionalProperties: {type: string}
+    deploy:
+      x-display: {label: How it deploys, role: prose, format: steps, order: 1}
+      type: object
+      description: >-
+        How a merged change reaches this environment, as the pipeline actually
+        does it — the trigger, the workflow file, the job and step, and the
+        exact command that step runs. Recorded so a deploy is a named thing a
+        person can point at and approve, never a command a worker discovers.
+      properties:
+        trigger: {type: string, description: 'What starts it: `merge to main`, `changes under factory/worker/**`, `manual`.'}
+        workflow: {type: string, description: 'The CI workflow file, e.g. `.github/workflows/deploy.yml`.'}
+        job: {type: string, description: The job in that workflow.}
+        step: {type: string, description: The step's name as it appears in the run log.}
+        command: {type: string, description: The command the step runs, exactly as CI runs it.}
+        workflowUrl: {type: string, description: 'The workflow''s runs page, one tap from here to the history.'}
+    healthCheck:
+      x-display: {label: Health check, role: prose, format: steps, order: 3}
+      type: object
+      description: What proves it is up — the address to read and what it must say. A deploy is not done until this passes; `lastHealth` is its latest result.
+      properties:
+        url: {type: string}
+        expect: {type: string, description: 'What the response must contain, e.g. `{"status":"ok","env":"production"}` or `title contains Send`.'}
+    rollback:
+      x-display: {label: Rollback, role: prose, order: 4}
+      type: string
+      description: 'The line a person follows at 2am when a deploy made things worse — the command or the click, not a principle. "Revert the merge commit on main; CI redeploys the previous image."'
+    config:
+      x-display: {label: Configuration, group: Configuration}
+      type: string
+      description: 'Where its configuration lives and how it gets in — an SSM path, a build-time env file, a dashboard. A change to config is a deploy too, and this is where it is made.'
+    secretsLocation:
+      x-display: {label: Secrets, format: mono, group: Configuration}
+      type: string
+      description: Where its secrets are kept — a path, never a value. A worker never touches it; a person rotating a key starts here.
+    observability:
+      x-display: {label: Observability, role: prose, format: steps, order: 5}
+      type: object
+      description: Where to look when it misbehaves — error tracking, analytics, the log group, a dashboard. Names and links, so the evidence is one tap away.
+      properties:
+        errors: {type: string, description: 'Error tracking, e.g. the Sentry `org/project`.'}
+        analytics: {type: string}
+        logs: {type: string, description: 'The log group or stream, e.g. `/send/production/api`.'}
+        dashboard: {type: string}
+    lastDeployedSha:
+      x-display: {label: Deployed commit, format: mono, group: Last deploy}
+      type: string
+      description: The commit this environment is running, as the deploy wrote it. WRITTEN BY THE DEPLOY after every run, never typed by hand; read against a task's `commitSha` to know whether a fix is live here.
+    lastDeployedAt:
+      x-display: {label: Deployed}
+      type: string
+      format: date-time
+      description: When the last deploy finished. WRITTEN BY THE DEPLOY.
+    lastDeployRunUrl:
+      x-display: {label: Deploy run, format: link, group: Last deploy}
+      type: string
+      description: The CI run that did the last deploy. WRITTEN BY THE DEPLOY.
+    lastHealth:
+      x-display: {label: Health, format: badge, group: Last deploy, tones: {ok: ok, degraded: warn, down: bad}}
+      type: string
+      description: What `healthCheck` said after the last deploy. WRITTEN BY THE DEPLOY. Left empty when nothing has checked — there is no `unknown`, because the doubt would be ours, not the environment's.
+      enum: [ok, degraded, down]
+    lastHealthCheckedAt:
+      x-display: {label: Health checked}
+      type: string
+      format: date-time
+      description: When `lastHealth` was read, so a stale reading reads as stale.
+    owners:
+      x-display: {label: Owners, group: Identity}
+      type: array
+      items: {type: string}
+      description: Who answers for this environment — who is paged, whose name is on a production change nobody else should make. Falls back to the repository's owners.
+    notes:
+      x-display: {label: Notes, role: prose, order: 6}
+      type: string
+      description: Standing knowledge about this environment — quirks, what not to touch, how to stand it up locally. Markdown.

@@ -24,6 +24,7 @@ team: software-factory
 objectTypes:
   - engineering_task
   - repo
+  - environment
 playbooks:
   - verify-against-reality
   - house-voice
