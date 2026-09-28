@@ -33,6 +33,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { appImageUrl, getObjectBytes, guessContentType, listKeys, parseS3Ref, putObject } from '@/libs/aws/s3';
 import { db } from '@/libs/DB';
+import { FEATURES } from '@/libs/Langfuse/features';
 import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 import { metadataFromKey, parseS3Config } from '@/libs/sources/s3';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema } from '@/models/Schema';
@@ -272,6 +273,48 @@ function expectedQty(region: string | undefined, expected: string | undefined): 
 type Findings = z.infer<typeof VerdictSchema>['findings'];
 
 /**
+ * Charge one vision call to the workspace's spend ledger.
+ *
+ * These calls go to the Anthropic SDK directly, not through LangChain, so
+ * `chargeModelCall` cannot read their usage. The raw response counts
+ * `input_tokens` without the cached ones, while `libs/pricing` wants every
+ * input token, so the cache counts are added back. Priced on the model the
+ * response reports. Never throws: the call already happened and was paid
+ * for, and failing the inspection over the accounting would be the costlier
+ * mistake. A failed charge is logged, because a ledger that quietly stops
+ * counting is the defect this closes.
+ * @param ctx - Whose call it was.
+ * @param response - What `messages.create` returned.
+ */
+async function chargeVisionCall(ctx: RuntimeContext, response: Pick<Anthropic.Message, 'model' | 'usage'>): Promise<void> {
+  const usage = response.usage;
+  if (!usage) {
+    return;
+  }
+  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+  try {
+    // Imported here, like `generate_image` does: `BudgetService` is only
+    // needed once a call has been made.
+    const { chargeUsage } = await import('@/services/BudgetService');
+    await chargeUsage({
+      orgId: ctx.orgId,
+      agentSlug: ctx.agentSlug,
+      feature: FEATURES.TOOL_VISION,
+      model: response.model,
+      usage: {
+        inputTokens: usage.input_tokens + cacheRead + cacheWrite,
+        outputTokens: usage.output_tokens,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+      },
+    });
+  } catch (error) {
+    console.warn('[kitVision] could not charge a vision call to the spend ledger', { orgId: ctx.orgId, model: response.model, error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/**
  * Crop-before-count: for each finding the model could not count at full
  * frame, cut the region out of the 4K photo (with padding), upscale it and
  * ask Claude Vision to count just that box. Returns updated findings plus
@@ -285,7 +328,7 @@ type Findings = z.infer<typeof VerdictSchema>['findings'];
  * @param opts.bytes
  * @param opts.findings
  */
-async function zoomAndCount(opts: {
+export async function zoomAndCount(opts: {
   ctx: RuntimeContext;
   client: Anthropic;
   bucket: string;
@@ -334,6 +377,7 @@ async function zoomAndCount(opts: {
         toImageBlock(crop, 'image/jpeg'),
       ] }],
     });
+    await chargeVisionCall(opts.ctx, res);
     const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
     let parsed: { count?: number; confidence?: number; notes?: string } = {};
     try {
@@ -446,6 +490,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
           system: systemPrompt,
           messages: [{ role: 'user', content }],
         });
+        await chargeVisionCall(ctx, res);
         let text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
         let verdict: z.infer<typeof VerdictSchema>;
         try {
@@ -459,6 +504,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
             system: `${systemPrompt}\n\nYour previous answer was ${res.stop_reason === 'max_tokens' ? 'cut off' : 'not valid JSON'}. Answer again with ONLY the JSON object. Keep every "observed", "expected" and "notes" value under 12 words and the explanation under 60 words.`,
             messages: [{ role: 'user', content }],
           });
+          await chargeVisionCall(ctx, res);
           text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
           try {
             verdict = parseVerdict(text);
