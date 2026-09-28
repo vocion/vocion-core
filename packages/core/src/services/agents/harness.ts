@@ -267,7 +267,27 @@ export type AgentRequest = {
   timeZone?: string;
 };
 
-async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
+/**
+ * The part of a blueprint that is the agent's DEFINITION rather than its
+ * machinery: the row, the compiled system prompt, the delegation roster, the
+ * workspace's zone and plugins. No model is built here.
+ *
+ * Split out of `buildBlueprint` so that the out-of-process loop sends the SAME
+ * definition the in-process loop runs. The container used to receive the
+ * authored `system_prompt` column and the deprecated inline `subagents` JSONB
+ * — no clock rules, no output discipline, no capabilities or operating-intent
+ * notes, and no registered specialists to delegate to — so moving an agent to
+ * `agentcore-container` quietly made it a different agent.
+ */
+export type AgentDefinition = Omit<AgentBlueprint, 'model' | 'hasMounts'>;
+
+/**
+ * The definition an agent runs with, wherever its loop runs. See
+ * {@link AgentDefinition}.
+ * @param orgId - Tenant scope.
+ * @param agentSlug - The agent to load.
+ */
+export async function buildAgentDefinition(orgId: string, agentSlug: string): Promise<AgentDefinition> {
   // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
   // one box, plus orphaned rows from older deploys), and an unscoped pick is
   // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
@@ -281,7 +301,6 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
     throw new Error(`agent ${agentSlug} not found in org ${orgId}`);
   }
 
-  const harnessConfig = row.harnessConfig ?? {};
   const defaultTimeZone = await workspaceTimeZone(orgId);
   // Plugins the workspace has on, once per blueprint: plugin-owned tool sets
   // are present only with their plugin, and the prompt names what is off. An
@@ -419,7 +438,13 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
     });
   }
 
-  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsWithOverride(harnessConfig, modelOverride));
+  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins };
+}
+
+async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
+  const definition = await buildAgentDefinition(orgId, agentSlug);
+  const row = definition.agentRow;
+  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsWithOverride(row.harnessConfig ?? {}, modelOverride));
 
   // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
   // mounts something. The middleware requires initialized state fields and
@@ -435,7 +460,7 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
   const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
 
-  return { agentRow: row, systemPrompt, subagentSpecs, model, defaultTimeZone, hasMounts, enabledPlugins };
+  return { ...definition, model, hasMounts };
 }
 
 /**

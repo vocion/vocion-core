@@ -92,6 +92,33 @@ export function anthropicOmitsSampling(model: string): boolean {
   return /claude-(?:opus-4-[78]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
 }
 
+/**
+ * The Bedrock spelling of a model id authored for Anthropic's own API.
+ *
+ * Core sends the agent's `harness.model` as it was written, and an agent
+ * written for Anthropic says `claude-opus-5`. Bedrock names the same model
+ * through a cross-region inference profile — `us.anthropic.claude-opus-5` —
+ * and refuses the bare id. Without this, moving an Anthropic-authored agent
+ * onto this container failed its first model call; the only way round it was
+ * to re-author every agent in Bedrock ids, which also breaks the in-process
+ * loop the kill switch falls back to.
+ *
+ * Only a bare `claude-` id is rewritten. Anything already carrying a vendor
+ * or geography segment is passed through untouched, and so is every other
+ * vendor's id. A dated id (`claude-haiku-4-5-20251001`) takes the `-v1:0`
+ * version suffix Bedrock's dated profiles carry.
+ * @param model - The id as authored.
+ * @param region - The Bedrock region, which decides the geography prefix.
+ */
+export function bedrockModelId(model: string, region: string): string {
+  if (!model.startsWith('claude-')) {
+    return model;
+  }
+  const geo = region.startsWith('eu-') ? 'eu' : region.startsWith('ap-') ? 'apac' : 'us';
+  const versioned = /-\d{8}$/.test(model) ? `${model}-v1:0` : model;
+  return `${geo}.anthropic.${versioned}`;
+}
+
 export async function buildChatModel(opts: {
   model?: string;
   temperature?: number;
@@ -132,13 +159,14 @@ export async function buildChatModel(opts: {
   const credentials = opts.readAwsSession
     ? bedrockCredentialProvider(opts.readAwsSession)
     : undefined;
-  const model = opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? BEDROCK_DEFAULT;
+  const region = process.env.AWS_REGION ?? 'us-west-2';
+  const model = bedrockModelId(opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? BEDROCK_DEFAULT, region);
   return new Bedrock({
     model,
     // Same models, second transport: Bedrock refuses the same parameters.
     ...(anthropicOmitsSampling(model) || opts.temperature === undefined ? {} : { temperature: opts.temperature }),
     maxTokens: opts.maxTokens ?? 8192,
-    region: process.env.AWS_REGION ?? 'us-west-2',
+    region,
     ...(credentials ? { credentials } : {}),
   });
 }

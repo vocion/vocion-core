@@ -10,8 +10,10 @@
  * emitted (documents, skill_result, hitl_gate…), which the artifact
  * re-emits into its SSE stream.
  *
- * Tenancy invariant: `orgId`, `userId`, `allowedSourceSlugs`, and
- * `missionSlug` come exclusively from the verified claim. A caller can
+ * Tenancy invariant: `orgId`, `userId`, `allowedSourceSlugs`, `missionSlug`,
+ * `missionRunId`, `timeZone` and `pageContext` come exclusively from the
+ * verified claim; the plugin list and the workspace zone are read from the
+ * database for the claimed org. A caller can
  * only ever act inside the tenant scope core itself signed.
  */
 
@@ -21,6 +23,26 @@ import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
 import { verifyClaim } from './claims';
 import { buildDomainTools } from './tools/registry';
+
+/**
+ * The workspace facts the in-process harness reads once per graph build, read
+ * here per call because this endpoint has no graph.
+ *
+ * Without them the tool set differed from the in-process one: `wikiTools`
+ * builds nothing when `enabledPlugins` is absent, so an agent on the container
+ * lost the wiki entirely, and every date a tool rendered fell back to UTC
+ * instead of the workspace's zone.
+ * @param orgId - The workspace, from the verified claim.
+ */
+export async function workspaceScope(orgId: string): Promise<Pick<RuntimeContext, 'enabledPlugins' | 'defaultTimeZone' | 'timeZone'>> {
+  const { enabledPluginsForOrg } = await import('@/services/PluginService');
+  const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
+  const [enabledPlugins, defaultTimeZone] = await Promise.all([
+    enabledPluginsForOrg(orgId).catch(() => [] as string[]),
+    workspaceTimeZone(orgId),
+  ]);
+  return { enabledPlugins, defaultTimeZone, timeZone: defaultTimeZone };
+}
 
 export type ToolCallOutcome
   = | { ok: true; output: string; events: AgentEvent[] }
@@ -55,6 +77,7 @@ export async function executeToolCall(opts: {
 
   const events: AgentEvent[] = [];
   const ctx: RuntimeContext = {
+    ...(await workspaceScope(claim.orgId)),
     orgId: claim.orgId,
     userId: claim.userId,
     citationSeq: { current: 0 },
@@ -62,13 +85,18 @@ export async function executeToolCall(opts: {
     connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: claim.allowedSourceSlugs,
     missionSlug: claim.missionSlug,
+    missionRunId: claim.missionRunId,
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     conversationId: claim.conversationId,
+    pageContext: claim.pageContext,
     provider: 'runtime',
     emit: e => events.push(e),
   };
+  if (claim.timeZone) {
+    ctx.timeZone = claim.timeZone;
+  }
 
   const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
   const toolObj = buildDomainTools(ctx).find(t => t.name === opts.tool && !excludeTools.has(t.name));

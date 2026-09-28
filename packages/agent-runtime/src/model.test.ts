@@ -11,7 +11,7 @@
 import type { InvocationRequest } from './contract.js';
 import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { bedrockCredentialProvider, buildChatModel, resolveProvider } from './model.js';
+import { bedrockCredentialProvider, bedrockModelId, buildChatModel, resolveProvider } from './model.js';
 import { CachingChatAnthropic, CachingChatBedrockConverse } from './promptCache.js';
 
 type CredentialProvider = () => Promise<{
@@ -217,5 +217,40 @@ describe('buildChatModel and prompt caching', () => {
     const model = await buildChatModel({ readAwsSession: () => SESSION_A });
 
     await expect(clientCredentialsOf(model)().then(c => c.sessionToken)).resolves.toBe(SESSION_A!.sessionToken);
+  });
+});
+
+/**
+ * An agent authored for Anthropic's own API names `claude-opus-5`; Bedrock
+ * only answers to the inference-profile spelling. The container rewrites the
+ * bare id so the same agent row runs on either loop — the in-process one the
+ * kill switch falls back to reads the Anthropic spelling.
+ */
+describe('bedrockModelId', () => {
+  it('names a bare Anthropic id by its US inference profile', () => {
+    expect(bedrockModelId('claude-opus-5', 'us-east-1')).toBe('us.anthropic.claude-opus-5');
+    expect(bedrockModelId('claude-sonnet-5', 'us-west-2')).toBe('us.anthropic.claude-sonnet-5');
+  });
+
+  it('adds the version suffix a dated id carries on Bedrock', () => {
+    expect(bedrockModelId('claude-haiku-4-5-20251001', 'us-east-1')).toBe('us.anthropic.claude-haiku-4-5-20251001-v1:0');
+  });
+
+  it('picks the geography from the region', () => {
+    expect(bedrockModelId('claude-sonnet-5', 'eu-west-1')).toBe('eu.anthropic.claude-sonnet-5');
+    expect(bedrockModelId('claude-sonnet-5', 'ap-northeast-1')).toBe('apac.anthropic.claude-sonnet-5');
+  });
+
+  it('leaves an id that is already a Bedrock id, or another vendor\'s, alone', () => {
+    expect(bedrockModelId('us.anthropic.claude-sonnet-4-6', 'us-east-1')).toBe('us.anthropic.claude-sonnet-4-6');
+    expect(bedrockModelId('global.anthropic.claude-sonnet-5', 'us-east-1')).toBe('global.anthropic.claude-sonnet-5');
+    expect(bedrockModelId('amazon.nova-pro-v1:0', 'us-east-1')).toBe('amazon.nova-pro-v1:0');
+  });
+
+  it('is what the Bedrock client is built with', async () => {
+    process.env.AWS_REGION = 'us-east-1';
+    const model = await buildChatModel({ model: 'claude-opus-5' });
+
+    expect((model as unknown as { model: string }).model).toBe('us.anthropic.claude-opus-5');
   });
 });

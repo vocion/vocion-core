@@ -69,11 +69,22 @@ echo "-- pushed ${TAG}"
 # Spans reach CloudWatch Logs (the `aws/spans` group that batch evaluation
 # reads) only if Transaction Search is on in this region — provision.sh turns
 # it on, and it is billed per span ingested.
+#
+# EXTRA_ENV_JSON  a JSON object of string values merged over the variables
+#     above, for what one account needs and another does not. The common case
+#     is the model: the artifact's Bedrock default is
+#     `us.anthropic.claude-sonnet-4-6`, and an account that has not subscribed
+#     to that model on Bedrock refuses every turn with AccessDenied. Name one
+#     the account can call instead:
+#       EXTRA_ENV_JSON='{"VOCION_LLM_MODEL_MAIN":"us.anthropic.claude-sonnet-5"}'
+#     update-agent-runtime replaces the whole set on every deploy, so whatever
+#     calls this script has to pass it every time.
 OBSERVABILITY="${OBSERVABILITY:-true}"
-ENV_VARS=$(python3 - "$REGION" "$RUNTIME_NAME" "$OBSERVABILITY" <<'PYENV'
+EXTRA_ENV_JSON="${EXTRA_ENV_JSON:-}"
+ENV_VARS=$(python3 - "$REGION" "$RUNTIME_NAME" "$OBSERVABILITY" "$EXTRA_ENV_JSON" <<'PYENV'
 import json, sys
 
-region, runtime_name, observability = sys.argv[1], sys.argv[2], sys.argv[3]
+region, runtime_name, observability, extra = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 env = {"VOCION_MODEL_PROVIDER": "bedrock", "AWS_REGION": region}
 if observability.lower() == "true":
     env.update({
@@ -85,10 +96,15 @@ if observability.lower() == "true":
         "OTEL_METRICS_EXPORTER": "none",
         "OTEL_RESOURCE_ATTRIBUTES": f"service.name={runtime_name}",
     })
+added = json.loads(extra) if extra.strip() else {}
+if not isinstance(added, dict) or not all(isinstance(v, str) for v in added.values()):
+    sys.exit("EXTRA_ENV_JSON must be a JSON object whose values are all strings")
+env.update(added)
 print(json.dumps(env))
 PYENV
 )
 echo "-- observability: ${OBSERVABILITY}"
+echo "-- runtime env: $(echo "$ENV_VARS" | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin))))')"
 EXISTING_ID=$(aws bedrock-agentcore-control list-agent-runtimes \
   --query "agentRuntimes[?agentRuntimeName=='${RUNTIME_NAME}'].agentRuntimeId | [0]" --output text)
 
