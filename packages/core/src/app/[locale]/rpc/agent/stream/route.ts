@@ -60,7 +60,11 @@ export async function POST(request: Request): Promise<Response> {
   const { fileRecommendation, readAutonomy } = await import('@/services/chat/autoPropose');
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
-  const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
+  // The page's record, typed: `/dashboard/p/feature/124` is request 124, read
+  // off the workspace's page manifest and the row — never "a feature record"
+  // (`services/chat/pageRecord.ts`, conversation 355).
+  const { pageRecordDepsFor, typePageRecord } = await import('@/services/chat/pageRecord');
+  const pageContext = mergeScopeRef(await typePageRecord(readPageContext(body.page_context), pageRecordDepsFor(orgId)), typeof body.scope_ref === 'string' ? body.scope_ref : null);
   // The person's zone, from the browser — the day boundary for this turn's
   // dates. Invalid or missing falls back to the workspace's.
   const { isValidTimeZone } = await import('@/libs/time/zone');

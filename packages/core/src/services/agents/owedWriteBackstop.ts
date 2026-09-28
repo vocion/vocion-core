@@ -275,6 +275,22 @@ export function changeLine(output: string, label: string, href: string | null, w
   return null;
 }
 
+/**
+ * The record a change on this page is owed to: the page's `object`, by id and,
+ * once the page record is typed (`services/chat/pageRecord.ts`), its type —
+ * `/dashboard/p/feature/124` is request 124. Null for a page about no record.
+ * @param ref - The page context's record.
+ * @param ref.type
+ * @param ref.id
+ * @param ref.objectType
+ */
+export function owedChangeTarget(ref: { type: string; id: string; objectType?: string } | null | undefined): { id: number; objectType: string | null } | null {
+  if (ref?.type !== 'object' || !/^\d+$/.test(ref.id)) {
+    return null;
+  }
+  return { id: Number(ref.id), objectType: ref.objectType ?? null };
+}
+
 /** The record the change pass writes: the page's, with what it holds now. */
 export type OwedChangeRecord = { id: number; typeSlug: string; label: string; href: string | null; fields: Record<string, unknown> };
 

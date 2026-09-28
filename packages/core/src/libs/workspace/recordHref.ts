@@ -89,6 +89,23 @@ export function recordPagesOf(manifests: readonly ManifestShape[]): Map<string, 
 }
 
 /**
+ * The object type a page slug opens one record of — the other direction of
+ * {@link recordPagesOf}: `feature` → `request`, `releases` → `release`. Null
+ * when no page by that slug claims a type; the slug itself is never the type.
+ * @param links - From {@link recordLinksOf}.
+ * @param pageSlug - The `<slug>` in `/dashboard/p/<slug>/<id>`.
+ */
+export function recordTypeOfPage(links: RecordLinks, pageSlug: string): string | null {
+  const template = `/dashboard/p/${pageSlug}/{id}`;
+  for (const [type, t] of links.pages) {
+    if (t === template) {
+      return type;
+    }
+  }
+  return null;
+}
+
+/**
  * Build the resolver's input.
  * @param manifests - The pages the workspace has on.
  * @param workspaceSlug - `project.slug`, to prefix each link; null for bare paths.

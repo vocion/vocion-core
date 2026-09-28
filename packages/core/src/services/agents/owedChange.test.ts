@@ -7,7 +7,7 @@
 import type { RuntimeContext } from './types';
 import { AIMessage } from '@langchain/core/messages';
 import { describe, expect, it, vi } from 'vitest';
-import { answerNamesFiled, asksToChange, changedInTurn, changeLine, changeOwedRecord } from './owedWriteBackstop';
+import { answerNamesFiled, asksToChange, changedInTurn, changeLine, changeOwedRecord, owedChangeTarget } from './owedWriteBackstop';
 
 const proposed: Array<Record<string, unknown>> = [];
 let nextStatus: 'done' | 'pending' = 'done';
@@ -150,5 +150,40 @@ describe('a filing the answer already names is announced once (journey 4: "Filed
     expect(answerNamesFiled('Filed as request #214.', OUTPUT)).toBe(true);
     expect(answerNamesFiled('I checked the capabilities page.', OUTPUT)).toBe(false);
     expect(answerNamesFiled('See request #2140.', OUTPUT)).toBe(false);
+  });
+});
+
+describe('a change asked on /p/feature/N updates request N (conversation 355, 2026-09-28)', () => {
+  it('the typed page record is the target, and update_object writes request N', async () => {
+    const { readPageContext } = await import('@/services/chat/pageContext');
+    const { typePageRecord } = await import('@/services/chat/pageRecord');
+    const { recordLinksOf } = await import('@/libs/workspace/recordHref');
+    const links = recordLinksOf([{ slug: 'feature', archetype: 'report', report: { subject: 'request' } }] as never[], 'northwind');
+    const page = await typePageRecord(readPageContext({ path: '/w/northwind/dashboard/p/feature/124', title: 'Vocion Dashboard' }), { links: async () => links, row: async () => null });
+    const target = owedChangeTarget(page?.record);
+
+    expect(target).toEqual({ id: 124, objectType: 'request' });
+    expect(asksToChange('remove push notifications from scope - limit to email notifications and create in-app notifications (that should probably be in core)')).toBe(true);
+
+    proposed.length = 0;
+    nextStatus = 'done';
+    const model = modelMaking([{ object_type: 'feature', id: 124, set: { outcome: 'Notify people of events by email; no push channel.' }, reason: 'Push removed from scope; email only.', confidence: 0.9 }]);
+    const res = await changeOwedRecord({
+      request: 'remove push notifications from scope - limit to email notifications',
+      history: [],
+      answer: '',
+      record: { id: target!.id, typeSlug: target!.objectType!, label: `request #${target!.id}`, href: '/w/northwind/dashboard/p/feature/124', fields: { title: 'Open alerts' } },
+      tool: updateObjectTool(ctx),
+      model: model as never,
+    });
+
+    expect(proposed[0]).toMatchObject({ actionId: 'objects.update_meta', input: { objectType: 'request', id: 124, set: { outcome: 'Notify people of events by email; no push channel.' } } });
+    expect(res.filed).toBe(true);
+  });
+
+  it('a page about no record, or a non-numeric one, owes no change', () => {
+    expect(owedChangeTarget(null)).toBeNull();
+    expect(owedChangeTarget({ type: 'worker_run', id: '397' })).toBeNull();
+    expect(owedChangeTarget({ type: 'object', id: 'contacts:9' })).toBeNull();
   });
 });

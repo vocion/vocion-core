@@ -26,7 +26,7 @@ import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agen
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
-import { answerNamesFiled, asksToChange, asksToFile, changedInTurn, changeOwedRecord, fileOwedWrite, owedWriteTool } from './agents/owedWriteBackstop';
+import { answerNamesFiled, asksToChange, asksToFile, changedInTurn, changeOwedRecord, fileOwedWrite, owedChangeTarget, owedWriteTool } from './agents/owedWriteBackstop';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
@@ -1408,7 +1408,8 @@ export async function runAgentDeep(opts: {
   // record, claimed "Updated", wrote nothing). One pass with update_object
   // chosen, the page's record fixed (`owedWriteBackstop.changeOwedRecord`).
   const pageRecord = opts.pageContext?.record;
-  const pageRecordId = pageRecord?.type === 'object' && /^\d+$/.test(pageRecord.id) ? Number(pageRecord.id) : null;
+  const owedTarget = owedChangeTarget(pageRecord);
+  const pageRecordId = owedTarget?.id ?? null;
   if (pageRecordId !== null && asksToChange(opts.message) && !changedInTurn(toolCallLog, pageRecordId)) {
     try {
       const { buildDomainTools } = await import('./agents/tools/registry');
@@ -1417,7 +1418,10 @@ export async function runAgentDeep(opts: {
       // The page's record is writable whatever the agent's objectTypes say (`tools/recordWrite.ts`).
       const { recordWritable } = await import('./agents/tools/recordWrite');
       const row = updateTool ? await getBusinessObject(pageRecordId, opts.orgId) : null;
-      const typeSlug = row?.type?.slug ?? null;
+      // The row's type is the fact; the page's typed ref says the same (a
+      // `feature` page opens a request) and stands in when the row has none.
+      // The page's record is writable whatever the agent's objectTypes say.
+      const typeSlug = row?.type?.slug ?? owedTarget?.objectType ?? null;
       if (updateTool && row && typeSlug && recordWritable(boundCtx, typeSlug, row.id)) {
         emit({ type: 'status', label: `Changing ${typeSlug} #${row.id}` });
         const { recordHref } = await import('./objects/recordHref');
