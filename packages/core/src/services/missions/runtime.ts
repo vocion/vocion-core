@@ -402,14 +402,14 @@ async function announceCompleted(run: typeof missionRunSchema.$inferSelect, miss
 }
 
 /** A run that reached one of these is done, and nothing here may overwrite it. */
-const SETTLED_STATUSES = ['completed', 'failed', 'cancelled'] as const;
+export const MISSION_RUN_SETTLED_STATUSES = ['completed', 'failed', 'cancelled'] as const;
 
 /**
  * Has the run reached an end state — most often, has a person cancelled it?
  * @param status - A `mission_run.status` value.
  */
 function isSettled(status: string): boolean {
-  return (SETTLED_STATUSES as readonly string[]).includes(status);
+  return (MISSION_RUN_SETTLED_STATUSES as readonly string[]).includes(status);
 }
 
 /**
@@ -428,7 +428,7 @@ function isSettled(status: string): boolean {
 async function writeUnlessSettled(runId: number, values: Partial<typeof missionRunSchema.$inferInsert>): Promise<boolean> {
   const written = await db.update(missionRunSchema)
     .set(values)
-    .where(and(eq(missionRunSchema.id, runId), notInArray(missionRunSchema.status, [...SETTLED_STATUSES])))
+    .where(and(eq(missionRunSchema.id, runId), notInArray(missionRunSchema.status, [...MISSION_RUN_SETTLED_STATUSES])))
     .returning({ id: missionRunSchema.id });
   return written.length > 0;
 }

@@ -35,7 +35,7 @@ const ORG = 'org_cancel_mid_run';
 /** The run the mocked agent cancels. Set by each test before the loop starts. */
 let runUnderTest = 0;
 
-async function seedRun(taskIds: string[], status = 'running'): Promise<number> {
+async function seedRun(taskIds: string[], status = 'running', gatedTaskIds: string[] = []): Promise<number> {
   const [row] = await db
     .insert(missionRunSchema)
     .values({
@@ -47,7 +47,7 @@ async function seedRun(taskIds: string[], status = 'running'): Promise<number> {
       // Level 5: nothing is gated, so only the cancel can stop the loop.
       autonomyPolicy: { level: 5 },
       plan: {
-        tasks: taskIds.map(id => ({ id, title: `Task ${id}`, ownerAgentSlug: 'agent-x', type: 'analysis' as const, status: 'pending' as const })),
+        tasks: taskIds.map(id => ({ id, title: `Task ${id}`, ownerAgentSlug: 'agent-x', type: 'analysis' as const, status: 'pending' as const, approvalRequired: gatedTaskIds.includes(id) })),
       },
     })
     .returning({ id: missionRunSchema.id });
@@ -102,6 +102,20 @@ describe('cancelling a mission run', () => {
     expect(tasks.get('t1')!.output).toBe('finished the first task');
     expect(tasks.get('t2')!.status).toBe('pending');
     expect(tasks.get('t3')!.status).toBe('pending');
+  });
+
+  it('does not pause a cancelled run for approval when the next task is gated', async () => {
+    runUnderTest = await seedRun(['t1', 't2'], 'running', ['t2']);
+    mockRunAgent.mockImplementationOnce(turnDuringWhichThePersonCancels);
+
+    const status = await executeMissionRun(runUnderTest, ORG);
+    const { row, tasks } = await readRun(runUnderTest);
+
+    // Not `awaiting_review`: a cancelled run never lands in Review.
+    expect(status).toBe('cancelled');
+    expect(row.status).toBe('cancelled');
+    expect(row.pauseReason).toBeNull();
+    expect(tasks.get('t2')!.status).toBe('pending');
   });
 
   it('does not start a run that was cancelled before its loop began', async () => {
