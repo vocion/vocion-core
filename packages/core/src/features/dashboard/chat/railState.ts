@@ -11,8 +11,13 @@ export const RAIL_MIN_WIDTH = 320;
 export const RAIL_MAX_FRACTION = 0.5;
 /** The old dock's width: a third of the viewport, never under 384px. */
 export const RAIL_DEFAULT_MIN = 384;
-/** Below this viewport width the rail covers the page as a sheet instead of narrowing it. */
-export const RAIL_SHEET_BREAKPOINT = 1200;
+/**
+ * Below this viewport width the rail covers the page as a sheet instead of
+ * sitting beside it. 1024, not 1200: every current iPad in landscape (1133 to
+ * 1366 CSS px) is a desk, not a phone, and the rail is an overlay, so it
+ * never squeezes the page it sits on.
+ */
+export const RAIL_SHEET_BREAKPOINT = 1024;
 /**
  * Below this RAIL width the header's autonomy chip drops its label and shows
  * its icon alone. Measured, not guessed: at 400px the title plus four 32px

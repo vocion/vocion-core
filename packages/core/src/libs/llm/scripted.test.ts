@@ -70,6 +70,7 @@ describe('pacing', () => {
   it('cuts speech into pieces that join back to the text', () => {
     const text = 'Checked the ASI log.  A-501 is superseded\nby ASI-07.';
     const pieces = speechPieces(text);
+
     expect(pieces.length).toBeGreaterThan(5);
     expect(pieces.join('')).toBe(text);
   });
@@ -88,7 +89,23 @@ describe('pacing', () => {
     for await (const c of model._streamResponseChunks([new HumanMessage('draft it')], {} as never)) {
       call.push(c);
     }
+
     expect(call.map(c => c.text).join('')).toBe('Checking the ASI log.');
     expect((call.at(-1)!.message as unknown as { tool_call_chunks: unknown[] }).tool_call_chunks).toHaveLength(1);
+  });
+});
+
+describe('live stand-in', () => {
+  it('answers an unscripted line with the live model and keeps scripted lines written', async () => {
+    const live = new ScriptedChatModel({ script: { turns: [{ match: 'anything', steps: [], reply: 'live answer' }], fallback: 'live answer' } });
+    const model = new ScriptedChatModel({
+      script: { turns: [{ match: 'draft rfi', steps: [], reply: 'scripted answer' }], fallback: 'none' },
+      live,
+    });
+    const scripted = await model._generate([new HumanMessage('Draft RFI-112')]);
+    const unscripted = await model._generate([new HumanMessage('what is the pour date?')]);
+
+    expect(scripted.generations[0]!.text).toBe('scripted answer');
+    expect(unscripted.generations[0]!.text).toMatch(/^live answer/);
   });
 });

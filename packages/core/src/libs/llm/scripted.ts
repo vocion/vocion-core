@@ -191,17 +191,39 @@ export function personLine(human: string): string {
   return (cut === -1 ? human : human.slice(0, cut)).trim();
 }
 
-export type ScriptedChatModelParams = BaseChatModelParams & { script: Script; baseDir?: string };
+export type ScriptedChatModelParams = BaseChatModelParams & {
+  script: Script;
+  baseDir?: string;
+  /**
+   * A real model for everything the script does not name. Without one, an
+   * unscripted line gets the script's fallback sentence; with one, the
+   * written parts stay written and anything else is answered for real, with
+   * the same tools. That is what lets a demo keep its performed walkthroughs
+   * deterministic and still take any question a visitor asks.
+   */
+  live?: BaseChatModel;
+};
 
 export class ScriptedChatModel extends BaseChatModel {
   private readonly script: Script;
   private readonly baseDir: string;
+  private readonly live?: BaseChatModel;
   private boundTools: StructuredToolInterface[] = [];
 
   constructor(params: ScriptedChatModelParams) {
     super(params);
     this.script = params.script;
     this.baseDir = params.baseDir ?? process.cwd();
+    this.live = params.live;
+  }
+
+  /**
+   * Whether this call belongs to the live model: nothing in the script
+   * matches the person's line, and a live model was given.
+   * @param messages - The conversation so far.
+   */
+  private unscripted(messages: BaseMessage[]): boolean {
+    return this.live !== undefined && matchTurn(this.script, positionInTurn(messages).human) === null;
   }
 
   _llmType(): string {
@@ -214,7 +236,10 @@ export class ScriptedChatModel extends BaseChatModel {
    * @param tools
    */
   override bindTools(tools: StructuredToolInterface[]): this {
-    const next = new ScriptedChatModel({ script: this.script, baseDir: this.baseDir }) as this;
+    const live = this.live && typeof this.live.bindTools === 'function'
+      ? this.live.bindTools(tools) as unknown as BaseChatModel
+      : this.live;
+    const next = new ScriptedChatModel({ script: this.script, baseDir: this.baseDir, live }) as this;
     next.boundTools = tools;
     return next;
   }
@@ -228,6 +253,10 @@ export class ScriptedChatModel extends BaseChatModel {
    * @param runManager
    */
   override async* _streamResponseChunks(messages: BaseMessage[], _options: this['ParsedCallOptions'], runManager?: CallbackManagerForLLMRun): AsyncGenerator<ChatGenerationChunk> {
+    if (this.unscripted(messages)) {
+      yield* (this.live as unknown as { _streamResponseChunks: ScriptedChatModel['_streamResponseChunks'] })._streamResponseChunks(messages, _options, runManager);
+      return;
+    }
     const failure = this.failureFor(messages);
     if (failure) {
       // Speak the fragment, then die on it — the shape of a run that loses its
@@ -299,7 +328,10 @@ export class ScriptedChatModel extends BaseChatModel {
     return turn.fails;
   }
 
-  async _generate(messages: BaseMessage[]): Promise<ChatResult> {
+  async _generate(messages: BaseMessage[], options?: this['ParsedCallOptions'], runManager?: CallbackManagerForLLMRun): Promise<ChatResult> {
+    if (this.unscripted(messages)) {
+      return (this.live as unknown as { _generate: ScriptedChatModel['_generate'] })._generate(messages, options, runManager);
+    }
     const { human, toolResults } = positionInTurn(messages);
     const turn = matchTurn(this.script, human);
     if (process.env.VOCION_SCRIPTED_DEBUG === '1') {
@@ -345,8 +377,9 @@ function reply(text: string): ChatResult {
  * Build the scripted model from the environment. Throws in production and
  * when the script is missing, because a silent fallback here would be a
  * chatbot that says the same sentence to every customer.
+ * @param live
  */
-export function buildScriptedChatModel(): ScriptedChatModel {
+export function buildScriptedChatModel(live?: () => BaseChatModel): ScriptedChatModel {
   if (process.env.NODE_ENV === 'production' && process.env.VOCION_ALLOW_SCRIPTED_MODEL !== '1') {
     throw new Error('VOCION_LLM_PROVIDER=scripted is refused in production');
   }
@@ -355,5 +388,5 @@ export function buildScriptedChatModel(): ScriptedChatModel {
     throw new Error('VOCION_LLM_PROVIDER=scripted needs VOCION_LLM_SCRIPT=<path to a script JSON>');
   }
   const { baseDir, ...script } = loadScript(file);
-  return new ScriptedChatModel({ script, baseDir });
+  return new ScriptedChatModel({ script, baseDir, live: live?.() });
 }

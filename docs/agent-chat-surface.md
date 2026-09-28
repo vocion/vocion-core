@@ -35,7 +35,7 @@ never hide truth*).
 - §3.1 — a record-scoped conversation (`scopeRef`, e.g. `contacts:9412`)
   belongs to that record and to the person who opened it; it is never listed
   in the everything-scoped history and never shared between users (§8.6).
-- §3.2 — below 1200px the surface covers the page as a sheet instead of
+- §3.2 — below 1024px (the rail's `RAIL_SHEET_BREAKPOINT`) the surface covers the page as a sheet instead of
   narrowing it.
 - §3.3 — a **briefing** is a record page like any other. One brief lives at
   `/dashboard/briefings/<id>` (`docs/specs/briefing-v2.md` §10), so the
