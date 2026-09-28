@@ -321,6 +321,58 @@ export function selectZoomTargets(findings: Findings, max: number = MAX_ZOOM_CRO
   return { targets: candidates.slice(0, max), skipped: Math.max(0, candidates.length - max) };
 }
 
+type Verdict = z.infer<typeof VerdictSchema>;
+type Region = Verdict['regions'][number];
+
+/** What a zoom pass reports: the updated findings and how many regions it zoomed, corrected and left out. */
+type ZoomResult = { findings: Findings; zoomed: number; corrected: number; skipped: number };
+
+/**
+ * A region of the overlay, updated from the zoomed finding for the same label, if any.
+ * @param region - The region as the full-frame pass drew it.
+ * @param findings - The findings after the zoom pass.
+ */
+function regionWithZoom(region: Region, findings: Findings): Region {
+  const zoomed = findings.find(f => f.region === region.region);
+  return zoomed
+    ? { ...region, issue: zoomed.issue, observed: zoomed.observed ?? region.observed, confidence: zoomed.confidence ?? region.confidence, box: zoomed.box ?? region.box }
+    : region;
+}
+
+/**
+ * Fold a zoom pass back into the verdict: the corrected findings and regions,
+ * the pass/hold call they now support, the confidence, and a sentence on
+ * what was zoomed.
+ *
+ * A region left out by the {@link MAX_ZOOM_CROPS} cap keeps its full-frame
+ * finding, so it still counts against a pass; the explanation says how many
+ * there were and that a person should count them; and the confidence bump
+ * for a fully corrected sheet is only given when nothing was left out
+ * (vocion-core#280).
+ * @param verdict - The full-frame verdict.
+ * @param zoom - What the zoom pass found; only called when it zoomed at least one region.
+ * @returns The verdict to record.
+ */
+export function mergeZoomIntoVerdict(verdict: Verdict, zoom: ZoomResult): Verdict {
+  const remaining = zoom.findings.filter(f => f.issue !== 'ok');
+  const blocking = remaining.some(f => f.severity === 'blocking' || f.issue === 'missing' || f.issue === 'wrong_part' || f.issue === 'count' || f.issue === 'orientation');
+  const newVerdict: 'pass' | 'hold' = blocking ? 'hold' : remaining.length ? verdict.verdict : 'pass';
+  // Only a sheet whose every uncounted box was zoomed and matched earns the bump.
+  const bumped = zoom.corrected === zoom.zoomed && zoom.skipped === 0 && newVerdict === 'pass' ? Math.min(0.95, Math.max(verdict.confidence, 0.85)) : verdict.confidence;
+  const didNotMatch = zoom.zoomed - zoom.corrected;
+  const leftOut = zoom.skipped
+    ? ` ${zoom.skipped} more could not be counted and were not zoomed (limit ${MAX_ZOOM_CROPS} per photo); a person should count them.`
+    : '';
+  return {
+    ...verdict,
+    findings: zoom.findings,
+    regions: verdict.regions.map(r => regionWithZoom(r, zoom.findings)),
+    verdict: newVerdict,
+    confidence: bumped,
+    explanation: `${verdict.explanation} Zoomed into ${zoom.zoomed} fastener box${zoom.zoomed === 1 ? '' : 'es'} to count: ${zoom.corrected} matched the printed quantity${didNotMatch ? `, ${didNotMatch} did not` : ''}.${leftOut}`,
+  };
+}
+
 /**
  * Crop-before-count: for each finding the model could not count at full
  * frame, cut the region out of the 4K photo (with padding), upscale it and
@@ -343,7 +395,7 @@ async function zoomAndCount(opts: {
   key: string;
   bytes: Uint8Array;
   findings: Findings;
-}): Promise<{ findings: Findings; zoomed: number; corrected: number; skipped: number }> {
+}): Promise<ZoomResult> {
   const { targets, skipped } = selectZoomTargets(opts.findings);
   if (!targets.length) {
     return { findings: opts.findings, zoomed: 0, corrected: 0, skipped: 0 };
@@ -521,22 +573,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
         // could not count, count them, and let the result change the verdict.
         const zoom = await zoomAndCount({ ctx, client, bucket, region, key, bytes: cand!.bytes, findings: verdict.findings });
         if (zoom.zoomed > 0) {
-          const remaining = zoom.findings.filter(f => f.issue !== 'ok');
-          const blocking = remaining.some(f => f.severity === 'blocking' || f.issue === 'missing' || f.issue === 'wrong_part' || f.issue === 'count' || f.issue === 'orientation');
-          const newVerdict: 'pass' | 'hold' = blocking ? 'hold' : remaining.length ? verdict.verdict : 'pass';
-          // Only a sheet whose every uncounted box was zoomed and matched earns the bump.
-          const bumped = zoom.corrected === zoom.zoomed && zoom.skipped === 0 && newVerdict === 'pass' ? Math.min(0.95, Math.max(verdict.confidence, 0.85)) : verdict.confidence;
-          verdict = {
-            ...verdict,
-            findings: zoom.findings,
-            regions: verdict.regions.map((r) => {
-              const z = zoom.findings.find(f => f.region === r.region);
-              return z ? { ...r, issue: z.issue, observed: z.observed ?? r.observed, confidence: z.confidence ?? r.confidence, box: z.box ?? r.box } : r;
-            }),
-            verdict: newVerdict,
-            confidence: bumped,
-            explanation: `${verdict.explanation} Zoomed into ${zoom.zoomed} fastener box${zoom.zoomed === 1 ? '' : 'es'} to count: ${zoom.corrected} matched the printed quantity${zoom.zoomed - zoom.corrected ? `, ${zoom.zoomed - zoom.corrected} did not` : ''}.${zoom.skipped ? ` ${zoom.skipped} more could not be counted and were not zoomed (limit ${MAX_ZOOM_CROPS} per photo); a person should count them.` : ''}`,
-          };
+          verdict = mergeZoomIntoVerdict(verdict, zoom);
           progress(ctx, 'vision_compare_reference', { phase: 'zoomed', zoomed: zoom.zoomed, corrected: zoom.corrected, skipped: zoom.skipped, verdict: verdict.verdict, confidence: verdict.confidence });
         }
         const pathMeta = src ? metadataFromKey(src.cfg, key) : {};
