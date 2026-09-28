@@ -8,7 +8,7 @@
  */
 
 import type { CausalChain } from '@/services/automations/fireGuards';
-import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, notInArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { AUTOMATION_FIRE_WORKFLOW, automationRefireWorkflowIdFor, getTemporalClient, VOCION_WORKFLOWS_TASK_QUEUE } from '@/libs/temporal/client';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
@@ -378,7 +378,17 @@ export async function startMission(opts: {
           dependsOn: [],
         }]
       : await planMission({ orgId: opts.orgId, brief, goal, team, userId: opts.invokedBy });
-    await db.update(missionRunSchema).set({ plan: { tasks }, status: 'running' }).where(eq(missionRunSchema.id, run!.id));
+    // Only a run still at `planning` moves on. One a person cancelled while
+    // the planner was thinking stays cancelled, and none of its tasks start
+    // (vocion-core#123).
+    const moved = await db
+      .update(missionRunSchema)
+      .set({ plan: { tasks }, status: 'running' })
+      .where(and(eq(missionRunSchema.id, run!.id), eq(missionRunSchema.status, 'planning')))
+      .returning({ id: missionRunSchema.id });
+    if (moved.length === 0) {
+      return (await getMissionRun(run!.id, opts.orgId))!;
+    }
   } catch (error) {
     await recordPlanningFailure(run!.id, opts.orgId, error);
     return (await getMissionRun(run!.id, opts.orgId))!;
@@ -524,10 +534,26 @@ export async function resumeMission(runId: number, orgId: string): Promise<Missi
   return (await getMissionRun(runId, orgId))!;
 }
 
+/**
+ * Cancel a run that is still going. The loop reads the cancel on its next
+ * write and starts no further task (`missions/runtime.ts`).
+ *
+ * A run that already ended is left exactly as it is: cancelling a completed
+ * or failed run used to relabel it `cancelled` and overwrite its error, which
+ * erased what really happened to it.
+ * @param runId - The run to cancel.
+ * @param orgId - The caller's org; a run in another org is never touched.
+ * @param reason - Shown on the run as its error.
+ * @returns The run as it stands after the call.
+ */
 export async function cancelMission(runId: number, orgId: string, reason?: string): Promise<MissionRunSummary> {
   await db.update(missionRunSchema)
     .set({ status: 'cancelled', error: reason ?? 'cancelled by user', completedAt: new Date() })
-    .where(and(eq(missionRunSchema.id, runId), eq(missionRunSchema.orgId, orgId)));
+    .where(and(
+      eq(missionRunSchema.id, runId),
+      eq(missionRunSchema.orgId, orgId),
+      notInArray(missionRunSchema.status, ['completed', 'failed', 'cancelled']),
+    ));
   return (await getMissionRun(runId, orgId))!;
 }
 
