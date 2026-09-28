@@ -1,0 +1,119 @@
+# Builds, pushes and pulls the app image the way a parent project's CI and
+# box do (#670), against a throwaway registry on the runner: the registry
+# cache, the app-URL label, the pull refusing another environment's image,
+# and the pulled image booting. deploy-scripts.test.sh covers the same
+# scripts' logic with fakes; this is the one run that builds for real.
+# Runs only when the image path changes, since a cold build takes minutes.
+name: App image
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - packages/core/Dockerfile
+      - infra/aws/push-app-image.sh
+      - infra/aws/pull-app-image.sh
+      - .github/workflows/app-image.yml
+  workflow_dispatch:
+concurrency:
+  group: app-image-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  push-and-pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      registry:
+        image: registry:2
+        ports: ['5000:5000']
+    env:
+      REPOSITORY: localhost:5000/vocion-app
+      APP_URL: http://localhost:3008
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner
+        run: |
+          echo "cpus $(nproc)"; free -m | head -2; df -h / | tail -1
+          docker buildx version
+
+      - name: First push, empty cache
+        id: first
+        run: |
+          start=$(date +%s)
+          APP_IMAGE_REPOSITORY="${REPOSITORY}" \
+            bash infra/aws/push-app-image.sh \
+              --build-arg NEXT_PUBLIC_APP_URL="${APP_URL}" --progress=plain 2>&1 | tee first.log
+          echo "FIRST PUSH SECONDS $(( $(date +%s) - start ))"
+          grep -E "^#[0-9]+ DONE [0-9.]+s$" first.log | sort -t' ' -k3 -g | tail -3 || true
+
+      - name: Second push, source changed, fresh builder
+        id: second
+        run: |
+          # Only the registry cache can help now.
+          docker buildx rm vocion-app-builder
+          echo "// cache test" >> packages/core/src/libs/Env.ts
+          start=$(date +%s)
+          APP_IMAGE_REPOSITORY="${REPOSITORY}" IMAGE_TAG="${GITHUB_SHA}-second" \
+            bash infra/aws/push-app-image.sh \
+              --build-arg NEXT_PUBLIC_APP_URL="${APP_URL}" --progress=plain 2>&1 | tee second.log
+          echo "SECOND PUSH SECONDS $(( $(date +%s) - start ))"
+          git checkout packages/core/src/libs/Env.ts
+          deps_step=$(grep -oE '^#[0-9]+ \[deps [0-9]+/[0-9]+\] RUN' second.log | tail -1 | cut -d' ' -f1)
+          build_step=$(grep -oE '^#[0-9]+ \[builder [0-9]+/[0-9]+\] RUN --mount=type=cache' second.log | tail -1 | cut -d' ' -f1)
+          echo "deps install step ${deps_step}, compile step ${build_step}"
+          grep -E "^${deps_step} (CACHED|DONE)" second.log
+          grep -qE "^${deps_step} CACHED" second.log || { echo "the dependency install was not taken from the registry cache"; exit 1; }
+          if grep -qE "^${build_step} CACHED" second.log; then echo "the compile was cached though the source changed"; exit 1; fi
+          grep -E "^${build_step} DONE" second.log
+
+      - name: Pull the way a box does
+        run: |
+          EXPECTED_APP_URL="${APP_URL}" bash infra/aws/pull-app-image.sh "${{ steps.first.outputs.image }}"
+          docker image inspect vocion-app:latest --format 'label {{ index .Config.Labels "org.vocion.app-url" }} size {{ .Size }}'
+          [ "$(docker image inspect vocion-app:latest --format '{{ .Id }}')" = "$(docker image inspect "${{ steps.first.outputs.image }}" --format '{{ .Id }}')" ]
+
+      - name: Pull refuses another environment's image
+        run: |
+          if EXPECTED_APP_URL=https://production.example bash infra/aws/pull-app-image.sh "${{ steps.second.outputs.image }}" > wrong.log 2>&1; then
+            cat wrong.log; echo "the pull should have refused"; exit 1
+          fi
+          cat wrong.log
+          grep -F "was built for '${APP_URL}', but this box serves https://production.example" wrong.log
+          [ "$(docker image inspect vocion-app:latest --format '{{ .Id }}')" = "$(docker image inspect "${{ steps.first.outputs.image }}" --format '{{ .Id }}')" ]
+          echo "vocion-app:latest still points at the first image"
+
+      - name: Migrate and boot the pulled image
+        run: |
+          docker network create vocion-e2e
+          docker run -d --name vocion-postgres --network vocion-e2e \
+            -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=vocion pgvector/pgvector:pg16
+          for _ in $(seq 1 60); do
+            docker exec vocion-postgres pg_isready -U postgres -d vocion >/dev/null 2>&1 && break
+            sleep 1
+          done
+          REPO_DIR="${GITHUB_WORKSPACE}" POSTGRES_CONTAINER=vocion-postgres POSTGRES_DB=vocion POSTGRES_USER=postgres \
+            bash infra/aws/apply-migrations.sh | tail -3
+          docker run -d --name vocion-app --network vocion-e2e -p 3008:3000 \
+            -e DATABASE_URL=postgresql://postgres:postgres@vocion-postgres:5432/vocion \
+            -e AUTH_SECRET=ci-only-secret-not-used-anywhere-else \
+            -e AUTH_TRUST_HOST=true \
+            vocion-app:latest
+          status=000
+          for _ in $(seq 1 60); do
+            status=$(curl -s -o health.json -w '%{http_code}' --max-time 10 "${APP_URL}/api/demo-health" || true)
+            [ "${status}" = "200" ] && break
+            sleep 2
+          done
+          echo "demo-health HTTP ${status}: $(head -c 300 health.json)"
+          final_url=$(curl -s -L -o /dev/null -w '%{url_effective}' --max-time 30 "${APP_URL}/")
+          echo "signed-out / ends on ${final_url}"
+          docker exec vocion-app sh -c 'grep -rlF "localhost:3008" packages/core/.next/static | head -1' | tee baked.txt
+          docker logs vocion-app 2>&1 | tail -20
+          [ "${status}" = "200" ]
+          case "${final_url}" in *sign-in*) ;; *) echo "expected the sign-in page"; exit 1 ;; esac
+          [ -s baked.txt ] || { echo "the app URL is not in the client bundle"; exit 1; }

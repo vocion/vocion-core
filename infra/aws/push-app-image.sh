@@ -26,8 +26,8 @@
 # The build cache lives in the same repository under the `buildcache` tag, so
 # a run whose package-lock.json hasn't changed skips the dependency install.
 # Turbopack's own cache is a BuildKit cache mount, which no registry cache
-# carries, so the compile itself starts cold on every CI run (about 97s on a
-# GitHub runner).
+# carries, so the compile itself starts cold on every CI run (about 3 minutes
+# on a GitHub runner; see docs/deployment/parent-project-pattern.md).
 #
 # Safe to run twice: the same tag is pushed again with the same content.
 # When run in GitHub Actions it writes `image=<repository>:<tag>` to the step
@@ -79,8 +79,13 @@ registry_host="${repository%%/*}"
 ecr_host_pattern='^[0-9]{12}\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$'
 if [[ "${registry_host}" =~ ${ecr_host_pattern} ]]; then
   log "logging in to ${registry_host}"
-  aws ecr get-login-password --region "${BASH_REMATCH[1]}" \
-    | docker login --username AWS --password-stdin "${registry_host}" >/dev/null
+  if ! aws ecr get-login-password --region "${BASH_REMATCH[1]}" \
+    | docker login --username AWS --password-stdin "${registry_host}" >/dev/null; then
+    log "ERROR: could not log in to ${registry_host}."
+    log "  The CI role needs ecr:GetAuthorizationToken, and push rights on the"
+    log "  repository (see docs/deployment/parent-project-pattern.md)."
+    exit 1
+  fi
 fi
 
 # The default `docker` builder can't write a cache to a registry; a

@@ -87,10 +87,25 @@ sudo bash /opt/vocion/infra/aws/update.sh v0.3.0    # switch to a tag
 sudo bash /opt/vocion/infra/aws/update.sh main      # back to main
 ```
 
-The script rebuilds the app image, applies any new migrations, then
+The script gets the app image, applies any new migrations, then
 rolling-restarts only `app` + `worker` (Postgres + Caddy stay untouched).
 
-The image build keeps Turbopack's build cache on the box between deploys
+**Pull a CI-built image rather than building here.** A first build needs
+about 7.9 GB of memory, and on this box it competes with Postgres and
+Langfuse (#670). Build in CI with `push-app-image.sh` and pass the image in:
+
+```bash
+sudo VOCION_APP_IMAGE=<registry>/<repository>:<commit> bash /opt/vocion/infra/aws/update.sh <git-ref>
+```
+
+`pull-app-image.sh` logs in to ECR with the instance role, pulls with three
+tries, refuses an image built for a different `NEXT_PUBLIC_APP_URL`, and tags
+it `vocion-app:latest`. A failed pull stops the deploy before migrations, with
+the old containers still serving. `bootstrap.sh` takes the same variable. The
+CI job, IAM and ECR setup are in
+[docs/deployment/parent-project-pattern.md](../../docs/deployment/parent-project-pattern.md#build-the-app-image-in-ci-the-box-only-pulls-it).
+
+Without `VOCION_APP_IMAGE`, both scripts build on the box as before. The build keeps Turbopack's build cache on the box between deploys
 (#670), so a deploy recompiles only what changed. That needs Docker's buildx
 plugin, so both scripts run `install-buildx.sh` before they build. Amazon
 Linux 2023's `docker` package, which `bootstrap.sh` installs, already ships it
@@ -182,7 +197,16 @@ the deploy instead of reporting success. Everything it creates is removed
 on exit. `bootstrap.sh`'s system-prereq and docker-data-root sections are
 skipped by the fakes; the rest of it runs. `install-buildx.sh` runs against a
 fake `curl`, so the tests check its checksum and failure handling without
-downloading anything.
+downloading anything. `pull-app-image.sh` and `push-app-image.sh` run against
+fake `aws` and `docker`, covering the ECR login, pull retries, the app-URL
+check, the refusals, and that a deploy given an image never builds.
+
+Those fakes don't build anything. `.github/workflows/app-image.yml` does:
+on a pull request that touches the Dockerfile or either image script, it
+builds and pushes to a registry on the runner twice (the second time proving
+the cache works), pulls the image the way a box does, checks the app-URL
+refusal, applies the migrations and boots the image. Run it by hand from the
+Actions tab after any other change to the image build.
 
 ## Logs + ops
 

@@ -36,9 +36,10 @@ fi
 
 # The tag is what makes a deploy repeatable and a rollback possible: without
 # one, Docker pulls :latest, which is whatever was pushed last.
+# A digest (name@sha256:...) carries a colon too, so it passes.
 image_name="${image##*/}"
 case "${image_name}" in
-  *:* | *@sha256:*) ;;
+  *:*) ;;
   *)
     log "ERROR: ${image} has no tag. Deploy the tag CI pushed, usually the commit."
     exit 1

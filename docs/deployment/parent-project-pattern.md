@@ -181,7 +181,171 @@ sudo ... bash .../apply-migrations.sh --baseline all
 Then every later deploy is a normal run. Run `--check` first to see what it
 would do.
 
-### Building the app image needs buildx. Call core's installer.
+### Build the app image in CI. The box only pulls it.
+
+**TL;DR:** your CI builds one image per environment with core's
+`push-app-image.sh` and pushes it to ECR, tagged with the commit. The deploy
+hands that image name to the box, which pulls it and restarts. The box never
+compiles anything.
+
+**Why.** A first build of `packages/core/Dockerfile` peaks at about 7.9 GB of
+memory (#670). The box that serves the app is also running Postgres, Langfuse
+and the app itself. On a 16 GB box that leaves under 1 GB spare, and when
+memory runs out Linux kills whichever process it picks, which can be Postgres
+rather than the build. A CI runner has its own memory, so a build that fails
+there never touches the running site.
+
+**How a deploy goes:**
+
+1. CI runs `push-app-image.sh`. It builds the image, tags it with the commit,
+   stamps it with the app URL it was built for, and pushes it along with a
+   build cache.
+2. The deploy passes the image name to the box:
+   `sudo VOCION_APP_IMAGE=<image> bash <checkout>/vocion-core/infra/aws/update.sh <git-ref>`,
+   or your own deploy script calls `pull-app-image.sh <image>` itself.
+3. The box logs in to ECR with its own IAM role, pulls the image, checks the
+   app URL, tags it `vocion-app:latest`, applies migrations and restarts
+   `app` and `worker`. If the pull fails, nothing is restarted and the old
+   containers keep serving.
+
+**One image per environment.** Next bakes every `NEXT_PUBLIC_*` value into
+the client bundle when it builds, so dev's image on the production box would
+send every sign-in to dev. `pull-app-image.sh` refuses an image whose
+`org.vocion.app-url` label doesn't match the box's `NEXT_PUBLIC_APP_URL`.
+Build once for each environment, each with its own `--build-arg` values.
+
+**Build what the box used to build.** Pass every `--build-arg` your old
+`docker build` passed (brand name, Clerk key, Langfuse URL and so on). If your
+deploy copied files into core before building (brand assets, say), do that in
+CI before `push-app-image.sh` too.
+
+#### One-time AWS setup, in your IaC
+
+- **An ECR repository per environment.** Keep tags mutable: the `buildcache`
+  tag is rewritten on every build. Add a lifecycle policy so old images don't
+  pile up. Because `buildcache` is always among the newest, the count rule
+  never drops it:
+
+  ```json
+  {
+    "rules": [
+      {
+        "rulePriority": 1,
+        "description": "Drop untagged images after a day",
+        "selection": { "tagStatus": "untagged", "countType": "sinceImagePushed", "countUnit": "days", "countNumber": 1 },
+        "action": { "type": "expire" }
+      },
+      {
+        "rulePriority": 2,
+        "description": "Keep the newest 30 images",
+        "selection": { "tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 30 },
+        "action": { "type": "expire" }
+      }
+    ]
+  }
+  ```
+
+- **Pull rights for the box's instance role:** `ecr:GetAuthorizationToken` on
+  `*`, plus `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer` and
+  `ecr:BatchCheckLayerAvailability` on the repository. The box then needs no
+  stored registry password.
+- **A push role for CI, assumed through GitHub OIDC**, so no AWS keys sit in
+  GitHub secrets. Trust `token.actions.githubusercontent.com` with audience
+  `sts.amazonaws.com` and a `sub` of
+  `repo:<org>/<repo>:ref:refs/heads/<branch>`, one branch per environment.
+  Grant `ecr:GetAuthorizationToken` on `*`, and on the repository
+  `ecr:BatchCheckLayerAvailability`, `ecr:BatchGetImage`,
+  `ecr:GetDownloadUrlForLayer`, `ecr:InitiateLayerUpload`,
+  `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload` and `ecr:PutImage`. An
+  account has only one GitHub OIDC provider, and it may exist already (the
+  AgentCore setup below creates one), so look it up with a data source rather
+  than creating a second. `infra/agentcore/provision-ci-role.sh` is the same
+  trust shape for the runtime deploy.
+
+#### The CI job
+
+```yaml
+jobs:
+  app-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write # lets the job assume the push role
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.APP_IMAGE_PUSH_ROLE_ARN }}
+          aws-region: us-west-2
+          # A masked account ID would blank the image output below.
+          mask-aws-account-id: false
+      - id: push
+        env:
+          APP_IMAGE_REPOSITORY: ${{ vars.APP_IMAGE_REPOSITORY }}
+        run: |
+          bash vocion-core/infra/aws/push-app-image.sh \
+            --build-arg NEXT_PUBLIC_APP_URL=https://${{ vars.APP_HOST }} \
+            --build-arg NEXT_PUBLIC_BRAND_NAME="Client Name"
+
+  deploy:
+    needs: app-image
+    runs-on: ubuntu-latest
+    steps:
+      # However you reach the box today (SSH, SSM). The only change is
+      # the image name in front of the deploy command.
+      - run: |
+          ssh deploy@${{ vars.APP_HOST }} \
+            "sudo VOCION_APP_IMAGE='${{ needs.app-image.outputs.image }}' bash /opt/<project>/vocion-core/infra/aws/update.sh"
+```
+
+The image is tagged with `GITHUB_SHA`, your project's commit, which pins the
+core commit through the submodule. So the tag names exactly what runs.
+
+**Timing.** The build cache lives in the same repository under the
+`buildcache` tag. When `package-lock.json` hasn't changed, the dependency
+install comes from the cache. Turbopack's own compile cache doesn't travel
+through a registry, so the compile runs from scratch on every CI run. See
+[Measured on a GitHub runner](#measured-on-a-github-runner) for the numbers.
+
+**Rolling back** is a deploy of an older tag with its matching ref:
+`sudo VOCION_APP_IMAGE=<repository>:<older commit> bash .../update.sh <older ref>`.
+Migrations don't roll back, which is why they must stay backward-compatible
+(see the migrations section below).
+
+**Break glass.** Leave `VOCION_APP_IMAGE` unset and `update.sh` and
+`bootstrap.sh` build on the box as before. That needs buildx (next section)
+and brings back the memory risk, so keep it for when CI is down.
+
+**sudo and the variable.** `sudo VOCION_APP_IMAGE=... bash` works with the
+`ec2-user ALL=(ALL) NOPASSWD: ALL` rule Amazon Linux 2023 ships (checked
+2026-09-28). A user with narrower sudo rights may have the variable stripped;
+use `sudo env VOCION_APP_IMAGE=... bash ...` there.
+
+#### Measured on a GitHub runner
+
+One run of `.github/workflows/app-image.yml` on `ubuntu-latest` (4 CPUs,
+16 GB), pushing to a registry on the runner, 2026-09-28. ECR adds network
+time on top.
+
+| | First push, empty cache | Next push, source changed |
+|---|---|---|
+| Whole script | 539 s | 261 s |
+| Dependency install | 63 s | from cache |
+| Compile | 170 s | 172 s |
+| Writing the build cache | 210 s | 33 s |
+| Pushing the image | 54 s | 9 s |
+
+The image is about 1.26 GB. The same run pulled it the way a box does,
+refused it for another environment's URL, applied all 158 migrations,
+and booted it: `/api/demo-health` answered 200 and a signed-out visit
+landed on sign-in.
+
+### If you still build on the box: it needs buildx. Call core's installer.
 
 Since #670, `packages/core/Dockerfile` keeps Turbopack's build cache between
 image builds with a BuildKit cache mount, so a repeat deploy's compile needs

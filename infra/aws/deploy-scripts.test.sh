@@ -1468,6 +1468,19 @@ test_update_stops_when_the_ecr_login_fails() {
   check_absent "never pulls" "$(cat "${CALL_LOG}")" "docker pull"
 }
 
+# With no app URL in the env file there is nothing to check the image
+# against, and skipping the check would let any environment's image through.
+test_update_refuses_an_image_when_the_box_has_no_app_url() {
+  echo "update.sh: prebuilt image, no NEXT_PUBLIC_APP_URL on the box"
+  local env_file="${FIXTURE_REPO}/infra/aws/.env.production"
+  sed -i.with-url '/^NEXT_PUBLIC_APP_URL=/d' "${env_file}"
+  run_update_script VOCION_APP_IMAGE="${ECR_IMAGE}" FAKE_IMAGE_APP_URL=https://fixture.example
+  mv "${env_file}.with-url" "${env_file}"
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "names the missing value" "${UPDATE_OUTPUT}" "NEXT_PUBLIC_APP_URL is missing"
+  check_absent "never pulls" "$(cat "${CALL_LOG}")" "docker pull"
+}
+
 # Rolling back to a ref from before prebuilt images leaves no pull script.
 # Building instead would quietly do the risky thing the caller opted out of.
 test_update_with_an_image_on_a_ref_without_the_pull_script() {
@@ -1708,6 +1721,17 @@ test_bootstrap_reads_a_quoted_app_url() {
   check_exit_code "exits 0" 0 "${BOOTSTRAP_EXIT}"
 }
 
+test_bootstrap_refuses_an_image_when_the_box_has_no_app_url() {
+  echo "bootstrap.sh: prebuilt image, no NEXT_PUBLIC_APP_URL on the box"
+  local env_file="${FIXTURE_REPO}/infra/aws/.env.production"
+  sed -i.with-url '/^NEXT_PUBLIC_APP_URL=/d' "${env_file}"
+  run_bootstrap_script VOCION_APP_IMAGE="${ECR_IMAGE}" FAKE_IMAGE_APP_URL=https://fixture.example
+  mv "${env_file}.with-url" "${env_file}"
+  check_exit_code "exits non-zero" nonzero "${BOOTSTRAP_EXIT}"
+  check_contains "names the missing value" "${BOOTSTRAP_OUTPUT}" "NEXT_PUBLIC_APP_URL is empty"
+  check_absent "never pulls" "$(cat "${CALL_LOG}")" "docker pull"
+}
+
 test_bootstrap_refuses_an_image_built_for_another_url() {
   echo "bootstrap.sh: image built for another environment"
   run_bootstrap_script \
@@ -1824,6 +1848,17 @@ test_push_reports_no_image_when_the_build_fails() {
   check_exit_code "exits non-zero" nonzero "${PUSH_EXIT}"
   check_absent "writes no image output" "$(cat "${PUSH_STEP_OUTPUTS}")" "image="
   check_absent "never says it pushed" "${PUSH_OUTPUT}" "pushed "
+}
+
+test_push_stops_when_the_ecr_login_fails() {
+  echo "push-app-image.sh: CI role can't log in to ECR"
+  run_push_script \
+    APP_IMAGE_REPOSITORY="${ECR_REPOSITORY}" IMAGE_TAG=abc1234 FAKE_AWS_FAIL=1 \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_exit_code "exits non-zero" nonzero "${PUSH_EXIT}"
+  check_contains "names the permission the role needs" "${PUSH_OUTPUT}" \
+    "ecr:GetAuthorizationToken"
+  check_absent "never builds" "$(cat "${CALL_LOG}")" "buildx build"
 }
 
 # Passes when the last push run refused before building anything.
@@ -1987,6 +2022,7 @@ main() {
   test_update_refuses_an_image_without_a_tag
   test_update_skips_the_ecr_login_for_another_registry
   test_update_stops_when_the_ecr_login_fails
+  test_update_refuses_an_image_when_the_box_has_no_app_url
   test_update_with_an_image_on_a_ref_without_the_pull_script
   test_update_reads_env_from_infra_aws
   test_update_aborts_on_migration_failure
@@ -2002,6 +2038,7 @@ main() {
   test_bootstrap_pulls_a_prebuilt_image_instead_of_building
   test_bootstrap_reads_a_quoted_app_url
   test_bootstrap_refuses_an_image_built_for_another_url
+  test_bootstrap_refuses_an_image_when_the_box_has_no_app_url
   test_bootstrap_aborts_on_migration_failure
   test_bootstrap_aborts_without_an_env_file
 
@@ -2016,6 +2053,7 @@ main() {
   test_push_tags_with_the_github_commit_by_default
   test_push_creates_its_builder_only_when_missing
   test_push_reports_no_image_when_the_build_fails
+  test_push_stops_when_the_ecr_login_fails
   test_push_refuses_what_a_deploy_could_not_use
 
   test_scripts_do_not_swallow_migration_failures

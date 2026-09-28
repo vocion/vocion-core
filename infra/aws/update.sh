@@ -101,7 +101,9 @@ if [ -n "${VOCION_APP_IMAGE:-}" ]; then
     exit 1
   fi
   # The image carries the app URL it was built for; one built for another
-  # environment would break sign-in here.
+  # environment would break sign-in here. Without this box's own URL there is
+  # nothing to check it against, so stop rather than skip the check.
+  require_build_env NEXT_PUBLIC_APP_URL "${NEXT_PUBLIC_APP_URL}"
   EXPECTED_APP_URL="${NEXT_PUBLIC_APP_URL}" \
     bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
 else

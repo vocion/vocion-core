@@ -196,8 +196,14 @@ if [ -n "${VOCION_APP_IMAGE:-}" ]; then
     log "  Run it without VOCION_APP_IMAGE to build the image on the box."
     exit 1
   fi
-  EXPECTED_APP_URL="$(grep -E '^NEXT_PUBLIC_APP_URL=' "${ENV_FILE}" | head -1 | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || true)" \
-    bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
+  # The image carries the app URL it was built for. Without this box's own
+  # URL there is nothing to check it against, so stop rather than skip it.
+  app_url="$(grep -E '^NEXT_PUBLIC_APP_URL=' "${ENV_FILE}" | head -1 | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || true)"
+  if [ -z "${app_url}" ]; then
+    log "ERROR: NEXT_PUBLIC_APP_URL is empty in ${ENV_FILE}; it's needed to check the image."
+    exit 1
+  fi
+  EXPECTED_APP_URL="${app_url}" bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
 else
   # The build step keeps Turbopack's build cache in a BuildKit cache mount
   # (#670), and `docker build` runs BuildKit only through the buildx plugin.
