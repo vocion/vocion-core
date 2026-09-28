@@ -82,6 +82,13 @@ describe('a contract from the records alone', () => {
     ]);
   });
 
+  it('opens a ui app\'s src/** when the plan names only a file in it (#126: a visible criterion needs its component)', () => {
+    const libOnly = { ...plan, components: ['apps/web/src/lib/upload.ts — multipart with retry', 'packages/api/src/routes/links.ts — part signing'] };
+    const c = deriveContract({ given: {}, request, plan: libOnly, repo });
+
+    expect(c.allowedPaths).toEqual(['apps/web/src/lib/upload.ts', 'packages/api/src/routes/links.ts', 'apps/web/src/**', 'apps/web/tests/**', 'packages/api/tests/**']);
+  });
+
   it('says a held merge came from the person who merges, in their words (2026-09-28)', () => {
     const previous = { id: 190, meta: { prUrl: 'https://github.com/Acme/northwind-core/pull/89', verdict: { value: 'changes', heldBy: 'person', note: 'A person held the merge: the cleanup rule is not applied in production.', criteria: [{ criterion: 'A button sits beside Upload.', status: 'proven' }] } } };
     const c = deriveContract({ given: {}, request, plan, repo, previous });

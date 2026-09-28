@@ -274,7 +274,14 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // make writing one impossible"). Each app or package root a path lives in
   // brings its tests directory with it.
   const roots = new Set(basePaths.map(x => /^((?:apps|packages|services)\/[\w.-]+)\//.exec(x)?.[1]).filter((x): x is string => Boolean(x)));
-  const paths = [...new Set([...basePaths, ...[...roots].map(r => `${r}/tests/**`)])];
+  // A UI APP OPENS ITS SOURCE. #126's plan named apps/send-web/src/lib/upload.ts
+  // and nothing that renders: the criterion "Losing signal shows No signal ·
+  // N% kept · retrying" could not be built inside the paths, four attempts ran,
+  // and none said so (2026-09-28). An app the repo marks ui, touched by named
+  // files only, brings its src/** — a visible criterion needs its component.
+  const riskMap = (repo.riskDefaults ?? {}) as Record<string, string>;
+  const uiSrc = [...roots].filter(r => riskMap[`${r}/**`] === 'ui' && !basePaths.includes(`${r}/**`) && !basePaths.includes(`${r}/src/**`)).map(r => `${r}/src/**`);
+  const paths = [...new Set([...basePaths, ...uiSrc, ...[...roots].map(r => `${r}/tests/**`)])];
   const givenChecks = list(g, 'requiredChecks').filter(c => repoChecks.length === 0 ? /^[\w:.-]+$/.test(c) : repoChecks.includes(c));
   const checks = givenChecks.length > 0 ? givenChecks : repoChecks;
   const givenRisk = str(g, 'riskClass');
