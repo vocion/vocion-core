@@ -229,6 +229,39 @@ describe('plugin pages', () => {
     expect(releases?.nav).toMatchObject({ section: 'Software factory', order: 3, hidden: false, secondary: false });
   });
 
+  it('Releases is a feed of what changed, and each release opens its own page', () => {
+    workspace('plugins: [software-factory]\n');
+    const releases = readWorkspacePages().pages.find(p => p.slug === 'releases')!;
+
+    expect(releases.description).toBe('Recent product changes, verification, and announcements.');
+    expect(releases.pluginPanel).toBe(false);
+    expect(releases).toMatchObject({ layout: 'feed', derive: 'releaseFeed', groupBy: 'meta.releaseDayLabel', rowLink: '/dashboard/p/releases/{id}' });
+    // The row answers the four questions; the technical record is on the
+    // release's page, not in a column.
+    expect(releases.fields!.map(f => f.from)).toEqual(['meta.headline', 'meta.versionShort', 'meta.context', 'meta.summary', 'meta.verification', 'meta.verificationLine', 'meta.communication', 'meta.attention']);
+
+    for (const gone of ['meta.commitSha', 'meta.deployRunUrl', 'meta.estimateCents', 'meta.actualCents', 'meta.notesSource', 'meta.sizeClass', 'meta.announcement']) {
+      expect(releases.fields!.some(f => f.from === gone)).toBe(false);
+    }
+
+    expect(releases.views!.map(v => v.key)).toEqual(['releases', 'attention', 'deployments']);
+    // Timeframed, and an issue is not a missing check.
+    expect(releases.stats!.map(s => s.label)).toEqual(['Releases, last 30 days', 'Issues detected, last 30 days', 'Verification missing, last 30 days']);
+    expect(releases.queryFilters).toEqual([{ param: 'product', field: 'meta.product', label: 'Product', picker: { labelFrom: 'meta.productName' } }]);
+    expect(releases.recordPage?.kind).toBe('release');
+    expect(Object.keys(releases.recordPage!.actions).sort()).toEqual(['draft', 'publish', 'review']);
+  });
+
+  it('a feed and a record page are declared, not implied', () => {
+    const base = { slug: 'r', title: 'R', archetype: 'list', source: { kind: 'objects', objectType: 'release' }, fields: [{ key: 'a' }] };
+
+    expect(PageManifestSchema.safeParse({ ...base, layout: 'feed', feed: { summary: 'a' } }).success).toBe(true);
+    expect(PageManifestSchema.safeParse({ ...base, layout: 'feed', feed: { summary: 'missing' } }).success).toBe(false);
+    expect(PageManifestSchema.safeParse({ ...base, feed: { summary: 'a' } }).success).toBe(false);
+    expect(PageManifestSchema.safeParse({ ...base, recordPage: { kind: 'release' } }).success).toBe(true);
+    expect(PageManifestSchema.safeParse({ ...base, source: { kind: 'agents' }, recordPage: { kind: 'release' } }).success).toBe(false);
+  });
+
   it('a workspace page with the same slug replaces the plugin\'s', () => {
     workspace('plugins: [wiki]\n', { 'pages/wiki.yaml': 'slug: wiki\ntitle: Our wiki\narchetype: markdown\n', 'pages/wiki.md': 'Ours.' });
     const { pages } = readWorkspacePages();

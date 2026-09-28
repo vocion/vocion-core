@@ -37,7 +37,7 @@ describe('linkRelease', () => {
     const pack = await linkRelease(ORG, release!.id);
 
     expect(pack).toMatchObject({ requestIds: [request!.id], taskIds: [task!.id], reverted: [`${PR}/66`] });
-    expect(pack?.evidence).toEqual([{ taskId: task!.id, requestId: request!.id, prUrl: `${PR}/70`, verdict: 'approve, 6 of 6 proven' }]);
+    expect(pack?.evidence).toEqual([{ taskId: task!.id, requestId: request!.id, prUrl: `${PR}/70`, verdict: 'approve, 6 of 6 proven', title: 'Request a file' }]);
 
     const [rel] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, release!.id));
 

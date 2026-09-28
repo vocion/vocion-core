@@ -1,5 +1,6 @@
 'use client';
 
+import type { RecordRef } from '@/services/chat/pageContext';
 import { Sparkles } from 'lucide-react';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { useRouter } from '@/libs/I18nNavigation';
@@ -15,8 +16,10 @@ export type PagePrompt = { label: string; prompt: string; agent?: string };
  * @param props
  * @param props.prompts - The page's declared prompts.
  * @param props.page - The page's title, attached as the chat's context.
+ * @param props.record - The record the page is about, when it is one — so the
+ *   chat is handed it by name rather than by the tab's title.
  */
-export function PagePrompts({ prompts, page }: { prompts: PagePrompt[]; page: string }) {
+export function PagePrompts({ prompts, page, record }: { prompts: PagePrompt[]; page: string; record?: RecordRef }) {
   const router = useRouter();
   if (prompts.length === 0) {
     return null;
@@ -27,7 +30,7 @@ export function PagePrompts({ prompts, page }: { prompts: PagePrompt[]; page: st
         <button
           key={p.label}
           type="button"
-          onClick={() => openAgentSurface({ prompt: p.prompt, send: true, newChat: true, agentSlug: p.agent, context: { path: window.location.pathname, title: page } }, href => router.push(href))}
+          onClick={() => openAgentSurface({ prompt: p.prompt, send: true, newChat: true, agentSlug: p.agent, context: { path: window.location.pathname, title: page, ...(record ? { record } : {}) } }, href => router.push(href))}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
         >
           <Sparkles className="size-3.5 text-brand-amber" aria-hidden />

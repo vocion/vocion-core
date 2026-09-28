@@ -11,6 +11,10 @@ describe('the page always names its record', () => {
     expect(recordFromPath('/dashboard/p/wiki/how-stamp-ships')).toBeNull();
   });
 
+  it('reads a release page as its release, so "Ask about this release" carries it', () => {
+    expect(readPageContext({ path: '/w/northwind/dashboard/p/releases/197', title: 'Uploads that survive a bad connection' })?.record).toEqual({ type: 'object', id: '197', label: 'Uploads that survive a bad connection', href: '/dashboard/p/releases/197' });
+  });
+
   it('never overrides a record the page registered itself', () => {
     expect(readPageContext({ path: '/dashboard/p/feature/40', title: 't', record: { type: 'deal', id: '9' } })?.record).toMatchObject({ type: 'deal', id: '9' });
   });

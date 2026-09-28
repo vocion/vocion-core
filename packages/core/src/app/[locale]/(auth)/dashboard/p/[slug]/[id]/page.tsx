@@ -89,6 +89,27 @@ export default async function WorkspaceReportPage(props: {
       ? <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} />
       : notFound();
   }
+  // A release's own page (the Releases feed's row link): what changed for
+  // people, whether it verified, and who hears about it — not the generic
+  // object page, which read "Back to Objects" over a sha.
+  if (manifest?.recordPage?.kind === 'release') {
+    const releaseId = Number(id);
+    if (!Number.isInteger(releaseId) || releaseId <= 0) {
+      return notFound();
+    }
+    const { loadReleaseArtifacts, loadReleaseLinked, loadReleaseRow } = await import('@/services/factory/releaseData');
+    const row = await loadReleaseRow(orgId, releaseId);
+    if (!row) {
+      return notFound();
+    }
+    const { assembleReleaseReport } = await import('@/services/factory/releaseReport');
+    const { ReleaseDetailView } = await import('@/features/dashboard/factory/ReleaseDetailView');
+    const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
+    const ids = Array.isArray(row.meta.verificationArtifactIds) ? row.meta.verificationArtifactIds.map(Number) : [];
+    const [linked, artifacts, timeZone] = await Promise.all([loadReleaseLinked(orgId, [row]), loadReleaseArtifacts(orgId, ids), workspaceTimeZone(orgId)]);
+    const report = assembleReleaseReport(row, { linked, artifacts, timeZone, now: new Date() });
+    return <ReleaseDetailView report={report} recordPage={manifest.recordPage} backHref={`/dashboard/p/${manifest.slug}`} />;
+  }
   if (!manifest || manifest.archetype !== 'report' || !manifest.report) {
     return notFound();
   }

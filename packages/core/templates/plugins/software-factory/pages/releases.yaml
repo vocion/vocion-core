@@ -1,72 +1,115 @@
-# Releases. What actually reached people, newest first.
+# Releases. What reached people, newest first, one day at a time.
 #
-# Buried under Activity: it has no nav row of its own, and is reached from
-# Activity and from Products. It now carries the announcement line the
-# Changelog used to show on a page of its own, so the public wording of every
-# release is still one place, beside the deploy that carried it.
+# A product owner opens this page with four questions: what changed for
+# users, is it live and did verification pass, does anything need me, and who
+# should hear about it. The technical evidence — commits, the deploy run, the
+# shas, the QA screenshots — is on each release's own page, one click away,
+# and nowhere on the list (the 2026-09-28 red team: a row led with
+# "send 930a23f6ebbd", and "No factory feature in this deploy" sat over two
+# changes to the factory worker presented as product improvements).
 #
-# The row the Products board's "shipped this month" counts, and the row
-# `tell-the-requester` reads to close the loop. Written by the deploy (a
-# script or the engineer) over POST /api/v1/objects with the deploy's own key,
-# then the health result against the same row once the post-deploy check has
-# run.
+# The rows are written by the deploy (a script or the engineer) over
+# POST /api/v1/objects with the deploy's own key; the release pack links each
+# pull request to its task, request and QA verdict in code
+# (`services/factory/releasePack.ts`). What a row SAYS is one reading of that
+# record, shared with its page (`libs/workspace/releaseFeed.ts`):
+#
+#   - the title is the shipped feature's own title; a deploy of several says
+#     the first and counts the rest; a deploy of only machinery says so;
+#   - a commit that changed the factory worker, the deploy pipeline or CI is
+#     internal, judged from its subject (`fix(worker): …`) because the record
+#     carries subjects and not file paths;
+#   - verification is three questions, never one badge: QA's acceptance of
+#     each feature, the post-deploy health check, and the product impact;
+#   - the announcement is a workflow. The deploy script's placeholder line is
+#     "not prepared", never content.
+#
+# Before one release per deploy, each surface's deploy was its own record
+# (`surface: web`). Those read as deployments of one surface, under All
+# deployments. They are not grouped into releases: two rows sharing a commit
+# may not have gone out together, and a shared commit alone does not prove it.
 slug: releases
 title: Releases
-description: Every deploy that reached people, with product, version, what it carried, the announcement line the public reads, what the post-deploy check said, and who has been told.
+description: Recent product changes, verification, and announcements.
 icon: rocket
 nav: {section: Software factory, order: 3}
 archetype: list
 pluginPanel: false
 source: {kind: objects, objectType: release}
+derive: releaseFeed
 sort: {field: meta.releasedAt, dir: desc}
-groupBy: meta.product
-# Two numbers, both a person acts on (2026-09-27: six stats sat above the
-# list and none said what shipped; the Shipped line on each row does).
+groupBy: meta.releaseDayLabel
+layout: feed
+views:
+  - key: releases
+    label: Releases
+    filters: [{field: meta.releaseKind, op: eq, value: release}]
+  - key: attention
+    label: Needs attention
+    note: Releases with something unresolved — a failed or missing check, a feature shipped without QA, a result that got worse, or someone who asked and has not heard.
+    filters: [{field: meta.needsAttention, op: eq, value: true}]
+  - key: deployments
+    label: All deployments
+    note: Every deploy on record, including the per-surface deployments written before one release per deploy.
+# Timeframed, and an issue is not the same fact as a check nobody ran.
 stats:
-  - {label: Releases, kind: count}
-  - {label: Unhealthy after, kind: countWhere, where: {field: meta.healthAfter, op: in, value: [down, degraded]}}
-# What production said, derived (`libs/workspace/releaseOutcome.ts`). The
-# derivation is where a release too young to judge reads "watching", one old
-# enough with nobody having looked reads "outcome not checked", and each
-# measure is stated against what it was BEFORE — because "share completion
-# 76%" says nothing and "91% → 76%" says the release broke something.
-derive: releaseOutcome
+  - {label: 'Releases, last 30 days', kind: countWhere, where: {field: meta.releasedAt, op: since, value: 30d}}
+  - {label: 'Issues detected, last 30 days', kind: countWhere, where: [{field: meta.releasedAt, op: since, value: 30d}, {field: meta.issueDetected, op: eq, value: true}]}
+  - {label: 'Verification missing, last 30 days', kind: countWhere, where: [{field: meta.releasedAt, op: since, value: 30d}, {field: meta.verificationMissing, op: eq, value: true}]}
+statsMinRows: 4
 primary:
-  field: title
-  subtitle: [shipped, outcome, health, released, version]
+  field: headline
+  subtitle: [context, verification, communication]
+feed:
+  aside: [version]
+  summary: summary
+  lines: [verificationLine]
+  note: attention
 fields:
-  - {key: title, label: Release}
-  # What this deploy shipped and the proof, linked in code from the pull
-  # requests it carried (`services/factory/releasePack.ts`): each feature with
-  # QA's verdict. A reverted pull request is not shipped.
-  - {key: shipped, label: Shipped, from: meta.shippedLine}
-  - {key: version, label: Version, from: meta.version, format: mono}
-  - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
-  # Two different questions, and they are not the same one asked twice.
-  # `health` is the smoke test minutes after the swap: did the DEPLOY work.
-  # `outcome` is what production said once it had been live long enough to
-  # tell: did the CHANGE work. A release can be perfectly healthy and have
-  # cost fifteen points of a funnel.
-  - {key: health, label: Health after, from: meta.healthAfter, format: badge, tones: {ok: ok, degraded: warn, down: bad, unknown: muted}}
-  - {key: outcome, label: Outcome, from: meta.outcomeLine, format: badge, tones: {validated: ok, regressed: bad, inconclusive: muted, watching: info, outcome not checked: warn}}
-  - {key: measures, label: What moved, from: meta.outcomeMeasures}
-  - {key: released, label: Released, from: meta.releasedAt, format: date}
-  - {key: deploy, label: Deploy run, from: meta.deployRunUrl, format: link, priority: 3}
-  - {key: commit, label: Commit, from: meta.commitSha, format: mono}
-  # What the shipped tasks were expected to cost and what they cost, rolled up
-  # over `taskIds`; the total under each product is that product's spend on
-  # what actually reached people.
-  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true, priority: 2}
-  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true, priority: 2}
-  - {key: notesBy, label: Notes by, from: meta.notesSource, format: badge, tones: {agent: info, human: ok}, priority: 3}
-  - {key: announced, label: Announced, from: meta.announcedAt, format: date, priority: 2}
-  # The line the public reads. This is what the Changelog page carried; it
-  # is a column here rather than a page of its own.
-  # Labelled for what it is: the public line, not what shipped (the Shipped
-  # column is). It read "What shipped" over a placeholder on every row.
-  - {key: announcement, label: Announcement, from: meta.announcement, priority: 3}
-rowLink: /dashboard/objects/{id}
-# A product card opens THIS page as that product's work: `?product=send`
-# narrows every lane to Send and the page says so, with a way back.
+  - {key: headline, label: Release, from: meta.headline}
+  - {key: version, label: Version, from: meta.versionShort, format: mono}
+  - {key: context, label: Where and when, from: meta.context}
+  - {key: summary, label: Summary, from: meta.summary}
+  - {key: verification, label: Verification, from: meta.verification, format: badge, tones: {Verified: ok, Issue detected: bad, Verification missing: warn}}
+  - {key: verificationLine, label: Checks, from: meta.verificationLine}
+  # Communication state. "Not needed" is internal maintenance, with its
+  # reason on the release's page.
+  - {key: communication, label: Announcement, from: meta.communication, format: badge, tones: {Published: ok, Approved: info, Draft ready: info, Not prepared: warn, Not needed: muted}}
+  - {key: attention, label: Needs attention, from: meta.attention}
+rowLink: /dashboard/p/releases/{id}
+# A product card opens THIS page as that product's releases: `?product=send`
+# narrows the feed, and the picker offers every product the rows carry.
 queryFilters:
-  - {param: product, field: meta.product, label: Product}
+  - {param: product, field: meta.product, label: Product, picker: {labelFrom: meta.productName}}
+# The release's own page, `/dashboard/p/releases/<id>`
+# (`services/factory/releaseReport.ts`). The announcement's one move per
+# state, in the workspace's words: each opens a chat with the release as
+# context and its prompt sent. Publishing is `release.announce`, a gated
+# action — a person decides it on the card, whatever the button says.
+recordPage:
+  kind: release
+  actions:
+    draft:
+      label: Draft announcement
+      agent: product-manager
+      prompt: >-
+        Draft the announcement for this release, following write-release-notes:
+        one or two sentences on what people can now do, written only from the
+        verified changes on the release page, never from internal or reverted
+        commits. Write it to the release's `announcement` and leave
+        `notesSource: agent`. Do not publish it. Then show me the draft beside
+        the evidence for each claim.
+    review:
+      label: Review draft
+      agent: product-manager
+      prompt: >-
+        Show me this release's draft announcement beside the verified changes
+        it claims. Flag any sentence the evidence does not support, suggest the
+        fix, and ask me to approve it; when I approve, set `notesSource: human`.
+    publish:
+      label: Publish
+      agent: product-manager
+      prompt: >-
+        Propose `release.announce` for this release with its approved
+        announcement, naming the channels it goes to. It is a person's
+        decision on the card; do not publish anything yourself.

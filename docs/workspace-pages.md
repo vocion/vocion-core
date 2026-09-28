@@ -151,6 +151,39 @@ views:
   - {key: releases, label: Releases, href: /dashboard/p/releases}
 ```
 
+### `layout: feed`, `recordPage:`, and filter pickers
+
+`layout: feed` draws a list page's rows as the Ledger pattern
+(`components/patterns/Ledger`): a heading per `groupBy` value with its count,
+then one entry per row, newest first. It is for rows a person reads as a log of
+what happened — Releases, one day at a time — where a table would put a sha,
+a URL and a cost in every row. The entry's title is `primary.field` (it opens
+`rowLink`), its detail line the non-badge `primary.subtitle` fields, its state
+the badge ones; `feed` names the rest:
+
+```yaml
+layout: feed
+primary: {field: headline, subtitle: [context, verification, communication]}
+feed:
+  aside: [version] # muted beside the title
+  summary: summary # the one sentence under it
+  lines: [verificationLine] # one muted line of evidence
+  note: attention # drawn only on the rows that carry one
+```
+
+`recordPage:` gives a list's rows a page of their own at
+`/dashboard/p/<slug>/<id>`, drawn by a dedicated assembly instead of the
+generic object page. Like `report.subject` it is a closed set: `kind: release`
+is the software factory's release page (`services/factory/releaseReport.ts`).
+Its `actions` are the page's asks on that record in the workspace's words —
+each opens a new chat with the record as context and its prompt sent.
+
+A `queryFilters` entry with `picker:` draws the values it can take as links
+above the rows, one per distinct value the rows carry, so a person narrows the
+page without knowing the URL; `labelFrom` names the field each value reads as
+(`{param: product, field: meta.product, picker: {labelFrom: meta.productName}}`).
+View links keep the filters in force.
+
 A `list`/`queue` page can also stay **live**: `live: {every: 15}` re-reads the
 rows and stats every 15 seconds while the tab is visible (bounded 5–120) and
 shows "live · 12s ago" in the title row. A hidden tab does not poll; coming

@@ -62,7 +62,7 @@ async function mergeMeta(orgId: string, id: number, set: Record<string, unknown>
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
 }
 
-export type ReleaseEvidence = { taskId: number; requestId: number | null; prUrl: string; verdict: string };
+export type ReleaseEvidence = { taskId: number; requestId: number | null; prUrl: string; verdict: string; title: string };
 
 /**
  * Link a release to what it shipped. Idempotent: running it again on the
@@ -93,6 +93,9 @@ export async function linkRelease(orgId: string, releaseId: number): Promise<{ r
       prUrl: normalPr(String(t.meta.prUrl)),
       // Shipped without a verdict is said plainly, never dressed up.
       verdict: v.value ? `${v.value}, ${v.proven ?? 0} of ${v.total ?? 0} proven` : 'merged without a QA verdict',
+      // The feature's own words travel with the pack, so a release reads as
+      // what it shipped even where the task is not loaded beside it.
+      title: t.title,
     };
   });
   const taskIds = evidence.map(e => e.taskId);
@@ -105,9 +108,12 @@ export async function linkRelease(orgId: string, releaseId: number): Promise<{ r
         .where(and(eq(artifactSchema.orgId, orgId), sql`${artifactSchema.recordRole} = 'qa-screenshot'`, sql`${artifactSchema.recordId} in (${sql.join(taskIds.map(id => sql`${String(id)}`), sql`, `)})`));
   // The one line the Releases row leads with: which features, and the proof.
   const titleOf = new Map(tasks.map(t => [t.id, t.title]));
+  // "No linked feature" rather than "no factory feature": the deploy may have
+  // shipped real changes no request stands behind, and the release's page
+  // says what they were (`libs/workspace/releaseFeed.ts`).
   const shippedLine = evidence.length > 0
     ? evidence.map(e => `${titleOf.get(e.taskId) ?? `task #${e.taskId}`} — QA ${e.verdict}`).join('; ')
-    : 'No factory feature in this deploy';
+    : 'No linked feature';
   await mergeMeta(orgId, releaseId, {
     shippedLine,
     prUrls: [...shipped, ...reverted],

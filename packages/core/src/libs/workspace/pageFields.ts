@@ -631,7 +631,27 @@ export const PageManifestSchema = z.object({
    * and a label travels with its value instead of living in a header the
    * reader has to look back up at.
    */
-  layout: z.enum(['table', 'block']).default('table'),
+  layout: z.enum(['table', 'block', 'feed']).default('table'),
+  /**
+   * How a `feed` layout reads its rows — the Ledger pattern
+   * (`components/patterns/Ledger`): day headings from `groupBy`, one entry per
+   * row, newest first. The entry's title is `primary.field`, its detail line
+   * the non-badge `primary.subtitle` fields, its state the badge ones.
+   *
+   * A feed is for rows a person reads as a log of what happened — releases,
+   * one day at a time — where a table would put a sha, a URL and a cost in
+   * every row and a block would put each one in a card.
+   */
+  feed: z.object({
+    /** Fields drawn muted beside the title — a short version. */
+    aside: z.array(z.string()).default([]),
+    /** The field holding the one sentence under the title. */
+    summary: z.string().optional(),
+    /** Fields drawn as one muted line under the summary. */
+    lines: z.array(z.string()).default([]),
+    /** The field holding what needs a person — drawn only when the row has one. */
+    note: z.string().optional(),
+  }).optional(),
   /**
    * A named derivation run over the rows BEFORE filters, sort, grouping and
    * stats, so the page can be declared in the words a person reads rather
@@ -647,7 +667,26 @@ export const PageManifestSchema = z.object({
    * knows what these records MEAN and is not a general expression language
    * on a page. A second one gets declared here when it exists.
    */
-  derive: z.enum(['workQueue', 'releaseOutcome', 'productBoard']).optional(),
+  derive: z.enum(['workQueue', 'releaseOutcome', 'releaseFeed', 'productBoard']).optional(),
+  /**
+   * The page a row opens, when it is this page's own: `/dashboard/p/<slug>/<id>`
+   * draws the record through a dedicated assembly rather than the generic
+   * object page. A closed set, like the report's `subject` — `release` is the
+   * software factory's release page (`services/factory/releaseReport.ts`).
+   *
+   * `actions` are the page's asks on that record, in the workspace's words:
+   * each opens a new chat with the record as context and its prompt sent.
+   * `draft`, `review` and `publish` are offered by the announcement's state;
+   * none is offered where its words are not declared.
+   */
+  recordPage: z.object({
+    kind: z.enum(['release']),
+    actions: z.object({
+      draft: z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() }).optional(),
+      review: z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() }).optional(),
+      publish: z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() }).optional(),
+    }).default({}),
+  }).optional(),
   filters: z.array(FilterSchema).optional(),
   /**
    * Named ways of looking at the same rows, chosen with `?view=<key>` and
@@ -725,7 +764,19 @@ export const PageManifestSchema = z.object({
    * sent (to `agent` when named). The words are the workspace's to manage.
    */
   prompts: z.array(z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() })).optional(),
-  queryFilters: z.array(z.object({ param: z.string().min(1), field: z.string().min(1), label: z.string().optional(), default: z.string().min(1).optional() })).optional(),
+  queryFilters: z.array(z.object({
+    param: z.string().min(1),
+    field: z.string().min(1),
+    label: z.string().optional(),
+    default: z.string().min(1).optional(),
+    /**
+     * Draw the values this filter can take as links above the rows — one per
+     * distinct value the rows carry — so a person can narrow the page without
+     * knowing the URL. `labelFrom` names the field each value is read as
+     * (`meta.productName` for a product slug).
+     */
+    picker: z.object({ labelFrom: z.string().optional() }).optional(),
+  })).optional(),
   /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
   live: LiveSchema.optional(),
 
@@ -759,6 +810,13 @@ export const PageManifestSchema = z.object({
   .refine(m => m.layout === 'table' || m.fields === undefined || m.fields.every(f => !f.total), { message: 'a block layout has no column to total under', path: ['layout'] })
   .refine(m => m.derive === undefined || m.archetype === 'list', { message: 'derive is for list pages, the ones with rows to derive from', path: ['derive'] })
   .refine(
+    m => m.feed === undefined
+      || [...m.feed.aside, ...m.feed.lines, m.feed.summary, m.feed.note].filter((k): k is string => k !== undefined).every(k => (m.fields ?? []).some(f => f.key === k)),
+    { message: 'feed names a field this page does not declare', path: ['feed'] },
+  )
+  .refine(m => m.feed === undefined || m.layout === 'feed', { message: 'feed configures layout: feed', path: ['feed'] })
+  .refine(m => m.recordPage === undefined || (m.archetype === 'list' && m.source?.kind === 'objects'), { message: 'recordPage is for a list of records, the page its rows open', path: ['recordPage'] })
+  .refine(
     m => m.primary === undefined
       || [m.primary.field, ...m.primary.subtitle].every(k => (m.fields ?? []).some(f => f.key === k)),
     { message: 'primary names a field this page does not declare', path: ['primary'] },
@@ -787,6 +845,8 @@ export type PageSeries = z.infer<typeof SeriesSchema>;
 export type PageWidget = z.infer<typeof WidgetSchema>;
 export type PageRowAction = z.infer<typeof RowActionSchema>;
 export type PageReport = z.infer<typeof ReportSchema>;
+export type PageFeed = NonNullable<z.infer<typeof PageManifestSchema>['feed']>;
+export type PageRecordPage = NonNullable<z.infer<typeof PageManifestSchema>['recordPage']>;
 
 // ---------------------------------------------------------------------------
 // Accessors + computation shared by the renderer

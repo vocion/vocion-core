@@ -10,6 +10,7 @@ import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PageBlocks } from '@/features/dashboard/pages/PageBlocks';
+import { PageFeed } from '@/features/dashboard/pages/PageFeed';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
@@ -20,6 +21,7 @@ import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
+import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { activeQueryFilters, applyQueryFilters, groupTabKey } from '@/libs/workspace/pageFields';
 import {
   applyFilter,
@@ -36,6 +38,7 @@ import {
   resolveField,
 } from '@/libs/workspace/pages';
 import { deriveProductBoard } from '@/libs/workspace/productBoard';
+import { deriveReleaseFeed } from '@/libs/workspace/releaseFeed';
 import { deriveReleaseOutcome } from '@/libs/workspace/releaseOutcome';
 import { deriveWorkQueue } from '@/libs/workspace/workQueue';
 import {
@@ -46,6 +49,7 @@ import {
   knowledgeSourceSchema,
   toolCallSchema,
 } from '@/models/Schema';
+import { loadReleaseLinked } from '@/services/factory/releaseData';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
 import { readPageForOrg } from '@/services/PluginService';
@@ -376,13 +380,18 @@ function SeriesStrip({ series }: { series: ReturnType<typeof computeSeries> }) {
  * @param root0.views - The declared views.
  * @param root0.active - The view in force.
  * @param root0.slug - The page, for the `?view=` links.
+ * @param root0.keep - The URL filters in force, carried onto every view link.
  */
-function ViewSwitcher({ views, active, slug }: { views: PageView[]; active: PageView; slug: string }) {
+function ViewSwitcher({ views, active, slug, keep = [] }: { views: PageView[]; active: PageView; slug: string; keep?: Array<[string, string]> }) {
   return (
     <nav className="mb-4 flex flex-wrap items-center gap-1" aria-label="Views" data-testid="page-views">
       {views.map((v) => {
         const on = v.key === active.key;
-        const href = v.href ?? (v.key === views[0]!.key ? `/dashboard/p/${slug}` : `/dashboard/p/${slug}?view=${v.key}`);
+        // A view keeps the URL's filters: switching to "Needs attention" while
+        // looking at one product stays on that product.
+        const params = new URLSearchParams(v.key === views[0]!.key ? keep : [['view', v.key], ...keep]);
+        const qs = params.toString();
+        const href = v.href ?? `/dashboard/p/${slug}${qs ? `?${qs}` : ''}`;
         return (
           <Link
             key={v.key}
@@ -547,6 +556,9 @@ export default async function WorkspacePage(props: {
   const activeView = views ? (views.find(v => v.key === asked && v.href === undefined) ?? views[0]!) : null;
 
   let rows: PageRow[] = [];
+  // The values a `picker` filter offers, read off every row before the URL
+  // narrowed them, so choosing one product still shows the others to pick.
+  let pickers: Array<{ param: string; label: string; options: Array<{ value: string; label: string }> }> = [];
   if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.source) {
     // A named derivation runs FIRST, over every row: it is what turns stored
     // states into the lanes and sentences the page is declared in, and it
@@ -554,21 +566,44 @@ export default async function WorkspacePage(props: {
     // A URL filter narrows the rows BEFORE the derivation counts them, so a
     // lane note under "Send only" counts Send, not the whole factory (Chris,
     // 2026-09-24: "3 to decide · 5 more queued" over four rows).
-    const loaded = applyQueryFilters(await loadRows(manifest, orgId), queryFilters);
+    const all = await loadRows(manifest, orgId);
+    const loaded = applyQueryFilters(all, queryFilters);
+    // The release feed reads what each release names — its tasks, requests
+    // and product — and states times in the workspace's zone.
+    const releaseFeed = manifest.derive === 'releaseFeed'
+      ? { linked: await loadReleaseLinked(orgId, all), now: new Date(now), timeZone: await workspaceTimeZone(orgId) }
+      : null;
     const derived = manifest.derive === 'workQueue'
       ? deriveWorkQueue(loaded, { now: new Date(now) })
       : manifest.derive === 'releaseOutcome'
         ? deriveReleaseOutcome(loaded, { now: new Date(now) })
-        : manifest.derive === 'productBoard'
-          // A card says what needs a person, what is underway and what last
-          // shipped BY NAME, so it reads the requests and releases themselves
-          // rather than only the counters rolled up onto the product.
-          ? deriveProductBoard(loaded, {
-              now: new Date(now),
-              requests: await loadObjectRows(orgId, 'request'),
-              releases: await loadObjectRows(orgId, 'release'),
-            })
-          : loaded;
+        : releaseFeed
+          ? deriveReleaseFeed(loaded, releaseFeed)
+          : manifest.derive === 'productBoard'
+            // A card says what needs a person, what is underway and what last
+            // shipped BY NAME, so it reads the requests and releases themselves
+            // rather than only the counters rolled up onto the product.
+            ? deriveProductBoard(loaded, {
+                now: new Date(now),
+                requests: await loadObjectRows(orgId, 'request'),
+                releases: await loadObjectRows(orgId, 'release'),
+              })
+            : loaded;
+    const pickable = (manifest.queryFilters ?? []).filter(q => q.picker);
+    if (pickable.length > 0) {
+      const source = releaseFeed ? deriveReleaseFeed(all, releaseFeed) : all;
+      pickers = pickable.map((q) => {
+        const seen = new Map<string, string>();
+        for (const r of source) {
+          const v = resolveField(r, q.field);
+          if (typeof v === 'string' && v !== '' && !seen.has(v)) {
+            const label = q.picker?.labelFrom ? resolveField(r, q.picker.labelFrom) : undefined;
+            seen.set(v, typeof label === 'string' && label !== '' ? label : v);
+          }
+        }
+        return { param: q.param, label: q.label ?? q.param, options: [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)) };
+      }).filter(p => p.options.length > 1);
+    }
     // A picture a row names by id becomes a picture the page can draw. One
     // query for the whole page, after the derivation has chosen WHICH visual
     // each row shows (`services/workspace/pageImages.ts`).
@@ -726,11 +761,37 @@ export default async function WorkspacePage(props: {
       )}
       {!rowsLead && about}
 
-      {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} />}
+      {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} keep={queryFilters.map(f => [f.param, f.value] as [string, string])} />}
       {manifest.prompts && manifest.prompts.length > 0 && <PagePrompts prompts={manifest.prompts} page={manifest.title} />}
-      {queryFilters.length > 0 && (
+      {pickers.map(p => (
+        <nav key={p.param} className="mb-4 flex flex-wrap items-center gap-1 text-xs" aria-label={p.label} data-testid="page-query-picker">
+          <span className="mr-1 text-muted-foreground">{p.label}</span>
+          {[{ value: null as string | null, label: 'All' }, ...p.options].map((o) => {
+            const on = (queryFilters.find(f => f.param === p.param)?.value ?? null)?.toLowerCase() === o.value?.toLowerCase();
+            const params = new URLSearchParams();
+            if (activeView && views && activeView.key !== views[0]!.key) {
+              params.set('view', activeView.key);
+            }
+            if (o.value !== null) {
+              params.set(p.param, o.value);
+            }
+            const qs = params.toString();
+            return (
+              <Link
+                key={o.value ?? '__all'}
+                href={`/dashboard/p/${manifest.slug}${qs ? `?${qs}` : ''}`}
+                aria-current={on ? 'true' : undefined}
+                className={on ? 'rounded-full border border-foreground px-2 py-0.5 font-medium' : 'rounded-full border border-border px-2 py-0.5 text-muted-foreground hover:text-foreground'}
+              >
+                {o.label}
+              </Link>
+            );
+          })}
+        </nav>
+      ))}
+      {queryFilters.some(f => !pickers.some(p => p.param === f.param)) && (
         <p className="mb-4 flex flex-wrap items-center gap-2 text-sm" data-testid="page-query-filters">
-          {queryFilters.map(f => (
+          {queryFilters.filter(f => !pickers.some(p => p.param === f.param)).map(f => (
             <span key={f.param} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">
               <span className="text-foreground">{f.value.charAt(0).toUpperCase() + f.value.slice(1)}</span>
               {' '}
@@ -832,6 +893,23 @@ export default async function WorkspacePage(props: {
 
       {manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && (() => {
         const Rows = manifest.layout === 'block' ? PageBlocks : PageTable;
+        // A feed is the Ledger pattern: its own shape, so its own props.
+        if (manifest.layout === 'feed') {
+          return groups.map((g, gi) => (
+            <PageFeed
+              key={g.label ?? '__all'}
+              id={gi === 0 ? 'wsx-table' : undefined}
+              rows={g.rows}
+              fields={fields}
+              primary={manifest.primary}
+              feed={manifest.feed}
+              rowLink={manifest.rowLink}
+              now={now}
+              links={links}
+              groupLabel={g.label}
+            />
+          ));
+        }
         // Tabs are the groups, so the panel never draws the group's heading
         // again inside itself, and the lane's note rides on the panel rather
         // than growing the tab into a sentence.
