@@ -82,7 +82,7 @@ beforeEach(() => {
 describe('the run page', () => {
   it('lists the steps with their state, the running one open on its log', async () => {
     await page.viewport(1280, 900);
-    render(<RunDetail initial={live()} backHref="/dashboard/p/runs" pollMs={60_000} />);
+    render(<RunDetail initial={live()} pollMs={60_000} />);
 
     await expect.element(page.getByRole('heading', { name: 'northwind-t12' })).toBeVisible();
     await expect.element(page.getByText('Attempt 2')).toBeVisible();
@@ -98,7 +98,7 @@ describe('the run page', () => {
   });
 
   it('opens a step\'s log when it is clicked, with numbered lines', async () => {
-    render(<RunDetail initial={live()} backHref="/dashboard/p/runs" pollMs={60_000} />);
+    render(<RunDetail initial={live()} pollMs={60_000} />);
 
     await userEvent.click(stepRow('Set up'));
 
@@ -112,7 +112,7 @@ describe('the run page', () => {
 
   it('asks for the lines after the last one it has while the run is live, and stops once it finishes', async () => {
     log.mockResolvedValueOnce({ header: header({ status: 'completed', endedAt: new Date().toISOString() }), events: [ev(6, 'check', { name: 'typecheck', status: 'passed', exit_code: 0 })], tasks: [], calls: [], cursor: 6 });
-    render(<RunDetail initial={live()} backHref="/dashboard/p/runs" pollMs={150} />);
+    render(<RunDetail initial={live()} pollMs={150} />);
 
     await expect.poll(() => log.mock.calls.length).toBe(1);
 
@@ -129,7 +129,7 @@ describe('the run page', () => {
   it('never polls a run that has finished, opens the failed step and keeps the Claude Code block', async () => {
     const data = live({ status: 'failed', endedAt: new Date().toISOString(), error: 'verification failed: required checks failed: test', attach: 'Vocion software factory run #7 failed (northwind-t12).' });
     data.events.push(ev(6, 'check', { name: 'test', status: 'failed', exit_code: 1, tail: '\u001B[31mFAIL\u001B[39m rooms.test.ts' }), ev(7, 'fail', { note: 'verification failed' }));
-    render(<RunDetail initial={data} backHref="/dashboard/p/runs" pollMs={100} />);
+    render(<RunDetail initial={data} pollMs={100} />);
 
     await expect.element(stepRow('Checks')).toHaveAttribute('aria-expanded', 'true');
     await expect.element(page.getByText('  FAIL rooms.test.ts')).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe('the run page', () => {
 
   it('holds a long log line inside its box on a phone — the page never scrolls sideways', async () => {
     await page.viewport(390, 844);
-    render(<RunDetail initial={live()} backHref="/dashboard/p/runs" pollMs={60_000} />);
+    render(<RunDetail initial={live()} pollMs={60_000} />);
 
     await expect.element(page.getByText(LONG, { exact: false })).toBeInTheDocument();
 
@@ -151,5 +151,20 @@ describe('the run page', () => {
 
     expect(box.scrollWidth).toBeGreaterThan(box.clientWidth);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
+  });
+
+  it('leads a refused run with the run, its reason whole to a sentence end, and no 0s duration', async () => {
+    const reason = 'task contract refused: plan: this task needs an approved plan. A required plan cannot be skipped. The contract must match factory/contracts/schema.json and carry an approved plan when the plan rule requires one, which this one did not, so nothing was cloned and no model was called at all today, and the worker reported the refusal to Vocion with every problem the contract had listed one by one for the person reading it.';
+    const t = new Date().toISOString();
+    const data: RunLogData = { header: header({ status: 'failed', cents: 0, startedAt: t, endedAt: t, error: reason, progress: { phase: 'fail', note: reason, log: [] }, failures: [{ scope: 'contract', message: 'plan' }] }), events: [], tasks: [], calls: [], cursor: 0 };
+    render(<RunDetail initial={data} pollMs={60_000} />);
+
+    await expect.element(page.getByRole('heading', { level: 1, name: 'northwind-t12' })).toBeVisible();
+    await expect.element(page.getByText('Refused before it started')).toBeVisible();
+    await expect.element(page.getByTestId('run-stopped')).toHaveTextContent(/A required plan cannot be skipped\.$/);
+    await expect.element(stepRow('Stopped at: Contract check')).toHaveAttribute('aria-expanded', 'true');
+
+    expect(document.body.textContent).not.toMatch(/\b0s\b/);
+    expect(document.querySelectorAll('[data-testid="run-step-log"] tr')).toHaveLength(1);
   });
 });

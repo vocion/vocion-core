@@ -1,7 +1,7 @@
 import type { AgentCallView, AgentTaskView, RunCheck, RunHeader, RunLink, RunLogData, RunLogEvent, RunLogLevel } from '@/libs/worker/runLog';
 import { and, asc, count, eq, gt, inArray, lt, max } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { eventLevel } from '@/libs/worker/runLog';
+import { eventLevel, stopReason } from '@/libs/worker/runLog';
 import { missionRunSchema, toolCallSchema, workerRunEventSchema, workerRunSchema } from '@/models/Schema';
 
 /**
@@ -225,7 +225,7 @@ export async function workerRunAttach(run: WorkerRunRow, lastLines?: string[]): 
   return [
     `Vocion software factory run #${run.id} ${run.status}${input.task?.task_id ? ` (${input.task.task_id})` : ''}.`,
     stoppedAt ? `Stopped at: ${stoppedAt}` : null,
-    run.error ? `Why: ${run.error.split('\n')[0]!.slice(0, 400)}` : null,
+    run.error ? `Why: ${stopReason(run.error)}` : null,
     `Run: ${appBaseUrl()}/dashboard/p/runs/${run.id}`,
     result.pr_url ? `Pull request: ${result.pr_url}` : null,
     input.task?.repo ? `Repo: ${input.task.repo}` : null,
@@ -244,7 +244,7 @@ export async function missionRunAttach(run: MissionRunRow): Promise<string | nul
   }
   const firstError = missionRunError(run);
   const { appBaseUrl } = await import('@/libs/links');
-  return `Vocion agent run #${run.id} failed (${run.title}).\n${firstError ? `Why: ${firstError.split('\n')[0]!.slice(0, 400)}\n` : ''}Run: ${appBaseUrl()}/dashboard/missions/runs/${run.id}\nFind why it stopped, fix the gap in Vocion, ship it, then run it again.`;
+  return `Vocion agent run #${run.id} failed (${run.title}).\n${firstError ? `Why: ${stopReason(firstError)}\n` : ''}Run: ${appBaseUrl()}/dashboard/missions/runs/${run.id}\nFind why it stopped, fix the gap in Vocion, ship it, then run it again.`;
 }
 
 /**

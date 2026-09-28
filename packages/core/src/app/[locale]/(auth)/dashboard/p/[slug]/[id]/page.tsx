@@ -70,12 +70,9 @@ export default async function WorkspaceReportPage(props: {
     if (!data) {
       return notFound();
     }
-    return (
-      <>
-        <TitleBar title={manifest.title} description={manifest.description} />
-        <RunDetail initial={data} backHref={`/dashboard/p/${manifest.slug}`} />
-      </>
-    );
+    // No list header above it: the run is the page's title (red team,
+    // 2026-09-28 — "Runs / Every run…" over the run read as two titles).
+    return <RunDetail initial={data} />;
   }
   // A product's OVERVIEW — what a Products card's name opens. Keyed on the
   // page's derivation rather than its slug: a page that derives a product

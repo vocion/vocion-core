@@ -425,6 +425,91 @@ function tailLines(text: string | null | undefined, level: RunLogLevel = 'info')
   return stripAnsi(text).replace(/\s+$/, '').split('\n').map(t => ({ text: t, level }));
 }
 
+/** What a failure's scope says about where the run was. */
+const SCOPE_STEP: ReadonlyArray<[RegExp, string]> = [
+  [/^contract$/, 'Contract check'],
+  [/^git$/, 'Set up'],
+  [/^services$/, 'Start services'],
+  [/^claude$/, 'Claude Code'],
+  [/^check:/, 'Checks'],
+  [/^control$/, 'Stopped by Vocion'],
+];
+
+/** What the worker's error says about where the run was, by how the worker words each stop. */
+const ERROR_STEP: ReadonlyArray<[RegExp, string]> = [
+  [/^bad task input|contract|plan cannot be skip|required plan/i, 'Contract check'],
+  [/^prepare failed/i, 'Set up'],
+  [/^services failed/i, 'Start services'],
+  [/^claude (?:exited|reported)/i, 'Claude Code'],
+  [/^verif/i, 'Checks'],
+  [/^land failed/i, 'Push and open pull request'],
+  [/^stopped by Vocion/i, 'Stopped by Vocion'],
+];
+
+/**
+ * The step a stopped run stopped in, in words. The worker's last phase names
+ * it when it is a working step; when it is the report itself (`fail`,
+ * `crash`) the failure's scope or the error's wording does — never
+ * "Complete" on a run that did not complete.
+ * @param header - The run.
+ */
+export function stoppedStepName(header: RunHeader): string {
+  const phase = header.progress.phase;
+  const key = phase ? stepOfPhase(phase) : null;
+  if (key && key !== 'complete') {
+    return `Stopped at: ${STEP_NAME.get(key) ?? key}`;
+  }
+  for (const f of header.failures) {
+    const hit = SCOPE_STEP.find(([re]) => re.test(f.scope));
+    if (hit) {
+      return hit[1].startsWith('Stopped') ? hit[1] : `Stopped at: ${hit[1]}`;
+    }
+  }
+  const hit = header.error ? ERROR_STEP.find(([re]) => re.test(header.error!)) : null;
+  if (hit) {
+    return hit[1].startsWith('Stopped') ? hit[1] : `Stopped at: ${hit[1]}`;
+  }
+  return 'Stopped';
+}
+
+/**
+ * A run that was refused before it did any work — its contract or its claim
+ * turned down, nothing spent. Its duration is the time it took to say no,
+ * which is not worth a number.
+ * @param data - The run.
+ */
+export function refusedBeforeStart(data: RunLogData): boolean {
+  const h = data.header;
+  if (h.kind !== 'worker' || !FAILED_RUN.has(h.status) || (h.cents ?? 0) > 0) {
+    return false;
+  }
+  return h.failures.some(f => f.scope === 'contract')
+    || data.events.some(e => e.phase === 'contract.refused' || e.phase === 'claim.refused')
+    || stoppedStepName(h) === 'Stopped at: Contract check';
+}
+
+/**
+ * The reason a run stopped, as one paragraph a person reads whole: its first
+ * line, and when that runs long, cut at the last sentence end that fits —
+ * never mid-word. The full text is in the step log.
+ * @param text - The run's error.
+ * @param max - The most characters to show.
+ */
+export function stopReason(text: string, max = 400): string {
+  const first = text.trim().split('\n')[0]!.trim();
+  if (first.length <= max) {
+    return first;
+  }
+  const head = first.slice(0, max);
+  const ends = [...head.matchAll(/[.!?](?=\s|$)/g)].map(m => m.index!);
+  const end = ends.at(-1);
+  if (end !== undefined && end >= 40) {
+    return head.slice(0, end + 1);
+  }
+  const space = head.lastIndexOf(' ');
+  return `${head.slice(0, space > 40 ? space : max).replace(/[\s,;:]+$/, '')}…`;
+}
+
 /**
  * An engineering run that sent no lines (every run before backlog 036): the
  * steps it can still show — where it got to with its last lines, each check
@@ -436,16 +521,25 @@ export function fallbackWorkerSteps(header: RunHeader): RunStep[] {
   const stopped = FAILED_RUN.has(header.status);
   const steps: RunStep[] = [];
   const phase = header.progress.phase;
+  // The worker's note is often the error itself; a line said twice is read twice.
+  const said = new Set<string>();
   const progressLines = [
-    ...(header.progress.note ? [{ text: header.progress.note, level: 'info' as const }] : []),
+    ...(header.progress.note ? tailLines(header.progress.note) : []),
     ...header.progress.log.map(t => ({ text: stripAnsi(t), level: 'info' as const })),
     ...(stopped && header.error ? tailLines(header.error, 'error') : []),
-  ];
+  ].filter((l) => {
+    const t = l.text.trim();
+    if (t && said.has(t)) {
+      return false;
+    }
+    said.add(t);
+    return true;
+  });
   if (phase || progressLines.length > 0) {
     const key = phase ? stepOfPhase(phase) ?? phase : 'progress';
     steps.push({
       key: `progress:${key}`,
-      name: live ? `Now: ${STEP_NAME.get(key) ?? phase ?? 'working'}` : stopped ? `Stopped at: ${STEP_NAME.get(key) ?? phase ?? 'unknown'}` : 'Last progress',
+      name: live ? `Now: ${STEP_NAME.get(key) ?? phase ?? 'working'}` : stopped ? stoppedStepName(header) : 'Last progress',
       status: live ? 'running' : stopped ? 'failed' : 'passed',
       startedAt: header.startedAt,
       endedAt: live ? null : header.endedAt,

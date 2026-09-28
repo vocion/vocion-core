@@ -1,6 +1,6 @@
 import type { AgentCallView, AgentTaskView, RunHeader, RunLogData, RunLogEvent } from './runLog';
 import { describe, expect, it } from 'vitest';
-import { agentSteps, deriveSteps, eventLines, fallbackWorkerSteps, focusStep, formatDuration, mergeRunLog, stepOfPhase, stripAnsi, workerSteps } from './runLog';
+import { agentSteps, deriveSteps, eventLines, fallbackWorkerSteps, focusStep, formatDuration, mergeRunLog, refusedBeforeStart, stepOfPhase, stopReason, stripAnsi, workerSteps } from './runLog';
 
 function header(over: Partial<RunHeader> = {}): RunHeader {
   return {
@@ -167,6 +167,46 @@ describe('an engineering run that sent no lines', () => {
     const data: RunLogData = { header: header({ status: 'completed', checks: [{ name: 'typecheck', status: 'passed', tail: 'ok', durationS: 12 }] }), events: [], tasks: [], calls: [], cursor: 0 };
 
     expect(deriveSteps(data).map(s => [s.name, s.status])).toEqual([['Check: typecheck', 'passed']]);
+  });
+});
+
+describe('a run refused at its contract (red team, run 401, 2026-09-28)', () => {
+  const reason = 'task contract refused: plan: this task needs an approved plan (risk_class schema). A required plan cannot be skipped. The contract must match factory/contracts/schema.json (snake_case keys, non-empty acceptance_contract and allowed_paths, risk_class from the list, required_checks from typecheck/test/lint/build) and carry an approved plan when the plan rule requires one.';
+  const refused = header({
+    status: 'failed',
+    cents: 0,
+    endedAt: '2026-09-28T10:00:00.400Z',
+    startedAt: '2026-09-28T10:00:00.000Z',
+    error: reason,
+    progress: { phase: 'fail', note: reason, log: [] },
+    failures: [{ scope: 'contract', message: 'plan: this task needs an approved plan' }],
+  });
+
+  it('names the step it stopped in, in words, never "Complete"', () => {
+    const [step] = fallbackWorkerSteps(refused);
+
+    expect(step!.name).toBe('Stopped at: Contract check');
+    expect(fallbackWorkerSteps(header({ status: 'failed', error: 'land failed: gh pr create failed', progress: { phase: 'fail', note: null, log: [] } }))[0]!.name).toBe('Stopped at: Push and open pull request');
+    expect(fallbackWorkerSteps(header({ status: 'lost', progress: { phase: 'fail', note: null, log: [] } }))[0]!.name).toBe('Stopped');
+  });
+
+  it('says a line once when the note and the error are the same words', () => {
+    const [step] = fallbackWorkerSteps(refused);
+
+    expect(step!.lines.map(l => l.text)).toEqual([reason]);
+  });
+
+  it('cuts a long stop reason at a sentence end, never mid-word', () => {
+    expect(stopReason(reason)).toBe(reason);
+    expect(stopReason(reason, 200)).toBe('task contract refused: plan: this task needs an approved plan (risk_class schema). A required plan cannot be skipped.');
+    expect(stopReason('short reason')).toBe('short reason');
+    expect(stopReason(`${'word '.repeat(120)}end`)).toMatch(/word…$/);
+  });
+
+  it('is refused before it started, not a run that took 0s', () => {
+    expect(refusedBeforeStart({ header: refused, events: [], tasks: [], calls: [], cursor: 0 })).toBe(true);
+    expect(refusedBeforeStart({ header: { ...refused, failures: [], error: 'verification failed: test', progress: { phase: 'verify', note: null, log: [] } }, events: [], tasks: [], calls: [], cursor: 0 })).toBe(false);
+    expect(refusedBeforeStart({ header: { ...refused, cents: 40 }, events: [], tasks: [], calls: [], cursor: 0 })).toBe(false);
   });
 });
 

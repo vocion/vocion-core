@@ -2,14 +2,14 @@
 
 import type { ReactNode } from 'react';
 import type { RunLink, RunLogData, RunLogLine, RunStep, RunStepStatus } from '@/libs/worker/runLog';
-import { ArrowLeft, Check, CircleCheck, CircleDashed, CircleMinus, CircleX, Copy, LoaderCircle } from 'lucide-react';
+import { Check, CircleCheck, CircleDashed, CircleMinus, CircleX, Copy, LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Accordion, DetailMeta, MetaChip, Section, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
-import { deriveSteps, focusStep, formatDuration, isLiveStatus, mergeRunLog } from '@/libs/worker/runLog';
+import { deriveSteps, focusStep, formatDuration, isLiveStatus, mergeRunLog, refusedBeforeStart, stopReason } from '@/libs/worker/runLog';
 import { cn } from '@/utils/Helpers';
 
 /** How often a live run page asks for new lines. */
@@ -31,10 +31,9 @@ export const RUN_POLL_MS = 3000;
  * Code" block.
  * @param props
  * @param props.initial - The run as the server read it.
- * @param props.backHref - The Runs list.
  * @param props.pollMs - How often to ask while live; {@link RUN_POLL_MS} unless a test says otherwise.
  */
-export function RunDetail({ initial, backHref, pollMs = RUN_POLL_MS }: { initial: RunLogData; backHref: string; pollMs?: number }) {
+export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogData; pollMs?: number }) {
   const [data, setData] = useState(initial);
   const { header } = data;
   const live = isLiveStatus(header.status);
@@ -95,18 +94,16 @@ export function RunDetail({ initial, backHref, pollMs = RUN_POLL_MS }: { initial
   const end = ended ?? (live ? now : null);
   const runMs = started !== null && end !== null ? end - started : null;
   const stopped = ['failed', 'lost', 'cancelled'].includes(header.status);
+  const refused = refusedBeforeStart(data);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col" data-testid="run-detail" data-live={live && visible ? 'on' : 'off'}>
-      <Link href={backHref} className="mb-3 inline-flex min-h-8 w-fit items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-3.5" aria-hidden />
-        Back to runs
-      </Link>
-
+      {/* The page leads with the run: the shell's breadcrumb (Runs › #id)
+          says where it is, so there is no second title above this one. */}
       <header className="border-b border-rule pb-4">
         <div className="flex min-w-0 items-start gap-2.5">
           <span className="mt-1 shrink-0"><StepIcon status={runStepStatus(header.status)} large /></span>
-          <h2 className="min-w-0 text-lg font-semibold break-words text-foreground">{header.title}</h2>
+          <h1 className="min-w-0 text-xl font-semibold tracking-tight break-words text-foreground">{header.title}</h1>
         </div>
         {header.objective && <p className="mt-1.5 line-clamp-3 text-sm break-words text-muted-foreground">{header.objective}</p>}
         <DetailMeta
@@ -114,7 +111,9 @@ export function RunDetail({ initial, backHref, pollMs = RUN_POLL_MS }: { initial
             <StatusDot key="status" tone={statusTone(header.status)} label={statusLabel(header.status)} />,
             <span key="run">{`${header.kind === 'agent' ? 'Agent run' : 'Engineering run'} #${header.id}`}</span>,
             header.attempt ? <span key="attempt">{`Attempt ${header.attempt}`}</span> : null,
-            runMs !== null ? <span key="took" className="tabular-nums">{formatDuration(runMs)}</span> : null,
+            refused
+              ? <span key="took">Refused before it started</span>
+              : runMs !== null ? <span key="took" className="tabular-nums">{formatDuration(runMs)}</span> : null,
             typeof header.cents === 'number' && header.cents > 0
               ? <span key="cost" className="tabular-nums">{`$${(header.cents / 100).toFixed(2)}`}</span>
               : null,
@@ -128,7 +127,7 @@ export function RunDetail({ initial, backHref, pollMs = RUN_POLL_MS }: { initial
           <p className="mt-3 text-sm break-words text-foreground" data-testid="run-stopped">
             <span className="font-medium">Stopped</span>
             {' — '}
-            {header.error ? header.error.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}
+            {header.error ? stopReason(header.error) : 'the run ended without saying why'}
           </p>
         )}
       </header>
