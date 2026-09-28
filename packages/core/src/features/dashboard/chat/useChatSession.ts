@@ -2,12 +2,14 @@
 
 import type { TurnOutcome } from './queueReducer';
 import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { announceVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
@@ -726,6 +728,15 @@ export function useChatSession({
         flushDeltas();
         const made = (evt as unknown as { record: { type: RecordRef['type']; id: string } }).record;
         openPreview({ type: made.type, id: made.id }, null);
+        return;
+      }
+      case 'version_written': {
+        // A record or artifact this turn changed: whatever page or pane is
+        // showing it refetches in place and marks what changed (backlog 035).
+        const v = evt as unknown as VersionWritten;
+        if (v.ref && typeof v.to === 'number') {
+          announceVersionWritten({ ref: v.ref, to: v.to, from: v.from ?? null, ...(v.artifactId ? { artifactId: v.artifactId } : {}), ...(v.fields ? { fields: v.fields } : {}) });
+        }
         return;
       }
       case 'documents': {

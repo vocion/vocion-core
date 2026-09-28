@@ -4,7 +4,7 @@ import type { RecordHistory as History, RecordVersion } from '@/services/objects
 import { Loader2, RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useRouter } from '@/libs/I18nNavigation';
+import { announceVersionWritten, useVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { client } from '@/libs/Orpc';
 
 /**
@@ -44,10 +44,10 @@ function show(v: unknown): string {
 
 type Receipt = { kind: 'done'; runId: number; version: number | null } | { kind: 'pending'; runId: number } | { kind: 'unchanged' } | { kind: 'error'; message: string };
 
-function VersionRow({ v, current, busy, onRestore }: { v: RecordVersion; current: number; busy: boolean; onRestore: (version: number) => void }) {
+function VersionRow({ v, current, busy, focused, onRestore }: { v: RecordVersion; current: number; busy: boolean; focused: boolean; onRestore: (version: number) => void }) {
   const at = new Date(v.createdAt);
   return (
-    <li className="py-3" data-testid="record-version" data-version={v.version}>
+    <li className={`py-3 ${focused ? '-mx-2 rounded-md bg-brand-amber/10 px-2' : ''}`} data-testid="record-version" data-version={v.version} data-version-section={`v${v.version}`} {...(focused ? { 'aria-current': 'true' as const } : {})}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] text-foreground">
@@ -102,10 +102,11 @@ function VersionRow({ v, current, busy, onRestore }: { v: RecordVersion; current
 /**
  * @param props - Component props.
  * @param props.objectId - The record (`business_object.id`).
+ * @param props.focusVersion - A version to mark — the one the chat's "Changed …" line links to.
  */
-export function RecordHistory({ objectId }: { objectId: number }) {
-  const router = useRouter();
+export function RecordHistory({ objectId, focusVersion = null }: { objectId: number; focusVersion?: number | null }) {
   const [history, setHistory] = useState<History | null>(null);
+  const [focus, setFocus] = useState<number | null>(focusVersion);
   const [failed, setFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -123,6 +124,13 @@ export function RecordHistory({ objectId }: { objectId: number }) {
     void load();
   }, [load]);
 
+  // A version written anywhere — the chat, this page, the artifact pane —
+  // lands here without a reload, marked (backlog 035).
+  useVersionWritten([{ type: 'object', id: String(objectId) }], (v) => {
+    setFocus(v.to);
+    void load();
+  });
+
   const restore = async (version: number) => {
     setBusy(true);
     try {
@@ -136,8 +144,12 @@ export function RecordHistory({ objectId }: { objectId: number }) {
       } else {
         setReceipt({ kind: 'error', message: out.error ?? `The restore is ${out.status}.` });
       }
-      await load();
-      router.refresh();
+      if (out.status === 'done' && out.version) {
+        // The page showing the record refreshes in place and marks the change.
+        announceVersionWritten({ ref: { type: 'object', id: String(objectId) }, from: history?.current ?? null, to: out.version, fields: out.fields });
+      } else {
+        await load();
+      }
     } catch (err) {
       setReceipt({ kind: 'error', message: (err as Error).message });
     } finally {
@@ -150,8 +162,8 @@ export function RecordHistory({ objectId }: { objectId: number }) {
     try {
       await client.review.undoAction({ id: runId });
       setReceipt(null);
-      await load();
-      router.refresh();
+      // Undo is a version too: announce it so the page and this list catch up.
+      announceVersionWritten({ ref: { type: 'object', id: String(objectId) }, from: history?.current ?? null, to: (history?.current ?? 0) + 1 });
     } catch (err) {
       setReceipt({ kind: 'error', message: (err as Error).message });
     } finally {
@@ -189,7 +201,7 @@ export function RecordHistory({ objectId }: { objectId: number }) {
         </p>
       )}
       <ol className="divide-y divide-rule">
-        {history.versions.map(v => <VersionRow key={v.version} v={v} current={history.current} busy={busy} onRestore={version => void restore(version)} />)}
+        {history.versions.map(v => <VersionRow key={v.version} v={v} current={history.current} busy={busy} focused={focus === v.version} onRestore={version => void restore(version)} />)}
       </ol>
     </div>
   );

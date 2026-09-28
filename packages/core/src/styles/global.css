@@ -321,6 +321,35 @@
 }
 
 /*
+ * A region that a new version just changed (`features/dashboard/versions`):
+ * an amber wash that fades over two seconds, so the eye lands on what the
+ * chat changed without a reload. Reduced motion: a still outline, removed
+ * when the mark is (the signal survives the preference, the motion does not).
+ */
+@keyframes version-changed-fade {
+  0% {
+    background-color: color-mix(in oklch, var(--brand-amber) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+[data-version-changed='fade'] {
+  animation: version-changed-fade 2s ease-out 1;
+}
+[data-version-changed='still'] {
+  outline: 2px solid color-mix(in oklch, var(--brand-amber) 60%, transparent);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-version-changed='fade'] {
+    animation: none;
+    outline: 2px solid color-mix(in oklch, var(--brand-amber) 60%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+/*
  * The top progress bar (`NavigationProgress`). Idle: nothing. Active: the bar
  * sweeps to ~85% on an ease-out over 8s, and stalls there until the page
  * lands. Landed: it completes and fades. Reduced motion keeps the bar at its

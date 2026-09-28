@@ -116,7 +116,8 @@ export function RecordBody({ row, sections, now, links, aside, children }: {
             <h2 className="mb-2 text-sm font-semibold">{group.group}</h2>
             <dl className="divide-y divide-border">
               {group.fields.map(f => (
-                <div key={f.key} className="py-2">
+                // Named, so a version that changed this fact marks it (`versions/VersionWatch`).
+                <div key={f.key} className="py-2" data-version-section={f.key}>
                   <dt className="text-xs font-medium text-muted-foreground" title={f.hint}>{f.label ?? f.key}</dt>
                   <dd className="mt-0.5 min-w-0 text-sm break-words">
                     <FieldValue row={row} field={f} now={now} links={links} />

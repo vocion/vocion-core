@@ -15,10 +15,12 @@ import { SharePicker } from '@/features/dashboard/artifacts/SharePicker';
 import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/agentSurface';
 import { RunStepList } from '@/features/dashboard/factory/RunDetail';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
+import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { describeRef } from '@/libs/preview/describeRef';
 import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
+import { parseHistoryRefId } from '@/libs/versions/versionRef';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
 import { classifyPreviewError, FAILURE_REASON, RETRY_DELAYS_MS } from './previewFetch';
 import { closePreview, openPreview } from './previewState';
@@ -218,8 +220,9 @@ function Body(props: { doc: PreviewDoc }) {
   // A record's history draws as itself — diffs and Restore — because its
   // whole point is the version you pick; the markdown body is the same
   // history as text for surfaces that render a doc plainly.
-  if (doc.kind === 'record_history' && !doc.unresolved && /^\d+$/.test(doc.ref.id)) {
-    return <RecordHistory objectId={Number(doc.ref.id)} />;
+  const history = doc.kind === 'record_history' && !doc.unresolved ? parseHistoryRefId(doc.ref.id) : null;
+  if (history) {
+    return <RecordHistory objectId={history.objectId} focusVersion={history.version} />;
   }
   if (doc.unresolved) {
     return <CouldNotLoad label={doc.title} reason={doc.unresolved.reason} href={doc.href} reference={doc.unresolved.reference} />;
@@ -346,6 +349,18 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
     setAttempt(0);
     setRound(r => r + 1);
   };
+
+  // A new version of what this pane shows — written from chat or on the
+  // page — refetches it in place (the doc stays on screen until the new one
+  // lands, so nothing flashes) and marks what changed (backlog 035). A
+  // history draws itself and listens on its own.
+  useVersionRefresh({
+    refs: given || recordRef.type === 'record_history' ? [] : [recordRef],
+    root: () => (typeof document === 'undefined' ? null : document.querySelector(`[data-preview-key="${CSS.escape(`${recordRef.type}:${recordRef.id}`)}"]`)),
+    refetch: () => setRound(r => r + 1),
+    settled: fetched,
+    ready: true,
+  });
   const restarting = !doc && failure === 'restarting';
   const retrying = restarting && attempt < RETRY_DELAYS_MS.length;
 

@@ -3,20 +3,24 @@
  *
  *   - History lists versions with who, why and the field diff, and Restore
  *     goes to `businessObject.restore` and says what it did, with Undo;
- *   - selecting words on the record and choosing Change sends the words, the
- *     new wording and the region's field to `businessObject.change` — the
- *     `objects.update_meta` write — and shows the result with Undo.
+ *   - selecting words on the record and choosing Change opens the chat with
+ *     the passage and the change intent — the artifact gesture, the agent
+ *     revises the record's body;
+ *   - a version written elsewhere (the chat) reloads the history in place and
+ *     marks that version.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page, userEvent } from 'vitest/browser';
+import { page } from 'vitest/browser';
 
 vi.mock('@/libs/Orpc', () => ({
   client: {
-    businessObject: { history: vi.fn(), restore: vi.fn(), change: vi.fn() },
+    businessObject: { history: vi.fn(), restore: vi.fn() },
     review: { undoAction: vi.fn() },
   },
 }));
+
+vi.mock('@/features/dashboard/chat/agentSurface', () => ({ openAgentSurface: vi.fn(() => 'claimed') }));
 
 vi.mock('@/libs/I18nNavigation', () => ({
   useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }),
@@ -25,6 +29,8 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { client } = await import('@/libs/Orpc');
+const { openAgentSurface } = await import('@/features/dashboard/chat/agentSurface');
+const { announceVersionWritten } = await import('@/features/dashboard/versions/versionEvents');
 const { RecordHistory } = await import('./RecordHistory');
 const { RecordChangeIntent } = await import('./RecordChangeIntent');
 
@@ -44,7 +50,7 @@ const HISTORY = {
 beforeEach(() => {
   vi.mocked(client.businessObject.history).mockReset().mockResolvedValue(HISTORY as never);
   vi.mocked(client.businessObject.restore).mockReset();
-  vi.mocked(client.businessObject.change).mockReset();
+  vi.mocked(openAgentSurface).mockClear();
   vi.mocked(client.review.undoAction).mockReset().mockResolvedValue({} as never);
 });
 
@@ -84,12 +90,32 @@ describe('RecordHistory', () => {
   });
 });
 
+describe('RecordHistory — live', () => {
+  it('reloads in place and marks the version when one is written for its record, and ignores other records', async () => {
+    const screen = await render(<RecordHistory objectId={41} />);
+
+    await expect.element(screen.getByText('Changed acceptance criteria')).toBeInTheDocument();
+    expect(client.businessObject.history).toHaveBeenCalledTimes(1);
+
+    announceVersionWritten({ ref: { type: 'object', id: '99' }, from: 1, to: 2 });
+    announceVersionWritten({ ref: { type: 'object', id: '41' }, from: 2, to: 3, fields: ['acceptance'] });
+
+    await expect.poll(() => vi.mocked(client.businessObject.history).mock.calls.length).toBe(2);
+    await expect.element(page.getByTestId('record-version').first()).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('opens on the version a link named', async () => {
+    await render(<RecordHistory objectId={41} focusVersion={2} />);
+
+    await expect.element(page.getByTestId('record-version').nth(1)).toHaveAttribute('aria-current', 'true');
+  });
+});
+
 describe('RecordChangeIntent', () => {
-  it('turns a selection and new wording into a change of the field it sits in', async () => {
-    vi.mocked(client.businessObject.change).mockResolvedValue({ status: 'done', runId: 21, fields: ['acceptance'], version: 4, field: 'acceptance', label: 'Acceptance criteria', before: [], after: [] } as never);
+  it('Change opens the chat with the passage and the change intent — the artifact gesture', async () => {
     await render(
       <div>
-        <RecordChangeIntent objectId={41} selectionRoot="[data-test-root]" showHistory={false} />
+        <RecordChangeIntent objectId={41} title="Export the ledger as CSV" selectionRoot="[data-test-root]" showHistory={false} />
         <div data-test-root>
           <ul data-record-field="acceptance"><li>Existing exports keep working</li></ul>
         </div>
@@ -109,15 +135,13 @@ describe('RecordChangeIntent', () => {
     const change = [...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent?.includes('Change')) as HTMLElement;
     change.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 
-    const box = page.getByPlaceholder('What should it say instead?');
+    await expect.poll(() => vi.mocked(openAgentSurface).mock.calls.length).toBe(1);
 
-    await expect.element(box).toBeInTheDocument();
+    const [req] = vi.mocked(openAgentSurface).mock.calls[0]!;
 
-    await userEvent.fill(box, 'Existing PDF exports still download');
-    await page.getByRole('button', { name: 'Change', exact: true }).click();
-
-    expect(client.businessObject.change).toHaveBeenCalledWith({ id: 41, quote: 'Existing exports keep working', instruction: 'Existing PDF exports still download', field: 'acceptance' });
-
-    await expect.element(page.getByText('Changed acceptance criteria — v4.')).toBeInTheDocument();
+    expect(req.context).toMatchObject({ record: { type: 'object', id: '41', label: 'Export the ledger as CSV' }, selection: { text: 'Existing exports keep working', quote: true } });
+    expect(req.tags).toEqual([expect.objectContaining({ type: 'intent', id: 'change' })]);
+    // Nothing is sent for the person: they say what it should say.
+    expect(req.send).toBeFalsy();
   });
 });

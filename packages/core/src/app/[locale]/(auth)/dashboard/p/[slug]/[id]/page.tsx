@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { FeatureReportView, ReportContextLine } from '@/features/dashboard/factory/FeatureReportView';
 import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -156,6 +157,7 @@ export default async function WorkspaceReportPage(props: {
           of work: "I clicked into one specific piece of work. Don't show me
           workforce configuration." It lives on the plugin's own pages. */}
       {report && <RecordChangeIntent objectId={report.requestId} title={report.title} selectionRoot={'[id^="report-"]'} />}
+      {report && <VersionWatch refs={[{ type: 'object', id: String(report.requestId) }]} />}
       {report
         ? <FeatureReportView report={report} />
         : (

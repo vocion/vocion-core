@@ -12,6 +12,7 @@ import { RecordBody } from '@/features/dashboard/objects/RecordBody';
 import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { appImageUrl } from '@/libs/aws/s3';
@@ -143,6 +144,9 @@ export default async function ObjectDetailPage(props: {
         )}
       />
       <RecordContext record={recordRef('object', obj.id, obj.title)} />
+      {/* A version written from chat (or anywhere on this page) refreshes the
+          record in place and marks what changed (backlog 035). */}
+      <VersionWatch refs={[{ type: 'object', id: String(obj.id) }]} />
 
       {hasImage && (
         <div className="mb-6 space-y-4">
