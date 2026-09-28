@@ -13,6 +13,7 @@ import { and, eq, notInArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { missionRunSchema, missionSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
+import { isSettledRunStatus, SETTLED_RUN_STATUSES } from '@/services/settledRunStatus';
 import { clampAutonomyLevel, taskNeedsApproval } from './autonomy';
 import { describeTaskFailure } from './failure';
 
@@ -168,7 +169,7 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
       }
       task.endedAt = new Date().toISOString();
       const statusNow = await saveProgress(runId, { plan: { tasks }, artifacts });
-      if (isSettled(statusNow)) {
+      if (isSettledRunStatus(statusNow)) {
         return statusNow;
       }
     }
@@ -269,17 +270,6 @@ async function announceCompleted(run: typeof missionRunSchema.$inferSelect, miss
   }
 }
 
-/** A run that reached one of these is done, and nothing here may overwrite it. */
-export const MISSION_RUN_SETTLED_STATUSES = ['completed', 'failed', 'cancelled'] as const;
-
-/**
- * Has the run reached an end state — most often, has a person cancelled it?
- * @param status - A `mission_run.status` value.
- */
-function isSettled(status: string): boolean {
-  return (MISSION_RUN_SETTLED_STATUSES as readonly string[]).includes(status);
-}
-
 /**
  * Write to the run, unless someone already settled it.
  *
@@ -296,7 +286,7 @@ function isSettled(status: string): boolean {
 async function writeUnlessSettled(runId: number, values: Partial<typeof missionRunSchema.$inferInsert>): Promise<boolean> {
   const written = await db.update(missionRunSchema)
     .set(values)
-    .where(and(eq(missionRunSchema.id, runId), notInArray(missionRunSchema.status, [...MISSION_RUN_SETTLED_STATUSES])))
+    .where(and(eq(missionRunSchema.id, runId), notInArray(missionRunSchema.status, [...SETTLED_RUN_STATUSES])))
     .returning({ id: missionRunSchema.id });
   return written.length > 0;
 }

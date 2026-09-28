@@ -454,8 +454,10 @@ async function dispatchDo(
   // 7040). So a miss gets one focused pass over the report the run already
   // wrote, with the tool bound and chosen: the only possible output is the
   // call. A miss after that is an error on the fire, where a person sees it,
-  // never a silent "completed".
-  if (doCfg.requireTool && !(await calledRequiredTool(orgId, run.id, doCfg.requireTool))) {
+  // never a silent "completed". A run a person cancelled is skipped: they
+  // stopped it on purpose, so a paid recording pass and a "failed" review
+  // would both overrule them (vocion-core#123).
+  if (doCfg.requireTool && run.status !== 'cancelled' && !(await calledRequiredTool(orgId, run.id, doCfg.requireTool))) {
     const { forceRequiredTool, missionRunReport } = await import('@/services/automations/requiredToolPass');
     const forced = await forceRequiredTool({
       orgId,
