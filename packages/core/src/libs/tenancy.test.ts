@@ -179,4 +179,50 @@ describe('tenancy resolution', () => {
       expect(first.projectId).toBe(second.projectId);
     });
   });
+
+  // vocion-core#128. The membership used to be read with a bare LIMIT 1, so a
+  // person in two accounts got whichever row Postgres returned first. The
+  // older membership is inserted SECOND here, after seed() put Alex in
+  // Northwind, so reading rows in the order they were written picks the wrong one.
+  describe('for a person in more than one account', () => {
+    const CONTOSO = 'acct-contoso';
+    const CONTOSO_PROJECT = 'proj-contoso';
+
+    beforeEach(async () => {
+      await db.insert(tenantAccountSchema).values({ id: CONTOSO, name: 'Contoso', slug: 'contoso' });
+      await db.insert(accountMembershipSchema).values({ accountId: CONTOSO, userId: ALEX, role: 'admin', createdAt: new Date('2020-01-01T00:00:00Z') });
+      await db.insert(projectSchema).values({ id: CONTOSO_PROJECT, accountId: CONTOSO, slug: 'contoso-main', name: 'Contoso' });
+    });
+
+    it('resolves to the account they joined first, on every read', async () => {
+      const first = await resolveTenancyForUser(ALEX);
+      const second = await resolveTenancyForUser(ALEX);
+
+      expect(first.accountId).toBe(CONTOSO);
+      expect(first.role).toBe('admin');
+      expect(first.projectId).toBe(CONTOSO_PROJECT);
+      expect(second).toEqual(first);
+    });
+
+    it('does not follow a header into the other account', async () => {
+      headerBag.projectId = REVENUE;
+
+      const t = await resolveTenancyForUser(ALEX);
+
+      expect(t.accountId).toBe(CONTOSO);
+      expect(t.projectId).toBe(CONTOSO_PROJECT);
+    });
+
+    it('agrees with the workspace-access checks when access is enforced', async () => {
+      process.env.VOCION_ENFORCE_WORKSPACE_ACCESS = '1';
+      headerBag.projectId = CONTOSO_PROJECT;
+
+      const t = await resolveTenancyForUser(ALEX);
+
+      // The project the access checks accepted belongs to the account tenancy chose.
+      expect(t.accountId).toBe(CONTOSO);
+      expect(t.projectId).toBe(CONTOSO_PROJECT);
+      expect(t.workspaceRole).toBe('admin');
+    });
+  });
 });

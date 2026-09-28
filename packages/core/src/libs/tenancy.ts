@@ -11,8 +11,8 @@
 import type { WorkspaceRole } from '@/services/authz';
 import { and, asc, eq } from 'drizzle-orm';
 import { cookies, headers } from 'next/headers';
-import { accountMembershipSchema, projectSchema } from '@/models/Schema';
-import { accessibleProjects, effectiveRole, enforcementEnabled } from '@/services/WorkspaceAccessService';
+import { projectSchema } from '@/models/Schema';
+import { accessibleProjects, effectiveRole, enforcementEnabled, membershipFor } from '@/services/WorkspaceAccessService';
 import { ACTIVE_PROJECT_COOKIE } from './activeProject';
 import { db } from './DB';
 import { WORKSPACE_HEADER } from './links';
@@ -26,7 +26,8 @@ export type Tenancy = {
 
 /**
  * Find the user's current tenant + active project. Self-hosted: each user
- * belongs to exactly one tenant_account; the active project is, in order:
+ * belongs to exactly one tenant_account (one in several resolves to the oldest
+ * membership, `membershipFor`); the active project is, in order:
  *
  * 1. the one the **URL** names — `/w/<slug>/…`, resolved by the proxy and
  *    forwarded as `WORKSPACE_HEADER.projectId` (`src/proxy.ts`). The URL wins
@@ -49,19 +50,14 @@ export type Tenancy = {
  * @param userId
  */
 export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
-  const [membership] = await db
-    .select({
-      accountId: accountMembershipSchema.accountId,
-      role: accountMembershipSchema.role,
-    })
-    .from(accountMembershipSchema)
-    .where(eq(accountMembershipSchema.userId, userId))
-    .limit(1);
+  // Ordered and shared with the access checks, so a person in two accounts
+  // lands in the same one on every request (vocion-core#128).
+  const membership = await membershipFor(userId);
 
   if (!membership) {
     return { accountId: null, projectId: null, role: null, workspaceRole: null };
   }
-  const accountRole = membership.role as 'admin' | 'member';
+  const accountRole = membership.role;
 
   // The URL first, then "last active". `headers()` and `cookies()` are
   // available in Route Handlers, Server Actions and Server Components — the
