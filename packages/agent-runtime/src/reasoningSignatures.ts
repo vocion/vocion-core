@@ -4,7 +4,7 @@
  * Claude Sonnet 5 and Opus 5 think unless told not to, and when a model has
  * thought before a tool call, the next request must hand that thinking back
  * WITH the signature Bedrock streamed beside it — otherwise Bedrock refuses
- * the turn: `messages.3.content.0.thinking.signature: Field required`. That
+ * the turn: `messages.1.content.0.thinking.signature: Field required`. That
  * was the first real turn on Metacto's production runtime (2026-09-28,
  * team-advisor on Opus 5), and it fails every turn that thinks and then calls
  * a tool.
@@ -19,33 +19,45 @@
  * on the container.
  *
  * So this sits on the one seam both directions pass through, the Bedrock
- * client's `send`: it notes each signature as the stream goes by, keyed by the
- * thinking text it signs, and puts it back on the same text in the next
- * request. Nothing else in either payload is touched. Delete this when the
- * library carries the signature itself — the test beside it will say so.
+ * client's `send`. As a response streams by it notes each thinking block's
+ * signature, in order, against the id of the tool call that response made —
+ * not against the thinking text, because Opus 5 streams its thinking with
+ * EMPTY text and only a signature (seen live). The next request carries that
+ * same tool call id in the assistant message it replays, and the signatures
+ * go back on its thinking blocks in the same order. A response that calls no
+ * tool is never replayed inside the loop, so it has nothing to restore.
+ * Nothing else in either payload is touched. Delete this when the library
+ * carries the signature itself.
  */
 
 type ReasoningText = { text?: string; signature?: string };
-type ConverseContentBlock = { reasoningContent?: { reasoningText?: ReasoningText } };
+type ConverseContentBlock = {
+  reasoningContent?: { reasoningText?: ReasoningText };
+  toolUse?: { toolUseId?: string };
+};
 type ConverseMessage = { role?: string; content?: ConverseContentBlock[] };
 type StreamEvent = {
+  contentBlockStart?: { contentBlockIndex?: number; start?: { toolUse?: { toolUseId?: string } } };
   contentBlockDelta?: { contentBlockIndex?: number; delta?: { reasoningContent?: { text?: string; signature?: string } } };
   contentBlockStop?: { contentBlockIndex?: number };
 };
 type SendableClient = { send: (command: { input?: unknown }, ...rest: unknown[]) => Promise<unknown> };
 
-/** How many signatures one model instance remembers. A turn needs its own last few. */
+/** Signatures of one response's thinking blocks, in the order they streamed. */
+type Signatures = string[];
+
+/** How many responses one model instance remembers. A turn needs its own last few. */
 const REMEMBERED = 500;
 
 /**
- * Remember one signature, dropping the oldest past the limit.
- * @param memory - The model's signature memory.
- * @param text - The thinking text the signature signs.
- * @param signature - The signature Bedrock streamed.
+ * Remember one response's signatures, dropping the oldest past the limit.
+ * @param memory - The model's signature memory, keyed by tool call id.
+ * @param toolUseId - The first tool call the response made.
+ * @param signatures - Its thinking blocks' signatures, in order.
  */
-function remember(memory: Map<string, string>, text: string, signature: string): void {
-  memory.delete(text);
-  memory.set(text, signature);
+function remember(memory: Map<string, Signatures>, toolUseId: string, signatures: Signatures): void {
+  memory.delete(toolUseId);
+  memory.set(toolUseId, signatures);
   while (memory.size > REMEMBERED) {
     const oldest = memory.keys().next().value;
     if (oldest === undefined) {
@@ -56,12 +68,12 @@ function remember(memory: Map<string, string>, text: string, signature: string):
 }
 
 /**
- * Put a remembered signature back on every assistant thinking block that lost
- * its own.
+ * Put the remembered signatures back on every replayed assistant message whose
+ * thinking lost them.
  * @param input - The Converse request input, mutated in place.
  * @param memory - The model's signature memory.
  */
-export function restoreSignatures(input: unknown, memory: Map<string, string>): void {
+export function restoreSignatures(input: unknown, memory: Map<string, Signatures>): void {
   const messages = (input as { messages?: ConverseMessage[] } | undefined)?.messages;
   if (!Array.isArray(messages)) {
     return;
@@ -70,49 +82,56 @@ export function restoreSignatures(input: unknown, memory: Map<string, string>): 
     if (message.role !== 'assistant') {
       continue;
     }
-    for (const block of message.content ?? []) {
+    const content = message.content ?? [];
+    const toolUseId = content.find(b => b.toolUse?.toolUseId)?.toolUse?.toolUseId;
+    const signatures = toolUseId ? memory.get(toolUseId) : undefined;
+    if (!signatures) {
+      continue;
+    }
+    let next = 0;
+    for (const block of content) {
       const reasoning = block.reasoningContent?.reasoningText;
-      if (reasoning && !reasoning.signature && typeof reasoning.text === 'string') {
-        const signature = memory.get(reasoning.text);
-        if (signature) {
-          reasoning.signature = signature;
-        }
+      if (!reasoning) {
+        continue;
+      }
+      const signature = signatures[next];
+      next += 1;
+      if (!reasoning.signature && signature) {
+        reasoning.signature = signature;
       }
     }
   }
 }
 
 /**
- * Pass a Converse stream through unchanged, noting each thinking block's
- * signature against its text as the block closes.
+ * Pass a Converse stream through unchanged, noting its thinking signatures
+ * against the first tool call it makes.
  * @param source - The response stream.
  * @param memory - The model's signature memory.
  */
-export async function* noteSignatures(source: AsyncIterable<StreamEvent>, memory: Map<string, string>): AsyncGenerator<StreamEvent> {
-  const text = new Map<number, string>();
-  const signature = new Map<number, string>();
+export async function* noteSignatures(source: AsyncIterable<StreamEvent>, memory: Map<string, Signatures>): AsyncGenerator<StreamEvent> {
+  const byBlock = new Map<number, string>();
+  const order: number[] = [];
+  let toolUseId: string | undefined;
   for await (const event of source) {
+    const started = event.contentBlockStart?.start?.toolUse?.toolUseId;
+    if (started && !toolUseId) {
+      toolUseId = started;
+    }
     const reasoning = event.contentBlockDelta?.delta?.reasoningContent;
     if (reasoning) {
       const index = event.contentBlockDelta?.contentBlockIndex ?? 0;
-      if (typeof reasoning.text === 'string') {
-        text.set(index, (text.get(index) ?? '') + reasoning.text);
+      if (!order.includes(index)) {
+        order.push(index);
       }
       if (typeof reasoning.signature === 'string') {
-        signature.set(index, (signature.get(index) ?? '') + reasoning.signature);
+        byBlock.set(index, (byBlock.get(index) ?? '') + reasoning.signature);
       }
-    }
-    if (event.contentBlockStop) {
-      const index = event.contentBlockStop.contentBlockIndex ?? 0;
-      const said = text.get(index);
-      const signed = signature.get(index);
-      if (said && signed) {
-        remember(memory, said, signed);
-      }
-      text.delete(index);
-      signature.delete(index);
     }
     yield event;
+  }
+  if (toolUseId && order.length > 0) {
+    remember(memory, toolUseId, order.map(index => byBlock.get(index) ?? ''));
   }
 }
 
@@ -126,7 +145,7 @@ export function preserveReasoningSignatures<T>(model: T): T {
   if (!client || typeof client.send !== 'function') {
     return model;
   }
-  const memory = new Map<string, string>();
+  const memory = new Map<string, Signatures>();
   const send = client.send.bind(client);
   client.send = async (command, ...rest) => {
     restoreSignatures(command?.input, memory);
@@ -135,11 +154,11 @@ export function preserveReasoningSignatures<T>(model: T): T {
       response.stream = noteSignatures(response.stream, memory);
     }
     // A non-streamed answer carries whole blocks, signature included.
-    for (const block of response?.output?.message?.content ?? []) {
-      const reasoning = block.reasoningContent?.reasoningText;
-      if (reasoning?.text && reasoning.signature) {
-        remember(memory, reasoning.text, reasoning.signature);
-      }
+    const content = response?.output?.message?.content ?? [];
+    const toolUseId = content.find(b => b.toolUse?.toolUseId)?.toolUse?.toolUseId;
+    const signatures = content.filter(b => b.reasoningContent?.reasoningText).map(b => b.reasoningContent?.reasoningText?.signature ?? '');
+    if (toolUseId && signatures.length > 0) {
+      remember(memory, toolUseId, signatures);
     }
     return response;
   };
