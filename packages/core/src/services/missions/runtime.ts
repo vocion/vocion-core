@@ -247,31 +247,29 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
       task = nextRunnableTask(tasks, attempted);
     }
 
-    // Nothing else can run, so whatever is still waiting never will.
+    // Nothing else can run, so whatever is still waiting never will. After
+    // this every task has an outcome, so the run always settles here; the
+    // only other exit from the loop is the approval gate above.
     const unreachable = skipUnreachableTasks(tasks);
     const anyFailed = tasks.some(t => t.status === 'failed');
-    const allDone = tasks.every(t => FINISHED_TASK_STATUSES.has(t.status));
-    if (allDone) {
-      // Remember the outcome before writing it. If the write itself throws,
-      // the catch below needs to know the work actually finished.
-      outcome = anyFailed || unreachable > 0 ? 'failed' : 'completed';
-      const settled = await settleRun(runId, {
-        status: outcome,
-        completedAt: new Date(),
-        error: anyFailed
-          ? 'one or more tasks failed'
-          : unreachable > 0 ? 'one or more tasks could not run because a task they depend on never completed' : null,
-        // Carries the skipped tasks and their reasons onto the run page.
-        plan: { tasks },
-      });
-      if (!settled) {
-        log('info', 'mission run was already settled while its tasks were running, leaving that status alone', { runId, orgId, wouldHaveWritten: outcome });
-      } else if (outcome === 'completed') {
-        await announceCompleted(run, missionSlug, tasks);
-      }
-      return outcome;
+    // Remember the outcome before writing it. If the write itself throws,
+    // the catch below needs to know the work actually finished.
+    outcome = anyFailed || unreachable > 0 ? 'failed' : 'completed';
+    const settled = await settleRun(runId, {
+      status: outcome,
+      completedAt: new Date(),
+      error: anyFailed
+        ? 'one or more tasks failed'
+        : unreachable > 0 ? 'one or more tasks could not run because a task they depend on never completed' : null,
+      // Carries the skipped tasks and their reasons onto the run page.
+      plan: { tasks },
+    });
+    if (!settled) {
+      log('info', 'mission run was already settled while its tasks were running, leaving that status alone', { runId, orgId, wouldHaveWritten: outcome });
+    } else if (outcome === 'completed') {
+      await announceCompleted(run, missionSlug, tasks);
     }
-    return run.status;
+    return outcome;
   } catch (err) {
     const message = describeTaskFailure(err);
     // If `outcome` is already set, the tasks finished and the throw came from

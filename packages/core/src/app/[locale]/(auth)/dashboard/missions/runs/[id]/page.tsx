@@ -2,20 +2,12 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionRunActions } from '@/features/dashboard/MissionRunActions';
+import { MissionRunPlan, MissionRunStopReason } from '@/features/dashboard/MissionRunPlan';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { recordRef } from '@/services/chat/recordContext';
 import { getMissionRun } from '@/services/MissionService';
-
-const TASK_STATUS_TONE: Record<string, string> = {
-  completed: 'text-emerald-600 dark:text-emerald-400',
-  running: 'text-primary',
-  awaiting_approval: 'text-amber-600 dark:text-amber-400',
-  failed: 'text-destructive',
-  pending: 'text-muted-foreground',
-  skipped: 'text-muted-foreground',
-};
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -54,6 +46,8 @@ export default async function MissionRunPage(props: {
         <MissionRunActions runId={run.id} status={run.status} />
       </div>
 
+      <MissionRunStopReason status={run.status} error={run.error} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Brief">
           <p className="text-sm">{run.brief}</p>
@@ -82,28 +76,7 @@ export default async function MissionRunPage(props: {
         </Panel>
 
         <Panel title="Plan">
-          {tasks.length === 0
-            ? <p className="text-sm text-muted-foreground">Planning…</p>
-            : (
-                <ol className="flex flex-col gap-2">
-                  {tasks.map((t, i) => (
-                    <li key={t.id} className="flex items-start gap-3 text-sm">
-                      <span className="mt-0.5 text-xs text-muted-foreground">{i + 1}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block">{t.title}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          {t.ownerAgentSlug}
-                          {' '}
-                          ·
-                          {' '}
-                          {t.type}
-                        </span>
-                      </span>
-                      <span className={`text-[11px] ${TASK_STATUS_TONE[t.status] ?? 'text-muted-foreground'}`}>{t.status.replace('_', ' ')}</span>
-                    </li>
-                  ))}
-                </ol>
-              )}
+          <MissionRunPlan tasks={tasks} />
         </Panel>
 
         <Panel title="Artifacts">
@@ -130,7 +103,6 @@ export default async function MissionRunPage(props: {
             Approve drafts, give 👍/👎 feedback (becomes scoped learnings), and promote repeatable
             missions into reusable workflows. Use the actions above.
           </p>
-          {run.error && <p className="mt-2 text-sm text-destructive">{run.error}</p>}
         </Panel>
       </div>
     </>
