@@ -76,7 +76,7 @@ export default async function MissionRunPage(props: {
         </Panel>
 
         <Panel title="Plan">
-          <MissionRunPlan tasks={tasks} />
+          <MissionRunPlan tasks={tasks} runStatus={run.status} />
         </Panel>
 
         <Panel title="Artifacts">

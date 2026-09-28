@@ -49,6 +49,28 @@ function extractJson(text: string): unknown | null {
   }
 }
 
+/**
+ * An id no earlier task in the plan has, recorded as taken.
+ *
+ * The run loop, the approval gate and resume all find a task by its id, so
+ * two tasks sharing one meant the second never ran. The model's own id wins
+ * when it is free; the fallback `t<n>` can land on an id the model gave
+ * another task, so a taken id gets a `-2`, `-3`… suffix.
+ * @param proposed - The id the model gave, or the positional fallback.
+ * @param taken - Ids already used by earlier tasks; the returned id is added.
+ * @returns The id to use.
+ */
+function uniqueTaskId(proposed: string, taken: Set<string>): string {
+  let id = proposed;
+  let suffix = 2;
+  while (taken.has(id)) {
+    id = `${proposed}-${suffix}`;
+    suffix += 1;
+  }
+  taken.add(id);
+  return id;
+}
+
 export async function planMission(opts: {
   orgId: string;
   brief: string;
@@ -72,6 +94,7 @@ export async function planMission(opts: {
 
   const parsed = extractJson(raw) as { tasks?: unknown[] } | null;
   const tasks: PlannedTask[] = [];
+  const takenIds = new Set<string>();
   if (parsed && Array.isArray(parsed.tasks)) {
     parsed.tasks.forEach((t, i) => {
       const obj = t as Record<string, unknown>;
@@ -80,7 +103,7 @@ export async function planMission(opts: {
         : opts.team.lead;
       const type = typeof obj.type === 'string' && TASK_TYPES.includes(obj.type) ? obj.type : 'analysis';
       tasks.push({
-        id: typeof obj.id === 'string' && obj.id ? obj.id : `t${i + 1}`,
+        id: uniqueTaskId(typeof obj.id === 'string' && obj.id ? obj.id : `t${i + 1}`, takenIds),
         title: typeof obj.title === 'string' && obj.title ? obj.title : `Task ${i + 1}`,
         ownerAgentSlug: owner,
         type: type as PlannedTask['type'],
