@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readRecommendedAction } from './recommendedAction';
+import { describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
 
 /**
  * On 2026-09-15 two `client.review.propose` calls 400'd with "Invalid input:
@@ -80,5 +80,37 @@ describe('readRecommendedAction', () => {
     expect(checked.ok).toBe(true);
     expect(checked.ok && checked.rec).not.toHaveProperty('suggestedDecision');
     expect(checked.ok && checked.rec).not.toHaveProperty('suggestedDecisionReason');
+  });
+});
+
+describe('describeActionEffect', () => {
+  it('says what approving does from the action id, not the agent\'s title', () => {
+    expect(describeActionEffect('objects.propose_candidate')).toBe('Files a request on Work');
+    expect(describeActionEffect('factory.dispatch_task')).toBe('Starts the build');
+    expect(describeActionEffect('ask.file')).toBe('Asks you to rule');
+    expect(describeActionEffect('git.merge')).toBe('Hands you the merge');
+    expect(describeActionEffect('objects.update_meta')).toBe('Changes the record');
+  });
+
+  it('still says something readable for an id it has no words for', () => {
+    expect(describeActionEffect('crm.log_call')).toBe('Runs crm: log call');
+    expect(describeActionEffect('ping')).toBe('Runs ping');
+    expect(describeActionEffect('  ')).toBe('Nothing to run: this is a note');
+  });
+});
+
+describe('describeCardState', () => {
+  const time = () => '7:50 AM';
+
+  it('names one state, never two at once', () => {
+    expect(describeCardState({ status: null }, time).label).toBe('Waiting on you');
+    expect(describeCardState({ status: 'pending' }, time).label).toBe('Waiting on you');
+    expect(describeCardState({ status: 'done', approvedByAgent: true, decidedBy: 'Dana Reyes' }, time).label).toBe('Done for you');
+    expect(describeCardState({ status: 'done', decidedBy: 'Dana Reyes', decidedAt: '2026-09-28T14:50:00Z' }, time).label)
+      .toBe('Approved by Dana Reyes · 7:50 AM');
+    expect(describeCardState({ status: 'rejected', decidedBy: 'Dana Reyes' }, time).label).toBe('Rejected by Dana Reyes');
+    expect(describeCardState({ status: 'rejected' }, time).label).toBe('Rejected');
+    expect(describeCardState({ status: 'executing', approvedByAgent: true }, time).label).toBe('Done for you · running');
+    expect(describeCardState({ status: 'snoozed' }, time).label).toBe('Deferred');
   });
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import type { RecommendedAction } from './types';
-import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cardDedupKey } from '@/libs/actions/cardDedupKey';
@@ -11,7 +11,8 @@ import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { useRecordCardDecision } from './cards/CardDecisions';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
-import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
+import { describeActionEffect, describeCardState } from './recommendedAction';
+import { TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
 /**
  * A2UI recommended-action card — turns a suggested next action into ONE tap,
@@ -21,8 +22,10 @@ import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './u
  * email send) so the decision is informed, then "Prepare for review" JIT-
  * creates the gated review item (review.propose, reusing the agent's
  * authority) — nothing sends without approval. From that moment the card
- * follows the run: Proposed → In review → Approved · running → Done / Failed /
- * Rejected, polled from `review.actionStatus`, with who decided and when. A
+ * follows the run in one state line (`describeCardState`): Waiting on you →
+ * Approved by <name> / Done for you → Undone / Rejected / Failed, polled from
+ * `review.actionStatus`. Above it, one line says what approving DOES, from
+ * the action id (`describeActionEffect`), never from the agent's title. A
  * reviewer can approve inline (same `review.decideAction` path as the review
  * page — never a bypass). A card that arrives with `runId` already set was
  * filed by the server under the conversation's `act-within-bounds` autonomy
@@ -242,18 +245,48 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   const busy = phase.status === 'working';
 
   const status = live?.status ?? (phase.status === 'proposed' ? 'pending' : null);
-  const desc = status ? describeActionStatus(status) : null;
   const terminal = status ? TERMINAL_STATUSES.has(status) : false;
-  const toneClass = desc?.tone === 'green'
+  const effect = describeActionEffect(rec.actionId);
+  const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent }, fmtTime);
+  const toneClass = state.tone === 'green'
     ? 'text-emerald-600 dark:text-emerald-400'
-    : desc?.tone === 'red'
+    : state.tone === 'red'
       ? 'text-destructive'
-      : desc?.tone === 'amber'
+      : state.tone === 'amber'
         ? 'text-brand-amber-deep'
         : 'text-muted-foreground';
+  // A spinner promises the thing will change on its own. Waiting on a PERSON
+  // spun forever and read as a hung request (Chris, 2026-09-17), so only the
+  // states the machine is actually working get one.
+  const stateIcon = status === null || status === 'pending'
+    ? <Clock3 className="size-3 shrink-0" aria-hidden />
+    : status === 'snoozed'
+      ? <CalendarClock className="size-3 shrink-0" aria-hidden />
+      : !terminal
+          ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden />
+          : status === 'done'
+            ? <Check className="size-3 shrink-0" aria-hidden />
+            : status === 'undone'
+              ? <RotateCcw className="size-3 shrink-0" aria-hidden />
+              : <X className="size-3 shrink-0" aria-hidden />;
+  const stateText = (
+    <span className={`inline-flex min-w-0 items-center gap-1 font-medium ${toneClass}`} data-testid="recommended-action-state">
+      {stateIcon}
+      <span className="truncate">{state.label}</span>
+    </span>
+  );
+  // Why it ran on its own is one hover away from the words that say it did.
+  const stateLabel = live?.approvedByAgent && live.reason
+    ? (
+        <Tooltip>
+          <TooltipTrigger asChild>{stateText}</TooltipTrigger>
+          <TooltipContent>{live.reason}</TooltipContent>
+        </Tooltip>
+      )
+    : stateText;
 
   return (
-    <div data-testid="recommended-action-card" data-run-status={status ?? undefined} className="mt-2.5 overflow-hidden rounded-xl border border-border bg-card">
+    <div data-testid="recommended-action-card" data-run-status={status ?? undefined} className="mt-2.5 flex flex-col overflow-hidden rounded-xl border border-border bg-card">
       {/* Header — compact: label + confidence, rationale clamped */}
       <div className="flex items-start gap-2 px-3 pt-2.5">
         <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
@@ -264,19 +297,23 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
           {rec.rationale && <p className="mt-0.5 line-clamp-2 text-xs break-words text-muted-foreground">{rec.rationale}</p>}
         </div>
         {pct !== null && (
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              pct >= 85
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : pct >= 60
-                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                  : 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
-            }`}
-            title="Agent confidence from grounding"
-          >
-            {pct}
-            %
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  pct >= 85
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    : pct >= 60
+                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      : 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
+                }`}
+              >
+                {pct}
+                %
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Agent confidence from grounding</TooltipContent>
+          </Tooltip>
         )}
       </div>
 
@@ -299,56 +336,33 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
         </div>
       )}
 
-      {/* Status line — the run's truth, once it exists */}
-      {status && desc && (
-        <div className="mx-3 mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" data-testid="recommended-action-status">
-          <span className={`inline-flex items-center gap-1 font-medium ${toneClass}`}>
-            {/* A spinner promises the thing will change on its own. `pending`
-                is waiting for a PERSON, so it spun forever and read as a hung
-                request — Chris, 2026-09-17: *"after clicking review i get
-                perma-loading 'In review' icon."* Only states the machine is
-                actually working get the spinner. */}
-            {!terminal && status !== 'snoozed' && status !== 'pending' && <Loader2 className="size-3 animate-spin" aria-hidden />}
-            {status === 'pending' && <Clock3 className="size-3" aria-hidden />}
-            {terminal && status === 'done' && <Check className="size-3" aria-hidden />}
-            {terminal && status === 'undone' && <RotateCcw className="size-3" aria-hidden />}
-            {terminal && status !== 'done' && status !== 'undone' && <X className="size-3" aria-hidden />}
-            {status === 'done' && live?.approvedByAgent ? 'Done for you' : desc.label}
-          </span>
-          {live?.decidedBy && !(status === 'done' && live.approvedByAgent) && (
-            <span className="text-muted-foreground">
-              {status === 'rejected' ? 'by' : status === 'undone' ? 'undone by' : 'approved by'}
-              {' '}
-              {live.decidedBy}
-              {live.decidedAt ? ` · ${fmtTime(live.decidedAt)}` : ''}
-            </span>
-          )}
-          {status === 'done' && live?.approvedByAgent && live.reason && (
-            <span className="text-muted-foreground" title={live.reason}>
-              ·
-              {live.reason}
-            </span>
-          )}
-          {status === 'done' && live?.undoable && (
-            <button
-              type="button"
-              onClick={() => void undo()}
-              disabled={deciding !== null}
-              data-testid="recommended-undo"
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
-            >
-              {deciding === 'undo' ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RotateCcw className="size-3" aria-hidden />}
-              Undo
-            </button>
-          )}
-          {rec.runId !== undefined && phase.runId === rec.runId && (
-            <span className="text-muted-foreground/70">· filed by the agent within bounds</span>
-          )}
-        </div>
-      )}
-
-      {/* CTA */}
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+      {/* What approving does, then where it stands — two lines, every card,
+          in every state, so no card has to be read twice (Chris, 2026-09-28:
+          "I don't understand what the first card did. Is it an auto approve
+          recommendation? Make that clear."). The effect comes from the action
+          id, never the agent's title. */}
+      <div className="mx-3 mt-2 flex min-w-0 items-center gap-1.5 text-xs text-foreground/80" data-testid="recommended-action-effect">
+        <Zap className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="truncate">{effect}</span>
+      </div>
+      <div className="mx-3 mt-1 flex min-w-0 items-center gap-2 text-xs" data-testid="recommended-action-status">
+        {stateLabel}
+        {status === 'done' && live?.undoable && (
+          <button
+            type="button"
+            onClick={() => void undo()}
+            disabled={deciding !== null}
+            data-testid="recommended-undo"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
+          >
+            {deciding === 'undo' ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RotateCcw className="size-3" aria-hidden />}
+            Undo
+          </button>
+        )}
+      </div>
+      {/* CTA — pinned to the bottom, so cards stretched to one height in a
+          strip keep their buttons on one line. */}
+      <div className="mt-auto flex flex-wrap items-center gap-2 px-3 py-2.5">
         {deferredUntil && (
           <>
             <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">

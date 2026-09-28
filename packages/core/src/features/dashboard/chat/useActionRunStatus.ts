@@ -112,28 +112,3 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
 
   return state;
 }
-
-/**
- * Human step labels for the card's status line.
- * @param s
- */
-export function describeActionStatus(s: string): { label: string; tone: 'muted' | 'amber' | 'green' | 'red' } {
-  switch (s) {
-    case 'pending':
-      return { label: 'In review', tone: 'amber' };
-    case 'executing':
-      return { label: 'Approved · running', tone: 'amber' };
-    case 'done':
-      return { label: 'Done', tone: 'green' };
-    case 'failed':
-      return { label: 'Failed', tone: 'red' };
-    case 'rejected':
-      return { label: 'Rejected', tone: 'red' };
-    case 'undone':
-      return { label: 'Undone', tone: 'muted' };
-    case 'snoozed':
-      return { label: 'Snoozed', tone: 'muted' };
-    default:
-      return { label: s, tone: 'muted' };
-  }
-}
