@@ -74,7 +74,7 @@ ENV_VARS=$(python3 - "$REGION" "$RUNTIME_NAME" "$OBSERVABILITY" <<'PYENV'
 import json, sys
 
 region, runtime_name, observability = sys.argv[1], sys.argv[2], sys.argv[3]
-env = {"VOCION_MODEL_PROVIDER": "bedrock", "AWS_REGION": region}
+env = {"VOCION_MODEL_PROVIDER": "bedrock", "AWS_REGION": region, "VOCION_AGENT_RUNTIME_AUTH_MODE": "agentcore"}
 if observability.lower() == "true":
     env.update({
         "AGENT_OBSERVABILITY_ENABLED": "true",
