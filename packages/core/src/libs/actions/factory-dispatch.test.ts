@@ -89,6 +89,13 @@ describe('a contract from the records alone', () => {
     expect(c.allowedPaths).toEqual(['apps/web/src/lib/upload.ts', 'packages/api/src/routes/links.ts', 'apps/web/src/**', 'apps/web/tests/**', 'packages/api/tests/**']);
   });
 
+  it('files the riskiest class a path touches, infra included (#126 attempt 195)', () => {
+    const withInfra = { ...repo, riskDefaults: { ...repo.riskDefaults, 'packages/infra/**': 'infra' } };
+    const c = deriveContract({ given: {}, request, plan: { ...plan, components: ['packages/api/src/routes/links.ts — signing', 'packages/infra/scripts/ecr-deploy.js — lifecycle'] }, repo: withInfra });
+
+    expect(c.riskClass).toBe('infra');
+  });
+
   it('says a held merge came from the person who merges, in their words (2026-09-28)', () => {
     const previous = { id: 190, meta: { prUrl: 'https://github.com/Acme/northwind-core/pull/89', verdict: { value: 'changes', heldBy: 'person', note: 'A person held the merge: the cleanup rule is not applied in production.', criteria: [{ criterion: 'A button sits beside Upload.', status: 'proven' }] } } };
     const c = deriveContract({ given: {}, request, plan, repo, previous });

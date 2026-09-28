@@ -210,7 +210,10 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
   return out;
 }
 
-const WORKER_RISK = ['schema', 'billing', 'auth', 'logic', 'ui', 'deps', 'marketing', 'docs'] as const;
+// Highest first: the contract's class is the riskiest path it touches. infra
+// and promise were missing, so a diff into packages/infra/** was filed as
+// logic and QA refused to approve it at that class (#126 attempt 195).
+const WORKER_RISK = ['promise', 'infra', 'schema', 'billing', 'auth', 'logic', 'ui', 'deps', 'marketing', 'docs'] as const;
 
 /**
  * A plan component's leading path: "apps/send-web — …" → apps/send-web/**, a file stays a file.
