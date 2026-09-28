@@ -168,6 +168,34 @@ describe('executeMissionRun when a task cannot run', () => {
     expect(tasks.get('b')!.status).toBe('skipped');
   });
 
+  it('gives the loop reason only to the tasks in the loop, and says what a task waiting on the loop was waiting on', async () => {
+    const id = await seedRun([
+      { id: 'a', title: 'A', dependsOn: ['b'] },
+      { id: 'b', title: 'B', dependsOn: ['a'] },
+      { id: 'c', title: 'C', dependsOn: ['a'] },
+    ]);
+
+    await executeMissionRun(id, ORG);
+    const { tasks } = await readRun(id);
+
+    expect(tasks.get('a')!.error).toMatch(/also depend on it/);
+    expect(tasks.get('b')!.error).toMatch(/also depend on it/);
+    expect(tasks.get('c')!.status).toBe('skipped');
+    expect(tasks.get('c')!.error).toBe('Skipped: it depends on "A", which was skipped.');
+  });
+
+  it('runs both of two tasks that share an id, as in a plan saved before ids were made unique', async () => {
+    const id = await seedRun([
+      { id: 't2', title: 'Research' },
+      { id: 't2', title: 'Draft' },
+    ]);
+
+    const status = await executeMissionRun(id, ORG);
+
+    expect(status).toBe('completed');
+    expect(titlesRun()).toEqual(['Research', 'Draft']);
+  });
+
   it('still completes a run whose tasks all succeed', async () => {
     const id = await seedRun([
       { id: 'research', title: 'Research' },

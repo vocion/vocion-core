@@ -24,6 +24,7 @@ describe('MissionRunPlan', () => {
           task({ id: 'research', title: 'Research', status: 'failed', error: 'Error: the search API timed out' }),
           task({ id: 'draft', title: 'Draft', status: 'skipped', error: 'Skipped: it depends on "Research", which failed.' }),
         ]}
+        runStatus="failed"
       />,
     );
 
@@ -32,16 +33,23 @@ describe('MissionRunPlan', () => {
   });
 
   it('does not show a leftover error on a task that went on to complete', async () => {
-    await render(<MissionRunPlan tasks={[task({ status: 'completed', error: 'an earlier attempt failed' })]} />);
+    await render(<MissionRunPlan tasks={[task({ status: 'completed', error: 'an earlier attempt failed' })]} runStatus="completed" />);
 
     await expect.element(page.getByText('Research')).toBeVisible();
     expect(page.getByText('an earlier attempt failed').elements()).toHaveLength(0);
   });
 
   it('says it is still planning before there is a plan', async () => {
-    await render(<MissionRunPlan tasks={[]} />);
+    await render(<MissionRunPlan tasks={[]} runStatus="planning" />);
 
     await expect.element(page.getByText('Planning…')).toBeVisible();
+  });
+
+  it('does not say it is still planning when the run failed before making a plan', async () => {
+    await render(<MissionRunPlan tasks={[]} runStatus="failed" />);
+
+    await expect.element(page.getByText('No plan was made.')).toBeVisible();
+    expect(page.getByText('Planning…').elements()).toHaveLength(0);
   });
 });
 
