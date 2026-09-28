@@ -16,18 +16,32 @@
 import type { RuntimeContext } from '../types';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
-import { proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
+import { explainProposeActionMiss, normalizeProposeActionArgs, proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
 import { listActions } from '@/libs/actions/registry';
 import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
 import { emitSelfUpdate } from '../selfUpdateEvent';
+import { withArgumentRepair } from '../toolCallRecord';
+
+/**
+ * The record a DONE proposal created, when the action says which: its id,
+ * type and title (objects.propose_candidate returns all three).
+ * @param result - The action's result.
+ */
+export function createdRecordOf(result: unknown): { id: number | string; objectType: string; title?: string } | null {
+  const r = result as { objectId?: unknown; objectType?: unknown; title?: unknown } | null | undefined;
+  if (!r || (typeof r.objectId !== 'number' && typeof r.objectId !== 'string') || typeof r.objectType !== 'string') {
+    return null;
+  }
+  return { id: r.objectId, objectType: r.objectType, title: typeof r.title === 'string' ? r.title : undefined };
+}
 
 export function proposeActionTool(ctx: RuntimeContext) {
   const available = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
 
-  return tool(
+  const proposeTool = tool(
     async (input) => {
       const { action_id, action_input, confidence, rationale, evidence, suggested_decision, suggested_decision_reason, suggested_snooze_until } = input as {
         action_id: string;
@@ -108,6 +122,22 @@ export function proposeActionTool(ctx: RuntimeContext) {
         if (res.status === 'pending') {
           return `Proposed ${action_id} → action run #${res.runId} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`;
         }
+        // A DONE THAT MADE A RECORD SAYS WHICH, WITH ITS LINK. Conversation
+        // 349 (2026-09-28): a request filed within bounds came back as a run
+        // number and a JSON blob, and the agent told the person "approving it
+        // is what writes the record" — about a record that already existed.
+        // The id and the page it opens on are the answer; the link also goes
+        // up as a typed event, so the turn links it even if the model does not.
+        const created = createdRecordOf(res.result);
+        if (created) {
+          const { recordHref } = await import('@/services/objects/recordHref');
+          const href = await recordHref(ctx.orgId, { objectType: created.objectType, id: created.id }).catch(() => undefined);
+          const name = `${created.objectType.replace(/_/g, ' ')} #${created.id}`;
+          if (href) {
+            ctx.emit({ type: 'record_created', record: { type: 'object', id: String(created.id), label: created.title ? `${name} — ${created.title}` : name, href } });
+          }
+          return `${action_id} is DONE: filed as ${name} (run #${res.runId}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.`;
+        }
         return `${action_id} is DONE (run #${res.runId}, confidence ${confidence}) — it was reversible and above the bar, so it ran without waiting. Say it was done, and that a person can undo it from the Review queue's Decided tab. Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
       } catch (err) {
         if (err instanceof ActionError) {
@@ -122,4 +152,8 @@ export function proposeActionTool(ctx: RuntimeContext) {
       schema: proposeActionArgsSchema,
     },
   );
+  // The call the model meant (a JSON-string payload, the envelope folded into
+  // it), repaired before the schema reads it; a call still unusable is
+  // refused naming exactly what is missing (`proposeActionArgs.ts`).
+  return withArgumentRepair(proposeTool, { normalizeArgs: normalizeProposeActionArgs, explainSchemaMiss: explainProposeActionMiss });
 }

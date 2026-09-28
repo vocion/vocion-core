@@ -421,7 +421,12 @@ export function buildChatModel(
         ...(anthropicOmitsSampling(model) ? {} : { temperature }),
         streaming,
         apiKey,
-        ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+        // The same cap as the thinking branch. Unset, LangChain falls back to
+        // 4,096 for any id its table does not know — every Claude 5 id — so a
+        // turn with thinking OFF ran a 32k-capped model at 4k (conversation
+        // 349, 2026-09-28: the propose_action that stopped mid-payload was on
+        // this branch, `max_tokens: 4096`).
+        maxTokens: opts.maxTokens ?? defaultAnthropicMaxTokens(model),
         ...(opts.thinking === 'off' && anthropicThinksUnlessDisabled(model) ? { thinking: { type: 'disabled' as const } } : {}),
       }));
     }
