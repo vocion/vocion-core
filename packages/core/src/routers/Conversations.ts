@@ -193,3 +193,35 @@ export const setAutonomy = os
     }
     return { id: row.id, autonomy: row.autonomy };
   });
+
+/**
+ * A person decided a card (backlog 025). The decision is written as a USER
+ * turn the model can bind to — the card's id, the action, the proposal —
+ * never as words the model has to parse ("approve filing it" bound to the
+ * wrong record three times on 2026-09-24).
+ */
+export const recordCardDecision = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    cardId: z.string().min(1),
+    label: z.string().min(1),
+    action: z.enum(['approve', 'reject', 'defer', 'undo']),
+    runId: z.number().int().optional(),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const conversation = await getConversation({ orgId, id: input.id });
+    if (!conversation) {
+      throw ApiError.notFound({ id: input.id });
+    }
+    const verb = { approve: 'Approved', reject: 'Rejected', defer: 'Deferred', undo: 'Undid' }[input.action];
+    const row = await appendMessage({
+      orgId,
+      conversationId: input.id,
+      role: 'user',
+      userId,
+      content: `${verb} the card "${input.label}"${input.runId !== undefined ? ` (proposal #${input.runId})` : ''}.`,
+      runs: [{ type: 'card_decision', cardId: input.cardId, action: input.action, label: input.label, ...(input.runId !== undefined ? { runId: input.runId } : {}) }],
+    });
+    return { id: row.id };
+  });

@@ -34,7 +34,7 @@ vi.mock('@/libs/hubspot/unenrollBridge', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, eventLogSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
+const { actionRunSchema, eventLogSchema, knowledgeSourceSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
 const { executeAction, proposeAction, rejectAction } = await import('@/services/ActionService');
 const { regenerateSkillFor } = await import('./regenerateSkill');
 const { readSequenceEnrollmentState, requestUnenroll } = await import('@/libs/hubspot/unenrollBridge');
@@ -871,5 +871,79 @@ describe('personalization.enroll voice gate', () => {
     });
 
     expect(proposed.status).toBe('pending');
+  });
+});
+
+describe('the sender is workspace config, not a model output', () => {
+  const OWNERS = { results: [{ id: '159535048', userId: '159535048', email: 'andrew@metacto.com' }] };
+
+  async function nameTheSender(defaultSender: string) {
+    await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'hubspot-contacts', kind: 'plugin', configJson: { _connector: 'hubspot', defaultSender } });
+  }
+
+  afterEach(async () => {
+    await db.delete(knowledgeSourceSchema);
+  });
+
+  it('enrolls as the configured sender even when the card carries someone else, and says whose card it was', async () => {
+    await seedLead();
+    await nameTheSender('andrew@metacto.com');
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { body?: string }) => {
+      calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+      if (String(url).includes('/crm/v3/owners')) {
+        return res(OWNERS);
+      }
+      return res({ id: String(url).includes('/enrollments') ? 'enr-2' : 'note-2' });
+    }));
+
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput({ senderEmail: 'chris@metacto.com', hubspotUserId: '66571096' }) });
+    const executed = await executeAction(proposed.runId!, ORG, { reviewedBy: 'user_jamie' });
+
+    expect(executed.status).toBe('done');
+    expect(executed.result).toMatchObject({ enrolled: true, senderEmail: 'andrew@metacto.com', cardSenderEmail: 'chris@metacto.com' });
+
+    const enrollCall = calls.find(c => c.url.includes('/enrollments'));
+
+    expect(enrollCall?.url).toContain('userId=159535048');
+    expect(enrollCall?.body).toMatchObject({ senderEmail: 'andrew@metacto.com' });
+  });
+
+  it('a configured sender the portal cannot resolve stops the enrollment; the card\'s sender is never used instead', async () => {
+    await seedLead();
+    await nameTheSender('nobody@metacto.com');
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(String(url));
+      if (String(url).includes('/crm/v3/owners')) {
+        return res({ results: [] });
+      }
+      return res({ id: 'enr-3' });
+    }));
+
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput() });
+    const executed = await executeAction(proposed.runId!, ORG, { reviewedBy: 'user_jamie' });
+
+    expect(executed.status).toBe('failed');
+    expect(String(executed.error)).toContain('nobody@metacto.com');
+    expect(calls.some(u => u.includes('/enrollments'))).toBe(false);
+  });
+
+  it('the card shows the sender the emails go out as, and names the card\'s own when it differs', async () => {
+    await seedLead();
+    await nameTheSender('andrew@metacto.com');
+    const card = await personalizationEnrollAction.reviewCard!({ orgId: ORG }, enrollInput({ senderEmail: 'chris@metacto.com' }) as never);
+
+    expect(card.provenance).toContainEqual({ label: 'Sender', value: 'andrew@metacto.com (the card named chris@metacto.com)' });
+  });
+
+  it('with no configured sender the card\'s sender still enrolls, as before', async () => {
+    await seedLead();
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => res({ id: String(url).includes('/enrollments') ? 'enr-4' : 'note-4' })));
+
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput() });
+    const executed = await executeAction(proposed.runId!, ORG, { reviewedBy: 'user_jamie' });
+
+    expect(executed.result).toMatchObject({ enrolled: true, senderEmail: 'chris@metacto.com', cardSenderEmail: null });
   });
 });

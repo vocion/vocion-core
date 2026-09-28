@@ -112,8 +112,9 @@ to the in-process loop. Vocion stores checkpoints and progress, not the worker's
   30d), agent-reported and observed measures read from `counts`, and — under Evidence — activity by
   member with tokens, and per-member run lists with the worker's `summary`. Board and red-team runs
   are badged wherever runs are counted.
-- **Activity** (`/dashboard/p/activity`): every run, grouped by the task it was an attempt at.
-  A run's `status` column is read there as the four independent facts it was carrying
+- **The work item** (`/dashboard/p/feature/<requestId>`): every run under the request, grouped by
+  the task it was an attempt at (the Factory log page went on 2026-09-24; the runs read inside the
+  outcome they served). A run's `status` column is read there as the four independent facts it was carrying
   (`libs/factory/runFacts.ts`, no migration): **execution** (`completed` | `failed` |
   `cancelled`, where a worker that ran the whole task and then lost its completion call
   executed completely), **verification** (`passed` | `failed` | `not_run`, where a run that

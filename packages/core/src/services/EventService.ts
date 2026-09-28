@@ -230,15 +230,31 @@ export type EmitEventResult = {
 };
 
 /**
- * A workflow trigger fires only if every key in `filter` equals the payload's.
+ * A trigger fires only if every key in `filter` matches the payload: equal,
+ * or — for a key ending in `Prefix` — the field it names starts with the
+ * value (`branchPrefix: factory/` matches `branch: factory/send-t146-…`).
+ *
+ * The plugin's QA automations have filtered on `branchPrefix` since they were
+ * written, and with `===` only they compared against a `branchPrefix` field no
+ * event carries, so the QA-on-PR and learn-from-merged automations never fired
+ * once (red team, 2026-09-26).
  * @param payload
  * @param filter
  */
-function matchesFilter(payload: Record<string, unknown>, filter: unknown): boolean {
+export function matchesFilter(payload: Record<string, unknown>, filter: unknown): boolean {
   if (!filter || typeof filter !== 'object') {
     return true;
   }
-  return Object.entries(filter as Record<string, unknown>).every(([k, v]) => payload[k] === v);
+  return Object.entries(filter as Record<string, unknown>).every(([k, v]) => {
+    if (payload[k] === v) {
+      return true;
+    }
+    if (k.endsWith('Prefix') && typeof v === 'string') {
+      const field = payload[k.slice(0, -'Prefix'.length)];
+      return typeof field === 'string' && field.startsWith(v);
+    }
+    return false;
+  });
 }
 
 /**
@@ -381,6 +397,15 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     if (existing) {
       return { eventId: existing.id, deduped: true, triggered: [], skipped: [] };
     }
+  }
+
+  // A merge on GitHub is the decision its merge card asked for: close it
+  // before anything subscribed to the merge reads the card as still open.
+  if (input.type === 'pr.merged') {
+    const { closeMergeCardsOnMerge } = await import('@/services/factory/mergeCards');
+    await closeMergeCardsOnMerge(input.orgId, payload).catch((err) => {
+      console.warn('[events] could not close merge cards', { error: (err as Error).message });
+    });
   }
 
   // Find active workflows subscribed to this event type whose filter matches.

@@ -71,6 +71,18 @@ export function anthropicAdaptiveThinking(model: string): boolean {
 }
 
 /**
+ * Whether this Anthropic model thinks when a request leaves `thinking` out, and
+ * takes `{ type: 'disabled' }` to stop. On these models "no thinking field" is
+ * not "no thinking", so an `off` has to be sent. Fable 5 and Mythos 5 answer
+ * `disabled` with a 400 and are left out, as is anything newer than Opus 5
+ * until its behaviour is known.
+ * @param model - The model id, bare or Bedrock-decorated.
+ */
+export function anthropicThinksUnlessDisabled(model: string): boolean {
+  return /claude-(?:sonnet|opus)-5(?!-\d)/.test(model);
+}
+
+/**
  * The output cap when a caller sets none. LangChain's own table stops at the
  * 4.x family — `claude-sonnet-5` falls to its 4096 fallback, shared with
  * adaptive thinking — and production showed what that buys (2026-09-18): a
@@ -285,7 +297,8 @@ export type BuildChatModelOptions = {
   /**
    * Extended thinking for THIS model, chosen per conversation
    * (`libs/llm/modelPrefs.ts`). Wins over `VOCION_THINKING_BUDGET`: `off`
-   * sends no thinking even when the env turns it on; an effort sends its
+   * turns thinking off even when the env turns it on, and says so on models
+   * that think unless told not to; an effort sends its
    * budget on budgeted models and adaptive thinking on models that size
    * their own. Anthropic and Bedrock-Claude only; ignored elsewhere.
    */
@@ -409,6 +422,7 @@ export function buildChatModel(
         streaming,
         apiKey,
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+        ...(opts.thinking === 'off' && anthropicThinksUnlessDisabled(model) ? { thinking: { type: 'disabled' as const } } : {}),
       }));
     }
     case 'openai': {
@@ -444,6 +458,9 @@ export function buildChatModel(
         streaming,
         ...(opts.awsCredentials ? { credentials: opts.awsCredentials } : {}),
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+        ...(opts.thinking === 'off' && anthropicThinksUnlessDisabled(model)
+          ? { additionalModelRequestFields: { thinking: { type: 'disabled' } } }
+          : {}),
       }));
     }
   }

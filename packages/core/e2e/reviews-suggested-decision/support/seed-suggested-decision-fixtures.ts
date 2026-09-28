@@ -105,7 +105,7 @@ async function main(): Promise<void> {
     createdBy: 'e2e',
     // `owner` carries `*`, which is what the propose route checks for when it
     // enforces the `approve` capability.
-    role: 'owner',
+    role: 'admin',
   });
 
   // The one stdout line the spec parses. Everything above went to stderr via

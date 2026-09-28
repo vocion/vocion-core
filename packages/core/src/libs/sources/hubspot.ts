@@ -98,6 +98,15 @@ const hubspotConfigSchema = z.object({
   baseUrl: z.string().url().default('https://api.hubapi.com'),
   /** HubSpot portal (account) id — enables record deep links on review cards. */
   portalId: z.union([z.string(), z.number()]).optional(),
+  /**
+   * The user every personalization enrollment runs as, by email: the From on
+   * each sequence email and the owner of each sequence task. Workspace
+   * config rather than a model output: when the sender rode on the card, a
+   * redraft that read another user's library changed it silently, and five
+   * contacts were enrolled as the founder instead of the rep (2026-09-25).
+   * Absent, Enroll uses the sender the card carries.
+   */
+  defaultSender: z.string().email().optional(),
 });
 
 type HubSpotRecord = {

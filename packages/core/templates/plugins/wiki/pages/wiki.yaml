@@ -6,22 +6,13 @@ title: Wiki
 description: The workspace's long-term memory — voice, standing rules, who is who, decisions — written by the agents and read before they act.
 icon: book-open
 nav: {section: Workspace, order: 5}
-archetype: list
-source: {kind: artifacts, folder: wiki, artifactKind: markdown, limit: 200}
-sort: {field: meta.updatedAt, dir: desc}
-stats:
-  - {label: Pages, kind: count}
-  - {label: Written by agents, kind: countWhere, where: {field: meta.lastAuthorKind, op: eq, value: agent}}
-# The page leads; its first paragraph reads under the title rather than
-# fighting it for a column, and the version and who wrote it last drop
-# first on a narrow screen.
-primary:
-  field: title
-  subtitle: [summary]
-fields:
-  - {key: title, label: Page}
-  - {key: summary, label: Summary, from: meta.summary}
-  - {key: version, label: Version, from: meta.version, format: mono, align: right, priority: 3}
-  - {key: author, label: Last by, from: meta.lastAuthorKind, format: badge, tones: {agent: info, human: ok, system: muted}, priority: 2}
-  - {key: updated, label: Updated, from: meta.updatedAt, format: date}
-rowLink: /dashboard/artifacts/{id}
+# READ AS A WIKI, not as a table of the artifacts behind it (2026-09-24):
+# core's `wiki` archetype draws a rail of pages in reading order, a home, one
+# page open at a time at /dashboard/p/wiki/<slug>, links between pages that
+# open pages, and on each page who last wrote it, its version, Edit, History
+# and Ask. The folder is all this manifest declares; the archetype owns the
+# rest. Pages seeded from the repo carry `order` and `tags` in their
+# frontmatter; a page tagged `always` rides into every agent turn, every other
+# page is read on demand.
+archetype: wiki
+source: {kind: artifacts, folder: wiki, artifactKind: markdown, limit: 500}

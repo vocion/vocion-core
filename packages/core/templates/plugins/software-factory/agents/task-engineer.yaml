@@ -1,4 +1,4 @@
-# The Task engineer — the worker. `runsOn: external-worker` means asking it
+# The Engineer — the worker. `runsOn: external-worker` means asking it
 # something does not run a turn in this process: it queues a `worker_run` and
 # returns a receipt, and a process Vocion does not host claims the run, holds
 # the lease, heartbeats, and reports back (docs/entities/worker-run.md).
@@ -8,9 +8,9 @@
 # instructions arrive as the run's input, and every side effect it wants goes
 # through the same review queue as any other agent's.
 slug: task-engineer
-name: Task engineer
+name: Engineer
 description: >-
-  Engineering. Executes one engineering task contract in an isolated checkout — reads the
+  Eng. Executes one engineering task contract in an isolated checkout — reads the
   contract, makes the change inside the allowed paths, runs the required
   checks, pushes a branch and opens a pull request — and reports the branch,
   the commit, the checks, what it assumed and what is still broken.
@@ -19,7 +19,7 @@ accent: amber
 active: true
 agentType: operational
 temperature: '0.1'
-eyebrow: Software factory · Engineering · Engineer
+eyebrow: Software factory · Eng
 team: software-factory
 objectTypes:
   - engineering_task
@@ -32,3 +32,5 @@ playbooks:
 harness:
   runsOn: external-worker
 systemPromptFile: ./task-engineer.system-prompt.md
+skills:
+  - rubric-engineer

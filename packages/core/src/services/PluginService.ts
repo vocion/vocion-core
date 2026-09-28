@@ -35,7 +35,7 @@ import { readWorkspacePage } from '@/libs/workspace/pages';
 import { listPluginSlugs, loadPlugin, resolvePlugins } from '@/libs/workspace/plugins';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
-import { folderOwner, mountedWorkspaceIsProjects, mountOwnership } from '@/services/WorkspaceMountService';
+import { folderOwner, mountedWorkspaceIsProjects, mountOwnership, projectPagesFolder } from '@/services/WorkspaceMountService';
 
 /**
  * The plugins this org's project has on, in load order. Empty for an org with
@@ -74,7 +74,8 @@ export async function pluginEnabled(orgId: string, slug: string): Promise<boolea
  */
 export async function readPageForOrg(slug: string, orgId: string): Promise<LoadedPage | null> {
   const [enabledPlugins, mounted] = await Promise.all([enabledPluginsForOrg(orgId), mountedWorkspaceIsProjects(orgId)]);
-  return readWorkspacePage(slug, { enabledPlugins, mounted });
+  const dir = mounted ? null : await projectPagesFolder(orgId).catch(() => null);
+  return readWorkspacePage(slug, { enabledPlugins, mounted, dir });
 }
 
 /**

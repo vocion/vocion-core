@@ -18,9 +18,12 @@ import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
+import { closePreview, useOpenPreviewRef } from '@/features/preview/previewState';
+import { client } from '@/libs/Orpc';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
+import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -48,6 +51,10 @@ import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
+
+function isPhoneViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+}
 
 export type ChatDockProps = {
   /** Agents available to pick from — server-loaded, same list every chat surface uses. Empty array renders nothing. */
@@ -274,6 +281,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
+  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+    if (session.conversationId === null) {
+      return;
+    }
+    void client.conversations.recordCardDecision({ id: session.conversationId, ...d }).catch((err: unknown) => {
+      console.warn('card decision was not written to the conversation', err);
+    });
+  }, [session.conversationId]);
   const queueProps = useComposerQueueProps(session);
   const onCommand = useChatCommands(session.handleNewChat);
   // The rail IS on a page, so `(+)` offers `@page` and the record in view
@@ -320,6 +336,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   const cardsScrolledAway = cardAnchor < lastMessageIndex;
   const recallCards = () => setCardAnchor(lastMessageIndex);
 
+  const previewOpen = useOpenPreviewRef() !== null;
   const setCollapsedPersisted = useCallback((next: boolean) => {
     setCollapsed(next);
     writeCollapsed(next);
@@ -416,8 +433,11 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // One-time read of client-only values (localStorage, viewport) on mount; it
   // cannot happen during render because it would mismatch the server render.
   useEffect(() => {
+    // ON A PHONE THE CHAT IS A SHEET OVER THE PAGE, so it never reopens on its
+    // own (2026-09-26: a feature page opened under a half-screen chat that
+    // hid its title and pictures, because the rail was left open last time).
     // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
-    setCollapsed(readCollapsed(startCollapsed));
+    setCollapsed(isPhoneViewport() ? true : readCollapsed(startCollapsed));
     const stored = readStoredRailWidth();
     // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
     setWidth(clampRailWidth(stored ?? defaultRailWidth(window.innerWidth), window.innerWidth));
@@ -442,7 +462,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     } catch {
       /* storage unavailable */
     }
-    if (storedCollapse === null && typeof railState.railOpen === 'boolean') {
+    if (storedCollapse === null && typeof railState.railOpen === 'boolean' && !isPhoneViewport()) {
       // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
       setCollapsed(!railState.railOpen);
     }
@@ -551,6 +571,25 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       ? [{ key: 'pointer', afterIndex: -1, node: <SequencePointer run={run} guided={guided} /> }]
       : [];
 
+  // The approval gate joins the transcript blocks instead of sitting above the
+  // composer (Chris, 2026-09-24: "show inline instead of sticky to the compose
+  // bar"). It goes last so a guided card and a gate raised in the same turn
+  // read in the order they happened.
+  const blocks = session.pendingHitl
+    ? [...cardBlocks, {
+        key: 'hitl-gate',
+        afterIndex: session.messages.length,
+        node: (
+          <HitlGate
+            gate={session.pendingHitl}
+            onApprove={session.handleApproveHitl}
+            onReject={session.handleRejectHitl}
+            disabled={session.isStreaming}
+          />
+        ),
+      }]
+    : cardBlocks;
+
   const autonomyCopy = {
     ask: t('autonomy_ask'),
     act: t('autonomy_act'),
@@ -638,9 +677,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             mounted after a decision so the outcome card can state what
             happened — hiding the flow the moment it is decided would drop the
             one card that says so. */}
-        {session.messages.length === 0 && cardBlocks.length === 0 && !workspaceHasAgents
+        {session.messages.length === 0 && blocks.length === 0 && !workspaceHasAgents
           ? <NoAgentsState />
-          : session.messages.length === 0 && cardBlocks.length === 0
+          : session.messages.length === 0 && blocks.length === 0
             ? (
                 <EmptyState
                   greeting={session.emptyGreeting}
@@ -651,26 +690,19 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                 />
               )
             : (
-                <MessageList
-                  messages={session.messages}
-                  agentName={session.workspaceName}
-                  streaming={session.isStreaming}
-                  activity={session.activity}
-                  blocks={cardBlocks}
-                  onFeedback={session.handleFeedback}
-                  autonomy={session.autonomy}
-                  conversationId={session.conversationId}
-                />
+                <CardDecisionProvider value={recordCardDecision}>
+                  <MessageList
+                    messages={session.messages}
+                    agentName={session.workspaceName}
+                    streaming={session.isStreaming}
+                    activity={session.activity}
+                    blocks={blocks}
+                    onFeedback={session.handleFeedback}
+                    autonomy={session.autonomy}
+                    conversationId={session.conversationId}
+                  />
+                </CardDecisionProvider>
               )}
-
-        {session.pendingHitl && (
-          <HitlGate
-            gate={session.pendingHitl}
-            onApprove={session.handleApproveHitl}
-            onReject={session.handleRejectHitl}
-            disabled={session.isStreaming}
-          />
-        )}
 
         {/* The cards have scrolled up behind newer turns: one click brings
             them back to the bottom, the same as asking for them (058). */}
@@ -896,14 +928,29 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       aria-label={ariaLabel}
       frame={narrow
         ? content => (
-          <Sheet open onOpenChange={open => setCollapsedPersisted(!open)}>
+          // ONE CLOSE, AND IT CLOSES. On a phone the preview stands in this
+          // sheet; the sheet's X (and a tap outside) only collapsed chat, so
+          // with a preview open the sheet stayed, and its X sat on top of the
+          // preview's own — two X's, neither doing anything (Chris,
+          // 2026-09-27, an engineering run on #132). Closing the sheet closes
+          // what is in it; with a preview showing, the pane's header owns the
+          // close and the sheet draws none.
+          <Sheet
+            open
+            onOpenChange={(open) => {
+              if (!open) {
+                closePreview();
+              }
+              setCollapsedPersisted(!open);
+            }}
+          >
             <SheetContent
               side="bottom"
-              className="flex h-[88vh] w-full flex-col gap-0 rounded-t-2xl p-0"
+              className="flex h-[88dvh] w-full min-w-0 flex-col gap-0 overflow-x-clip rounded-t-2xl p-0"
               // The grabber (16px) then a 48px header row puts that row's
               // centre at 40px; the close belongs on it, beside the ⋯ menu,
               // not in the sheet's corner 24px above everything it sits with.
-              closeClassName="top-10 right-3 -translate-y-1/2"
+              closeClassName={previewOpen ? 'hidden' : 'top-10 right-3 -translate-y-1/2'}
               aria-label={ariaLabel}
             >
               {/* The grabber. It is not a control — the sheet is dismissed by

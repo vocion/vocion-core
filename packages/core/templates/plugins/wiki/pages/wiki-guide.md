@@ -43,3 +43,12 @@ edit to Voice. "Remember: internal calls file in the wiki, client calls in the
 room" becomes a standing rule. "We decided to price per opening" becomes a dated
 section under Decisions. The agent cites the page when it relies on it, so you
 can check the claim in one move.
+
+## What an agent reads, and when
+
+The wiki's index — every page's title and one-line summary — rides into every
+agent turn. A page tagged `always` in its frontmatter rides in whole. Every
+other page is read on demand: the agent calls `read_wiki_page` when the turn
+is about it, and cites the page when it relies on it. That keeps a large wiki
+from crowding out the work in front of the agent, and keeps the pages that are
+the tie-breakers in view.

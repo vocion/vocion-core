@@ -18,7 +18,7 @@
 import type { AutonomyLevel } from '@/services/missions/autonomy';
 
 export type PrincipalKind = 'user' | 'agent';
-export type WorkspaceRole = 'owner' | 'pm' | 'specialist' | 'client_reviewer';
+export type WorkspaceRole = 'admin' | 'member';
 export type Mode = 'discover' | 'mutate';
 export type Gate = 'none' | 'approve';
 
@@ -44,22 +44,66 @@ export type Resource
 export type Decision = { allowed: boolean; gate: Gate; reason: string };
 
 /**
- * Role → default action grants. Owner/PM are unrestricted; specialists draft;
- * client-reviewers approve/comment only. Composed with a principal's explicit grants.
+ * Role → default action grants. Both are unrestricted, which is what the four
+ * names always meant: `owner` and `pm` were already identical `['*']`, and
+ * `specialist` and `client_reviewer` were never written by any code path or
+ * seed. Composed with a principal's explicit grants.
+ *
+ * A member may approve. That is today's behaviour under `pm`, kept deliberately
+ * (decision Q4, 25 Sep 2026): collapsing the names is a rename, not a policy
+ * change. Narrowing `member` to `['draft', 'comment']` is the one-line change
+ * that makes it one, and it takes approval away from everyone who is not an
+ * account admin.
  */
 const ROLE_GRANTS: Record<WorkspaceRole, string[]> = {
-  owner: ['*'],
-  pm: ['*'],
-  specialist: ['draft', 'comment'],
-  client_reviewer: ['approve', 'comment'],
+  admin: ['*'],
+  member: ['*'],
 };
 
 /**
- * Owners/PMs may search across all clients; everyone else is scope-bound.
+ * The four names this model used to carry, mapped to the two it carries now.
+ *
+ * Only `api_token.role` still holds them. Migration 0146 rewrote
+ * `project_member` and `group_project_grant` and pinned both with a CHECK, but
+ * it deliberately left `api_token` alone: a deploy applies migrations BEFORE
+ * the container swap, so for the length of the drain the PREVIOUS image is
+ * still serving against the new data. A token whose authority comes from its
+ * role rather than from explicit grants would have resolved to no grants at
+ * all on that image, and every call it made would have been refused until the
+ * swap finished.
+ *
+ * So the value stays as it is and the reader accepts both. New tokens are
+ * issued as `admin`/`member`; this is what keeps the ones issued before then
+ * working. It can be deleted once no `api_token` row holds a legacy name.
+ */
+const LEGACY_ROLE: Record<string, WorkspaceRole> = {
+  owner: 'admin',
+  pm: 'member',
+  specialist: 'member',
+  client_reviewer: 'member',
+};
+
+/**
+ * A stored role as one of the two the model has. Unknown values resolve to
+ * `member`, the narrower of the two, because a role nobody recognises must not
+ * be the one that grants everything.
+ * @param raw - Whatever the column holds.
+ */
+export function normalizeWorkspaceRole(raw: string | null | undefined): WorkspaceRole {
+  if (raw === 'admin' || raw === 'member') {
+    return raw;
+  }
+  return (raw ? LEGACY_ROLE[raw] : undefined) ?? 'member';
+}
+
+/**
+ * A person holding a workspace role may search across all clients; a principal
+ * with no role at all (an agent, a token acting on explicit grants) is
+ * scope-bound.
  * @param principal
  */
 function spansAllClients(principal: Principal): boolean {
-  return principal.role === 'owner' || principal.role === 'pm';
+  return principal.role === 'admin' || principal.role === 'member';
 }
 
 /**

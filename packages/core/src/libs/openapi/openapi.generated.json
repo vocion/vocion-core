@@ -17,6 +17,10 @@
       "description": "Endpoints under /api/v1/agents."
     },
     {
+      "name": "artifacts",
+      "description": "Endpoints under /api/v1/artifacts."
+    },
+    {
       "name": "asks",
       "description": "Endpoints under /api/v1/asks."
     },
@@ -250,6 +254,95 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/artifacts": {
+      "post": {
+        "operationId": "post_artifacts",
+        "summary": "Attach an artifact — a screenshot, a video, a report — to a record in this workspace.",
+        "tags": [
+          "artifacts"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Attach an artifact — a screenshot, a video, a report — to a record in this\nworkspace. The factory worker has posted its QA evidence here since the\ncapture pass was written, and the route did not exist: every screenshot,\nvideo and QA report answered 404 and reached no page (run 364, 2026-09-26).\n\nBody: `{ recordType: 'object', recordId, recordRole?, kind, title, spec }`.\nThe record must be this workspace's. An image travels as `spec.url` (or\n`spec.href`) with an `image/*` `spec.contentType` — an https URL or an\ninline `data:` URL — and is stored on the artifact's own `url`, which is\nwhat every gallery draws.\n\nAuth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a\nsigned-in dashboard session.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "kind": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "recordId": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "recordRole": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "recordType": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "spec": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "title": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/asks": {

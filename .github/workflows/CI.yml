@@ -38,7 +38,19 @@ jobs:
           path: |
             packages/core/.next/cache
           # Generate a new cache whenever packages or source files change.
-          key: nextjs-22.x-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
+          # The root lockfile only, not '**/package-lock.json': there is one
+          # lockfile, and the glob walked the restored node_modules first,
+          # which cost this step about 15–20s before it started (#631). One
+          # matching file either way, so the key doesn't change.
+          # next.config.ts is in the key because webpack throws its cache away
+          # when the config changes, and a change to the config alone used to
+          # hit this exact key, so the fresh cache was never saved (#631).
+          key: nextjs-22.x-${{ hashFiles('package-lock.json') }}-${{ hashFiles('packages/core/src/**', 'packages/core/next.config.ts') }}
+          # A change under src/ misses the exact key. Start from the newest
+          # cache with the same lockfile rather than an empty one: webpack's
+          # compile measured 59–74s warm against 81s cold on CI (#631).
+          restore-keys: |
+            nextjs-22.x-${{ hashFiles('package-lock.json') }}-
 
       - name: Build Next.js
         # build-local lives in the @vocion/core workspace, not the repo root.
@@ -55,8 +67,9 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_build
           AUTH_SECRET: ci-only-secret-not-used-by-the-build
 
-      # The E2E shards restore this through setup-project, keyed by the same
-      # node version and commit.
+      # The E2E shards restore this, keyed by the same node version and
+      # commit. scripts/wait-for-build-output.sh watches for this step by its
+      # name, so rename both together.
       - name: Cache Next.js build output
         uses: actions/cache/save@v5
         with:
@@ -82,7 +95,10 @@ jobs:
         with:
           path: |
             packages/core/.next/cache
-          key: nextjs-20.x-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
+          key: nextjs-20.x-${{ hashFiles('package-lock.json') }}-${{ hashFiles('packages/core/src/**', 'packages/core/next.config.ts') }}
+          # Same fallback as the 22.x build.
+          restore-keys: |
+            nextjs-20.x-${{ hashFiles('package-lock.json') }}-
 
       # Proves the app builds on the oldest Node a deployment runs. Its output
       # is thrown away; E2E runs against the 22.x build. Same env as above.
@@ -185,10 +201,17 @@ jobs:
 
   unit:
     strategy:
+      # Same reason as the E2E shards: each shard reports its own failures.
+      fail-fast: false
       matrix:
         node-version: [22.x]
+        # One runner took about 430s for the whole suite, which made this the
+        # slowest job once E2E stopped waiting on setup (#631). Vitest splits
+        # the test files between the shards. The `--shard` argument below has
+        # to match this list.
+        shard: [1, 2, 3]
 
-    name: Run unit tests
+    name: Run unit tests (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -203,15 +226,31 @@ jobs:
       - name: Run unit tests
         uses: docker://mcr.microsoft.com/playwright:v1.58.2
         with:
-          args: npm run test -- --coverage
+          # The workspace script, as in the E2E job: through the root script,
+          # npm kept anything after `--` as its own config flag, so vitest never
+          # saw `--coverage` and Codecov logged "No coverage reports found" on
+          # every run until #631. Each shard covers its own third of the files;
+          # Codecov merges the three uploads for the commit (codecov.yml waits
+          # for all three). Coverage costs about 12% on a shard, measured
+          # locally.
+          args: sh -c "npm run test --workspace @vocion/core -- --shard=${{ matrix.shard }}/3 --coverage"
         env:
           # T3 env validation needs these present; unit tests mock the DB +
           # LLM clients (vitest stubs the API keys), values are never dialed.
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_test
           AUTH_SECRET: ci-only-secret-not-used-by-unit-tests
 
+      # A shard that wrote no report fails here, loudly. Before #631 the
+      # report was silently missing on every run for months.
+      - name: Check the coverage report exists
+        run: test -s packages/core/coverage/coverage-final.json
+
+      # One upload per shard. An outage at Codecov doesn't fail the build
+      # (the action's default); the check above covers the case that matters.
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
+        with:
+          files: packages/core/coverage/coverage-final.json
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
@@ -249,11 +288,13 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [22.x]
-        # The shards share nothing at runtime. Each boots its own `next start`
-        # and in-memory PGlite from `webServer`, runs the `setup`/`teardown`
+        # The shards share nothing at runtime. Each has its own Postgres
+        # service container, boots its own `next start` from `webServer`,
+        # runs the `setup`/`teardown`
         # projects its tests depend on, and the self-seeding projects make
         # their own admin. Each also repeats checkout, install, the build
-        # restore and the server boot, a minute or two apiece, so more shards
+        # restore and the server boot, most of it now while the build runs,
+        # but each shard is still a runner, so more shards
         # stop paying for themselves quickly. Three is the count measured on
         # #629; the `--shard` argument below has to match this list.
         shard: [1, 2, 3]
@@ -262,11 +303,41 @@ jobs:
     runs-on: ubuntu-latest
     # Playwright caps itself at 8 minutes (globalTimeout in
     # packages/core/playwright.config.ts) and stops at the first failure, both
-    # per shard, so this is the 8 plus setup and the artifact upload. It used
+    # per shard, so the limit has to cover those 8, setup and the upload. It used
     # to be 10 with no Playwright cap, and a red run hit this limit before
     # Playwright could print its summary.
-    timeout-minutes: 15
-    needs: [build]
+    # No `needs: [build]`. A shard starts with the build, pulls the
+    # Playwright image, starts Postgres and restores node_modules (about 70s)
+    # while the build runs, and waits only for the build output, in the
+    # "Wait for the build output" step below (#631). So this limit now also
+    # covers the wait: up to the build's own 10 minutes, then Playwright's 8,
+    # plus setup and the upload. 20 leaves room for all three; a normal run
+    # waits 3–4 minutes.
+    timeout-minutes: 20
+    # The wait step reads this run's jobs and the cache list.
+    permissions:
+      contents: read
+      actions: read
+
+    # A real Postgres, not the in-memory PGlite the suite boots locally.
+    # PGlite accepts one connection, which made every seed script a spec
+    # spawned wait about 10s for the app's pool to let go of it, and caused
+    # the `Connection terminated unexpectedly` flake in e2e/credentials
+    # (#631). pgvector because a migration creates the `vector` extension.
+    # The test step runs in a container action, which joins this job's
+    # network, so it reaches the database by the service name, `postgres`.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vocion_e2e
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vocion_e2e"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
 
     steps:
       - uses: actions/checkout@v6
@@ -275,7 +346,24 @@ jobs:
         uses: ./.github/actions/setup-project
         with:
           node-version: ${{ matrix.node-version }}
-          restore-nextjs-cache: true
+
+      - name: Wait for the build output
+        run: scripts/wait-for-build-output.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_OUTPUT_CACHE_KEY: nextjs-build-${{ matrix.node-version }}-${{ github.sha }}
+          # Longer than the build job's 10-minute limit, so a slow build that
+          # succeeds is never abandoned; a build that fails or times out ends
+          # the wait on its own, as soon as its job reports.
+          WAIT_TIMEOUT_SECONDS: 660
+
+      - name: Restore the build output
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            packages/core/.next
+          key: nextjs-build-${{ matrix.node-version }}-${{ github.sha }}
+          fail-on-cache-miss: true
 
       - name: Run E2E tests
         uses: docker://mcr.microsoft.com/playwright:v1.58.2
@@ -287,10 +375,10 @@ jobs:
           args: sh -c "HOME=/root npm run test:e2e --workspace @vocion/core -- --shard=${{ matrix.shard }}/3"
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-          # Playwright boots `next start` next to a throwaway in-memory PGlite on
-          # 5432, and Env.ts validates on import, so the server needs these to
-          # come up at all. Same values the unit and build jobs use.
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_e2e
+          # Playwright migrates the `postgres` service's database and then
+          # boots `next start` against it. The seed scripts the specs spawn
+          # read this same variable, so they reach the same database.
+          DATABASE_URL: postgresql://postgres:postgres@postgres:5432/vocion_e2e
           AUTH_SECRET: ci-only-secret-not-used-outside-ci
 
       # Playwright's outputDir is relative to its config, so the traces land in

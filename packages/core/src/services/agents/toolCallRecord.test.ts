@@ -89,6 +89,30 @@ describe('withToolCallRecord', () => {
     });
   });
 
+  it('hands a call that misses the schema back as a message the model can fix, instead of ending the turn', async () => {
+    const read = withToolCallRecord(
+      tool(async ({ id }: { id: number }) => `record ${id}`, { name: 'read_object', schema: z.object({ id: z.number(), object_type: z.string() }) }),
+      ctxFor(ORG_A),
+    );
+
+    const asText = await read.invoke({ object_type: 'request' } as never);
+
+    expect(String(asText)).toMatch(/^Not recorded: invalid arguments for read_object: [\s\S]*Nothing ran\. Fix the arguments and call read_object again\.$/);
+
+    const asMessage = await read.invoke({ type: 'tool_call', id: 'call_1', name: 'read_object', args: { object_type: 'request' } } as never) as { content: string; tool_call_id: string };
+
+    expect(asMessage.tool_call_id).toBe('call_1');
+    expect(asMessage.content).toMatch(/^Not recorded: invalid arguments for read_object/);
+
+    // The tool's own work failing still throws (see 'records the error and rethrows').
+    expect(await read.invoke({ id: 7, object_type: 'request' })).toBe('record 7');
+
+    // The rows land asynchronously; let them, so the next test starts clean.
+    await vi.waitFor(async () => {
+      expect(await db.select().from(toolCallSchema).where(eq(toolCallSchema.orgId, ORG_A))).toHaveLength(3);
+    });
+  });
+
   it('attributes a delegated call to the specialist, keeping the lead as dispatcher', async () => {
     const ctx = ctxFor(ORG_A);
     ctx.delegations!.set('task_abc', 'qa-analyst');

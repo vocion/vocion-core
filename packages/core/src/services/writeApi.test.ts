@@ -39,8 +39,11 @@ vi.mock('@/services/ActionService', () => ({
   proposeAction: (...args: unknown[]) => proposeAction(...args),
 }));
 
-const ownerPrincipal: Principal = { kind: 'user', id: 'token:t1', role: 'owner', scope: { orgId: 'org1' }, grants: ['*'] };
-const specialistPrincipal: Principal = { kind: 'user', id: 'token:t2', role: 'specialist', scope: { orgId: 'org1' }, grants: ['draft'] };
+const ownerPrincipal: Principal = { kind: 'user', id: 'token:t1', role: 'admin', scope: { orgId: 'org1' }, grants: ['*'] };
+// A caller narrower than any role: a token holding `draft` and nothing else.
+// Both workspace roles carry `['*']`, so a restricted caller is one with
+// explicit grants and NO role — which is what a scoped API token is.
+const restrictedPrincipal: Principal = { kind: 'user', id: 'token:t2', scope: { orgId: 'org1' }, grants: ['draft'] };
 
 /**
  * A resolved caller, the way a route hands one to the write API.
@@ -56,7 +59,7 @@ function callerFor(principal: Principal): ApiCaller {
 }
 
 const owner = callerFor(ownerPrincipal);
-const specialist = callerFor(specialistPrincipal);
+const restricted = callerFor(restrictedPrincipal);
 
 const mockAuth = vi.mocked(authenticateBearer);
 const mockList = vi.mocked(ReviewService.listPending);
@@ -258,8 +261,8 @@ describe('apiDecideReview', () => {
     );
   });
 
-  it('forbids a specialist and does not dispatch', async () => {
-    await expect(apiDecideReview(specialist, { kind: 'mission', id: 7, action: 'approve' }))
+  it('forbids a caller without the grant, and does not dispatch', async () => {
+    await expect(apiDecideReview(restricted, { kind: 'mission', id: 7, action: 'approve' }))
       .rejects
       .toMatchObject({ status: 403 });
     expect(mockDecide).not.toHaveBeenCalled();
@@ -292,8 +295,8 @@ describe('apiAssignReview', () => {
     expect(out.ok).toBe(true);
   });
 
-  it('forbids a specialist from routing', async () => {
-    await expect(apiAssignReview(specialist, { kind: 'mission', id: 7, assignedTo: 'u_andrew' }))
+  it('forbids a caller without the grant from routing', async () => {
+    await expect(apiAssignReview(restricted, { kind: 'mission', id: 7, assignedTo: 'u_andrew' }))
       .rejects
       .toMatchObject({ status: 403 });
     expect(mockAssign).not.toHaveBeenCalled();
@@ -354,8 +357,8 @@ describe('apiRecordSignal', () => {
     expect(mockSignal).not.toHaveBeenCalled();
   });
 
-  it('forbids a specialist', async () => {
-    await expect(apiRecordSignal(specialist, { id: 12, signal: 'save' })).rejects.toMatchObject({ status: 403 });
+  it('forbids a caller without the grant', async () => {
+    await expect(apiRecordSignal(restricted, { id: 12, signal: 'save' })).rejects.toMatchObject({ status: 403 });
     expect(mockSignal).not.toHaveBeenCalled();
   });
 });
@@ -371,8 +374,8 @@ describe('apiRewriteDraft', () => {
     expect(mockDecide).not.toHaveBeenCalled();
   });
 
-  it('forbids a specialist', async () => {
-    await expect(apiRewriteDraft(specialist, { id: 5 })).rejects.toMatchObject({ status: 403 });
+  it('forbids a caller without the grant', async () => {
+    await expect(apiRewriteDraft(restricted, { id: 5 })).rejects.toMatchObject({ status: 403 });
     expect(mockRewrite).not.toHaveBeenCalled();
   });
 });
@@ -471,8 +474,8 @@ describe('apiProposeReview', () => {
     await expect(apiProposeReview(owner, { ...ADVICE, actionId: 'nope', input: {} })).rejects.toMatchObject({ status: 400 });
   });
 
-  it('forbids a specialist', async () => {
-    await expect(apiProposeReview(specialist, { ...ADVICE, actionId: 'crm.update', input: {} }))
+  it('forbids a caller without the grant', async () => {
+    await expect(apiProposeReview(restricted, { ...ADVICE, actionId: 'crm.update', input: {} }))
       .rejects
       .toMatchObject({ status: 403 });
     expect(proposeAction).not.toHaveBeenCalled();

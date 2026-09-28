@@ -4,7 +4,7 @@ import { ArrowLeftRight, Bell, LogOut, MessageSquareText, Monitor, Moon, Pause, 
 import { signOut, useSession } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +31,7 @@ import { WorkspacePauseDialog } from '@/features/dashboard/WorkspaceOffSwitch';
 import { envLabel as readEnvLabel } from '@/libs/envLabel';
 import { Link } from '@/libs/I18nNavigation';
 import { buildInfo, versionLabel } from '@/libs/version';
+import { NavigationProgress } from './NavigationProgress';
 import { ShellBarActionsOutlet } from './ShellBarActions';
 
 /**
@@ -99,6 +100,11 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
     // nav still misaligned"). Flex has no tracks to mis-place into: left group,
     // right group, edge to edge, whatever is hidden between them.
     <header className="sticky top-0 z-40 flex h-[60px] shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-background px-3 md:grid md:grid-cols-[1fr_minmax(0,auto)_1fr] lg:px-6">
+      {/* The one page-loading signal, along the top edge of every page
+          (backlog 013). Suspense because it reads the query string. */}
+      <Suspense fallback={null}>
+        <NavigationProgress />
+      </Suspense>
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="-ml-1 size-11 text-muted-foreground sm:size-8" />
         {/* WHICH INSTANCE THIS IS. The favicon and the page title already say

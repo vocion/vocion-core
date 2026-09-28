@@ -48,7 +48,8 @@ export function segmentTurn(runs: AgentRun[], trace: TraceNode[] = []): TurnSegm
   for (const run of runs) {
     if (run.type === 'text') {
       seenText += 1;
-    } else {
+    } else if (run.type === 'tool') {
+      // A card run is rendered by the card stack, not as a step.
       runSlots[seenText]!.push(run);
     }
   }

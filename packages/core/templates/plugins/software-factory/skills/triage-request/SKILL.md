@@ -6,11 +6,11 @@ description: >-
   message, an incident, a dogfood note — is read once and ends in exactly one
   of three places: an engineering task, an honest written answer, or a link to
   the open request it duplicates. Covers deduping against open requests,
-  tagging product, kind, severity and risk, the twenty-percent test, and why
+  tagging product, kind, severity and risk, the scope decision, and why
   the reply is itself a gated action. Read whenever a request is `new`, and
   before writing any task contract from one.
-playbooks: [the-twenty-percent, written-promises]
-version: 1
+playbooks: [naming-the-work]
+version: 2
 ---
 
 # Triaging a request
@@ -18,7 +18,7 @@ version: 1
 Every request is answered. Not every request is built. Triage is the one pass
 that decides which, and it ends in **exactly one** of three outcomes:
 
-1. **A task** — the request is in scope; hand it to the planner with its id.
+1. **A task** — the request is in scope; the PM puts the build in front of a person with its id.
 2. **An honest answer** — it will not be built, or it is a question; draft the
    reply in the asker's terms.
 3. **A duplicate link** — an open request already covers it; link, tell the
@@ -28,6 +28,13 @@ A request that ends in none of these is still open, and the seven-day clock is
 still running on it.
 
 ## Read it as it arrived
+
+**The asker is the person talking to you**, unless they say they are relaying
+someone else. A request that arrives in chat is filed with that person as
+`askedBy` and the chat as its `channel` — never "who should I attach this to?"
+(2026-09-24: an incident answer named the release, the rollback and the risk,
+then asked who the asker was, and filed nothing). File first; ask only what
+the record cannot already answer.
 
 The `body` is the asker's own words. Read them before the summary, before the
 product guess, before anything. The `channel` tells you how much context they
@@ -45,6 +52,42 @@ tells the promoter the button matters.
 When it is a duplicate: set `duplicateOf`, tell the asker on their channel that
 it is known and where it stands (that reply is an answer, and it is gated like
 one), and stop.
+
+## Then check the gap is still there
+
+Dedupe asks whether another RECORD covers this. This asks whether the PRODUCT
+already does. They are different questions and both have to be answered before
+anyone plans anything, because a request describes what was true on the day it
+was asked and a product that ships most days makes that perishable.
+
+Go and look. The route, the screen, the endpoint, the file — whatever the ask
+names. Reading another request is not looking; neither is remembering.
+
+Record it in `gapCheck` as one of three findings, with `how` naming what you
+actually looked at and `checkedAt` stamped:
+
+- **`add`** — none of it exists. This is the only finding that lets work
+  start.
+- **`modify`** — part of it already ships. Narrow the request to the part that
+  does not: rename it and rewrite its story so it asks for that alone, then
+  check the narrowed ask and record the new finding. A half-true request
+  builds the wrong thing.
+- **`none`** — it all ships. Close it with an honest answer saying where it
+  landed and when, in the asker's own terms. Nobody wants it built twice.
+
+The check is good for fourteen days. A request that has sat longer than that
+is checked again before a worker is sent at it — which is what makes this part
+of a REPLAN and not only of a first plan.
+
+You will be refused at the write if you skip it: a request cannot enter
+`in_scope` or `building` without a fresh `add`. That refusal is structural
+(`libs/actions/gapGate.ts`) and it is not negotiable from inside a prompt.
+
+**This is not hypothetical.** On 2026-09-24 two of the first rows read off the
+production board had already shipped — an appearance setting that was in the
+account menu and on ⌘K, and a "send/share on the file page" request whose
+share half had landed six days earlier while only the send half was ever
+missing.
 
 ## Tag it
 
@@ -68,9 +111,9 @@ one), and stop.
 - **`product`** — the slug. A request that fits no product is the first sign
   it is out of scope; do not invent a product to hold it.
 - **`severity`** — bugs and incidents only. `p1` means people cannot use what
-  was promised; it goes straight to the planner tonight, no twenty-percent test.
+  was promised; it goes straight to a contract tonight, no scope decision.
 - **Risk** — read the product's `repos` and their `riskDefaults`: where would a
-  fix land, and what class does that path demand? This is what the planner
+  fix land, and what class does that path demand? This is what the contract
   will start from, and it is what decides whether the eventual merge is a
   minute of someone's day or a real decision.
 - **`sizeClass`** — in release terms, not effort: `major` is a new capability
@@ -82,23 +125,39 @@ one), and stop.
   merge of a logic change, 5. Anything that touches a price, a plan limit, a
   promise or an architecture, 60.
 
-## The twenty-percent test
+## In scope or not
 
-One question, answered honestly, against the `the-twenty-percent` playbook:
-**is this in the twenty percent of asks that carry most of the value against
-the standing goals?** Value is measured
-against the product's promises and the workspace goal, not against how easy it
-is or how nicely it was asked.
+Before deciding, read the wiki pages tagged `principles` (`read_wiki_page`;
+the index names them) — the design principles, the written promises and the
+AI-first requirement are the tie-breakers, and a scope decision that never
+read them is a guess.
 
-- **Yes** → `state: in_scope`. Hand to the planner with the request id AND
-  its `why`; the planner writes the contract, never you, and the task inherits
-  the reason.
+One question, answered honestly: **does this serve the job the product does
+for people, inside the promises it has made and the operating intent the
+workspace states?** Value is measured against the product's `promises` and the
+workspace goal, not against how easy it is or how nicely it was asked. The
+operating intent's constraints are refusals, not preferences.
+
+- **Yes** → `state: in_scope`, and the build goes in front of a person as a
+  card with the request id AND its `why`; the contract is written once they
+  say yes, and the task inherits the reason.
 - **No** → `state: out_of_scope`. Draft the honest answer.
 - **Cannot tell** → it is a question for a person, with the request, your
   reading and the two ways it could go. Do not park it as `triaged` and move
   on; that is the gap the mission exists to close.
 
-A P1 bug skips the test. An incident skips the test. Everything else takes it.
+A P1 bug skips the decision. An incident skips it. Everything else is decided.
+
+**Name the platform piece, and add to core when it is missing.** Every in-scope
+decision says which shared capability it uses or extends (the wiki page tagged
+`platform` lists what core is). When the request needs a capability every
+product would need and that page does not have — a share-link rule, a seat
+rule, a notification path, an import — add ONE line to that page's
+"Candidates for core" section as part of the same turn (`write_wiki_page`):
+the date, the capability in a sentence, the request id, the products it would
+serve. That is the mechanism (Chris, 2026-09-25) by which the platform's
+feature set is maintained while planning, not afterwards; a candidate nobody
+adds while deciding is a package nobody extracts.
 
 ## The honest answer
 

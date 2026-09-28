@@ -1,3 +1,14 @@
+# The unit tests run in three CI shards (CI.yml), each uploading coverage for
+# its own third of the test files. Codecov merges uploads for the same commit;
+# waiting for all three keeps it from posting a status or comment off one
+# third of the suite (#631). Keep this number equal to the shard count.
+codecov:
+  notify:
+    after_n_builds: 3
+
+comment:
+  after_n_builds: 3
+
 coverage:
   status:
     patch: off

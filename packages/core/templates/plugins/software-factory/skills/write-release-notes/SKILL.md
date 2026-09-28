@@ -8,7 +8,7 @@ description: >-
   voice, with no internal task ids or model names. Covers the AI-fills-human-
   wins rule (`notesSource`) and why announcing is a gated action. Read when a
   release has no notes, and before proposing any announcement.
-playbooks: [house-voice, written-promises, naming-the-work]
+playbooks: [house-voice, naming-the-work]
 version: 1
 ---
 
@@ -79,3 +79,13 @@ A release whose `healthAfter` is `down` is not announced; say so and wait.
 
 Per release: notes drafted or left alone (and why), `notesSource`, the
 announcement proposed or not, the requesters still to tell.
+
+## The release's announcement and the asker's reply are two facts
+
+`release.announcedAt` / `announcedTo.channels` say what the release said and
+where. Whether each PERSON WHO ASKED heard back is written on their request —
+`told: {at, channel, what, status}` — because one release carries several
+requests with different people on different channels, and the release cannot
+say which of them was answered (review, 2026-09-24). A failing `healthAfter`
+blocks the success announcement only; an incident update to the same people is
+exactly what goes out then.

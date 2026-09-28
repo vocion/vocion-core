@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { assembleFeatureReport } from '@/services/factory/featureReport';
-import { FeatureReportView, ReportContextLine } from './FeatureReportView';
+import { FeatureReportView, plainWarning, ReportContextLine } from './FeatureReportView';
 import '@/styles/global.css';
 
 /**
@@ -138,7 +138,7 @@ describe('the feature report, drawn', () => {
     }
 
     // Nothing was dropped on the way.
-    expect(keys).toHaveLength(12);
+    expect(keys).toHaveLength(13);
 
     // And the four that moved are inside the disclosure, not merely after it.
     const technical = document.querySelector('#report-technical')!;
@@ -219,7 +219,7 @@ describe('the feature report, drawn', () => {
     expect(line.getBoundingClientRect().top).toBeGreaterThanOrEqual(port.getBoundingClientRect().top);
   });
 
-  it('opens the mockup itself when the mockup is tapped, at any width', async () => {
+  it('opens the mockup full screen when it is tapped, at any width', async () => {
     // At 430px a desktop mockup is an illegible thumbnail, and it is the one
     // thing on this page that has to be looked at rather than read. The tap
     // used to open the artifact's record page — which is exactly what the
@@ -240,14 +240,19 @@ describe('the feature report, drawn', () => {
       }],
     }));
 
-    const shot = document.querySelector('#report-visuals img');
+    // Since 2026-09-25 the tap opens the full-screen viewer (swipe, tap to
+    // zoom) on the same picture rather than the raw file in a new tab.
+    const slide = document.querySelector<HTMLButtonElement>('[data-testid="report-slide"]');
 
-    expect(shot).not.toBeNull();
+    expect(slide).not.toBeNull();
 
-    const link = shot!.closest('a')!;
+    slide!.click();
+    await new Promise(r => setTimeout(r, 50));
+    const big = document.querySelector('[data-testid="report-lightbox-image"]');
 
-    expect(link.getAttribute('href')).toBe(shot!.getAttribute('src'));
-    expect(link.getAttribute('href')).not.toBe('');
+    expect(big).not.toBeNull();
+    expect(big!.getAttribute('src')).toBe(slide!.querySelector('img')!.getAttribute('src'));
+    expect(big!.getAttribute('src')).not.toBe('');
   });
 
   it('does not scroll sideways at a desk either', async () => {
@@ -255,5 +260,26 @@ describe('the feature report, drawn', () => {
     await draw(fixture());
 
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
+  });
+});
+
+describe('the first screen leads with the feature (Chris, 2026-09-25)', () => {
+  it('says "Preview pending" rather than stretching an icon, and keeps a process warning to one line', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    await expect.element(page.getByTestId('report-preview-pending')).toBeInTheDocument();
+
+    // The fixture has a worker run and no plan: the warning is one plain line, the evidence behind a tap.
+    const warning = document.querySelector('#report-contradictions summary');
+    if (warning) {
+      expect(warning.textContent).not.toMatch(/THE RECORDS DISAGREE/i);
+      expect((document.querySelector('#report-contradictions') as HTMLDetailsElement).open).toBe(false);
+    }
+  });
+
+  it('says a missing plan in plain words', () => {
+    expect(plainWarning('The plan rule required a plan for this work and none is on the record. 1 worker run ran anyway.')).toBe('This feature was built without the required plan.');
+    expect(plainWarning('Two releases claim this request. The second has no commit.')).toBe('Two releases claim this request.');
   });
 });

@@ -20,11 +20,11 @@
  * | artifact (QA) | `record_type` `object` + `record_id` = a task id |
  */
 
-import type { FeatureReport, ReportActionRun, ReportArtifact, ReportAsk, ReportObject, ReportWorkerRun } from './featureReport';
-import { and, eq, inArray } from 'drizzle-orm';
+import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, ReportAsk, ReportObject, ReportWorkerRun } from './featureReport';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { actionRunSchema, askSchema, workerRunSchema } from '@/models/Schema';
-import { listArtifactsForRecords } from '@/services/ArtifactService';
+import { actionRunSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
+import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
 import { assembleFeatureReport } from './featureReport';
 
@@ -165,6 +165,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
       createdAt: r.createdAt,
       claimedAt: r.claimedAt ?? null,
       completedAt: r.completedAt ?? null,
+      heartbeatAt: r.heartbeatAt ?? null,
       input: (r.input ?? {}) as Record<string, unknown>,
       result: (r.result ?? null) as Record<string, unknown> | null,
       progress: (r.progress ?? {}) as Record<string, unknown>,
@@ -209,22 +210,32 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   // is the task's. VISUALS hang off the REQUEST: a mockup or a flow diagram is
   // what the outcome should look like, and it exists before there is a task to
   // attach it to. Both are ordinary artifacts, so both arrive the same way.
-  const visualIds = new Set<string>([String(request.id)]);
+  // Two different kinds of id, read two different ways. The request's own id
+  // and its tasks' ids are RECORD ids: every artifact filed against them. The
+  // ids under `visuals.beforeArtifactIds` / `afterArtifactIds` are ARTIFACT
+  // ids — a picture may live on another record (the Share dialog 87 shipped
+  // was captured on request 121) — so they are read by id. They were read as
+  // record ids, and a picture filed anywhere but on the request itself never
+  // reached its page.
   const requestVisuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
+  const pictureIds = new Set<number>();
   for (const key of ['beforeArtifactIds', 'afterArtifactIds']) {
     const ids = requestVisuals[key];
     if (Array.isArray(ids)) {
       for (const id of ids) {
-        if (typeof id === 'number' || typeof id === 'string') {
-          visualIds.add(String(id));
+        const n = Number(id);
+        if (Number.isInteger(n) && n > 0) {
+          pictureIds.add(n);
         }
       }
     }
   }
-  const recordIds = [...new Set([...taskIds].map(String).concat([...visualIds]))];
-  const artifactRows = recordIds.length === 0
-    ? []
-    : await listArtifactsForRecords({ orgId, recordType: 'object', recordIds });
+  const recordIds = [...new Set([...taskIds].map(String).concat([String(request.id)]))];
+  const [onRecords, byId] = await Promise.all([
+    listArtifactsForRecords({ orgId, recordType: 'object', recordIds }),
+    pictureIds.size === 0 ? Promise.resolve([]) : listArtifactsByIds({ orgId, ids: [...pictureIds] }),
+  ]);
+  const artifactRows = [...onRecords, ...byId.filter(b => !onRecords.some(r => r.id === b.id))];
   const artifacts: ReportArtifact[] = artifactRows.map(a => ({
     id: a.id,
     kind: a.kind,
@@ -237,5 +248,69 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     createdAt: a.createdAt,
   }));
 
-  return assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now });
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now });
+  return { ...report, activity: await loadActivity(orgId, requestId, taskIds, workerRuns) };
+}
+
+/**
+ * Every conversation and run tied to this feature, newest first. A
+ * conversation or mission run counts when one of its tool calls named this
+ * request (or one of its tasks) by id — a record it read, wrote or carded —
+ * never on a resemblance. Engineering runs are the tasks' own worker runs.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param taskIds - Its tasks.
+ * @param workerRuns - Its tasks' worker runs.
+ */
+async function loadActivity(orgId: string, requestId: number, taskIds: Set<number>, workerRuns: ReportWorkerRun[]): Promise<ReportActivity[]> {
+  const ids = [String(requestId), ...[...taskIds].map(String)];
+  const calls = await db
+    .select({ conversationId: toolCallSchema.conversationId, missionRunId: toolCallSchema.missionRunId, tool: toolCallSchema.tool, at: toolCallSchema.createdAt })
+    .from(toolCallSchema)
+    .where(and(
+      eq(toolCallSchema.orgId, orgId),
+      inArray(sql<string>`coalesce(${toolCallSchema.input}->>'id', ${toolCallSchema.input}->>'object_id', ${toolCallSchema.input}#>>'{action_input,objectId}', ${toolCallSchema.input}#>>'{input,id}')`, ids),
+    ))
+    .orderBy(desc(toolCallSchema.createdAt))
+    .limit(400);
+  const conv = new Map<number, { at: Date; writes: number; steps: number }>();
+  const mission = new Map<number, { at: Date; writes: number; steps: number }>();
+  for (const c of calls) {
+    const into = c.conversationId !== null ? conv : c.missionRunId !== null ? mission : null;
+    const key = c.conversationId ?? c.missionRunId;
+    if (!into || key === null) {
+      continue;
+    }
+    const cur = into.get(key) ?? { at: c.at, writes: 0, steps: 0 };
+    cur.steps += 1;
+    if (/^(?:update|create|file|propose|recommend|write|save)_/.test(c.tool)) {
+      cur.writes += 1;
+    }
+    into.set(key, cur);
+  }
+  const out: ReportActivity[] = [];
+  if (conv.size > 0) {
+    const rows = await db
+      .select({ id: conversationSchema.id, title: conversationSchema.title, agentSlug: conversationSchema.agentSlug })
+      .from(conversationSchema)
+      .where(and(eq(conversationSchema.orgId, orgId), inArray(conversationSchema.id, [...conv.keys()])));
+    for (const r of rows) {
+      const c = conv.get(r.id)!;
+      out.push({ kind: 'conversation', id: r.id, title: r.title?.trim() || `Conversation ${r.id}`, at: c.at, status: c.writes > 0 ? 'wrote' : 'read', detail: `${r.agentSlug ?? 'agent'} · ${c.steps} step${c.steps === 1 ? '' : 's'}` });
+    }
+  }
+  if (mission.size > 0) {
+    const rows = await db
+      .select({ id: missionRunSchema.id, title: missionRunSchema.title, status: missionRunSchema.status })
+      .from(missionRunSchema)
+      .where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.id, [...mission.keys()])));
+    for (const r of rows) {
+      const m = mission.get(r.id)!;
+      out.push({ kind: 'mission_run', id: r.id, title: r.title?.trim() || `Mission run ${r.id}`, at: m.at, status: r.status ?? null, detail: `${m.steps} step${m.steps === 1 ? '' : 's'}` });
+    }
+  }
+  for (const w of workerRuns) {
+    out.push({ kind: 'worker_run', id: w.id, title: w.summary?.split('\n')[0]?.slice(0, 90) || `Engineering run ${w.id}`, at: w.completedAt ?? w.claimedAt ?? w.createdAt, status: w.status, detail: [w.model, w.cents !== null ? `$${(w.cents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ') || null });
+  }
+  return out.sort((a, b) => b.at.getTime() - a.at.getTime());
 }

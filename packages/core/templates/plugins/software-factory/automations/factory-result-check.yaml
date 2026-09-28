@@ -1,0 +1,36 @@
+# Shipped is delivery; this is the outcome. Every weekday morning the PM reads
+# the shipped requests whose check window has passed and writes what the
+# check showed — or that it could not be read — so "we do not know" is a fact
+# on the record and never a blank (review, 2026-09-24: "Shipped and told does
+# not prove the outcome").
+slug: factory-result-check
+name: Did it help
+description: >-
+  Weekday morning pass over shipped requests past their `checkAfter`: read the
+  source `howWeCheck` names — a PostHog or Sentry figure, a reproduction, the
+  askers' own confirmation — and write `result` (helped / did_not_help /
+  not_enough_evidence), `resultNote` with the figure and its source, dated,
+  and `resultCheckedAt`. A request with no `howWeCheck` gets
+  not_enough_evidence and a one-line ask for one. did_not_help files a new
+  request and links it.
+status: active
+agent: product-manager
+when:
+  schedule: '30 15 * * 1-5'
+do:
+  checkMission: close-the-gap
+  prompt: >-
+    Read every request in state shipped whose checkAfter has passed and whose
+    result is empty. For each, read the source its howWeCheck names — the
+    analytics figure before and after with its dates, the reproduction, or
+    the askers' confirmation if they were asked — and write result, resultNote
+    (the figure or observation, its source, the date) and resultCheckedAt
+    through update_object. helped when the check shows the expected result;
+    did_not_help when it shows it did not, in which case file a new request
+    of the same kind that names this one and says what the check showed;
+    not_enough_evidence when the source cannot be read or too little use has
+    happened, and say which, with when to look again. A request with no
+    howWeCheck gets not_enough_evidence and one ask for the product owner
+    naming what would settle it. Never write helped from the absence of
+    complaints alone. Report: checked, helped, did not help, not enough
+    evidence, and the two oldest still unread.

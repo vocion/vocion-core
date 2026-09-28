@@ -62,6 +62,25 @@ export function PageWidth(props: { children: React.ReactNode }) {
     gutter.current?.scrollTo({ top: 0 });
   }, [pathname]);
 
+  // A viewport-fit page is an app screen, not a document: the header and the
+  // composer stay put and only the transcript scrolls. Below `md` the
+  // document is otherwise the scroller, so on a phone the whole shell could
+  // be dragged and rubber-banded — header off the top, composer floating mid
+  // screen (Chris, 2026-09-25: "Should I be able to drag around the header
+  // and compose bar on mobile?"). The lock lives on <html> for exactly as
+  // long as such a page is mounted (`global.css`, `html[data-viewport-fit]`).
+  useEffect(() => {
+    if (fit !== 'viewport') {
+      return;
+    }
+    const root = document.documentElement;
+    root.dataset.viewportFit = '';
+    window.scrollTo({ top: 0 });
+    return () => {
+      delete root.dataset.viewportFit;
+    };
+  }, [fit]);
+
   return (
     <div
       ref={gutter}
@@ -71,14 +90,16 @@ export function PageWidth(props: { children: React.ReactNode }) {
       // exists to have fixed. A viewport-fit route (a two-pane working
       // surface, chat) still bounds itself to the screen at every width:
       // scrolling the window through a chat transcript is not a page, and a
-      // full-page capture of one would be meaningless anyway. `60px` is the
+      // full-page capture of one would be meaningless anyway. `dvh`, not `svh`:
+      // with the document locked, the pane must follow Safari's toolbar as it
+      // collapses, or a strip of nothing opens under the composer. `60px` is the
       // top bar's own height (`AppSidebarHeader`, `h-[60px]`) — below `md` the
       // shell no longer bounds its children, so the pane subtracts the chrome
       // above it itself or the composer lands under the fold.
       className={cn(
         GUTTER,
         fit === 'viewport'
-          ? 'flex h-[calc(100svh-60px)] min-h-0 flex-col overflow-hidden md:h-auto'
+          ? 'flex h-[calc(100dvh-60px)] min-h-0 flex-col overflow-hidden md:h-auto'
           : 'md:overflow-y-auto',
       )}
     >

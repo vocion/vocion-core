@@ -4,6 +4,7 @@ const proposeAction = vi.fn();
 vi.mock('@/services/ActionService', () => ({ proposeAction: (...args: unknown[]) => proposeAction(...args) }));
 
 const { autoProposeRecommendation, deriveRecommendationDedupKey, readAutonomy } = await import('./autoPropose');
+const { cardDedupKey } = await import('@/libs/actions/cardDedupKey');
 
 describe('readAutonomy', () => {
   it('is done-for-you when nothing was said, and asks on a value it does not know', () => {
@@ -37,6 +38,16 @@ describe('autoProposeRecommendation', () => {
     expect(call.principal).toMatchObject({ kind: 'agent', id: 'agent:revenue-director', autonomy: 2 });
     expect(call.invokedBy).toBe('usr_1');
     expect(call.dedupKey).toBe('hubspot.update:611');
+  });
+
+  it('files a card that names no record under the card key a tap would use, so it is one run (walk 20)', async () => {
+    proposeAction.mockResolvedValueOnce({ runId: 43, status: 'done' });
+    const rec = { actionId: 'ask.file', input: { title: 'Ship the Kestrel upload fix?' }, label: 'Approve the Kestrel upload fix', agentSlug: 'product-manager' };
+    await autoProposeRecommendation({ orgId: 'org_1', rec });
+
+    const call = proposeAction.mock.calls.at(-1)![0] as Record<string, unknown>;
+
+    expect(call.dedupKey).toBe(cardDedupKey(rec));
   });
 
   it('returns null instead of throwing when the proposal fails, so the card falls back to the tap', async () => {

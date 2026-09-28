@@ -13,11 +13,15 @@ import type { RuntimeContext } from '../types';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { getAction, listActions } from '@/libs/actions/registry';
+import { actionInputHints, getAction, listActions } from '@/libs/actions/registry';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 
 export function recommendActionTool(ctx: RuntimeContext) {
   const available = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
+  // The field names, with * on the required ones — read off the schemas, so
+  // a card is not refused for `object_type` where the action says `objectType`
+  // (finding 20, 2026-09-25: every refused card was a guessed field name).
+  const inputs = actionInputHints();
 
   return tool(
     async (input) => {
@@ -27,9 +31,15 @@ export function recommendActionTool(ctx: RuntimeContext) {
         label: string;
         rationale?: string;
         confidence?: number;
-        suggested_decision: SuggestedDecision;
-        suggested_decision_reason: string;
+        suggested_decision?: SuggestedDecision;
+        suggested_decision_reason?: string;
       };
+      // A card is never lost to a missing sentence: the reviewer's suggested
+      // decision defaults to approve — the tool is recommending — and its
+      // reason to the rationale (2026-09-24: a decline case died in the
+      // reference run on exactly this field).
+      const suggestedDecision: SuggestedDecision = suggested_decision ?? 'approve';
+      const suggestedDecisionReason = suggested_decision_reason?.trim() || rationale?.trim() || `Recommended: ${label}`;
       // The card's Approve calls the action with this payload, so a payload the
       // action rejects is a card that can only fail — on 2026-09-18 one reached
       // production as "Couldn't prepare it: Internal server error". Validate
@@ -37,11 +47,15 @@ export function recommendActionTool(ctx: RuntimeContext) {
       if (action_id) {
         const action = getAction(action_id);
         if (!action) {
+          // Said out loud: a refused card is a card nobody saw, and for a day
+          // (2026-09-24/25) every one of them counted as emitted (finding 20).
+          console.warn('recommend_action refused: no such action', { agentSlug: ctx.agentSlug, actionId: action_id, label });
           return JSON.stringify({ ok: false, error: `No registered action "${action_id}". Registered: ${listActions().map(a => a.id).join(', ')}. Pick one of these, or recommend without an action id when the next step is a person's, not a system's.` });
         }
         const check = action.inputSchema.safeParse(action_input ?? {});
         if (!check.success) {
           const issues = check.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ');
+          console.warn('recommend_action refused: invalid input', { agentSlug: ctx.agentSlug, actionId: action_id, label, issues });
           return JSON.stringify({ ok: false, error: `action_input for ${action_id} is invalid — ${issues}. Fill those fields from what you know, or recommend without an action id.` });
         }
       }
@@ -54,15 +68,15 @@ export function recommendActionTool(ctx: RuntimeContext) {
           rationale,
           confidence,
           agentSlug: ctx.agentSlug,
-          suggestedDecision: suggested_decision,
-          suggestedDecisionReason: suggested_decision_reason,
+          suggestedDecision,
+          suggestedDecisionReason,
         },
       });
       return `Surfaced a one-tap recommendation to the user: "${label}". They can prepare it for review with a single tap. Do NOT also paste the full draft as text — the card carries it.`;
     },
     {
       name: 'recommend_action',
-      description: `Surface a recommended action as a ONE-TAP CARD in your answer (not dead text). Use this for every concrete next action you suggest that maps to a connector action — the user taps to prepare it for review; nothing sends without their approval. Prefer this over spelling the action out in prose. Available actions:\n${available}`,
+      description: `Surface a recommended action as a ONE-TAP CARD in your answer (not dead text). Use this for every concrete next action you suggest that maps to a connector action — the user taps to prepare it for review; nothing sends without their approval. Prefer this over spelling the action out in prose. Available actions:\n${available}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${inputs}`,
       schema: z.object({
         action_id: z.string().describe('Registered action id, e.g. "gmail.send"'),
         action_input: z.record(z.string(), z.unknown()).describe('Pre-filled payload for the action — for gmail.send: { to, subject, body, draft: true }'),
@@ -74,8 +88,8 @@ export function recommendActionTool(ctx: RuntimeContext) {
         // on it, and whatever stands there is scored against what the reviewer
         // then does. Core used to fill this in — an "approve" on every card,
         // which the agreement rate read as the agent's own view.
-        suggested_decision: z.enum(SUGGESTED_DECISIONS).describe('What you think the reviewer should do with this once it reaches the queue: "approve", "reject" or "snooze". Almost always "approve" for something you are recommending — say "snooze" when it should wait for something you name, and "reject" when you are surfacing it for a person to turn down.'),
-        suggested_decision_reason: z.string().describe('ONE short sentence for why that recommendation, in your own words — "the renewal is 11 days out and nobody has replied", "worth doing, but not until the contract is signed". Not the same as `rationale`: that argues the payload is right, this argues what should happen to the card.'),
+        suggested_decision: z.enum(SUGGESTED_DECISIONS).optional().describe('What you think the reviewer should do with this once it reaches the queue: "approve", "reject" or "snooze". Almost always "approve" for something you are recommending — say "snooze" when it should wait for something you name, and "reject" when you are surfacing it for a person to turn down. Omitted means approve.'),
+        suggested_decision_reason: z.string().optional().describe('ONE short sentence for why that recommendation, in your own words — "the renewal is 11 days out and nobody has replied", "worth doing, but not until the contract is signed". Not the same as `rationale`: that argues the payload is right, this argues what should happen to the card. Omitted means the rationale.'),
       }),
     },
   );

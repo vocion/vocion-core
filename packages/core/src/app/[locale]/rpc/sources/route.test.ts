@@ -32,6 +32,7 @@ const signedIn = {
   accountId: null,
   projectId: 'org_1',
   role: 'admin' as const,
+  workspaceRole: 'admin' as const,
   has: () => true,
 };
 

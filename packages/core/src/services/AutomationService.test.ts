@@ -10,6 +10,10 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/WorkflowService', () => ({
   startWorkflow: vi.fn(async () => ({ id: 210 })),
 }));
+vi.mock('@/services/automations/requiredToolPass', () => ({
+  forceRequiredTool: vi.fn(async () => ({ called: true, answer: 'recorded' })),
+  missionRunReport: vi.fn(async () => 'the review, as written'),
+}));
 vi.mock('@/services/MissionService', () => ({
   getMission: vi.fn(async () => ({ id: 1, name: 'No Lead Goes Cold', goal: 'goal', successCriteria: [] })),
   scheduledCheckBrief: vi.fn((_template: unknown, prompt?: string) => prompt ? `check brief + ${prompt}` : 'check brief'),
@@ -122,6 +126,44 @@ describe('fireAutomation', () => {
     expect(row?.input).toMatchObject({ sellerDomain: 'metacto.com', dryRun: true });
     expect(row?.result).toMatchObject({ echoed: { sellerDomain: 'metacto.com', dryRun: true } });
     expect(row?.finishedAt).toBeInstanceOf(Date);
+  });
+
+  it('do.requireTool: a miss gets the forced recording pass over the run\'s report; a pass that cannot land it fails the fire', async () => {
+    const { toolCallSchema } = await import('@/models/Schema');
+    const { forceRequiredTool } = await import('@/services/automations/requiredToolPass');
+    await db.delete(toolCallSchema);
+    await seedAutomation('review-pr', { event: 'pr.checks_completed' }, { checkMission: 'prove-the-contract', prompt: 'Review it.', requireTool: 'record_verdict' });
+    vi.mocked(startMission).mockResolvedValueOnce({ id: 401, status: 'completed' } as never);
+    vi.mocked(forceRequiredTool).mockResolvedValueOnce({ called: false, answer: 'the model returned no tool call' });
+
+    await expect(fireAutomation(ORG, 'review-pr', { input: { number: 50 } })).rejects.toThrow('run #401 ended without record_verdict, and the recording pass did not land it (the model returned no tool call)');
+    expect(vi.mocked(startMission)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(forceRequiredTool)).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'record_verdict', missionRunId: 401, report: 'the review, as written', context: { number: 50 } }));
+
+    // The recording pass lands it: the fire completes on the ONE mission run.
+    vi.mocked(startMission).mockResolvedValueOnce({ id: 402, status: 'completed' } as never);
+    vi.mocked(forceRequiredTool).mockResolvedValueOnce({ called: true, answer: 'Verdict recorded on task #157' });
+
+    expect(await fireAutomation(ORG, 'review-pr', { input: { number: 50 } })).toMatchObject({ kind: 'mission_check', runId: 402 });
+
+    // A refused call is not the work being done; an accepted one skips the pass.
+    vi.mocked(forceRequiredTool).mockClear();
+    await db.insert(toolCallSchema).values([
+      { orgId: ORG, missionRunId: 403, tool: 'record_verdict', input: {}, output: 'Not recorded: an approve cannot carry 1 criteria that are not proven', agentSlug: 'change-reviewer' },
+      { orgId: ORG, missionRunId: 404, tool: 'record_verdict', input: {}, output: 'Verdict recorded on task #157: changes, 4 of 7 criteria proven', agentSlug: 'change-reviewer' },
+    ] as never);
+    vi.mocked(startMission).mockResolvedValueOnce({ id: 404, status: 'completed' } as never);
+    await fireAutomation(ORG, 'review-pr', { input: { number: 50 } });
+
+    expect(vi.mocked(forceRequiredTool)).not.toHaveBeenCalled();
+
+    vi.mocked(startMission).mockResolvedValueOnce({ id: 403, status: 'completed' } as never);
+    vi.mocked(forceRequiredTool).mockResolvedValueOnce({ called: true, answer: 'Verdict recorded' });
+    await fireAutomation(ORG, 'review-pr', { input: { number: 50 } });
+
+    expect(vi.mocked(forceRequiredTool)).toHaveBeenCalledTimes(1);
+
+    await db.delete(toolCallSchema);
   });
 
   it('carries do.prompt into the scheduled-check brief; the mission stays the standing context', async () => {

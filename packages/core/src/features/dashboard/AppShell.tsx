@@ -27,7 +27,7 @@ import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
-import { mountedWorkspaceIsProjects } from '@/services/WorkspaceMountService';
+import { mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/WorkspaceMountService';
 import { readWorkspacePauseWithName } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -119,7 +119,8 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // project that folder was applied to; another project under the same mount
   // sees its plugins' pages and nothing of the folder's.
   const mounted = orgId ? await mountedWorkspaceIsProjects(orgId).catch(() => false) : true;
-  const pages = readWorkspacePages({ enabledPlugins, mounted }).pages;
+  const ownDir = orgId && !mounted ? await projectPagesFolder(orgId).catch(() => null) : null;
+  const pages = readWorkspacePages({ enabledPlugins, mounted, dir: ownDir }).pages;
   const nav = pluginNav({
     plugins: safeListPlugins().filter(p => enabledPlugins.includes(p.manifest.slug)).map(p => p.manifest),
     pages,

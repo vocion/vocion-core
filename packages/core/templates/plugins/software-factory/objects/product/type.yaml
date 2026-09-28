@@ -11,6 +11,10 @@ icon: package
 schema:
   type: object
   properties:
+    slug:
+      x-display: {label: Slug, format: mono, group: Identity}
+      type: string
+      description: The key every request and release names this product by (`request.product`, `release.product`). The rollups below join on it, so a product with no slug counts nothing.
     name:
       x-display: {label: Name, group: Product}
       type: string
@@ -23,6 +27,23 @@ schema:
       x-display: {label: Launch name, group: Product}
       type: string
       description: The name it ships under. Empty until it is decided; a product may reach `dogfood` without one.
+    tagline:
+      x-display: {label: Tagline, group: Product}
+      type: string
+      description: One line saying what it is FOR, in the words a customer would use — the line under the name on the Products board. "Send big files and know when they were opened", not a feature list.
+    icon:
+      x-display: {label: Icon, format: mono, group: Identity}
+      type: string
+      description: 'The product''s mark on the board: a lucide icon name (`send`, `package`, `layers`, `cpu`). Until it has a logo, this is how a person tells the cards apart at a glance.'
+    dependsOn:
+      x-display: {label: Built on, format: link, to: product}
+      type: array
+      items: {type: string}
+      description: >-
+        The product slugs this one is built on. A product app (Send, Slate) is
+        built on the core platform; a request filed against the core moves
+        every product on it, and the board says so in both directions — "built
+        on Squatch Core" on the app, "Send and Slate build on it" on the core.
     stage:
       x-display: {label: Stage, format: badge, group: Product, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
       type: string
@@ -88,7 +109,7 @@ schema:
       type: string
       description: >-
         What is actually watching this product: "nightly e2e", "deploy
-        check", the monitor's name. AGENT-MAINTAINED by the lead's tick, and
+        check", the monitor's name. AGENT-MAINTAINED by the PM when asked (nothing refreshes it on a schedule since 2026-09-24), and
         the thing that makes `health` a reading rather than a guess. Empty
         means nothing is connected, and every surface must say that instead
         of printing a health state nobody observed.
@@ -96,31 +117,43 @@ schema:
       x-display: {label: Health checked}
       type: string
       format: date-time
-      description: When `healthSource` last reported. AGENT-MAINTAINED by the lead's tick. A health with no check behind it is not a health.
+      description: When `healthSource` last reported. AGENT-MAINTAINED by the PM when asked (nothing refreshes it on a schedule since 2026-09-24). A health with no check behind it is not a health.
     lastShipped:
       x-display: {label: Last shipped}
       type: string
       description: >-
         The announcement line of the newest `release` for this product, in the
         words the public reads, so what shipped and not how many. AGENT-MAINTAINED
-        by the lead's tick, read with `lastReleaseAt` beside it so the
+        by the PM when asked (nothing refreshes it on a schedule since 2026-09-24), read with `lastReleaseAt` beside it so the
         portfolio says "Email sharing, yesterday" rather than "7 this month".
     inFlight:
       x-display: {label: Being worked on, group: Counters}
       type: integer
-      description: How many of this product's open requests are in state `building` right now. AGENT-MAINTAINED by the lead's tick. Open work needs shape, how much is moving and whether any of it is urgent, because a bare count of ten can be a disaster or a healthy backlog.
+      description: >-
+        COUNTED FROM THE RECORDS (rollup on every write, see rollups below), never
+        an agent's morning refresh: How many of this product's open requests are in
+        state `building` right now. previously agent-maintained by the PM when asked
+        (nothing refreshes it on a schedule since 2026-09-24). Open work needs
+        shape, how much is moving and whether any of it is urgent, because a bare
+        count of ten can be a disaster or a healthy backlog.
     openRequests:
       x-display: {label: Open requests, group: Counters}
       type: integer
-      description: How many `request` records for this product are still owed an outcome (state new, triaged, in_scope or building). AGENT-MAINTAINED by the lead's tick; a page's stats compute over their own rows, so a cross-type count lives here.
+      description: >-
+        COUNTED FROM THE RECORDS (rollup on every write, see rollups below), never
+        an agent's morning refresh: How many `request` records for this product are
+        still owed an outcome (state new, triaged, in_scope or building). previously
+        agent-maintained by the PM when asked (nothing refreshes it on a schedule
+        since 2026-09-24); a page's stats compute over their own rows, so a
+        cross-type count lives here.
     p1Open:
       x-display: {label: Open P1s, group: Counters}
       type: integer
-      description: How many open requests for this product carry severity `p1`. AGENT-MAINTAINED by the lead's tick.
+      description: How many open requests for this product carry severity `p1`. AGENT-MAINTAINED by the PM when asked (nothing refreshes it on a schedule since 2026-09-24).
     shippedThisMonth:
       x-display: {label: Shipped this month, group: Counters}
       type: integer
-      description: How many `release` records for this product have a `releasedAt` in the current calendar month. AGENT-MAINTAINED by the lead's tick.
+      description: How many `release` records for this product have a `releasedAt` in the current calendar month. AGENT-MAINTAINED by the PM when asked (nothing refreshes it on a schedule since 2026-09-24).
     medianDaysToShip:
       x-display: {label: Median days to ship, group: Counters}
       type: number
@@ -129,7 +162,11 @@ schema:
       x-display: {label: Last release}
       type: string
       format: date-time
-      description: The newest `release.releasedAt` for this product. AGENT-MAINTAINED by the lead's tick.
+      description: >-
+        COUNTED FROM THE RECORDS (rollup on every write, see rollups below), never
+        an agent's morning refresh: The newest `release.releasedAt` for this
+        product. previously agent-maintained by the PM when asked (nothing refreshes
+        it on a schedule since 2026-09-24).
     revenueMonthCents:
       x-display: {label: Revenue this month, format: money, group: Money}
       type: integer
@@ -143,3 +180,14 @@ schema:
       x-display: {label: Notes, role: prose, order: 5}
       type: string
       description: Standing knowledge about the product — positioning, who it is for, what was decided and when. Markdown.
+
+# Counted from the request and release records themselves, on every write
+# that touches one, so a line on the board cannot go stale between ticks.
+# `match: slug` joins a child's `product` value to this record's slug; the
+# agent-maintained counters this replaced (keep-the-board-honest) are gone
+# with their mission (2026-09-24).
+rollups:
+  - {field: openRequests, from: {type: request, by: product, match: slug}, where: {field: state, in: [new, triaged, in_scope, deferred, building]}}
+  - {field: inFlight, from: {type: request, by: product, match: slug}, where: {field: state, in: [building]}}
+  - {field: awaitingDecision, from: {type: request, by: product, match: slug}, where: {field: recommendationState, in: [proposed]}}
+  - {field: lastReleaseAt, from: {type: release, by: product, match: slug}, max: releasedAt}

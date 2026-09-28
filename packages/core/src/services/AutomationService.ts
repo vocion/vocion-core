@@ -25,10 +25,13 @@ import {
   getTemporalClient,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
-import { automationRunSchema, automationSchema, knowledgeSourceSchema, userSchema } from '@/models/Schema';
+import { automationRunSchema, automationSchema, knowledgeSourceSchema, toolCallSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
 import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
+
+/** How long a check waits before its one retry after a transient model error. */
+export const TRANSIENT_RETRY_MS = 20_000;
 
 /**
  * The `automation_run.kind` of a pause or a resume. Not a fire: it dispatches
@@ -154,7 +157,7 @@ export type PendingAutomationFire = {
   slug: string;
   kind: 'workflow' | 'mission_check' | 'job';
   automationRunId: number;
-  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> };
+  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> };
   input: Record<string, unknown>;
   /** What the CALLER handed in — an event's payload, or nothing for a schedule fire. */
   triggerInput?: Record<string, unknown>;
@@ -368,6 +371,7 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
  * @param doCfg.checkMission
  * @param doCfg.job
  * @param doCfg.prompt
+ * @param doCfg.requireTool
  * @param input - Merged `do.input` + caller overrides. `input.prompt` replaces the authored orders for this fire.
  * @param invokedBy
  * @param triggerInput - What the caller handed in: an event's payload, or nothing for a schedule fire.
@@ -376,7 +380,7 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
 async function dispatchDo(
   orgId: string,
   slug: string,
-  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string },
+  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string },
   input: Record<string, unknown>,
   invokedBy: string,
   triggerInput: Record<string, unknown> | undefined,
@@ -415,7 +419,7 @@ async function dispatchDo(
   const prompt = typeof input.prompt === 'string' && input.prompt.trim() !== '' ? input.prompt : doCfg.prompt;
   const startedAt = new Date();
   const before = await queueSnapshot(orgId);
-  const run = await startMission({
+  const missionArgs = {
     orgId,
     missionSlug,
     // The automation's authored execution prompt rides the brief; the mission
@@ -428,12 +432,49 @@ async function dispatchDo(
     // mission, so `Check: <mission name>` made them identical in Activity and
     // only `created_by` told them apart.
     title: `${slug}: ${template.name}`,
-    mode: 'check',
+    mode: 'check' as const,
     invokedBy,
     // The run knows which fires are behind it, so `mission_run.completed`
     // can say so and never fire this automation again.
     causedBy,
-  });
+  };
+  let run = await startMission(missionArgs);
+  // A PROVIDER HICCUP IS NOT A VERDICT. Review 5839 (#126, 2026-09-28) died
+  // 12 seconds in on an `overloaded_error` streamed mid-response — the kind
+  // the SDK does not retry — and a good build sat as "QA could not finish".
+  // A check that failed only on a transient model error runs once more.
+  if (run.status === 'failed' && transientModelFailure(run.plan)) {
+    console.warn('[automation] check failed on a transient model error; running it once more', { slug, missionRunId: run.id });
+    await new Promise(resolve => setTimeout(resolve, TRANSIENT_RETRY_MS));
+    run = await startMission(missionArgs);
+  }
+  // A REQUIRED TOOL IS A GATED BACKSTOP, NOT A PROMPT LINE. The reviewer read
+  // a whole pull request and ended without recording a verdict (2026-09-26,
+  // run 5471); a second full pass told to "end with it" did the same (fire
+  // 7040). So a miss gets one focused pass over the report the run already
+  // wrote, with the tool bound and chosen: the only possible output is the
+  // call. A miss after that is an error on the fire, where a person sees it,
+  // never a silent "completed".
+  if (doCfg.requireTool && !(await calledRequiredTool(orgId, run.id, doCfg.requireTool))) {
+    const { forceRequiredTool, missionRunReport } = await import('@/services/automations/requiredToolPass');
+    const forced = await forceRequiredTool({
+      orgId,
+      agentSlug: (template as { agentSlug?: string }).agentSlug ?? '',
+      toolName: doCfg.requireTool,
+      missionRunId: run.id,
+      report: await missionRunReport(orgId, run.id),
+      context: triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined,
+    }).catch(err => ({ called: false, answer: (err as Error).message }));
+    if (!forced.called) {
+      // The review's own record says it failed, where the person reads (Work).
+      const prUrl = typeof triggerInput?.url === 'string' ? triggerInput.url : '';
+      if (doCfg.requireTool === 'record_verdict' && prUrl) {
+        const { markReviewFailed } = await import('@/services/agents/tools/recordVerdict');
+        await markReviewFailed(orgId, prUrl).catch(() => null);
+      }
+      throw new Error(`automation "${slug}": run #${run.id} ended without ${doCfg.requireTool}, and the recording pass did not land it (${forced.answer.slice(0, 300)})`);
+    }
+  }
   // The summary the branch used to discard. Best-effort: a fire whose work
   // succeeded must not be recorded as failed because measuring it did.
   const result = await summarizeMissionCheck({ orgId, run, before, startedAt }).catch((err) => {
@@ -444,6 +485,33 @@ async function dispatchDo(
     return undefined;
   });
   return { kind: 'mission_check', runId: run.id, result };
+}
+
+/**
+ * Did this mission run call the tool, and was the call accepted? A required
+ * tool refuses with an output that starts "Not recorded" (record_verdict), so
+ * a refused call does not count as the work being done.
+ * @param orgId - The workspace.
+ * @param missionRunId - The run.
+ * @param toolName - The tool the automation requires.
+ */
+/**
+ * Whether a failed run failed only on the model provider being busy or the
+ * connection dropping — not on anything the run did.
+ * @param plan - The run's plan (its tasks carry their errors).
+ */
+export function transientModelFailure(plan: unknown): boolean {
+  const tasks = ((plan ?? {}) as { tasks?: Array<{ status?: string; error?: unknown }> }).tasks ?? [];
+  const errors = tasks.filter(t => t.status === 'failed' || t.error).map(t => String(t.error ?? ''));
+  return errors.length > 0 && errors.every(e => /overloaded|rate_limit|\b429\b|\b529\b|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed/i.test(e));
+}
+
+export async function calledRequiredTool(orgId: string, missionRunId: number, toolName: string): Promise<boolean> {
+  const rows = await db
+    .select({ output: toolCallSchema.output, error: toolCallSchema.error })
+    .from(toolCallSchema)
+    .where(and(eq(toolCallSchema.orgId, orgId), eq(toolCallSchema.missionRunId, missionRunId), eq(toolCallSchema.tool, toolName), sql`${toolCallSchema.error} is null`));
+  return rows.some(r => !(typeof r.output === 'string' ? r.output : JSON.stringify(r.output ?? '')).replace(/^"/, '').startsWith('Not recorded'));
 }
 
 export type AutomationRunRow = typeof automationRunSchema.$inferSelect;

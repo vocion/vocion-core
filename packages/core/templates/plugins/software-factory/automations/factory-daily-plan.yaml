@@ -1,11 +1,11 @@
 slug: factory-daily-plan
 name: Weekday planning pass
 description: >-
-  Wakes the Task planner every weekday afternoon to check the standing mission:
+  Wakes the PM every weekday afternoon to check the standing mission:
   what was asked, what is in flight, what is stuck, and what nobody has
   answered.
 status: active
-agent: task-planner
+agent: product-manager
 when:
   schedule: '0 15 * * 1-5'
 do:

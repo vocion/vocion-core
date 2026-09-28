@@ -1,4 +1,4 @@
-# Gate 1 of 3 — the contract itself, before anyone agrees to it.
+# Gate 1 of 2 — the contract itself, before anyone agrees to it.
 #
 # Fires on `request.triaged`: the moment a request has been understood well
 # enough to be put in front of a person, and BEFORE it is approved. What it

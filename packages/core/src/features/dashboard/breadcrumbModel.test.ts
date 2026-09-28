@@ -58,4 +58,11 @@ describe('decision sheets', () => {
 
     expect(crumbs?.map(c => c.label)).toEqual(['Review', 'plain-group']);
   });
+
+  it('drops the page folder: /dashboard/p/<slug> reads as the page, never as "P"', () => {
+    const crumbs = buildCrumbs({ pathname: '/en/dashboard/p/wiki/core', docTitle: 'Core', workspaceName: 'Squatch Factory' });
+
+    expect(crumbs?.map(c => c.label)).toEqual(['Squatch Factory', 'Wiki', 'Core']);
+    expect(crumbs?.map(c => c.url)).not.toContain('/dashboard/p');
+  });
 });

@@ -32,8 +32,15 @@ const mockSession = vi.mocked(clerkAuth);
 
 const ORG = 'org_pause_route';
 
-function identity(role: 'owner' | 'pm' | 'specialist' | 'client_reviewer', grants: string[] = []) {
-  return { orgId: ORG, tokenId: 't1', principal: { kind: 'user' as const, id: 'token:t1', role, scope: { orgId: ORG }, grants } };
+/**
+ * A token caller. Both workspace roles carry `['*']`, so the caller a
+ * capability check can refuse is one with NO role, holding only the grants it
+ * was issued — which is what a scoped API token is.
+ * @param role - The workspace role, or null for grants-only.
+ * @param grants - The token's explicit grants.
+ */
+function identity(role: 'admin' | 'member' | null, grants: string[] = []) {
+  return { orgId: ORG, tokenId: 't1', principal: { kind: 'user' as const, id: 'token:t1', role: role ?? undefined, scope: { orgId: ORG }, grants } };
 }
 
 function post(path: string, body?: unknown): Request {
@@ -73,8 +80,8 @@ describe('POST /api/v1/automations/:slug/pause', () => {
     expect(res.status).toBe(401);
   });
 
-  it('refuses a token below owner/pm', async () => {
-    mockBearer.mockResolvedValue(identity('specialist') as never);
+  it('refuses a token holding no such grant', async () => {
+    mockBearer.mockResolvedValue(identity(null) as never);
 
     const res = await pause(post('wiki-debrief/pause', { note: 'loop' }), params('wiki-debrief'));
 
@@ -83,7 +90,7 @@ describe('POST /api/v1/automations/:slug/pause', () => {
   });
 
   it('requires a note — a stop with no reason is the row nobody can act on', async () => {
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
 
     const res = await pause(post('wiki-debrief/pause', {}), params('wiki-debrief'));
 
@@ -92,7 +99,7 @@ describe('POST /api/v1/automations/:slug/pause', () => {
   });
 
   it('pauses on the record, naming the token', async () => {
-    mockBearer.mockResolvedValue(identity('pm') as never);
+    mockBearer.mockResolvedValue(identity('member') as never);
 
     const res = await pause(post('wiki-debrief/pause', { note: 'runaway on mission_run.completed, incident 2026-09-20' }), params('wiki-debrief'));
 
@@ -113,7 +120,7 @@ describe('POST /api/v1/automations/:slug/pause', () => {
   });
 
   it('answers 409 for a pause on a paused automation, and 404 for a slug that is not one', async () => {
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
     await pause(post('wiki-debrief/pause', { note: 'first' }), params('wiki-debrief'));
 
     const again = await pause(post('wiki-debrief/pause', { note: 'second' }), params('wiki-debrief'));
@@ -129,7 +136,7 @@ describe('POST /api/v1/automations/:slug/pause', () => {
 
 describe('POST /api/v1/automations/:slug/resume', () => {
   it('lifts a pause with an optional note and records whose pause it was', async () => {
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
     await pause(post('wiki-debrief/pause', { note: 'hold' }), params('wiki-debrief'));
 
     const res = await resume(post('wiki-debrief/resume'), params('wiki-debrief'));
@@ -143,12 +150,12 @@ describe('POST /api/v1/automations/:slug/resume', () => {
     expect((controls[1]!.result as { lifted: { by: string } }).lifted.by).toBe('token:t1');
   });
 
-  it('refuses a token below owner/pm, and 409s a resume on a running automation', async () => {
-    mockBearer.mockResolvedValue(identity('client_reviewer') as never);
+  it('refuses a token holding no such grant, and 409s a resume on a running automation', async () => {
+    mockBearer.mockResolvedValue(identity(null) as never);
 
     expect((await resume(post('wiki-debrief/resume'), params('wiki-debrief'))).status).toBe(403);
 
-    mockBearer.mockResolvedValue(identity('owner') as never);
+    mockBearer.mockResolvedValue(identity('admin') as never);
 
     expect((await resume(post('wiki-debrief/resume'), params('wiki-debrief'))).status).toBe(409);
   });

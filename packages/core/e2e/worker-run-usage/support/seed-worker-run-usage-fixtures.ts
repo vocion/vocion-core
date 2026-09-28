@@ -5,7 +5,7 @@
  *
  * Builds, in the database the running app is actually pointed at:
  *   - its own tenant account + project ("e2e-worker-run-usage"), so the spec
- *     runs against a fresh database (CI boots an empty PGlite) as well as a
+ *     runs against a fresh database (each CI shard starts with an empty Postgres) as well as a
  *     developer's, and never competes with whatever else lives there
  *   - one tenant API token for it, minted through `issueToken` — the same
  *     function `npm run tokens:issue` and the dashboard's "Create token"
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   const token = await issueToken({
     orgId,
     name: TOKEN_NAME,
-    role: 'owner',
+    role: 'admin',
     createdBy: 'e2e-seed-worker-run-usage-fixtures',
   });
 

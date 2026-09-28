@@ -24,7 +24,7 @@ afterAll(async () => {
 
 describe('ApiTokenService', () => {
   it('issues a vcn_live token and verifies it into an authz principal', async () => {
-    const { token, id } = await issueToken({ orgId: ORG, name: 'FirstHQ app', role: 'pm', grants: ['send_email'] });
+    const { token, id } = await issueToken({ orgId: ORG, name: 'FirstHQ app', role: 'member', grants: ['send_email'] });
 
     expect(token.startsWith(`vcn_live_${id}_`)).toBe(true);
 
@@ -34,7 +34,7 @@ describe('ApiTokenService', () => {
     expect(identity!.orgId).toBe(ORG);
     expect(identity!.principal).toMatchObject({
       kind: 'user',
-      role: 'pm',
+      role: 'member',
       scope: { orgId: ORG },
       grants: ['send_email'],
     });

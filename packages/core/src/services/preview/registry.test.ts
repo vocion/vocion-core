@@ -60,7 +60,7 @@ beforeEach(async () => {
 
 describe('the registry', () => {
   it('is the only list of previewable types', () => {
-    expect(previewTypes()).toEqual(['artifact', 'briefing', 'conversation', 'deal', 'document', 'lead', 'object', 'page']);
+    expect(previewTypes()).toEqual(['artifact', 'briefing', 'conversation', 'deal', 'document', 'lead', 'object', 'page', 'worker_run']);
   });
 });
 

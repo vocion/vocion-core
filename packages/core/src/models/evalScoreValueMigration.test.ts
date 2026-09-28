@@ -5,7 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 /**
- * Migration 0143 against a populated column.
+ * Migration 0147 against a populated column.
  *
  * Every other test replays the migrations onto an empty database, where this
  * one's ALTER has no rows to convert — and converting rows is the whole point:
@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  */
 
 const MIGRATION_SQL = readFileSync(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations/0143_eval_score_value_double.sql'),
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations/0147_eval_score_value_double.sql'),
   'utf8',
 );
 
@@ -41,7 +41,7 @@ async function readColumn(db: PGlite): Promise<{ type: string; values: Array<num
   return { type: type.rows[0]!.data_type, values: rows.rows.map(row => row.value) };
 }
 
-describe('migration 0143: eval_score.value from real to double precision', () => {
+describe('migration 0147: eval_score.value from real to double precision', () => {
   it('stores each existing score as the value it meant, not its 32-bit noise', async () => {
     await database.exec(`INSERT INTO "eval_score" ("value") VALUES (0.9), (0.29), (0.669), (NULL)`);
 

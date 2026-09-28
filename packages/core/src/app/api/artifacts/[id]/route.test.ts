@@ -77,7 +77,7 @@ describe('GET /api/artifacts', () => {
     expect(a.status).toBe(404);
 
     mockSession.mockReset();
-    mockBearer.mockResolvedValue({ orgId: OTHER, tokenId: 't1', principal: { kind: 'token', id: 't1', role: 'member', scope: { orgId: OTHER } } } as never);
+    mockBearer.mockResolvedValue({ orgId: OTHER, tokenId: 't1', principal: { kind: 'token', id: 't1', role: 'member', workspaceRole: 'owner' as const, scope: { orgId: OTHER } } } as never);
     const b = await getByName(req(saved.url, 'vcn_live_x'), { params: Promise.resolve({ id: saved.id, filename: saved.filename }) });
 
     expect(b.status).toBe(404);

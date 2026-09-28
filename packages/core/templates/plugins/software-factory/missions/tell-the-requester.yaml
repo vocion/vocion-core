@@ -12,15 +12,32 @@ goal: >-
   `announcedTo` are the people already told, and the difference is the loop
   still open. A request is not closed until the asker has been told; the
   reply is proposed, and a person releases it.
-agent: task-planner
+agent: product-manager
 autonomyPolicy:
   level: 2
 successCriteria:
   - A release that has notes and no announcement is the first item of every pass — the announcement is proposed from the notes, and the notes are a person's (notesSource human) before it is; a release with no notes gets them drafted first
   - Every request in a release's requestIds and not yet in its announcedTo.requestIds, and every request whose answer was decided, has a reply proposed on its own channel within two hours of the release or the decision
-  - A reply about a shipped change names the release's version and what changed for the asker, and is not proposed while the release's healthAfter is down
+  - >-
+    A reply about a shipped change names the release's version and what
+    changed for the asker; a failing healthAfter blocks the SUCCESS
+    announcement only — an incident update to the same people goes out
+    precisely then
+  - >-
+    A routine, evidenced completion is proposed as `notify.requester` kind
+    completion and may go out under the communication policy the product
+    owner turned on; a decline, an incident update or an answer to a question
+    is kind decline / incident / question and a person releases it every time
+  - >-
+    Who was told is written on the REQUEST (`told` — at, channel, what,
+    status), never inferred from the release's announcedTo, because one
+    release carries several requests with different people on different
+    channels
   - Every proposed reply is written for the asker in their own terms, states what changed or was decided and why, and names nothing that is still waiting on a person as done
-  - No request moves to `shipped` or `answered` before its reply was released; `answeredAt` is when they heard, not when we decided; the release's announcedTo.requestIds is written when the reply is released, and announcedAt when the announcement is
+  - >-
+    No request is closed before `told.status` says sent; `answeredAt` is when
+    they heard, not when we decided; the release's announcedAt is written when
+    its announcement is, and that is a separate fact
   - Duplicates are told where the request they duplicate stands, once
   - >-
     One question asked about several releases is ONE decision sheet: every ask

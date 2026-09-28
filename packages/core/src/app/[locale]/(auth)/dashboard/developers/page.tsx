@@ -70,6 +70,48 @@ export default async function DevelopersPage() {
         <pre className="overflow-x-auto rounded-lg bg-muted/60 px-4 py-3 font-mono text-[12px] leading-relaxed">{mcpConfig}</pre>
       </DashboardSection>
 
+      {/* CONNECT AN ASSISTANT (backlog 027): the same door, signed into from
+          Claude.ai, ChatGPT or Claude Code with OAuth — no token to paste. */}
+      <DashboardSection
+        title="Connect an assistant"
+        description="Chat to this workspace from Claude, ChatGPT or Claude Code. They add the MCP URL, send you here once to press Allow, and ask the workspace with your permissions. Decisions stay in the app."
+      >
+        <ol className="max-w-prose space-y-2 text-sm">
+          <li className="grid grid-cols-[1.6rem_minmax(0,1fr)] gap-x-2">
+            <span className="font-mono text-xs text-muted-foreground tabular-nums">01</span>
+            <span className="min-w-0 break-words">
+              <strong>Claude.ai or Claude Desktop</strong>
+              : Settings → Connectors → Add custom connector → paste
+              {' '}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px] break-all">{mcpUrl}</code>
+              . Nothing else to fill in.
+            </span>
+          </li>
+          <li className="grid grid-cols-[1.6rem_minmax(0,1fr)] gap-x-2">
+            <span className="font-mono text-xs text-muted-foreground tabular-nums">02</span>
+            <span className="min-w-0 break-words">
+              <strong>Claude Code</strong>
+              :
+              {' '}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px] break-all">{`claude mcp add --transport http vocion ${mcpUrl}`}</code>
+              , then
+              {' '}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px]">/mcp</code>
+              {' '}
+              to sign in.
+            </span>
+          </li>
+          <li className="grid grid-cols-[1.6rem_minmax(0,1fr)] gap-x-2">
+            <span className="font-mono text-xs text-muted-foreground tabular-nums">03</span>
+            <span className="min-w-0 break-words">
+              <strong>ChatGPT</strong>
+              {' '}
+              (developer mode → Connectors) takes the same URL. The token an assistant gets lasts thirty days and shows below under API credentials — revoke it there to disconnect.
+            </span>
+          </li>
+        </ol>
+      </DashboardSection>
+
       <DashboardSection
         // The credentials table carries seven columns plus a revoke action, which
         // does not fit the default reading-width cap.

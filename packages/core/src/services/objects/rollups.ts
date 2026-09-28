@@ -141,6 +141,15 @@ async function parentsOf(orgId: string, parentTypeId: number, child: ObjectRow, 
   const scope = [eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.typeId, parentTypeId)];
   if (rollup.from.by) {
     const raw = (child.metadata ?? {})[rollup.from.by];
+    if (rollup.from.match) {
+      // The child names the parent by a value the parent carries (a slug),
+      // not by its row id.
+      const value = typeof raw === 'string' ? raw.trim() : typeof raw === 'number' ? String(raw) : '';
+      if (value === '') {
+        return [];
+      }
+      return db.select().from(businessObjectSchema).where(and(...scope, eq(metaText(rollup.from.match), value)));
+    }
     const parentId = typeof raw === 'number' ? raw : Number(raw);
     if (!Number.isInteger(parentId) || parentId <= 0) {
       return [];
@@ -167,6 +176,14 @@ async function parentsOf(orgId: string, parentTypeId: number, child: ObjectRow, 
 async function childrenOf(orgId: string, childTypeId: number, parent: ObjectRow, rollup: Rollup): Promise<ObjectRow[]> {
   const scope = [eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.typeId, childTypeId)];
   if (rollup.from.by) {
+    if (rollup.from.match) {
+      const raw = (parent.metadata ?? {})[rollup.from.match];
+      const value = typeof raw === 'string' ? raw.trim() : typeof raw === 'number' ? String(raw) : '';
+      if (value === '') {
+        return [];
+      }
+      return db.select().from(businessObjectSchema).where(and(...scope, eq(metaText(rollup.from.by), value)));
+    }
     return db.select().from(businessObjectSchema).where(and(...scope, eq(metaText(rollup.from.by), String(parent.id))));
   }
   if (rollup.from.inList) {
@@ -213,6 +230,28 @@ function earliestOf(children: ObjectRow[], key: string): string | undefined {
     }
     const t = new Date(raw).getTime();
     if (Number.isFinite(t) && (best === null || t < best)) {
+      best = t;
+    }
+  }
+  return best === null ? undefined : new Date(best).toISOString();
+}
+
+/**
+ * The LATEST of a date key across children, as an ISO string; undefined when
+ * no child carries a readable date. The mirror of {@link earliestOf}: a
+ * product's `lastReleaseAt` is the newest release that names it.
+ * @param children - The qualifying children.
+ * @param key - The child's metadata date key.
+ */
+function latestOf(children: ObjectRow[], key: string): string | undefined {
+  let best: number | null = null;
+  for (const c of children) {
+    const raw = (c.metadata ?? {})[key];
+    if (typeof raw !== 'string' && typeof raw !== 'number') {
+      continue;
+    }
+    const t = new Date(raw).getTime();
+    if (!Number.isNaN(t) && (best === null || t > best)) {
       best = t;
     }
   }
@@ -275,6 +314,13 @@ export async function recomputeRollups(opts: { orgId: string; childType: string;
           const earliest = earliestOf(children, rollup.min);
           if (earliest !== undefined) {
             fields[rollup.field] = earliest;
+          }
+          continue;
+        }
+        if (rollup.max) {
+          const latest = latestOf(children, rollup.max);
+          if (latest !== undefined) {
+            fields[rollup.field] = latest;
           }
           continue;
         }

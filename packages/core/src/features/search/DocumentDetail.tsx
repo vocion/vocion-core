@@ -1,7 +1,7 @@
 'use client';
 
 import { DetailPage, FactList, MetaChip, RightColumn, Section } from '@/components/patterns';
-import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { recordRef } from '@/services/chat/recordContext';
 
 /**
@@ -52,75 +52,77 @@ export function DocumentDetail({ doc, backHref }: { doc: DocumentView; backHref:
     .slice(0, 8);
 
   return (
-    <DetailPage
-      data-testid="document-detail"
-      crumbs={[{ label: 'Search', href: backHref }, { label: doc.title }]}
-      title={doc.title}
-      subtitle={doc.sourceSlug}
-      meta={(
-        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px] text-muted-foreground">
-          <MetaChip>Document</MetaChip>
-          <span aria-hidden className="text-muted-foreground/50">·</span>
-          <span>{doc.sourceSlug}</span>
-          {modified && (
-            <>
-              <span aria-hidden className="text-muted-foreground/50">·</span>
-              <span>{`modified ${modified}`}</span>
-            </>
-          )}
-          <span aria-hidden className="text-muted-foreground/50">·</span>
-          <span>{`${doc.chunkCount} chunk${doc.chunkCount === 1 ? '' : 's'} indexed`}</span>
-          {doc.uri && (
-            <>
-              <span aria-hidden className="text-muted-foreground/50">·</span>
-              <MetaChip href={doc.uri}>Open at the source ↗</MetaChip>
-            </>
-          )}
-        </div>
-      )}
-      actions={<AskAboutThis record={record} selectionRoot="[data-document-body]" />}
-      aside={(
-        <RightColumn label="Document">
-          <Section eyebrow="Source" tone="quiet">
-            <FactList
-              layout="column"
-              facts={[
-                { label: 'Connector', value: doc.sourceSlug },
-                doc.sourceKind && { label: 'Kind', value: doc.sourceKind },
-                { label: 'Id at the source', value: <span className="font-mono text-[12px] break-all">{doc.externalId}</span> },
-                doc.uri && { label: 'Link', value: 'Open at the source ↗', href: doc.uri },
-              ]}
-            />
-          </Section>
-          <Section eyebrow="Ingestion" tone="quiet">
-            <FactList
-              layout="column"
-              facts={[
-                modified && { label: 'Last modified', value: modified },
-                { label: 'Ingested', value: ingested ?? '—' },
-                { label: 'Chunks indexed', value: String(doc.chunkCount) },
-              ]}
-            />
-          </Section>
-          {extra.length > 0 && (
-            <Section eyebrow="Metadata" tone="quiet">
-              <FactList layout="column" facts={extra.map(([k, v]) => ({ key: k, label: k, value: String(v) }))} />
+    <>
+      <RecordContext record={record} />
+      <DetailPage
+        data-testid="document-detail"
+        crumbs={[{ label: 'Search', href: backHref }, { label: doc.title }]}
+        title={doc.title}
+        subtitle={doc.sourceSlug}
+        meta={(
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px] text-muted-foreground">
+            <MetaChip>Document</MetaChip>
+            <span aria-hidden className="text-muted-foreground/50">·</span>
+            <span>{doc.sourceSlug}</span>
+            {modified && (
+              <>
+                <span aria-hidden className="text-muted-foreground/50">·</span>
+                <span>{`modified ${modified}`}</span>
+              </>
+            )}
+            <span aria-hidden className="text-muted-foreground/50">·</span>
+            <span>{`${doc.chunkCount} chunk${doc.chunkCount === 1 ? '' : 's'} indexed`}</span>
+            {doc.uri && (
+              <>
+                <span aria-hidden className="text-muted-foreground/50">·</span>
+                <MetaChip href={doc.uri}>Open at the source ↗</MetaChip>
+              </>
+            )}
+          </div>
+        )}
+        aside={(
+          <RightColumn label="Document">
+            <Section eyebrow="Source" tone="quiet">
+              <FactList
+                layout="column"
+                facts={[
+                  { label: 'Connector', value: doc.sourceSlug },
+                  doc.sourceKind && { label: 'Kind', value: doc.sourceKind },
+                  { label: 'Id at the source', value: <span className="font-mono text-[12px] break-all">{doc.externalId}</span> },
+                  doc.uri && { label: 'Link', value: 'Open at the source ↗', href: doc.uri },
+                ]}
+              />
             </Section>
-          )}
-        </RightColumn>
-      )}
-    >
-      <Section eyebrow="Content" aria-label="Document content">
-        {doc.content
-          ? (
+            <Section eyebrow="Ingestion" tone="quiet">
+              <FactList
+                layout="column"
+                facts={[
+                  modified && { label: 'Last modified', value: modified },
+                  { label: 'Ingested', value: ingested ?? '—' },
+                  { label: 'Chunks indexed', value: String(doc.chunkCount) },
+                ]}
+              />
+            </Section>
+            {extra.length > 0 && (
+              <Section eyebrow="Metadata" tone="quiet">
+                <FactList layout="column" facts={extra.map(([k, v]) => ({ key: k, label: k, value: String(v) }))} />
+              </Section>
+            )}
+          </RightColumn>
+        )}
+      >
+        <Section eyebrow="Content" aria-label="Document content">
+          {doc.content
+            ? (
               // The chunks joined, in order — what retrieval reads, verbatim.
               // Highlight any of it and the "Ask Vocion" pill quotes it.
-              <pre data-document-body className="overflow-x-auto font-sans text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">
-                {doc.content}
-              </pre>
-            )
-          : <p className="text-sm text-muted-foreground">This document has no indexed text.</p>}
-      </Section>
-    </DetailPage>
+                <pre data-document-body className="overflow-x-auto font-sans text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">
+                  {doc.content}
+                </pre>
+              )
+            : <p className="text-sm text-muted-foreground">This document has no indexed text.</p>}
+        </Section>
+      </DetailPage>
+    </>
   );
 }

@@ -19,13 +19,11 @@ archetype: list
 source: {kind: objects, objectType: release}
 sort: {field: meta.releasedAt, dir: desc}
 groupBy: meta.product
+# Two numbers, both a person acts on (2026-09-27: six stats sat above the
+# list and none said what shipped; the Shipped line on each row does).
 stats:
   - {label: Releases, kind: count}
-  - {label: Major, kind: countWhere, where: {field: meta.sizeClass, op: eq, value: major}}
-  - {label: Patch, kind: countWhere, where: {field: meta.sizeClass, op: eq, value: patch}}
   - {label: Unhealthy after, kind: countWhere, where: {field: meta.healthAfter, op: in, value: [down, degraded]}}
-  - {label: Health unknown, kind: countWhere, where: {field: meta.healthAfter, op: eq, value: unknown}}
-  - {label: Notes owned by a person, kind: countWhere, where: {field: meta.notesSource, op: eq, value: human}}
 # What production said, derived (`libs/workspace/releaseOutcome.ts`). The
 # derivation is where a release too young to judge reads "watching", one old
 # enough with nobody having looked reads "outcome not checked", and each
@@ -34,9 +32,13 @@ stats:
 derive: releaseOutcome
 primary:
   field: title
-  subtitle: [version, size, outcome, measures, health, released, commit]
+  subtitle: [shipped, outcome, health, released, version]
 fields:
   - {key: title, label: Release}
+  # What this deploy shipped and the proof, linked in code from the pull
+  # requests it carried (`services/factory/releasePack.ts`): each feature with
+  # QA's verdict. A reverted pull request is not shipped.
+  - {key: shipped, label: Shipped, from: meta.shippedLine}
   - {key: version, label: Version, from: meta.version, format: mono}
   - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
   # Two different questions, and they are not the same one asked twice.
@@ -59,5 +61,11 @@ fields:
   - {key: announced, label: Announced, from: meta.announcedAt, format: date, priority: 2}
   # The line the public reads. This is what the Changelog page carried; it
   # is a column here rather than a page of its own.
-  - {key: announcement, label: What shipped, from: meta.announcement}
+  # Labelled for what it is: the public line, not what shipped (the Shipped
+  # column is). It read "What shipped" over a placeholder on every row.
+  - {key: announcement, label: Announcement, from: meta.announcement, priority: 3}
 rowLink: /dashboard/objects/{id}
+# A product card opens THIS page as that product's work: `?product=send`
+# narrows every lane to Send and the page says so, with a way back.
+queryFilters:
+  - {param: product, field: meta.product, label: Product}

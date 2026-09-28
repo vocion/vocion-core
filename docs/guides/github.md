@@ -72,7 +72,7 @@ workspace overrides that file by slug and names the real event:
 slug: factory-ci-failure
 name: A failed check reopens the task
 status: active
-agent: task-planner
+agent: product-manager
 when:
   event: pr.checks_completed
   filter:

@@ -3,13 +3,13 @@ name: A request arrived
 description: >-
   The intake shape for the request noun: something outside posted a
   `request.created` event — a form on a product site, a store-review poller,
-  a mailbox rule, a GitHub webhook — and the planner triages it while the
+  a mailbox rule, a GitHub webhook — and the PM triages it while the
   asker's words are fresh, rather than waiting for the afternoon tick. Core
   ships no intake adapter; the event is one an outside caller posts to
   `/api/v1/events` with the new record's id, and a workspace overrides this
   file by slug to name its own event and filter.
 status: active
-agent: task-planner
+agent: product-manager
 when:
   event: request.created
 do:
@@ -19,7 +19,7 @@ do:
     read the body as the asker wrote it, dedupe against open requests, tag
     kind, product, severity and the risk floor of where a fix would land, and
     estimate its decision cost. A P1 or an incident goes to a task contract
-    now. Anything else takes the twenty-percent test — in scope becomes a
+    now. Anything else is decided against the product's promises and the operating intent — in scope becomes a
     task if the WIP limits allow and waits on the backlog if they do not; out
     of scope becomes an honest answer proposed for a person to release; a
     duplicate is linked and the asker told. Report in one line: id, kind,

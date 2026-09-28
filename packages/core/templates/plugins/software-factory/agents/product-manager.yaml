@@ -1,68 +1,82 @@
-# The Product manager — owns what the factory should build next, and never
-# decides it. In-app: it tags, ranks, recommends in batches of ten and files
-# ideas as requests; a person authorizes, the planner writes the contract, the
-# worker builds. It writes no code and holds no merge authority.
-#
-# HOW, WHEN AND WHY IT ACTS is not written here — it is the four automations
-# in `automations/product-*.yaml`, each naming the `product-review` mission
-# whose goal it serves, visible and pausable on /dashboard/automation. The
-# prompt tells the agent it acts only when one of those fires or a person asks
-# it to in chat; nothing in this file is a habit it keeps on its own.
 slug: product-manager
 name: Product manager
 description: >-
-  Product. Keeps every request tagged and traceable — product, kind, theme, ICP,
-  severity, and the task or release that answered it — by auditing the
-  planner's tags rather than redoing triage. Keeps a ranked backlog per
-  product, scored against the product's written promises, the twenty-percent
-  rule, how many people asked and what the analytics show, with the score and
-  its reasons written on the request. Recommends in batches of at most ten
-  asks for the accountable person, then pauses until they are decided. Files a
-  weekly ideas pass as requests of kind `idea`, never as tasks. Authorizes
-  nothing by itself: authorization is an ask a person decides.
+  PM. Owns the loop from the ask to the contract. Reads every request as the
+  asker wrote it, decides in scope or not against the product's promises and
+  the workspace's operating intent, writes the plan when the work needs one and
+  the task contract when it is approved, keeps a ranked backlog with the
+  reasons on the record, and tells the asker what happened. Authorizes
+  nothing: a build, a merge and a reply are a person's decisions, put in front
+  of them as a card. Writes no code, never merges.
 icon: compass
 accent: rose
 active: true
 agentType: operational
-temperature: '0.3'
-eyebrow: Software factory · Product
+temperature: '0.2'
+eyebrow: Software factory · PM
 team: software-factory
-# What the router sends here when nobody names an agent (`services/agents/router.ts`).
 handles:
   - backlog
   - priorities
-  - recommendations
   - requests
+  - bug
+  - bug report
+  - customers reported
+  - store review
+  - support email
+  - incident
+  - is down
+  - returning 500
+  - feature request
+  - idea
   - what should we build
-  - product board
+  - plan this request
+  - task contract
+  - triage
+  - what is stuck
+  - what is running
+  - engineering tasks
   - release notes
-  # "What have you built" is answered from the Factory log's own rows
-  # (core's `list_recent_runs`), never from a task list that may be empty.
   - what shipped
   - what have you built
-  - factory log
   - releases
-# High: it takes routing ties, ends a turn that settled something with one
-# offer, and debriefs the factory's completed work (`automations/product-debrief.yaml`).
 initiative: high
+# CARDS EMERGE, they are not narrated. When an answer names things a person
+# should decide ("Lead action: tell me to…") and the turn emitted fewer than
+# three cards, the runtime runs one gated pass that emits the cards the answer
+# already names (harness.recommendActionBackstop — structural, not a prompt
+# line; Chris, 2026-09-24: "I would have expected action cards for this").
+harness:
+  recommendActionBackstop: true
+playbooks:
+  - naming-the-work
+  - designing-a-surface
 skills:
-  - rank-the-backlog
-  - recommend-in-batches
-  - ideate-from-evidence
   - surface-an-ask-as-a-card
+  - triage-request
+  - write-architecture-plan
+  - write-task-contract
+  - rank-the-backlog
+  - write-release-notes
+  - rubric-product-manager
 objectTypes:
   - request
-  - product
-  - release
+  - architecture_plan
   - engineering_task
+  - release
+  - product
   - repo
 suggestions:
-  - label: Rank this product's backlog
-    prompt: Read every open request for this product. Score each against the product's promises, the twenty-percent test, how many people asked and what the analytics show; write priority, priorityReason and rankedAt on each; list the top ten with their reasons.
-  - label: Where is the batch
-    prompt: Is a recommendation batch open? Which of its asks are decided and which are still waiting, on whom, for how many days? If none is open, what would the next ten be, and why those?
-  - label: Audit the tags
-    prompt: Which requests triaged this week are missing a product, kind, theme, ICP or severity, or were shipped or answered without a link to the task or release that did it? Fix what the record supports; list what needs a person.
-  - label: What are we not seeing
-    prompt: From this month's feedback, dogfood notes, the incumbent's product and the analytics, name up to five ideas that would survive the twenty-percent test — each with the evidence it rests on and the open request it would duplicate, if any.
+  - label: What should I do right now
+    prompt: Read the work in flight and the decisions waiting on me. Tell me the one thing to decide first, what deciding it unblocks, and what is building without me. Every claim with its link.
+  - label: Prepare this for a decision
+    prompt: Here is a request. Say whether it needs a plan and why; if it does, write it. Draft the contract — one repository per task, an objective, allowed paths, acceptance criteria, required checks, the risk class and the main risk — write the expected result and how we will check it on the request, get the mockup from the designer if it changes what people see, and then put ONE card in front of me with the outcome, who asked, your recommendation, the change, done when, expected spend and my review time, the main risk, and Approve build / Request changes / Defer.
+  - label: Did it help
+    prompt: For everything released in the last month, read howWeCheck against its source and tell me which helped, which did not, and which we cannot yet say — with the figure and its source on each line. Anything past its checkAfter with no result is the first thing you report.
+  - label: What is stuck
+    prompt: Which tasks were dispatched and not accepted, which are waiting on a dependency that was never written, and which requests have no task and no answer? Oldest first, with the request id and the one move that unsticks each.
+  - label: Rank the backlog
+    prompt: Read every open request for this product. Score each against the product's promises, the operating intent, how many people asked and what the analytics show; write priority, priorityReason and rankedAt on each; list the top five with their reasons.
+  - label: What shipped
+    prompt: What has the factory released this week, for which product, and who has been told? Read the release records and the worker runs, not the task list; a merge nobody can find as a release did not ship.
 systemPromptFile: ./product-manager.system-prompt.md

@@ -8,6 +8,7 @@
  *   - `toHistoryTurns` drops tool entries before replaying to the agent.
  */
 
+import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { PageContext } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
@@ -37,7 +38,16 @@ export type ConversationRun
      * `done` for every stored step turned every failure into a success the
      * moment the page refreshed.
      */
-    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' };
+    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
+    /**
+     * A card the turn put up (a `recommended_action`): what it offered and
+     * the payload it carried. Persisted so the NEXT turn can be told which
+     * card it is being asked to approve — "approve filing it" bound to a
+     * lookup result three times on 2026-09-24 because the card lived only
+     * in the browser.
+     */
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
+    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
 export type ConversationTraceNode = {
@@ -265,6 +275,8 @@ export async function appendMessage(opts: {
   status?: TurnStatus | null;
   /** Why it ended that way, in the runtime's own words. Only meaningful beside a `status` that owes an explanation. */
   statusReason?: string | null;
+  /** Which agent spoke an assistant turn — the slug the runtime ran, so a reloaded transcript attributes the turn truthfully (backlog 009). */
+  agentSlug?: string | null;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -288,6 +300,7 @@ export async function appendMessage(opts: {
       routingJson: opts.routing ?? null,
       status: storableStatus(opts.status, opts.role),
       statusReason: opts.statusReason ?? null,
+      agentSlug: opts.role === 'assistant' ? opts.agentSlug ?? null : null,
     })
     .returning();
 
@@ -315,21 +328,24 @@ export async function appendMessage(opts: {
 const HISTORY_STAMP_GAP_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Render persisted messages as the {role, content} list the agent
- * expects in its history. Tool runs are intentionally dropped —
- * they're UI ornaments only. (See rev-ai's to_history_turns.)
+ * Render persisted messages as the turns the agent replays. An agent turn
+ * carries its `runs_json` so the loop can replay the tool calls and cards it
+ * made as calls, not as prose (`services/chat/historyTools.ts`).
  * Turns that ended badly are dropped too — see `isDroppedFromHistory`.
  * @param messages - Persisted rows, oldest first; `createdAt` enables the sent-time stamp.
  * @param opts - Options.
  * @param opts.timeZone - The person's zone for the stamps; absent, no stamps.
  */
 export function toHistoryTurns(messages: Array<{
+  id?: string | number;
   role: string;
   content: string;
   createdAt?: Date | string | null;
   status?: string | null;
-}>, opts: { timeZone?: string } = {}): Array<{ role: 'user' | 'assistant'; content: string }> {
-  const out: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  /** The agent turn's ledger (`runs_json`): replayed as the tool calls it was, see `historyTools.ts`. */
+  runsJson?: unknown;
+}>, opts: { timeZone?: string } = {}): HistoryTurn[] {
+  const out: HistoryTurn[] = [];
   // When a zone is given, a person's turn is stamped with when it was sent —
   // the first one always, later ones after a gap of six hours or more — so
   // the model can tell yesterday's question from one asked a minute ago.
@@ -364,7 +380,7 @@ export function toHistoryTurns(messages: Array<{
     if (dated) {
       previous = at;
     }
-    out.push({ role: m.role, content });
+    out.push({ role: m.role, content, ...(m.id ? { id: m.id } : {}), ...(m.role === 'assistant' && m.runsJson ? { runs: m.runsJson } : {}) });
   }
   return out;
 }

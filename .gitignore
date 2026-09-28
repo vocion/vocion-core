@@ -12,6 +12,7 @@ node_modules
 
 # testing
 /coverage
+/packages/core/coverage
 /vitest-test-results
 # Also written under packages/core when vitest runs from there.
 vitest-test-results/

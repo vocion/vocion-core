@@ -11,7 +11,7 @@
  * `0.29 * 10000` is `2899.9999999999995`, which is meant as 29%, not 28.99%.
  * It is a millionth of a hundredth of a percent, far below any gap a real pass
  * rate has from the bar. Every rate this formats is stored as a 64-bit number;
- * `eval_score.value` was a 32-bit `real` until migration 0143, whose six-digit
+ * `eval_score.value` was a 32-bit `real` until migration 0147, whose six-digit
  * noise no nudge this small could absorb.
  *
  * A value that is not a number at all (NaN, Infinity) shows as a dash, the
