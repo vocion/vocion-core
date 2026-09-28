@@ -312,15 +312,16 @@ async function taskShotIds(orgId: string, taskId: number): Promise<Set<number>> 
  * each named test on the branch and stores the output on the task
  * (qa-test-run). On #131 attempt 185 all three passed and were linked in the
  * PR, and QA still wrote "no integration test log" — it never opened the
- * artifact. A verdict that leaves criteria open on a task with a stored run is
- * refused once, with the run's output in the refusal, so the next call is
- * taken having read it. Once per run; never blocks twice.
+ * artifact. The first verdict on a task with a stored run is refused once,
+ * with the run's output and link in the refusal, so the next call is taken
+ * having read it — whatever it judged (review 5798 marked the scope criterion
+ * proven on "CI passed" and was refused twice for a link it was never given).
+ * Once per run; never blocks twice.
  * @param ctx - The run's context.
  * @param taskId - The task.
- * @param open - How many criteria the verdict leaves unproven or unchecked.
  */
-export async function unreadTestRun(ctx: RuntimeContext, taskId: number, open: number): Promise<string | null> {
-  if (open === 0 || ctx.testRunShown) {
+export async function unreadTestRun(ctx: RuntimeContext, taskId: number): Promise<string | null> {
+  if (ctx.testRunShown) {
     return null;
   }
   const { and, desc, eq, sql } = await import('drizzle-orm');
@@ -338,7 +339,7 @@ export async function unreadTestRun(ctx: RuntimeContext, taskId: number, open: n
   }
   ctx.testRunShown = true;
   const { appBaseUrl } = await import('@/libs/links');
-  return `Not recorded: task #${taskId} has a stored run of its named tests, and this verdict leaves ${open} criteria open without reading it. Its output is below. For each criterion a test covers, judge it on this output and cite ${appBaseUrl()}/dashboard/artifacts/${run.id}; then record the verdict again.\n\n${md.slice(0, 8000)}`;
+  return `Not recorded: task #${taskId} has a stored run of its named tests, and this verdict was written without reading it. Its output is below. For each criterion a test covers, judge it on this output and cite ${appBaseUrl()}/dashboard/artifacts/${run.id}; then record the verdict again.\n\n${md.slice(0, 8000)}`;
 }
 
 export async function unopenedShots(ctx: RuntimeContext, taskId: number): Promise<string | null> {
@@ -402,7 +403,11 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // the list of screenshots comes only with the "opened none" refusal,
       // which the citation rule reached first. The evidence is handed over
       // before the citations are judged.
-      const refusal = await unopenedShots(ctx, task.id) ?? ruled ?? await unreadTestRun(ctx, task.id, total - proven);
+      // Everything the review should look at is handed over first, in ONE
+      // refusal (screenshots it has not opened, the stored test run it has not
+      // read), then the citations are judged against it.
+      const handover = [await unopenedShots(ctx, task.id), await unreadTestRun(ctx, task.id)].filter(Boolean).join('\n\n');
+      const refusal = handover || ruled;
       if (refusal) {
         return contract.length > 0 ? `${refusal}\n\nThe contract on task #${task.id}, which is what is graded:\n${contract.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : refusal;
       }

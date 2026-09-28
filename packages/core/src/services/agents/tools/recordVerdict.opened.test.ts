@@ -37,18 +37,16 @@ describe('unopenedShots', () => {
 });
 
 describe('unreadTestRun', () => {
-  it('refuses once with the stored test output when a verdict leaves criteria open, then lets the next call through (#131 attempt 185)', async () => {
+  it('refuses the first verdict once with the stored test output and link, then lets the next call through (#131 attempts 185, 187)', async () => {
     await db.insert(artifactSchema).values({ orgId: ORG, kind: 'markdown', title: 'Named tests, run 386', recordType: 'object', recordId: '185', recordRole: 'qa-test-run', spec: { md: '# Named tests, run 386\n\n## Passed: Scope holds\n\n✓ never returns a teammate kept-back document' } } as never);
     const run = { orgId: ORG, missionRunId: 901 } as { orgId: string; missionRunId: number; testRunShown?: boolean };
 
-    expect(await unreadTestRun(run as never, 185, 0)).toBeNull();
+    const refusal = await unreadTestRun(run as never, 185);
 
-    const refusal = await unreadTestRun(run as never, 185, 4);
-
-    expect(refusal).toMatch(/^Not recorded: task #185 has a stored run of its named tests, and this verdict leaves 4 criteria open/);
+    expect(refusal).toMatch(/^Not recorded: task #185 has a stored run of its named tests, and this verdict was written without reading it/);
     expect(refusal).toMatch(/✓ never returns a teammate kept-back document/);
     expect(refusal).toMatch(/\/dashboard\/artifacts\/\d+/);
-    expect(await unreadTestRun(run as never, 185, 4)).toBeNull();
-    expect(await unreadTestRun({ orgId: ORG } as never, 999, 4)).toBeNull();
+    expect(await unreadTestRun(run as never, 185)).toBeNull();
+    expect(await unreadTestRun({ orgId: ORG } as never, 999)).toBeNull();
   });
 });
