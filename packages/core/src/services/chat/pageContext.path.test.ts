@@ -6,6 +6,7 @@ describe('the page always names its record', () => {
     expect(readPageContext({ path: '/w/squatch-factory/dashboard/p/feature/40', title: 'Rename Send to Stamp' })?.record).toEqual({ type: 'object', id: '40', label: 'Rename Send to Stamp', href: '/dashboard/p/feature/40' });
     expect(recordFromPath('/en/dashboard/objects/131')).toMatchObject({ type: 'object', id: '131' });
     expect(recordFromPath('/w/squatch-factory/dashboard/p/runs/397?view=all')).toMatchObject({ type: 'worker_run', id: '397' });
+    expect(recordFromPath('/w/squatch-factory/dashboard/p/runs/agent-5862')).toMatchObject({ type: 'mission_run', id: '5862' });
     expect(recordFromPath('/w/squatch-factory/dashboard/p/work')).toBeNull();
     expect(recordFromPath('/dashboard/p/wiki/how-stamp-ships')).toBeNull();
   });

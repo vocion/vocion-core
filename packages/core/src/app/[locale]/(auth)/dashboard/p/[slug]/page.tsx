@@ -185,7 +185,7 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
     }
     // The four concepts `status` was carrying, read once here so every field,
     // stat and group on every page sees the same answer (libs/factory/runFacts.ts).
-    return withRunRecovery(kept)
+    const engineering = withRunRecovery(kept)
       .map((r) => {
         const taskId = taskRecordId(r);
         return {
@@ -217,6 +217,7 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
               : null,
             agentSlug: r.agentSlug,
             kind: r.kind,
+            runRef: String(r.id),
             status: r.status,
             model: r.model,
             attempt: r.attempt,
@@ -241,6 +242,44 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
           },
         };
       });
+    if (!src.agentRuns) {
+      return engineering;
+    }
+    // AGENT RUNS IN THE SAME LOG (Chris, 2026-09-28: "should we also see Agent
+    // runs … QA and Product work? anything long running?"). A mission run
+    // reads in the same facts a worker run does, so every field, view and stat
+    // on the page applies to both; `runRef` opens each on its own page.
+    const { missionRunSchema } = await import('@/models/Schema');
+    const { desc } = await import('drizzle-orm');
+    const missions = await db
+      .select({ id: missionRunSchema.id, title: missionRunSchema.title, status: missionRunSchema.status, error: missionRunSchema.error, team: missionRunSchema.team, createdAt: missionRunSchema.createdAt, updatedAt: missionRunSchema.updatedAt })
+      .from(missionRunSchema)
+      .where(eq(missionRunSchema.orgId, orgId))
+      .orderBy(desc(missionRunSchema.id))
+      .limit(src.limit);
+    const EXECUTION: Record<string, string> = { planning: 'queued', running: 'running', paused: 'running', completed: 'completed', failed: 'failed', cancelled: 'cancelled' };
+    const agent = missions.map(m => ({
+      id: -m.id,
+      title: m.title,
+      status: m.status,
+      createdAt: m.createdAt ?? null,
+      meta: {
+        headline: m.title,
+        execution: EXECUTION[m.status] ?? m.status,
+        failureClass: m.status === 'failed' ? 'worker' : null,
+        recovery: m.status === 'failed' ? 'unresolved' : 'none',
+        recoveryNote: m.status === 'failed' ? (m.error ?? 'failed').split('\n')[0]!.slice(0, 160) : null,
+        kind: 'agent',
+        runRef: `agent-${m.id}`,
+        agentSlug: (m.team as { lead?: string } | null)?.lead ?? null,
+        durationSeconds: m.createdAt && m.updatedAt && ['completed', 'failed', 'cancelled'].includes(m.status) ? Math.max(0, Math.round((m.updatedAt.getTime() - m.createdAt.getTime()) / 1000)) : null,
+        error: m.error,
+        createdAt: m.createdAt,
+      },
+    }));
+    return [...engineering, ...agent]
+      .sort((a, b) => (b.createdAt ? new Date(b.createdAt).getTime() : 0) - (a.createdAt ? new Date(a.createdAt).getTime() : 0))
+      .slice(0, src.limit);
   }
 
   if (src.kind === 'artifacts') {

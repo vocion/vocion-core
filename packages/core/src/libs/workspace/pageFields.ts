@@ -413,6 +413,12 @@ const ListSourceSchema = z.discriminatedUnion('kind', [
     status: z.array(z.string()).optional(),
     kinds: z.array(z.string()).optional(),
     limit: z.number().int().positive().max(500).default(100),
+    /**
+     * Agent runs too (`mission_run`: QA reviews, the product manager's checks),
+     * in the same rows (meta.kind `agent`), so one log shows everything that ran
+     * long (Chris, 2026-09-28). Each row's `meta.runRef` opens its own page.
+     */
+    agentRuns: z.boolean().default(false),
   }),
   // What agents and people MADE — the artifact log, scoped by folder and/or
   // kind. A wiki is a folder of markdown artifacts; a proposal log is the

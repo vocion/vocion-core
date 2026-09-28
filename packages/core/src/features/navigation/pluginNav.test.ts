@@ -76,6 +76,16 @@ describe('pluginNav', () => {
     expect(nav.claimedPages).toEqual(['team-report']);
   });
 
+  it('a page that declares nav.secondary sits under More in its section (Runs, 2026-09-28)', () => {
+    const nav = pluginNav({
+      plugins: [plugin({ slug: 'software-factory' })],
+      pages: [{ slug: 'runs', title: 'Runs', icon: 'activity', nav: { section: 'Software factory', order: 6, hidden: false, secondary: true }, origin: 'plugin:software-factory' }],
+      routes,
+    });
+
+    expect(nav.sections[0]!.items[0]).toMatchObject({ title: 'Runs', secondary: true });
+  });
+
   it('a core route a plugin OFFERS lists last and secondary in its section, and is not claimed — its own group keeps it', () => {
     const nav = pluginNav({
       plugins: [plugin({ slug: 'software-factory', nav: { section: 'Software factory', order: 0 } })],

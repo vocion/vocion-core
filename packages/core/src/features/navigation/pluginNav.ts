@@ -23,7 +23,7 @@ export type PluginPageInput = {
   slug: string;
   title: string;
   icon?: string;
-  nav: { section: string; order: number; hidden: boolean };
+  nav: { section: string; order: number; hidden: boolean; secondary?: boolean };
   origin: string;
   /** Set when a workspace page replaces this plugin's page by slug. */
   overrides?: string;
@@ -97,7 +97,9 @@ export function pluginNav(input: {
       }
       claimedPages.push(page.slug);
       const label = page.nav.section && page.nav.section !== 'Workspace' ? page.nav.section : section;
-      push(label, { title: page.title, url: page.href ?? `/dashboard/p/${page.slug}`, icon: page.icon ?? 'panels-top-left', plugin: plugin.slug, order: base + page.nav.order });
+      // A page's own `nav.secondary` puts it under "More ›" (Runs, 2026-09-28:
+      // declared secondary, drawn in the main list because this dropped it).
+      push(label, { title: page.title, url: page.href ?? `/dashboard/p/${page.slug}`, icon: page.icon ?? 'panels-top-left', plugin: plugin.slug, order: base + page.nav.order, ...(page.nav.secondary ? { secondary: true } : {}) });
     }
     // The core routes it owns.
     for (const route of input.routes) {

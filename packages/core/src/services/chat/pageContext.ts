@@ -278,6 +278,10 @@ export function recordFromPath(path: string, title = ''): RecordRef | null {
   if (object) {
     return { type: 'object', id: object[1]!, label: title || `#${object[1]}`, href: `/dashboard/objects/${object[1]}` };
   }
+  const agentRun = /^\/dashboard\/p\/runs\/agent-(\d+)\/?$/.exec(p);
+  if (agentRun) {
+    return { type: 'mission_run', id: agentRun[1]!, label: title || `Agent run #${agentRun[1]}`, href: `/dashboard/p/runs/agent-${agentRun[1]}` };
+  }
   const page = /^\/dashboard\/p\/([\w-]+)\/(\d+)\/?$/.exec(p);
   if (page) {
     const [, slug, id] = page;

@@ -66,7 +66,9 @@ export default async function WorkspaceReportPage(props: {
     await import('@/services/preview/descriptors');
     const { resolvePreview } = await import('@/services/preview/registry');
     const { RunDetail } = await import('@/features/dashboard/factory/RunDetail');
-    const doc = await resolvePreview({ type: 'worker_run', id }, { orgId, userId: null });
+    // `agent-<id>` is an agent run (mission_run) in the same log.
+    const agentRun = /^agent-(\d+)$/.exec(id);
+    const doc = await resolvePreview(agentRun ? { type: 'mission_run', id: agentRun[1]! } : { type: 'worker_run', id }, { orgId, userId: null });
     return (
       <>
         <TitleBar title={manifest.title} description={manifest.description} />
