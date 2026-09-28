@@ -38,7 +38,9 @@ export function artifactsDir(): string {
 
 /** True when the configured directory would be served statically by Next — never acceptable in production. */
 export function artifactsDirIsPublic(): boolean {
-  const dir = path.resolve(artifactsDir());
+  // turbopackIgnore: this path is only known at runtime, so the build must not
+  // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+  const dir = path.resolve(/* turbopackIgnore: true */ artifactsDir());
   return dir.startsWith(path.resolve(process.cwd(), 'public') + path.sep);
 }
 

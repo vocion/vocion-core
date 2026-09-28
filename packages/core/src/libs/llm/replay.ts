@@ -46,7 +46,9 @@ export function llmMode(): LLMMode {
 
 export function cacheDir(sub: 'chat' | 'embeddings'): string {
   const base = resolveDemoPath(process.env.VOCION_LLM_CACHE_DIR ?? join('demo', 'llm-cache'));
-  const dir = join(base, sub);
+  // turbopackIgnore: this path is only known at runtime, so the build must not
+  // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+  const dir = join(/* turbopackIgnore: true */ base, sub);
   if (llmMode() === 'record') {
     mkdirSync(dir, { recursive: true });
   }

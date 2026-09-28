@@ -230,7 +230,9 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       return { ...parsed, sourceFile: entry.sourceFile, origin: entry.origin };
     });
 
-  const trustPath = ['trust.yaml', 'trust.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
+  // turbopackIgnore: this path is only known at runtime, so the build must not
+  // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+  const trustPath = ['trust.yaml', 'trust.yml'].map(n => join(/* turbopackIgnore: true */ abs, n)).find(existsSync) ?? null;
   const workspaceTrust: TrustManifest | null = trustPath
     ? (() => {
         files.push(trustPath);
@@ -242,7 +244,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
 
   // Voice rules: one top-level file, same shape as trust.yaml. Absent means
   // the workspace inherits core's platform floor and nothing else.
-  const voicePath = ['voice.yaml', 'voice.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
+  const voicePath = ['voice.yaml', 'voice.yml'].map(n => join(/* turbopackIgnore: true */ abs, n)).find(existsSync) ?? null;
   const voice: VoiceManifest | null = voicePath
     ? (() => {
         files.push(voicePath);
@@ -254,7 +256,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   // top-level file, same shape as trust.yaml and voice.yaml. Absent means the
   // factory has been told nothing, which is not the same as being told
   // "anything goes", and the agents say so rather than assuming.
-  const intentPath = ['operating-intent.yaml', 'operating-intent.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
+  const intentPath = ['operating-intent.yaml', 'operating-intent.yml'].map(n => join(/* turbopackIgnore: true */ abs, n)).find(existsSync) ?? null;
   const operatingIntent: OperatingIntentManifest | null = intentPath
     ? (() => {
         files.push(intentPath);
@@ -398,7 +400,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
 function loadManifest(abs: string): WorkspaceManifest {
   const candidates = ['workspace.yaml', 'workspace.yml'];
   for (const c of candidates) {
-    const p = join(abs, c);
+    const p = join(/* turbopackIgnore: true */ abs, c);
     try {
       const raw = readWorkspaceTextFile(p);
       const parsed = parseYaml(raw);
@@ -452,7 +454,7 @@ function resolvePackDir(name: string): string {
 function loadPack(spec: string): LoadedPack {
   const { name, version } = parseExtends(spec);
   const dir = resolvePackDir(name);
-  const packFile = ['pack.yaml', 'pack.yml'].map(n => join(dir, n)).find(existsSync);
+  const packFile = ['pack.yaml', 'pack.yml'].map(n => join(/* turbopackIgnore: true */ dir, n)).find(existsSync);
   if (!packFile) {
     throw new Error(`base pack "${name}" is missing pack.yaml at ${dir}`);
   }
@@ -801,7 +803,7 @@ function loadPluginExtras(plugins: LoadedPlugin[]): PluginExtras {
       claim('learning step', parsed.name, name);
       out.learningSteps.push({ ...parsed, sourceFile: file });
     }
-    const trustFile = ['trust.yaml', 'trust.yml'].map(n => join(root, n)).find(existsSync);
+    const trustFile = ['trust.yaml', 'trust.yml'].map(n => join(/* turbopackIgnore: true */ root, n)).find(existsSync);
     if (trustFile) {
       out.trust.push(validateOrThrow(TrustManifestSchema, parseYaml(readFileSync(trustFile, 'utf8')), trustFile, 'trust') as TrustManifest);
     }

@@ -99,6 +99,14 @@ const baseConfig: NextConfig = {
     '/': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
     '/**': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
   },
+  // Code that reads a file at a path only known at runtime (the workspace
+  // mount, the docs, the artifacts folder) marks the call with
+  // `/* turbopackIgnore: true */`. Without it Turbopack warns "Dynamic
+  // filesystem access causes tracing of the whole project" and copies the
+  // project into the proxy's trace: about 21 MB of source, specs and docs in
+  // the standalone output and the image (#832). `outputFileTracingExcludes`
+  // can't stand in for the comments: Turbopack doesn't apply it to the proxy.
+  // What the server does read from disk ships through the includes above.
 };
 
 // Initialize the Next-Intl plugin

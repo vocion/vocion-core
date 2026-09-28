@@ -151,6 +151,14 @@ RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/ap
     npm run build:next \
  && npm run docs:index
 
+# The standalone output still carries some of core's source, specs and test
+# output, which the server never reads: it runs the compiled bundle. Turbopack
+# matches runtime paths by name, so reading `join(pluginDir, 'agents')` pulls
+# every `agents/` folder in the project into the trace (#832). Drop them here,
+# before the runtime stage copies the standalone output.
+RUN cd .next/standalone/packages/core \
+ && rm -rf src e2e tests docs deliverables scripts test-results vitest-test-results
+
 # ----------------------------------------------------------------------
 # Stage 3 — runtime
 # ----------------------------------------------------------------------

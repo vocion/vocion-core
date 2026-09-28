@@ -129,7 +129,9 @@ export function readWorkspaceBrand(root: string | null = getWorkspacePath()): { 
   if (!root) {
     return { brand: null, issues: [] };
   }
-  const file = ['brand.yaml', 'brand.yml'].map(f => join(root, f)).find(f => existsSync(f));
+  // turbopackIgnore: this path is only known at runtime, so the build must not
+  // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+  const file = ['brand.yaml', 'brand.yml'].map(f => join(/* turbopackIgnore: true */ root, f)).find(f => existsSync(f));
   if (!file) {
     return { brand: null, issues: [] };
   }

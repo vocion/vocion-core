@@ -264,7 +264,9 @@ export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, 
     }
     let contents: string;
     try {
-      contents = readFileSync(safePath, 'utf8');
+      // turbopackIgnore: this path is only known at runtime, so the build must not
+      // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+      contents = readFileSync(/* turbopackIgnore: true */ safePath, 'utf8');
     } catch (err) {
       // Surprising by the time we get here: the path resolved a moment ago,
       // so this is a permission problem, a race with workspace:apply, or a

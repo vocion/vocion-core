@@ -74,12 +74,14 @@ export function judgeMountedFolder(input: { projectId: string; folder: MountedFo
  */
 export function readManifestOrgId(dir: string): string | null {
   for (const name of ['workspace.yaml', 'workspace.yml']) {
-    const file = join(dir, name);
-    if (!existsSync(file)) {
+    // turbopackIgnore: this path is only known at runtime, so the build must not
+    // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+    const file = join(/* turbopackIgnore: true */ dir, name);
+    if (!existsSync(/* turbopackIgnore: true */ file)) {
       continue;
     }
     try {
-      const raw = parseYaml(readFileSync(file, 'utf8')) as { orgId?: unknown } | null;
+      const raw = parseYaml(readFileSync(/* turbopackIgnore: true */ file, 'utf8')) as { orgId?: unknown } | null;
       return typeof raw?.orgId === 'string' && raw.orgId !== '' ? raw.orgId : null;
     } catch {
       return null;
@@ -130,7 +132,7 @@ export function folderChangedAt(dir: string, sha: string): Date | null {
   } catch { /* not a git checkout — fall through to the file's own time */ }
   for (const name of ['workspace.yaml', 'workspace.yml']) {
     try {
-      return statSync(join(dir, name)).mtime;
+      return statSync(/* turbopackIgnore: true */ join(/* turbopackIgnore: true */ dir, name)).mtime;
     } catch { /* try the other spelling */ }
   }
   return null;

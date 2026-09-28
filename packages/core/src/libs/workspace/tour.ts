@@ -50,7 +50,9 @@ export function readWorkspaceTour(): TourManifest | null {
   if (!dir) {
     return null;
   }
-  const file = ['tour.yaml', 'tour.yml'].map(n => join(dir, n)).find(existsSync);
+  // turbopackIgnore: this path is only known at runtime, so the build must not
+  // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+  const file = ['tour.yaml', 'tour.yml'].map(n => join(/* turbopackIgnore: true */ dir, n)).find(existsSync);
   if (!file) {
     return null;
   }
