@@ -21,6 +21,7 @@ import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
+import { turnFailure } from './turnFailure';
 import { useElapsed } from './useElapsed';
 import { LiveStatus, WorkTimeline } from './WorkTimeline';
 
@@ -179,8 +180,12 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
   // A failure is a failure whether it arrived as a legacy run or as a typed
   // trace node — #368 persists the latter, and the badge has to find both.
-  const erroredRun = runs.find(r => r.type === 'tool' && r.state === 'error');
-  const erroredNode = (message.trace ?? []).find(n => n.status === 'error');
+  // A step a later step of the same kind recovered from is not a failure of
+  // the turn (`turnFailure.ts`): journey 4 showed "file_request failed" over
+  // the request the retry filed.
+  const failure = turnFailure(runs, message.trace ?? []);
+  const erroredRun = failure.run;
+  const erroredNode = failure.node;
   const hasToolError = Boolean(erroredRun || erroredNode);
   // How this turn ended, read once: an explanation when it owes one, a quiet
   // line when it does not, nothing at all when it simply finished (#114).
@@ -307,6 +312,11 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               <AlertCircle className="size-2.5 shrink-0" aria-hidden />
               <span className="truncate">{failureLabel}</span>
             </button>
+          )}
+          {!hasToolError && failure.retried && (
+            <span data-testid="tool-retried-badge" className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] tracking-normal text-muted-foreground normal-case">
+              {failure.retried.filed ? 'retried · filed' : 'retried · done'}
+            </span>
           )}
         </div>
         {hasToolError && showError && (

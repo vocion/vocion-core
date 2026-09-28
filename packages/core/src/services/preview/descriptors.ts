@@ -198,15 +198,24 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
     const { getBusinessObject } = await import('@/services/BusinessObjectService');
     const obj = await getBusinessObject(Number.parseInt(ref.id, 10), ctx.orgId);
     if (obj) {
+      // The record itself — its prose fields and short facts, read from its
+      // type's declaration (`recordPreview.ts`): a request previewed as
+      // "approved · No text was synced" over a full record (journey 4).
       const { recordHref } = await import('@/services/objects/recordHref');
+      const { openRecordLabel, recordPreviewParts } = await import('./recordPreview');
       const typeSlug = obj.type?.slug ?? null;
+      const meta = (obj.metadata ?? {}) as Record<string, unknown>;
+      const parts = recordPreviewParts({ id: obj.id, title: obj.title, status: obj.status ?? null, createdAt: obj.createdAt ?? null, meta }, obj.type?.schema ?? null);
+      const summary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
+      const href = await recordHref(ctx.orgId, { objectType: typeSlug, id: obj.id });
       return {
         ref,
         title: obj.title,
         sourceLabel: obj.type?.label ?? 'Record',
-        facts: facts(obj.status && { label: 'Status', value: obj.status }),
-        ...body(typeof obj.summary === 'string' ? obj.summary : null),
-        href: await recordHref(ctx.orgId, { objectType: typeSlug, id: obj.id }),
+        facts: facts(...parts.facts, obj.status && { label: 'Status', value: obj.status }),
+        ...body([summary, parts.body].filter(Boolean).join('\n\n')),
+        href,
+        hrefLabel: openRecordLabel(href),
       };
     }
   }

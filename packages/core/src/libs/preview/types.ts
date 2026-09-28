@@ -58,6 +58,11 @@ export type PreviewDoc = {
   more?: Array<{ key: string; title: string; body: string }>;
   /** In-app full detail page. Relative only. */
   href?: string;
+  /**
+   * What a link to `href` says under the body ("Open feature"), when the page
+   * is worth a word and not only the header's icon.
+   */
+  hrefLabel?: string;
   /** The external system, when there is no in-app page. Labelled as leaving. */
   externalHref?: string;
   /** When the body was cut, so the panel can say "read the rest there". */

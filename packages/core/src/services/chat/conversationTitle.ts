@@ -36,11 +36,88 @@ const TIMEOUT_MS = 8_000;
 /** How much of each side the model reads: enough for the gist, never the payload. */
 const EXCERPT_MAX = 1_200;
 
+/**
+ * Words a title never ends on. Conversation 354 (2026-09-28) was named
+ * "Export viewer data to CSV for": the model wrote seven words, the cap kept
+ * six, and the name stopped on the word that introduced the missing seventh.
+ * A title cut mid-phrase reads as broken, so a trailing function word goes,
+ * and so does the one before it, until the name ends on a whole phrase.
+ */
+const DANGLING = new Set([
+  'a',
+  'about',
+  'across',
+  'after',
+  'against',
+  'an',
+  'and',
+  'as',
+  'at',
+  'before',
+  'between',
+  'but',
+  'by',
+  'for',
+  'from',
+  'in',
+  'into',
+  'its',
+  'nor',
+  'of',
+  'on',
+  'onto',
+  'or',
+  'over',
+  'per',
+  'so',
+  'than',
+  'that',
+  'the',
+  'their',
+  'this',
+  'to',
+  'toward',
+  'towards',
+  'under',
+  'versus',
+  'via',
+  'vs',
+  'when',
+  'where',
+  'which',
+  'while',
+  'with',
+  'within',
+  'without',
+  'your',
+  'our',
+  'my',
+  '&',
+  '+',
+  '-',
+  '–',
+  '—',
+  '/',
+]);
+
+/**
+ * The words with any dangling tail removed ({@link DANGLING}).
+ * @param words - The title's words, already capped.
+ */
+function wholePhrase(words: string[]): string[] {
+  const out = [...words];
+  while (out.length > 1 && DANGLING.has(out[out.length - 1]!.toLowerCase().replace(/[.,;:…]+$/u, ''))) {
+    out.pop();
+  }
+  return out;
+}
+
 const SYSTEM = [
   'You name a conversation between a person and a workspace assistant, for a list of past conversations.',
   `Reply with the title only: at most ${TITLE_MAX_WORDS} words, sentence case, no quotes, no trailing period, no emoji.`,
   'Name the subject, not the act of asking ("Northwind renewal risk", not "Question about a renewal").',
   'Keep proper nouns as written. Never include ids, email addresses or secrets.',
+  'The title is a whole phrase: never end it on a word like "for", "to", "of" or "and".',
 ].join(' ');
 
 /** Test seam: the model call. Returns the reply text, and the raw response for charging. */
@@ -66,10 +143,11 @@ export function cleanTitle(raw: string): string | null {
   if (words.length === 0) {
     return null;
   }
-  s = words.slice(0, TITLE_MAX_WORDS).join(' ');
+  s = wholePhrase(words.slice(0, TITLE_MAX_WORDS)).join(' ');
   s = s.replace(/[.,;:…\s]+$/u, '');
   if (s.length > TITLE_MAX_CHARS) {
     s = s.slice(0, TITLE_MAX_CHARS).replace(/\s+\S*$/, '') || s.slice(0, TITLE_MAX_CHARS);
+    s = wholePhrase(s.split(/\s+/)).join(' ').replace(/[.,;:…\s]+$/u, '');
   }
   if (!/[\p{L}\p{N}]/u.test(s)) {
     return null;
@@ -85,7 +163,7 @@ function excerpt(text: string): string {
 async function defaultModel(orgId: string): Promise<TitleModel> {
   // Lazy: the LLM module validates env on import, and a test with a model seam never needs it.
   const { buildChatModelForOrg } = await import('@/libs/llm/langchain');
-  const model = await buildChatModelForOrg('classifier', orgId, { temperature: 0, maxTokens: 40, streaming: false });
+  const model = await buildChatModelForOrg('classifier', orgId, { temperature: 0, maxTokens: 60, streaming: false });
   return async (system, user) => {
     const response = await model.invoke([{ role: 'system', content: system }, { role: 'user', content: user }]);
     const c = response.content;

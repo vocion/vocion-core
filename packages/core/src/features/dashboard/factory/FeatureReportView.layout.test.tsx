@@ -275,6 +275,26 @@ describe('the action follows the state', () => {
 
     await expect.element(page.getByTestId('report-headline')).toHaveTextContent(before!);
   });
+
+  it('with a Build card already waiting, Build it approves THAT card on the page — no second card (journey 4, #4945)', async () => {
+    const { client } = await import('@/libs/Orpc');
+    const propose = vi.mocked(client.review.propose);
+    const decide = vi.mocked(client.review.decideAction);
+    propose.mockClear();
+    decide.mockClear();
+    await page.viewport(1440, 900);
+    await draw(proposal({
+      actionRuns: [{ id: 4945, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: 41 }, decidedBy: null, decidedAt: null, approvedByAgent: null, note: null, createdAt: T('2026-09-21T10:00:00Z'), executedAt: null }],
+    }));
+
+    await expect.element(page.getByTestId('report-status-sentence')).toHaveTextContent('A build card is waiting for your approval (action #4945).');
+
+    await page.getByTestId('feature-build').click();
+
+    await expect.element(page.getByTestId('feature-building')).toBeInTheDocument();
+    expect(propose).not.toHaveBeenCalled();
+    expect(decide).toHaveBeenCalledWith({ id: 4945, decision: 'approve' });
+  });
 });
 
 describe('the pieces that carried over', () => {

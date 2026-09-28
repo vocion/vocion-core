@@ -49,6 +49,14 @@ describe('cleanTitle', () => {
     expect(cleanTitle('**Contoso supply forecast**\nsecond line ignored')).toBe('Contoso supply forecast');
   });
 
+  it('never ends a title on a function word — the cap trims back to the last whole phrase', () => {
+    // Conversation 354, 2026-09-28: seven words capped to six ended on "for".
+    expect(cleanTitle('Export viewer data to CSV for Stamp')).toBe('Export viewer data to CSV');
+    expect(cleanTitle('Northwind renewal risk and the')).toBe('Northwind renewal risk');
+    expect(cleanTitle('Plan for')).toBe('Plan');
+    expect(cleanTitle('Kestrel pipeline review')).toBe('Kestrel pipeline review');
+  });
+
   it('returns null for a reply with nothing in it', () => {
     expect(cleanTitle('')).toBeNull();
     expect(cleanTitle('""')).toBeNull();

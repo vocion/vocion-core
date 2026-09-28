@@ -76,21 +76,27 @@ export function FeatureHeadline({ requestId, tone, headline, sentence }: { reque
  * @param props.children
  * @param props.label - What the button says: "Build it", "Approve build" or
  * "Build again" — the report's status decides (`featureReport.buildStatus`).
+ * @param props.pendingRunId - A `factory.dispatch_task` card already waiting
+ * for this request (the intake's Build card). Pressing Build approves THAT
+ * card, so there is one card and the decision happens here, with Undo —
+ * journey 4 left #4945 pending behind "Not being built" (2026-09-28).
  */
-export function FeatureBuild({ requestId, planId, children, label = 'Build it' }: { requestId: number; planId: number | null; children?: React.ReactNode; label?: string }) {
+export function FeatureBuild({ requestId, planId, children, label = 'Build it', pendingRunId }: { requestId: number; planId: number | null; children?: React.ReactNode; label?: string; pendingRunId?: number }) {
   const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'done'; runId: number; workerRunId: number | null; planning: string | null } | { s: 'error'; message: string }>({ s: 'idle' });
 
   const build = async () => {
     setPhase({ s: 'working' });
     try {
-      const res = await client.review.propose({
-        actionId: 'factory.dispatch_task',
-        input: { requestId, ...(planId ? { planId } : {}), reason: 'Build started from the feature page.' },
-        rationale: 'The product owner pressed Build on the feature page.',
-        confidence: 1,
-        suggestedDecision: null,
-        suggestedDecisionReason: null,
-      }) as { runId: number; status: string };
+      const res = pendingRunId !== undefined
+        ? { runId: pendingRunId, status: 'pending' }
+        : await client.review.propose({
+          actionId: 'factory.dispatch_task',
+          input: { requestId, ...(planId ? { planId } : {}), reason: 'Build started from the feature page.' },
+          rationale: 'The product owner pressed Build on the feature page.',
+          confidence: 1,
+          suggestedDecision: null,
+          suggestedDecisionReason: null,
+        }) as { runId: number; status: string };
       const decided = res.status === 'done' ? null : await client.review.decideAction({ id: res.runId, decision: 'approve' }) as { result?: { workerRunId?: number; planning?: boolean; why?: string } } | null;
       // Build is one path through the plan gate: when the rule needs a plan,
       // pressing Build starts planning and the approved plan builds itself.

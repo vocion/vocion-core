@@ -413,9 +413,18 @@ export type FeatureDrawerKey = 'status' | 'plan' | 'implementation' | 'acceptanc
 
 /** The one move the page offers, and how it is made. */
 export type ReportAction
-  = | { kind: 'build'; label: string }
-    | { kind: 'drawer'; label: string; drawer: FeatureDrawerKey }
-    | { kind: 'link'; label: string; href: string };
+  = | {
+    kind: 'build';
+    label: string;
+    /**
+     * The pending `factory.dispatch_task` card this press approves, when one
+     * is already waiting — so the page approves THAT card (with its Undo)
+     * rather than filing a second one beside it.
+     */
+    runId?: number;
+  }
+  | { kind: 'drawer'; label: string; drawer: FeatureDrawerKey }
+  | { kind: 'link'; label: string; href: string };
 
 /**
  * WHERE THIS IS, IN A SENTENCE (Chris, 2026-09-28). Derived from the same
@@ -2121,7 +2130,11 @@ function buildState(input: FeatureReportInput): ReportState {
       },
     };
   }
-  const pendingAction = input.actionRuns.find(a => a.decidedAt === null && a.approvedByAgent === false);
+  // WAITING ON A PERSON is a pending run nobody has decided. `approvedByAgent`
+  // is NULL until someone decides, so reading it as `=== false` missed every
+  // card still waiting — journey 4's Build card #4945 read "Not being built"
+  // over a pending dispatch (2026-09-28).
+  const pendingAction = input.actionRuns.find(a => a.decidedAt === null && a.approvedByAgent !== true && a.status === 'pending');
   if (pendingAction) {
     return {
       key: 'approve',
@@ -3009,9 +3022,13 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
         headline: merge ? 'Ready to merge' : dispatch ? 'Build proposed' : 'Needs approval',
         sentence: merge
           ? `QA approved the change and it is waiting for you to merge. It is not live until it merges. ${verifiedLine}`
-          : dispatch ? 'A build is proposed and waiting for your approval. Nothing has run yet.' : `${state.question ?? 'An action'} is waiting for your approval.`,
-        action: inbox ? { kind: 'link', label: merge ? 'Review the merge' : dispatch ? 'Approve build' : 'Review & approve', href: inbox } : null,
-        secondary: null,
+          : dispatch ? `A build card is waiting for your approval (action #${state.decision!.id}). Building it approves that card; nothing has run yet.` : `${state.question ?? 'An action'} is waiting for your approval.`,
+        // The build card is approved HERE, not one page away: the press
+        // approves the pending dispatch itself, with Undo (journey 4).
+        action: dispatch
+          ? { kind: 'build', label: 'Build it', runId: state.decision!.id }
+          : inbox ? { kind: 'link', label: merge ? 'Review the merge' : 'Review & approve', href: inbox } : null,
+        secondary: dispatch && inbox ? { kind: 'link', label: 'Open the card', href: inbox } : null,
       };
     }
     case 'released':

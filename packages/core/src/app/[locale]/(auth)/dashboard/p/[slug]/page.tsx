@@ -49,6 +49,7 @@ import {
   knowledgeSourceSchema,
   toolCallSchema,
 } from '@/models/Schema';
+import { loadPendingBuilds } from '@/services/factory/pendingBuilds';
 import { loadReleaseLinked } from '@/services/factory/releaseData';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
@@ -580,6 +581,8 @@ export default async function WorkspacePage(props: {
           now: new Date(now),
           tasks: await loadObjectRows(orgId, 'engineering_task'),
           releases: await loadObjectRows(orgId, 'release'),
+          // A Build card already up is the row's decision (journey 4, #214).
+          pendingBuilds: await loadPendingBuilds(orgId),
         })
       : manifest.derive === 'releaseOutcome'
         ? deriveReleaseOutcome(loaded, { now: new Date(now) })

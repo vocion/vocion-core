@@ -680,3 +680,25 @@ describe('the factory carrying it (backlog 038)', () => {
     expect(stateOf(qa, 'progress')).toBe('Awaiting QA');
   });
 });
+
+describe('a Build card already up (journey 4, 2026-09-28: #214\'s card #4945 pending, the row read as queued)', () => {
+  it('makes the row a decision, says which card and how long it has waited, and leads the lane', () => {
+    const filed = row(214, 'Download CSV of document viewers', { state: 'new' }, new Date('2026-09-20T10:00:00Z'));
+    const older = row(213, 'Older queued request', { state: 'new' }, new Date('2026-09-10T10:00:00Z'));
+    const out = deriveWorkQueue([older, filed], { now: NOW, pendingBuilds: [{ requestId: 214, runId: 4945, at: new Date('2026-09-21T09:00:00Z') }] });
+    const card = out.find(r => r.id === 214)!;
+
+    expect(card.meta.state).toBe('Decide');
+    expect(card.meta.workLine).toBe('Build card waiting on you (action #4945) · waiting since today');
+    expect(card.meta.pendingBuildRunId).toBe(4945);
+    // A decision leads the proposed lane, ahead of the older queued row.
+    expect(out.filter(r => r.meta.laneKey === 'proposed').map(r => r.id)).toEqual([214, 213]);
+  });
+
+  it('leaves a row with no card as it was', () => {
+    const out = deriveWorkQueue([row(213, 'Queued', { state: 'new' })], { now: NOW, pendingBuilds: [{ requestId: 214, runId: 4945, at: NOW }] });
+
+    expect(out[0]!.meta.state).toBe('Not triaged');
+    expect(out[0]!.meta.pendingBuildRunId).toBeUndefined();
+  });
+});

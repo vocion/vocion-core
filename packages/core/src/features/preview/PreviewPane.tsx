@@ -246,6 +246,9 @@ function Body(props: { doc: PreviewDoc }) {
         ? <div className="border-t border-rule pt-3"><Md text={doc.body} /></div>
         : !doc.steps?.length && !doc.more?.length && <p className="border-t border-rule pt-3 text-sm text-muted-foreground">No text was synced for this reference.</p>}
       {doc.truncated && <p className="mt-3 text-xs text-muted-foreground">Cut short — open the full page for the rest.</p>}
+      {doc.href && doc.hrefLabel && (
+        <Link href={doc.href} data-testid="preview-open-record" className="mt-3 inline-block text-[13px] text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground">{doc.hrefLabel}</Link>
+      )}
       {doc.steps && doc.steps.length > 0 && <Steps steps={doc.steps} />}
       {doc.more && doc.more.length > 0 && <More items={doc.more} />}
     </div>

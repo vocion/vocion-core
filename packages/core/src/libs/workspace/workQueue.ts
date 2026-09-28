@@ -108,6 +108,12 @@ export type WorkQueueOptions = {
    */
   tasks?: PageRow[];
   releases?: PageRow[];
+  /**
+   * Build cards (`factory.dispatch_task`) filed and waiting on a person, by
+   * request. A row with one is waiting on you whatever its recommendation
+   * says: journey 4's #214 had its Build card pending and read as queued.
+   */
+  pendingBuilds?: ReadonlyArray<{ requestId: number; runId: number; at: Date | null }>;
 };
 
 /**
@@ -180,7 +186,7 @@ export function isProbeRow(row: PageRow): boolean {
  * @param row - The row.
  */
 export function isWaitingOnPerson(row: PageRow): boolean {
-  return str(row, 'recommendationState') === 'proposed';
+  return str(row, 'recommendationState') === 'proposed' || num(row, 'pendingBuildRunId') !== null;
 }
 
 /**
@@ -722,6 +728,15 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
       const ahead = opts.ahead ?? 0;
       return `Behind ${ahead} decision${ahead === 1 ? '' : 's'}, moves up as they land${waited}`;
     }
+    // A Build card already filed: the decision is that card, and it is
+    // made on the feature page (Build it approves it, with Undo).
+    const buildCard = num(row, 'pendingBuildRunId');
+    if (buildCard !== null) {
+      const at = date(meta(row).pendingBuildAt);
+      const cardDays = at ? Math.floor((now.getTime() - at.getTime()) / 86_400_000) : days;
+      const cardWaited = cardDays === null ? '' : cardDays < 1 ? ' · waiting since today' : ` · waiting ${cardDays} day${cardDays === 1 ? '' : 's'}`;
+      return `Build card waiting on you (action #${buildCard})${cardWaited}`;
+    }
     return verb ? `Decide whether to ${verb}${waited}` : `Decide${waited}`;
   }
   // A queued row's state is already on its badge, so the line says only
@@ -1101,8 +1116,15 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
   }
   const shippedTaskIds = shippedTaskIdsOf((options.releases ?? []).map(r => ({ meta: meta(r) })));
   const relatedOf = (r: PageRow): AcceptanceContext => ({ tasks: tasksByRequest.get(Number(r.id)) ?? [], shippedTaskIds });
+  const buildCards = new Map((options.pendingBuilds ?? []).map(b => [b.requestId, b] as const));
+  const annotated = buildCards.size === 0
+    ? rows
+    : rows.map((r) => {
+        const card = buildCards.get(Number(r.id));
+        return card && laneOf(r) === 'proposed' ? { ...r, meta: { ...r.meta, pendingBuildRunId: card.runId, pendingBuildAt: card.at?.toISOString() } } : r;
+      });
 
-  const kept = rows.filter((r) => {
+  const kept = annotated.filter((r) => {
     if (isProbeRow(r)) {
       return false;
     }

@@ -25,7 +25,7 @@ import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agen
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
-import { asksToFile, fileOwedWrite, owedWriteTool } from './agents/owedWriteBackstop';
+import { answerNamesFiled, asksToChange, asksToFile, changedInTurn, changeOwedRecord, fileOwedWrite, owedWriteTool } from './agents/owedWriteBackstop';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
@@ -1356,6 +1356,10 @@ export async function runAgentDeep(opts: {
   // with propose_action chosen files it from the conversation
   // (`services/agents/owedWriteBackstop.ts`), before the claim check below
   // reads the turn.
+  // The filing receipt waits until the answer is final: an answer that names
+  // the record needs no second announcement of it (journey 4: "Filed from
+  // this conversation: request #214." over "Filed as request #214.").
+  let owedReceipt: { line: string; output: string } | null = null;
   if (asksToFile(opts.message) && !wroteInTurn(toolCallLog)) {
     try {
       const { buildDomainTools } = await import('./agents/tools/registry');
@@ -1378,11 +1382,13 @@ export async function runAgentDeep(opts: {
         console.warn('owed write pass', { orgId: opts.orgId, agentSlug: opts.agentSlug, conversationId: opts.conversationId ?? null, filed: owed.filed, output: owed.output.slice(0, 200) });
         if (owed.args) {
           toolCallLog.push({ tool: proposeTool.name, input: owed.args, output: owed.output });
+          // The step is on the turn like any call: a recovered failure then
+          // reads "retried · filed", not "file_request failed" (journey 4).
+          emit({ type: 'tool_start', tool: proposeTool.name, input: owed.args });
+          emit(owed.filed ? { type: 'tool_end', tool: proposeTool.name, input: owed.args, output: owed.output.slice(0, 2000) } : { type: 'tool_error', tool: proposeTool.name, message: owed.output.slice(0, 500) });
         }
         if (owed.line) {
-          const delta = `${finalText.trim() ? '\n\n' : ''}${owed.line}`;
-          finalText += delta;
-          emit({ type: 'response_delta', delta });
+          owedReceipt = { line: owed.line, output: owed.output };
         }
       }
     } catch (err) {
@@ -1391,11 +1397,49 @@ export async function runAgentDeep(opts: {
     }
   }
 
-  if (createdRecords.length > 0) {
-    const linked = appendRecordLinks(finalText, createdRecords);
-    if (linked !== finalText) {
-      emit({ type: 'response_delta', delta: linked.slice(finalText.length) });
-      finalText = linked;
+  // THE PERSON ASKED TO CHANGE THE RECORD ON THEIR PAGE; THE TURN ENDS WITH
+  // IT CHANGED (journey 4, request #214: "Change this request: …" read the
+  // record, claimed "Updated", wrote nothing). One pass with update_object
+  // chosen, the page's record fixed (`owedWriteBackstop.changeOwedRecord`).
+  const pageRecord = opts.pageContext?.record;
+  const pageRecordId = pageRecord?.type === 'object' && /^\d+$/.test(pageRecord.id) ? Number(pageRecord.id) : null;
+  if (pageRecordId !== null && asksToChange(opts.message) && !changedInTurn(toolCallLog, pageRecordId)) {
+    try {
+      const { buildDomainTools } = await import('./agents/tools/registry');
+      const updateTool = buildDomainTools(boundCtx).find(t => t.name === 'update_object');
+      const { getBusinessObject } = await import('./BusinessObjectService');
+      const row = updateTool ? await getBusinessObject(pageRecordId, opts.orgId) : null;
+      const typeSlug = row?.type?.slug ?? null;
+      if (updateTool && row && typeSlug && boundCtx.objectTypeSlugs.includes(typeSlug)) {
+        emit({ type: 'status', label: `Changing ${typeSlug} #${row.id}` });
+        const { recordHref } = await import('./objects/recordHref');
+        const href = await recordHref(opts.orgId, { objectType: typeSlug, id: row.id }).catch(() => pageRecord?.href ?? null);
+        const { buildChatModelForOrg } = await import('@/libs/llm');
+        const model = await buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: false, maxTokens: 6000 });
+        const history = opts.conversationHistory ?? [];
+        const changed = await changeOwedRecord({
+          request: opts.message,
+          history: history.map(t => ({ role: t.role, content: t.content })),
+          answer: finalText,
+          systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
+          record: { id: row.id, typeSlug, label: `${typeSlug.replace(/[_-]+/g, ' ')} #${row.id}`, href, fields: { title: row.title, status: row.status, ...((row.metadata ?? {}) as Record<string, unknown>) } },
+          tool: updateTool,
+          model: model as never,
+        });
+        console.warn('owed change pass', { orgId: opts.orgId, agentSlug: opts.agentSlug, conversationId: opts.conversationId ?? null, recordId: row.id, changed: changed.filed, output: changed.output.slice(0, 200) });
+        if (changed.args) {
+          toolCallLog.push({ tool: updateTool.name, input: changed.args, output: changed.output });
+          emit({ type: 'tool_start', tool: updateTool.name, input: changed.args });
+          emit(changed.filed ? { type: 'tool_end', tool: updateTool.name, input: changed.args, output: changed.output.slice(0, 2000) } : { type: 'tool_error', tool: updateTool.name, message: changed.output.slice(0, 500) });
+        }
+        if (changed.line) {
+          const delta = `${finalText.trim() ? '\n\n' : ''}${changed.line}`;
+          finalText += delta;
+          emit({ type: 'response_delta', delta });
+        }
+      }
+    } catch (err) {
+      console.warn('owed change pass failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
     }
   }
 
@@ -1417,6 +1461,26 @@ export async function runAgentDeep(opts: {
     systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
     emit,
   });
+
+  // The filing receipt, only when the answer does not already name the record.
+  if (owedReceipt && !answerNamesFiled(finalText, owedReceipt.output)) {
+    const delta = `${finalText.trim() ? '\n\n' : ''}${owedReceipt.line}`;
+    finalText += delta;
+    emit({ type: 'response_delta', delta });
+  }
+
+  // A record the turn made is linked at the end if the answer did not give
+  // it — read AFTER the answer pass, so a record the answer names by number
+  // ("Filed as request #214") is not linked a second time under it; the
+  // mention itself becomes the link below (`recordMentionLinks`).
+  const unnamed = createdRecords.filter(r => !new RegExp(`#${r.id}(?!\\d)`).test(finalText));
+  if (unnamed.length > 0) {
+    const linked = appendRecordLinks(finalText, unnamed);
+    if (linked !== finalText) {
+      emit({ type: 'response_delta', delta: linked.slice(finalText.length) });
+      finalText = linked;
+    }
+  }
 
   // Card backstop (structural, workspace-opt-in) — AFTER the guarantees, so
   // it reads the answer the person actually got. It used to run before the

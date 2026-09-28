@@ -1201,6 +1201,27 @@ describe('the status sentence and its one action', () => {
     expect(r.status.sentence).toContain('It is not live until it merges.');
   });
 
+  it('a Build card waiting on a person is the page\'s status and its Build approves THAT card (journey 4, #214 / card #4945)', () => {
+    // Undecided: approvedByAgent is null, not false, until someone decides.
+    const card: ReportActionRun = { ...handoff, id: 4945, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: request.id, reason: 'Ready to build.' }, decidedBy: null, decidedAt: null, approvedByAgent: null, executedAt: null };
+    const r = proposal({ actionRuns: [card] });
+
+    expect(r.status.headline).toBe('Build proposed');
+    expect(r.status.sentence).toBe('A build card is waiting for your approval (action #4945). Building it approves that card; nothing has run yet.');
+    expect(r.status.action).toEqual({ kind: 'build', label: 'Build it', runId: 4945 });
+    expect(r.status.secondary).toEqual({ kind: 'link', label: 'Open the card', href: '/dashboard/inbox/proposal-4945' });
+    expect(r.state.needsYou).toBe(true);
+    // Never "Not being built · It is not open for a build" over a waiting card.
+    expect(r.status.headline).not.toBe('Not being built');
+  });
+
+  it('a merge waiting on a person reads as waiting whether approvedByAgent is false or not yet set', () => {
+    const merge: ReportActionRun = { ...handoff, id: 91, actionId: 'git.merge', status: 'pending', decidedAt: null, approvedByAgent: null, executedAt: null };
+    const r = proposal({ tasks: [task], workerRuns: [run()], actionRuns: [merge] });
+
+    expect(r.status.action).toEqual({ kind: 'link', label: 'Review the merge', href: '/dashboard/inbox/proposal-91' });
+  });
+
   it('says Open feature once it is live, pointing at the running product', () => {
     const req = { ...request, meta: { ...request.meta, visuals: { surfaceUrl: 'https://portal.northwind.example/rooms' } } };
     const r = assembleFeatureReport(input({ request: req }));

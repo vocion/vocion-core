@@ -173,3 +173,162 @@ export async function fileOwedWrite(opts: {
   }
   return { filed: false, args, output };
 }
+
+/**
+ * Does the answer already name the record the filing call made? Journey 4
+ * (2026-09-28): the pass appended "Filed from this conversation: request
+ * #214." and the answer pass then wrote "Filed as request #214." under it —
+ * the same record announced twice. The line is a receipt for an answer that
+ * did not give one; an answer that names the record needs none.
+ * @param text - The answer as it stands.
+ * @param output - The filing tool's answer.
+ */
+export function answerNamesFiled(text: string, output: string): boolean {
+  const href = /open at (\S+?)\.(?:\s|$)/.exec(output)?.[1];
+  if (href && (text ?? '').includes(href)) {
+    return true;
+  }
+  const filed = /filed as [^#\n]{0,40}#(\d+)/i.exec(output);
+  return filed !== null && new RegExp(`#${filed[1]}(?!\\d)`).test(text ?? '');
+}
+
+/*
+ * THE PERSON ASKED TO CHANGE THE RECORD ON THEIR SCREEN; THE TURN ENDS WITH
+ * IT CHANGED.
+ *
+ * Journey 4 (2026-09-28): on request #214's feature page the person wrote
+ * "Change this request: also include which pages each viewer read, and the
+ * CSV filename should be the document title plus today's date." The product
+ * manager read the record, wrote "Updated request #214 — two changes …",
+ * called nothing, and the card backstop put up an approval card; the
+ * record's acceptance stayed five lines. The claim check said "Nothing was
+ * saved" — true, and still not the change.
+ *
+ * The same backstop as a filing, for an update: when the page names a record,
+ * the message asks to change it, and no write to THAT record ran, the
+ * conversation goes to the model once more with update_object bound and
+ * CHOSEN, the record's current fields in front of it, and the id and type
+ * fixed from the page — the model transcribes the change into the typed
+ * shape and decides nothing new. The call rides every gate a turn's own call
+ * does: the type's schema, the `objects.update_meta` trust rule (done for you
+ * with Undo above the bar, a card in Review below it), the tool-call row, and
+ * the record's history (the action run IS the version, `recordBody.ts`).
+ */
+
+/** "change this request", "update the acceptance", "add … to it", "rename it". */
+const CHANGE_VERB = '(?:change|update|edit|amend|revise|modify|add|append|remove|drop|delete|rename|retitle|rewrite|reword|replace|include|mark)';
+
+/** The message opens on the change: "Change this request: …", "Please also add …". */
+const OPENS_ON_CHANGE = new RegExp(`^\\s*(?:(?:please|ok(?:ay)?|and|also|now|then)[,\\s]+)*${CHANGE_VERB}\\b`, 'im');
+
+/** The change names its target: "this request", "the acceptance", "it". */
+const NAMES_THE_RECORD = new RegExp(`\\b${CHANGE_VERB}\\s+(?:(?:this|that|the|its|it|our)\\b|[\\w-]+\\s+(?:to|on|in|from)\\s+(?:this|that|the|it)\\b)`, 'i');
+
+/** Asking about a change is not asking for one. */
+const NOT_A_CHANGE = new RegExp(`\\b(?:how (?:do|can|would|should) (?:i|we|you)|don'?t|do not|never|should (?:i|we)|would it|could we|can we|what (?:would|if)|why)\\s(?:[^.?!\\n]{0,20}\\s)?${CHANGE_VERB}\\b`, 'i');
+
+/**
+ * Does the person's message ask for the record on their page to be changed?
+ * Only meaningful with a record in page context: the pronoun is the page.
+ * @param request - The person's message, as typed.
+ */
+export function asksToChange(request: string): boolean {
+  const text = (request ?? '').split('\n\n--- ')[0] ?? '';
+  if (asksToFile(text) || NOT_A_CHANGE.test(text) || /\bupdate (?:me|us)\b/i.test(text)) {
+    return false;
+  }
+  return OPENS_ON_CHANGE.test(text) || NAMES_THE_RECORD.test(text);
+}
+
+/**
+ * Did a write to this record run (or go to Review) in the turn — not a refusal?
+ * @param toolCalls - The turn's tool calls.
+ * @param id - The record.
+ */
+export function changedInTurn(toolCalls: ReadonlyArray<{ tool: string; input?: Record<string, unknown>; output?: string }>, id: number): boolean {
+  return toolCalls.some(c => c.tool === 'update_object'
+    && Number(c.input?.id) === id
+    && !/^\s*(?:update refused|refused|update failed|not written|update to \S+ #\d+ did not land)/i.test(c.output ?? ''));
+}
+
+/**
+ * The sentence the person reads under the answer, from update_object's answer.
+ * @param output - update_object's answer.
+ * @param label - The record, as the person knows it ("request #214").
+ * @param href - Its page.
+ * @param what - What changed, in one sentence (the call's `reason`).
+ */
+export function changeLine(output: string, label: string, href: string | null, what: string): string | null {
+  const name = href ? `[${label}](${href})` : label;
+  const said = what.trim().replace(/\.+$/, '');
+  if (/ updated — .+ written \(run #\d+/.test(output)) {
+    return `Changed ${name}: ${said}.`;
+  }
+  const pending = /is PENDING a person's decision \(run #(\d+)/.exec(output) ?? /now carries these values \(run #(\d+)\)/.exec(output);
+  if (pending) {
+    return `The change to ${name} is waiting in Review as action run #${pending[1]}: ${said}. Nothing is changed until a person approves it.`;
+  }
+  return null;
+}
+
+/** The record the change pass writes: the page's, with what it holds now. */
+export type OwedChangeRecord = { id: number; typeSlug: string; label: string; href: string | null; fields: Record<string, unknown> };
+
+/**
+ * Change the record the person is looking at, once, with update_object chosen.
+ * @param opts - The turn, the record, the tool and the model.
+ * @param opts.request - The person's message this turn.
+ * @param opts.history - Earlier messages in the conversation, oldest first.
+ * @param opts.answer - What the turn answered.
+ * @param opts.systemPrompt - The agent's own prompt.
+ * @param opts.record - The page's record ({@link OwedChangeRecord}).
+ * @param opts.tool - update_object, as the registry built it (wrapped, so the call is recorded).
+ * @param opts.model - A chat model for the pass.
+ */
+export async function changeOwedRecord(opts: {
+  request: string;
+  history: ReadonlyArray<OwedWriteTurn>;
+  answer: string;
+  systemPrompt?: string;
+  record: OwedChangeRecord;
+  tool: StructuredToolInterface;
+  model: OwedWriteModel;
+}): Promise<OwedWriteResult> {
+  if (!opts.model.bindTools) {
+    return { filed: false, output: 'the model cannot bind tools' };
+  }
+  const { HumanMessage, SystemMessage, ToolMessage } = await import('@langchain/core/messages');
+  const model = opts.model.bindTools([opts.tool], { tool_choice: opts.tool.name });
+  const convo = opts.history.slice(-6).map(t => `${t.role === 'user' ? 'Person' : 'You'}: ${t.content.slice(0, 3_000)}`).join('\n\n');
+  const { id, typeSlug, label } = opts.record;
+  const messages: BaseMessage[] = [
+    new SystemMessage(`${opts.systemPrompt ?? ''}\n\nCHANGE PASS: the person is on the page of ${label} and asked for it to be changed. This turn ended without writing the change, so the record is exactly as below. Your only job now is to call ${opts.tool.name} once, with object_type "${typeSlug}" and id ${id}, writing exactly the change the person asked for — the same content, in the record's own fields. Do not decide anything new. Put in \`set\` ONLY the fields the change touches, each with its WHOLE new value: a list field (acceptance criteria, tags) is written whole, so keep every existing item, then add, edit or remove what was asked. \`reason\` is one sentence saying what changed, in the person's terms. \`confidence\` is high when the person stated the change plainly.`),
+    new HumanMessage(`${label} as it stands (${typeSlug} #${id}):\n${JSON.stringify(opts.record.fields).slice(0, 12_000)}\n\n${convo ? `The conversation so far:\n\n${convo}\n\n` : ''}The person, this turn: ${opts.request.slice(0, 4_000)}\n\nYour answer this turn:\n${opts.answer.slice(0, 4_000)}`),
+  ];
+  let output = '';
+  let args: Record<string, unknown> | undefined;
+  // Two tries, as the filing pass: a refusal names what to fix.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await model.invoke(messages);
+    const call = (res.tool_calls ?? []).find(c => c.name === opts.tool.name);
+    if (!call) {
+      return { filed: false, args, output: output || 'the model returned no call' };
+    }
+    // The record is the page's, never the model's pick: the id and type are
+    // fixed here, so the pass cannot write a different record.
+    args = { ...call.args, object_type: typeSlug, id };
+    const callId = call.id ?? `${opts.tool.name}-owed-change-${attempt}`;
+    output = await opts.tool.invoke({ type: 'tool_call', id: callId, name: call.name, args } as never).then(
+      r => (typeof r === 'string' ? r : String((r as { content?: unknown }).content ?? '')),
+      (err: Error) => `Update failed: ${err.message}`,
+    );
+    const set = args.set && typeof args.set === 'object' ? Object.keys(args.set as object) : [];
+    const what = typeof args.reason === 'string' && args.reason.trim() ? args.reason : `${set.join(', ') || 'fields'} updated`;
+    const line = changeLine(output, label, opts.record.href, what);
+    if (line) {
+      return { filed: true, args, output, line };
+    }
+    messages.push(res, new ToolMessage({ content: output, tool_call_id: callId }));
+  }
+  return { filed: false, args, output };
+}
