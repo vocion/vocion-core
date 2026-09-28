@@ -87,9 +87,9 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   // ── Shot 1 — fresh workspace: the Teams empty state is honest + self-solving ──
   // Teams lives in the sidebar's manage view, not the default work view, since
   // the configurable-surfaces nav landed. A visitor gets there the same way:
-  // the workspace button at the foot of the sidebar, then "Manage workspace".
-  await page.getByRole('button', { name: 'Workspace and settings' }).click();
-  await page.getByRole('menuitem', { name: 'Manage workspace' }).click();
+  // the "Manage workspace" row in the sidebar, which swaps the sidebar to the
+  // manage view in place.
+  await page.getByRole('button', { name: 'Manage workspace' }).click();
 
   await page.getByRole('link', { name: 'Teams & agents', exact: true }).click();
   await page.waitForURL('**/dashboard/teams');
@@ -136,7 +136,9 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await expect(page.getByRole('heading', { name: 'RevOps' })).toBeVisible();
   await expect(page.getByText('What runs free / what waits')).toBeVisible();
   await expect(page.getByText('Reads & analysis: run freely')).toBeVisible();
-  await expect(page.getByText('for your approval — drafted, never sent alone')).toBeVisible();
+  // No "skills wait for your approval" line: since approval moved from skills
+  // to actions (0876ffba), the team page counts no gated skills, so that line
+  // never renders for any team.
 
   await page.getByText('What runs free / what waits').hover();
   await dwell(page, 2500);
@@ -181,8 +183,9 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await dwell(page, 1500);
   await underTheHood.click(); // collapse again
 
-  // Close on the org chart (client-side, like every navigation above).
-  await page.getByRole('link', { name: 'Teams & agents', exact: true }).click();
+  // Close on the org chart (client-side, like every navigation above), through
+  // the detail page's breadcrumb; the sidebar carries the same link.
+  await page.getByLabel('Breadcrumb').getByRole('link', { name: 'Teams & agents', exact: true }).click();
   await page.waitForURL('**/dashboard/teams');
 
   await expect(page.getByRole('heading', { name: 'Revenue Director' })).toBeVisible();
