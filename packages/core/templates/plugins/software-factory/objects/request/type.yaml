@@ -21,6 +21,17 @@ schema:
   # When a question about a request stops being a question (backlog 039): a
   # Review item asking about one closes itself once the request ends here.
   x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
+  # FILED THROUGH ITS OWN TOOL (core: services/agents/tools/fileRecord.ts).
+  # An agent that works with requests gets `file_request`, whose arguments ARE
+  # these fields: the proposal-ready bar below marked required, `product` as
+  # one of the workspace's product slugs, `why` from its closed list — and
+  # the identity set here, never by the model. Conversation 353 (2026-09-28):
+  # propose_action with free-form fields guessed the shape (`product:
+  # "Stamp"`, no story, no dedupOn), was refused twice, and nothing was filed.
+  x-agent-file:
+    dedupOn: [product, title]
+    fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
+    omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.afterArtifactIds, visuals.drawnArtifactId]
   properties:
     kind:
       x-display: {label: Kind, format: badge, group: Triage, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
@@ -173,6 +184,7 @@ schema:
         than silently reinterpreting the job.
       items:
         type: object
+        required: [statement]
         properties:
           statement: {type: string, description: 'One thing that must be true, stated so a person can check it. Present tense, user-visible where possible.'}
           met: {type: boolean, description: 'Whether it holds. Absent means nobody has checked yet, which is NOT the same as false.'}

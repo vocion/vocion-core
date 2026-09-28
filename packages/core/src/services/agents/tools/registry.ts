@@ -38,6 +38,7 @@ import { fetchImageTool } from './fetchImage';
 import { fetchUrlTool } from './fetchUrl';
 import { fileAskTool, withdrawAskTool } from './fileAsk';
 import { fileFeedbackTool } from './fileFeedback';
+import { fileRecordTools } from './fileRecord';
 import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
@@ -121,6 +122,21 @@ function apolloTools(ctx: RuntimeContext): StructuredToolInterface[] {
 }
 
 export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
+  const tools = baseDomainTools(ctx);
+  // A record filed through a tool whose arguments ARE its type: one
+  // `file_<slug>` per opted-in type (`x-agent-file`) the agent works with,
+  // required fields from the type's proposal-ready bar, references as enums
+  // of this workspace's slugs (conversation 353: free-form fields, two
+  // refusals, nothing filed). A name another tool already holds is skipped,
+  // so a type called `ask` can never shadow `file_ask`.
+  const taken = new Set(tools.map(t => t.name));
+  const filing = fileRecordTools(ctx).filter(t => !taken.has(t.name));
+  // Every invocation writes one tool_call row — the activity record,
+  // covering all three harness providers at this single seam.
+  return [...tools, ...filing].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
+}
+
+function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
   return [
     searchKnowledgeTool(ctx),
     webSearchTool(ctx),
@@ -222,9 +238,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...personalizationTools(ctx),
     // Granted-only: reference-based kit verification + the Rekognition second opinion.
     ...kitVisionTools(ctx),
-    // Every invocation writes one tool_call row — the activity record,
-    // covering all three harness providers at this single seam.
-  ].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
+  ] as StructuredToolInterface[];
 }
 
 export type ToolCatalogEntry = {

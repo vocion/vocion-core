@@ -28,6 +28,7 @@
  */
 
 import type { SubAgent } from 'deepagents';
+import type { FilingType } from './tools/fileRecord';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
 import type { OperatingIntentManifest } from '@/libs/workspace/schemas';
@@ -54,6 +55,7 @@ import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentServi
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
+import { loadFilingTypes } from './tools/fileRecord';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -241,6 +243,8 @@ type AgentBlueprint = {
   hasMounts: boolean;
   /** The workspace's enabled plugin slugs; plugin-owned tools are built only with their plugin. */
   enabledPlugins: string[];
+  /** The agent's types filed through their own typed tool (`tools/fileRecord.ts`). */
+  filingTypes?: FilingType[];
 };
 
 /**
@@ -310,6 +314,10 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // column the applier writes. `null` is "nobody has told this factory
   // anything", which the note says out loud rather than treating as permission.
   const operatingIntent = await operatingIntentForOrg(orgId).catch(() => null);
+  // The agent's types that are filed through their own tool (`file_<slug>`),
+  // with reference fields resolved to this workspace's record slugs. Once per
+  // blueprint, like the plugins: an apply resets the cache.
+  const filingTypes = await loadFilingTypes(orgId, row.objectTypeSlugs ?? []).catch(() => [] as FilingType[]);
 
   // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
   // the registry (agent-chat-surface.md §9 — routing is delegation): agents
@@ -438,7 +446,7 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     });
   }
 
-  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins };
+  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
@@ -504,6 +512,7 @@ function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: 
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     enabledPlugins: blueprint.enabledPlugins,
+    filingTypes: blueprint.filingTypes,
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     defaultTimeZone: blueprint.defaultTimeZone,

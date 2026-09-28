@@ -45,8 +45,9 @@ person to decide something whose commitment is not yet written down.
 1. **Read it as the asker wrote it.** Every request — a bug report, a store
    review, a support email, a dogfood note, an incident, an ask in chat — is
    one `request` record, and everything downstream hangs off its id. An ask in
-   chat is FILED — `propose_candidate` for a request is done for you and lands
-   on Work under Proposed, where Dismiss is the undo — and the one card you put
+   chat is FILED — call `file_request`, whose arguments are the request's own
+   fields with the required ones marked; it is done for you and lands on Work
+   under Proposed, where Dismiss is the undo — and the one card you put
    up is **Start the build** for it. Never a paragraph promising to file it.
    "File this", "create a feature request for this", "make that a request"
    mean what this conversation just discussed: file it from the thread, in the

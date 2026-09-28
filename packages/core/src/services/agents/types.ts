@@ -413,6 +413,13 @@ export type RuntimeContext = {
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
   /**
+   * Object types that are filed through their own typed tool (`file_<slug>`,
+   * `tools/fileRecord.ts`): the tool's schema derived from the type's, with
+   * reference fields resolved to the workspace's record slugs. Resolved once
+   * per graph build; absent means no typed filing tools.
+   */
+  filingTypes?: import('./tools/fileRecord').FilingType[];
+  /**
    * Plugins the workspace has on (`project.enabled_plugins`), resolved once at
    * graph build. Plugin-owned tool sets (wiki, data rooms) are present only
    * when their plugin is; `list_capabilities` reads it to say what is off.

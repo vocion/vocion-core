@@ -22,6 +22,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
 import { verifyClaim } from './claims';
+import { loadFilingTypes } from './tools/fileRecord';
 import { buildDomainTools } from './tools/registry';
 
 /**
@@ -87,6 +88,8 @@ export async function executeToolCall(opts: {
     missionSlug: claim.missionSlug,
     missionRunId: claim.missionRunId,
     objectTypeSlugs: row.objectTypeSlugs ?? [],
+    // The typed filing tools the catalog listed, rebuilt the same way.
+    filingTypes: await loadFilingTypes(claim.orgId, row.objectTypeSlugs ?? []).catch(() => []),
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     conversationId: claim.conversationId,

@@ -25,7 +25,7 @@ import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agen
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
-import { asksToFile, fileOwedWrite } from './agents/owedWriteBackstop';
+import { asksToFile, fileOwedWrite, owedWriteTool } from './agents/owedWriteBackstop';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
@@ -1359,14 +1359,17 @@ export async function runAgentDeep(opts: {
   if (asksToFile(opts.message) && !wroteInTurn(toolCallLog)) {
     try {
       const { buildDomainTools } = await import('./agents/tools/registry');
-      const proposeTool = buildDomainTools(boundCtx).find(t => t.name === 'propose_action');
+      // The typed filing tool when the agent has one (file_request), so the
+      // pass fills the type's own schema; else propose_action (conversation 353).
+      const history = opts.conversationHistory ?? [];
+      const proposeTool = owedWriteTool(buildDomainTools(boundCtx), [opts.message, ...history.map(t => t.content)].join('\n'));
       if (proposeTool) {
         emit({ type: 'status', label: 'Filing what you asked for' });
         const { buildChatModelForOrg } = await import('@/libs/llm');
         const model = await buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: false, maxTokens: 6000 });
         const owed = await fileOwedWrite({
           request: opts.message,
-          history: (opts.conversationHistory ?? []).map(t => ({ role: t.role, content: t.content })),
+          history: history.map(t => ({ role: t.role, content: t.content })),
           answer: finalText,
           systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
           tool: proposeTool,
@@ -1374,7 +1377,7 @@ export async function runAgentDeep(opts: {
         });
         console.warn('owed write pass', { orgId: opts.orgId, agentSlug: opts.agentSlug, conversationId: opts.conversationId ?? null, filed: owed.filed, output: owed.output.slice(0, 200) });
         if (owed.args) {
-          toolCallLog.push({ tool: 'propose_action', input: owed.args, output: owed.output });
+          toolCallLog.push({ tool: proposeTool.name, input: owed.args, output: owed.output });
         }
         if (owed.line) {
           const delta = `${finalText.trim() ? '\n\n' : ''}${owed.line}`;

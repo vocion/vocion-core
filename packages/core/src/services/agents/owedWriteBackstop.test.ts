@@ -9,11 +9,13 @@ import { AIMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { explainProposeActionMiss, normalizeProposeActionArgs, proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
-import { asksToFile, fileOwedWrite, owedWriteLine } from './owedWriteBackstop';
+import { asksToFile, fileOwedWrite, owedWriteLine, owedWriteTool } from './owedWriteBackstop';
 
 vi.mock('@/libs/DB');
 
 const { withArgumentRepair, withToolCallRecord } = await import('./toolCallRecord');
+const { filingTypeOf } = await import('./tools/fileRecord');
+const { buildDomainTools } = await import('./tools/registry');
 
 const ctx = { orgId: 'org_owed_write', agentSlug: 'product-manager', emit: () => {}, citationSeq: { current: 0 }, delegations: new Map() } as unknown as RuntimeContext;
 
@@ -31,8 +33,9 @@ function proposeTool(answer: string, received: unknown[]) {
 /**
  * A model bound to the one tool that answers each call in turn.
  * @param calls - The arguments of each call it makes.
+ * @param toolName - The tool each call names.
  */
-function modelMaking(calls: Array<Record<string, unknown>>) {
+function modelMaking(calls: Array<Record<string, unknown>>, toolName = 'propose_action') {
   const seen: unknown[][] = [];
   const bound: Array<{ opts: unknown }> = [];
   return {
@@ -44,7 +47,7 @@ function modelMaking(calls: Array<Record<string, unknown>>) {
         invoke: async (messages: unknown[]) => {
           seen.push([...messages]);
           const args = calls[seen.length - 1];
-          return new AIMessage({ content: '', tool_calls: args ? [{ id: `c${seen.length}`, name: 'propose_action', args }] : [] });
+          return new AIMessage({ content: '', tool_calls: args ? [{ id: `c${seen.length}`, name: toolName, args }] : [] });
         },
       };
     },
@@ -124,5 +127,39 @@ describe('the filing pass', () => {
 
     expect(res.filed).toBe(false);
     expect(res.output).toMatch(/^Not recorded: invalid arguments for propose_action/);
+  });
+});
+
+describe('a typed record is filed with its own tool (conversation 353)', () => {
+  const requestType = filingTypeOf({
+    slug: 'request',
+    label: 'Request',
+    schema: {
+      'type': 'object',
+      'x-agent-file': { dedupOn: ['product', 'title'] },
+      'properties': { title: { type: 'string' }, product: { 'type': 'string', 'x-display': { to: 'product' } }, story: { type: 'string' }, outcome: { type: 'string' } },
+      'x-gates': [{ name: 'proposal-ready', when: { field: 'status', becomes: ['candidate'] }, producedBy: 'product-manager', require: [{ field: 'story', present: true }, { field: 'outcome', present: true }] }],
+    },
+  }, { product: ['send'] })!;
+  const pmCtx = { ...ctx, connectorSources: [], objectTypeSlugs: ['request'], filingTypes: [requestType], searchConfig: {}, harnessConfig: {} } as unknown as RuntimeContext;
+
+  it('binds the pass to file_request when the agent holds it, and to propose_action when it does not', () => {
+    expect(owedWriteTool(buildDomainTools(pmCtx))?.name).toBe('file_request');
+    expect(owedWriteTool(buildDomainTools({ ...pmCtx, filingTypes: [] } as RuntimeContext))?.name).toBe('propose_action');
+  });
+
+  it('files through file_request, chosen, with the record\'s fields as its arguments', async () => {
+    const received: unknown[] = [];
+    const t = tool(async (input) => {
+      received.push(input);
+      return 'objects.propose_candidate is DONE: filed as request #132 (run #8, confidence 0.8), open at /w/northwind/dashboard/p/feature/132. Title: Openers.';
+    }, { name: 'file_request', description: 'File a request.', schema: (buildDomainTools(pmCtx).find(x => x.name === 'file_request')!).schema as never });
+    const model = modelMaking([{ title: 'A sender sees who opened a file', product: 'send', story: 'As a founder…', outcome: 'Allow a sender to see who opened a file.' }], 'file_request');
+    const res = await fileOwedWrite({ request: 'File a feature request for Send: who opened the file.', history: [], answer: '', tool: withToolCallRecord(t as never, ctx), model: model as never });
+
+    expect(model.bound[0]?.opts).toEqual({ tool_choice: 'file_request' });
+    expect(String((model.seen[0]![0] as { content: unknown }).content)).toContain('The tool\'s arguments ARE the record\'s fields');
+    expect(received).toEqual([{ title: 'A sender sees who opened a file', product: 'send', story: 'As a founder…', outcome: 'Allow a sender to see who opened a file.' }]);
+    expect(res).toMatchObject({ filed: true, line: 'Filed from this conversation: [request #132](/w/northwind/dashboard/p/feature/132).' });
   });
 });

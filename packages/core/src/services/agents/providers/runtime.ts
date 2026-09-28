@@ -139,6 +139,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     missionRunId: opts.missionRunId,
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     enabledPlugins: definition.enabledPlugins,
+    filingTypes: definition.filingTypes,
     searchConfig: (row.searchConfig as never) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     defaultTimeZone: definition.defaultTimeZone,

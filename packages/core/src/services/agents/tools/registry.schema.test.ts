@@ -16,6 +16,29 @@ import { z } from 'zod';
 vi.mock('@/libs/DB');
 
 const { buildDomainTools } = await import('./registry');
+const { filingTypeOf } = await import('./fileRecord');
+
+/** The typed filing tool is generated from a type's schema, so it is walked too. */
+const FILING_TYPE = filingTypeOf({
+  slug: 'request',
+  label: 'Request',
+  schema: {
+    'type': 'object',
+    'x-agent-file': { dedupOn: ['product', 'title'] },
+    'properties': {
+      title: { type: 'string' },
+      product: { 'type': 'string', 'x-display': { to: 'product' } },
+      story: { type: 'string' },
+      acceptance: { type: 'array', items: { type: 'object', required: ['statement'], properties: { statement: { type: 'string' } } } },
+      why: { type: 'array', items: { type: 'string', enum: ['user_request', 'production_bug'] } },
+      visuals: { type: 'object', properties: { surfaceUrl: { type: 'string' } } },
+      priority: { type: 'integer', minimum: 0, maximum: 100 },
+      askedAt: { type: 'string', format: 'date-time' },
+      evidence: { type: 'object' },
+    },
+    'x-gates': [{ name: 'proposal-ready', when: { field: 'status', becomes: ['candidate'] }, producedBy: 'product-manager', require: [{ field: 'story', present: true }, { field: 'acceptance', minItems: 3 }, { field: 'visuals.surfaceUrl', present: true }] }],
+  },
+}, { product: ['ledger', 'send'] })!;
 
 function ctx(): RuntimeContext {
   return {
@@ -24,6 +47,7 @@ function ctx(): RuntimeContext {
     agentSlug: 'product-manager',
     connectorSources: [],
     objectTypeSlugs: ['request', 'engineering_task'],
+    filingTypes: [FILING_TYPE],
     searchConfig: {},
     harnessConfig: {},
     citationSeq: { current: 0 },
@@ -36,6 +60,7 @@ describe('every agent tool can be bound to a model', () => {
     const tools = buildDomainTools(ctx());
 
     expect(tools.map(t => t.name)).toContain('update_object');
+    expect(tools.map(t => t.name)).toContain('file_request');
 
     const unsendable: string[] = [];
     for (const t of tools) {
