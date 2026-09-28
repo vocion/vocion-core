@@ -12,6 +12,12 @@ description: >-
 icon: inbox
 schema:
   type: object
+  # Internal work, not an extracted record: nothing about it is published
+  # outside, and Build is the person's decision. So filing one is done for
+  # you under its own trust key (objects.propose_candidate.request), and a
+  # request filed from chat lands on Work at once (Chris, 2026-09-28: "it
+  # should probably auto file, and the card should be to start the build").
+  x-moderation: none
   properties:
     kind:
       x-display: {label: Kind, format: badge, group: Triage, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}

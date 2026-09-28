@@ -521,7 +521,7 @@ export async function proposeAction(input: {
     // item in the review queue, never release it.
     // The list itself lives in `libs/actions/neverAuto.ts` so the autonomy
     // ladder reads the same one and never offers a promotion this gate refuses.
-    if (isNeverAuto(action)) {
+    if (isNeverAuto(action) && !(await internalRecord(input.orgId, action.id, parsed as Record<string, unknown>))) {
       return { runId: run!.id, status: 'pending', outcome: 'created' };
     }
     // An agent that recommended anything other than approval does not get to
@@ -1027,4 +1027,22 @@ async function trackSelfUpdateUndone(opts: {
  */
 function agentSlugFromInvoker(invokedBy: string | null | undefined): string | undefined {
   return invokedBy?.startsWith('agent:') ? invokedBy.slice(6) : undefined;
+}
+
+/**
+ * A candidate of a type that declares itself internal work (`x-moderation:
+ * none` on its schema, e.g. the software factory's request): moderation is for
+ * records extracted from outside, which must never publish unread. Internal
+ * work is filed like any other action, under its own trust key.
+ * @param orgId - The workspace.
+ * @param actionId - The action being proposed.
+ * @param input - Its input.
+ */
+async function internalRecord(orgId: string, actionId: string, input: Record<string, unknown>): Promise<boolean> {
+  if (actionId !== 'objects.propose_candidate' || typeof input.objectType !== 'string') {
+    return false;
+  }
+  const { getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
+  const type = await getObjectTypeBySlug(orgId, input.objectType).catch(() => null);
+  return ((type?.schema ?? {}) as Record<string, unknown>)['x-moderation'] === 'none';
 }

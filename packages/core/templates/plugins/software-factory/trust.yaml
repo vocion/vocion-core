@@ -21,6 +21,13 @@ rules:
     enabled: false
     rung: execute-with-approval
     risk: medium
+  # Filing a request: done for you. It lands on Work under Proposed, where
+  # Dismiss is the undo and Build is the person's decision.
+  - action: objects.propose_candidate.request
+    autoApproveAbove: 0.5
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
   - action: factory.dispatch_task
     autoApproveAbove: 1
     enabled: false

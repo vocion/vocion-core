@@ -993,3 +993,21 @@ describe('deciding a candidate', () => {
     expect(theirs!.status).toBe('candidate');
   });
 });
+
+describe('an internal record files itself (Chris, 2026-09-28: "it should probably auto file")', () => {
+  it('files a candidate of a type that declares x-moderation none under its own trust key, and still holds an extracted one', async () => {
+    forgetCachedObjectTypes();
+    await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'request', label: 'Request', schema: { 'type': 'object', 'x-moderation': 'none', 'properties': { title: { type: 'string' } } } });
+    await db.insert(trustRuleSchema).values([
+      { orgId: ORG, actionId: 'objects.propose_candidate.request', threshold: 0.5, enabled: 'true' },
+      { orgId: ORG, actionId: `objects.propose_candidate.${TYPE_SLUG}`, threshold: 0.5, enabled: 'true' },
+    ] as never);
+    const agent = ingestionAgent();
+
+    const filed = await proposeAction({ orgId: ORG, actionId: 'objects.propose_candidate', principal: agent, input: { objectType: 'request', title: 'Document page not scoped to org', fields: { title: 'Document page not scoped to org' }, dedupOn: ['title'] }, proposal: { confidence: 0.9, rationale: 'P1 bug from chat', agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'file it' } } as never);
+    const held = await proposeAction({ orgId: ORG, actionId: 'objects.propose_candidate', principal: agent, input: candidate(), proposal: { confidence: 0.9, rationale: 'extracted', agentSlug: 'ingestion-lead', suggestedDecision: 'approve', suggestedDecisionReason: 'looks right' } } as never);
+
+    expect(filed.status).toBe('done');
+    expect(held.status).toBe('pending');
+  });
+});

@@ -838,6 +838,9 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   dedupKeyFor(input) {
     return candidateDedupKey(input);
   },
+  // Its own ledger per object type, so an internal type (a factory request)
+  // can file done-for-you while an extracted record stays a person's read.
+  policyKeyFor: input => `${CANDIDATE_ACTION_ID}.${input.objectType}`,
 
   // A candidate is one record a person judges once, and the same listing page
   // is read again every sync — so a record already approved or rejected must
