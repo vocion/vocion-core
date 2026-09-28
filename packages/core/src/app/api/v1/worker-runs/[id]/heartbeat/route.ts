@@ -5,7 +5,7 @@ import { obj, str, workerRunErrorResponse } from '../../_lib';
 
 /**
  * POST /api/v1/worker-runs/:id/heartbeat
- *   { workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures?, events? }
+ *   { workerId, workerVersion?, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures?, events? }
  * Extends the lease and records what the worker reports. The reply carries the
  * control signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.
  *
@@ -70,6 +70,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       langfuseTraceId: str(body, 'langfuseTraceId') ?? undefined,
       failures,
       events: Array.isArray(body.events) ? body.events : undefined,
+      workerVersion: str(body, 'workerVersion') ?? str(body, 'worker_version'),
     });
     return NextResponse.json({
       leaseExpiresAt: reply.leaseExpiresAt,

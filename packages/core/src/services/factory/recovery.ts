@@ -27,7 +27,7 @@ import { planRequirement } from './planRule';
 export const RECOVERY_LIMIT = 3;
 
 /** What a failed engineering run's failure was, as far as the records say. */
-export type FailureClass = 'plan_required' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'refused_other';
+export type FailureClass = 'plan_required' | 'environment' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'refused_other';
 
 export type Failure = {
   class: FailureClass;
@@ -200,8 +200,15 @@ const PLAN_FIRST = 'the change needs a plan first: ';
 const PLAN_REQUIRED = /\b(?:a )?plan is required\b/i;
 const NO_CHANGES = /produced no changes|left no changes|no changes in the working tree|outside (?:the task's )?allowed_paths|out of bounds|not (?:in|inside) (?:the )?allowed_paths|is blocked and fails the run/i;
 const CHECKS_FAILED = /required checks failed/i;
+/**
+ * The worker's own environment failing before any work starts: its service
+ * sidecars, the install, the schema sync (#124, 2026-09-28: "services failed:
+ * prisma:sync failed", twice in forty seconds, from a worker image older than
+ * the repository). Another attempt on the same worker fails the same way.
+ */
+const ENVIRONMENT = /\b(?:services failed|postinstall failed|npm ci failed|prisma:sync failed|prisma migrate deploy failed)\b/i;
 const LOST = /lease (?:expired|lost)|lost the lease/i;
-const TRANSIENT = /claim failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|network (?:error|is unreachable)|could not resolve host|\b50\d\b|\b429\b|rate limit|temporarily unavailable|services failed|prepare failed:.*(?:clone|fetch|could not read|unable to access)/i;
+const TRANSIENT = /claim failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|network (?:error|is unreachable)|could not resolve host|\b50\d\b|\b429\b|rate limit|temporarily unavailable|prepare failed:.*(?:clone|fetch|could not read|unable to access)/i;
 
 /**
  * What kind of failure a failed engineering run had, from its own error and
@@ -235,6 +242,9 @@ function classifyRaw(run: { status: string; error: string | null; failures?: Arr
     const why = (end >= 0 ? rest.slice(0, end) : rest).trim();
     return { class: 'plan_required', sentence: why ? `${PLAN_FIRST}${bare(firstSentence(why, 300))}` : 'the change needs a plan first', tail: null, failedChecks: [] };
   }
+  if (failures.some(f => f.scope === 'services') || ENVIRONMENT.test(error)) {
+    return { class: 'environment', sentence: firstSentence(error || failures.find(f => f.scope === 'services')?.message || 'the worker\'s environment failed'), tail: null, failedChecks: [] };
+  }
   if (run.status === 'lost' || LOST.test(error)) {
     return { class: 'lost', sentence: 'the worker stopped reporting and its lease lapsed', tail: null, failedChecks: [] };
   }
@@ -260,6 +270,10 @@ export function unblockFor(failure: Failure): string {
   switch (failure.class) {
     case 'plan_required':
       return 'approve the plan, or send it back with what it must change';
+    case 'environment':
+      return 'rebuild the worker (or fix the repository\'s environment) so it can set up, then press Build';
+    case 'no_plan':
+      return 'write the plan, or say the work does not need one, then press Build';
     case 'no_changes':
       return 'name what the change may touch that the contract left out — a path on the plan\'s components, or the repo record\'s productPaths or generatedFrom — then press Build';
     case 'checks_failed':
@@ -281,6 +295,10 @@ export function nextAfter(failure: Failure): string {
   switch (failure.class) {
     case 'plan_required':
       return 'the factory writes the plan first, and the build starts once it is approved';
+    case 'environment':
+      return 'the factory asks you, because the worker\'s environment fails before any work starts';
+    case 'no_plan':
+      return 'the factory asks for the plan again';
     case 'checks_failed':
       return 'the factory sends it again with what the checks reported';
     case 'lost':
@@ -313,10 +331,19 @@ export type RecoveryDecision
  * @param input.limit - The limit; {@link RECOVERY_LIMIT} unless configured.
  * @param input.contractDelta - What changed in the contract since the failed run (`no_changes` only).
  * @param input.lastWasInfraRetry - The failed run was itself the one retry of a lost or transient run.
+ * @param input.environmentDelta - What changed in the worker or the repo's environment since the failed run (`environment` only).
+ * @param input.planWhy - Why the plan was needed, when a planning step ended without one (`no_plan`).
  */
-export function recoveryDecision(input: { failure: Failure; attempts: number; limit?: number; contractDelta?: string[]; lastWasInfraRetry?: boolean }): RecoveryDecision {
+export function recoveryDecision(input: { failure: Failure; attempts: number; limit?: number; contractDelta?: string[]; lastWasInfraRetry?: boolean; environmentDelta?: string[]; planWhy?: string }): RecoveryDecision {
   const { failure } = input;
   const limit = input.limit ?? RECOVERY_LIMIT;
+  // THE WORKER'S ENVIRONMENT IS NOT AN ATTEMPT (#124, 2026-09-28). A worker
+  // that cannot set itself up fails the same way on every try, so nothing is
+  // spent on it: it runs again only when the worker or the repo's
+  // environment has changed since, and otherwise a person is asked at once.
+  if (failure.class === 'environment' && (input.environmentDelta ?? []).length === 0) {
+    return { do: 'escalate', why: `Stopped: the worker's environment is failing before any work starts: ${failure.sentence}; it needs a person or a worker rebuild`, unblock: unblockFor(failure) };
+  }
   if (input.attempts >= limit) {
     return { do: 'escalate', why: `Stopped after ${input.attempts} attempt${input.attempts === 1 ? '' : 's'}: ${failure.sentence}`, unblock: unblockFor(failure) };
   }
@@ -335,6 +362,10 @@ export function recoveryDecision(input: { failure: Failure; attempts: number; li
         why: failure.sentence,
         note: `The last attempt failed its required checks${failure.failedChecks.length ? ` (${failure.failedChecks.join(', ')})` : ''}. Make them pass before anything else; this is what they reported:\n${failure.tail ?? '(no output was kept)'}`,
       };
+    case 'environment':
+      return { do: 'dispatch', why: `the worker's environment changed since (${(input.environmentDelta ?? []).join('; ')})`, note: null };
+    case 'no_plan':
+      return { do: 'plan', why: input.planWhy ?? failure.sentence };
     case 'lost':
     case 'transient':
       return input.lastWasInfraRetry
@@ -370,6 +401,28 @@ export function contractDelta(before: { allowed_paths?: unknown; required_checks
   };
   diff('paths', set(before.allowed_paths), set(after.allowed_paths));
   diff('checks', set(before.required_checks), set(after.required_checks));
+  return out;
+}
+
+/**
+ * What changed in the worker or the repo's environment between a failed run
+ * and now: a different worker version, or a different `environment` block on
+ * the contract the records give. An unknown version is never a change.
+ * @param before - The failed run.
+ * @param before.workerVersion - The version that claimed it.
+ * @param before.environment - The environment its contract carried.
+ * @param after - Now.
+ * @param after.workerVersion - The newest version a worker has reported since.
+ * @param after.environment - The environment the records give now.
+ */
+export function environmentDelta(before: { workerVersion: string | null; environment: unknown }, after: { workerVersion: string | null; environment: unknown }): string[] {
+  const out: string[] = [];
+  if (after.workerVersion && after.workerVersion !== before.workerVersion) {
+    out.push(`worker ${before.workerVersion ?? 'of unknown version'} → ${after.workerVersion}`);
+  }
+  if (JSON.stringify(before.environment ?? null) !== JSON.stringify(after.environment ?? null)) {
+    out.push('the repository\'s environment on the contract');
+  }
   return out;
 }
 

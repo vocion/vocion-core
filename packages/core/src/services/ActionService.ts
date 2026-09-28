@@ -544,52 +544,7 @@ export async function proposeAction(input: {
     // item in the review queue, never release it.
     // The list itself lives in `libs/actions/neverAuto.ts` so the autonomy
     // ladder reads the same one and never offers a promotion this gate refuses.
-    if (isNeverAuto(action) && !(await internalRecord(input.orgId, action.id, parsed as Record<string, unknown>))) {
-      return { runId: run!.id, status: 'pending', outcome: 'created' };
-    }
-    // An agent that recommended anything other than approval does not get to
-    // have the trust ladder run its work anyway. Confidence and recommendation
-    // answer different questions — an agent can be highly confident that the
-    // right call is to turn this down — and a rule keyed on confidence alone
-    // would read that as "very sure, go ahead". Fails safe: it can only keep
-    // the item in the queue for a person, never release it.
-    if (input.proposal?.suggestedDecision === 'reject' || input.proposal?.suggestedDecision === 'snooze') {
-      return { runId: run!.id, status: 'pending', outcome: 'created' };
-    }
-    // Done for you, by default (`libs/actions/autoAccept.ts`): a reversible,
-    // low-risk kind runs on its own above its bar; an automating rung runs at
-    // its trust rule's floor; everything else — and anything a person has
-    // parked or held — waits for a person. The reason is written on the run.
-    // The ladder's key for THIS input — the action id, unless the action
-    // serves several ledgers (`git.merge` → `git.merge.<riskClass>`). The
-    // trust rule, the risk tier and the evidence all live under it.
-    const policyKey = policyKeyForRun(action.id, parsed as Record<string, unknown>);
-    const { effectivePolicy } = await import('@/services/autonomy/AutonomyService');
-    const policy = await effectivePolicy(input.orgId, policyKey);
-    // The workspace's appetite for the system improving itself, read only for
-    // a kind that declares it (`libs/actions/eagerness.ts`). A trust rule or a
-    // promoted policy still wins — `decideExecution` reads the dial on the
-    // default branch only, which is the branch nobody has spoken about.
-    const learningEagerness = action.selfImproving === true
-      ? await learningEagernessFor(input.orgId)
-      : null;
-    const verdict = decideExecution({
-      actionId: policyKey,
-      confidence: input.proposal?.confidence,
-      // "Reversible" is `undo` for a kind that runs here, and the hand-off's
-      // own word for one that runs elsewhere (a pushed branch is deleted with
-      // one command; nothing in this process could do it).
-      reversible: action.undo !== undefined || action.manual?.reversible === true,
-      neverAuto: false,
-      suggestedDecision: input.proposal?.suggestedDecision ?? null,
-      rung: policy.rung,
-      riskTier: policy.riskTier,
-      minConfidence: policy.minConfidence,
-      explicit: policy.policy !== null || policy.trustRule !== null,
-      conversationAutonomy: input.conversationAutonomy,
-      selfImproving: action.selfImproving === true,
-      learningEagerness,
-    });
+    const verdict = await ladderVerdict(input.orgId, action, parsed as Record<string, unknown>, input.proposal, input.conversationAutonomy);
     if (verdict.mode === 'execute') {
       // Who to credit with the decision. An in-process agent turn stamps
       // `agent:<slug>` on the proposing principal; a proposal made over the API
@@ -633,6 +588,98 @@ export async function proposeAction(input: {
     return { runId: run!.id, status: 'pending', outcome: 'created' };
   }
   return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
+}
+
+/**
+ * THE LADDER'S ANSWER for one gated proposal, without writing anything: does
+ * it execute on its own, or wait for a person? The one reading
+ * `proposeAction` acts on, and the one a caller asks before counting a
+ * proposal against a person's attention (`willExecuteOnItsOwn`).
+ *
+ * Never-auto guard (safety invariant): an outbound send to a real person,
+ * discovery.review_proposal, personalization.enroll and an extracted
+ * objects.propose_candidate ALWAYS require an explicit human approve, no
+ * matter what trust rules exist (the list lives in `libs/actions/neverAuto.ts`
+ * so the autonomy ladder reads the same one). An agent that recommended
+ * anything other than approval does not get the ladder to run its work
+ * anyway. Both fail safe: they can only keep an item for a person.
+ * @param orgId - Tenant.
+ * @param action - The action.
+ * @param parsed - Its parsed input.
+ * @param proposal - The envelope.
+ * @param conversationAutonomy - The thread's own rung, when it has one.
+ */
+async function ladderVerdict(
+  orgId: string,
+  action: Action,
+  parsed: Record<string, unknown>,
+  proposal: { confidence?: number; suggestedDecision?: SuggestedDecision | null } | undefined,
+  conversationAutonomy: 'ask' | 'act' | undefined,
+): Promise<ReturnType<typeof decideExecution>> {
+  if (isNeverAuto(action) && !(await internalRecord(orgId, action.id, parsed))) {
+    return { mode: 'ask', reason: 'held at approval by the platform', threshold: null, source: 'never-auto' };
+  }
+  if (proposal?.suggestedDecision === 'reject' || proposal?.suggestedDecision === 'snooze') {
+    return { mode: 'ask', reason: `the agent itself advised "${proposal.suggestedDecision}"`, threshold: null, source: 'advice' };
+  }
+  // Done for you, by default (`libs/actions/autoAccept.ts`): a reversible,
+  // low-risk kind runs on its own above its bar; an automating rung runs at
+  // its trust rule's floor; everything else waits for a person. The ladder's
+  // key is the one for THIS input (`git.merge` → `git.merge.<riskClass>`).
+  const policyKey = policyKeyForRun(action.id, parsed);
+  const { effectivePolicy } = await import('@/services/autonomy/AutonomyService');
+  const policy = await effectivePolicy(orgId, policyKey);
+  const learningEagerness = action.selfImproving === true ? await learningEagernessFor(orgId) : null;
+  return decideExecution({
+    actionId: policyKey,
+    confidence: proposal?.confidence,
+    // "Reversible" is `undo` for a kind that runs here, and the hand-off's
+    // own word for one that runs elsewhere.
+    reversible: action.undo !== undefined || action.manual?.reversible === true,
+    neverAuto: false,
+    suggestedDecision: proposal?.suggestedDecision ?? null,
+    rung: policy.rung,
+    riskTier: policy.riskTier,
+    minConfidence: policy.minConfidence,
+    explicit: policy.policy !== null || policy.trustRule !== null,
+    conversationAutonomy,
+    selfImproving: action.selfImproving === true,
+    learningEagerness,
+  });
+}
+
+/**
+ * Would this proposal execute on its own — never landing in Review for a
+ * person — if it were proposed now? Read-only. The proposal budget asks this
+ * before refusing an agent for having too much waiting in Review: a proposal
+ * that runs within bounds adds nothing to what a person owes (backlog 038:
+ * the planner was refused filing a plan the trust bar would have filed).
+ * @param opts - What `proposeAction` would be given.
+ * @param opts.orgId - Tenant.
+ * @param opts.actionId - The action.
+ * @param opts.input - Its input, unparsed.
+ * @param opts.principal - Who proposes.
+ * @param opts.proposal - The envelope.
+ * @param opts.proposal.confidence - The confidence.
+ * @param opts.proposal.suggestedDecision - The recommendation.
+ */
+export async function willExecuteOnItsOwn(opts: { orgId: string; actionId: string; input: Record<string, unknown>; principal: Principal; proposal?: { confidence?: number; suggestedDecision?: SuggestedDecision | null } }): Promise<boolean> {
+  const action = getAction(opts.actionId);
+  const parsed = action?.inputSchema.safeParse(opts.input);
+  if (!action || !parsed?.success) {
+    return false;
+  }
+  let decision;
+  try {
+    decision = enforce(opts.principal, { kind: 'action', action: action.grant, external: action.external, scope: { orgId: opts.orgId } }, 'mutate');
+  } catch {
+    return false;
+  }
+  const gated = decision.gate === 'approve' || (opts.principal.kind === 'agent' && typeof opts.proposal?.confidence === 'number');
+  if (!gated) {
+    return true;
+  }
+  return (await ladderVerdict(opts.orgId, action, parsed.data as Record<string, unknown>, opts.proposal, undefined)).mode === 'execute';
 }
 
 /**

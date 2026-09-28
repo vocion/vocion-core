@@ -203,8 +203,9 @@ function capRemainingCents(run: WorkerRun): number | null {
  * @param opts.orgId
  * @param opts.id
  * @param opts.workerId
+ * @param opts.workerVersion - What the worker is (image, build or commit), when it says. Kept on the run so a recovery can tell whether the worker changed since a failure.
  */
-export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string }): Promise<{ run: WorkerRun; toolClaim: string }> {
+export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string; workerVersion?: string | null }): Promise<{ run: WorkerRun; toolClaim: string }> {
   // Claiming too, and this is the half that matters operationally: the
   // Fargate worker polls, so refusing the claim is what actually stops work
   // starting on runs that were queued before the switch was pulled. A worker
@@ -231,6 +232,7 @@ export async function claimWorkerRun(opts: { orgId: string; id: number; workerId
   const [updated] = await db.update(workerRunSchema).set({
     status: 'running',
     workerId: opts.workerId,
+    workerVersion: opts.workerVersion?.trim().slice(0, 200) || null,
     attempt: run.attempt + 1,
     claimedAt: now,
     heartbeatAt: now,
@@ -253,6 +255,8 @@ export type HeartbeatInput = {
   failures?: { scope: string; message: string }[];
   /** The step lines since the last beat (`services/runs/RunLogService.ts`). */
   events?: readonly unknown[];
+  /** What the worker is, when it says (see `claimWorkerRun`). */
+  workerVersion?: string | null;
 };
 
 export type HeartbeatReply = {
@@ -339,6 +343,7 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     // The model that actually did the work wins over whatever create guessed.
     model: input.usage?.model ?? run.model,
     langfuseTraceId: input.langfuseTraceId ?? run.langfuseTraceId,
+    workerVersion: input.workerVersion?.trim().slice(0, 200) || run.workerVersion,
     failures,
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();

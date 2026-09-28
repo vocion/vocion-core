@@ -19,7 +19,7 @@ import { tool } from '@langchain/core/tools';
 import { proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
 import { listActions } from '@/libs/actions/registry';
 import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
-import { ActionError, proposeAction } from '@/services/ActionService';
+import { ActionError, proposeAction, willExecuteOnItsOwn } from '@/services/ActionService';
 import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
 import { emitSelfUpdate } from '../selfUpdateEvent';
@@ -51,7 +51,9 @@ export function proposeActionTool(ctx: RuntimeContext) {
       // many undecided items in Review; past that it withdraws one of its
       // own before it files another. A person's own turn is never counted.
       if (ctx.agentSlug && isAgentsOwnSchedule(ctx)) {
-        const verdict = await checkProposalBudget({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, actionId: action_id });
+        // Only what would wait for a person counts against the Review limit.
+        const queuesForPerson = !(await willExecuteOnItsOwn({ orgId: ctx.orgId, actionId: action_id, input: action_input, principal: { kind: 'agent', id: `agent:${ctx.agentSlug}`, scope: { orgId: ctx.orgId }, grants: ['*'], autonomy: 2 }, proposal: { confidence, suggestedDecision: suggested_decision } }).catch(() => false));
+        const verdict = await checkProposalBudget({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, actionId: action_id, queuesForPerson });
         if (!verdict.ok) {
           return verdict.message;
         }

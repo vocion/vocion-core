@@ -264,3 +264,54 @@ describe('a request already stuck', () => {
     expect(await runsFor(r.id)).toHaveLength(1);
   });
 });
+
+describe('the live gaps (backlog 038, the first sweep)', () => {
+  it('stops at once on the worker\'s environment, spending no attempt, and sends it again once the worker has changed', async () => {
+    const r = await request({ product: 'rooms', title: 'Uploads survive a reload' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const first = (await runsFor(r.id)).at(-1)!;
+    await claimWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', workerVersion: 'img-6bab52e' });
+    await failWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', error: 'services failed: prisma:sync failed: ', failures: [{ scope: 'services', message: 'prisma:sync failed: ' }] });
+
+    const stopped = await carry.recoverFailedRun(ORG, first.id);
+
+    expect(stopped.did).toBe('escalate');
+    expect(stopped.line).toMatch(/^Stopped: the worker's environment is failing before any work starts: services failed: prisma:sync failed; it needs a person or a worker rebuild\. What would unblock it: /);
+    expect(await runsFor(r.id)).toHaveLength(1);
+    expect(((await read(r.id)).metadata as { recovery: { attempts: unknown[] } }).recovery.attempts).toHaveLength(1);
+  });
+
+  it('retries an environment failure when a newer worker has reported since', async () => {
+    const r = await request({ product: 'rooms', title: 'Downloads keep their names' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const first = (await runsFor(r.id)).at(-1)!;
+    await claimWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', workerVersion: 'img-old' });
+    await failWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', error: 'services failed: prisma:sync failed: ', failures: [{ scope: 'services', message: 'x' }] });
+    // A rebuilt worker takes some other run afterwards and says what it is.
+    const other = await createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {} });
+    await claimWorkerRun({ orgId: ORG, id: other.id, workerId: 'w-2', workerVersion: 'img-new' });
+
+    const out = await carry.recoverFailedRun(ORG, first.id);
+
+    expect(out).toMatchObject({ did: 'dispatch', line: expect.stringContaining('worker img-old → img-new') });
+    expect(await runsFor(r.id)).toHaveLength(2);
+  });
+
+  it('counts a planning run that ended without a plan as a failed step, and plans again', async () => {
+    const r = await request({ product: 'fleet', title: 'Fleet counts on the room list' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const before = ((await read(r.id)).metadata as { recovery: { stage: string; attempts: unknown[] } }).recovery;
+
+    expect(before.stage).toBe('planning');
+
+    // Nothing in this workspace picks up the request for a plan, so the step has ended with none.
+    const { acted } = await carry.sweepStuckRequests(ORG);
+
+    expect(acted.find(a => a.requestId === r.id)).toMatchObject({ did: 'plan', line: expect.stringMatching(/^Recovered: planning again because nothing picked up the request for a plan/) });
+
+    const after = ((await read(r.id)).metadata as { recovery: { stage: string; attempts: Array<{ kind: string; failure: { class: string } | null }> } }).recovery;
+
+    expect(after.stage).toBe('planning');
+    expect(after.attempts.filter(a => a.kind === 'plan').map(a => a.failure?.class ?? null)).toEqual(['no_plan', null]);
+  });
+});

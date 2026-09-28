@@ -1051,6 +1051,13 @@
       "when": 1790600966441,
       "tag": "0149_worker_run_event",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1790600966442,
+      "tag": "0150_worker_run_worker_version",
+      "breakpoints": true
     }
   ]
 }

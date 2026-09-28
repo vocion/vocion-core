@@ -4140,6 +4140,8 @@ export const workerRunSchema = pgTable(
     input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
     /** Whoever holds the lease. Set on claim; a re-claim after `lost` bumps `attempt`. */
     workerId: text('worker_id'),
+    /** What the worker says it is — image, build or commit — when it claims (and on any heartbeat). Null when it does not say. */
+    workerVersion: text('worker_version'),
     attempt: integer('attempt').default(0).notNull(),
     leaseSeconds: integer('lease_seconds').default(300).notNull(),
     leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }),

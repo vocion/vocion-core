@@ -97,6 +97,24 @@ describe('the cap on undecided items', () => {
   });
 });
 
+describe('the Review limit counts only what would reach Review (backlog 038)', () => {
+  it('does not refuse a proposal the trust ladder will run within bounds', async () => {
+    const { trustRuleSchema } = await import('@/models/Schema');
+    const { willExecuteOnItsOwn } = await import('@/services/ActionService');
+    await db.insert(agentSchema).values({ orgId: ORG, slug: AGENT, name: 'PM', systemPrompt: 'x', model: 'm', temperature: '0.2', approvalPolicy: { proposals: { openMax: 1, weeklyMax: 10 } } } as never);
+    await pendingRun('Already waiting');
+    await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: 'ask.withdraw', threshold: 0.5, enabled: 'true' }).onConflictDoNothing();
+    const principal = { kind: 'agent' as const, id: `agent:${AGENT}`, scope: { orgId: ORG }, grants: ['*'], autonomy: 2 as const };
+
+    expect(await svc.checkProposalBudget({ orgId: ORG, agentSlug: AGENT })).toMatchObject({ ok: false, reason: 'open' });
+    expect(await svc.checkProposalBudget({ orgId: ORG, agentSlug: AGENT, queuesForPerson: false })).toMatchObject({ ok: true });
+    // The ladder is asked the same way proposeAction asks it: above an enabled rule's bar it runs; below it, it waits.
+    expect(await willExecuteOnItsOwn({ orgId: ORG, actionId: 'ask.withdraw', input: { askId: 7, reason: 'superseded' }, principal, proposal: { confidence: 0.9, suggestedDecision: 'approve' } })).toBe(true);
+    expect(await willExecuteOnItsOwn({ orgId: ORG, actionId: 'ask.withdraw', input: { askId: 7, reason: 'superseded' }, principal, proposal: { confidence: 0.3, suggestedDecision: 'approve' } })).toBe(false);
+    expect(await willExecuteOnItsOwn({ orgId: ORG, actionId: 'ask.withdraw', input: { askId: 7, reason: 'superseded' }, principal, proposal: { confidence: 0.9, suggestedDecision: 'reject' } })).toBe(false);
+  });
+});
+
 describe('withdrawing to free a slot', () => {
   it('withdraws the agent\'s own pending run with the reason on the record, and refuses another agent\'s', async () => {
     const mine = await pendingRun('Retry uploads');

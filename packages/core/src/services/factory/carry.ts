@@ -25,7 +25,7 @@ import type { Failure, RecoveryState } from './recovery';
 import type { FactoryRecord } from '@/libs/actions/factory-dispatch';
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
-import { classifyFailure, contractDelta, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, unblockFor } from './recovery';
+import { classifyFailure, contractDelta, environmentDelta, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, unblockFor } from './recovery';
 
 /** The seat whose judgement the factory's own proposals represent. */
 const PM = 'product-manager';
@@ -78,7 +78,10 @@ async function propose(orgId: string, actionId: string, input: Meta, env: { conf
       actionId,
       input,
       principal: { kind: 'agent', id: `agent:${PM}`, scope: { orgId }, grants: ['*'], autonomy: 2 },
-      invokedBy: `agent:${PM}`,
+      // The factory's own step, in the PM's name but not the PM's turn: it is
+      // bounded by the attempt limit, not by the agent's Review budget, and
+      // `factory.approve_plan` refuses an agent proposing it on its own.
+      invokedBy: `factory:${PM}`,
       proposal: { confidence: env.confidence, rationale: env.rationale, agentSlug: PM, suggestedDecision: env.decision ?? 'approve', suggestedDecisionReason: env.reason },
     });
     return { ok: true, res };
@@ -171,6 +174,58 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
 async function approvedPlan(plans: Row[]): Promise<Row | null> {
   const { planIsApproved } = await lib();
   return [...plans].filter(p => planIsApproved(p.meta)).sort((a, b) => b.id - a.id)[0] ?? null;
+}
+
+/**
+ * The newest version a worker has reported on this workspace since a run was
+ * claimed — what "the worker changed since" is measured against. Null when no
+ * worker has said what it is.
+ * @param orgId - Tenant.
+ * @param run - The failed run.
+ * @param run.id - Its id.
+ */
+async function newestWorkerVersion(orgId: string, run: { id: number }): Promise<string | null> {
+  const { and, desc, eq, gt, isNotNull } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { workerRunSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ v: workerRunSchema.workerVersion }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), gt(workerRunSchema.id, run.id), isNotNull(workerRunSchema.workerVersion))).orderBy(desc(workerRunSchema.id)).limit(1);
+  return row?.v ?? null;
+}
+
+/**
+ * Whether the planning step the factory asked for has ended — every fire the
+ * `factory.plan_requested` event started is finished — and what it said. Read
+ * off the event the request raised and the fires it lists, so no automation
+ * slug is known here. Null while one is still running, or when no such event
+ * exists (the planning did not come from a request for a plan).
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param askedAt - When planning was asked for (`recovery.planRequestedAt`).
+ */
+async function planningEnded(orgId: string, requestId: number, askedAt: string): Promise<{ why: string } | null> {
+  const { and, eq, gte, inArray, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { automationRunSchema, eventLogSchema } = await import('@/models/Schema');
+  const { FACTORY_PLAN_REQUESTED } = await import('@/services/EventService');
+  const [event] = await db.select({ triggered: eventLogSchema.triggered }).from(eventLogSchema).where(and(eq(eventLogSchema.orgId, orgId), eq(eventLogSchema.dedupeKey, `${FACTORY_PLAN_REQUESTED}:${requestId}:${askedAt}`))).limit(1);
+  if (!event) {
+    return null;
+  }
+  const slugs = (event.triggered ?? []).map(t => t.slug.replace(/^automation:/, ''));
+  if (slugs.length === 0) {
+    return { why: 'nothing picked up the request for a plan' };
+  }
+  const fires = await db.select({ id: automationRunSchema.id, status: automationRunSchema.status, error: automationRunSchema.error }).from(automationRunSchema).where(and(
+    eq(automationRunSchema.orgId, orgId),
+    inArray(automationRunSchema.slug, slugs),
+    gte(automationRunSchema.startedAt, new Date(Date.parse(askedAt) - 1000)),
+    sql`${automationRunSchema.input} ->> 'requestId' = ${String(requestId)}`,
+  ));
+  if (fires.length === 0 || fires.some(f => f.status === 'running')) {
+    return null;
+  }
+  const last = [...fires].sort((a, b) => b.id - a.id)[0]!;
+  return { why: `the planning run (automation run #${last.id}) ended without filing a plan${last.error ? `: ${last.error.split('\n')[0]!.slice(0, 200).replace(/[.\s]+$/, '')}` : ''}` };
 }
 
 /**
@@ -499,7 +554,16 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
     const after = await previewContract(orgId, base);
     delta = after ? contractDelta(before, after) : [];
   }
-  const decision = recoveryDecision({ failure, attempts: state.attempts.length, limit: state.limit, contractDelta: delta, lastWasInfraRetry: ['lost', 'transient'].includes(String(task.meta.recoveryClass ?? '')) });
+  let envDelta: string[] = [];
+  if (failure.class === 'environment') {
+    const before = ((run.input ?? {}) as { task?: Meta }).task ?? {};
+    const after = await previewContract(orgId, base);
+    envDelta = environmentDelta(
+      { workerVersion: run.workerVersion ?? null, environment: before.environment ?? null },
+      { workerVersion: await newestWorkerVersion(orgId, run), environment: after?.environment ?? null },
+    );
+  }
+  const decision = recoveryDecision({ failure, attempts: state.attempts.length, limit: state.limit, contractDelta: delta, environmentDelta: envDelta, lastWasInfraRetry: ['lost', 'transient'].includes(String(task.meta.recoveryClass ?? '')) });
   // Handled first, so the event and the sweep never both act on this run.
   await updateRecovery(orgId, requestId, s => markHandled(s, run.id, failure));
   let line: string;
@@ -574,6 +638,39 @@ export async function answerRecoveryAsk(orgId: string, payload: Partial<AskDecid
 }
 
 /**
+ * A planning step ended without a plan: the attempt it was is marked failed,
+ * and within the limit planning is asked for again; at the limit, one ask.
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param state - Its recovery state.
+ * @param why - What the planning run did.
+ * @param now - The clock.
+ */
+async function replan(orgId: string, request: FactoryRecord, state: RecoveryState, why: string, now: Date): Promise<CarryResult> {
+  const planWhy = (state.line ?? '').replace(/^Planning\s*—\s*/, '') || 'the plan rule requires a plan';
+  const failure: Failure = { class: 'no_plan', sentence: why, tail: null, failedChecks: [] };
+  await updateRecovery(orgId, request.id, (s) => {
+    const last = [...s.attempts].reverse().find(a => a.kind === 'plan' && !a.failure);
+    const attempts = s.attempts.map(a => (a === last ? { ...a, failure: { class: failure.class, sentence: why } } : a));
+    // Counted: an uncounted planning step (a person's press) becomes one now,
+    // so a planner that never files can never loop.
+    const counted = last ? attempts : [...attempts, { n: attempts.length + 1, at: s.planRequestedAt ?? now.toISOString(), kind: 'plan' as const, trigger: 'recovery' as const, runId: null, taskId: null, line: planWhy, failure: { class: failure.class, sentence: why } }];
+    return logLine({ ...s, attempts: counted }, `Planning failed: ${why}.`, now.toISOString());
+  });
+  const fresh = readRecovery((await (await lib()).readRecord(orgId, request.id))?.meta);
+  const decision = recoveryDecision({ failure, attempts: fresh.attempts.length, limit: fresh.limit, planWhy });
+  if (decision.do !== 'plan') {
+    return { requestId: request.id, did: 'escalate', line: await escalate(orgId, request, decision.why, 'write the plan, or say the work does not need one, then press Build') };
+  }
+  const { noteAttempt } = await import('./recovery');
+  const at = now.toISOString();
+  await updateRecovery(orgId, request.id, s => noteAttempt(s, { at, kind: 'plan', trigger: 'recovery', runId: null, taskId: null, line: planWhy }));
+  const { FACTORY_PLAN_REQUESTED, emitEvent } = await import('@/services/EventService');
+  await emitEvent({ orgId, type: FACTORY_PLAN_REQUESTED, payload: { requestId: request.id, title: request.title, why: planWhy }, dedupeKey: `${FACTORY_PLAN_REQUESTED}:${request.id}:${at}`, invokedBy: `factory:${PM}`, dispatchMode: 'auto' });
+  return { requestId: request.id, did: 'plan', line: `Recovered: planning again because ${why}.` };
+}
+
+/**
  * EXISTING STUCK REQUESTS. The same recovery for a request whose newest
  * engineering run failed (in the last fourteen days), that has no run going,
  * no ask open and is not deferred or rejected — so a request already stuck
@@ -609,6 +706,16 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
         continue;
       }
       const asked = state.planRequestedAt ? Date.parse(state.planRequestedAt) : Number.NaN;
+      // A PLANNING RUN THAT ENDED WITHOUT A PLAN IS A FAILED STEP, not
+      // "already planning" (#201, mission 6017: it read the request and
+      // proposed an approval for a plan it never filed). It counts toward the
+      // limit: plan again, or stop and ask.
+      const filedSince = work.plans.some(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && (p.createdAt?.getTime() ?? 0) >= asked - 1000);
+      const ended = !filedSince && state.planRequestedAt ? await planningEnded(orgId, id, state.planRequestedAt) : null;
+      if (ended) {
+        acted.push(await replan(orgId, request, state, ended.why, now));
+        continue;
+      }
       if (work.plans.length === 0 && Number.isFinite(asked) && now.getTime() - asked > PLAN_STALE_MS) {
         acted.push({ requestId: id, did: 'escalate', line: await escalate(orgId, request, 'Stopped: a plan was asked for a day ago and none was written', 'write the plan, or say the work does not need one') });
       }

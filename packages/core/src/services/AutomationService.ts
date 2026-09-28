@@ -507,11 +507,14 @@ export function transientModelFailure(plan: unknown): boolean {
 }
 
 export async function calledRequiredTool(orgId: string, missionRunId: number, toolName: string): Promise<boolean> {
+  // `tool` or `tool:action` — see `automations/toolRequirement.ts`.
+  const { callMeets, parseToolRequirement } = await import('@/services/automations/toolRequirement');
+  const req = parseToolRequirement(toolName);
   const rows = await db
-    .select({ output: toolCallSchema.output, error: toolCallSchema.error })
+    .select({ tool: toolCallSchema.tool, input: toolCallSchema.input, output: toolCallSchema.output, error: toolCallSchema.error })
     .from(toolCallSchema)
-    .where(and(eq(toolCallSchema.orgId, orgId), eq(toolCallSchema.missionRunId, missionRunId), eq(toolCallSchema.tool, toolName), sql`${toolCallSchema.error} is null`));
-  return rows.some(r => !(typeof r.output === 'string' ? r.output : JSON.stringify(r.output ?? '')).replace(/^"/, '').startsWith('Not recorded'));
+    .where(and(eq(toolCallSchema.orgId, orgId), eq(toolCallSchema.missionRunId, missionRunId), eq(toolCallSchema.tool, req.tool), sql`${toolCallSchema.error} is null`));
+  return rows.some(r => callMeets(req, r));
 }
 
 export type AutomationRunRow = typeof automationRunSchema.$inferSelect;

@@ -73,6 +73,12 @@ export const factoryApprovePlanAction: Action<typeof approvePlanInput> = {
   external: false,
   dedupKeyFor: input => `${APPROVE_PLAN_ACTION_ID}:${input.planId}`,
   async precheck(ctx, input) {
+    // ONE STEP EACH (backlog 038, mission 6017): a planning run proposed an
+    // approval for a plan it had never filed. The planner files the plan; its
+    // approval is proposed by the factory, in code, once the plan exists.
+    if (String(ctx.invokedBy ?? '').startsWith('agent:')) {
+      return 'A plan\'s approval is not yours to propose: file the plan with objects.propose_candidate (objectType architecture_plan) and stop — the factory proposes its approval on the trust bar once the plan exists.';
+    }
     const plan = await readRecord(ctx.orgId, input.planId);
     if (!plan || plan.typeSlug !== 'architecture_plan') {
       return `No architecture plan #${input.planId} in this workspace.`;

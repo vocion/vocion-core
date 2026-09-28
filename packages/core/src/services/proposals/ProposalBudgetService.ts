@@ -151,11 +151,16 @@ export type BudgetVerdict
  * @param opts.agentSlug
  * @param opts.actionId - The action being proposed; `objects.propose_candidate` is an idea.
  * @param opts.now
+ * @param opts.queuesForPerson - False when the proposal will execute within bounds and never reach Review; the open limit then does not apply.
  */
-export async function checkProposalBudget(opts: { orgId: string; agentSlug: string; actionId?: string; now?: Date }): Promise<BudgetVerdict> {
+export async function checkProposalBudget(opts: { orgId: string; agentSlug: string; actionId?: string; now?: Date; queuesForPerson?: boolean }): Promise<BudgetVerdict> {
   const budget = await proposalBudgetFor(opts.orgId, opts.agentSlug);
   const open = await openProposals(opts.orgId, opts.agentSlug);
-  if (open.length >= budget.openMax) {
+  // THE REVIEW LIMIT IS ABOUT REVIEW (backlog 038): a proposal the trust
+  // ladder will execute within bounds never lands in front of a person, so it
+  // is not refused for what is already waiting there. The planner was refused
+  // filing a plan the bar would have filed on its own.
+  if (opts.queuesForPerson !== false && open.length >= budget.openMax) {
     const list = open.slice(0, 8).map(o => `${o.kind === 'run' ? 'proposal' : 'ask'} #${o.id} — ${o.title} (${o.createdAt.toISOString().slice(0, 10)})`).join('\n');
     return {
       ok: false,

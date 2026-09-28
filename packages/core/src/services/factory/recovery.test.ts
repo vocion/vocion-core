@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyFailure, contractDelta, intakeDecision, markHandled, noteAttempt, personActed, planGate, readRecovery, RECOVERY_LIMIT, recoveryDecision, recoveryStage } from './recovery';
+import { classifyFailure, contractDelta, environmentDelta, intakeDecision, markHandled, noteAttempt, personActed, planGate, readRecovery, RECOVERY_LIMIT, recoveryDecision, recoveryStage } from './recovery';
 
 // Every name, path and number below is invented. The failure texts are the
 // worker's own refusal shapes (factory/worker/worker.mjs), not a live run's.
@@ -162,5 +162,37 @@ describe('the count and the stage', () => {
     expect(recoveryStage({ recovery: planning })).toEqual({ stage: 'planning', label: 'Planning', line: 'Planning — the allowed paths span 2 packages (apps/web, packages/core)' });
     expect(planning.log.at(-1)?.text).toBe('Recovered: planning first because the allowed paths span 2 packages (apps/web, packages/core).');
     expect(recoveryStage({ recovery: { ...planning, stage: 'stopped', line: 'Stopped after 1 attempt: x.' } })).toMatchObject({ label: 'Stopped after 1 attempt' });
+  });
+});
+
+describe('the worker\'s own environment failing (#124, 2026-09-28)', () => {
+  const env = classifyFailure({ status: 'failed', error: 'services failed: prisma:sync failed: ', failures: [{ scope: 'services', message: 'prisma:sync failed: ' }] });
+
+  it('is its own class, not a flake', () => {
+    expect(env).toMatchObject({ class: 'environment', sentence: 'services failed: prisma:sync failed' });
+    expect(classifyFailure({ status: 'failed', error: 'prepare failed: npm ci failed: ERESOLVE' }).class).toBe('environment');
+  });
+
+  it('stops at once, spending no attempt, unless the worker or the environment changed', () => {
+    expect(recoveryDecision({ failure: env, attempts: 0 })).toMatchObject({
+      do: 'escalate',
+      why: 'Stopped: the worker\'s environment is failing before any work starts: services failed: prisma:sync failed; it needs a person or a worker rebuild',
+    });
+    expect(recoveryDecision({ failure: env, attempts: 0, environmentDelta: ['worker 6bab52e → 9c1d2e3'] })).toMatchObject({ do: 'dispatch', why: expect.stringContaining('worker 6bab52e → 9c1d2e3') });
+  });
+
+  it('calls a change only what is known to have changed', () => {
+    expect(environmentDelta({ workerVersion: 'img-1', environment: { services: ['postgres'] } }, { workerVersion: 'img-2', environment: { services: ['postgres'] } })).toEqual(['worker img-1 → img-2']);
+    expect(environmentDelta({ workerVersion: null, environment: null }, { workerVersion: null, environment: null })).toEqual([]);
+    expect(environmentDelta({ workerVersion: 'img-1', environment: {} }, { workerVersion: 'img-1', environment: { services: ['redis'] } })).toEqual(['the repository\'s environment on the contract']);
+  });
+});
+
+describe('a planning step that ended without a plan', () => {
+  it('plans again within the limit, and stops at it', () => {
+    const failure = { class: 'no_plan' as const, sentence: 'the planning run (automation run #8) ended without filing a plan', tail: null, failedChecks: [] };
+
+    expect(recoveryDecision({ failure, attempts: 1, planWhy: 'the change spans 2 packages' })).toEqual({ do: 'plan', why: 'the change spans 2 packages' });
+    expect(recoveryDecision({ failure, attempts: 3 }).do).toBe('escalate');
   });
 });

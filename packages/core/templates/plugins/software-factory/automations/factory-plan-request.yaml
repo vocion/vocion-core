@@ -18,7 +18,9 @@ when:
   maxFiresPer10m: 6
 do:
   checkMission: close-the-gap
-  requireTool: propose_action
+  # The plan filed is the step: a run that ends without it gets the forced
+  # recording pass, and one that proposes anything else does not count.
+  requireTool: 'propose_action:objects.propose_candidate.architecture_plan'
   prompt: >-
     Request #{{requestId}} ("{{title}}") needs an architecture plan before it is
     built. The plan rule says why: {{why}}. Read the request, its acceptance and
@@ -32,6 +34,7 @@ do:
     migrations directory), interfaces, dataImpact ("None" is an answer),
     risks (each with its cost), alternatives (each with why not), verification,
     writtenBy agent, status in_review, ruleLevel required, ruleTriggers [the
-    rule's sentences above, one per item]. Do not dispatch, approve or file a
-    card: the plan's approval and the build follow on their own. Report in one
+    rule's sentences above, one per item]. Filing the plan is the whole job:
+    never propose factory.approve_plan or factory.dispatch_task — the factory
+    proposes the approval itself once the plan exists, and the build follows. Report in one
     line: the plan id, its components, and anything you could not establish.

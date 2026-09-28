@@ -52,6 +52,11 @@ export async function forceRequiredTool(opts: {
   report: string;
   context?: Record<string, unknown>;
 }): Promise<{ called: boolean; answer: string }> {
+  // `tool` or `tool:action`: the pass binds the tool and, for an action,
+  // says which one; only an accepted call for that action counts.
+  const { isRefusal, namesAction, parseToolRequirement } = await import('./toolRequirement');
+  const req = parseToolRequirement(opts.toolName);
+  const toolName = req.tool;
   if (!opts.report) {
     return { called: false, answer: 'the run wrote no report to record' };
   }
@@ -71,9 +76,9 @@ export async function forceRequiredTool(opts: {
     emit: () => {},
   } as RuntimeContext;
   const { buildDomainTools } = await import('@/services/agents/tools/registry');
-  const tool = buildDomainTools(ctx).find(t => t.name === opts.toolName) as StructuredToolInterface | undefined;
+  const tool = buildDomainTools(ctx).find(t => t.name === toolName) as StructuredToolInterface | undefined;
   if (!tool) {
-    return { called: false, answer: `${opts.agentSlug} does not hold ${opts.toolName} (not granted, or excluded)` };
+    return { called: false, answer: `${opts.agentSlug} does not hold ${toolName} (not granted, or excluded)` };
   }
   // THE PASS LOOKS, IN CODE. Review run 5638 was refused twice for judging
   // fifteen screenshots it never opened — the refusal listed every link — and
@@ -81,7 +86,7 @@ export async function forceRequiredTool(opts: {
   // the run's last refusal lists screenshots, this pass fetches them
   // server-side, records each as opened, and puts the pictures in front of the
   // model beside its report, so the verdict is taken looking at the evidence.
-  const shots = await openShots(ctx, listedShots(await lastRefusal(ctx, opts.toolName)));
+  const shots = await openShots(ctx, listedShots(await lastRefusal(ctx, toolName)));
   if (shots.length > 0) {
     ctx.evidenceOpened = true;
   }
@@ -92,9 +97,9 @@ export async function forceRequiredTool(opts: {
   if (!base.bindTools) {
     return { called: false, answer: 'the model cannot bind tools' };
   }
-  const model = base.bindTools([tool], { tool_choice: opts.toolName } as never);
+  const model = base.bindTools([tool], { tool_choice: toolName } as never);
   const messages: BaseMessage[] = [
-    new SystemMessage(`${agent.systemPrompt ?? ''}\n\nRECORDING PASS: the report below is your own finished work. Your only job is to call ${opts.toolName} once, carrying what the report concluded${shots.length > 0 ? ', corrected by what the attached screenshots actually show' : ' — the same verdict, the same judgement of each item, the same evidence. Do not re-judge and do not soften it'}.`),
+    new SystemMessage(`${agent.systemPrompt ?? ''}\n\nRECORDING PASS: the report below is your own finished work. Your only job is to call ${toolName}${req.action ? ` for ${req.action}` : ''} once, carrying what the report concluded${shots.length > 0 ? ', corrected by what the attached screenshots actually show' : ' — the same verdict, the same judgement of each item, the same evidence. Do not re-judge and do not soften it'}.`),
     new HumanMessage({
       content: [
         { type: 'text', text: `${opts.context ? `What this was about:\n${JSON.stringify(opts.context)}\n\n` : ''}Your report:\n\n${opts.report.slice(0, 40_000)}${shots.length > 0 ? `\n\nThe screenshots, opened for you. Judge each criterion by what these show, and cite the link of the one that proves it:` : ''}` },
@@ -113,17 +118,19 @@ export async function forceRequiredTool(opts: {
   let tries = 2;
   for (let attempt = 0; attempt < tries; attempt++) {
     const res = await model.invoke(messages as never);
-    const call = (res.tool_calls ?? []).find(c => c.name === opts.toolName);
+    const call = (res.tool_calls ?? []).find(c => c.name === toolName);
     if (!call) {
       return { called: false, answer: answer || 'the model returned no tool call' };
     }
     // A call that misses the tool's own schema is a refusal too: it names what
     // to fix, and the second try gets to fix it (fire 7051).
-    answer = await tool.invoke(call.args).then(String, (err: Error) => `Not recorded: the call did not match the tool's schema. ${err.message}`);
-    if (!answer.startsWith('Not recorded')) {
+    answer = !namesAction(req, call.args)
+      ? `Not recorded: this pass must call ${toolName} for ${req.action}.`
+      : await tool.invoke(call.args).then(String, (err: Error) => `Not recorded: the call did not match the tool's schema. ${err.message}`);
+    if (!isRefusal(answer)) {
       return { called: true, answer };
     }
-    messages.push(res as BaseMessage, new ToolMessage({ content: answer, tool_call_id: call.id ?? `${opts.toolName}-${attempt}` }));
+    messages.push(res as BaseMessage, new ToolMessage({ content: answer, tool_call_id: call.id ?? `${toolName}-${attempt}` }));
     // ITS OWN REFUSAL LISTS THE EVIDENCE TOO. Review 5715 read the PR and
     // quit without calling the tool at all, so there was no earlier refusal to
     // take screenshots from; the pass's first try was refused for not looking,

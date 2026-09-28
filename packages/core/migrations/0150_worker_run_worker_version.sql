@@ -1,0 +1,13 @@
+-- The version of the worker that claimed a run: its image, its build, its commit.
+--
+-- A run for #124 failed twice in forty seconds on "services failed: prisma:sync
+-- failed" (2026-09-28) because the worker image was older than the repository
+-- it was building; recovery read that as a flake and sent it again. Whether a
+-- failure in the worker's own environment is worth another attempt depends on
+-- whether the worker changed since, so the worker says what it is when it
+-- claims (and on any heartbeat), and the run keeps it.
+--
+-- Nullable, no default: a worker that does not report one leaves it empty, and
+-- an empty version is "not known", never "unchanged". ADD COLUMN with no
+-- default is a catalog-only change; no rewrite, no lock beyond the instant.
+ALTER TABLE "worker_run" ADD COLUMN IF NOT EXISTS "worker_version" text;

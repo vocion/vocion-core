@@ -100,6 +100,11 @@
 #   takes the answer); `factory-recover-stuck` carries on requests already
 #   stuck. Plans are filed done for you (`x-moderation: none`), in review.
 #
+# 2.20.0 — the first sweep's gaps (backlog 038). `factory-plan-request`
+#   requires the plan itself (`requireTool: propose_action:objects.propose_candidate.architecture_plan`):
+#   a run that skips it gets the forced recording pass, and proposing the
+#   approval is refused — the factory proposes it once the plan exists.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -110,7 +115,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.19.0
+version: 2.20.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and four seats — PM, Design, Eng, QA.
 depends: []
 surfaces: []
