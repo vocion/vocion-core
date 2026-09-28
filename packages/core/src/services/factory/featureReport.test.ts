@@ -1021,6 +1021,14 @@ describe('a task QA sent back', () => {
     expect(r.canBuild).toBe(true);
   });
 
+  it('reads Engineering stopped with the run\'s reason when the newest run failed, and offers Build even if a stale copy says dispatched (#126 attempt 194)', () => {
+    const stopped = { ...task, status: 'rejected', meta: { ...task.meta, status: 'dispatched' } };
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'failed', error: 'verification failed: Claude produced no changes in the working tree (checks on the base: typecheck=passed)' })] }));
+
+    expect(r.state).toMatchObject({ key: 'stuck', label: 'Engineering stopped', needsYou: true, detail: 'the run failed: Claude produced no changes in the working tree (checks on the base: typecheck=passed)', action: { label: 'Build again' } });
+    expect(r.canBuild).toBe(true);
+  });
+
   it('reads the record\'s status column first, the metadata copy only under a generic lifecycle value', () => {
     const accepted = { ...task, status: 'active', meta: { ...task.meta, status: 'accepted' } };
     const columnWins = { ...task, status: 'awaiting_review', meta: { ...task.meta, status: 'accepted' } };

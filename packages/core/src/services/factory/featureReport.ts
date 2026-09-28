@@ -539,6 +539,19 @@ function evidenceUrl(artifact: ReportArtifact): string | null {
 
 const TERMINAL_BAD = new Set(['failed', 'cancelled', 'lost']);
 
+/**
+ * The newest attempt's engineering run failed and nothing is waiting on QA or
+ * a merge: the feature is stopped, and the next move is Build again.
+ * @param input - The report's records.
+ * @param input.tasks - The feature's engineering tasks.
+ * @param input.workerRuns - Their engineering runs.
+ */
+function engineeringStopped(input: Pick<FeatureReportInput, 'tasks' | 'workerRuns'>): boolean {
+  const newestTask = [...input.tasks].sort((a, b) => b.id - a.id)[0];
+  const newestRun = [...input.workerRuns].sort((a, b) => b.id - a.id)[0];
+  return Boolean(newestTask && newestRun && TERMINAL_BAD.has(newestRun.status) && ['rejected', 'dispatched', 'running'].includes(taskStatus(newestTask)));
+}
+
 /** The recommended outcome, as a verb a person reads on the decision card. */
 const OUTCOME_VERBS: Record<string, string> = { build: 'build it', answer: 'answer it', decline: 'decline it', merge: 'merge it into another request', defer: 'defer it' };
 
@@ -1835,6 +1848,15 @@ function buildState(input: FeatureReportInput): ReportState {
   // QA COULD NOT FINISH. A review that ended without a verdict, even after
   // the recording pass, is said as that — never "no action needed" (#131,
   // task 177 read that for six hours over five failed reviews).
+  // ENGINEERING STOPPED. The newest attempt's run failed and no attempt is
+  // waiting on anyone: say so, with the run's own reason, and offer Build
+  // again. #126 attempt 194 failed ("Claude produced no changes") and the page
+  // had no stage line and no Build button (2026-09-28).
+  if (engineeringStopped(input)) {
+    const newestRun = [...input.workerRuns].sort((a, b) => b.id - a.id)[0]!;
+    const why = String(newestRun.error ?? '').replace(/^verification failed: /, '').split(/(?<=[.)])\s/)[0]?.slice(0, 160);
+    return { key: 'stuck', label: 'Engineering stopped', detail: why ? `the run failed: ${why}` : 'the run failed', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
+  }
   const failedReview = [...input.tasks].filter(t => taskStatus(t) === 'review_failed').sort((a, b) => b.id - a.id)[0];
   if (failedReview && !input.tasks.some(t => taskStatus(t) === 'awaiting_review')) {
     return { key: 'stuck', label: 'QA could not finish', detail: 'the review ended without a verdict; Build again starts a fresh attempt', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
@@ -2284,7 +2306,10 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     canBuild: !['shipped', 'answered', 'deferred', 'out_of_scope'].includes(String(input.request.meta.state ?? ''))
       // A task QA sent back (changes_requested) does not hold the build: the
       // next attempt is exactly what it asked for.
-      && !input.tasks.some(t => [String(t.meta.status ?? ''), String((t as { status?: string }).status ?? '')].some(st => ['dispatched', 'running', 'awaiting_review', 'accepted'].includes(st))),
+      // The task's stage is its status column first (taskStatus): a failed run
+      // wrote "rejected" there and left the metadata copy at "dispatched",
+      // which hid Build on #126 for good (2026-09-28).
+      && (engineeringStopped(input) || !input.tasks.some(t => ['dispatched', 'running', 'awaiting_review', 'accepted'].includes(taskStatus(t)))),
     planId: [...input.plans].filter(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && !p.meta.supersededBy).sort((a, b) => b.id - a.id)[0]?.id ?? null,
     // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's
     // words and is evidence (`naming-the-work`), so it is never rewritten —
