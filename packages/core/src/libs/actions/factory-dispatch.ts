@@ -277,8 +277,11 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // packages/core/prisma/** on every check; with the source out of bounds the
   // engineer created its tables at runtime instead (2026-09-28). The repo
   // record names what is generated from what (`generatedFrom`).
-  const generatedFrom = (repo.generatedFrom ?? {}) as Record<string, string>;
-  const sources = planPaths.flatMap(x => Object.entries(generatedFrom).filter(([glob]) => x.startsWith(glob.replace(/\*+$/, '').replace(/\/$/, ''))).map(([, source]) => source));
+  // A value may name several companions: the source, and where the change's
+  // migrations go (#124: the migration dir sat beside the generated schema and
+  // was out of bounds, so the engineer stopped rather than create tables at runtime).
+  const generatedFrom = (repo.generatedFrom ?? {}) as Record<string, string | string[]>;
+  const sources = planPaths.flatMap(x => Object.entries(generatedFrom).filter(([glob]) => x.startsWith(glob.replace(/\*+$/, '').replace(/\/$/, ''))).flatMap(([, source]) => (Array.isArray(source) ? source : [source])));
   const basePaths = [...new Set([...planPaths, ...sources])];
   // EVERY PACKAGE TOUCHED MAY BE TESTED (QA on PR #36, 2026-09-26: "the control
   // the plan mandates is an integration test, and the contract's allowed paths

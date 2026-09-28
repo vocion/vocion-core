@@ -102,6 +102,11 @@ describe('a contract from the records alone', () => {
 
     expect(c.allowedPaths).toContain('packages/core/prisma/**');
     expect(c.riskClass).toBe('schema');
+
+    const withMigrations = { ...withGen, generatedFrom: { 'packages/api/prisma/schema/**': ['packages/core/prisma/**', 'packages/api/prisma/schema/migrations/**'] } };
+    const m = deriveContract({ given: {}, request, plan: { ...plan, components: ['packages/api/prisma/schema/core.prisma — AlertLog table'] }, repo: withMigrations });
+
+    expect(m.allowedPaths).toEqual(expect.arrayContaining(['packages/core/prisma/**', 'packages/api/prisma/schema/migrations/**']));
   });
 
   it('says a held merge came from the person who merges, in their words (2026-09-28)', () => {
