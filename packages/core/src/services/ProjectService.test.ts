@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
+const { eq } = await import('drizzle-orm');
 const { accountMembershipSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { listProjectsForUser, projectSlugById, resolveProjectForUser } = await import('./ProjectService');
 
@@ -54,6 +55,35 @@ describe('resolveProjectForUser', () => {
     expect(await resolveProjectForUser('user-chris', { slug: 'does-not-exist' })).toBeNull();
     expect(await resolveProjectForUser('user-nobody', { slug: 'vocion-workforce' })).toBeNull();
     expect(await resolveProjectForUser('user-ghost', { slug: 'vocion-workforce' })).toBeNull();
+  });
+});
+
+/**
+ * Put Chris in both accounts. The Other Co row is first in the table, but
+ * Chris joined Metacto earlier, so a read with no order returns Other Co
+ * while tenancy picks Metacto.
+ */
+async function chrisInBothAccounts() {
+  await db.delete(accountMembershipSchema).where(eq(accountMembershipSchema.userId, 'user-chris'));
+  await db.insert(accountMembershipSchema).values([
+    { accountId: 'acct-other', userId: 'user-chris', role: 'member', createdAt: new Date('2026-02-01T00:00:00Z') },
+    { accountId: 'acct-metacto', userId: 'user-chris', role: 'admin', createdAt: new Date('2026-01-01T00:00:00Z') },
+  ]);
+}
+
+describe('for a person in more than one account', () => {
+  it('resolves a slug both accounts have on the account tenancy picks, the one joined first', async () => {
+    await chrisInBothAccounts();
+
+    expect(await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' })).toMatchObject({ id: 'proj-workforce' });
+  });
+
+  it('lists the projects of that same account', async () => {
+    await chrisInBothAccounts();
+
+    const projects = await listProjectsForUser('user-chris');
+
+    expect(projects.map(p => p.id).sort()).toEqual(['proj-revenue', 'proj-workforce']);
   });
 });
 
