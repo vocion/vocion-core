@@ -60,7 +60,7 @@ export function stillWaitingAfterMs(): number {
 
 export type Truth
   = | { true: true }
-    | { true: false; why: string; link: string | null; at?: Date };
+    | { true: false; why: string; link: string | null; at?: Date; expired?: true };
 
 export type RunForTruth = {
   id: number;
@@ -328,7 +328,7 @@ function runTruth(run: RunForTruth, facts: Facts, now: Date): Truth {
     }
   }
   if (run.expiresAt && run.expiresAt <= now) {
-    return { true: false, why: `it expired on ${run.expiresAt.toISOString().slice(0, 10)} and left Review then without a decision`, link: null, at: run.expiresAt };
+    return { true: false, why: `it expired on ${run.expiresAt.toISOString().slice(0, 10)} and left Review then without a decision`, link: null, at: run.expiresAt, expired: true };
   }
   return { true: true };
 }
@@ -374,7 +374,7 @@ export async function assessReviewItems(orgId: string, items: { runs: RunForTrut
 }
 
 export type ReviewSweepResult = {
-  closed: Array<{ kind: 'run' | 'ask'; id: number; orgId: string; why: string; link: string | null }>;
+  closed: Array<{ kind: 'run' | 'ask'; id: number; orgId: string; why: string; link: string | null; expired?: boolean }>;
   surfaced: Array<{ kind: 'run' | 'ask'; id: number; orgId: string; since: Date }>;
 };
 
@@ -436,13 +436,15 @@ export async function sweepReviewQueue(opts: { now?: Date; orgId?: string; still
             error: note,
             decidedBy: REVIEW_SWEEPER,
             decidedAt: at,
-            result: { closed: { why: t.why, link: t.link, by: REVIEW_SWEEPER, at: at.toISOString() } },
+            // `expired` + `sweptAt`: an item that had already left Review is shown
+            // as one line per sweep on the decided tab, never as its own row.
+            result: { closed: { why: t.why, link: t.link, by: REVIEW_SWEEPER, at: at.toISOString(), sweptAt: now.toISOString(), ...(t.expired ? { rule: 'expired' } : {}) } },
           })
           // Only if it is still pending: a person deciding it this second wins.
           .where(and(eq(actionRunSchema.id, run.id), eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending')))
           .returning({ id: actionRunSchema.id });
         if (closed.length > 0) {
-          result.closed.push({ kind: 'run', id: run.id, orgId, why: t.why, link: t.link });
+          result.closed.push({ kind: 'run', id: run.id, orgId, why: t.why, link: t.link, expired: t.expired === true });
         }
         continue;
       }

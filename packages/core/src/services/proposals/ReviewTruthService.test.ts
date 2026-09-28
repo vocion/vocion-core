@@ -205,17 +205,61 @@ describe('what the sweep closes, and why', () => {
     expect((await runRow(newer)).status).toBe('pending');
   });
 
-  it('is never silent: the closed run is on the decided tab with its reason, and off the open one', async () => {
+  it('shows a close for a reason other than expiry as its own decided row, with its reason, off the open tab', async () => {
     const { listReviewRows } = await import('@/services/inbox/reviewRows');
-    const id = await run('notify.requester', { title: 'Tell Northwind their export shipped' }, { expiresAt: new Date('2026-09-26T04:00:00Z') });
+    const older = await run('ask.file', { title: 'Build bulk invite?' }, { dedupKey: 'ask.file:recommendation/9' });
+    await run('ask.file', { title: 'Build bulk invite? (refreshed)' }, { dedupKey: 'ask.file:recommendation/9' });
 
     await sweep();
 
     const decided = await listReviewRows(ORG, 'decided', { now: NOW });
     const open = await listReviewRows(ORG, 'open', { now: NOW });
 
-    expect(decided.find(r => r.id === id)).toMatchObject({ status: 'closed', decidedBy: svc.REVIEW_SWEEPER, note: expect.stringMatching(/^closed: it expired on 2026-09-26/) });
-    expect(open.find(r => r.id === id)).toBeUndefined();
+    expect(decided.find(r => r.id === older)).toMatchObject({ status: 'closed', decidedBy: svc.REVIEW_SWEEPER, note: expect.stringMatching(/^closed: superseded by proposal #/) });
+    expect(open.find(r => r.id === older)).toBeUndefined();
+  });
+
+  it('shows the items it closed because they had already expired as ONE line per sweep, which lists each with its link', async () => {
+    const { listReviewRows, listExpiredClosures } = await import('@/services/inbox/reviewRows');
+    const { expiredClosureItems } = await import('@/services/InboxService');
+    const expiresAt = new Date('2026-09-26T04:00:00Z');
+    const a = await run('notify.requester', { title: 'Tell Northwind their export shipped' }, { expiresAt });
+    const b = await run('gmail.send', { title: 'Follow up with Kestrel Capital' }, { expiresAt });
+    const c = await run('hubspot.update', {}, { expiresAt });
+
+    await sweep();
+    // A later sweep that closes one more is its own line.
+    const d = await run('notify.requester', { title: 'Tell Acme the page is live' }, { expiresAt: new Date(NOW.getTime() + DAY) });
+    await svc.sweepReviewQueue({ now: new Date(NOW.getTime() + 2 * DAY), orgId: ORG, stillWaitingAfterMs: 7 * DAY });
+
+    const decided = await listReviewRows(ORG, 'decided', { now: NOW });
+
+    expect(decided.filter(r => [a, b, c, d].includes(r.id))).toEqual([]);
+
+    const lines = expiredClosureItems(await listExpiredClosures(ORG));
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ title: '1 expired item closed on 2026-09-30 — their reason is gone', count: 1, status: 'closed' });
+    expect(lines[1]).toMatchObject({ title: '3 expired items closed on 2026-09-28 — their reason is gone', count: 3, decision: 'closed' });
+    expect(lines[1]!.members).toEqual(expect.arrayContaining([
+      { id: a, title: 'Tell Northwind their export shipped', href: `/dashboard/inbox/proposal-${a}`, note: 'closed: it expired on 2026-09-26 and left Review then without a decision' },
+      expect.objectContaining({ id: c, title: 'hubspot.update', href: `/dashboard/inbox/proposal-${c}` }),
+    ]));
+  });
+
+  it('sends nothing when it closes: no ask is marked for notice, whatever it closed', async () => {
+    const t = await types();
+    const shipped = await record(t.request, 'Export to CSV', { metadata: { state: 'shipped' } });
+    const q = await ask('Approve build: Export to CSV', [{ type: 'request', id: String(shipped) }]);
+    await run('notify.requester', { title: 'x' }, { expiresAt: new Date(NOW.getTime() - DAY) });
+
+    await sweep();
+
+    const a = await askRow(q);
+
+    expect(a.status).toBe('superseded');
+    expect(a.notifyAt).toBeNull();
+    expect(a.notified).toBe(false);
   });
 
   it('never overwrites a decision a person made first', async () => {
@@ -245,6 +289,30 @@ describe('what the sweep surfaces instead', () => {
     expect(((await runRow(old)).proposal as Record<string, unknown>).surfacedAt).toBe(NOW.toISOString());
     expect((await runRow(old)).status).toBe('pending');
     expect((await runRow(fresh)).proposal).toBeNull();
+  });
+
+  it('surfacing a run changes only its row\'s text: status, decision and every ask are untouched', async () => {
+    const since = new Date(NOW.getTime() - 60 * DAY);
+    const old = await run('hubspot.update', { title: 'Update the Contoso Supply deal stage' }, { createdAt: since });
+    // An old ask with a notice already scheduled is not re-notified.
+    const scheduled = await ask('Which pricing page ships first?', [], { createdAt: since, notified: true });
+    const at = new Date(NOW.getTime() - DAY);
+    await db.update(askSchema).set({ notifyAt: at }).where(eq(askSchema.id, scheduled));
+    const before = await runRow(old);
+
+    const res = await sweep();
+
+    const after = await runRow(old);
+
+    expect(res.surfaced).toEqual([expect.objectContaining({ kind: 'run', id: old })]);
+    expect(res.closed).toEqual([]);
+    expect({ ...after, proposal: null }).toEqual({ ...before, proposal: null });
+    expect(after.proposal).toEqual({ stillWaitingSince: since.toISOString(), surfacedAt: NOW.toISOString() });
+
+    const a = await askRow(scheduled);
+
+    expect(a.notified).toBe(true);
+    expect(a.notifyAt?.toISOString()).toBe(at.toISOString());
   });
 
   it('notifies an old true ask once more, and only once', async () => {
