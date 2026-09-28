@@ -65,14 +65,16 @@ const FINISHED_TASK_STATUSES = new Set<Task['status']>(['completed', 'skipped', 
  * the array once, means a task listed before the task it depends on still
  * runs once that dependency completes. A task that failed in an earlier call
  * is still picked up again, as it always was on a resume; `attempted` only
- * stops the same call running it twice.
+ * stops the same call running it twice. It holds the task objects, not their
+ * ids, so a plan saved before ids were made unique still runs both of two
+ * tasks that share one.
  * @param tasks - The live plan.
- * @param attempted - Ids of tasks this call has already run or gated.
+ * @param attempted - Tasks this call has already run or gated.
  * @returns The task to run next, or undefined when nothing else can run.
  */
-function nextRunnableTask(tasks: Task[], attempted: Set<string>): Task | undefined {
+function nextRunnableTask(tasks: Task[], attempted: Set<Task>): Task | undefined {
   return tasks.find(task =>
-    !attempted.has(task.id)
+    !attempted.has(task)
     && task.status !== 'completed'
     && task.status !== 'skipped'
     && depsSatisfied(task, tasks));
@@ -101,18 +103,13 @@ function unreachableReason(task: Task, tasks: Task[]): string | null {
 }
 
 /**
- * Mark every task that can no longer run as `skipped`, each with its reason.
- *
- * Called once nothing else is runnable. Without it, the dependents of a
- * failed task sat at `pending` for ever, the plan never counted as done, and
- * the run stayed at `running` with nobody told (vocion-core#121). The same
- * holds for a planner that named a dependency that does not exist, or two
- * tasks that depend on each other. Reasons are worked out in rounds, so a
- * task two steps from the failure says which task it was waiting on.
+ * Mark every task whose dependency failed, was skipped, or is not in the
+ * plan as `skipped`, each with its reason. Worked out in rounds, so a task
+ * two steps from the failure says which task it was waiting on.
  * @param tasks - The live plan; skipped tasks are changed in place.
  * @returns How many tasks were skipped.
  */
-function skipUnreachableTasks(tasks: Task[]): number {
+function skipTasksWaitingOnADeadEnd(tasks: Task[]): number {
   let skipped = 0;
   let changed = true;
   while (changed) {
@@ -130,14 +127,60 @@ function skipUnreachableTasks(tasks: Task[]): number {
       }
     }
   }
-  // Anything left waits on a task that waits on it in turn.
-  for (const task of tasks) {
-    if (!FINISHED_TASK_STATUSES.has(task.status)) {
-      task.status = 'skipped';
-      task.error = 'Skipped: the tasks it depends on also depend on it, so none of them could start.';
-      skipped += 1;
+  return skipped;
+}
+
+/**
+ * Whether a task waits on itself: following what it depends on, through
+ * tasks that have not finished, leads back to it.
+ * @param task - A task still waiting on its dependencies.
+ * @param tasks - The live plan.
+ * @returns True when the task is part of a dependency loop.
+ */
+function dependsOnItself(task: Task, tasks: Task[]): boolean {
+  const toVisit = [...(task.dependsOn ?? [])];
+  const visited = new Set<string>();
+  while (toVisit.length > 0) {
+    const dependencyId = toVisit.pop()!;
+    if (dependencyId === task.id) {
+      return true;
+    }
+    if (visited.has(dependencyId)) {
+      continue;
+    }
+    visited.add(dependencyId);
+    const dependency = tasks.find(t => t.id === dependencyId);
+    if (dependency && !FINISHED_TASK_STATUSES.has(dependency.status)) {
+      toVisit.push(...(dependency.dependsOn ?? []));
     }
   }
+  return false;
+}
+
+/**
+ * Mark every task that can no longer run as `skipped`, each with its reason.
+ *
+ * Called once nothing else is runnable. Without it, the dependents of a
+ * failed task sat at `pending` for ever, the plan never counted as done, and
+ * the run stayed at `running` with nobody told (vocion-core#121). The same
+ * holds for a planner that named a dependency that does not exist, or two
+ * tasks that depend on each other.
+ *
+ * Only the tasks inside a dependency loop get the loop reason. A task that
+ * merely waits on the loop is marked afterwards, and says which task of the
+ * loop it was waiting on, so nobody goes looking for a loop through it.
+ * @param tasks - The live plan; skipped tasks are changed in place.
+ * @returns How many tasks were skipped.
+ */
+function skipUnreachableTasks(tasks: Task[]): number {
+  let skipped = skipTasksWaitingOnADeadEnd(tasks);
+  const inALoop = tasks.filter(task => !FINISHED_TASK_STATUSES.has(task.status) && dependsOnItself(task, tasks));
+  for (const task of inALoop) {
+    task.status = 'skipped';
+    task.error = 'Skipped: the tasks it depends on also depend on it, so none of them could start.';
+    skipped += 1;
+  }
+  skipped += skipTasksWaitingOnADeadEnd(tasks);
   return skipped;
 }
 
@@ -190,10 +233,10 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
 
     await patch(runId, { status: 'running', pauseReason: null });
 
-    const attempted = new Set<string>();
+    const attempted = new Set<Task>();
     let task = nextRunnableTask(tasks, attempted);
     while (task) {
-      attempted.add(task.id);
+      attempted.add(task);
       // Autonomy gate: pause for human review before a gated task runs.
       if (taskNeedsApproval(task, level)) {
         task.status = 'awaiting_approval';

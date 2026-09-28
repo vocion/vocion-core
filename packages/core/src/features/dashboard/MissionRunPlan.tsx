@@ -53,14 +53,21 @@ function PlanTaskRow({ task, position }: { task: PlanTask; position: number }) {
   );
 }
 
+/** Run statuses after which no plan will arrive. */
+const STOPPED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
 /**
- * A mission run's plan, one row per task, or "Planning…" before there is one.
+ * A mission run's plan, one row per task. Before there is one it says
+ * "Planning…" while the run can still make one, and "No plan was made." once
+ * the run has stopped, so a run that failed or was cancelled while planning
+ * (vocion-core#122, #123) does not look like it is still working.
  * @param props - The plan.
  * @param props.tasks - The run's tasks, in plan order.
+ * @param props.runStatus - The run's status.
  */
-export function MissionRunPlan({ tasks }: { tasks: PlanTask[] }) {
+export function MissionRunPlan({ tasks, runStatus }: { tasks: PlanTask[]; runStatus: string }) {
   if (tasks.length === 0) {
-    return <p className="text-sm text-muted-foreground">Planning…</p>;
+    return <p className="text-sm text-muted-foreground">{STOPPED_RUN_STATUSES.has(runStatus) ? 'No plan was made.' : 'Planning…'}</p>;
   }
   return (
     <ol className="flex flex-col gap-2">
