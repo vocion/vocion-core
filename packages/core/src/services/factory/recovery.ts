@@ -529,3 +529,73 @@ export function recoveryStage(meta: Record<string, unknown> | null | undefined):
   }
   return { stage: 'stopped', label: `Stopped after ${n} attempt${n === 1 ? '' : 's'}`, line: s.line ?? `Stopped after ${n} attempts; a person decides what happens next.` };
 }
+
+/** Failures that are the machine's, not the work's: a new worker is what answers them. */
+export const INFRASTRUCTURE_FAILURES: ReadonlySet<FailureClass> = new Set<FailureClass>(['transient', 'lost', 'environment']);
+
+/** One option on a stop's ask, in the ask's own shape. */
+export type StopOption = { id: 'approve' | 'reject'; label: string; description: string; recommended?: boolean };
+
+/**
+ * THE STOP'S APPROVE SAYS WHAT IT DOES (Chris, 2026-09-28, ask #220: approved
+ * "go ahead as proposed" on "Stopped: Open alerts — the infrastructure failed
+ * twice… press Build" without knowing what it would do). Approve builds
+ * again (`answerRecoveryAsk`), and the words say so — on an infrastructure
+ * stop, on which worker, and that the ask resolves itself when the worker is
+ * rebuilt first.
+ * @param requestId - The request.
+ * @param failure - What stopped it, when a run failed.
+ */
+export function stopOptions(requestId: number, failure: Pick<Failure, 'class' | 'sentence'> | null): StopOption[] {
+  const infra = failure !== null && INFRASTRUCTURE_FAILURES.has(failure.class);
+  return [
+    infra
+      ? {
+          id: 'approve',
+          label: 'Build again on the current worker image',
+          description: `Starts a new build of request #${requestId} on whichever worker image is deployed when you approve. It stopped on the infrastructure (${bare(failure.sentence)}), so approve once the worker is fixed; when the worker is rebuilt first, this ask resolves itself and the build starts.`,
+        }
+      : {
+          id: 'approve',
+          label: 'Build again',
+          description: `Starts a new build of request #${requestId}; a note you write here goes to the engineer as what to change.`,
+        },
+    { id: 'reject', label: 'Leave it stopped', description: `Nothing runs; request #${requestId} stays stopped until someone presses Build.` },
+  ];
+}
+
+/** A worker the workspace knows of: an environment record for one, or a version a run reported. */
+export type WorkerSighting = { version: string; at: string; source: 'environment' | 'run' };
+
+/**
+ * Was the worker rebuilt after the stop? An environment record for a worker
+ * (`surface: worker`, updated by the deploy's record-environment step) deployed
+ * after the stop, or a run that reported a worker version other than the one
+ * that failed, claimed after it. The newest wins; null when neither.
+ * @param opts - What is known.
+ * @param opts.stoppedAt - When the stop was filed.
+ * @param opts.failedVersion - The worker version the failed run reported, if any.
+ * @param opts.environments - Worker environment records: slug, last deploy, sha.
+ * @param opts.reported - Versions runs reported, with when the run was claimed.
+ */
+export function workerRebuiltSince(opts: {
+  stoppedAt: Date;
+  failedVersion: string | null;
+  environments: Array<{ slug: string; lastDeployedAt: string | null; lastDeployedSha: string | null }>;
+  reported: Array<{ version: string; at: Date }>;
+}): WorkerSighting | null {
+  const after = opts.stoppedAt.getTime();
+  const seen: WorkerSighting[] = [];
+  for (const e of opts.environments) {
+    const t = e.lastDeployedAt ? Date.parse(e.lastDeployedAt) : Number.NaN;
+    if (Number.isFinite(t) && t > after) {
+      seen.push({ version: `${e.slug}${e.lastDeployedSha ? ` ${e.lastDeployedSha.slice(0, 8)}` : ''}`, at: new Date(t).toISOString(), source: 'environment' });
+    }
+  }
+  for (const r of opts.reported) {
+    if (r.at.getTime() > after && r.version && r.version !== opts.failedVersion) {
+      seen.push({ version: r.version, at: r.at.toISOString(), source: 'run' });
+    }
+  }
+  return seen.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0] ?? null;
+}

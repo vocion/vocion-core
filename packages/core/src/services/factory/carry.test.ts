@@ -315,3 +315,71 @@ describe('the live gaps (backlog 038, the first sweep)', () => {
     expect(after.attempts.filter(a => a.kind === 'plan').map(a => a.failure?.class ?? null)).toEqual(['no_plan', null]);
   });
 });
+
+describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)', () => {
+  /**
+   * A request whose first build failed on the worker's services, stopped with one ask.
+   * @param title - The request's title.
+   */
+  async function stoppedOnTheWorker(title: string) {
+    const r = await request({ product: 'rooms', title });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const first = (await runsFor(r.id)).at(-1)!;
+    await claimWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', workerVersion: 'img-before' });
+    await failWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', error: 'services failed: prisma:sync failed: ', failures: [{ scope: 'services', message: 'prisma:sync failed: ' }] });
+
+    expect((await carry.recoverFailedRun(ORG, first.id)).did).toBe('escalate');
+
+    const askId = ((await read(r.id)).metadata as { recovery: { askId: number } }).recovery.askId;
+    const [ask] = await db.select().from(askSchema).where(eq(askSchema.id, askId));
+    return { r, ask: ask! };
+  }
+
+  it('the stop\'s Approve names what it does, and approving it dispatches the build', async () => {
+    const { r, ask } = await stoppedOnTheWorker('Alerts arrive by email');
+
+    expect(ask.options[0]).toMatchObject({ id: 'approve', label: 'Build again on the current worker image', description: expect.stringContaining(`Starts a new build of request #${r.id} on whichever worker image is deployed when you approve`) });
+    expect(ask.options[1]).toMatchObject({ id: 'reject', label: 'Leave it stopped' });
+    expect(ask.body).toContain('A rebuilt worker resolves this on its own.');
+
+    const out = await carry.answerRecoveryAsk(ORG, { askId: ask.id, sourceRef: ask.sourceRef, status: 'approved', decision: 'approve', decidedBy: 'usr-dana' });
+
+    expect(out.did).toBe('build again');
+    expect(await runsFor(r.id)).toHaveLength(2);
+  });
+
+  it('resolves itself when the worker\'s environment is redeployed after the stop, and builds once', async () => {
+    const { r, ask } = await stoppedOnTheWorker('Alerts show in the app');
+
+    // Nothing has changed yet: the stop stays with a person.
+    expect((await carry.resumeAfterWorkerRebuild(ORG)).find(a => a.requestId === r.id)).toBeUndefined();
+
+    // The deploy's record-environment step moves the worker environment's last deploy.
+    const [envType] = await createObjectType({ slug: 'environment', label: 'Environment' }, ORG);
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: envType!.id, title: 'Northwind factory worker (production)', metadata: { slug: 'northwind-worker-production', surface: 'worker', stage: 'production', lastDeployedAt: new Date(Date.now() + 1000).toISOString(), lastDeployedSha: '3c9e1a7b55d0e4f1a2b3c4d5e6f708192a3b4c5d' } });
+
+    const { acted } = await carry.sweepStuckRequests(ORG);
+
+    expect(acted.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done', line: 'Worker rebuilt (northwind-worker-production 3c9e1a7b); building again.' });
+
+    const [after] = await db.select().from(askSchema).where(eq(askSchema.id, ask.id));
+
+    expect(after).toMatchObject({ status: 'superseded', decisionNote: 'Worker rebuilt (northwind-worker-production 3c9e1a7b); building again.' });
+
+    const runs = await runsFor(r.id);
+
+    expect(runs).toHaveLength(2);
+    expect(runs[1]!.status).toBe('queued');
+
+    const meta = (await read(r.id)).metadata as { workerRebuildResumedFor: string; recovery: { stage: string | null; askId: number | null; log: Array<{ text: string }> } };
+
+    expect(meta.workerRebuildResumedFor).toBe('northwind-worker-production 3c9e1a7b');
+    expect(meta.recovery.askId).toBeNull();
+    expect(meta.recovery.log.at(-1)?.text).toBe(`Worker rebuilt (northwind-worker-production 3c9e1a7b); building again. Ask #${ask.id} resolved itself.`);
+
+    // Once: a second sweep starts nothing more.
+    await carry.sweepStuckRequests(ORG);
+
+    expect(await runsFor(r.id)).toHaveLength(2);
+  });
+});

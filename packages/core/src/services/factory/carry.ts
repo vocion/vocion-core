@@ -25,7 +25,7 @@ import type { Failure, RecoveryState } from './recovery';
 import type { FactoryRecord } from '@/libs/actions/factory-dispatch';
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
-import { classifyFailure, contractDelta, environmentDelta, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, unblockFor } from './recovery';
+import { classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
 /** The seat whose judgement the factory's own proposals represent. */
 const PM = 'product-manager';
@@ -46,7 +46,7 @@ const PLAN_STALE_MS = 24 * 60 * 60_000;
 
 type Meta = Record<string, unknown>;
 type Row = { id: number; title: string; status: string | null; meta: Meta; createdAt: Date | null };
-type RunRow = { id: number; status: string; kind: string; error: string | null; failures: Array<{ scope?: string; message?: string }>; input: Meta; result: Meta | null; updatedAt: Date; createdAt: Date };
+type RunRow = { id: number; status: string; kind: string; error: string | null; failures: Array<{ scope?: string; message?: string }>; input: Meta; result: Meta | null; updatedAt: Date; createdAt: Date; workerVersion?: string | null };
 
 /** What a factory step did, for the job's result and the automation log. */
 export type CarryResult = { requestId: number | null; did: string; line: string | null };
@@ -144,7 +144,7 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
         eq(workerRunSchema.orgId, orgId),
         sql`${workerRunSchema.input} -> 'record' ->> 'type' = 'engineering_task'`,
         inArray(sql<string>`${workerRunSchema.input} -> 'record' ->> 'id'`, taskIds),
-      ))).map(r => ({ id: r.id, status: r.status, kind: r.kind, error: r.error, failures: (r.failures ?? []) as RunRow['failures'], input: (r.input ?? {}) as Meta, result: (r.result ?? null) as Meta | null, updatedAt: r.updatedAt, createdAt: r.createdAt })).sort((a, b) => b.id - a.id);
+      ))).map(r => ({ id: r.id, status: r.status, kind: r.kind, error: r.error, failures: (r.failures ?? []) as RunRow['failures'], input: (r.input ?? {}) as Meta, result: (r.result ?? null) as Meta | null, updatedAt: r.updatedAt, createdAt: r.createdAt, workerVersion: r.workerVersion ?? null })).sort((a, b) => b.id - a.id);
   const refs = new Set([`request:${requestId}`, ...taskIds.map(id => `engineering_task:${id}`)]);
   const openAsks = (await db.select({ id: askSchema.id, refs: askSchema.objectRefs }).from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'))))
     .filter(a => (a.refs ?? []).some(r => refs.has(`${r.type}:${r.id}`)))
@@ -245,8 +245,9 @@ function isOpen(request: FactoryRecord): boolean {
  * @param request - The request.
  * @param why - What stopped it.
  * @param unblock - What would unblock it.
+ * @param failure - The failure that stopped it, when a run failed: names what Approve does.
  */
-async function escalate(orgId: string, request: FactoryRecord, why: string, unblock: string): Promise<string> {
+async function escalate(orgId: string, request: FactoryRecord, why: string, unblock: string, failure: Failure | null = null): Promise<string> {
   const { upsertAsk } = await import('@/services/AskService');
   const state = readRecovery((await (await lib()).readRecord(orgId, request.id))?.meta ?? request.meta);
   const attempts = state.attempts.map(a => `${a.n}. ${a.kind === 'plan' ? 'Plan' : 'Build'}${a.runId ? ` (run #${a.runId})` : ''}: ${a.line}${a.failure ? ` — failed: ${a.failure.sentence}` : ''}`);
@@ -260,12 +261,16 @@ async function escalate(orgId: string, request: FactoryRecord, why: string, unbl
       body: [
         line,
         attempts.length > 0 ? `**What the factory tried since a person last acted**\n${attempts.join('\n')}` : 'The factory made no attempt of its own since a person last acted.',
-        'Approve to build again (a note says what to change); reject to leave it stopped.',
+        failure && INFRASTRUCTURE_FAILURES.has(failure.class)
+          ? 'Approve to build again on the worker image deployed now (a note says what to change); reject to leave it stopped. A rebuilt worker resolves this on its own.'
+          : 'Approve to build again (a note says what to change); reject to leave it stopped.',
       ].join('\n\n'),
       sourceRef: `factory-recovery:${request.id}:${state.since ?? 'start'}`,
       agentSlug: PM,
       teamSlug: 'software-factory',
       risk: 'medium',
+      // Approve names the action it takes, not "go ahead as proposed".
+      options: stopOptions(request.id, failure),
       objectRefs: [{ type: 'request', id: String(request.id) }],
       decisionCost: 5,
       contextUrl: `/dashboard/p/feature/${request.id}`,
@@ -568,7 +573,7 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   await updateRecovery(orgId, requestId, s => markHandled(s, run.id, failure));
   let line: string;
   if (decision.do === 'escalate') {
-    line = await escalate(orgId, request, decision.why, decision.unblock);
+    line = await escalate(orgId, request, decision.why, decision.unblock, failure);
   } else {
     const input = {
       ...base,
@@ -585,7 +590,7 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
       reason: 'One automatic attempt within the limit; Undo cancels it until a worker claims it.',
     });
     if (!out.ok) {
-      line = await escalate(orgId, request, `Stopped: the recovery for run #${run.id} could not start — ${out.error}`, unblockFor(failure));
+      line = await escalate(orgId, request, `Stopped: the recovery for run #${run.id} could not start — ${out.error}`, unblockFor(failure), failure);
     } else if (out.res.status === 'pending') {
       line = `${input.reason} It is on a card for a person (action #${out.res.runId}).`;
       await updateRecovery(orgId, requestId, s => logLine(s, line, now.toISOString(), run.id));
@@ -671,6 +676,85 @@ async function replan(orgId: string, request: FactoryRecord, state: RecoveryStat
 }
 
 /**
+ * A REBUILT WORKER ANSWERS AN INFRASTRUCTURE STOP. Ask #220 (2026-09-28):
+ * "Stopped: Open alerts — the infrastructure failed twice", filed at 19:09;
+ * the worker image was rebuilt at 21:06 (the deploy's record-environment step
+ * moved `squatch-worker-production`'s lastDeployedAt), and the ask sat open
+ * asking a person to press Build for a failure that no longer existed.
+ *
+ * So, for every open stop whose request's newest run failed on the
+ * infrastructure (`INFRASTRUCTURE_FAILURES`), a worker seen after the stop —
+ * a worker environment record deployed since, or a run that reported a
+ * different worker version (`workerRebuiltSince`) — resolves it: the ask is
+ * superseded with "Worker rebuilt (<version>); building again", and the build
+ * is dispatched once, keyed on the failed run (the dispatch's own dedup) and
+ * on the version (`meta.workerRebuildResumedFor`), on the recovery trust rule.
+ * @param orgId - Tenant.
+ * @param now - The clock.
+ */
+export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Date()): Promise<CarryResult[]> {
+  const { and, desc, eq, gt, isNotNull, like } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { askSchema, workerRunSchema } = await import('@/models/Schema');
+  const stops = await db.select({ id: askSchema.id, sourceRef: askSchema.sourceRef, createdAt: askSchema.createdAt }).from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), like(askSchema.sourceRef, 'factory-recovery:%')));
+  if (stops.length === 0) {
+    return [];
+  }
+  const oldest = new Date(Math.min(...stops.map(a => (a.createdAt ?? now).getTime())));
+  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const environments = ((await listBusinessObjects(orgId, 'environment').catch(() => [])) as Array<{ title: string; metadata: unknown }>)
+    .map(r => (r.metadata ?? {}) as Meta)
+    .filter(m => m.surface === 'worker' || /worker/i.test(String(m.slug ?? '')))
+    .map(m => ({ slug: String(m.slug ?? 'worker'), lastDeployedAt: typeof m.lastDeployedAt === 'string' ? m.lastDeployedAt : null, lastDeployedSha: typeof m.lastDeployedSha === 'string' ? m.lastDeployedSha : null }));
+  const reported = (await db.select({ v: workerRunSchema.workerVersion, at: workerRunSchema.claimedAt }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), isNotNull(workerRunSchema.workerVersion), gt(workerRunSchema.claimedAt, oldest))).orderBy(desc(workerRunSchema.id)).limit(20))
+    .flatMap(r => (r.v && r.at ? [{ version: r.v, at: r.at }] : []));
+  const { readRecord, writeMeta } = await lib();
+  const { supersedeAsk } = await import('@/services/AskService');
+  const out: CarryResult[] = [];
+  for (const stop of stops) {
+    const requestId = Number(/^factory-recovery:(\d+):/.exec(String(stop.sourceRef ?? ''))?.[1]);
+    const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
+    if (!request || !isOpen(request)) {
+      continue;
+    }
+    const work = await workFor(orgId, requestId);
+    const failed = work.runs[0];
+    if (!failed || !['failed', 'lost'].includes(failed.status) || work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting) {
+      continue;
+    }
+    const failure = classifyFailure({ status: failed.status, error: failed.error, failures: failed.failures });
+    if (!INFRASTRUCTURE_FAILURES.has(failure.class)) {
+      continue;
+    }
+    const rebuilt = workerRebuiltSince({ stoppedAt: stop.createdAt ?? now, failedVersion: failed.workerVersion ?? null, environments, reported });
+    if (!rebuilt || request.meta.workerRebuildResumedFor === rebuilt.version) {
+      continue;
+    }
+    const line = `Worker rebuilt (${rebuilt.version}); building again.`;
+    const task = work.tasks.find(t => String(t.id) === String((failed.input.record as Meta | undefined)?.id));
+    const planId = Number(task?.meta.planId) > 0 ? Number(task!.meta.planId) : (await approvedPlan(work.plans))?.id;
+    const dispatched = await propose(orgId, DISPATCH, { requestId, ...(planId ? { planId } : {}), trigger: 'recovery', recoveryOfRun: failed.id, recoveryClass: failure.class, reason: line }, {
+      confidence: 0.9,
+      rationale: `Run #${failed.id} failed on the infrastructure (${failure.sentence}); the worker was rebuilt after the stop (${rebuilt.version}, ${rebuilt.source === 'environment' ? 'its environment record' : 'a run reported it'}).`,
+      reason: 'The failure was the worker, and there is a new worker; Undo cancels it until a worker claims it.',
+    });
+    const at = now.toISOString();
+    if (!dispatched.ok) {
+      // The stop stays open, and says why the rebuild did not carry it on.
+      await updateRecovery(orgId, requestId, s => logLine(s, `Worker rebuilt (${rebuilt.version}), but the build could not start: ${dispatched.error}`, at));
+      out.push({ requestId, did: 'rebuilt:refused', line: dispatched.error });
+      continue;
+    }
+    await writeMeta(orgId, requestId, { workerRebuildResumedFor: rebuilt.version });
+    await supersedeAsk(orgId, stop.id, line);
+    await updateRecovery(orgId, requestId, s => logLine({ ...s, stage: s.stage === 'stopped' ? null : s.stage, askId: s.askId === stop.id ? null : s.askId, line: s.stage === 'stopped' ? null : s.line }, `${line} Ask #${stop.id} resolved itself.${dispatched.res.status === 'pending' ? ` The build is on a card for a person (action #${dispatched.res.runId}).` : ''}`, at, failed.id));
+    await recordRunLine(orgId, failed.id, line);
+    out.push({ requestId, did: `rebuilt:${dispatched.res.status}`, line });
+  }
+  return out;
+}
+
+/**
  * EXISTING STUCK REQUESTS. The same recovery for a request whose newest
  * engineering run failed (in the last fourteen days), that has no run going,
  * no ask open and is not deferred or rejected — so a request already stuck
@@ -685,7 +769,12 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
   const { readRecord } = await lib();
   const requests = ((await listBusinessObjects(orgId, 'request').catch(() => [])) as Array<{ id: number }>).map(r => r.id).sort((a, b) => a - b);
-  const acted: CarryResult[] = [];
+  // A stop the worker's rebuild answered resolves first, so the requests it
+  // carried on are not read as stuck below.
+  const acted: CarryResult[] = await resumeAfterWorkerRebuild(orgId, now).catch((err: Error) => {
+    console.warn('factory sweep: the worker-rebuild check failed', { orgId, message: err.message });
+    return [];
+  });
   for (const id of requests) {
     if (acted.length >= limit) {
       break;
