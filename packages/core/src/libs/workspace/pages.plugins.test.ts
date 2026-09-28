@@ -136,7 +136,7 @@ describe('plugin pages', () => {
     expect(keys).not.toContain('priority');
   });
 
-  it('ships three pages a product exec decides from, and the hidden work item', () => {
+  it('ships three pages a product exec decides from, the hidden work item, and Runs under More', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const mine = pages.filter(p => p.origin === 'plugin:software-factory');
@@ -147,15 +147,18 @@ describe('plugin pages', () => {
     // else. Factory, Factory log, Performance and Guide explained the machine
     // and were removed on 2026-09-24; the machine can be complicated, the
     // product cannot be.
-    expect(mine.map(p => p.slug).sort()).toEqual(['feature', 'products', 'releases', 'work']);
+    // Runs came back under More on 2026-09-28 (Chris: "a log of runs with
+    // active and historical run detail pages … fail clearly so we can attach
+    // and fix"): the machine's record, one tap away, never in the main nav.
+    expect(mine.map(p => p.slug).sort()).toEqual(['feature', 'products', 'releases', 'runs', 'work']);
     expect(mine.every(p => p.nav.section === 'Software factory')).toBe(true);
     expect(mine.filter(p => !p.nav.hidden && !p.nav.secondary).map(p => p.slug)).toEqual(['products', 'work', 'releases']);
-    expect(mine.filter(p => p.nav.secondary)).toEqual([]);
+    expect(mine.filter(p => p.nav.secondary).map(p => p.slug)).toEqual(['runs']);
     // Only the per-record work item stays off the nav: it is reached from the
     // row that names it.
     expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);
     // Work is the one live page: states move as workers claim and finish.
-    expect(mine.filter(p => p.live).map(p => p.slug)).toEqual(['work']);
+    expect(mine.filter(p => p.live).map(p => p.slug).sort()).toEqual(['runs', 'work']);
 
     // The pages that were merged or cut away are gone, not hidden.
     for (const slug of ['activity', 'factory', 'guide', 'performance', 'backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {

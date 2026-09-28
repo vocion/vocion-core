@@ -59,6 +59,21 @@ export default async function WorkspaceReportPage(props: {
       </>
     );
   }
+  // A run's own page (the Runs log's row link): the same preview a row opens,
+  // full width, so a person reads where it stopped and why, and copies the
+  // Claude Code block from it. One shape: the preview pane, not a second view.
+  if (manifest?.source?.kind === 'workerRuns') {
+    await import('@/services/preview/descriptors');
+    const { resolvePreview } = await import('@/services/preview/registry');
+    const { RunDetail } = await import('@/features/dashboard/factory/RunDetail');
+    const doc = await resolvePreview({ type: 'worker_run', id }, { orgId, userId: null });
+    return (
+      <>
+        <TitleBar title={manifest.title} description={manifest.description} />
+        <RunDetail doc={doc} backHref={`/dashboard/p/${manifest.slug}`} />
+      </>
+    );
+  }
   if (!manifest || manifest.archetype !== 'report' || !manifest.report) {
     return notFound();
   }

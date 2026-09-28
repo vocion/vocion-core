@@ -394,20 +394,47 @@ registerPreview('worker_run', {
     const logLines = Array.isArray(progress.log) ? (progress.log as unknown[]).map(String) : typeof progress.log === 'string' ? progress.log.split('\n') : [];
     const failures = Array.isArray(run.failures) ? (run.failures as Array<{ scope?: string; message?: string }>) : [];
     const input = (run.input ?? {}) as { task?: { task_id?: string; objective?: string; repo?: string } };
+    const result = (run.result ?? {}) as { pr_url?: string };
+    const stoppedAt = typeof progress.phase === 'string' ? progress.phase : null;
+    const failed = ['failed', 'lost', 'cancelled'].includes(run.status);
+    // FAIL CLEARLY, THEN ATTACH (Chris, 2026-09-28: "fail clearly so that we
+    // can attach from here to fix the gap in Vocion SF and re run"). A failed
+    // run carries one block a person pastes into Claude Code: the run, where
+    // it stopped, why, the links and the last lines, and what to do next.
+    const { appBaseUrl } = await import('@/libs/links');
+    const runUrl = `${appBaseUrl()}/dashboard/p/runs/${run.id}`;
+    const attach = failed
+      ? [
+          `Vocion software factory run #${run.id} ${run.status}${input.task?.task_id ? ` (${input.task.task_id})` : ''}.`,
+          stoppedAt ? `Stopped at: ${stoppedAt}` : null,
+          run.error ? `Why: ${run.error.split('\n')[0]!.slice(0, 400)}` : null,
+          `Run: ${runUrl}`,
+          result.pr_url ? `Pull request: ${result.pr_url}` : null,
+          input.task?.repo ? `Repo: ${input.task.repo}` : null,
+          logLines.length > 0 ? `Last lines:\n${logLines.slice(-15).join('\n')}` : null,
+          'Find why the factory stopped here, fix the gap in Vocion (or the worker), ship it, then press Build again on the feature.',
+        ].filter(Boolean).join('\n')
+      : null;
     const text = [
+      failed ? `**Stopped${stoppedAt ? ` at ${stoppedAt}` : ''}** — ${run.error ? run.error.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}` : null,
       input.task?.objective ? `**Objective** — ${input.task.objective}` : null,
+      result.pr_url ? `**Pull request** — ${result.pr_url}` : null,
       run.summary ? `**Summary**\n\n${run.summary}` : null,
       run.error ? `**Error** — ${run.error}` : null,
       failures.length > 0 ? `**Failures**\n\n${failures.map(f => `- ${f.scope ?? 'run'}: ${f.message ?? ''}`).join('\n')}` : null,
       typeof progress.step === 'string' ? `**Last step** — ${progress.step}` : null,
       logLines.length > 0 ? `**Log (last ${Math.min(logLines.length, 80)} lines)**\n\n\`\`\`\n${logLines.slice(-80).join('\n')}\n\`\`\`` : null,
+      attach ? `**Fix it from Claude Code** — paste this into a session:\n\n\`\`\`\n${attach}\n\`\`\`` : null,
     ].filter(Boolean).join('\n\n');
     return {
       ref,
       title: input.task?.task_id ?? `Engineering run ${run.id}`,
       sourceLabel: 'Engineering run',
+      href: `/dashboard/p/runs/${run.id}`,
       facts: facts(
+        { label: 'Run', value: `#${run.id}` },
         { label: 'Status', value: run.status },
+        stoppedAt && { label: failed ? 'Stopped at' : 'Stage', value: stoppedAt },
         { label: 'Agent', value: run.agentSlug },
         run.model && { label: 'Model', value: run.model },
         typeof run.cents === 'number' && { label: 'Cost', value: `$${(run.cents / 100).toFixed(2)}` },
