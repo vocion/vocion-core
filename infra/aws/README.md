@@ -101,11 +101,18 @@ sudo VOCION_APP_IMAGE=<registry>/<repository>:<commit> bash /opt/vocion/infra/aw
 `pull-app-image.sh` logs in to ECR with the instance role, pulls with three
 tries, refuses an image built for a different `NEXT_PUBLIC_APP_URL`, and tags
 it `vocion-app:latest`. A failed pull stops the deploy before migrations, with
-the old containers still serving. `bootstrap.sh` takes the same variable. The
-CI job, IAM and ECR setup are in
+the old containers still serving. `bootstrap.sh` takes the same variable. Pass
+the ref the image was built from, so the migrations match it. The CI job, IAM
+and ECR setup are in
 [docs/deployment/parent-project-pattern.md](../../docs/deployment/parent-project-pattern.md#build-the-app-image-in-ci-the-box-only-pulls-it).
+The ECR login belongs to root, so check a pull by hand with `sudo docker pull`.
 
-Without `VOCION_APP_IMAGE`, both scripts build on the box as before. The build keeps Turbopack's build cache on the box between deploys
+**Without `VOCION_APP_IMAGE`, both scripts build on the box** and log `no
+VOCION_APP_IMAGE given`. If you passed one and still see that line, sudo
+stripped the variable (see the sudo note under Migrations); use
+`sudo env VOCION_APP_IMAGE=... bash ...`.
+
+The build keeps Turbopack's build cache on the box between deploys
 (#670), so a deploy recompiles only what changed. That needs Docker's buildx
 plugin, so both scripts run `install-buildx.sh` before they build. Amazon
 Linux 2023's `docker` package, which `bootstrap.sh` installs, already ships it
@@ -156,7 +163,9 @@ sudo bash /opt/vocion/infra/aws/apply-migrations.sh --baseline 0042_thing.sql
 ```
 
 Use the flag rather than `sudo MIGRATIONS_BASELINE=... bash`, which the
-default sudoers `env_reset` refuses. The env var still works when it is
+default sudoers `env_reset` can refuse for a user with narrower sudo rights
+than Amazon Linux 2023's `ec2-user` (whose `ALL` rule lets it through,
+checked 2026-09-28). The env var still works when it is
 already exported. An explicit baseline takes precedence over the drizzle
 history, so it also covers a database drizzle migrated part of the way
 and a person finished by hand.

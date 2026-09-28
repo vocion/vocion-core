@@ -87,6 +87,19 @@ jobs:
           [ "$(docker image inspect vocion-app:latest --format '{{ .Id }}')" = "$(docker image inspect "${{ steps.first.outputs.image }}" --format '{{ .Id }}')" ]
           echo "vocion-app:latest still points at the first image"
 
+      - name: Pull refuses an image with no app-URL label
+        run: |
+          # An image from before the label, such as one built on a box.
+          docker pull --quiet busybox:1.36
+          docker tag busybox:1.36 localhost:5000/unlabeled:1
+          docker push --quiet localhost:5000/unlabeled:1
+          docker image rm localhost:5000/unlabeled:1
+          if EXPECTED_APP_URL="${APP_URL}" bash infra/aws/pull-app-image.sh localhost:5000/unlabeled:1 > unlabeled.log 2>&1; then
+            cat unlabeled.log; echo "the pull should have refused"; exit 1
+          fi
+          cat unlabeled.log
+          grep -F "built for 'an unknown URL'" unlabeled.log
+
       - name: Migrate and boot the pulled image
         run: |
           docker network create vocion-e2e

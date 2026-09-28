@@ -35,10 +35,16 @@ if [ -z "${image}" ]; then
 fi
 
 # The tag is what makes a deploy repeatable and a rollback possible: without
-# one, Docker pulls :latest, which is whatever was pushed last.
-# A digest (name@sha256:...) carries a colon too, so it passes.
+# one, Docker pulls :latest, which is whatever was pushed last. :latest by
+# name is the same problem, and :buildcache is push-app-image.sh's build
+# cache, not an image that runs. A digest (name@sha256:...) passes.
 image_name="${image##*/}"
 case "${image_name}" in
+  *@sha256:*) ;;
+  *:latest | *:buildcache)
+    log "ERROR: ${image} doesn't name one build. Deploy the tag CI pushed, usually the commit."
+    exit 1
+    ;;
   *:*) ;;
   *)
     log "ERROR: ${image} has no tag. Deploy the tag CI pushed, usually the commit."

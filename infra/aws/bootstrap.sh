@@ -211,7 +211,8 @@ else
   if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
     bash "${REPO_DIR}/infra/aws/install-buildx.sh"
   fi
-  log "building vocion-app image"
+  log "building vocion-app image on this box (no VOCION_APP_IMAGE given)"
+  log "  This build competes with the running stack for memory (#670)."
   docker build -t vocion-app:latest -f "${REPO_DIR}/packages/core/Dockerfile" "${REPO_DIR}"
 fi
 

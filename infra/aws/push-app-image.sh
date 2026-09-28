@@ -58,15 +58,23 @@ case "${tag}" in
     ;;
 esac
 
+# Read the build arguments: NEXT_PUBLIC_APP_URL's value, and the name of
+# every argument passed, in either --build-arg form.
 app_url=""
+passed_names=" "
 previous=""
 for argument in "$@"; do
+  build_arg=""
   case "${argument}" in
-    --build-arg=NEXT_PUBLIC_APP_URL=*) app_url="${argument#--build-arg=NEXT_PUBLIC_APP_URL=}" ;;
-    NEXT_PUBLIC_APP_URL=*)
-      if [ "${previous}" = "--build-arg" ]; then app_url="${argument#NEXT_PUBLIC_APP_URL=}"; fi
-      ;;
+    --build-arg=*) build_arg="${argument#--build-arg=}" ;;
+    *) if [ "${previous}" = "--build-arg" ]; then build_arg="${argument}"; fi ;;
   esac
+  if [ -n "${build_arg}" ]; then
+    passed_names="${passed_names}${build_arg%%=*} "
+    case "${build_arg}" in
+      NEXT_PUBLIC_APP_URL=*) app_url="${build_arg#NEXT_PUBLIC_APP_URL=}" ;;
+    esac
+  fi
   previous="${argument}"
 done
 if [ -z "${app_url}" ]; then
@@ -74,6 +82,19 @@ if [ -z "${app_url}" ]; then
   log "  Next bakes it into the client bundle; an image built without it can't sign anyone in."
   exit 1
 fi
+
+# Every other NEXT_PUBLIC_* value falls back to the Dockerfile's placeholder
+# when it isn't passed, and gets baked in just the same. Name each one this
+# build leaves at its default, so a CI job that forgot one shows it here
+# rather than in production. The list comes from the Dockerfile, so an
+# argument added to it later shows up without anyone editing this script.
+dockerfile="${CORE_DIR}/packages/core/Dockerfile"
+for name in $(grep -oE '^ARG NEXT_PUBLIC_[A-Z0-9_]+' "${dockerfile}" | cut -d' ' -f2 | sort -u); do
+  case "${passed_names}" in
+    *" ${name} "*) ;;
+    *) log "note: ${name} is not passed, so the Dockerfile's default is baked in" ;;
+  esac
+done
 
 registry_host="${repository%%/*}"
 ecr_host_pattern='^[0-9]{12}\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$'
@@ -90,11 +111,16 @@ fi
 
 # The default `docker` builder can't write a cache to a registry; a
 # docker-container builder can. Host networking lets it reach a registry on
-# localhost, as the tests use.
+# localhost, as the tests use. Two pushes starting together on one runner can
+# both find no builder; the one whose create loses uses the other's.
 if ! docker buildx inspect "${builder}" >/dev/null 2>&1; then
   log "creating the ${builder} buildx builder"
-  docker buildx create --name "${builder}" --driver docker-container \
-    --driver-opt network=host >/dev/null
+  if ! docker buildx create --name "${builder}" --driver docker-container \
+    --driver-opt network=host >/dev/null \
+    && ! docker buildx inspect "${builder}" >/dev/null 2>&1; then
+    log "ERROR: could not create the ${builder} buildx builder; see the output above."
+    exit 1
+  fi
 fi
 
 image="${repository}:${tag}"
@@ -102,17 +128,21 @@ cache="${repository}:buildcache"
 log "building ${image} for ${app_url} (${platform})"
 # image-manifest and oci-mediatypes: ECR stores a registry cache only in that
 # form.
-docker buildx build \
+if ! docker buildx build \
   --builder "${builder}" \
   --platform "${platform}" \
-  --file "${CORE_DIR}/packages/core/Dockerfile" \
+  --file "${dockerfile}" \
   --tag "${image}" \
   --label "org.vocion.app-url=${app_url}" \
   --cache-from "type=registry,ref=${cache}" \
   --cache-to "type=registry,ref=${cache},mode=max,image-manifest=true,oci-mediatypes=true" \
   --push \
   "$@" \
-  "${CORE_DIR}"
+  "${CORE_DIR}"; then
+  log "ERROR: building or pushing ${image} failed; the build output above says where."
+  log "  Nothing was pushed under that tag, so there is nothing to deploy."
+  exit 1
+fi
 
 log "pushed ${image}"
 if [ -n "${GITHUB_OUTPUT:-}" ]; then

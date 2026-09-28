@@ -33,8 +33,12 @@ if [ -n "${GIT_REF}" ]; then
   git fetch --all
   git checkout "${GIT_REF}"
 fi
-log "pulling latest"
-git pull --ff-only
+# A tag or a commit leaves HEAD detached, with no branch to pull; that's how
+# a rollback deploys an older commit.
+if git symbolic-ref -q HEAD >/dev/null; then
+  log "pulling latest"
+  git pull --ff-only
+fi
 
 # NEXT_PUBLIC_* values are inlined into the client JS bundle at build
 # time — they cannot be overridden at runtime. Source the real prod
@@ -107,7 +111,8 @@ if [ -n "${VOCION_APP_IMAGE:-}" ]; then
   EXPECTED_APP_URL="${NEXT_PUBLIC_APP_URL}" \
     bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
 else
-  log "rebuilding vocion-app image"
+  log "rebuilding vocion-app image on this box (no VOCION_APP_IMAGE given)"
+  log "  This build competes with the running stack for memory (#670)."
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$(get_env NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
   # Langfuse is optional — a deployment can run with tracing off — so only
   # the two the app cannot boot usefully without are required.

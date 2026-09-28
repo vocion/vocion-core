@@ -200,9 +200,13 @@ there never touches the running site.
 1. CI runs `push-app-image.sh`. It builds the image, tags it with the commit,
    stamps it with the app URL it was built for, and pushes it along with a
    build cache.
-2. The deploy passes the image name to the box:
-   `sudo VOCION_APP_IMAGE=<image> bash <checkout>/vocion-core/infra/aws/update.sh <git-ref>`,
-   or your own deploy script calls `pull-app-image.sh <image>` itself.
+2. The deploy checks out that same commit on the box and hands it the image
+   name. Your project's deploy script runs
+   `bash vocion-core/infra/aws/pull-app-image.sh <image>` where it used to run
+   `docker build`, with `EXPECTED_APP_URL` set to the box's
+   `NEXT_PUBLIC_APP_URL`. A box on core's own `infra/aws` layout runs
+   `sudo VOCION_APP_IMAGE=<image> bash /opt/vocion/infra/aws/update.sh <ref>`,
+   which does all of this.
 3. The box logs in to ECR with its own IAM role, pulls the image, checks the
    app URL, tags it `vocion-app:latest`, applies migrations and restarts
    `app` and `worker`. If the pull fails, nothing is restarted and the old
@@ -213,11 +217,14 @@ the client bundle when it builds, so dev's image on the production box would
 send every sign-in to dev. `pull-app-image.sh` refuses an image whose
 `org.vocion.app-url` label doesn't match the box's `NEXT_PUBLIC_APP_URL`.
 Build once for each environment, each with its own `--build-arg` values.
+Build for the box's CPU too: `IMAGE_PLATFORM=linux/arm64` for a Graviton box.
 
 **Build what the box used to build.** Pass every `--build-arg` your old
 `docker build` passed (brand name, Clerk key, Langfuse URL and so on). If your
 deploy copied files into core before building (brand assets, say), do that in
-CI before `push-app-image.sh` too.
+CI before `push-app-image.sh` too. The script prints a `note:` line for each
+`NEXT_PUBLIC_*` value it leaves at the Dockerfile's placeholder, so check the
+first run's log for any you meant to set.
 
 #### One-time AWS setup, in your IaC
 
@@ -295,13 +302,21 @@ jobs:
   deploy:
     needs: app-image
     runs-on: ubuntu-latest
+    # The sign-off: give this GitHub environment required reviewers, and the
+    # job waits for one of them to approve. One environment per box.
+    environment: production
     steps:
-      # However you reach the box today (SSH, SSM). The only change is
-      # the image name in front of the deploy command.
+      # However you reach the box today (SSH, SSM). Pass the commit the
+      # image was built from, so the migrations and compose files the box
+      # checks out match the image it pulls.
       - run: |
           ssh deploy@${{ vars.APP_HOST }} \
-            "sudo VOCION_APP_IMAGE='${{ needs.app-image.outputs.image }}' bash /opt/<project>/vocion-core/infra/aws/update.sh"
+            "sudo VOCION_APP_IMAGE='${{ needs.app-image.outputs.image }}' bash /opt/<project>/scripts/deploy.sh '${{ github.sha }}'"
 ```
+
+`scripts/deploy.sh` stands for your project's own deploy script. It checks
+out the commit it's given, runs `pull-app-image.sh` in place of its
+`docker build`, then migrates and restarts as it already does.
 
 The image is tagged with `GITHUB_SHA`, your project's commit, which pins the
 core commit through the submodule. So the tag names exactly what runs.
@@ -312,8 +327,11 @@ install comes from the cache. Turbopack's own compile cache doesn't travel
 through a registry, so the compile runs from scratch on every CI run. See
 [Measured on a GitHub runner](#measured-on-a-github-runner) for the numbers.
 
-**Rolling back** is a deploy of an older tag with its matching ref:
-`sudo VOCION_APP_IMAGE=<repository>:<older commit> bash .../update.sh <older ref>`.
+**Rolling back** is a deploy of an older commit: pass
+`VOCION_APP_IMAGE=<repository>:<older commit>` and that same commit as the
+ref. The tag and the checkout are one commit of your project, which pins core
+through the submodule, so there's no separate core ref to look up. Images
+older than the lifecycle policy keeps are gone; rebuild those in CI.
 Migrations don't roll back, which is why they must stay backward-compatible
 (see the migrations section below).
 
@@ -323,8 +341,10 @@ and brings back the memory risk, so keep it for when CI is down.
 
 **sudo and the variable.** `sudo VOCION_APP_IMAGE=... bash` works with the
 `ec2-user ALL=(ALL) NOPASSWD: ALL` rule Amazon Linux 2023 ships (checked
-2026-09-28). A user with narrower sudo rights may have the variable stripped;
-use `sudo env VOCION_APP_IMAGE=... bash ...` there.
+2026-09-28). A user with narrower sudo rights may have the variable stripped,
+and then the script builds on the box and says so: `no VOCION_APP_IMAGE
+given`. Use `sudo env VOCION_APP_IMAGE=... bash ...` there. The ECR login
+belongs to root, so check a pull by hand with `sudo docker pull`.
 
 #### Measured on a GitHub runner
 
