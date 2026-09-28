@@ -270,6 +270,56 @@ function expectedQty(region: string | undefined, expected: string | undefined): 
 }
 
 type Findings = z.infer<typeof VerdictSchema>['findings'];
+type Finding = Findings[number];
+
+/**
+ * At most this many regions are cropped and re-counted for one image.
+ *
+ * Each crop is one paid vision call, and how many regions qualify is decided
+ * by the photo itself: a blurry or crowded sheet flags more of them, so one
+ * `vision_compare_reference` call could fan out into any number of model
+ * calls (vocion-core#280). A region past the cap keeps its full-frame
+ * finding (`count` or `unreadable`), which still holds the kit for a person,
+ * so the cap can cost a correction but never turn a hold into a pass.
+ */
+export const MAX_ZOOM_CROPS = 8;
+
+/** Blocking findings are zoomed first; a finding with no severity goes last. */
+const SEVERITY_RANK: Record<string, number> = { blocking: 0, minor: 1, info: 2 };
+
+/**
+ * Order two zoom candidates: the more severe first, then the one the model
+ * was least sure of, then the order the model listed them in.
+ * @param a - One candidate.
+ * @param a.f - Its finding.
+ * @param a.i - Its index in the findings.
+ * @param b - The other candidate.
+ * @param b.f - Its finding.
+ * @param b.i - Its index in the findings.
+ */
+function compareZoomPriority(a: { f: Finding; i: number }, b: { f: Finding; i: number }): number {
+  const severity = (SEVERITY_RANK[a.f.severity] ?? 3) - (SEVERITY_RANK[b.f.severity] ?? 3);
+  if (severity !== 0) {
+    return severity;
+  }
+  const confidence = (a.f.confidence ?? 1) - (b.f.confidence ?? 1);
+  return confidence !== 0 ? confidence : a.i - b.i;
+}
+
+/**
+ * The findings worth a zoomed re-count — those the full-frame pass could not
+ * count and that say where to look — capped at `max`, most important first.
+ * @param findings - The full-frame pass's findings.
+ * @param max - The most regions to crop.
+ * @returns The regions to crop, each with its index in `findings`, and how many qualified but were left out.
+ */
+export function selectZoomTargets(findings: Findings, max: number = MAX_ZOOM_CROPS): { targets: Array<{ f: Finding; i: number }>; skipped: number } {
+  const candidates = findings
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => f.box && f.box.length === 4 && (f.issue === 'unreadable' || f.issue === 'count'));
+  candidates.sort(compareZoomPriority);
+  return { targets: candidates.slice(0, max), skipped: Math.max(0, candidates.length - max) };
+}
 
 /**
  * Crop-before-count: for each finding the model could not count at full
@@ -293,17 +343,15 @@ async function zoomAndCount(opts: {
   key: string;
   bytes: Uint8Array;
   findings: Findings;
-}): Promise<{ findings: Findings; zoomed: number; corrected: number }> {
-  const targets = opts.findings
-    .map((f, i) => ({ f, i }))
-    .filter(({ f }) => f.box && f.box.length === 4 && (f.issue === 'unreadable' || f.issue === 'count'));
+}): Promise<{ findings: Findings; zoomed: number; corrected: number; skipped: number }> {
+  const { targets, skipped } = selectZoomTargets(opts.findings);
   if (!targets.length) {
-    return { findings: opts.findings, zoomed: 0, corrected: 0 };
+    return { findings: opts.findings, zoomed: 0, corrected: 0, skipped: 0 };
   }
   const meta = await sharp(Buffer.from(opts.bytes)).metadata();
   const W = meta.width ?? 3840;
   const H = meta.height ?? 2160;
-  progress(opts.ctx, 'vision_compare_reference', { phase: 'zoom', count: targets.length, regions: targets.map(t => t.f.region) });
+  progress(opts.ctx, 'vision_compare_reference', { phase: 'zoom', count: targets.length, skipped, regions: targets.map(t => t.f.region) });
   const out = [...opts.findings];
   let corrected = 0;
   for (const { f, i } of targets) {
@@ -357,7 +405,7 @@ async function zoomAndCount(opts: {
       corrected += 1;
     }
   }
-  return { findings: out, zoomed: targets.length, corrected };
+  return { findings: out, zoomed: targets.length, corrected, skipped };
 }
 
 /**
@@ -476,7 +524,8 @@ export function kitVisionTools(ctx: RuntimeContext) {
           const remaining = zoom.findings.filter(f => f.issue !== 'ok');
           const blocking = remaining.some(f => f.severity === 'blocking' || f.issue === 'missing' || f.issue === 'wrong_part' || f.issue === 'count' || f.issue === 'orientation');
           const newVerdict: 'pass' | 'hold' = blocking ? 'hold' : remaining.length ? verdict.verdict : 'pass';
-          const bumped = zoom.corrected === zoom.zoomed && newVerdict === 'pass' ? Math.min(0.95, Math.max(verdict.confidence, 0.85)) : verdict.confidence;
+          // Only a sheet whose every uncounted box was zoomed and matched earns the bump.
+          const bumped = zoom.corrected === zoom.zoomed && zoom.skipped === 0 && newVerdict === 'pass' ? Math.min(0.95, Math.max(verdict.confidence, 0.85)) : verdict.confidence;
           verdict = {
             ...verdict,
             findings: zoom.findings,
@@ -486,9 +535,9 @@ export function kitVisionTools(ctx: RuntimeContext) {
             }),
             verdict: newVerdict,
             confidence: bumped,
-            explanation: `${verdict.explanation} Zoomed into ${zoom.zoomed} fastener box${zoom.zoomed === 1 ? '' : 'es'} to count: ${zoom.corrected} matched the printed quantity${zoom.zoomed - zoom.corrected ? `, ${zoom.zoomed - zoom.corrected} did not` : ''}.`,
+            explanation: `${verdict.explanation} Zoomed into ${zoom.zoomed} fastener box${zoom.zoomed === 1 ? '' : 'es'} to count: ${zoom.corrected} matched the printed quantity${zoom.zoomed - zoom.corrected ? `, ${zoom.zoomed - zoom.corrected} did not` : ''}.${zoom.skipped ? ` ${zoom.skipped} more could not be counted and were not zoomed (limit ${MAX_ZOOM_CROPS} per photo); a person should count them.` : ''}`,
           };
-          progress(ctx, 'vision_compare_reference', { phase: 'zoomed', zoomed: zoom.zoomed, corrected: zoom.corrected, verdict: verdict.verdict, confidence: verdict.confidence });
+          progress(ctx, 'vision_compare_reference', { phase: 'zoomed', zoomed: zoom.zoomed, corrected: zoom.corrected, skipped: zoom.skipped, verdict: verdict.verdict, confidence: verdict.confidence });
         }
         const pathMeta = src ? metadataFromKey(src.cfg, key) : {};
         const record = await upsertInspection(ctx, {
