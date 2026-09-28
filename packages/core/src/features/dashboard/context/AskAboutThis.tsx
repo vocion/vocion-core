@@ -11,6 +11,21 @@ import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { useSelectionWatcher } from './useSelectionWatcher';
 
+/** A selection handed to a page's own Change: the words, where they sat, and the region's field. */
+export type SelectionForChange = { text: string; rect: DOMRect | null; field: string | null };
+
+/**
+ * The live selection, read at the moment Change is chosen.
+ * @param text - The selected words.
+ */
+function readSelectionForChange(text: string): SelectionForChange {
+  const sel = typeof window === 'undefined' ? null : window.getSelection();
+  const rect = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).getBoundingClientRect() : null;
+  const node = sel?.anchorNode instanceof Element ? sel.anchorNode : sel?.anchorNode?.parentElement;
+  const region = node?.closest<HTMLElement>('[data-record-field],[data-comment-field]');
+  return { text, rect, field: region?.dataset.recordField ?? region?.dataset.commentField ?? null };
+}
+
 /**
  * The generic "Ask about this" affordance (R4). Two things in one component:
  *
@@ -38,6 +53,8 @@ import { useSelectionWatcher } from './useSelectionWatcher';
  * @param props.variant - 'button' (default) renders the pill button; 'icon' a compact icon-only control; 'none' only the selection watcher.
  * @param props.onSelect - When given, the selection toolbar's Ask hands the highlighted text to the caller instead of opening the surface.
  * @param props.changeable - Offer "Change" beside "Ask" on a selection: the record can be edited in place by the agent.
+ * @param props.onChange - When given, *Change* hands the selection to the caller — the page carries the intent out
+ * itself (a record's Change writes the field through `objects.update_meta`) instead of opening the surface.
  * @param props.className
  */
 export function AskAboutThis(props: {
@@ -51,6 +68,7 @@ export function AskAboutThis(props: {
   variant?: 'button' | 'icon' | 'none';
   onSelect?: (text: string) => void;
   changeable?: boolean;
+  onChange?: (selection: SelectionForChange) => void;
   className?: string;
 }) {
   const router = useRouter();
@@ -146,7 +164,14 @@ export function AskAboutThis(props: {
                     icon: Pencil,
                     onClick: () => {
                       const text = hit.text;
+                      // Read before the selection is dropped: where it sat,
+                      // and which region the page named for it.
+                      const selection = props.onChange ? readSelectionForChange(text) : null;
                       clearHit();
+                      if (props.onChange && selection) {
+                        props.onChange(selection);
+                        return;
+                      }
                       open({ selection: text, tags: [changeRef()] });
                     },
                   }]

@@ -9,6 +9,8 @@ import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { InspectionPhoto } from '@/features/dashboard/InspectionPhoto';
 import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
 import { RecordBody } from '@/features/dashboard/objects/RecordBody';
+import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
+import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -18,6 +20,7 @@ import { resolveField } from '@/libs/workspace/pages';
 import { declaredRecordFields, hasInspectionImage, isDiscoveryRecord, recordSections } from '@/libs/workspace/records';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { recordRef } from '@/services/chat/recordContext';
+import { recordBodyEnabled } from '@/services/objects/recordBodyFormat';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
 
 /**
@@ -96,6 +99,7 @@ export default async function ObjectDetailPage(props: {
   ];
   const sections = recordSections(row, fields, handled);
   const now = await currentTime();
+  const hasBody = recordBodyEnabled(obj.type.slug, obj.type.schema);
 
   // The record's neighbours, by their own titles: the request that asked
   // for this, the release it shipped in, the repository and product it
@@ -131,6 +135,9 @@ export default async function ObjectDetailPage(props: {
                   {obj.status}
                 </Badge>
               )}
+              {/* A record with a body is changeable in place and carries its
+                  versions (backlog 035): select → Change, and History. */}
+              {hasBody && <RecordChangeIntent objectId={obj.id} title={obj.title} selectionRoot="[data-record-body]" />}
             </div>
           </div>
         )}
@@ -173,6 +180,12 @@ export default async function ObjectDetailPage(props: {
                     <Badge key={topic} variant="secondary" className="text-xs">{topic}</Badge>
                   ))}
                 </div>
+              </section>
+            )}
+            {hasBody && (
+              <section className="rounded-lg border border-border" aria-label="History">
+                <h2 className="px-5 pt-4 text-sm font-semibold">History</h2>
+                <RecordHistory objectId={obj.id} />
               </section>
             )}
             <section className="rounded-lg border border-border p-5">

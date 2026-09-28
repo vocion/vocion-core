@@ -331,8 +331,10 @@ export function useAnchoredComments({ targetRef, root }: CommentTargetProps) {
  * @param root0.onCancel - Drop the selection.
  * @param root0.onBegin - Commenting has begun — paint the span.
  * @param root0.changeLabel - Name of the intent action; absent = no intent here.
+ * @param root0.startWriting - Open straight on the note box: the person already chose the intent (a record's Change).
+ * @param root0.placeholder - What the note box asks for.
  */
-export function CommentPopover({ pending, onAdd, onAsk, onCancel, onBegin, changeLabel }: {
+export function CommentPopover({ pending, onAdd, onAsk, onCancel, onBegin, changeLabel, startWriting = false, placeholder = 'What should change here?' }: {
   pending: { rect: DOMRect } | null;
   onAdd: (note: string) => void;
   onAsk?: () => void;
@@ -341,11 +343,13 @@ export function CommentPopover({ pending, onAdd, onAsk, onCancel, onBegin, chang
   onBegin?: () => void;
   /** Label for the intent action ("Add change"). Absent = the page declares no intent. */
   changeLabel?: string;
+  startWriting?: boolean;
+  placeholder?: string;
 }) {
   const [note, setNote] = useState('');
   // The note box opens only once the person picks the intent action — until
   // then the control is two words wide and does not ask for typing.
-  const [writing, setWriting] = useState(false);
+  const [writing, setWriting] = useState(startWriting);
 
   // Deliberately NOT auto-focused. Taking focus collapses the browser's own
   // selection, which would both hide the span the reviewer is commenting on
@@ -430,7 +434,7 @@ export function CommentPopover({ pending, onAdd, onAsk, onCancel, onBegin, chang
         value={note}
         onFocus={onBegin}
         onChange={e => setNote(e.target.value)}
-        placeholder="What should change here?"
+        placeholder={placeholder}
         rows={2}
         className="w-full resize-none rounded-lg border border-border bg-background px-2.5 py-1.5 text-[13px] outline-none focus:border-brand-amber"
       />

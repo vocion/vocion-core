@@ -154,6 +154,38 @@ async function redraw(orgId: string, id: number, meta: Record<string, unknown>, 
 }
 
 /**
+ * The record's body artifact, kept in step with the row (backlog 035,
+ * `services/objects/recordBody.ts`): `bodyBefore` makes sure the body exists
+ * while it still says what the record said before this write, so v1 is the
+ * starting point and this write reads as a diff; `bodyAfter` writes the new
+ * version with who and why.
+ *
+ * Imported late for the reason `readRow` is. Neither call ever throws — a
+ * version that could not be written is logged at error level, and the row
+ * write, which every reader trusts, stands.
+ * @param orgId - The workspace.
+ * @param id - The record.
+ */
+async function bodyBefore(orgId: string, id: number): Promise<void> {
+  try {
+    const { ensureRecordBody } = await import('@/services/objects/recordBody');
+    await ensureRecordBody(orgId, id);
+  } catch (err) {
+    console.error('record body: could not load the body service', { orgId, id, message: (err as Error).message });
+  }
+}
+
+async function bodyAfter(input: { orgId: string; id: number; reason: string; written: string[]; invokedBy?: string; reviewedBy?: string; runId?: number }): Promise<{ status: string; version?: number; reason?: string }> {
+  try {
+    const { writeRecordBodyVersion } = await import('@/services/objects/recordBody');
+    return await writeRecordBodyVersion({ orgId: input.orgId, objectId: input.id, reason: input.reason, written: input.written, invokedBy: input.invokedBy ?? null, reviewedBy: input.reviewedBy ?? null, actionRunId: input.runId ?? null });
+  } catch (err) {
+    console.error('record body: the version write FAILED; the record write stands', { orgId: input.orgId, id: input.id, message: (err as Error).message });
+    return { status: 'failed', reason: (err as Error).message };
+  }
+}
+
+/**
  * The next metadata: the current bag with `set` applied, `null` deleting.
  * @param current
  * @param set
@@ -340,7 +372,11 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     const crossedGates = gatesOf(objectType.schema).filter(g => typeof input.set[g.when.field] === 'string' && g.when.becomes.includes(input.set[g.when.field] as string) && row.metadata[g.when.field] !== input.set[g.when.field]);
     const crossed = crossedGates.length > 0;
     const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...input.set, returnedTo: null, gate: null } : input.set);
+    await bodyBefore(ctx.orgId, row.id);
     await writeMetadata(ctx.orgId, row.id, next);
+    // The row is written exactly as before; the body's version rides beside
+    // it and can never fail it.
+    const body = await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: input.reason, written: keys, invokedBy: ctx.invokedBy, reviewedBy: ctx.reviewedBy, runId: ctx.runId });
     // THE JUDGE runs after the write, best-effort and off the request's
     // critical path: the deterministic gate passed, and now the seat's
     // rubric reads the record. Pass stamps it; return undoes the transition
@@ -374,6 +410,7 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       set: input.set,
       previous,
       ...(visual === null ? {} : { visual }),
+      ...(body.status === 'written' || body.status === 'unchanged' ? { bodyVersion: body.version } : {}),
       reason: input.reason,
       writtenBy: ctx.invokedBy ?? null,
       reviewedBy: ctx.reviewedBy ?? null,
@@ -394,6 +431,9 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       throw new Error(`No ${objectType?.label.toLowerCase() ?? input.objectType} #${input.id} in this workspace to restore.`);
     }
     await writeMetadata(ctx.orgId, row.id, applySet(row.metadata, previous));
-    return { restored: Object.keys(previous), restoredAt: new Date().toISOString() };
+    // Undo is a write too, so it is a version: history never shows a record
+    // saying something its body does not.
+    const body = await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: `Undid run #${ctx.runId ?? '?'}: ${input.reason}`.slice(0, 500), written: Object.keys(previous).sort(), invokedBy: ctx.reviewedBy ?? ctx.invokedBy, runId: ctx.runId });
+    return { restored: Object.keys(previous), restoredAt: new Date().toISOString(), ...(body.status === 'written' ? { bodyVersion: body.version } : {}) };
   },
 };

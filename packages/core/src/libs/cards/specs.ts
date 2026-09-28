@@ -56,6 +56,24 @@ export const markdownSpecSchema = z.object({
     tags: z.array(z.string()).optional(),
     orphanedAt: z.string().optional(),
   }).optional(),
+  /**
+   * Set when this page is a RECORD'S BODY (`services/objects/recordBody.ts`,
+   * backlog 035): the typed fields the version was written from, so History
+   * diffs and Restore read values rather than parsing prose back out of
+   * `md`. `md` is the same fields rendered — headmatter plus sections — and
+   * is regenerated from `fields` on every version. `written` names the keys
+   * the write that made this version touched, so a restore reverts what
+   * people and agents changed and never a figure a rollup recomputed.
+   */
+  record: z.object({
+    objectType: z.string().min(1),
+    objectId: z.number().int().positive(),
+    fields: z.record(z.string(), z.unknown()),
+    written: z.array(z.string()).optional(),
+    actionRunId: z.number().int().positive().optional(),
+    invokedBy: z.string().optional(),
+    reviewedBy: z.string().optional(),
+  }).optional(),
 });
 export type MarkdownSpec = z.infer<typeof markdownSpecSchema>;
 

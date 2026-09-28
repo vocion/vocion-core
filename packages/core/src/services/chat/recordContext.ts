@@ -27,6 +27,8 @@ const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
   // An outcome on the Work queue. The queue's own `rowLink` opens the same
   // page, so a chip and a row lead to one place.
   request: id => `/dashboard/p/feature/${encodeURIComponent(id)}`,
+  // A record's history lives on the record.
+  record_history: id => `/dashboard/objects/${encodeURIComponent(id)}`,
   // A `@page` tag points at wherever the person already is — no record route.
   page: () => undefined,
 };

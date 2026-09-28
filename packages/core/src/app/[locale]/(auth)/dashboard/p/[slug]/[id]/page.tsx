@@ -1,6 +1,7 @@
 import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
 import { FeatureReportView, ReportContextLine } from '@/features/dashboard/factory/FeatureReportView';
+import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -121,6 +122,7 @@ export default async function WorkspaceReportPage(props: {
           skills" is configuration for the whole factory, shown above one piece
           of work: "I clicked into one specific piece of work. Don't show me
           workforce configuration." It lives on the plugin's own pages. */}
+      {report && <RecordChangeIntent objectId={report.requestId} title={report.title} selectionRoot={'[id^="report-"]'} />}
       {report
         ? <FeatureReportView report={report} />
         : (

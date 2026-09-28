@@ -47,6 +47,12 @@ export const RECORD_TYPES = [
    * the composer's `@tag` could not name a row.
    */
   'request',
+  /**
+   * A record's version history — its body artifact's versions, with who,
+   * why and what changed (backlog 035). Opened in the preview panel from the
+   * record page; the id is the record's own (`business_object.id`).
+   */
+  'record_history',
   // The composer can tag the page itself (`@page`).
   'page',
 ] as const;

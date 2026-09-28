@@ -2,7 +2,7 @@
 
 import type { PreviewDoc } from '@/libs/preview/types';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
-import { ArrowLeft, Bot, ExternalLink, FileText, Inbox, MessageSquareText, Newspaper, Play, Rocket, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
+import { ArrowLeft, Bot, ExternalLink, FileText, History, Inbox, MessageSquareText, Newspaper, Play, Rocket, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,6 +10,7 @@ import { PanelCloseButton } from '@/components/ui/panel-close-button';
 import { ARTIFACT_KIND_ICON } from '@/features/dashboard/artifacts/kinds';
 import { SharePicker } from '@/features/dashboard/artifacts/SharePicker';
 import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/agentSurface';
+import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
@@ -51,6 +52,7 @@ const RECORD_ICON: Partial<Record<RecordType, typeof FileText>> = {
   worker_run: Play,
   lead: User,
   conversation: MessageSquareText,
+  record_history: History,
 };
 
 /**
@@ -79,6 +81,12 @@ function PreviewIcon({ type, doc }: { type: RecordType; doc: PreviewDoc }) {
 
 function Body(props: { doc: PreviewDoc }) {
   const { doc } = props;
+  // A record's history draws as itself — diffs and Restore — because its
+  // whole point is the version you pick; the markdown body is the same
+  // history as text for surfaces that render a doc plainly.
+  if (doc.kind === 'record_history' && !doc.unresolved && /^\d+$/.test(doc.ref.id)) {
+    return <RecordHistory objectId={Number(doc.ref.id)} />;
+  }
   if (doc.unresolved) {
     return (
       <div className="px-4 py-3">

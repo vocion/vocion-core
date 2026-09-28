@@ -539,6 +539,45 @@ registerPreview('lead', {
 });
 
 /**
+ * A record's history — its body artifact's versions (backlog 035). The panel
+ * draws it with `RecordHistory` (diffs and Restore) when it sees
+ * `kind: record_history`; the markdown body is the same history as text, for
+ * any surface that renders a `PreviewDoc` plainly.
+ */
+registerPreview('record_history', {
+  sourceLabel: 'History',
+  href: ref => `/dashboard/objects/${encodeURIComponent(ref.id)}`,
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return null;
+    }
+    const { recordHistory } = await import('@/services/objects/recordBody');
+    const { displayValue } = await import('@/libs/actions/objects-propose-candidate');
+    const history = await recordHistory(ctx.orgId, id);
+    if (!history) {
+      return null;
+    }
+    const lines = history.versions.map((v) => {
+      const head = `**v${v.version}** · ${v.authorName} · ${when(new Date(v.createdAt))}${v.reason ? ` — ${v.reason}` : ''}`;
+      const changes = v.changes.map(c => `  - ${c.label}: ${displayValue(c.before) || '(empty)'} → ${displayValue(c.after) || '(cleared)'}`);
+      return [`- ${head}`, ...changes].join('\n');
+    });
+    return {
+      ref,
+      title: `History — ${history.title}`,
+      sourceLabel: 'History',
+      kind: 'record_history',
+      facts: facts(
+        { label: 'Version', value: `v${history.current}` },
+        { label: 'Versions', value: String(history.versions.length) },
+      ),
+      ...body(lines.join('\n')),
+    };
+  },
+});
+
+/**
  * A plain external link. Nothing to resolve — the panel shows where it goes
  * and hands over the link, labelled as leaving Vocion.
  */

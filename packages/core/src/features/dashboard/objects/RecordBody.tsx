@@ -30,7 +30,9 @@ import { resolveField } from '@/libs/workspace/pageFields';
 function Prose({ row, field, now, links }: { row: PageRow; field: RecordField; now: number; links: LinkMap }) {
   const raw = resolveField(row, field.from ?? field.key);
   return (
-    <section className="rounded-lg border border-border p-5">
+    // `data-record-field` names the field a selection here belongs to, so a
+    // record's Change writes the right one (`RecordChangeIntent`).
+    <section className="rounded-lg border border-border p-5" data-record-field={field.key}>
       <h2 className="mb-3 text-sm font-semibold" title={field.hint}>{field.label ?? field.key}</h2>
       {field.format === 'text' && typeof raw === 'string'
         ? (
@@ -63,7 +65,7 @@ export function RecordBody({ row, sections, now, links, aside, children }: {
 }) {
   const { prose, facts, links: linkFields, timestamps, otherKeys } = sections;
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
+    <div className="grid gap-6 lg:grid-cols-3" data-record-body>
       <div className="min-w-0 space-y-6 lg:col-span-2">
         {children}
         {prose.map(f => <Prose key={f.key} row={row} field={f} now={now} links={links} />)}

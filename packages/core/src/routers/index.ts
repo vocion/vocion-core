@@ -34,14 +34,17 @@ import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegene
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
+  change as changeObject,
   create as createObject,
   createType,
   generateSummary,
   get as getObject,
   list as listObjects,
   listTypes,
+  history as objectHistory,
   removeLink,
   remove as removeObject,
+  restore as restoreObject,
   update as updateObject,
 } from './BusinessObject';
 import { suggestions as chatSuggestions } from './Chat';
@@ -161,6 +164,9 @@ export const router = {
     addLink,
     removeLink,
     generateSummary,
+    history: objectHistory,
+    restore: restoreObject,
+    change: changeObject,
   },
   context: {
     readPrimitive,
