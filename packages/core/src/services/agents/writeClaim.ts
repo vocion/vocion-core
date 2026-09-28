@@ -63,6 +63,19 @@ const DONE_WORDS = 'filed|recorded|created|logged|submitted|saved|queued|opened'
 /** A bold "Filed:" or "Filed", or "Filed:" / "Recorded." at the start of a line. */
 const STATUS_LABEL = new RegExp(`(?:\\*\\*|^\\s*(?:[-*]\\s+)?)(?:${DONE_WORDS})(?:\\*\\*\\s*[:.—-]|\\s*[:.—-]\\s*\\*\\*|\\s*:)`, 'im');
 
+/**
+ * A bare "Filed." or "Filed —" opening a line: conversation 349's second
+ * turn (2026-09-28) began "Filed. The request card is on your screen" with no
+ * write and no card, and the bold-only label above let it through.
+ */
+const BARE_LABEL = new RegExp(`^\\s*(?:[-*]\\s+)?(?:${DONE_WORDS})(?:\\.|\\s+[—–-])(?:\\s|$)`, 'im');
+
+/**
+ * A card said to be in front of the person: "the request card is on your
+ * screen", "the card is below". True only when a card was put up.
+ */
+const CARD_CLAIM = /\b(?:the|your|a)\s+(?:[\w-]+\s+){0,2}card\s+(?:is|was)\s+(?:now\s+)?(?:on your screen|on screen|below|above|up|ready)\b/i;
+
 /** "I filed", "I've filed", "I have created", "I just logged". */
 const FIRST_PERSON = new RegExp(`\\bI(?:'ve|\\s+have)?(?:\\s+(?:just|now|already))?\\s+(?:${DONE_WORDS})\\b`, 'i');
 
@@ -74,7 +87,7 @@ const REPORTED_WRITE = /\b(?:the (?:call|update|write) (?:returned|succeeded|wen
  * @param text - The answer as it stands.
  */
 export function writeClaim(text: string): string | null {
-  for (const pattern of [STATUS_LABEL, FIRST_PERSON, REPORTED_WRITE]) {
+  for (const pattern of [STATUS_LABEL, BARE_LABEL, FIRST_PERSON, REPORTED_WRITE]) {
     const match = pattern.exec(text ?? '');
     if (match) {
       return match[0].trim();
@@ -87,14 +100,25 @@ export function writeClaim(text: string): string | null {
 export const UNBACKED_WRITE_NOTICE = 'Nothing was saved in this turn, so what is described above as filed has not happened yet.';
 
 /**
+ * The sentence that says a card is on screen, or null.
+ * @param text - The answer as it stands.
+ */
+export function cardClaim(text: string): string | null {
+  return CARD_CLAIM.exec(text ?? '')?.[0].trim() ?? null;
+}
+
+/**
  * The correction to append, or null when the answer claims no write or a
- * write ran.
+ * write ran. A claim that a card is on screen counts too, when no card was
+ * put up and nothing was written.
  * @param text - The answer as it stands.
  * @param toolCalls - The turn's tool calls.
+ * @param cardsShown - Cards the turn put in front of the person; undefined when the caller cannot say.
  */
-export function unbackedWriteNotice(text: string, toolCalls: ReadonlyArray<WriteClaimToolCall>): string | null {
-  if (!writeClaim(text) || wroteInTurn(toolCalls)) {
+export function unbackedWriteNotice(text: string, toolCalls: ReadonlyArray<WriteClaimToolCall>, cardsShown?: number): string | null {
+  if (wroteInTurn(toolCalls)) {
     return null;
   }
-  return UNBACKED_WRITE_NOTICE;
+  const claimed = writeClaim(text) !== null || (cardsShown === 0 && cardClaim(text) !== null);
+  return claimed ? UNBACKED_WRITE_NOTICE : null;
 }

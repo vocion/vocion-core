@@ -56,6 +56,10 @@ vi.mock('@/libs/llm', async importOriginal => ({
     }),
   })),
 }));
+// The agent's tool belt, as the filing pass builds it: empty unless a test puts propose_action on it.
+const toolBelt = vi.hoisted(() => ({ tools: [] as Array<{ name: string; invoke: (input: unknown) => Promise<unknown> }> }));
+vi.mock('@/services/agents/tools/registry', () => ({ buildDomainTools: () => toolBelt.tools }));
+
 vi.mock('@/libs/Langfuse', () => ({
   createLangfuseCallback: vi.fn(() => ({ handler: {}, trace: { id: 'trace-1', update: vi.fn() } })),
   flushTraces: vi.fn(async () => {}),
@@ -656,6 +660,122 @@ describe('the live line says what is happening (2026-09-25: "Working is such a l
     } finally {
       warn.mockRestore();
       backstop.on = false;
+    }
+  });
+});
+
+describe('a continuation that restarts inside the answer is joined once (conversation 349)', () => {
+  it('stores and streams the reply without the repeated paragraph', async () => {
+    const said = 'The request card is on your screen — approving it is what writes the record.\n\nTwo corrections to what I said last turn, now that I have checked:\n\n**There';
+    // The recorded shape: the continuation began again from the middle of "screen".
+    const again = 'een — approving it is what writes the record.\n\nTwo corrections to what I said last turn, now that I have checked:\n\n**There is still no request record on file for this.**';
+    const chunked = (t: string): AsyncIterable<unknown> => ({ async* [Symbol.asyncIterator]() {
+      for (let i = 0; i < t.length; i += 7) {
+        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(t.slice(i, i + 7)) } };
+      }
+    } });
+    streamEvents.mockResolvedValueOnce(chunked(said)).mockResolvedValueOnce(chunked(again)).mockResolvedValue(emptyStream());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { result, events } = await run({ message: 'What changed since last turn?' });
+      const streamed = events.filter(e => e.type === 'response_delta').map(e => (e as { delta: string }).delta).join('');
+
+      expect(result.response).not.toContain('Thereeen');
+      expect(result.response.match(/Two corrections/g)).toHaveLength(1);
+      expect(result.response).toContain('**There is still no request record on file for this.**');
+      expect(streamed).not.toContain('Thereeen');
+      expect(streamed.match(/Two corrections/g)).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('leaves a continuation that simply finishes the word alone', async () => {
+    const said = 'Two corrections to what I said last turn, now that I have checked the table:\n\n**The';
+    const next = 're is still no request record on file for this.**';
+    streamEvents
+      .mockResolvedValueOnce({ async* [Symbol.asyncIterator]() {
+        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(said) } };
+      } })
+      .mockResolvedValueOnce({ async* [Symbol.asyncIterator]() {
+        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(next) } };
+      } })
+      .mockResolvedValue(emptyStream());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { result } = await run({ message: 'What changed since last turn?' });
+
+      expect(result.response).toContain('**There is still no request record on file for this.**');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('"Filed." with nothing behind it is corrected (conversation 349, second turn)', () => {
+  const base = { orgId: ORG, agentSlug: 'lead', request: 'Please file it now.', failures: [], failedDelegations: [], answer: async () => '' };
+
+  it('catches a bare "Filed." and a card said to be on screen when none was put up', async () => {
+    const out = await applyTurnGuarantees({ ...base, response: 'Filed. The request card is on your screen — approving it is what writes the record.', toolCalls: [{ tool: 'lookup_objects', output: 'No request record matched' }], cardsShown: 0, emit: () => {} });
+
+    expect(out).toContain('Nothing was saved in this turn');
+
+    const cardOnly = await applyTurnGuarantees({ ...base, response: 'Here is what I found. The request card is on your screen.', toolCalls: [], cardsShown: 0, emit: () => {} });
+
+    expect(cardOnly).toContain('Nothing was saved in this turn');
+  });
+
+  it('says nothing about a card that is on screen', async () => {
+    const out = await applyTurnGuarantees({ ...base, response: 'Here is what I found. The request card is on your screen.', toolCalls: [], cardsShown: 1, emit: () => {} });
+
+    expect(out).not.toContain('Nothing was saved');
+  });
+});
+
+describe('the person asked for a record and the turn wrote nothing (conversation 349)', () => {
+  it('files it in one pass with propose_action chosen, links it, and the claim check stays quiet', async () => {
+    const received: unknown[] = [];
+    toolBelt.tools = [{
+      name: 'propose_action',
+      invoke: async (input) => {
+        received.push(input);
+        return 'objects.propose_candidate is DONE: filed as request #131 (run #7, confidence 0.8), open at /w/northwind/dashboard/p/feature/131. Title: Export the viewer list.';
+      },
+    }];
+    backstop.calls.length = 0;
+    backstop.calls.push({ name: 'propose_action', args: { action_id: 'objects.propose_candidate', action_input: { objectType: 'request', title: 'Export the viewer list' }, confidence: 0.8, rationale: 'Asked for in chat.', suggested_decision: 'approve', suggested_decision_reason: 'Asked for directly.' } });
+    streamEvents.mockResolvedValueOnce({ async* [Symbol.asyncIterator]() {
+      yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text('Filed. The request card is on your screen — approving it is what writes the record.') } };
+    } }).mockResolvedValue(emptyStream());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { result, events } = await run({ message: 'You said nothing was saved. Please file it now.' });
+
+      expect(received).toHaveLength(1);
+      expect(result.response).toContain('Filed from this conversation: [request #131](/w/northwind/dashboard/p/feature/131).');
+      expect(result.response).not.toContain('Nothing was saved in this turn');
+      expect(result.toolCalls.map(c => c.tool)).toContain('propose_action');
+      expect(events.some(e => e.type === 'status' && e.label === 'Filing what you asked for')).toBe(true);
+    } finally {
+      warn.mockRestore();
+      toolBelt.tools = [];
+      backstop.calls.length = 0;
+    }
+  });
+
+  it('does not run when the person asked for nothing to be filed', async () => {
+    const received: unknown[] = [];
+    toolBelt.tools = [{ name: 'propose_action', invoke: async (input) => {
+      received.push(input);
+      return '';
+    } }];
+    streamEvents.mockResolvedValue(longFormStream());
+    try {
+      await run({ message: 'What changed since last turn?' });
+
+      expect(received).toHaveLength(0);
+    } finally {
+      toolBelt.tools = [];
     }
   });
 });

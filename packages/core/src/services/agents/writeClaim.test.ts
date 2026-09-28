@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isWriteTool, unbackedWriteNotice, writeClaim, wroteInTurn } from './writeClaim';
+import { cardClaim, isWriteTool, unbackedWriteNotice, writeClaim, wroteInTurn } from './writeClaim';
 
 const reads = [
   { tool: 'lookup_objects', output: 'request #126 Retry uploads — state new' },
@@ -53,5 +53,28 @@ describe('the notice', () => {
   it('stays silent when a write ran or nothing was claimed', () => {
     expect(unbackedWriteNotice('**Filed:** Request #130.', [...reads, { tool: 'update_object', output: '{"ok":true,"id":130}' }])).toBeNull();
     expect(unbackedWriteNotice('Request #126 is in building.', reads)).toBeNull();
+  });
+});
+
+describe('conversation 349, the second turn (2026-09-28)', () => {
+  it('a bare "Filed." opening a line is a claim', () => {
+    expect(writeClaim('Filed. The request card is on your screen — approving it is what writes the record.')).toBe('Filed.');
+    expect(writeClaim('Logged — the incident is on the board.')).not.toBeNull();
+    expect(unbackedWriteNotice('Filed. The request card is on your screen.', reads)).not.toBeNull();
+  });
+
+  it('a card said to be on screen is a claim only when no card was put up', () => {
+    expect(cardClaim('The request card is on your screen.')).toBe('The request card is on your screen');
+    expect(cardClaim('The card is below.')).not.toBeNull();
+    expect(unbackedWriteNotice('Here is the plan. The request card is on your screen.', reads, 0)).not.toBeNull();
+    expect(unbackedWriteNotice('Here is the plan. The request card is on your screen.', reads, 1)).toBeNull();
+    // A caller that cannot count cards is not second-guessed on one.
+    expect(unbackedWriteNotice('Here is the plan. The request card is on your screen.', reads)).toBeNull();
+  });
+
+  it('leaves the ordinary uses of the words alone', () => {
+    expect(writeClaim('Filed requests this week: two, both for Send.')).toBeNull();
+    expect(writeClaim('Tap the card to file it.')).toBeNull();
+    expect(cardClaim('Tap the card to file it.')).toBeNull();
   });
 });

@@ -25,12 +25,13 @@ import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agen
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
+import { asksToFile, fileOwedWrite } from './agents/owedWriteBackstop';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { TurnRefusedError } from './agents/turnRefusal';
-import { unbackedWriteNotice, writeClaim } from './agents/writeClaim';
+import { cardClaim, unbackedWriteNotice, writeClaim, wroteInTurn } from './agents/writeClaim';
 
 /**
  * A tool's name written as the turn's last word — narrated, not called — or a
@@ -312,6 +313,8 @@ export type TurnGuaranteeInput = {
   /** The answer the turn produced. */
   response: string;
   toolCalls: ReadonlyArray<{ tool: string; input?: Record<string, unknown>; output?: string }>;
+  /** Cards the turn put in front of the person; undefined when the harness cannot say. */
+  cardsShown?: number;
   /** The turn's last event was a tool result, not words — it owes an answer whatever its length. */
   endedOnTool?: boolean;
   failures: ReadonlyArray<TurnFailure>;
@@ -400,9 +403,9 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
   // A WRITE CLAIMED WITH NO WRITE BEHIND IT is corrected here, after the
   // answer pass, so a claim that pass made is checked too (finding 23,
   // services/agents/writeClaim.ts).
-  const unbacked = unbackedWriteNotice(text, input.toolCalls);
+  const unbacked = unbackedWriteNotice(text, input.toolCalls, input.cardsShown);
   if (unbacked) {
-    console.warn(`turn claimed a write with none behind it for org ${input.orgId} agent ${input.agentSlug}: "${writeClaim(text)}"`);
+    console.warn(`turn claimed a write with none behind it for org ${input.orgId} agent ${input.agentSlug}: "${writeClaim(text) ?? cardClaim(text)}"`);
     append(unbacked);
   }
 
@@ -927,6 +930,8 @@ export async function runAgentDeep(opts: {
   let thoughtOnlyRetried = false;
   // The late narrated-call re-entry runs at most once (see below).
   let narratedNudged = false;
+  // Set while the mid-sentence continuation streams (see below).
+  let continuationJoin: import('./agents/truncation').ContinuationJoin | null = null;
   // A RE-ENTRY CARRIES WHAT THE TOOLS RETURNED. `runGraph` starts a fresh
   // graph from text messages, so the previous pass's tool calls and results
   // were not in the new pass's context at all: mission run 5081 (2026-09-25,
@@ -1056,8 +1061,13 @@ export async function runAgentDeep(opts: {
                   emit(node);
                 }
               }
-              finalText += answer;
-              emit({ type: 'response_delta', delta: answer });
+              // A continuation that restarts inside what was already said
+              // is joined without the repeat (`ContinuationJoin`).
+              const released = continuationJoin ? continuationJoin.push(answer) : answer;
+              if (released) {
+                finalText += released;
+                emit({ type: 'response_delta', delta: released });
+              }
             }
           }
           break;
@@ -1217,19 +1227,29 @@ export async function runAgentDeep(opts: {
       // 2026-09-26: the QA verdict ended at "Head read at `"). Once, the
       // turn re-enters with where it stopped and finishes from there.
       {
-        const { cutOffMidSentence } = await import('./agents/truncation');
+        const { ContinuationJoin, cutOffMidSentence } = await import('./agents/truncation');
         const shown = normalizeAnswerHtml(finalText).trim();
         if (cutOffMidSentence(shown) && !NARRATED_TOOL.test(shown)) {
           console.warn('agent turn: the answer stopped mid-sentence; finishing it', { orgId: opts.orgId, agentSlug: opts.agentSlug, tail: shown.slice(-80) });
           emit({ type: 'status', label: 'Finishing the answer' });
-          await runGraph({
-            ...input,
-            messages: [
-              ...input.messages,
-              { role: 'assistant', content: shown },
-              { role: 'user', content: withResults(`Your answer stopped mid-sentence at "${shown.slice(-120)}". Continue exactly from where it stopped and finish it. Do not repeat what you already wrote and do not read again what you already read.`) },
-            ],
-          } as typeof input);
+          continuationJoin = new ContinuationJoin(finalText);
+          try {
+            await runGraph({
+              ...input,
+              messages: [
+                ...input.messages,
+                { role: 'assistant', content: shown },
+                { role: 'user', content: withResults(`Your answer stopped mid-sentence at "${shown.slice(-120)}". Continue exactly from where it stopped and finish it. Do not repeat what you already wrote and do not read again what you already read.`) },
+              ],
+            } as typeof input);
+          } finally {
+            const held = continuationJoin.flush();
+            continuationJoin = null;
+            if (held) {
+              finalText += held;
+              emit({ type: 'response_delta', delta: held });
+            }
+          }
         }
       }
       // A CALL WRITTEN OUT AFTER THE CONTINUATION. The one continuation can
@@ -1388,6 +1408,45 @@ export async function runAgentDeep(opts: {
     console.warn('agent turn: narrated tool name stripped from the answer', { orgId: opts.orgId, agentSlug: opts.agentSlug });
     finalText = finalText.replace(NARRATED_TOOL_TAIL, '').trim();
   }
+  // THE PERSON ASKED FOR A RECORD; THE TURN ENDS WITH ONE. Conversation 349
+  // (2026-09-28): "File a feature request…", a broken call, no retry; then
+  // "Please file it now." and no call at all — two turns, no record. When the
+  // person's own words ask for a filing and nothing was written, one pass
+  // with propose_action chosen files it from the conversation
+  // (`services/agents/owedWriteBackstop.ts`), before the claim check below
+  // reads the turn.
+  if (asksToFile(opts.message) && !wroteInTurn(toolCallLog)) {
+    try {
+      const { buildDomainTools } = await import('./agents/tools/registry');
+      const proposeTool = buildDomainTools(boundCtx).find(t => t.name === 'propose_action');
+      if (proposeTool) {
+        emit({ type: 'status', label: 'Filing what you asked for' });
+        const { buildChatModelForOrg } = await import('@/libs/llm');
+        const model = await buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: false, maxTokens: 6000 });
+        const owed = await fileOwedWrite({
+          request: opts.message,
+          history: (opts.conversationHistory ?? []).map(t => ({ role: t.role, content: t.content })),
+          answer: finalText,
+          systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
+          tool: proposeTool,
+          model: model as never,
+        });
+        console.warn('owed write pass', { orgId: opts.orgId, agentSlug: opts.agentSlug, conversationId: opts.conversationId ?? null, filed: owed.filed, output: owed.output.slice(0, 200) });
+        if (owed.args) {
+          toolCallLog.push({ tool: 'propose_action', input: owed.args, output: owed.output });
+        }
+        if (owed.line) {
+          const delta = `${finalText.trim() ? '\n\n' : ''}${owed.line}`;
+          finalText += delta;
+          emit({ type: 'response_delta', delta });
+        }
+      }
+    } catch (err) {
+      // A backstop never fails the turn; the claim check still tells the truth.
+      console.warn('owed write pass failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
+    }
+  }
+
   if (createdRecords.length > 0) {
     const linked = appendRecordLinks(finalText, createdRecords);
     if (linked !== finalText) {
@@ -1407,6 +1466,7 @@ export async function runAgentDeep(opts: {
     request: opts.message,
     response: finalText,
     toolCalls: toolCallLog,
+    cardsShown: emittedCards.length,
     endedOnTool: toolCallLog.length > 0 && !answeredSinceTool,
     failures,
     failedDelegations,
