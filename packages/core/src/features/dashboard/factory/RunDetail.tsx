@@ -138,19 +138,7 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
       <Section eyebrow="Steps" commentField={null} action={steps.length > 0 ? <span className="text-muted-foreground tabular-nums">{steps.length}</span> : undefined}>
         {steps.length === 0
           ? <p className="text-muted-foreground">{live ? 'Waiting for the run to report its first step.' : 'This run reported no steps.'}</p>
-          : (
-              <Accordion
-                items={steps.map(step => ({
-                  id: step.key,
-                  icon: <StepIcon status={step.status} />,
-                  title: step.name,
-                  meta: <span className="tabular-nums">{stepDuration(step, now)}</span>,
-                  children: <StepBody step={step} follow={step.status === 'running'} />,
-                }))}
-                open={open}
-                onToggle={onToggle}
-              />
-            )}
+          : <RunStepList steps={steps} open={open} onToggle={onToggle} now={now} />}
       </Section>
 
       {header.summary && (
@@ -161,6 +149,32 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
 
       {header.attach && <AttachBlock text={header.attach} />}
     </div>
+  );
+}
+
+/**
+ * A run's steps as rows — status mark, name, duration — each opening onto its
+ * numbered log. The run page draws them, and so does the preview pane for an
+ * agent run (`features/preview/PreviewPane.tsx`): one shape for a run's steps.
+ * @param props
+ * @param props.steps - The steps.
+ * @param props.open - The keys open now.
+ * @param props.onToggle - A row opened or closed.
+ * @param props.now - The clock, for a running step's duration.
+ */
+export function RunStepList({ steps, open, onToggle, now }: { steps: readonly RunStep[]; open: readonly string[]; onToggle: (id: string, next: boolean) => void; now: number }) {
+  return (
+    <Accordion
+      items={steps.map(step => ({
+        id: step.key,
+        icon: <StepIcon status={step.status} />,
+        title: step.name,
+        meta: <span className="tabular-nums">{stepDuration(step, now)}</span>,
+        children: <StepBody step={step} follow={step.status === 'running'} />,
+      }))}
+      open={open}
+      onToggle={onToggle}
+    />
   );
 }
 

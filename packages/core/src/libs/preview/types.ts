@@ -1,3 +1,4 @@
+import type { RunStep } from '@/libs/worker/runLog';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
 
 /**
@@ -43,6 +44,18 @@ export type PreviewDoc = {
   facts?: PreviewFact[];
   /** The readable content, plain text or markdown. */
   body?: string;
+  /**
+   * A run's steps, drawn after the body in the run page's own shape
+   * (`RunStepList`): one row per step, its lines under it. Collapsed except
+   * a failed step.
+   */
+  steps?: RunStep[];
+  /**
+   * What is worth keeping and not worth leading with — a run's brief, the
+   * Claude Code block — each a collapsed row after everything else.
+   * Markdown.
+   */
+  more?: Array<{ key: string; title: string; body: string }>;
   /** In-app full detail page. Relative only. */
   href?: string;
   /** The external system, when there is no in-app page. Labelled as leaving. */
@@ -53,7 +66,16 @@ export type PreviewDoc = {
    * Set when nothing could be resolved. The panel still renders: the raw
    * reference, plainly, and why. A blank panel is never an answer.
    */
-  unresolved?: { reason: string; reference: string };
+  unresolved?: {
+    reason: string;
+    reference: string;
+    /**
+     * The read failed rather than found nothing — the database was away
+     * while the server restarted. The pane retries this; it never says
+     * "Could not load" for it.
+     */
+    retryable?: boolean;
+  };
 };
 
 /** What a descriptor must answer about a ref before anything is loaded. */

@@ -450,58 +450,88 @@ registerPreview('worker_run', {
   },
 });
 
-// AN AGENT RUN READS AS WHAT IT DID. Every agent-run row on a feature's
-// Activity opened "Nothing in Vocion reads this kind of reference yet" (Chris,
-// 2026-09-28, run 5507). The run's brief, each task with its status, output
-// and error, the tools it called, and on a failed run the same Claude Code
-// block an engineering run carries.
+const RUN_STATUS_WORD: Record<string, string> = {
+  planning: 'Planning',
+  running: 'Running',
+  paused: 'Paused',
+  awaiting_review: 'Waiting for review',
+  completed: 'Completed',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+};
+
+// AN AGENT RUN LEADS WITH WHAT IT DID AND HOW IT ENDED (Chris, 2026-09-28:
+// "what should be on this preview pane?", run 5974). How it ended and its
+// final report's first lines; what it filed or changed, each a link, read off
+// its tool calls; how long it took and what it cost. Then its steps in the
+// run page's own shape — one per plan task, a line per tool call — collapsed
+// except a failed one. The brief it was given is kept, collapsed, last: it is
+// what the run was told, not what it did.
 registerPreview('mission_run', {
   sourceLabel: 'Agent run',
+  href: ref => (/^\d+$/.test(ref.id) ? `/dashboard/p/runs/agent-${ref.id}` : null),
   resolve: async (ref, ctx) => {
     const id = Number.parseInt(ref.id, 10);
-    if (!Number.isSafeInteger(id)) {
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return null;
+    }
+    const { missionRunAttach, readRunLog } = await import('@/services/runs/RunLogService');
+    const data = await readRunLog(ctx.orgId, `agent-${id}`);
+    if (!data) {
       return null;
     }
     const [run] = await db.select().from(missionRunSchema).where(and(eq(missionRunSchema.orgId, ctx.orgId), eq(missionRunSchema.id, id))).limit(1);
     if (!run) {
       return null;
     }
-    const tasks = ((run.plan ?? {}) as { tasks?: Array<{ title?: string; status?: string; ownerAgentSlug?: string; output?: unknown; error?: unknown }> }).tasks ?? [];
+    const { deriveSteps, formatDuration, stopReason } = await import('@/libs/worker/runLog');
+    const { reportLead, runChanges } = await import('@/libs/worker/runChanges');
     const calls = await db
-      .select({ tool: toolCallSchema.tool, error: toolCallSchema.error, ms: toolCallSchema.durationMs })
+      .select({ tool: toolCallSchema.tool, input: toolCallSchema.input, output: toolCallSchema.output, error: toolCallSchema.error })
       .from(toolCallSchema)
       .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.missionRunId, id)))
-      .orderBy(toolCallSchema.id)
-      .limit(60);
-    const failed = run.status === 'failed';
-    const { missionRunAttach, missionRunError } = await import('@/services/runs/RunLogService');
-    const firstError = missionRunError(run);
+      .orderBy(asc(toolCallSchema.id))
+      .limit(2000);
+    const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
+    const changes = runChanges(calls, await recordLinkerForOrg(ctx.orgId));
+    const tasks = data.tasks;
+    const failedTask = tasks.find(t => t.error);
+    const report = [...tasks].reverse().find(t => t.output)?.output ?? null;
+    const lead = report ? reportLead(report) : null;
+    const stoppedWhy = failedTask?.error ? `${failedTask.title}: ${failedTask.error.split('\n')[0]!}` : run.error?.split('\n')[0] ?? null;
+    const outcome = run.status === 'failed'
+      ? `Stopped — ${stoppedWhy ? stopReason(stoppedWhy, 300) : 'the run ended without saying why'}`
+      : run.status === 'completed'
+        ? lead ?? 'Finished without writing a report.'
+        : run.status === 'cancelled'
+          ? 'Cancelled before it finished.'
+          : lead ?? `${RUN_STATUS_WORD[run.status] ?? run.status} — ${tasks.filter(t => t.status === 'completed').length} of ${tasks.length} steps done.`;
+    const took = run.completedAt ? formatDuration(run.completedAt.getTime() - run.createdAt.getTime()) : '';
     const attach = await missionRunAttach(run);
-    const text = [
-      failed ? `**Stopped** — ${firstError ? firstError.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}` : null,
-      run.brief ? `**Brief**\n\n${run.brief.slice(0, 1200)}${run.brief.length > 1200 ? '…' : ''}` : null,
-      ...tasks.map((t, i) => [
-        `**${i + 1}. ${t.title ?? 'Task'}** — ${t.status ?? 'unknown'}${t.ownerAgentSlug ? ` · ${t.ownerAgentSlug}` : ''}`,
-        t.error ? `Error: ${String(t.error).slice(0, 600)}` : null,
-        typeof t.output === 'string' && t.output.trim() ? t.output.slice(0, 4000) : null,
-      ].filter(Boolean).join('\n\n')),
-      calls.length > 0 ? `**Tools called**\n\n${calls.map(c => `- \`${c.tool}\`${c.error ? ' — failed' : ''}${c.ms ? ` · ${(c.ms / 1000).toFixed(1)}s` : ''}`).join('\n')}` : null,
-      attach ? `**Fix it from Claude Code** — paste this into a session:\n\n\`\`\`\n${attach}\n\`\`\`` : null,
-    ].filter(Boolean).join('\n\n');
+    const changed = changes.length === 0
+      ? 'It filed and changed nothing.'
+      : changes.map(c => `- ${c.href ? `[${c.text}](${c.href})` : c.text}`).join('\n');
     return {
       ref,
       title: run.title,
       sourceLabel: 'Agent run',
-      href: `/dashboard/missions/runs/${run.id}`,
+      href: `/dashboard/p/runs/agent-${run.id}`,
+      subtitle: outcome,
       facts: facts(
-        { label: 'Run', value: `#${run.id}` },
-        { label: 'Status', value: run.status },
-        (run.team as { lead?: string } | null)?.lead && { label: 'Agent', value: (run.team as { lead: string }).lead },
+        { label: 'Status', value: RUN_STATUS_WORD[run.status] ?? run.status },
+        took && { label: 'Took', value: took },
+        // Nothing records what an agent run spent; say so rather than print $0.
+        { label: 'Cost', value: 'no cost recorded' },
+        { label: 'Agent', value: run.team?.lead ?? '' },
         { label: 'Started', value: when(run.createdAt) ?? '' },
-        { label: 'Tasks', value: String(tasks.length) },
-        calls.length > 0 && { label: 'Tool calls', value: String(calls.length) },
+        { label: 'Run', value: `Agent run #${run.id}` },
       ),
-      ...tailBody(text || 'This run has reported nothing yet.'),
+      body: `**What it filed or changed**\n\n${changed}`,
+      steps: deriveSteps(data),
+      more: [
+        ...(attach ? [{ key: 'attach', title: 'Fix it from Claude Code', body: `Paste this into a session:\n\n\`\`\`\n${attach}\n\`\`\`` }] : []),
+        ...(run.brief?.trim() ? [{ key: 'brief', title: 'The brief it was given', body: body(run.brief).body! + (run.brief.trim().length > BODY_LIMIT ? '\n\n_Cut short — the run page has the rest._' : '') }] : []),
+      ],
     };
   },
 });
@@ -604,8 +634,10 @@ registerPreview('page', {
  * shows each stage as a few lines; the full record of that stage (the plan's
  * steps and approval history, every attempt, each criterion's evidence, the
  * whole activity log) opens here, in the same pane every other peek uses,
- * rather than in a second drawer system (Chris, 2026-09-28). No link out: the
- * full page IS the feature page the reader is standing on.
+ * rather than in a second drawer system (Chris, 2026-09-28). The link out is
+ * the record the drawer summarises — the plan record, the latest run — when
+ * it has one; otherwise there is none, since the feature page is where the
+ * reader is standing.
  */
 registerPreview('feature_section', {
   sourceLabel: 'Feature',
@@ -621,6 +653,6 @@ registerPreview('feature_section', {
     if (!drawer) {
       return null;
     }
-    return { ref, sourceLabel: 'Feature', title: drawer.title, subtitle: drawer.subtitle, facts: drawer.facts, ...body(drawer.body, LOG_LIMIT) };
+    return { ref, sourceLabel: 'Feature', title: drawer.title, subtitle: drawer.subtitle, facts: drawer.facts, ...(drawer.href ? { href: drawer.href } : {}), ...body(drawer.body, LOG_LIMIT) };
   },
 });

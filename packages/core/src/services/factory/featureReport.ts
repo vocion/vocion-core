@@ -462,6 +462,16 @@ export type ReportPlanSummary = {
   steps: number;
   /** Whether a plan was needed, in plain words — for the drawer. */
   requirement: string | null;
+  /** Why the plan rule required one, one clause per trigger, in the rule's words. */
+  reasons: string[];
+  /** The approach, and why this one, as the plan says it. */
+  approach: string | null;
+  /** What changes, one line per component. */
+  components: string[];
+  /** Every risk the plan names. */
+  risks: string[];
+  /** The plan record's page, as the workspace links it (`libs/workspace/recordHref.ts`). */
+  href: string | null;
   /** Said when there is no plan to summarise. */
   absence: string | null;
 };
@@ -480,6 +490,10 @@ export type ReportAttempt = {
   ago: string;
   /** The first line of what went wrong, when something did. */
   why: string | null;
+  /** The pull request this attempt opened, when it opened one. */
+  prUrl: string | null;
+  /** What its checks reported. Empty when it reported none. */
+  checks: ReportCheck[];
 };
 
 /** A delivery fact that is true, false or not established — never inferred from a neighbour. */
@@ -489,6 +503,8 @@ export type ReportImplementation = {
   latest: ReportAttempt | null;
   /** How many attempts came before the latest. */
   earlier: number;
+  /** Every attempt, newest first. */
+  attempts: ReportAttempt[];
   prUrl: string | null;
   merged: boolean;
   /** Run completed ≠ checks passed ≠ merged ≠ acceptance verified ≠ released. */
@@ -968,8 +984,11 @@ function planLevelSentence(decision: PlanDecision): string {
   // 2026-09-28: replace the jargon). A person reads the reason.
   if (decision.level === 'required') {
     const first = decision.triggers[0]?.why;
-    return decision.triggers.length > 1
-      ? `Yes — for ${decision.triggers.length} reasons, listed below`
+    // Each reason said, never "N reasons, listed below" with the list
+    // somewhere else (Chris, 2026-09-28, on #126's plan).
+    const whys = [...new Set(decision.triggers.map(t => t.why))];
+    return whys.length > 1
+      ? `Yes — ${whys.slice(0, -1).join('; ')}; and ${whys.at(-1)}`
       : first ? `Yes — ${first}` : 'Yes';
   }
   if (decision.level === 'offered') {
@@ -2707,6 +2726,11 @@ function buildPlanSummary(input: FeatureReportInput, planId: number | null): Rep
   const requirement = decision !== null
     ? planLevelSentence(decision)
     : fromPlan === 'required' ? 'Yes — the plan rule asked for one' : fromPlan === 'offered' ? 'Optional' : fromPlan === 'none' ? 'No' : null;
+  // The reasons themselves, so nothing says "listed below" and lists nothing:
+  // the rule's triggers off the tasks, else what the plan recorded when written.
+  const reasons = decision !== null && decision.triggers.length > 0
+    ? [...new Set(decision.triggers.map(t => t.why))]
+    : [...new Set(input.plans.flatMap(p => list(p.meta, 'ruleTriggers')))];
   const newest = [...input.plans].sort((a, b) => b.id - a.id);
   const current = newest.find(p => p.id === planId) ?? newest[0] ?? null;
   if (current === null) {
@@ -2719,6 +2743,11 @@ function buildPlanSummary(input: FeatureReportInput, planId: number | null): Rep
       risk: null,
       steps: 0,
       requirement,
+      reasons,
+      approach: null,
+      components: [],
+      risks: [],
+      href: null,
       absence: decision?.level === 'required'
         ? 'A plan was required and none is on the record.'
         : input.tasks.length > 0 ? 'No plan was written; the plan rule did not require one.' : 'No plan yet.',
@@ -2735,6 +2764,11 @@ function buildPlanSummary(input: FeatureReportInput, planId: number | null): Rep
     risk: list(current.meta, 'risks')[0] ?? null,
     steps: list(current.meta, 'components').length,
     requirement,
+    reasons,
+    approach: str(current.meta, 'approach'),
+    components: list(current.meta, 'components'),
+    risks: list(current.meta, 'risks'),
+    href: (input.link ?? genericRecordLinker)({ objectType: 'architecture_plan', id: current.id }),
     absence: null,
   };
 }
@@ -2754,6 +2788,7 @@ function attemptOf(run: ReportWorkerRun, now: Date): ReportAttempt {
         ? (run.status === 'paused' ? 'Paused' : run.claimedAt ? 'Running' : 'Queued')
         : run.status === 'cancelled' ? 'Cancelled' : 'Failed';
   const why = String(run.error ?? '').replace(/^verification failed: /, '').split('\n')[0]!.trim();
+  const change = runChange(run);
   return {
     runId: run.id,
     outcome,
@@ -2763,6 +2798,8 @@ function attemptOf(run: ReportWorkerRun, now: Date): ReportAttempt {
     executed,
     ago: formatAge(now.getTime() - runAt(run).getTime()),
     why: why ? (why.length > 160 ? `${why.slice(0, 157).trimEnd()}…` : why) : null,
+    prUrl: change.prUrl,
+    checks: change.checks,
   };
 }
 
@@ -2839,6 +2876,7 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
   return {
     latest: lead ? attemptOf(lead, input.now) : null,
     earlier: Math.max(0, runs.length - (lead ? 1 : 0)),
+    attempts: newestFirst.map(r => attemptOf(r, input.now)),
     prUrl,
     merged,
     ladder,
