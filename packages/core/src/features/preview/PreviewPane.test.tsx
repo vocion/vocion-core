@@ -188,7 +188,7 @@ describe('a source that names one of our own records (Chris, 2026-09-29: "sideba
           sourceLabel: 'Sources',
           body: sourcesMarkdown([{
             document_id: 'object-42',
-            semantic_identifier: 'Squatch Core',
+            semantic_identifier: 'Northwind Renewal',
             link: '/dashboard/objects/tracker/42',
             source_type: 'tracker',
             blurb: 'active',
@@ -201,7 +201,7 @@ describe('a source that names one of our own records (Chris, 2026-09-29: "sideba
         // kind label and a status line.
         return {
           ref: { type: 'object', id: '42' },
-          title: 'Squatch Core',
+          title: 'Northwind Renewal',
           sourceLabel: 'Tracker',
           facts: [{ label: 'Status', value: 'active' }],
           body: 'Renewal call scheduled for next week — champion confirmed budget.',
@@ -220,7 +220,7 @@ describe('a source that names one of our own records (Chris, 2026-09-29: "sideba
     // The list: numbered as cited, the record's title, nothing more than its
     // title and status — a compact row, not an empty detail page.
     await expect.element(panel).toHaveTextContent('[1]');
-    await expect.element(panel).toHaveTextContent('Squatch Core');
+    await expect.element(panel).toHaveTextContent('Northwind Renewal');
     await expect.element(panel).toHaveTextContent('active');
 
     // Following the source swaps THIS pane for the record's own preview — no
@@ -228,7 +228,7 @@ describe('a source that names one of our own records (Chris, 2026-09-29: "sideba
     await page.getByTestId('preview-peek-link').click();
 
     await expect.element(panel).toHaveTextContent('Renewal call scheduled for next week');
-    await expect.element(page.getByRole('heading')).toHaveTextContent('Squatch Core');
+    await expect.element(page.getByRole('heading')).toHaveTextContent('Northwind Renewal');
     await expect.element(page.getByTestId('preview-detail-link')).toHaveAttribute('href', '/dashboard/objects/tracker/42');
     // The bespoke drawer's own "Open in tracker" affordance is gone — the
     // pane's one link-out (above) is the only way to the full record.

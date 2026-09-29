@@ -38,13 +38,13 @@ describe('a turn\'s sources open in the one preview pane (Chris, 2026-09-29)', (
 
   it('links a tracker/briefing/document source into the SAME pane, resolved by ref — never the raw link', () => {
     const md = sourcesMarkdown([
-      { document_id: 'object-42', semantic_identifier: 'Squatch Core', link: '/dashboard/objects/tracker/42', source_type: 'tracker', blurb: 'active', citationIndex: 1 },
+      { document_id: 'object-42', semantic_identifier: 'Northwind Renewal', link: '/dashboard/objects/tracker/42', source_type: 'tracker', blurb: 'active', citationIndex: 1 },
       { document_id: 'briefing:7', semantic_identifier: 'Monday briefing', link: '/dashboard/briefings/7', source_type: 'briefing', blurb: 'Kestrel renews Friday.', citationIndex: 2 },
       { document_id: '913', semantic_identifier: 'Kestrel kickoff notes', link: 'https://notes.example/k1', source_type: 'granola', blurb: 'Upload fix ships Friday.', citationIndex: 3 },
     ]);
 
     expect(md).toBe([
-      '[1] **[Squatch Core](?preview=object%3A42)**\n\n_tracker_\n\nactive',
+      '[1] **[Northwind Renewal](?preview=object%3A42)**\n\n_tracker_\n\nactive',
       '[2] **[Monday briefing](?preview=briefing%3A7)**\n\n_briefing_\n\nKestrel renews Friday.',
       '[3] **[Kestrel kickoff notes](?preview=document%3A913)**\n\n_granola_\n\nUpload fix ships Friday.',
     ].join('\n\n---\n\n'));
