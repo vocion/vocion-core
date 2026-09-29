@@ -326,6 +326,35 @@ export async function getAsk(orgId: string, id: number): Promise<Ask | null> {
 }
 
 /**
+ * The ask already filed under a sourceRef, whatever its status. A caller that
+ * dedupes on a sourceRef — an escalation is the one that must — reads this
+ * FIRST and only lets `upsertAsk` merge into what comes back when it is
+ * `open`; a decided, superseded or otherwise closed row is history, not a
+ * slot the next filing may silently rewrite (prod, 2026-09-29: ask #220).
+ * @param orgId
+ * @param sourceRef
+ */
+export async function getAskBySourceRef(orgId: string, sourceRef: string): Promise<Ask | null> {
+  const [row] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.sourceRef, sourceRef))).limit(1);
+  return row ?? null;
+}
+
+/**
+ * Put two asks in the same decision sheet after the fact — used when a new
+ * ask is filed as the follow-up to one already decided, so a person opening
+ * either one sees the other. A no-op past `groupKey` already set is never
+ * overwritten, so an ask a person grouped on purpose keeps its group.
+ * @param orgId
+ * @param id
+ * @param groupKey
+ */
+export async function linkAskGroup(orgId: string, id: number, groupKey: string): Promise<void> {
+  await db.update(askSchema)
+    .set({ groupKey, updatedAt: new Date() })
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id), isNull(askSchema.groupKey)));
+}
+
+/**
  * Every ask in one decision sheet, oldest first — open and decided alike, so
  * the sheet can show its receipt. Empty when the org has no such group.
  * @param orgId

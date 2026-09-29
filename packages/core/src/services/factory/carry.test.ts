@@ -13,7 +13,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, agentSchema, askSchema, automationSchema, businessObjectSchema, eventLogSchema, trustRuleSchema, workerRunSchema } = await import('@/models/Schema');
-const { createObjectType } = await import('@/services/BusinessObjectService');
+const { createObjectType, getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
 const carry = await import('./carry');
 const { createWorkerRun, claimWorkerRun, failWorkerRun } = await import('@/services/WorkerRunService');
@@ -381,5 +381,69 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
     await carry.sweepStuckRequests(ORG);
 
     expect(await runsFor(r.id)).toHaveLength(2);
+  });
+
+  it('stop → approve → new failure files a second, open ask — never reopening the first (prod, 2026-09-29: ask #220)', async () => {
+    const { r, ask } = await stoppedOnTheWorker('Open alerts');
+
+    // The worker is rebuilt: the first stop resolves itself and the build runs again.
+    const envType = (await getObjectTypeBySlug(ORG, 'environment')) ?? (await createObjectType({ slug: 'environment', label: 'Environment' }, ORG))[0];
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: envType!.id, title: 'Northwind factory worker (production)', metadata: { slug: 'northwind-worker-production', surface: 'worker', stage: 'production', lastDeployedAt: new Date(Date.now() + 1000).toISOString(), lastDeployedSha: '3c9e1a7b55d0e4f1a2b3c4d5e6f708192a3b4c5d' } });
+    await carry.sweepStuckRequests(ORG);
+
+    const [supersededAsk] = await db.select().from(askSchema).where(eq(askSchema.id, ask.id));
+
+    expect(supersededAsk!.status).toBe('superseded');
+
+    // The rebuilt attempt fails again a different way — a second stop, on the
+    // SAME sourceRef as the first (a worker rebuild is not a person's action,
+    // so `since` never moved).
+    const rebuilt = (await runsFor(r.id)).at(-1)!;
+    await claimWorkerRun({ orgId: ORG, id: rebuilt.id, workerId: 'w-2', workerVersion: 'img-after' });
+    await failWorkerRun({ orgId: ORG, id: rebuilt.id, workerId: 'w-2', error: 'verification failed: Claude produced no changes in the working tree (checks on the base: test=passed)' });
+
+    const escalated = await carry.recoverFailedRun(ORG, rebuilt.id);
+
+    expect(escalated.did).toBe('escalate');
+
+    const meta = (await read(r.id)).metadata as { recovery: { stage: string; askId: number | null } };
+
+    expect(meta.recovery.stage).toBe('stopped');
+    expect(meta.recovery.askId).not.toBeNull();
+    expect(meta.recovery.askId).not.toBe(ask.id);
+
+    const [secondAsk] = await db.select().from(askSchema).where(eq(askSchema.id, meta.recovery.askId!));
+
+    expect(secondAsk).toMatchObject({ status: 'open', kind: 'approval' });
+    expect(secondAsk!.sourceRef).toMatch(new RegExp(`^${ask.sourceRef}:follow-up-`));
+    expect(secondAsk!.body).toContain(`ask #${ask.id} on this request was already decided (superseded)`);
+
+    // The first ask is untouched — still superseded, never reopened — and the
+    // two are put in one group so a person opening either sees both.
+    const [firstAfter] = await db.select().from(askSchema).where(eq(askSchema.id, ask.id));
+
+    expect(firstAfter!.status).toBe('superseded');
+    expect(firstAfter!.groupKey).not.toBeNull();
+    expect(firstAfter!.groupKey).toBe(secondAsk!.groupKey);
+  });
+
+  it('an escalation that cannot file an open ask fails the run as an error, never a silent ok (never silent)', async () => {
+    const AskService = await import('@/services/AskService');
+    const real = AskService.upsertAsk;
+    const spy = vi.spyOn(AskService, 'upsertAsk').mockImplementationOnce(async (opts) => {
+      const out = await real(opts);
+      // A bug reintroducing the old dedupe, or any other future fault, must
+      // never look like success: simulate `upsertAsk` handing back an ask
+      // that is not open.
+      return { ...out, ask: { ...out.ask, status: 'rejected' } };
+    });
+
+    const r = await request({ product: 'rooms', title: 'A stop the ask service cannot file' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const runId = await failNewest(r.id, 'verification failed: Claude produced no changes in the working tree (checks on the base: test=passed)');
+
+    await expect(carry.recoverFailedRun(ORG, runId)).rejects.toThrow(/did not produce an open ask/);
+
+    spy.mockRestore();
   });
 });

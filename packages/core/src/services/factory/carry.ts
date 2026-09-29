@@ -241,6 +241,26 @@ function isOpen(request: FactoryRecord): boolean {
  * action, its failure and what would unblock it. Filed once per count (the
  * source ref carries when the count began), so a re-run of the sweep
  * refreshes the same ask instead of filing another.
+ *
+ * A DECIDED ASK NEVER ABSORBS A NEW STOP (prod, 2026-09-29, ask #220): #124
+ * stopped on the infrastructure, a person's approval of that ask never came —
+ * a worker rebuild resolved it instead (`resumeAfterWorkerRebuild`), which
+ * supersedes the ask but does not move `state.since` (a rebuild is not a
+ * person's action, so the attempt count must not reset). The rebuilt build
+ * then failed again, and this function's own sourceRef —
+ * `factory-recovery:<id>:<since>` — was unchanged, so `upsertAsk`'s sourceRef
+ * match found ask #220 again and refreshed that superseded row in place: no
+ * open ask, nobody told, and the request read "stopped" against a dead ask
+ * forever after (`recoverFailedRun` refuses to act again once `stage` is
+ * `stopped`). So: before filing, read what already sits at this sourceRef
+ * (`AskService.getAskBySourceRef`); a non-open row there is the last stop,
+ * not this one, so this stop gets its own ask, disambiguated in the
+ * sourceRef, and the two are put in one group
+ * (`linkAskGroup`) so a person opening either sees both. If, after all that,
+ * `upsertAsk` still hands back something that is not `open` — a bug in this
+ * reasoning, not a case it predicted — that is an error on this run, not a
+ * quiet return: an escalation that fails to put a question in front of a
+ * person must never look like it succeeded.
  * @param orgId - Tenant.
  * @param request - The request.
  * @param why - What stopped it.
@@ -248,10 +268,14 @@ function isOpen(request: FactoryRecord): boolean {
  * @param failure - The failure that stopped it, when a run failed: names what Approve does.
  */
 async function escalate(orgId: string, request: FactoryRecord, why: string, unblock: string, failure: Failure | null = null): Promise<string> {
-  const { upsertAsk } = await import('@/services/AskService');
+  const { getAskBySourceRef, linkAskGroup, upsertAsk } = await import('@/services/AskService');
   const state = readRecovery((await (await lib()).readRecord(orgId, request.id))?.meta ?? request.meta);
   const attempts = state.attempts.map(a => `${a.n}. ${a.kind === 'plan' ? 'Plan' : 'Build'}${a.runId ? ` (run #${a.runId})` : ''}: ${a.line}${a.failure ? ` — failed: ${a.failure.sentence}` : ''}`);
   const line = `${why.replace(/[.\s]+$/, '')}. What would unblock it: ${unblock}.`;
+  const baseSourceRef = `factory-recovery:${request.id}:${state.since ?? 'start'}`;
+  const prior = await getAskBySourceRef(orgId, baseSourceRef);
+  const priorDecided = prior && prior.status !== 'open' ? prior : null;
+  const now = new Date();
   const { ask } = await upsertAsk({
     orgId,
     createdBy: `agent:${PM}`,
@@ -259,13 +283,18 @@ async function escalate(orgId: string, request: FactoryRecord, why: string, unbl
       kind: 'approval',
       title: `Stopped: ${request.title}`.slice(0, 140),
       body: [
+        priorDecided ? `This is a new stop: ask #${priorDecided.id} on this request was already decided (${priorDecided.status}) and does not answer this one.` : null,
         line,
         attempts.length > 0 ? `**What the factory tried since a person last acted**\n${attempts.join('\n')}` : 'The factory made no attempt of its own since a person last acted.',
         failure && INFRASTRUCTURE_FAILURES.has(failure.class)
           ? 'Approve to build again on the worker image deployed now (a note says what to change); reject to leave it stopped. A rebuilt worker resolves this on its own.'
           : 'Approve to build again (a note says what to change); reject to leave it stopped.',
-      ].join('\n\n'),
-      sourceRef: `factory-recovery:${request.id}:${state.since ?? 'start'}`,
+      ].filter((p): p is string => p !== null).join('\n\n'),
+      // A sourceRef a decided ask still holds is not this stop's slot — it
+      // gets its own, disambiguated, so the unique (org, sourceRef) index
+      // never forces this filing onto that old row.
+      sourceRef: priorDecided ? `${baseSourceRef}:follow-up-${now.getTime()}` : baseSourceRef,
+      groupKey: priorDecided ? (priorDecided.groupKey ?? `factory-recovery:${request.id}`) : undefined,
       agentSlug: PM,
       teamSlug: 'software-factory',
       risk: 'medium',
@@ -276,7 +305,18 @@ async function escalate(orgId: string, request: FactoryRecord, why: string, unbl
       contextUrl: `/dashboard/p/feature/${request.id}`,
     },
   });
-  await updateRecovery(orgId, request.id, s => logLine({ ...s, stage: 'stopped', line, askId: ask.id }, `Stopped after ${s.attempts.length} attempt${s.attempts.length === 1 ? '' : 's'}: ${line} Ask #${ask.id} is with a person.`, new Date().toISOString()));
+  // NEVER SILENT: a stop that could not put a question in front of a person
+  // is not a stop that succeeded. `upsertAsk` should not be able to hand back
+  // anything but `open` here — the check above already routed around the one
+  // way it used to — but trusting that silently is exactly the bug this
+  // fixes, so it is asserted, and a violation fails this run as `error`.
+  if (ask.status !== 'open') {
+    throw new Error(`escalation for request #${request.id} did not produce an open ask (ask #${ask.id} is ${ask.status})`);
+  }
+  if (priorDecided) {
+    await linkAskGroup(orgId, priorDecided.id, priorDecided.groupKey ?? `factory-recovery:${request.id}`);
+  }
+  await updateRecovery(orgId, request.id, s => logLine({ ...s, stage: 'stopped', line, askId: ask.id }, `Stopped after ${s.attempts.length} attempt${s.attempts.length === 1 ? '' : 's'}: ${line} Ask #${ask.id} is with a person.`, now.toISOString()));
   return line;
 }
 
