@@ -3,14 +3,14 @@ slug: design-the-change
 name: Designing the change before it is decided
 description: >-
   How a request that changes what people see gets a visual a person decides
-  against — the change drawn on the real screen (`draw_mockup`), or one flow
-  diagram —
+  against — the outcome drawn as the product's own UI (`draw_mockup`), or one
+  flow diagram —
   and how the same request is closed with an after-shot from the running
   product. Covers when a visual is owed, what one screen means, where it is
   attached, and the one honest way out. Read whenever a request's `surface` is
   `ui` or `flow`, before its recommendation is filed, and again when it ships.
 playbooks: [designing-a-surface, house-voice]
-version: 2
+version: 3
 ---
 
 # Designing the change
@@ -37,22 +37,25 @@ is what satisfies it.
 
 ## The before
 
-**The outcome design on top of the real screen; no labels, no rules, no
-cards.**
+**Draw the outcome as the product's own UI blocks — the component, its
+states — no labels, no documents, a short note only where the picture cannot
+say it. Use the real screen as a reference when one exists.**
 
-1. `draw_mockup` with the request and no `mockups`: the tool picks the newest
-   real screenshot of the surface (the before, used as it is) and returns its
-   size and a pixel map. No screenshot → it refuses; say so in one line.
+1. `draw_mockup` with the request and no `mockups`: the product's look, the
+   canvas, and — when a capture of the surface exists — the real screen with
+   a pixel map.
 2. `draw_mockup` again with `mockups`: one image per state worth seeing — the
-   change at rest, and hover or a confirmation only when it helps. Each change
-   is the new UI as plain HTML over the region it lands on, in the screen's own
-   style. Nothing else on the image: no callout, anatomy table, rule box,
-   caption or arrow. Nothing the request did not ask for.
-3. The tool files the images on the request and writes
-   `visuals.beforeArtifactIds` (the screenshot) and `visuals.mockupArtifactIds`
-   (the states) as a new version; the feature page shows them. Never type
-   those ids yourself. Set `visuals.surfaceUrl` to the live page if it is
-   missing.
+   change at rest, and hover or a confirmation only when it helps. Each state
+   is `html`: the product's own cards, rows, chips and buttons at real size,
+   the changed element marked `data-hint="1"`. Where the picture cannot say
+   something ("copies the link, never opens the file"), one `data-note`, at
+   most three. Nothing else: no paragraphs, tables, rule boxes, headings about
+   the design. (`changes` over the real screenshot instead of `html`, when a
+   capture shows the exact spot.)
+3. The tool renders each as a PNG, files it on the request and writes
+   `visuals.mockupArtifactIds` (and `beforeArtifactIds` when it drew on a
+   screenshot) as a new version; the feature page shows them. Never type
+   those ids yourself.
 4. Say one line: what a person will see that they cannot today.
 
 **Drawing found a criterion wrong?** Change `acceptance` with `update_object`
@@ -78,8 +81,8 @@ open, and QA will read it as evidence it is not.
 
 ## What fails this skill
 
-- A mockup not drawn on a real screenshot of the surface.
-- Labels, callouts, rules or cards on a mockup.
+- A mockup that is a document: paragraphs, tables, rule boxes, headings about the design.
+- More than a few short notes, or notes that restate what the picture shows.
 - A mockup that adds a control, a page or a promise the request did not name.
 - An ask where an edit to the request would do.
 - A `ui` request decided with neither a before visual nor a `noVisualReason`.

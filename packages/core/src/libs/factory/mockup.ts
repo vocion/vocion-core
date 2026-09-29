@@ -1,29 +1,37 @@
 /**
- * A MOCKUP IS THE REAL SCREEN WITH ONLY THE CHANGE DRAWN IN.
+ * A MOCKUP IS THE PRODUCT'S OWN UI, DRAWN — NEVER A DOCUMENT ABOUT IT.
  *
  * Request #224, 2026-09-29 16:30Z ("copy-link button on each library row"):
- * asked "can you add mocks/images to this request?", the designer could not
- * read the app's source, so it wrote two annotated HTML documents from
- * memory — callouts, an anatomy table, rule boxes, a screen it invented — and
- * filed the AFTER under `beforeArtifactIds`. The feature page went on saying
- * "Preview pending". Chris: *"the drawn image looks like AI slop — it should
- * just be the outcome design, it shouldn't invent UX, it should be based off
- * the existing app. it shouldn't have so many labels and text."* Real
- * screenshots of that screen were already on the request's tasks.
+ * asked "can you add mocks/images to this request?", the designer wrote two
+ * annotated HTML documents — callouts, an anatomy table, rule boxes — and the
+ * feature page went on saying "Preview pending". Chris: *"the drawn image
+ * looks like AI slop — it should just be the outcome design… it shouldn't
+ * have so many labels and text"*, and then: *"we probably don't need actual
+ * screenshots for the mocks/drawings. I just want the mocks to be actual UI
+ * blocks/mocks… we actually had GREAT ones in other Features, I want it to
+ * look like that. with maybe a little of UX overlay or hints. Not a written
+ * doc, rastered."* The great ones (requests #124, #130 and their siblings,
+ * 2026-09-25) are the product's own cards, rows, chips and buttons at real
+ * size on a quiet 1440×900 canvas, rendered to an image.
  *
  * So a mockup has one shape, and this module is its contract (pure — the
- * tables are `services/factory/mockups.ts`):
+ * tables are `services/factory/mockups.ts`). Each image is one STATE, drawn
+ * one of two ways:
  *
- *   - the BASE is a real screenshot of the surface, chosen here and never by
- *     the model: the newest QA "before" shot on the request's tasks, else a
- *     before-shot filed on the request. A shot the worker marked as an error
- *     state is not the surface, so it is skipped and counted.
- *   - the BEFORE is that screenshot, as it is. No redraw.
- *   - each AFTER is the same pixels with the change laid over the region it
- *     lands on — a control, a row, a toast — as plain UI. The checks below
- *     refuse what made #224 slop: text that explains instead of being the UI
- *     (labels, notes, BEFORE/AFTER captions, arrows), a change bigger than a
- *     change, and anything that reaches outside the screen.
+ *   - as UI BLOCKS (`html`): the component itself — the row, the dialog, the
+ *     toast — in the product's look, centred on the canvas. No screenshot is
+ *     needed; a real screen, when there is one, is a reference for the look.
+ *   - as CHANGES over the real screen (`changes`): the newest capture of the
+ *     surface, chosen here and never by the model, with only the change laid
+ *     over the region it lands on. That capture is then the BEFORE.
+ *
+ * Either way the image is UI and nothing else. The checks below refuse what
+ * made #224 a document: captions and notes, arrows, paragraphs of prose,
+ * tables, headings that explain the design, annotation classes. The one
+ * overlay allowed is the platform's own: an element marked `data-hint="1"`
+ * gets a highlight ring and a small numbered badge, and `data-note="…"` one
+ * short line beside it (at most three) — a little UX exposition where the
+ * picture cannot say it, drawn by the tool, never a written doc.
  */
 
 import { shotParts } from '@/libs/workspace/criterionEvidence';
@@ -40,8 +48,23 @@ export type MockupChange = {
   css?: string;
 };
 
-/** One image: a state of the change (default, hover, copied). */
-export type MockupState = { state: string; changes: MockupChange[] };
+/**
+ * One image: a state of the change (default, hover, copied) — the product's
+ * UI blocks as `html`, or `changes` over the real screen. Exactly one.
+ */
+export type MockupState = { state: string; html?: string; css?: string; changes?: MockupChange[] };
+
+/** The product's look, as the canvas and every block are drawn in it. */
+export type MockupLook = { background: string; ink: string; accent: string; font: string; css?: string };
+
+/** The look when nothing says otherwise: quiet, neutral, legible on a phone. */
+export const DEFAULT_LOOK: MockupLook = { background: '#f1f5f9', ink: '#0f172a', accent: '#4f46e5', font: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif' };
+
+/** Canvas sizes: the desk the #124-era mockups were drawn at, and a phone. */
+export const CANVAS: Record<'desktop' | 'mobile', { width: number; height: number }> = {
+  desktop: { width: 1440, height: 900 },
+  mobile: { width: 430, height: 932 },
+};
 
 /** An artifact as the base picker reads it. */
 export type ShotCandidate = {
@@ -68,8 +91,22 @@ export const MOCKUP_LIMITS = {
   changesPerState: 4,
   htmlChars: 4_000,
   cssChars: 4_000,
-  /** Words a person reads on the change: a label, a toast — never a paragraph. */
+  /** Words a person reads on a change over a screen: a label, a toast — never a paragraph. */
   textChars: 80,
+  /** HTML for one state drawn as UI blocks. */
+  blockHtmlChars: 12_000,
+  /** The longest run of text a UI string is: a row title, a helper line. */
+  runChars: 110,
+  /** Every word on one image: a few rows and a dialog, not a page of prose. */
+  blockTextChars: 700,
+  /** Headings are the product's titles ("Send "Deck.pdf""), not design talk. */
+  headingChars: 60,
+  /** The platform's hint badges on one image. */
+  hints: 3,
+  /** Short UX notes on one image, drawn beside the element they are about. */
+  notes: 3,
+  /** A note is one line. */
+  noteWords: 15,
   /** Share of the screen one image may cover with new UI. */
   areaShare: 0.4,
 } as const;
@@ -133,9 +170,9 @@ export function pickBase(candidates: readonly ShotCandidate[], opts: { viewport?
   const usable = captures.filter(a => !showsAnError(a));
   if (usable.length === 0) {
     if (captures.length > 0) {
-      return { ok: false, reason: `No screenshot shows this surface: all ${captures.length} "before" capture${captures.length === 1 ? '' : 's'} on this request's tasks show an error state, so the QA flow's path is probably not the page the change lands on. Nothing was drawn. Fix the flow's path on the task, or have QA capture the page, then draw again.` };
+      return { ok: false, reason: `No screenshot shows this surface: all ${captures.length} "before" capture${captures.length === 1 ? '' : 's'} on this request's tasks show an error state (the QA flow's path is probably not the page the change lands on).` };
     }
-    return { ok: false, reason: 'No screenshot of this surface exists yet: nothing on this request or its tasks is a capture of the running product. Nothing was drawn — a mockup starts from the real screen, never from memory. Say so in one line; the first QA run captures it.' };
+    return { ok: false, reason: 'No screenshot of this surface exists: nothing on this request or its tasks is a capture of the running product.' };
   }
   const want = opts.viewport?.trim().toLowerCase() || 'desktop';
   const newest = (list: ShotCandidate[]) => [...list].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id)[0]!;
@@ -164,20 +201,124 @@ export function visibleText(html: string): string {
  * made of. A product's own words ("Expires after 7 days", "Add a note")
  * pass; a caption does not.
  */
-const ANNOTATION = /\b(?:mock-?ups?|annotations?|callouts?|placeholder|lorem ipsum)\b|(?:^|\s)(?:before|after|proposed|note|rule|todo)\s*[:—–]|[→←↑↓⟶⟵➜➔]/i;
+const ANNOTATION = /\b(?:mock-?ups?|annotations?|callouts?|placeholder|lorem ipsum|anatomy|rationale|design notes?|acceptance criteri(?:a|on))\b|(?:^|\s)(?:before|after|proposed|note|rule|todo|why|how it works)\s*[:—–]|[→←↑↓⟶⟵➜➔]/i;
+
+/** A heading that talks about the design instead of being the product's title. */
+const DESIGN_TALK = /\b(?:states?|placement|behaviou?r|interaction|layout|variants?|option [a-z0-9]|recommend(?:ed|ation)?|what changes|the change|this (?:screen|design|control))\b/i;
 
 /** Markup a plain UI fragment never needs. */
 const FORBIDDEN_MARKUP = /<\s*(?:script|iframe|object|embed|link|meta|base|form)\b|\bon[a-z]+\s*=|javascript:|@import|url\(\s*['"]?(?!data:)/i;
 
+/** The furniture of a written document: tables, captions, quotes, code. */
+const DOCUMENT_MARKUP = /<\s*(?:table|thead|tbody|tr|td|th|figcaption|caption|blockquote|pre|article|legend)\b/i;
+
+/** A class or id that names an annotation rather than a piece of UI. */
+const ANNOTATION_CLASS = /\b(?:class|id)\s*=\s*["'][^"']*\b(?:callouts?|annotations?|anatomy|notes?|legend|captions?|rules?|spec|redline|explainer|sticky)\b/i;
+
 /**
- * Why these states cannot be drawn as plain UI on this screen, or an empty
- * list. Every reason is one the model can act on.
+ * The runs of text a person would read, one per text node.
+ * @param html - The UI's HTML.
+ */
+export function textRuns(html: string): string[] {
+  return html
+    .replace(/<(style|script)\b[\s\S]*?<\/\1>/gi, '<>')
+    .split(/<[^>]*>/)
+    .map(t => t.replace(/&nbsp;/g, ' ').replace(/&[a-z]+;|&#\d+;/gi, 'x').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+/**
+ * Why this HTML is not plain UI, or nothing. The same rule for every image,
+ * drawn on a screenshot or not: UI text only — button labels, row titles, a
+ * toast's words — never a note, a table, a heading about the design, or prose.
+ * @param html - The UI's HTML.
+ * @param css - Its styles.
+ * @param where - Which state and change, for the message.
+ * @param limit - The most words the image may carry.
+ */
+function uiProblems(html: string, css: string, where: string, limit: number): string[] {
+  const out: string[] = [];
+  if (FORBIDDEN_MARKUP.test(html) || FORBIDDEN_MARKUP.test(css)) {
+    out.push(`${where}: plain HTML and CSS only — no scripts, handlers, embeds, links or outside URLs.`);
+  }
+  if (DOCUMENT_MARKUP.test(html)) {
+    out.push(`${where}: a table, caption, quote or code block is a document, not UI. Draw the product's own rows and cards.`);
+  }
+  if (ANNOTATION_CLASS.test(html)) {
+    out.push(`${where}: an element is classed as an annotation (callout, note, legend, rule…). Draw the UI only; mark the changed element with data-hint="1", and put a short note in data-note="…" — the platform draws both.`);
+  }
+  for (const m of html.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi)) {
+    const heading = visibleText(m[1] ?? '');
+    if (heading.length > MOCKUP_LIMITS.headingChars || DESIGN_TALK.test(heading) || ANNOTATION.test(heading)) {
+      out.push(`${where}: the heading "${heading.slice(0, 60)}" explains the design. A heading on a mockup is the product's own title, or nothing.`);
+    }
+  }
+  const runs = textRuns(html);
+  const long = runs.find(r => r.length > MOCKUP_LIMITS.runChars);
+  if (long) {
+    out.push(`${where}: "${long.slice(0, 50)}…" is a paragraph (${long.length} characters). UI text is a label, a row, a toast — at most ${MOCKUP_LIMITS.runChars} characters a line.`);
+  }
+  const total = runs.join(' ').length;
+  if (total > limit) {
+    out.push(`${where}: ${total} characters of text. The image is UI a person would see, not an explanation of it (at most ${limit}).`);
+  }
+  const hit = ANNOTATION.exec(runs.join(' \n '));
+  if (hit) {
+    out.push(`${where}: "${hit[0].trim()}" is a note about the design, not part of the product. Draw the UI only: no labels, captions, arrows or rules on the image.`);
+  }
+  const hints = [...html.matchAll(/\bdata-hint\s*=\s*["']?([^"'\s>]*)/gi)].map(h => h[1] ?? '');
+  if (hints.some(h => !/^[1-9]$/.test(h))) {
+    out.push(`${where}: data-hint takes one digit, 1–9 — the badge's number; a word of explanation goes in data-note.`);
+  }
+  if (hints.length > MOCKUP_LIMITS.hints) {
+    out.push(`${where}: ${hints.length} hints; at most ${MOCKUP_LIMITS.hints}. Mark only what changed.`);
+  }
+  out.push(...noteProblems(html, runs, where));
+  return out;
+}
+
+/**
+ * THE NOTES a mockup may carry: a little UX exposition where the picture
+ * cannot say it — "Copies the share link, never opens the file" — and no
+ * more. Chris, 2026-09-29: *"there can be some UX exposition where needed.
+ * just not a ton. minimal where it adds clarification and direction not
+ * evident in the mockup."* So a note is an attribute on the element it is
+ * about (`data-note`), drawn by the platform as one line beside a ring: at
+ * most three, fifteen words each, and never the words already on the screen.
+ * @param html - The UI's HTML.
+ * @param runs - Its visible text.
+ * @param where - Which state, for the message.
+ */
+function noteProblems(html: string, runs: readonly string[], where: string): string[] {
+  const out: string[] = [];
+  const notes = [...html.matchAll(/\bdata-note\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)].map(m => (m[1] ?? m[2] ?? '').replace(/\s+/g, ' ').trim());
+  if (notes.length > MOCKUP_LIMITS.notes) {
+    out.push(`${where}: ${notes.length} notes; at most ${MOCKUP_LIMITS.notes}. A note is for what the picture cannot show — the rest belongs on the request.`);
+  }
+  const screen = runs.map(r => r.toLowerCase());
+  for (const n of notes) {
+    const words = n.split(' ').filter(Boolean).length;
+    if (n === '' || words > MOCKUP_LIMITS.noteWords || n.length > MOCKUP_LIMITS.runChars) {
+      out.push(`${where}: the note "${n.slice(0, 50)}${n.length > 50 ? '…' : ''}" is ${n === '' ? 'empty' : `${words} words`}; a note is one line of at most ${MOCKUP_LIMITS.noteWords} words.`);
+      continue;
+    }
+    const said = n.toLowerCase().replace(/[.!]$/, '');
+    if (screen.some(r => r === said || (said.length >= 8 && r.includes(said)))) {
+      out.push(`${where}: the note "${n}" says what the screen already shows. Keep a note for what the picture cannot say, or leave it out.`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Why these states cannot be drawn as plain UI, or an empty list. Every
+ * reason is one the model can act on.
  * @param states - What the caller asked to draw.
- * @param size - The base screenshot, in pixels.
+ * @param size - The base screenshot, in pixels, when there is one.
  * @param size.width - Its width.
  * @param size.height - Its height.
  */
-export function mockupProblems(states: readonly MockupState[], size: { width: number; height: number }): string[] {
+export function mockupProblems(states: readonly MockupState[], size: { width: number; height: number } | null): string[] {
   const out: string[] = [];
   if (states.length === 0) {
     return ['Draw at least one state.'];
@@ -193,11 +334,28 @@ export function mockupProblems(states: readonly MockupState[], size: { width: nu
       out.push(`${at}: two images are named "${s.state}"; name each state once.`);
     }
     names.add(key);
-    if (s.changes.length === 0 || s.changes.length > MOCKUP_LIMITS.changesPerState) {
-      out.push(`${at}: 1 to ${MOCKUP_LIMITS.changesPerState} changes per image; this has ${s.changes.length}.`);
+    const changes = s.changes ?? [];
+    const html = s.html?.trim() ?? '';
+    if ((html === '') === (changes.length === 0)) {
+      out.push(`${at}: give the state either \`html\` (the product's UI blocks) or \`changes\` (over the real screen), not ${html === '' ? 'neither' : 'both'}.`);
+      continue;
+    }
+    if (html !== '') {
+      if (html.length > MOCKUP_LIMITS.blockHtmlChars || (s.css?.length ?? 0) > MOCKUP_LIMITS.cssChars * 2) {
+        out.push(`${at}: the UI is larger than a mockup (${MOCKUP_LIMITS.blockHtmlChars} characters of HTML at most). Draw the component and its neighbours, not the whole app.`);
+      }
+      out.push(...uiProblems(html, s.css ?? '', at, MOCKUP_LIMITS.blockTextChars));
+      continue;
+    }
+    if (!size) {
+      out.push(`${at}: there is no screenshot of this surface to lay changes over. Draw the state as the product's UI blocks in \`html\` instead.`);
+      continue;
+    }
+    if (changes.length > MOCKUP_LIMITS.changesPerState) {
+      out.push(`${at}: 1 to ${MOCKUP_LIMITS.changesPerState} changes per image; this has ${changes.length}.`);
     }
     let area = 0;
-    for (const [j, c] of s.changes.entries()) {
+    for (const [j, c] of changes.entries()) {
       const where = `${at}.changes[${j}]`;
       const r = c.region;
       if (r.x < 0 || r.y < 0 || r.width <= 0 || r.height <= 0 || r.x + r.width > size.width || r.y + r.height > size.height) {
@@ -207,23 +365,31 @@ export function mockupProblems(states: readonly MockupState[], size: { width: nu
       if (c.html.length > MOCKUP_LIMITS.htmlChars || (c.css?.length ?? 0) > MOCKUP_LIMITS.cssChars) {
         out.push(`${where}: the change is larger than a change (${MOCKUP_LIMITS.htmlChars} characters of HTML and of CSS at most).`);
       }
-      if (FORBIDDEN_MARKUP.test(c.html) || FORBIDDEN_MARKUP.test(c.css ?? '')) {
-        out.push(`${where}: plain HTML and CSS only — no scripts, handlers, embeds, links or outside URLs.`);
-      }
-      const text = visibleText(c.html);
-      if (text.length > MOCKUP_LIMITS.textChars) {
-        out.push(`${where}: ${text.length} characters of text. The change is UI a person would see — a button label, a toast — not an explanation of it (at most ${MOCKUP_LIMITS.textChars}).`);
-      }
-      const hit = ANNOTATION.exec(text);
-      if (hit) {
-        out.push(`${where}: "${hit[0]}" is a note about the design, not part of the product. Draw the UI only: no labels, captions, arrows or rules on the image.`);
-      }
+      out.push(...uiProblems(c.html, c.css ?? '', where, MOCKUP_LIMITS.textChars));
     }
     if (area > MOCKUP_LIMITS.areaShare * size.width * size.height) {
-      out.push(`${at}: the changes cover ${Math.round((100 * area) / (size.width * size.height))}% of the screen. Draw only what changes, where it lands (at most ${Math.round(MOCKUP_LIMITS.areaShare * 100)}%); the rest of the screen stays as it is.`);
+      out.push(`${at}: the changes cover ${Math.round((100 * area) / (size.width * size.height))}% of the screen. Draw only what changes, where it lands (at most ${Math.round(MOCKUP_LIMITS.areaShare * 100)}%), or draw the state as UI blocks in \`html\`.`);
     }
   }
   return out;
+}
+
+/**
+ * The one overlay a mockup carries, drawn by the platform: a ring round an
+ * element marked `data-hint`, and a small badge with its number.
+ * @param accent - The ring and badge colour.
+ * @param font - The badge's font.
+ */
+function hintCss(accent: string, font: string): string {
+  return `[data-hint],[data-note]{position:relative;outline:2px solid ${accent};outline-offset:4px}[data-hint]::after{content:attr(data-hint);position:absolute;top:-15px;right:-15px;width:22px;height:22px;border-radius:999px;background:${accent};color:#fff;font:700 12px/22px ${font};text-align:center;box-shadow:0 1px 3px rgba(15,23,42,.25);z-index:10}[data-note]::before{content:attr(data-note);position:absolute;top:calc(100% + 12px);left:0;width:max-content;max-width:280px;padding:5px 9px;border-radius:8px;background:#0f172a;color:#fff;font:500 12px/1.35 ${font};letter-spacing:0;text-transform:none;white-space:normal;box-shadow:0 4px 12px rgba(15,23,42,.18);z-index:10}`;
+}
+
+/**
+ * A CSS value from a look, with anything that could close the style block removed.
+ * @param v
+ */
+function token(v: string): string {
+  return v.replace(/[<>{};]/g, '').slice(0, 200);
 }
 
 /**
@@ -234,14 +400,33 @@ export function mockupProblems(states: readonly MockupState[], size: { width: nu
  * @param size.width - Width.
  * @param size.height - Height.
  * @param changes - What is laid over it.
+ * @param look - The product's look, for the hint colour.
  */
-export function mockupHtml(baseDataUri: string, size: { width: number; height: number }, changes: readonly MockupChange[]): string {
+export function mockupHtml(baseDataUri: string, size: { width: number; height: number }, changes: readonly MockupChange[], look: MockupLook = DEFAULT_LOOK): string {
   const layers = changes.map((c, i) => {
     const r = c.region;
-    return `<div class="vc-change vc-change-${i}" style="position:absolute;left:${r.x}px;top:${r.y}px;width:${r.width}px;height:${r.height}px;overflow:hidden">${c.html}</div>`;
+    return `<div class="vc-change vc-change-${i}" style="position:absolute;left:${r.x}px;top:${r.y}px;width:${r.width}px;height:${r.height}px;overflow:visible">${c.html}</div>`;
   }).join('');
   const css = changes.map(c => c.css ?? '').join('\n');
-  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}#vc-screen{position:relative;width:${size.width}px;height:${size.height}px;overflow:hidden}#vc-base{position:absolute;inset:0;width:${size.width}px;height:${size.height}px;display:block}.vc-change{box-sizing:border-box}${css}</style></head><body><div id="vc-screen"><img id="vc-base" src="${baseDataUri}" alt="">${layers}</div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}#vc-screen{position:relative;width:${size.width}px;height:${size.height}px;overflow:hidden}#vc-base{position:absolute;inset:0;width:${size.width}px;height:${size.height}px;display:block}.vc-change{box-sizing:border-box}${hintCss(token(look.accent), token(look.font))}${css}</style></head><body><div id="vc-screen"><img id="vc-base" src="${baseDataUri}" alt="">${layers}</div></body></html>`;
+}
+
+/**
+ * The page for a state drawn as UI blocks: the product's components centred
+ * on a quiet canvas the size of a desk or a phone, in the product's look.
+ * This is the shape of the #124-era mockups — a card, a dialog, a row of
+ * chips — and nothing else is on the canvas.
+ * @param state - The state's HTML and CSS.
+ * @param state.html - The UI blocks.
+ * @param state.css - Their styles.
+ * @param look - The product's look.
+ * @param viewport - Desk or phone.
+ */
+export function blocksHtml(state: { html: string; css?: string }, look: MockupLook = DEFAULT_LOOK, viewport: 'desktop' | 'mobile' = 'desktop'): string {
+  const { width, height } = CANVAS[viewport];
+  const font = token(look.font);
+  const pad = viewport === 'mobile' ? 20 : 48;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box;margin:0;padding:0}html,body{background:${token(look.background)}}#vc-screen{width:${width}px;height:${height}px;overflow:hidden;display:flex;flex-direction:${viewport === 'mobile' ? 'column' : 'row'};align-items:center;justify-content:center;gap:${viewport === 'mobile' ? 20 : 48}px;padding:${pad}px;background:${token(look.background)};color:${token(look.ink)};font-family:${font};font-size:14px;line-height:1.4}${hintCss(token(look.accent), font)}${look.css ?? ''}${state.css ?? ''}</style></head><body><div id="vc-screen">${state.html}</div></body></html>`;
 }
 
 /** The `visuals` keys only the mockup tool writes. */
@@ -290,26 +475,37 @@ export function guardVisuals(current: unknown, next: unknown): { ok: true; value
 }
 
 /**
- * The `visuals` the tool writes: the base screenshot as the before, this
- * call's images as the mockups, everything else as the record had it. A
- * blank or stale `noVisualReason` is dropped — there is a visual now.
+ * The `visuals` the tool writes: this call's images as the mockups, the
+ * screenshot as the before only when one was drawn on, everything else as
+ * the record had it. A blank or stale `noVisualReason` is dropped — there is
+ * a visual now. Without a screenshot, `beforeArtifactIds` keeps only ids that
+ * are captures of the product (`captureIds`): a document someone typed there
+ * is not the screen today.
  * @param current - The record's `visuals` now.
  * @param ids - What was drawn.
- * @param ids.beforeId - The base screenshot's artifact.
+ * @param ids.beforeId - The screenshot drawn on, or null.
  * @param ids.mockupIds - The drawn states, in order.
+ * @param ids.captureIds - Artifact ids known to be captures of the product.
  */
-export function mockupVisuals(current: unknown, ids: { beforeId: number; mockupIds: number[] }): Record<string, unknown> {
-  const { noVisualReason: _dropped, ...rest } = bag(current);
-  return { ...rest, beforeArtifactIds: [ids.beforeId], mockupArtifactIds: ids.mockupIds };
+export function mockupVisuals(current: unknown, ids: { beforeId: number | null; mockupIds: number[]; captureIds?: ReadonlySet<number> }): Record<string, unknown> {
+  const { noVisualReason: _dropped, beforeArtifactIds, ...rest } = bag(current);
+  const kept = ids.beforeId !== null
+    ? [ids.beforeId]
+    : (Array.isArray(beforeArtifactIds) ? beforeArtifactIds.map(Number) : []).filter(id => ids.captureIds?.has(id) === true);
+  return { ...rest, ...(kept.length > 0 ? { beforeArtifactIds: kept } : {}), mockupArtifactIds: ids.mockupIds };
 }
 
+/** The artifact role every drawn mockup is filed under, as #124's were. */
+export const MOCKUP_ROLE = 'mockup';
+
 /**
- * The artifact role one drawn state is filed under on the request, so
- * drawing "Copied" again is a new version of the same image rather than a
- * fifth picture of it.
- * @param state - The state's name.
+ * A drawn state's title: "Mockup: <request>" for one image, with the state
+ * after it when there are several — the name a redraw is matched on, so
+ * drawing "Link copied" again is a new version of the same artifact.
+ * @param requestTitle - The request.
+ * @param state - The state.
+ * @param count - How many states this call drew.
  */
-export function mockupRole(state: string): string {
-  const slug = state.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'default';
-  return `mockup:${slug}`;
+export function mockupTitle(requestTitle: string, state: string, count: number): string {
+  return count > 1 ? `Mockup: ${requestTitle} · ${state.trim()}` : `Mockup: ${requestTitle}`;
 }

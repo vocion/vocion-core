@@ -4,7 +4,7 @@
  */
 import type { MockupState, ShotCandidate } from './mockup';
 import { describe, expect, it } from 'vitest';
-import { guardVisuals, mockupHtml, mockupProblems, mockupRole, mockupVisuals, pickBase, showsAnError, visibleText } from './mockup';
+import { blocksHtml, guardVisuals, mockupHtml, mockupProblems, mockupTitle, mockupVisuals, pickBase, showsAnError, textRuns, visibleText } from './mockup';
 
 const PNG = '/api/artifacts/org_x-aaaa/org_x-aaaa.png';
 
@@ -48,11 +48,11 @@ describe('pickBase — the screen the mockup is drawn on', () => {
     expect(!none.ok && none.reason).toMatch(/all 2 "before" captures .* show an error state/);
   });
 
-  it('refuses to draw from memory when no capture exists', () => {
+  it('says plainly when no capture exists', () => {
     const none = pickBase([shot({ id: 4, kind: 'markdown', recordRole: 'qa-report', url: null })]);
 
     expect(none.ok).toBe(false);
-    expect(!none.ok && none.reason).toMatch(/No screenshot of this surface exists yet.*never from memory/);
+    expect(!none.ok && none.reason).toMatch(/No screenshot of this surface exists/);
   });
 
   it('accepts a before-shot filed on the request, and prefers the viewport asked for', () => {
@@ -128,7 +128,7 @@ describe('mockupProblems — a change, drawn as plain UI', () => {
 
 describe('mockupHtml — the screenshot and the change, nothing else', () => {
   it('lays each change at its region over the base, with no caption, frame or title', () => {
-    const html = mockupHtml('data:image/png;base64,AAAA', SIZE, state().changes);
+    const html = mockupHtml('data:image/png;base64,AAAA', SIZE, state().changes!);
 
     expect(html).toContain('left:900px;top:200px;width:120px;height:32px');
     expect(html).toContain('width:1280px;height:800px');
@@ -167,8 +167,74 @@ describe('the visuals ids are the tool\'s', () => {
     });
   });
 
-  it('files each state under its own role, so a redraw is a new version', () => {
-    expect(mockupRole('Link copied!')).toBe('mockup:link-copied');
-    expect(mockupRole('  ')).toBe('mockup:default');
+  it('without a screenshot it keeps only real captures on the before list, dropping a document typed there', () => {
+    const legacy = { beforeArtifactIds: [90, 91, 11] };
+
+    expect(mockupVisuals(legacy, { beforeId: null, mockupIds: [41], captureIds: new Set([11]) })).toEqual({ beforeArtifactIds: [11], mockupArtifactIds: [41] });
+    expect(mockupVisuals(legacy, { beforeId: null, mockupIds: [41] })).toEqual({ mockupArtifactIds: [41] });
+  });
+
+  it('titles each image the way the feature page\'s mockups read, "Mockup: <request>"', () => {
+    expect(mockupTitle('Open alerts', 'Default', 1)).toBe('Mockup: Open alerts');
+    expect(mockupTitle('Open alerts', 'Link copied ', 2)).toBe('Mockup: Open alerts · Link copied');
+  });
+});
+
+/** The #124-era shape: a card of rows with a chip and a button, the new control ringed. */
+const CARD = `<div class="card"><div class="row"><b>Q3 board deck.pdf</b></div><div class="muted">Sent to 4 people · 3 opened</div>
+<div class="row"><b>dana@kestrel.example</b><span class="chip">Opened 3×</span><span class="muted">last 10:42 today</span></div>
+<div class="row"><b>li@fabrikam.example</b><span class="chip">Not opened yet</span><button class="btn" data-hint="1">Nudge</button></div></div>`;
+
+function blocks(html: string, over: Partial<MockupState> = {}): MockupState {
+  return { state: 'Default', html, css: '.card{background:#fff;border-radius:14px;padding:28px}', ...over };
+}
+
+describe('mockupProblems — UI blocks, with no screenshot', () => {
+  it('passes the product\'s own card, rows and chips, with a ringed control and up to three short notes', () => {
+    const noted = CARD
+      .replace('data-hint="1"', 'data-hint="1" data-note="Resends the link with a short note"')
+      .replace('<span class="chip">Opened 3×</span>', '<span class="chip" data-hint="2" data-note="Counts every open, bots excluded">Opened 3×</span>')
+      .replace('<div class="muted">Sent to', '<div class="muted" data-hint="3" data-note="Updates within a minute, no reload">Sent to');
+
+    expect(mockupProblems([blocks(CARD)], null)).toEqual([]);
+    expect(mockupProblems([blocks(noted)], null)).toEqual([]);
+  });
+
+  it('refuses a written doc: a paragraph, a table, a heading about the design, an annotation class, a rule box', () => {
+    const cases: Array<[string, RegExp]> = [
+      [`${CARD}<p>Every recipient row carries a nudge control which resends the original share link to that person, and the sender sees when it went.</p>`, /is a paragraph/],
+      [`<table><tr><td>State</td><td>Copy</td></tr></table>`, /a table, caption, quote or code block is a document/],
+      [`<h2>Four states, and the words in each</h2>${CARD}`, /explains the design/],
+      [`${CARD}<div class="callout">Sits beside the link</div>`, /classed as an annotation/],
+      [`${CARD}<div class="rule-box">Never opens the file</div>`, /classed as an annotation/],
+      [`${CARD}<span>AFTER: the nudge</span>`, /note about the design/],
+    ];
+    for (const [html, why] of cases) {
+      expect(mockupProblems([blocks(html)], null).join(' ')).toMatch(why);
+    }
+  });
+
+  it('refuses more than a few notes, a long note, and a note that restates the screen', () => {
+    const many = Array.from({ length: 6 }, (_, i) => `<span class="chip" data-hint="${(i % 3) + 1}" data-note="Hint number ${i}">Chip ${i}</span>`).join('');
+
+    expect(mockupProblems([blocks(many)], null).join(' ')).toMatch(/6 notes; at most 3/);
+    expect(mockupProblems([blocks(CARD.replace('data-hint="1"', 'data-note="This button resends the original share link to the one person who has not yet opened it today"'))], null).join(' ')).toMatch(/is \d+ words; a note is one line of at most 15 words/);
+    expect(mockupProblems([blocks(CARD.replace('data-hint="1"', 'data-note="Not opened yet"'))], null).join(' ')).toMatch(/says what the screen already shows/);
+    expect(mockupProblems([blocks(CARD.replace('data-hint="1"', 'data-hint="new"'))], null).join(' ')).toMatch(/data-hint takes one digit/);
+  });
+
+  it('needs html or changes, and changes need a screenshot', () => {
+    expect(mockupProblems([{ state: 'Default' }], null).join(' ')).toMatch(/either `html`.*not neither/);
+    expect(mockupProblems([state()], null).join(' ')).toMatch(/no screenshot of this surface to lay changes over/);
+  });
+
+  it('draws the blocks centred on a quiet canvas the size of a desk, in the product\'s look, with the platform\'s hint', () => {
+    const html = blocksHtml({ html: CARD }, { background: '#f1f5f9', ink: '#0f172a', accent: '#4f46e5', font: 'Inter, sans-serif' });
+
+    expect(html).toContain('width:1440px;height:900px');
+    expect(html).toContain('background:#f1f5f9');
+    expect(html).toContain('[data-hint]::after{content:attr(data-hint)');
+    expect(textRuns(html)).toEqual(textRuns(CARD));
+    expect(blocksHtml({ html: CARD }, undefined, 'mobile')).toContain('width:430px;height:932px');
   });
 });

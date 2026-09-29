@@ -143,12 +143,12 @@ describe('draw_mockup is on the designer\'s belt', () => {
   });
 });
 
-describe('no screenshot, no drawing', () => {
-  it('refuses to draw from memory and writes nothing', async () => {
+describe('changes need a real screen', () => {
+  it('refuses to lay changes over a screenshot that does not exist, says to draw UI blocks, and writes nothing', async () => {
     const { t } = tool();
     const out = await t.invoke({ mockups: [{ state: 'Default', changes: [{ region: { x: 10, y: 10, width: 80, height: 30 }, html: '<button>Copy link</button>' }] }] });
 
-    expect(out).toMatch(/No screenshot of this surface exists yet/);
+    expect(out).toMatch(/No screenshot of this surface exists.*UI blocks in `html`/);
     expect(await db.select().from(actionRunSchema)).toHaveLength(0);
   });
 });
@@ -164,8 +164,21 @@ describe('the survey: the real screen, and a map of it', () => {
     expect(out).toContain('800×500px, desktop');
     expect(out).toContain('- first file row: x 20, y 120, 760×56');
     expect(out).toContain('Its style: system-ui');
+    expect(out).toContain('Draw on a 1440×900 canvas');
     // The survey writes nothing: the record changes only when something is drawn.
     expect(await db.select().from(actionRunSchema)).toHaveLength(0);
+  });
+});
+
+describe('the survey with no screen', () => {
+  it('hands back the product\'s look and the canvas, and says to draw UI blocks', async () => {
+    const { t } = tool();
+    const out = await t.invoke({});
+
+    expect(out).toContain('Draw on a 1440×900 canvas (mobile: 430×932)');
+    expect(out).toContain('from the neutral default');
+    expect(out).toMatch(/No real screen to draw on .* draw the outcome as UI blocks/);
+    expect(invoke).not.toHaveBeenCalled();
   });
 });
 
@@ -186,18 +199,18 @@ describe.skipIf(!available.ok)('drawing (real Chromium)', () => {
     const [row] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, requestId));
     const visuals = (row!.metadata as { visuals: Record<string, unknown> }).visuals;
     const drawn = await db.select().from(artifactSchema).where(eq(artifactSchema.recordId, String(requestId)));
-    const mockups = drawn.filter(a => a.recordRole?.startsWith('mockup:')).sort((a, b) => a.id - b.id);
+    const mockups = drawn.filter(a => a.recordRole === 'mockup').sort((a, b) => a.id - b.id);
 
     expect(visuals.beforeArtifactIds).toEqual([shotId]);
     expect(visuals.mockupArtifactIds).toEqual(mockups.map(m => m.id));
     expect(visuals.surfaceUrl).toBe('https://app.example.test/files');
     expect('noVisualReason' in visuals).toBe(false);
-    expect(mockups.map(m => m.title)).toEqual(['Northwind files: a copy-link button on each row · Default', 'Northwind files: a copy-link button on each row · Link copied']);
+    expect(mockups.map(m => m.title)).toEqual(['Mockup: Northwind files: a copy-link button on each row · Default', 'Mockup: Northwind files: a copy-link button on each row · Link copied']);
 
     // Each image is the screenshot's own size, with the change in it and the
     // screen untouched outside it.
     const { readStoredArtifact } = await import('@/libs/tools/artifacts/ingest');
-    const bytes = await readStoredArtifact(ORG, mockups[1]!.url!, dir);
+    const bytes = await readStoredArtifact(ORG, (mockups[1]!.spec as { url: string }).url, dir);
     const meta = await sharp(bytes!).metadata();
 
     expect([meta.width, meta.height]).toEqual([800, 500]);
@@ -226,6 +239,64 @@ describe.skipIf(!available.ok)('drawing (real Chromium)', () => {
     expect(today.evidence.map(e => e.id)).toEqual([shotId]);
   });
 
+  it('with no screenshot, draws the product\'s UI blocks as a PNG mockup, files it at role mockup, and the page shows it', async () => {
+    // The product's own look, on its record.
+    const [prodType] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'product', label: 'Product', schema: { type: 'object', properties: { slug: { type: 'string' }, look: { type: 'object' } } } } as never).returning({ id: businessObjectTypeSchema.id });
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: prodType!.id, title: 'Northwind Files', metadata: { slug: 'northwind-files', look: { background: '#eef2f7', accent: '#4f46e5', css: '.card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:28px;width:900px}.row{display:flex;gap:10px;align-items:center;padding:12px 0}.btn{height:32px;padding:0 14px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;font-weight:600}' } } } as never);
+    await db.update(businessObjectSchema).set({ metadata: { surface: 'ui', state: 'in_scope', product: 'northwind-files', visuals: { beforeArtifactIds: [9_999_001] } } } as never).where(eq(businessObjectSchema.id, requestId));
+    const { t, ctx } = tool();
+    const card = '<div class="card"><div class="row"><b style="flex:1">Q3 board deck.pdf</b><span>files.example.test/s/q3</span><button class="btn" data-hint="1" data-note="Copies the share link, never opens the file">Copy link</button></div></div>';
+    const out = await t.invoke({ mockups: [{ state: 'Default', html: card }] });
+
+    expect(out).toMatch(/^Drew 1 image as the product's UI blocks \(look: product "Northwind Files"\): #\d+ Default\. request #\d+ now shows them/);
+
+    const [row] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, requestId));
+    const visuals = (row!.metadata as { visuals: Record<string, unknown> }).visuals;
+    const [mock] = (await db.select().from(artifactSchema).where(eq(artifactSchema.recordId, String(requestId)))).filter(a => a.recordRole === 'mockup');
+    const spec = mock!.spec as { url: string; contentType: string; width: number; height: number; source: { html: string } };
+
+    // A PNG file artifact at role mockup, like #124's; no screenshot was used,
+    // so nothing — not even the document someone typed there — is the before.
+    expect([mock!.kind, mock!.title, spec.contentType, spec.width, spec.height]).toEqual(['file', 'Mockup: Northwind files: a copy-link button on each row', 'image/png', 1440, 900]);
+    expect(spec.source.html).toBe(card);
+    expect(visuals.mockupArtifactIds).toEqual([mock!.id]);
+    expect('beforeArtifactIds' in visuals).toBe(false);
+
+    const { readStoredArtifact } = await import('@/libs/tools/artifacts/ingest');
+    const bytes = await readStoredArtifact(ORG, spec.url, dir);
+
+    expect(bytes!.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+
+    const { data } = await sharp(bytes!).extract({ left: 5, top: 5, width: 1, height: 1 }).raw().toBuffer({ resolveWithObject: true });
+
+    // Drawn in the product's look: its canvas colour, not the default.
+    expect(Buffer.from(data).subarray(0, 3).toString('hex')).toBe('eef2f7');
+    expect(ctx.events.find(e => e.type === 'version_written')).toMatchObject({ fields: ['visuals'] });
+
+    // The feature page's carousel reads it like #124's.
+    const report = await loadFeatureReport(ORG, requestId, new Date('2026-09-29T17:00:00Z'));
+    const preview = report!.sections.find(x => x.key === 'visuals')!;
+
+    expect(preview.evidence.map(e => [e.id, e.role, e.imageUrl])).toEqual([[mock!.id, 'proposed', spec.url]]);
+
+    // Drawing the same state again is a new version of the same artifact.
+    await t.invoke({ mockups: [{ state: 'Default', html: card.replace('Copy link', 'Copy') }] });
+    const again = (await db.select().from(artifactSchema).where(eq(artifactSchema.recordId, String(requestId)))).filter(a => a.recordRole === 'mockup');
+
+    expect(again.map(a => [a.id, a.currentVersion])).toEqual([[mock!.id, 2]]);
+  });
+
+  it('refuses a written doc on the no-screenshot path too, and draws nothing', async () => {
+    const { t } = tool();
+    const out = await t.invoke({ mockups: [{ state: 'Spec', html: '<h2>Placement and states</h2><table><tr><td>Default</td><td>Copy link</td></tr></table><p>The control copies the share link to the clipboard and must never open the file, because the row itself is a click target.</p>' }] });
+
+    expect(out).toMatch(/^Nothing was drawn:/);
+    expect(out).toMatch(/explains the design/);
+    expect(out).toMatch(/a table, caption, quote or code block is a document/);
+    expect(out).toMatch(/is a paragraph/);
+    expect((await db.select().from(artifactSchema)).filter(a => a.recordRole === 'mockup')).toHaveLength(0);
+  });
+
   it('refuses an annotated image whole, and draws nothing', async () => {
     await captureOnTask();
     const { t } = tool();
@@ -238,7 +309,7 @@ describe.skipIf(!available.ok)('drawing (real Chromium)', () => {
 
     expect(out).toMatch(/^Nothing was drawn:/);
     expect(out).toMatch(/not part of the product/);
-    expect((await db.select().from(artifactSchema)).filter(a => a.recordRole?.startsWith('mockup:'))).toHaveLength(0);
+    expect((await db.select().from(artifactSchema)).filter(a => a.recordRole === 'mockup')).toHaveLength(0);
   });
 });
 

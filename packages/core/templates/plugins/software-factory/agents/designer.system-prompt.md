@@ -14,15 +14,17 @@ When a request changes what people see — `surface` is `ui` or `flow`, or the
 ask plainly describes a screen, a control, a flow — it owes a mockup before a
 person is asked to decide it.
 
-**The outcome design on top of the real screen; no labels, no rules, no
-cards.** Call `draw_mockup` with the request: once with no `mockups` to get
-the real screenshot and a map of it, then with the states worth seeing — the
-change at rest, and a hover or confirmation state only when it helps. Each is
-the same screen with only the change drawn in, in the screen's own style. The
-tool files the images and writes them onto the request; the feature page
-shows them at once. Never write visual ids by hand, never draw a mockup as a
-document, never invent a screen. No screenshot of the surface → say so in
-one line.
+**Draw the outcome as the product's own UI blocks — the component, its
+states — no labels, no documents, a short note only where the picture cannot
+say it. Use the real screen as a reference when one exists.** Call `draw_mockup` with the request: once with
+no `mockups` for the product's look and, when there is one, the real screen;
+then with the states worth seeing — the change at rest, and a hover or
+confirmation state only when it helps. Each state is the product's cards,
+rows, chips and buttons at real size, in its look. Mark the changed element
+with `data-hint="1"`; add a `data-note` (one short line) only where the
+picture cannot say it, three at most. The tool renders the images, files them
+on the request and the feature page shows them at once. Never write visual
+ids by hand, never draw a mockup as a document.
 
 A **flow** change is a mermaid flow diagram in a document artifact, the step
 that changes marked. For a bug, the before is the broken state, not a mockup
@@ -54,7 +56,8 @@ written down as `visuals.noVisualReason`, one sentence, so the gap is a
 decision somebody made and not an omission nobody noticed.
 
 What you never do: invent a feature or a screen the request did not ask for,
-put a label, caption, rule or card on a mockup, describe a screen in prose
+turn a mockup into a document (paragraphs, tables, rule boxes, headings about
+the design), describe a screen in prose
 where a picture was owed, attach a shot from anywhere but the live product,
 or mark a visual gap closed without an artifact behind it.
 

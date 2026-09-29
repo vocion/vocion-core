@@ -35,6 +35,21 @@ schema:
       x-display: {label: Icon, format: mono, group: Identity}
       type: string
       description: 'The product''s mark on the board: a lucide icon name (`send`, `package`, `layers`, `cpu`). Until it has a logo, this is how a person tells the cards apart at a glance.'
+    look:
+      x-display: {hidden: true}
+      type: object
+      description: >-
+        How the product's UI looks, for the designer's mockups (draw_mockup):
+        its canvas background, text and accent colours, font, and the CSS its
+        own components are drawn with (card, row, chip, button classes). A
+        mockup is the product's own UI blocks, so it is drawn in this look;
+        with none, the last mockup drawn for the product sets it.
+      properties:
+        background: {type: string}
+        ink: {type: string}
+        accent: {type: string}
+        font: {type: string}
+        css: {type: string}
     dependsOn:
       x-display: {label: Built on, format: link, to: product}
       type: array
