@@ -1786,13 +1786,17 @@ function isObjectTypeEqual(a: typeof businessObjectTypeSchema.$inferSelect, b: R
   });
 }
 
-function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unknown>): boolean {
+export function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unknown>): boolean {
   const fields = [
     'name',
     'description',
     'systemPrompt',
     'model',
     'temperature',
+    // How it talks (`libs/agents/voice.ts`): left out, a voice added or
+    // changed in YAML read as "unchanged" and never reached the row (core
+    // #918 on squatch-factory, 2026-09-29).
+    'voice',
     'skillSlugs',
     'connectorSources',
     'objectTypeSlugs',
