@@ -48,6 +48,8 @@ export const FOLLOW_TONE: Record<FollowState, { tone: DotTone; word: string }> =
   failed: { tone: 'fail', word: 'failed' },
 };
 
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 /** Refs the preview pane can open; anything else opens its page. */
 const PREVIEWABLE = new Set(['worker_run', 'object', 'artifact', 'mission_run']);
 
@@ -105,7 +107,7 @@ export function ArtifactChips({ artifacts, follow = [], onOpen }: {
         const body = (
           <>
             <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="min-w-0 truncate">{f.label.charAt(0).toUpperCase() + f.label.slice(1)}</span>
+            <span className="min-w-0 truncate">{capital(status?.name ?? f.label)}</span>
             {shown && (
               <StatusDot tone={shown.tone} label={<span className="text-[11px] font-normal text-muted-foreground">{status!.label === status!.state ? shown.word : status!.label}</span>} className="shrink-0" />
             )}
@@ -123,7 +125,7 @@ export function ArtifactChips({ artifacts, follow = [], onOpen }: {
                     )
                   : <Link href={f.href} className={CHIP}>{body}</Link>}
               </TooltipTrigger>
-              <TooltipContent>{shown ? `${f.label} · ${status!.label}` : f.label}</TooltipContent>
+              <TooltipContent>{shown ? `${capital(status!.name ?? f.label)} · ${status!.label}` : capital(f.label)}</TooltipContent>
             </Tooltip>
           </li>
         );

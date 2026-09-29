@@ -88,6 +88,22 @@ export type RunHeader = {
   failures: Array<{ scope: string; message: string }>;
   /** What the factory did about this run when it stopped — "Recovered: …" or "Stopped after 3 attempts: …" (backlog 038). */
   recovery?: string | null;
+  /** Where the run belongs: its feature, plan, attempt and acceptance (`RunContext`). */
+  context?: RunContext | null;
+};
+
+/**
+ * WHERE A RUN BELONGS (Chris, 2026-09-29: "When I'm on the active run I
+ * should have context of the implementation/plan/history"): the feature it
+ * builds, the plan it follows, which attempt it is with the others one move
+ * away, and what it must prove. Each part is null when the run's records do
+ * not say it.
+ */
+export type RunContext = {
+  feature: { id: number; title: string; href: string } | null;
+  plan: { id: number; title: string; href: string } | null;
+  attempt: { n: number; of: number; others: Array<{ runId: number; status: string; href: string }> } | null;
+  acceptance: { count: number; href: string } | null;
 };
 
 /** Everything the run page draws, and what a poll returns. */

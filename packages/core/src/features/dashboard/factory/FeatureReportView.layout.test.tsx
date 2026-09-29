@@ -234,7 +234,7 @@ describe('the action follows the state', () => {
     await expect.element(page.getByTestId('feature-dismiss')).toBeInTheDocument();
   });
 
-  it('never draws Build over a live run, and says View progress', async () => {
+  it('never draws Build over a live run: the current state names the run as a row that opens it (Chris, 2026-09-29)', async () => {
     await page.viewport(1440, 900);
     await draw(proposal({
       tasks: [{ id: 77, title: 'Room PDF export', status: 'running', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41 } }],
@@ -242,7 +242,18 @@ describe('the action follows the state', () => {
     }));
 
     expect(document.querySelector('[data-testid="feature-build"]')).toBeNull();
-    expect(document.querySelector('[data-testid="report-primary-action"]')!.textContent).toBe('View progress');
+    // The row is the move: no second "View progress" button beside it.
+    expect(document.querySelector('[data-testid="report-primary-action"]')).toBeNull();
+
+    const row = page.getByTestId('report-active-run-row');
+
+    await expect.element(row).toHaveTextContent('Running');
+    await expect.element(row).toHaveTextContent('Run #503');
+    await expect.element(row).toHaveTextContent('attempt 1 of 1');
+    expect(row.element().getAttribute('data-preview-key')).toBe('worker_run:503');
+    await expect.element(page.getByTestId('report-status')).toHaveTextContent('Current state');
+    // The Implementation lists the live run as a row too.
+    expect(document.querySelector('[data-testid="report-runs"] [data-run-row="503"][data-live="true"]')).not.toBeNull();
   });
 
   it('offers Build again, never Dismiss, once an attempt has run', async () => {

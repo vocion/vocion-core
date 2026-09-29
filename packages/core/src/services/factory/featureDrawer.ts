@@ -208,9 +208,13 @@ function checksLine(checks: ReportCheck[]): string {
  * checks and why it stopped.
  * @param a - The attempt.
  * @param n - Its number, oldest = 1.
+ * @param of
  */
-function attemptMd(a: ReportAttempt, n: number): string {
-  const head = `**[Attempt ${n} · ${a.outcome}](${runPage(a.runId)})** · ${formatStamp(a.at)}${a.cents !== null ? ` · ${money(a.cents)}` : ''}`;
+function attemptMd(a: ReportAttempt, of: number): string {
+  // A run as a row, opening in the pane: its status, its number, which
+  // attempt it was (Chris, 2026-09-29: "the summary should indicate active
+  // runs as rows").
+  const head = `**[Run #${a.runId} · ${a.outcome}](${peek('worker_run', a.runId)})** · attempt ${a.n} of ${Math.max(of, a.n)} · ${formatStamp(a.at)}${a.cents !== null ? ` · ${money(a.cents)}` : ''}`;
   const lines = [
     a.prUrl ? `- Pull request: [${prName(a.prUrl)}](${a.prUrl})` : null,
     a.executed ? `- Checks: ${checksLine(a.checks)}` : null,
@@ -277,7 +281,9 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
     case 'implementation': {
       const impl = report.implementation;
       const n = impl.attempts.length;
-      const attempts = impl.attempts.map((a, i) => attemptMd(a, n - i)).join('\n\n');
+      const attempts = impl.attempts.map(a => attemptMd(a, n)).join('\n\n');
+      // What is running now leads, one row each, before the history.
+      const running = impl.attempts.filter(a => a.live).map(a => `- [Run #${a.runId} · ${a.outcome}](${peek('worker_run', a.runId)}) · attempt ${a.n} of ${n} · started ${a.ago}`).join('\n');
       const latest = impl.latest ? runPage(impl.latest.runId) : null;
       // The five delivery facts, each a link to what it rests on.
       const evidence: Record<string, string | null> = {
@@ -298,7 +304,8 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
         title: 'Implementation',
         subtitle: n === 0 ? impl.absence ?? undefined : `${n} attempt${n === 1 ? '' : 's'} · ${impl.costLine}`,
         body: [
-          attempts ? `## Attempts, newest first\n\n${attempts}` : '',
+          running ? `## Running now\n\n${running}` : '',
+          attempts ? `## Runs, newest first\n\n${attempts}` : '',
           `## Where it stands\n\n${ladder}`,
           files,
         ].filter(Boolean).join('\n\n'),
@@ -315,7 +322,7 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
       const verdict = report.state.key === 'changes' ? `## What QA asked for\n\n${report.state.detail}` : '';
       return {
         title: 'Acceptance',
-        subtitle: a.total === 0 ? 'Nothing says what done means for this work yet.' : `${a.verified} of ${a.total} verified${a.risksLine ? ` · ${a.risksLine}` : ''}${a.source === 'task' ? ' · criteria from the engineering task' : ''}${a.frozenAt === null && a.source === 'request' ? ' · still a draft' : ''}`,
+        subtitle: a.total === 0 ? 'Nothing says what done means for this work yet.' : `${a.verified} of ${a.total} verified${a.risksLine ? ` · ${a.risksLine}` : ''}${a.source === 'task' ? ' · criteria from the task' : ''}${a.frozenAt === null && a.source === 'request' ? ' · still a draft' : ''}`,
         body: [
           verdict,
           attempt,
@@ -349,7 +356,7 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
       };
     case 'work': {
       const items = report.activity ?? [];
-      const word = { conversation: 'Conversation', mission_run: 'Agent run', worker_run: 'Engineering run' } as const;
+      const word = { conversation: 'Conversation', mission_run: 'Agent run', worker_run: 'Run' } as const;
       const conversations = items.filter(i => i.kind === 'conversation').length;
       const runs = items.length - conversations;
       const count = [
@@ -379,7 +386,7 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
           sectionMd(section('money'), { heading: false, omit: ['Spent'] }),
           report.notices.filter(nt => nt.key === 'cost-disagree').map(nt => `> ${nt.evidence}`).join('\n\n'),
           n > 0
-            ? `## By attempt\n\n${impl.attempts.map((a, i) => `- [Attempt ${n - i} · ${a.outcome}](${runPage(a.runId)}): ${a.cents === null ? 'no charge recorded' : money(a.cents)}`).join('\n')}`
+            ? `## By run\n\n${impl.attempts.map(a => `- [Run #${a.runId} · ${a.outcome}](${runPage(a.runId)}): ${a.cents === null ? 'no charge recorded' : money(a.cents)}`).join('\n')}`
             : '',
         ].filter(Boolean).join('\n\n'),
       };

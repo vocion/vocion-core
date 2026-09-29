@@ -15,7 +15,12 @@ import { askSchema, businessObjectSchema, businessObjectTypeSchema, missionRunSc
 
 export type FollowState = 'queued' | 'running' | 'done' | 'failed' | 'waiting';
 export type FollowRef = { type: 'worker_run' | 'object' | 'ask' | 'artifact' | 'mission_run'; id: string };
-export type FollowStatus = { state: FollowState; label: string };
+export type FollowStatus = {
+  state: FollowState;
+  label: string;
+  /** The thing's name as this workspace says it — "feature #201", "task #243" — when the client could not know it. */
+  name?: string;
+};
 
 const FAILED = new Set(['failed', 'cancelled', 'lost', 'refused', 'rejected', 'error', 'stopped', 'expired']);
 const DONE = new Set(['completed', 'done', 'succeeded', 'success', 'approved', 'accepted', 'merged', 'released', 'shipped', 'closed', 'superseded']);
@@ -81,8 +86,13 @@ export async function followStatuses(orgId: string, refs: FollowRef[]): Promise<
       .from(businessObjectSchema)
       .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
       .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, objectIds)));
+    const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
+    const link = await recordLinkerForOrg(orgId);
     for (const r of rows) {
       const meta = (r.meta ?? {}) as Record<string, unknown>;
+      // One name per thing: the workspace's page names it, else its type.
+      const page = /\/p\/([^/]+)\/[^/]+$/.exec(link({ objectType: r.type, id: r.id }))?.[1];
+      const name = `${(page ?? (r.type === 'engineering_task' ? 'task' : r.type === 'architecture_plan' ? 'plan' : r.type)).replace(/[-_]+/g, ' ')} #${r.id}`;
       if (r.type === 'request') {
         // A request follows its latest engineering run while it has one.
         const [run] = await db
@@ -93,12 +103,12 @@ export async function followStatuses(orgId: string, refs: FollowRef[]): Promise<
           .limit(1);
         const word = typeof meta.state === 'string' ? meta.state : r.status;
         out[key({ type: 'object', id: String(r.id) })] = run && followStateOf(run.status) !== 'done'
-          ? { state: followStateOf(run.status), label: `${run.status} · run #${run.id}` }
-          : { state: followStateOf(word), label: word ?? 'open' };
+          ? { state: followStateOf(run.status), label: `${run.status} · run #${run.id}`, name }
+          : { state: followStateOf(word), label: word ?? 'open', name };
         continue;
       }
       const word = typeof meta.status === 'string' ? meta.status : r.status;
-      out[key({ type: 'object', id: String(r.id) })] = { state: followStateOf(word), label: word ?? 'open' };
+      out[key({ type: 'object', id: String(r.id) })] = { state: followStateOf(word), label: word ?? 'open', name };
     }
   }
   return out;

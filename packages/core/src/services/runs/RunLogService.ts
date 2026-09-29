@@ -1,4 +1,4 @@
-import type { AgentCallView, AgentTaskView, RunCheck, RunHeader, RunLink, RunLogData, RunLogEvent, RunLogLevel } from '@/libs/worker/runLog';
+import type { AgentCallView, AgentTaskView, RunCheck, RunContext, RunHeader, RunLink, RunLogData, RunLogEvent, RunLogLevel } from '@/libs/worker/runLog';
 import { and, asc, count, eq, gt, inArray, lt, max } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { eventLevel, stopReason } from '@/libs/worker/runLog';
@@ -327,6 +327,52 @@ async function workerHeader(run: WorkerRunRow, events: RunLogEvent[]): Promise<R
     checks: readChecks(result),
     failures: (Array.isArray(run.failures) ? run.failures : []).map(f => ({ scope: f.scope ?? 'run', message: f.message ?? '' })),
     recovery: result.recovery && typeof result.recovery === 'object' ? str(result.recovery as Record<string, unknown>, 'line') : null,
+    context: await runContext(run).catch(() => null),
+  };
+}
+
+/**
+ * Where an engineering run belongs, from its own input and the records it
+ * names: the task's request (the feature), the task's plan, the other runs of
+ * the same feature (which attempt this is), and the acceptance it carries.
+ * @param run - The run.
+ */
+export async function runContext(run: WorkerRunRow): Promise<RunContext | null> {
+  const input = (run.input ?? {}) as { task?: Record<string, unknown>; record?: { id?: unknown; type?: unknown } };
+  const task = input.task ?? {};
+  const requestId = Number(task.request_id ?? task.requestId);
+  const taskId = Number(input.record?.id);
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) {
+    return null;
+  }
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
+  const link = await recordLinkerForOrg(run.orgId);
+  const ids = [requestId, ...(Number.isSafeInteger(taskId) && taskId > 0 ? [taskId] : [])];
+  const rows = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, run.orgId), inArray(businessObjectSchema.id, ids)));
+  const request = rows.find(r => r.id === requestId) ?? null;
+  const taskRow = rows.find(r => r.id === taskId) ?? null;
+  const featureHref = link({ objectType: 'request', id: requestId });
+  const planId = Number((taskRow?.meta as Record<string, unknown> | null)?.planId ?? (task.plan as Record<string, unknown> | undefined)?.plan_id);
+  let plan: RunContext['plan'] = null;
+  if (Number.isSafeInteger(planId) && planId > 0) {
+    const [p] = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, run.orgId), eq(businessObjectSchema.id, planId))).limit(1);
+    plan = p ? { id: p.id, title: p.title, href: link({ objectType: 'architecture_plan', id: p.id }) } : null;
+  }
+  const { sql } = await import('drizzle-orm');
+  const siblings = await db
+    .select({ id: workerRunSchema.id, status: workerRunSchema.status })
+    .from(workerRunSchema)
+    .where(and(eq(workerRunSchema.orgId, run.orgId), sql`${workerRunSchema.input}->'task'->>'request_id' = ${String(requestId)}`))
+    .orderBy(asc(workerRunSchema.id))
+    .limit(50);
+  const n = siblings.findIndex(r => r.id === run.id) + 1;
+  const acceptance = Array.isArray(task.acceptance_contract) ? task.acceptance_contract.length : 0;
+  return {
+    feature: request ? { id: request.id, title: request.title, href: featureHref } : { id: requestId, title: `Feature #${requestId}`, href: featureHref },
+    plan,
+    attempt: n > 0 ? { n, of: siblings.length, others: siblings.filter(r => r.id !== run.id).map(r => ({ runId: r.id, status: r.status, href: `/dashboard/p/runs/${r.id}` })) } : null,
+    acceptance: acceptance > 0 ? { count: acceptance, href: `${featureHref}#report-acceptance` } : null,
   };
 }
 

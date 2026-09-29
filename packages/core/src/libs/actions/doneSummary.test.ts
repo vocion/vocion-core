@@ -12,16 +12,16 @@ describe('what a done run did, in one clause (Chris, 2026-09-28: "Done for you �
 
   it('a filing names the record it made; a build names the request it builds', () => {
     expect(doneSummary({ actionId: 'objects.propose_candidate', input: { objectType: 'request' }, result: { objectId: 131 } }, { type: 'request', id: 131 })).toBe('filed request #131');
-    expect(doneSummary({ actionId: 'factory.dispatch_task', input: { requestId: 124 }, result: {} })).toBe('started the build of request #124');
+    expect(doneSummary({ actionId: 'factory.dispatch_task', input: { requestId: 124 }, result: {} })).toBe('started the build of feature #124');
     expect(doneSummary({ actionId: 'objects.rename', input: { id: 40, title: 'Rename Send to Stamp' }, result: {} })).toBe('renamed #40 to "Rename Send to Stamp"');
   });
 
   it('a dispatch says what it started, and a dispatch that re-planned says so (action run 5201, 2026-09-29)', () => {
     // 5201's shape: the plan no longer fit, so the request went back to planning and nothing was built.
     expect(doneSummary({ actionId: 'factory.dispatch_task', input: { taskId: 203, planId: 215 }, result: { planning: true, requestId: 201, planId: null, workerRunId: null } }))
-      .toBe('sent request #201 back to planning');
+      .toBe('sent feature #201 back to planning');
     expect(doneSummary({ actionId: 'factory.dispatch_task', input: { taskId: 203 }, result: { workerRunId: 355, requestId: 201, taskId: 203 } }))
-      .toBe('started the build of request #201 — run #355');
+      .toBe('started the build of feature #201 — run #355');
   });
 
   it('a ruling says which option it was answered with, and who chose it (proposal 5210, 2026-09-29)', () => {

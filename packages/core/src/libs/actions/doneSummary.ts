@@ -81,12 +81,12 @@ export function doneSummary(run: { actionId: string; input: Meta | null; result:
   }
   if (run.actionId === 'factory.dispatch_task') {
     const requestId = positiveInt(result.requestId) ?? positiveInt(input.requestId);
-    const of = requestId !== null ? ` of request #${requestId}` : '';
+    const of = requestId !== null ? ` of feature #${requestId}` : '';
     // A dispatch whose plan no longer fits sends the request back to planning
     // and starts nothing (`planning: true`); saying "started the build" there
     // was a claim the run did not make (2026-09-29, action run 5201).
     if (result.planning === true) {
-      return requestId !== null ? `sent request #${requestId} back to planning` : 'sent it back to planning';
+      return requestId !== null ? `sent feature #${requestId} back to planning` : 'sent it back to planning';
     }
     const workerRunId = positiveInt(result.workerRunId);
     return `started the build${of}${workerRunId !== null ? ` — run #${workerRunId}` : ''}`;

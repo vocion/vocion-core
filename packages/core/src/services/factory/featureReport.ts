@@ -441,6 +441,12 @@ export type ReportStatus = {
   action: ReportAction | null;
   /** A second, quieter way out: Dismiss before work starts, Build again beside a review. */
   secondary: ReportAction | { kind: 'dismiss'; label: string } | null;
+  /**
+   * The run carrying it right now, when one is live — drawn under the state
+   * as ONE row that opens the run (Chris, 2026-09-29: "is that 'current
+   * state'?"). The row is the move, so a state with one names no other.
+   */
+  activeRun?: { attempt: ReportAttempt; of: number } | null;
 };
 
 /**
@@ -507,6 +513,10 @@ export type ReportAttempt = {
   prUrl: string | null;
   /** What its checks reported. Empty when it reported none. */
   checks: ReportCheck[];
+  /** Which attempt it was, oldest first: 1 of N. */
+  n: number;
+  /** Still queued, running or paused — the run to watch. */
+  live: boolean;
 };
 
 /** A delivery fact that is true, false or not established — never inferred from a neighbour. */
@@ -759,7 +769,7 @@ function engineeringStopped(input: Pick<FeatureReportInput, 'tasks' | 'workerRun
 }
 
 /** The recommended outcome, as a verb a person reads on the decision card. */
-const OUTCOME_VERBS: Record<string, string> = { build: 'build it', answer: 'answer it', decline: 'decline it', merge: 'merge it into another request', defer: 'defer it' };
+const OUTCOME_VERBS: Record<string, string> = { build: 'build it', answer: 'answer it', decline: 'decline it', merge: 'merge it into another feature', defer: 'defer it' };
 
 /**
  * An age in a person's words — "2 days", "5 hours", "just now" — for the
@@ -932,7 +942,7 @@ function askSection(request: ReportObject): ReportSection {
     { label: 'Product', value: str(meta, 'product'), format: 'mono' },
   ];
   if (!body) {
-    s.flags.push('The request carries no body — only its title, which is ours, not theirs.');
+    s.flags.push('The feature carries no body — only its title, which is ours, not theirs.');
   }
   const evidence = (meta.evidence && typeof meta.evidence === 'object' ? meta.evidence : null) as Record<string, unknown> | null;
   const urls = [...list(evidence, 'urls'), ...(str(evidence, 'videoUrl') ? [str(evidence, 'videoUrl')!] : [])];
@@ -951,7 +961,7 @@ function triageSection(request: ReportObject): ReportSection {
   const meta = request.meta;
   const state = str(meta, 'state');
   if (!state || state === 'new') {
-    s.absence = 'No one triaged this request; it is still in `new`.';
+    s.absence = 'No one triaged this feature; it is still in `new`.';
     return s;
   }
   const outcome = str(meta, 'recommendedOutcome');
@@ -973,7 +983,7 @@ function triageSection(request: ReportObject): ReportSection {
     { label: 'Why', value: str(meta, 'priorityReason') ?? str(meta, 'decisionReason'), format: 'quote' },
   );
   if (!outcome) {
-    s.flags.push('The twenty-percent test was never run on this request — no recommendation is on the record.');
+    s.flags.push('The twenty-percent test was never run on this feature — no recommendation is on the record.');
   }
   return s;
 }
@@ -1207,7 +1217,7 @@ function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: bool
 function contractSection(tasks: ReportObject[]): ReportSection {
   const s = blank('contract', 'The contract');
   if (tasks.length === 0) {
-    s.absence = 'No task contract was written for this request; nothing was dispatched.';
+    s.absence = 'No task was written for this feature; nothing was dispatched.';
     return s;
   }
   s.entries = tasks.map((task) => {
@@ -1329,7 +1339,7 @@ function runsSection(runs: ReportWorkerRun[], mergedPrs: Set<string>): ReportSec
   // follow, numbered and named as superseded, which is what they are.
   const s = blank('runs', 'Build');
   if (runs.length === 0) {
-    s.absence = 'Nothing has been built yet — no worker run is recorded against this work.';
+    s.absence = 'Nothing has been built yet — no run is recorded against this work.';
     return s;
   }
   const newestFirst = [...runs].reverse();
@@ -1362,8 +1372,8 @@ function runsSection(runs: ReportWorkerRun[], mergedPrs: Set<string>): ReportSec
     return {
       key: `run-${run.id}`,
       title: index === 0
-        ? `Latest attempt · run ${run.id}`
-        : `Earlier attempt ${newestFirst.length - index} of ${newestFirst.length} · run ${run.id}, superseded`,
+        ? `Latest attempt · Run #${run.id}`
+        : `Earlier attempt ${newestFirst.length - index} of ${newestFirst.length} · Run #${run.id}, superseded`,
       status: run.status,
       tone: statusTone(run.status),
       at: runAt(run),
@@ -1521,7 +1531,7 @@ function resultSection(request: ReportObject, released: boolean): ReportSection 
     s.facts.push({ label: 'Result', value: checkedAt ? `${label} · checked ${formatStamp(checkedAt)}` : label });
     s.facts.push({ label: 'What the check showed', value: note });
     if (result === 'did_not_help') {
-      s.flags.push('Did not help: this is a new request, not a closed one.');
+      s.flags.push('Did not help: this is a new feature, not a closed one.');
     }
   }
   if (told) {
@@ -1621,7 +1631,7 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
           : `added up from ${taskEstimates.length} attempt contracts — not an estimate of this work, so it is not compared against`,
     actualSource: taskActuals.length > 0
       ? `summed over ${taskActuals.length} task${taskActuals.length === 1 ? '' : 's'}`
-      : runs.length > 0 ? `summed over ${runs.length} worker run${runs.length === 1 ? '' : 's'}` : 'nothing has been charged',
+      : runs.length > 0 ? `summed over ${runs.length} run${runs.length === 1 ? '' : 's'}` : 'nothing has been charged',
   };
 }
 
@@ -1658,7 +1668,7 @@ function moneySection(line: MoneyLine): ReportSection {
       ...(line.varianceCents === null
         ? []
         : [`Variance: ${line.varianceCents >= 0 ? '+' : ''}${money(line.varianceCents)}${line.variancePct === null ? '' : ` (${line.variancePct >= 0 ? '+' : ''}${line.variancePct}%)`}.`]),
-      `Charged across the worker runs: ${money(line.runCents)}.`,
+      `Charged across the runs: ${money(line.runCents)}.`,
     ],
   });
   return s;
@@ -1977,7 +1987,7 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>, line: Mo
         `Two cost records disagree: the tasks say ${money(sum)}, the runs charged ${money(line.runCents)}.`,
         'This does not block delivery. Which figure is current is not established.',
         { label: 'Review cost', drawer: 'cost' },
-        `The tasks roll up ${money(sum)} spent and the worker runs charged ${money(line.runCents)}. One of the two is stale.`,
+        `The tasks roll up ${money(sum)} spent and the runs charged ${money(line.runCents)}. One of the two is stale.`,
       );
     }
   }
@@ -1989,7 +1999,7 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>, line: Mo
       'This was built without the plan the plan rule required.',
       'It does not block the build. The approach was not reviewed before work began.',
       { label: 'Review plan', drawer: 'plan' },
-      `The plan rule required a plan for this work and none is on the record${skipped > 0 ? `, and ${skipped} task${skipped === 1 ? '' : 's'} recorded the plan as skipped` : ''}. ${executed.length} worker run${executed.length === 1 ? '' : 's'} ran anyway.`,
+      `The plan rule required a plan for this work and none is on the record${skipped > 0 ? `, and ${skipped} task${skipped === 1 ? '' : 's'} recorded the plan as skipped` : ''}. ${executed.length} run${executed.length === 1 ? '' : 's'} ran anyway.`,
     );
   }
   // Only a run that DID something can come before an approval. A refusal is
@@ -2003,7 +2013,7 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>, line: Mo
         'The plan was approved after building had already begun.',
         'It does not block: the plan is approved now. It did not gate the first attempt.',
         { label: 'Review approval history', drawer: 'plan' },
-        `Plan ${plan.id} was approved at ${formatStamp(approvedAt)}, after the first worker run started at ${formatStamp(firstRunAt)}. A plan approved after the work is a record, not a gate.`,
+        `Plan ${plan.id} was approved at ${formatStamp(approvedAt)}, after the first run started at ${formatStamp(firstRunAt)}. A plan approved after the work is a record, not a gate.`,
       );
     }
   }
@@ -2045,7 +2055,7 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>, line: Mo
   if (worked.length > 0 && input.workerRuns.length === 0) {
     quiet(
       'runs-unlinked',
-      `The task${worked.length === 1 ? ' says it was' : 's say they were'} worked on, and no engineering run is linked.`,
+      `The task${worked.length === 1 ? ' says it was' : 's say they were'} worked on, and no run is linked.`,
       'It does not block review or the merge. Attempts and per-run cost cannot be shown until the run is linked.',
       { label: 'Review delivery status', drawer: 'status' },
       `Execution history is incomplete: ${input.tasks.length} task${input.tasks.length === 1 ? ' was' : 's were'} written for this work and no worker run is linked to ${input.tasks.length === 1 ? 'it' : 'them'}. Attempts, models and per-run cost are unreadable until that join is repaired.`,
@@ -2232,7 +2242,7 @@ function buildState(input: FeatureReportInput): ReportState {
   }
   const failedReview = [...input.tasks].filter(t => taskStatus(t) === 'review_failed').sort((a, b) => b.id - a.id)[0];
   if (failedReview && !input.tasks.some(t => taskStatus(t) === 'awaiting_review')) {
-    return { key: 'stuck', label: 'QA could not finish', detail: 'the review ended without a verdict; Build again starts a fresh attempt', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
+    return { key: 'stuck', label: 'QA could not finish', detail: 'QA ended without a verdict; Build again starts a fresh attempt', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
   }
   const awaitingReview = input.tasks.filter(t => taskStatus(t) === 'awaiting_review');
   if (awaitingReview.length > 0) {
@@ -2848,8 +2858,9 @@ function buildPlanSummary(input: FeatureReportInput, planId: number | null): Rep
  * One run as an attempt row.
  * @param run - The run.
  * @param now
+ * @param n
  */
-function attemptOf(run: ReportWorkerRun, now: Date): ReportAttempt {
+function attemptOf(run: ReportWorkerRun, now: Date, n = 1): ReportAttempt {
   const executed = executedRun(run);
   const outcome = !executed
     ? run.claimedAt === null ? 'Ended before it started — not executed' : 'Refused — not executed'
@@ -2871,7 +2882,25 @@ function attemptOf(run: ReportWorkerRun, now: Date): ReportAttempt {
     why: why ? (why.length > 160 ? `${why.slice(0, 157).trimEnd()}…` : why) : null,
     prUrl: change.prUrl,
     checks: change.checks,
+    n,
+    live: executed ? runIsLive(run) : run.claimedAt === null && runIsLive(run),
   };
+}
+
+/**
+ * The state, with the run carrying it as its row. A state whose one move was
+ * "View progress" into the implementation gives that move to the row, which
+ * opens the run itself; every other state keeps its own action.
+ * @param status - The state as `buildStatus` said it.
+ * @param impl - The implementation, for the live run.
+ */
+function withActiveRun(status: ReportStatus, impl: ReportImplementation): ReportStatus {
+  const live = impl.attempts.find(a => a.live) ?? null;
+  if (!live) {
+    return { ...status, activeRun: null };
+  }
+  const viewProgress = status.action?.kind === 'drawer' && status.action.drawer === 'implementation';
+  return { ...status, activeRun: { attempt: live, of: impl.attempts.length }, ...(viewProgress ? { action: null } : {}) };
 }
 
 /**
@@ -2945,9 +2974,9 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
     estimate === null ? 'Not estimated' : variance === null ? `estimated ${estimate}` : `estimated ${estimate}, ${variance}`,
   ].join(' · ');
   return {
-    latest: lead ? attemptOf(lead, input.now) : null,
+    latest: lead ? attemptOf(lead, input.now, runs.indexOf(lead) + 1) : null,
     earlier: Math.max(0, runs.length - (lead ? 1 : 0)),
-    attempts: newestFirst.map(r => attemptOf(r, input.now)),
+    attempts: newestFirst.map((r, i) => attemptOf(r, input.now, runs.length - i)),
     prUrl,
     merged,
     ladder,
@@ -3082,7 +3111,7 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
       return { tone: 'info', headline: 'Building', sentence: `Building now. ${started} Nothing needs you; checks, the merge and acceptance are not established until it finishes.`.replace(/\s+/g, ' ').trim(), action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null };
     }
     case 'qa':
-      return { tone: 'info', headline: 'In review', sentence: `Engineering finished and QA is checking the change. Nothing needs you. ${verifiedLine}`, action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null };
+      return { tone: 'info', headline: 'In QA', sentence: `Engineering finished and QA is checking the change. Nothing needs you. ${verifiedLine}`, action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null };
     case 'merge':
       return { tone: 'warn', headline: 'Ready to merge', sentence: `QA accepted the change; it is waiting for a person to merge it. It is not live until it merges. ${verifiedLine}`, action: impl.prUrl ? { kind: 'link', label: 'Review the merge', href: impl.prUrl } : { kind: 'drawer', label: 'Review the merge', drawer: 'implementation' }, secondary: null };
     case 'changes':
@@ -3159,7 +3188,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     canBuild,
     canDismiss,
     planId,
-    status: buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl }),
+    status: withActiveRun(buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl }), implementation),
     notices,
     planSummary,
     implementation,

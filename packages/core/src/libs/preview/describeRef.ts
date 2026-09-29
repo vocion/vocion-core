@@ -53,7 +53,7 @@ function describe(type: RecordRef['type'], rawId: string): RefDescription {
     case 'mission_run':
       return n ? { label: `Agent run #${n}`, href: `/dashboard/p/runs/agent-${n}` } : { label: 'Agent run', href: null };
     case 'worker_run':
-      return n ? { label: `Engineering run #${n}`, href: `/dashboard/p/runs/${n}` } : { label: 'Engineering run', href: null };
+      return n ? { label: `Run #${n}`, href: `/dashboard/p/runs/${n}` } : { label: 'Run', href: null };
     case 'feature_section': {
       const m = /^(\d+)\.([\w-]+)$/.exec(id);
       if (!m) {

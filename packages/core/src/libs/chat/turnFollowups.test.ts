@@ -8,8 +8,8 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
     expect(turnFollowups([{ type: 'tool', name: 'propose_action', input: { action_id: 'factory.dispatch_task' }, output: out }]).map(f => [f.label, f.ref.type, f.ref.id])).toEqual([
       ['run #419', 'worker_run', '419'],
       ['request #201', 'object', '201'],
-      ['engineering task #243', 'object', '243'],
-      ['architecture plan #230', 'object', '230'],
+      ['task #243', 'object', '243'],
+      ['plan #230', 'object', '230'],
     ]);
   });
 

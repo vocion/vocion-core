@@ -58,12 +58,24 @@ function recordRef(_type: string, id: number): NonNullable<ResultLink['ref']> {
 }
 
 /** Result key → the object type its id names. First key present wins per type. */
-const RECORD_KEYS: ReadonlyArray<{ key: string; type: string }> = [
-  { key: 'requestId', type: 'request' },
-  { key: 'createdTaskId', type: 'engineering_task' },
-  { key: 'taskId', type: 'engineering_task' },
-  { key: 'planId', type: 'architecture_plan' },
+const RECORD_KEYS: ReadonlyArray<{ key: string; type: string; noun: string }> = [
+  { key: 'requestId', type: 'request', noun: 'request' },
+  { key: 'createdTaskId', type: 'engineering_task', noun: 'task' },
+  { key: 'taskId', type: 'engineering_task', noun: 'task' },
+  { key: 'planId', type: 'architecture_plan', noun: 'plan' },
 ];
+
+/**
+ * A record's name in words: the page the workspace opens it on names it
+ * ("feature" for a request on `/p/feature/…`), else the plain noun. So the
+ * words follow the workspace, and one thing has one name everywhere.
+ * @param href - Where it opens.
+ * @param fallback - The noun when no page names it.
+ */
+function nounFor(href: string, fallback: string): string {
+  const page = /\/p\/([^/]+)\/[^/]+$/.exec(href)?.[1];
+  return page ? decodeURIComponent(page).replace(/[-_]+/g, ' ') : fallback;
+}
 
 /** Result keys that carry an external URL, in the order they are preferred. */
 const URL_KEYS: ReadonlyArray<{ key: string; label: string }> = [
@@ -105,15 +117,17 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
   const objectId = positiveInt(result.objectId) ?? positiveInt(result.id);
   const objectType = typeof result.objectType === 'string' ? result.objectType : typeof input.objectType === 'string' ? input.objectType : null;
   if (objectId !== null && objectType && objectType !== run.actionId) {
-    push({ label: `${words(objectType)} #${objectId}`, href: link({ objectType, id: objectId }), ref: recordRef(objectType, objectId) });
+    const href = link({ objectType, id: objectId });
+    push({ label: `${nounFor(href, words(objectType))} #${objectId}`, href, ref: recordRef(objectType, objectId) });
   }
 
   const types = new Set<string>();
-  for (const { key, type } of RECORD_KEYS) {
+  for (const { key, type, noun } of RECORD_KEYS) {
     const id = positiveInt(result[key]);
     if (id !== null && !types.has(type)) {
       types.add(type);
-      push({ label: `${words(type)} #${id}`, href: link({ objectType: type, id }), ref: recordRef(type, id) });
+      const href = link({ objectType: type, id });
+      push({ label: `${nounFor(href, noun)} #${id}`, href, ref: recordRef(type, id) });
     }
   }
 

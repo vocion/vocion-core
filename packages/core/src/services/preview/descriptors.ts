@@ -456,7 +456,7 @@ async function resolveSources(ref: RecordRef, ctx: { orgId: string }, which: { c
 }
 
 registerPreview('worker_run', {
-  sourceLabel: 'Engineering run',
+  sourceLabel: 'Run',
   resolve: async (ref, ctx) => {
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id)) {
@@ -490,7 +490,7 @@ registerPreview('worker_run', {
     return {
       ref,
       title: input.task?.task_id ?? `Engineering run ${run.id}`,
-      sourceLabel: 'Engineering run',
+      sourceLabel: 'Run',
       href: `/dashboard/p/runs/${run.id}`,
       facts: facts(
         { label: 'Run', value: `#${run.id}` },

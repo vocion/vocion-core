@@ -9,7 +9,7 @@ import { describeRef } from './describeRef';
 describe('a reference, in words', () => {
   it.each([
     [{ type: 'mission_run', id: '5974' }, 'Agent run #5974', '/dashboard/p/runs/agent-5974'],
-    [{ type: 'worker_run', id: '501' }, 'Engineering run #501', '/dashboard/p/runs/501'],
+    [{ type: 'worker_run', id: '501' }, 'Run #501', '/dashboard/p/runs/501'],
     [{ type: 'feature_section', id: '126.plan' }, 'Plan for #126', '/dashboard/p/feature/126'],
     [{ type: 'feature_section', id: '126.implementation' }, 'Implementation of #126', '/dashboard/p/feature/126'],
     [{ type: 'feature_section', id: '126.criterion-0' }, 'Criterion 1 of #126', '/dashboard/p/feature/126'],

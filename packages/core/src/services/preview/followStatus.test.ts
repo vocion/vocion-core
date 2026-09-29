@@ -1,6 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+// A workspace whose requests open on a feature page, like the factory's.
+vi.mock('@/services/objects/recordHref', async () => {
+  const { recordLinker } = await import('@/libs/workspace/recordHref');
+  return { recordLinkerForOrg: async () => recordLinker({ pages: new Map([['request', '/dashboard/p/feature/{id}']]), workspaceSlug: null }) };
+});
 
 const { db } = await import('@/libs/DB');
 const { askSchema, businessObjectSchema, businessObjectTypeSchema, workerRunSchema } = await import('@/models/Schema');
@@ -44,7 +49,8 @@ describe('where each thing a turn set moving stands (Chris, 2026-09-29)', () => 
 
     expect(out[`worker_run:${run!.id}`]).toEqual({ state: 'running', label: 'running' });
     expect(out[`ask:${ask!.id}`]).toEqual({ state: 'waiting', label: 'waiting on a person' });
-    expect(out['object:31']).toEqual({ state: 'running', label: `running · run #${run!.id}` });
+    // Named as the workspace names it, whatever the client guessed.
+    expect(out['object:31']).toEqual({ state: 'running', label: `running · run #${run!.id}`, name: 'feature #31' });
     // Not this org's, or not there: no dot rather than a guess.
     expect(out['worker_run:999999']).toBeUndefined();
     expect(await followStatuses('org_other', [{ type: 'worker_run', id: String(run!.id) }])).toEqual({});

@@ -103,14 +103,16 @@ describe('the plan drawer (Chris, 2026-09-28, #126: the title and status twice, 
 });
 
 describe('the implementation drawer', () => {
-  it('lists every attempt newest first: outcome, cost, pull request, checks and why it stopped, each opening its run page', () => {
+  it('lists every run as a row, newest first: status, which attempt, cost, pull request, checks and why it stopped, each opening in the pane', () => {
     const d = featureDrawer(report(), 'implementation', NOW)!;
 
     expect(d.title).toBe('Implementation');
     expect(d.subtitle).toBe('2 attempts · $4.29 spent · Not estimated');
-    expect(d.body.indexOf('[Attempt 2 · Completed](/dashboard/p/runs/501)')).toBeLessThan(d.body.indexOf('[Attempt 1 · Failed](/dashboard/p/runs/500)'));
-    expect(d.body).toContain('**[Attempt 2 · Completed](/dashboard/p/runs/501)** · 04 Sep 2026, 11:00 UTC · $3.09\n- Pull request: [northwind-portal#12](https://github.com/example/northwind-portal/pull/12)\n- Checks: 2 passed');
-    expect(d.body).toContain('**[Attempt 1 · Failed](/dashboard/p/runs/500)** · 03 Sep 2026, 10:30 UTC · $1.20\n- Checks: 1 failed (typecheck), 1 passed\n- Why it stopped: typecheck failed');
+    expect(d.body.indexOf('[Run #501 · Completed](?preview=worker_run:501)')).toBeLessThan(d.body.indexOf('[Run #500 · Failed](?preview=worker_run:500)'));
+    expect(d.body).toContain('**[Run #501 · Completed](?preview=worker_run:501)** · attempt 2 of 2 · 04 Sep 2026, 11:00 UTC · $3.09\n- Pull request: [northwind-portal#12](https://github.com/example/northwind-portal/pull/12)\n- Checks: 2 passed');
+    expect(d.body).toContain('**[Run #500 · Failed](?preview=worker_run:500)** · attempt 1 of 2 · 03 Sep 2026, 10:30 UTC · $1.20\n- Checks: 1 failed (typecheck), 1 passed\n- Why it stopped: typecheck failed');
+    // Nothing is running, so nothing leads.
+    expect(d.body).not.toContain('## Running now');
     expect(d.href).toBe('/dashboard/p/runs/501');
   });
 
@@ -192,13 +194,22 @@ describe('the other drawers say each thing once', () => {
     expect(d.body).toContain('[Pull request northwind-portal#12](https://github.com/example/northwind-portal/pull/12)');
   });
 
+  it('a run still going leads the drawer as its own row (Chris, 2026-09-29: "Why doesn\'t that show up?")', () => {
+    const r = report();
+    const live = { ...r.implementation.attempts[0]!, runId: 502, n: 3, outcome: 'Running', live: true, ago: '4 min ago' };
+    const d = featureDrawer({ ...r, implementation: { ...r.implementation, attempts: [live, ...r.implementation.attempts] } }, 'implementation', NOW)!;
+
+    expect(d.body.indexOf('## Running now')).toBeLessThan(d.body.indexOf('## Runs, newest first'));
+    expect(d.body).toContain('## Running now\n\n- [Run #502 · Running](?preview=worker_run:502) · attempt 3 of 3 · started 4 min ago');
+  });
+
   it('cost: the spend is the line, not the line and the body; each attempt links its run', () => {
     const d = featureDrawer(report(), 'cost', NOW)!;
 
     expect(d.subtitle).toBe('$4.29 spent · Not estimated');
     expect(d.body).not.toContain('**Spent:**');
-    expect(d.body).toContain('- [Attempt 2 · Completed](/dashboard/p/runs/501): $3.09');
-    expect(d.body).toContain('- [Attempt 1 · Failed](/dashboard/p/runs/500): $1.20');
+    expect(d.body).toContain('- [Run #501 · Completed](/dashboard/p/runs/501): $3.09');
+    expect(d.body).toContain('- [Run #500 · Failed](/dashboard/p/runs/500): $1.20');
   });
 
   it('details: the ask, triage, the contracts and the approvals, the asked date said once', () => {

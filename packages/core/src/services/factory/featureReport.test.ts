@@ -422,8 +422,8 @@ describe('a stage that did not happen says so', () => {
   it('a request with no task has no contract, no run, no change and no release', () => {
     const report = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
 
-    expect(section(report, 'contract').absence).toBe('No task contract was written for this request; nothing was dispatched.');
-    expect(section(report, 'runs').absence).toBe('Nothing has been built yet — no worker run is recorded against this work.');
+    expect(section(report, 'contract').absence).toBe('No task was written for this feature; nothing was dispatched.');
+    expect(section(report, 'runs').absence).toBe('Nothing has been built yet — no run is recorded against this work.');
     expect(section(report, 'change').absence).toBe('No pull request is recorded for this work.');
     expect(section(report, 'release').absence).toBe('Not released. Nothing has carried this work to people yet.');
   });
@@ -448,7 +448,7 @@ describe('a stage that did not happen says so', () => {
   it('an untriaged request says nobody triaged it', () => {
     const report = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'new' } } }));
 
-    expect(section(report, 'triage').absence).toBe('No one triaged this request; it is still in `new`.');
+    expect(section(report, 'triage').absence).toBe('No one triaged this feature; it is still in `new`.');
   });
 });
 
@@ -615,7 +615,7 @@ describe('the money line', () => {
     const line = moneyLine(request, [noActual], [run(), run({ id: 502, cents: 300 })]);
 
     expect(line.actualCents).toBe(920);
-    expect(line.actualSource).toBe('summed over 2 worker runs');
+    expect(line.actualSource).toBe('summed over 2 runs');
   });
 
   it('says Not estimated rather than showing zero, and computes no variance against nothing', () => {
@@ -639,7 +639,7 @@ describe('the money line', () => {
   it('flags a task rollup that disagrees with what the runs charged', () => {
     const report = assembleFeatureReport(input());
 
-    expect(report.contradictions.find(c => c.includes('roll up'))).toBe('The tasks roll up $14.50 spent and the worker runs charged $6.20. One of the two is stale.');
+    expect(report.contradictions.find(c => c.includes('roll up'))).toBe('The tasks roll up $14.50 spent and the runs charged $6.20. One of the two is stale.');
   });
 });
 
@@ -683,7 +683,7 @@ describe('the small parts', () => {
 describe('a zero is a claim', () => {
   it('will not count attempts or decisions out of an empty join, and says the history is incomplete', () => {
     // The shape Chris met: tasks written, a plan on the record, and not one
-    // worker run linked — which rendered as a confident "0 attempts" beside a
+    // run linked — which rendered as a confident "0 attempts" beside a
     // real cost, on a page listing five of them.
     const report = assembleFeatureReport(input({ workerRuns: [], asks: [], actionRuns: [] }));
 
@@ -919,7 +919,7 @@ describe('build reads as a story', () => {
 
     expect(build.title).toBe('Build');
     expect(build.entries[0]!.title).toContain('Latest attempt');
-    expect(build.entries[0]!.title).toContain('run 3');
+    expect(build.entries[0]!.title).toContain('Run #3');
     expect(build.entries[1]!.title).toContain('superseded');
     expect(build.entries).toHaveLength(3);
   });
@@ -928,7 +928,7 @@ describe('build reads as a story', () => {
     const report = assembleFeatureReport(input({ workerRuns: [run(7, '2026-09-20T10:00:00Z')] }));
     const build = report.sections.find(x => x.key === 'runs')!;
 
-    expect(build.entries[0]!.title).toBe('Latest attempt · run 7');
+    expect(build.entries[0]!.title).toBe('Latest attempt · Run #7');
   });
 });
 
@@ -1076,11 +1076,11 @@ describe('a task QA sent back', () => {
     expect(r.canBuild).toBe(true);
   });
 
-  it('reads as QA could not finish when the review ended without a verdict, and offers Build again', () => {
+  it('reads as QA could not finish when QA ended without a verdict, and offers Build again', () => {
     const failed = { ...task, status: 'review_failed', meta: { ...task.meta, status: 'review_failed', reviewFailure: { at: '2026-09-27T16:50:00Z' } } };
     const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [failed], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
 
-    expect(r.state).toMatchObject({ key: 'stuck', label: 'QA could not finish', needsYou: true, detail: 'the review ended without a verdict; Build again starts a fresh attempt', action: { label: 'Build again' } });
+    expect(r.state).toMatchObject({ key: 'stuck', label: 'QA could not finish', needsYou: true, detail: 'QA ended without a verdict; Build again starts a fresh attempt', action: { label: 'Build again' } });
     expect(r.canBuild).toBe(true);
   });
 
@@ -1170,12 +1170,14 @@ describe('the status sentence and its one action', () => {
     expect(r.status.sentence).toContain('Building it approves the plan.');
   });
 
-  it('never offers Build while a run is live, and says View progress instead', () => {
+  it('never offers Build while a run is live: the state names that run as its row, and the row is the move', () => {
     const dispatched = { ...task, status: 'running', meta: { ...task.meta, status: 'running' } };
     const r = proposal({ tasks: [dispatched], workerRuns: [run({ status: 'running', completedAt: null, result: null })] });
 
     expect(r.canBuild).toBe(false);
-    expect(r.status.action).toEqual({ kind: 'drawer', label: 'View progress', drawer: 'implementation' });
+    // Chris, 2026-09-29: "is that 'current state'?" — one line, and the run as a row.
+    expect(r.status.action).toBeNull();
+    expect(r.status.activeRun).toMatchObject({ of: 1, attempt: { live: true, n: 1, outcome: 'Running' } });
     expect(r.status.sentence).toMatch(/not established until it finishes/);
   });
 
@@ -1185,6 +1187,13 @@ describe('the status sentence and its one action', () => {
 
     expect(r.canBuild).toBe(false);
     expect(r.status.action?.kind).not.toBe('build');
+  });
+
+  it('numbers each attempt oldest first, and a settled state names no active run', () => {
+    const r = proposal({ tasks: [task], workerRuns: [run({ id: 401, status: 'failed', error: 'refused' }), run({ id: 419, status: 'failed', error: 'Claude produced no changes' })] });
+
+    expect(r.implementation.attempts.map(a => [a.runId, a.n, a.live])).toEqual([[419, 2, false], [401, 1, false]]);
+    expect(r.status.activeRun).toBeNull();
   });
 
   it('offers Build again, never Dismiss, once work has started', () => {
