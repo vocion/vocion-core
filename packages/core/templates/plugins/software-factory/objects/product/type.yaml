@@ -80,6 +80,16 @@ schema:
         site: {type: string}
         app: {type: string}
         api: {type: string}
+    capabilitiesPage:
+      x-display: {label: What it already does, format: mono, group: Product}
+      type: string
+      description: >-
+        Slug of the wiki page that lists what this product ships today, one
+        capability a line. Read before a gap or an idea is filed against the
+        product — the request type's proposal-ready gate refuses a filing
+        whose `gapCheck.sources` do not name this page, opened in the same
+        turn. A request that asks for what already ships is the one outcome
+        nobody wants.
     repos:
       x-display: {label: Repositories, format: link, to: repo}
       type: array

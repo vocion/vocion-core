@@ -1364,6 +1364,8 @@ export type GateRequirementManifest = {
   if?: { field: string; oneOf: string[] };
   unless?: { field: string; oneOf: string[] };
   notMatches?: { pattern: string; flags?: string };
+  /** The sources at `field` include the page `includes` resolves to, read in the writing turn (`GateTurn`). */
+  readThisTurn?: { includes?: string };
   valueMessages?: Record<string, string>;
   missingMessage?: string;
   message?: string;
@@ -1390,10 +1392,11 @@ const GateRequirementSchema: z.ZodType<GateRequirementManifest> = z.lazy(() => z
     }, 'not a valid regular expression'),
     flags: z.string().regex(/^[imsu]*$/, 'flags may be i, m, s, u').optional(),
   }).optional(),
+  readThisTurn: z.object({ includes: z.string().regex(/^\w+\.\w+$/, 'includes is <link field>.<field on the linked record>, e.g. product.capabilitiesPage').optional() }).optional(),
   valueMessages: z.record(z.string(), z.string()).optional(),
   missingMessage: z.string().optional(),
   message: z.string().optional(),
-}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf || r.notMatches, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems, anyOf or notMatches' }));
+}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf || r.notMatches || r.readThisTurn, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems, anyOf, notMatches or readThisTurn' }));
 
 /**
  * The judgement half of a gate: after the deterministic checks pass, one

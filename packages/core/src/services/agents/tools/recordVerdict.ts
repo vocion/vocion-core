@@ -237,6 +237,8 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
       input: { requestId, ...(Number.isFinite(planId) && planId > 0 ? { planId } : {}), autoRetryOf: task.id, reason: `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.` },
       principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: 'agent:product-manager',
+      // Core's own retry, not the model's: `autoRetryOf` is kept.
+      internal: true,
       proposal: { confidence: 0.9, rationale: `QA sent attempt #${task.id} back with named gaps; one automatic retry carries them.`, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'One automatic retry after changes asked.' },
     });
     return res.status === 'pending'

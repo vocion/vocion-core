@@ -216,13 +216,27 @@ export function answerNamesFiled(text: string, output: string): boolean {
  */
 
 /** "change this request", "update the acceptance", "add … to it", "rename it". */
-const CHANGE_VERB = '(?:change|update|edit|amend|revise|modify|add|append|remove|drop|delete|rename|retitle|rewrite|reword|replace|include|mark)';
+const CHANGE_VERB = '(?:change|update|edit|amend|revise|modify|add|append|remove|drop|delete|rename|retitle|rewrite|reword|replace|include|mark|make|set|swap|switch|cut|shorten|tighten)';
 
 /** The message opens on the change: "Change this request: …", "Please also add …". */
 const OPENS_ON_CHANGE = new RegExp(`^\\s*(?:(?:please|ok(?:ay)?|and|also|now|then)[,\\s]+)*${CHANGE_VERB}\\b`, 'im');
 
 /** The change names its target: "this request", "the acceptance", "it". */
 const NAMES_THE_RECORD = new RegExp(`\\b${CHANGE_VERB}\\s+(?:(?:this|that|the|its|it|our)\\b|[\\w-]+\\s+(?:to|on|in|from)\\s+(?:this|that|the|it)\\b)`, 'i');
+
+/**
+ * The message announces its changes: "Three changes to this request: 1) …",
+ * "two edits:", "a few tweaks to it". Conversation 362 (2026-09-29) opened
+ * this way, with no verb in front, and read as no change at all.
+ */
+const ANNOUNCES_CHANGES = /\b(?:\d+|one|two|three|four|five|six|a few|some|these|the following|a couple of)\s+(?:changes?|edits?|tweaks?|fixes|updates?|corrections?)\b|\b(?:changes?|edits?|tweaks?|updates?|corrections?)\s+(?:to|on|for)\s+(?:this|that|the|it)\b/i;
+
+/**
+ * Where a clause of a message starts: a line, a list marker ("1)", "2.",
+ * "-"), or after a colon or a semicolon — "Also: drop anything about SMS"
+ * opens its clause on the verb even though the message does not.
+ */
+const CLAUSE_BREAK = /\n|[:;]\s*|(?:^|\s)(?:\d+[).]|[-*•])\s+/;
 
 /** Asking about a change is not asking for one. */
 const NOT_A_CHANGE = new RegExp(`\\b(?:how (?:do|can|would|should) (?:i|we|you)|don'?t|do not|never|should (?:i|we)|would it|could we|can we|what (?:would|if)|why)\\s(?:[^.?!\\n]{0,20}\\s)?${CHANGE_VERB}\\b`, 'i');
@@ -237,7 +251,10 @@ export function asksToChange(request: string): boolean {
   if (asksToFile(text) || NOT_A_CHANGE.test(text) || /\bupdate (?:me|us)\b/i.test(text)) {
     return false;
   }
-  return OPENS_ON_CHANGE.test(text) || NAMES_THE_RECORD.test(text);
+  return OPENS_ON_CHANGE.test(text)
+    || NAMES_THE_RECORD.test(text)
+    || ANNOUNCES_CHANGES.test(text)
+    || text.split(CLAUSE_BREAK).some(clause => OPENS_ON_CHANGE.test(clause.trim()));
 }
 
 /**

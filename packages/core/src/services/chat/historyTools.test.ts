@@ -30,7 +30,7 @@ describe('toolsMarker', () => {
       { type: 'card', label: 'File this as a request', actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'Uploads drop on cellular and the file is gone' }, runId: 3691 },
     ];
 
-    expect(toolsMarker(runs)).toBe('\n\n[Earlier in this turn you ran: lookup_objects{type_slug: request} → 0 rows. And you put up a card: "File this as a request" → objects.propose_candidate "Uploads drop on cellular and the file is gone" (proposal #3691). "Approve", "file it" or "go ahead" means THAT card — decide it or make its call, never a different record]');
+    expect(toolsMarker(runs)).toBe('\n\n[Earlier in this turn you ran: lookup_objects{type_slug: request} → 0 rows. And you put up a card: "File this as a request" → objects.propose_candidate "Uploads drop on cellular and the file is gone" (proposal #3691). "Approve", "go", "file it" or "go ahead" means THAT card when it is still waiting — decide it or make its call, never a different record; a card that ran is done]');
     expect(toolsMarker([{ type: 'card', label: 'Roll back 912e4be0', actionId: 'deploy.release' }])).toContain('you put up a card: "Roll back 912e4be0" → deploy.release.');
   });
 });
@@ -85,7 +85,7 @@ describe('historyMessages', () => {
     ]);
 
     expect(flat[0]).toEqual({ role: 'user', content: 'what is up' });
-    expect(flat[1]?.content).toBe('Filed.\n\n[Earlier in this turn you put up a card: "File it" → objects.propose_candidate (proposal #7). "Approve", "file it" or "go ahead" means THAT card — decide it or make its call, never a different record]');
+    expect(flat[1]?.content).toBe('Filed.\n\n[Earlier in this turn you put up a card: "File it" → objects.propose_candidate (proposal #7). "Approve", "go", "file it" or "go ahead" means THAT card when it is still waiting — decide it or make its call, never a different record; a card that ran is done]');
   });
 
   it('a card that ran says what it created, so the next turn reads the record instead of asking for its id', () => {

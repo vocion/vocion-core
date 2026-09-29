@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { eventLogSchema } = await import('@/models/Schema');
+const { artifactSchema, eventLogSchema } = await import('@/models/Schema');
 const { createBusinessObject, createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
 const { actorIsPerson, objectCreatedPayload } = await import('./objectCreated');
@@ -34,5 +34,14 @@ describe('object.created (backlog 038)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.payload).toMatchObject({ objectId: obj!.id, objectType: 'request', source: 'app', byPerson: true });
     expect(rows[0]!.dedupeKey).toBe(`object.created:${obj!.id}`);
+  });
+
+  it('a record is born with its body, so its first change is a version of something (request #227, 2026-09-29)', async () => {
+    const obj = await createBusinessObject({ typeSlug: 'request', title: 'Email the sender before a link expires', metadata: {} } as never, ORG, 'agent:product-manager', { source: 'proposal', actor: 'agent:product-manager' });
+
+    const bodies = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, ORG), eq(artifactSchema.recordType, 'object'), eq(artifactSchema.recordId, String(obj!.id)), eq(artifactSchema.recordRole, 'body')));
+
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.title).toBe('Email the sender before a link expires');
   });
 });

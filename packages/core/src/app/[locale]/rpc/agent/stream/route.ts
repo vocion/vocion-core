@@ -112,7 +112,7 @@ export async function POST(request: Request): Promise<Response> {
     const { getWorkspaceLead } = await import('@/services/TeamService');
     const lead = await getWorkspaceLead(orgId);
     if (body.route === true && typeof message === 'string' && message.trim()) {
-      const { chooseAgent, followUpDecision, routableFromRow } = await import('@/services/agents/router');
+      const { chooseAgent, followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow } = await import('@/services/agents/router');
       // A follow-up stays with the agent the thread is with; the router
       // picks only a conversation's first turn, or an agent the person names
       // (conversation 349: "Please file it now." left the product manager's
@@ -120,7 +120,11 @@ export async function POST(request: Request): Promise<Response> {
       const { threadAgentOf } = await import('@/services/ConversationService');
       const threadAgent = typeof body.conversation_id === 'number' ? await threadAgentOf({ orgId, id: body.conversation_id }) : null;
       const routable = agents.map(routableFromRow);
+      // On a record's page the record's owner answers the first turn — the
+      // page is the context, a keyword is not (conversation 362).
+      const pageRecord = pageContext?.record?.objectType ? { objectType: pageContext.record.objectType, id: pageContext.record.id } : null;
       routing = followUpDecision({ agents: routable, message, threadAgent, surface: 'chat' })
+        ?? pageOwnerDecision({ agents: routable, message, record: pageRecord, ownerSlug: pageRecord ? await recordOwnerSlug(orgId, pageRecord.objectType) : null, surface: 'chat' })
         ?? chooseAgent({ agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
     }
     agentSlug = routing?.chosen

@@ -66,6 +66,8 @@ const ASK_353 = {
   mainRisk: 'Open tracking touches the public viewer route every recipient loads.',
   visuals: { surfaceUrl: 'https://send.example/files/demo' },
   whyNote: 'Checked the file detail page on send.example: it shows the recipients but no open times.',
+  // What already ships, checked before filing (request #226, 2026-09-29).
+  gapCheck: { finding: 'add', how: 'The capabilities page lists sharing and expiry, no open tracking.', checkedAt: '2026-09-28T12:00:00Z', sources: ['wiki:send-capabilities'] },
   why: ['user_request'],
   sizeClass: 'minor',
   confidence: 0.9,

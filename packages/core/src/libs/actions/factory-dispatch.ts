@@ -553,6 +553,98 @@ function triggerKey(input: z.infer<typeof dispatchInput>): string {
   return input.trigger === 'request' ? ':from-request' : '';
 }
 
+/** A planning start holds its request this long: the planner answers in a minute or two. */
+export const PLANNING_HOLD_MS = 15 * 60_000;
+/** A worker run in one of these is a build in progress. */
+const BUILDING_WORKER_STATUSES = ['queued', 'running', 'paused'];
+/** An action run in one of these is between its decision and its result. */
+const IN_FLIGHT_RUN_STATUSES = ['approved', 'executing', 'awaiting_execution'];
+
+/** One earlier start of the same request, as `buildUnderway` reads it. */
+export type EarlierStart = { id: number; status: string; executedAt: Date | null; result: Meta | null; workerStatus?: string | null };
+
+/**
+ * IS THIS REQUEST ALREADY BUILDING? The pure half of the guard: given the
+ * request's earlier starts (newest first), the sentence that refuses a second
+ * one, or null. Request #224 (2026-09-29) was started twice in 27 seconds —
+ * runs 5016 and 5018 — and each asked the planner for a plan, so two planners
+ * ran side by side for one change.
+ *
+ * Underway means: a start between its decision and its result; a start whose
+ * worker run is queued, running or paused; or a start that went to planning
+ * less than fifteen minutes ago. A plan's own build (`trigger: plan`) is the
+ * continuation of that planning, never a second start of it.
+ * @param earlier - The request's earlier starts, newest first.
+ * @param opts - What is asking.
+ * @param opts.trigger - The new start's trigger.
+ * @param opts.now - The clock.
+ */
+export function underwayRefusal(earlier: readonly EarlierStart[], opts: { trigger?: string | null; now?: Date } = {}): string | null {
+  const now = (opts.now ?? new Date()).getTime();
+  for (const run of earlier) {
+    if (IN_FLIGHT_RUN_STATUSES.includes(run.status)) {
+      return `already building: run #${run.id} is starting it now. Nothing new was started — follow that run.`;
+    }
+    if (run.status !== 'done' || !run.result) {
+      continue;
+    }
+    const workerRunId = Number(run.result.workerRunId);
+    if (Number.isInteger(workerRunId) && workerRunId > 0 && run.workerStatus && BUILDING_WORKER_STATUSES.includes(run.workerStatus)) {
+      return `already building: run #${workerRunId} (started by action #${run.id}) is ${run.workerStatus}. Nothing new was started — follow that run, or stop it before starting another.`;
+    }
+    if (run.result.planning === true && opts.trigger !== 'plan' && run.executedAt && now - run.executedAt.getTime() < PLANNING_HOLD_MS) {
+      const minutes = Math.max(0, Math.round((now - run.executedAt.getTime()) / 60_000));
+      const why = typeof run.result.why === 'string' ? ` (${run.result.why})` : '';
+      return `already building: run #${run.id} started it ${minutes === 0 ? 'under a minute' : `${minutes} min`} ago and it is planning first${why}. Nothing new was started — the plan's approval starts the build.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The request's earlier starts, newest first, with each one's worker run status.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param excludeRunId - The run asking, when it is one.
+ */
+async function earlierStarts(orgId: string, requestId: number, excludeRunId?: number): Promise<EarlierStart[]> {
+  const { and, desc, eq, inArray, ne, or, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema, workerRunSchema } = await import('@/models/Schema');
+  const rows = await db
+    .select({ id: actionRunSchema.id, status: actionRunSchema.status, executedAt: actionRunSchema.executedAt, result: actionRunSchema.result })
+    .from(actionRunSchema)
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.actionId, DISPATCH_ACTION_ID),
+      inArray(actionRunSchema.status, ['done', ...IN_FLIGHT_RUN_STATUSES]),
+      or(sql`${actionRunSchema.input}->>'requestId' = ${String(requestId)}`, sql`${actionRunSchema.result}->>'requestId' = ${String(requestId)}`),
+      ...(excludeRunId ? [ne(actionRunSchema.id, excludeRunId)] : []),
+    ))
+    .orderBy(desc(actionRunSchema.id))
+    .limit(5);
+  const workerIds = rows.map(r => Number((r.result as Meta | null)?.workerRunId)).filter(n => Number.isInteger(n) && n > 0);
+  const statuses = workerIds.length === 0
+    ? new Map<number, string>()
+    : new Map((await db.select({ id: workerRunSchema.id, status: workerRunSchema.status }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.id, workerIds)))).map(w => [w.id, w.status]));
+  return rows.map(r => ({ id: r.id, status: r.status, executedAt: r.executedAt, result: (r.result ?? null) as Meta | null, workerStatus: statuses.get(Number((r.result as Meta | null)?.workerRunId)) ?? null }));
+}
+
+/**
+ * The refusal for a start of a request that is already building, or null.
+ * @param orgId - Tenant.
+ * @param requestId - The request, when the start names one.
+ * @param opts - What is asking.
+ * @param opts.trigger - The new start's trigger.
+ * @param opts.excludeRunId - The run asking, when it is one.
+ */
+export async function buildUnderway(orgId: string, requestId: number | undefined, opts: { trigger?: string | null; excludeRunId?: number } = {}): Promise<string | null> {
+  if (!requestId) {
+    return null;
+  }
+  return underwayRefusal(await earlierStarts(orgId, requestId, opts.excludeRunId), { trigger: opts.trigger });
+}
+
 /**
  * A start the factory made on its own, as opposed to one a person made or
  * approved. Only these count toward the automatic-attempt limit.
@@ -571,11 +663,19 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   grant: 'factory_write',
   external: true,
   dedupKeyFor: input => `${DISPATCH_ACTION_ID}:${input.taskId ?? `request-${input.requestId}`}${input.autoRetryOf ? `:retry-${input.autoRetryOf}` : ''}${triggerKey(input)}`,
+  // ONE BUILD CARD PER REQUEST: a card's own label hash never splits one
+  // request into two runs, and a model cannot write the factory's triggers.
+  ownsDedupKey: true,
+  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst'],
   policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : input.trigger ? `${DISPATCH_ACTION_ID}.${TRIGGER_KEY[input.trigger]}` : DISPATCH_ACTION_ID),
   async precheck(ctx, input) {
     const { externalWorkersEnabled } = await import('@/services/WorkerRunService');
     if (!externalWorkersEnabled()) {
       return 'External workers are not enabled on this deployment (VOCION_EXTERNAL_WORKERS=1), so nothing can take the build.';
+    }
+    const underway = await buildUnderway(ctx.orgId, input.requestId, { trigger: input.trigger });
+    if (underway) {
+      return underway;
     }
     const { task, plan } = await loadAll(ctx, input);
     if (!task || task.typeSlug !== 'engineering_task') {
@@ -639,6 +739,12 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     let task = loaded.task;
     if (!task) {
       throw new Error(`No engineering task #${input.taskId}.`);
+    }
+    // Executed twice is impossible: a card approved after another start of
+    // the same request took it says which run has it, and starts nothing.
+    const underway = await buildUnderway(ctx.orgId, input.requestId ?? (request ? request.id : undefined), { trigger: input.trigger, excludeRunId: ctx.runId });
+    if (underway) {
+      throw new Error(underway);
     }
     const automatic = isAutomatic(input, ctx);
     const at = new Date().toISOString();

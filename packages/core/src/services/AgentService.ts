@@ -20,7 +20,7 @@ import { tokenCostMicroCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { versionLinksDelta } from '@/libs/versions/versionRef';
 import { agentSchema } from '@/models/Schema';
-import { flatHistory, historyMessages } from '@/services/chat/historyTools';
+import { flatHistory, historyMessages, withLiveCardState } from '@/services/chat/historyTools';
 import { preambleOnly } from '@/services/chat/turnStatus';
 import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
@@ -676,6 +676,10 @@ export async function runAgentDeep(opts: {
   // in an old row or in VOCION_AGENT_PROVIDER still resolves. An agent
   // that named nothing gets a target derived from its `modelProvider`
   // — see `defaultHarnessTargetFor`.
+  // Each card a past turn put up replays as what its proposal is NOW — run,
+  // failed, still waiting — not as the turn stored it (conversation 360: two
+  // cards that had started the build replayed as undecided duplicates).
+  const conversationHistory = await withLiveCardState(opts.orgId, opts.conversationHistory);
   const [agentRow] = await db
     .select({ harnessConfig: agentSchema.harnessConfig, systemPrompt: agentSchema.systemPrompt })
     .from(agentSchema)
@@ -691,7 +695,7 @@ export async function runAgentDeep(opts: {
       ?? fleetDefaultHarnessTarget();
   if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
-    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, conversationHistory: flatHistory(opts.conversationHistory), onEvent: run }));
+    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, conversationHistory: flatHistory(conversationHistory), onEvent: run }));
   }
   if (target === 'external-worker') {
     // ADR 0004: Vocion is the control plane, a process it does not host does the
@@ -702,7 +706,7 @@ export async function runAgentDeep(opts: {
   }
   if (target === 'aws-managed-harness' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
-    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, conversationHistory: flatHistory(opts.conversationHistory), onEvent: run }));
+    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, conversationHistory: flatHistory(conversationHistory), onEvent: run }));
   }
 
   // The person's per-thread choice of model and thinking, mapped onto the
@@ -821,7 +825,7 @@ export async function runAgentDeep(opts: {
   // "approve" to a call it made and never re-plans a lookup it already ran
   // (`services/chat/historyTools.ts`). A person's turn is their words.
   const { AIMessage, HumanMessage, ToolMessage } = await import('@langchain/core/messages');
-  const history = (opts.conversationHistory ?? [])
+  const history = (conversationHistory ?? [])
     .filter(t => t.content.trim().length > 0 || t.runs)
     .flatMap((t): BaseMessage[] => {
       if (t.role === 'user') {
@@ -1463,7 +1467,10 @@ export async function runAgentDeep(opts: {
   const pageRecord = opts.pageContext?.record;
   const owedTarget = owedChangeTarget(pageRecord);
   const pageRecordId = owedTarget?.id ?? null;
-  if (pageRecordId !== null && asksToChange(opts.message) && !changedInTurn(toolCallLog, pageRecordId)) {
+  // Asked for in the person's words, or claimed in the answer: "two edits
+  // written to the record" with no write behind it (conversation 362) is
+  // the same owed change, whoever answered on the page.
+  if (pageRecordId !== null && (asksToChange(opts.message) || (writeClaim(finalText) !== null && !wroteInTurn(toolCallLog))) && !changedInTurn(toolCallLog, pageRecordId)) {
     try {
       const { buildDomainTools } = await import('./agents/tools/registry');
       const updateTool = buildDomainTools(boundCtx).find(t => t.name === 'update_object');

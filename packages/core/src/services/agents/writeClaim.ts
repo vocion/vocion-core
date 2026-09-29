@@ -60,6 +60,13 @@ export function wroteInTurn(toolCalls: ReadonlyArray<WriteClaimToolCall>): boole
 
 const DONE_WORDS = 'filed|recorded|created|logged|submitted|saved|queued|opened';
 
+/**
+ * The words of a change said as done — conversation 362 (2026-09-29):
+ * "Here's what I changed", "I rewrote the second acceptance line", "two
+ * edits written to the record", and nothing had been written.
+ */
+const CHANGED_WORDS = 'changed|updated|edited|rewrote|rewritten|reworded|added|removed|amended|revised|replaced|renamed';
+
 /** A bold "Filed:" or "Filed", or "Filed:" / "Recorded." at the start of a line. */
 const STATUS_LABEL = new RegExp(`(?:\\*\\*|^\\s*(?:[-*]\\s+)?)(?:${DONE_WORDS})(?:\\*\\*\\s*[:.—-]|\\s*[:.—-]\\s*\\*\\*|\\s*:)`, 'im');
 
@@ -77,10 +84,10 @@ const BARE_LABEL = new RegExp(`^\\s*(?:[-*]\\s+)?(?:${DONE_WORDS})(?:\\.|\\s+[�
 const CARD_CLAIM = /\b(?:the|your|a)\s+(?:[\w-]+\s+){0,2}card\s+(?:is|was)\s+(?:now\s+)?(?:on your screen|on screen|below|above|up|ready)\b/i;
 
 /** "I filed", "I've filed", "I have created", "I just logged". */
-const FIRST_PERSON = new RegExp(`\\bI(?:'ve|\\s+have)?(?:\\s+(?:just|now|already))?\\s+(?:${DONE_WORDS})\\b`, 'i');
+const FIRST_PERSON = new RegExp(`\\bI(?:'ve|\\s+have)?(?:\\s+(?:just|now|already))?\\s+(?:${DONE_WORDS}|${CHANGED_WORDS})\\b`, 'i');
 
 /** "The call returned", "Fields written on request #30" — mission run 5074 (2026-09-25). */
-const REPORTED_WRITE = /\b(?:the (?:call|update|write) (?:returned|succeeded|went through)|fields? (?:written|updated|saved))\b/i;
+const REPORTED_WRITE = /\b(?:the (?:call|update|write) (?:returned|succeeded|went through)|fields? (?:written|updated|saved)|(?:edits?|changes?) (?:written|saved|made|applied|landed)|written to the record)\b/i;
 
 /**
  * The sentence in the answer that claims a write, or null.
@@ -97,7 +104,7 @@ export function writeClaim(text: string): string | null {
 }
 
 /** What the person reads under an unbacked claim. */
-export const UNBACKED_WRITE_NOTICE = 'Nothing was saved in this turn, so what is described above as filed has not happened yet.';
+export const UNBACKED_WRITE_NOTICE = 'Nothing was saved in this turn, so what is described above as filed or changed has not happened yet.';
 
 /**
  * The sentence that says a card is on screen, or null.

@@ -400,6 +400,12 @@ export type RuntimeContext = {
   evidenceOpened?: boolean;
   /** A verdict in this run has been shown the task's stored run of its named tests (record_verdict). */
   testRunShown?: boolean;
+  /**
+   * The sources this turn has opened (`wiki:<slug>`, `artifact:<id>`), noted
+   * as each read returns — the evidence a gate's `readThisTurn` checks
+   * (`services/gates/turnReads.ts`).
+   */
+  turnReads?: string[];
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
   /**

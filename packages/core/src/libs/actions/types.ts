@@ -37,6 +37,12 @@ export type ActionContext = {
    * the person whose turn it was. Present on `execute` only.
    */
   origin?: { conversationId?: number | null; userId?: string | null; byPerson?: boolean };
+  /**
+   * What the agent turn proposing this has read (`GateTurn`), when a turn is
+   * proposing. Present on `precheck` only: a gate that asks for a source read
+   * in this turn (`readThisTurn`) checks it here, at the door.
+   */
+  turn?: import('@/libs/gates/handoffGate').GateTurn;
 };
 
 /**
@@ -308,6 +314,26 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * into one, and the reviewer would only ever see the last one to arrive.
    */
   dedupKeyFor?: (input: z.infer<S>) => string | undefined;
+  /**
+   * `dedupKeyFor` names the ONE thing this action is about, so it wins over a
+   * key the caller passed — a chat card's own `card:` key included. Without
+   * it a card proposes under its label's hash, and two cards for the same
+   * record are two runs: request #224 got three `factory.dispatch_task` runs
+   * in 35 seconds (5015 from the intake, 5016 and 5018 from the PM's cards),
+   * two of which executed. With it, a second proposal for the same record
+   * refreshes the open run instead, and that refreshed run is judged by the
+   * trust ladder as the new proposal would have been.
+   */
+  ownsDedupKey?: boolean;
+  /**
+   * Input fields only core's own steps may set (`proposeAction({ internal:
+   * true })`) — a trigger that picks a different trust key, a counter that
+   * says a run was automatic. Stripped from every other proposal, so a model
+   * writing a card cannot claim to be the factory's automatic start (the
+   * PM's card for #224 carried `trigger: "request"`, which moved it onto the
+   * intake's trust key and out of the dedup key the intake's card used).
+   */
+  internalInput?: readonly string[];
   /**
    * Collapse a repeat proposal into an already-DECIDED run as well as a
    * pending one. Off unless the action sets it, because for most actions the

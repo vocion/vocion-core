@@ -21,6 +21,7 @@ import { listActions } from '@/libs/actions/registry';
 import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { ActionError, proposeAction, willExecuteOnItsOwn } from '@/services/ActionService';
 import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
+import { readsThisTurn } from '@/services/gates/turnReads';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
 import { emitSelfUpdate } from '../selfUpdateEvent';
 import { withArgumentRepair } from '../toolCallRecord';
@@ -79,11 +80,15 @@ export async function runProposal(
       return verdict.message;
     }
   }
+  // What this turn has read, for a gate that asks for a source read in it
+  // (`readThisTurn`: a feature request names the product's capabilities page).
+  const turn = action_id === 'objects.propose_candidate' ? { reads: await readsThisTurn(ctx) } : undefined;
   try {
     const res = await proposeAction({
       orgId: ctx.orgId,
       actionId: action_id,
       input: action_input,
+      ...(turn ? { turn } : {}),
       // Same key the review router and the auto-proposer derive, so the
       // second proposal for the same target refreshes the first instead of
       // stacking beside it (2026-09-18: runs 768 and 769, one deal, both

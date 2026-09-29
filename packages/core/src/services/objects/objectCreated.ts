@@ -67,6 +67,16 @@ export function objectCreatedPayload(orgId: string, object: { id: number; title:
  * @param origin - Where it came from.
  */
 export async function announceObjectCreated(orgId: string, object: { id: number; title: string }, objectType: string, origin: ObjectOrigin): Promise<void> {
+  // A RECORD IS BORN WITH ITS BODY (backlog 035). Every create path comes
+  // through here, so this is where v1 is written: request #227 (2026-09-29),
+  // filed through file_request, had no body and no versions, and the first
+  // change on its page had nothing to be a version of. Never throws.
+  try {
+    const { ensureRecordBody } = await import('@/services/objects/recordBody');
+    await ensureRecordBody(orgId, object.id);
+  } catch (error) {
+    console.warn(`[objects] could not write the body of #${object.id}`, error);
+  }
   try {
     // Dynamic, like every other emitter: the bus imports the automation
     // service, which reaches the create paths that call this.

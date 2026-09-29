@@ -39,7 +39,7 @@
 
 import type { ValidateFunction } from 'ajv';
 import type { Action, ActionContext, ReviewCard } from './types';
-import type { GateFailure } from '@/libs/gates/handoffGate';
+import type { GateFailure, GateTurn, HandoffGate } from '@/libs/gates/handoffGate';
 import { z } from 'zod';
 import { evaluateGates, gatesOf } from '@/libs/gates/handoffGate';
 import { isEmptyValue } from '@/libs/workspace/pageFields';
@@ -58,6 +58,72 @@ const DEDUP_SEGMENT_MAX_LENGTH = 80;
  */
 export function proposalRefusal(f: GateFailure, label: string): string {
   return `Not proposed: this ${label.toLowerCase()} fails the "${f.gate.name}" bar: ${f.failed.map(x => `${x.field}: ${x.why}`).join('; ')}. Fix the card and propose it again.`;
+}
+
+/**
+ * The door's refusal for a record becoming a candidate, or undefined. With a
+ * turn, a `readThisTurn` requirement also checks the page it `includes` was
+ * read in that turn: `product.capabilitiesPage` is read off the product the
+ * record names (request #226, 2026-09-29, was filed claiming Stamp had no way
+ * to revoke a link; its capabilities page lists expiry and Kill).
+ * @param orgId - The workspace.
+ * @param objectType - The type.
+ * @param fields - The candidate's fields.
+ * @param turn - What the proposing turn read, when a turn is proposing.
+ */
+export async function candidateGateRefusal(orgId: string, objectType: ObjectTypeRow, fields: Record<string, unknown>, turn?: GateTurn): Promise<string | undefined> {
+  const gates = gatesOf(objectType.schema);
+  const set = { ...fields, status: 'candidate' };
+  const resolvedTurn = turn ? { ...turn, resolved: { ...(turn.resolved ?? {}), ...await resolveIncludes(orgId, objectType.schema, gates, set) } } : undefined;
+  const failure = evaluateGates(gates, {}, set, new Date(), resolvedTurn);
+  return failure ? proposalRefusal(failure, objectType.label) : undefined;
+}
+
+/**
+ * Each `readThisTurn.includes` path resolved to the page it names: the linked
+ * record's field (`product.capabilitiesPage` → the product whose slug the
+ * record names → its `capabilitiesPage`), as a wiki page with its artifact id.
+ * A path whose record or field is missing resolves to null and asks nothing.
+ * @param orgId - The workspace.
+ * @param schema - The type's schema (its `x-display.to` says what a field links to).
+ * @param gates - The type's gates.
+ * @param record - The record as it would be.
+ */
+async function resolveIncludes(orgId: string, schema: Record<string, unknown> | null, gates: HandoffGate[], record: Record<string, unknown>): Promise<Record<string, { name: string; keys: string[] } | null>> {
+  const paths = [...new Set(gates.flatMap(g => g.require.map(r => r.readThisTurn?.includes).filter((p): p is string => typeof p === 'string' && p.includes('.'))))];
+  const out: Record<string, { name: string; keys: string[] } | null> = {};
+  for (const path of paths) {
+    const [linkField, pageField] = path.split('.', 2) as [string, string];
+    const slug = record[linkField];
+    const props = (schema?.properties ?? {}) as Record<string, { 'x-display'?: { to?: string } }>;
+    const linkedType = props[linkField]?.['x-display']?.to;
+    if (typeof slug !== 'string' || !slug.trim() || !linkedType) {
+      out[path] = null;
+      continue;
+    }
+    try {
+      const { and, eq, sql } = await import('drizzle-orm');
+      const { db } = await import('@/libs/DB');
+      const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+      const [linked] = await db
+        .select({ page: sql<string | null>`${businessObjectSchema.metadata}->>${pageField}` })
+        .from(businessObjectSchema)
+        .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+        .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, linkedType), sql`${businessObjectSchema.metadata}->>'slug' = ${slug.trim()}`))
+        .limit(1);
+      const page = linked?.page?.trim();
+      if (!page) {
+        out[path] = null;
+        continue;
+      }
+      const { getWikiPage } = await import('@/services/wiki/WikiService');
+      const wiki = await getWikiPage(orgId, page).catch(() => null);
+      out[path] = { name: `the wiki page "${wiki?.slug ?? page}"`, keys: [`wiki:${wiki?.slug ?? page}`, ...(wiki ? [`artifact:${wiki.id}`] : [])] };
+    } catch {
+      out[path] = null;
+    }
+  }
+  return out;
 }
 
 export const CANDIDATE_STATUS = {
@@ -875,11 +941,7 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
     // A type that declares `when: {field: status, becomes: [candidate]}` gets
     // proposals refused with each missing thing named, before they reach a
     // person's queue; the proposer fixes the card and proposes again.
-    const failure = evaluateGates(gatesOf(objectType.schema), {}, { ...input.fields, status: 'candidate' });
-    if (failure) {
-      return proposalRefusal(failure, objectType.label);
-    }
-    return undefined;
+    return candidateGateRefusal(ctx.orgId, objectType, input.fields, ctx.turn);
   },
 
   async onProposed(ctx, input, runId) {

@@ -15,7 +15,7 @@
  */
 
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
-import type { Action } from '@/libs/actions/types';
+import type { Action, ActionContext } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
@@ -355,6 +355,14 @@ export async function proposeAction(input: {
    * was asked for in chat (backlog 038: a P1 filed there starts its build).
    */
   origin?: ActionOrigin;
+  /**
+   * Core's own step (the factory's automatic starts, a QA send-back retry):
+   * the action's `internalInput` fields are kept. Every other caller — a
+   * model's card or tool call, a person's tap, the API — has them removed.
+   */
+  internal?: boolean;
+  /** What the proposing agent turn has read, for a gate's `readThisTurn` (`ActionContext.turn`). */
+  turn?: ActionContext['turn'];
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
   const storedProposal = withOrigin(proposalForStorage(input.proposal), input.origin);
@@ -372,7 +380,7 @@ export async function proposeAction(input: {
   // is what actually reaches the caller as a sentence they can act on.
   let parsed;
   try {
-    parsed = action.inputSchema.parse(input.input);
+    parsed = action.inputSchema.parse(input.internal ? input.input : withoutInternalInput(action, input.input));
   } catch (error) {
     if (error instanceof ZodError) {
       throw new ActionError('VALIDATION_FAILED', error.issues.map(issue => issue.message).join('; '));
@@ -382,7 +390,11 @@ export async function proposeAction(input: {
   // Canonical dedup: when the proposer passes no key, the action derives one
   // from the parsed input — so an agent proposing the same call twice collapses
   // into the deterministic job's old behaviour instead of stacking queue items.
-  const dedupKey = input.dedupKey ?? action.dedupKeyFor?.(parsed);
+  // An action whose key names its one subject (`ownsDedupKey`) keeps it
+  // whatever key the caller brought: a card's label hash is not an identity.
+  const dedupKey = action.ownsDedupKey
+    ? action.dedupKeyFor?.(parsed) ?? input.dedupKey
+    : input.dedupKey ?? action.dedupKeyFor?.(parsed);
 
   // Authorised BEFORE anything is written. The refresh path below updates a
   // pending row and calls the action's `onProposed`, which can touch a domain
@@ -406,7 +418,7 @@ export async function proposeAction(input: {
   // schema cannot check lives here, and refusing costs the caller nothing but
   // a message it can act on.
   const refusal = await action.precheck?.(
-    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, ...(input.turn ? { turn: input.turn } : {}) },
     parsed,
   );
   if (refusal) {
@@ -472,7 +484,7 @@ export async function proposeAction(input: {
           decidedAt: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
-      return { id: existing.id, input: stored.input };
+      return { id: existing.id, input: stored.input, proposal: stored.proposal };
     });
     if (refreshed) {
       // Keep the action's own domain row in step with the refreshed payload.
@@ -484,6 +496,17 @@ export async function proposeAction(input: {
         refreshed.input,
         refreshed.id,
       );
+      // ONE RUN PER SUBJECT, JUDGED AS THE NEW PROPOSAL. When the key is the
+      // action's own, the proposal that just merged in would have been its
+      // own run a moment ago, and the ladder would have judged it: it still
+      // is, so merging never costs a proposal the done-for-you it earned.
+      if (action.ownsDedupKey && input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number') {
+        const verdict = await ladderVerdict(input.orgId, action, refreshed.input as Record<string, unknown>, input.proposal, input.conversationAutonomy);
+        if (verdict.mode === 'execute') {
+          await stampAutoApproval(refreshed.id, (refreshed.proposal ?? null) as Record<string, unknown> | null, verdict, input.invokedBy ?? input.principal.id, input.proposal?.agentSlug);
+          return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed' };
+        }
+      }
       return { runId: refreshed.id, status: 'pending', outcome: 'refreshed' };
     }
 
@@ -566,37 +589,7 @@ export async function proposeAction(input: {
     // ladder reads the same one and never offers a promotion this gate refuses.
     const verdict = await ladderVerdict(input.orgId, action, parsed as Record<string, unknown>, input.proposal, input.conversationAutonomy);
     if (verdict.mode === 'execute') {
-      // Who to credit with the decision. An in-process agent turn stamps
-      // `agent:<slug>` on the proposing principal; a proposal made over the API
-      // stamps its caller there and names the agent in the envelope instead, so
-      // both have to be read. Neither knowing it means the ladder itself is
-      // the decider — the honest answer, rather than crediting an agent we
-      // cannot name.
-      const decidingAgent = agentSlugFromPrincipal(input.invokedBy ?? input.principal.id)
-        ?? input.proposal?.agentSlug;
-      await db
-        .update(actionRunSchema)
-        .set({
-          proposal: {
-            ...(storedProposal ?? {}),
-            autoApproved: true,
-            autoApprovedThreshold: verdict.threshold ?? undefined,
-            autoApprovedReason: verdict.reason,
-            autoApprovedBy: verdict.source,
-          } as never,
-          // `approvedByAgent` is the system of record for who decided; the
-          // envelope key above predates it and is kept so runs written before
-          // the column landed still read as auto-approved.
-          //
-          // Stamping the decision fields here is what makes "did a decision
-          // happen" one question instead of two: before this, an auto-approved
-          // run left `decidedBy` and `decidedAt` empty and was indistinguishable
-          // from one nobody had touched.
-          approvedByAgent: true,
-          decidedBy: decidingAgent ? `agent:${decidingAgent}` : 'trust-ladder',
-          decidedAt: new Date(),
-        })
-        .where(eq(actionRunSchema.id, run!.id));
+      await stampAutoApproval(run!.id, storedProposal, verdict, input.invokedBy ?? input.principal.id, input.proposal?.agentSlug);
       // Deliberately NOT written to the adoption stream. Adoption measures what
       // people do, and an agent actor on a `review.%` event would count itself
       // as an active user and as an interaction, inflating the very numbers the
@@ -608,6 +601,69 @@ export async function proposeAction(input: {
     return { runId: run!.id, status: 'pending', outcome: 'created' };
   }
   return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
+}
+
+/**
+ * The input with the action's core-only fields removed (`internalInput`).
+ * @param action - The action.
+ * @param raw - The caller's input.
+ */
+export function withoutInternalInput(action: Action, raw: Record<string, unknown>): Record<string, unknown> {
+  const internal = action.internalInput ?? [];
+  if (internal.length === 0 || !raw || typeof raw !== 'object') {
+    return raw;
+  }
+  return Object.fromEntries(Object.entries(raw).filter(([k]) => !internal.includes(k)));
+}
+
+/**
+ * Stamp the ladder's approval on a run it is about to execute.
+ * @param runId - The run.
+ * @param storedProposal - Its envelope as stored.
+ * @param verdict - The ladder's answer.
+ * @param verdict.threshold - The bar it cleared.
+ * @param verdict.reason - Why.
+ * @param verdict.source - Which rule.
+ * @param caller - `invokedBy`, or the principal's id.
+ * @param envelopeAgent - The agent the envelope names.
+ */
+async function stampAutoApproval(
+  runId: number,
+  storedProposal: Record<string, unknown> | null,
+  verdict: { threshold?: number | null; reason: string; source: string },
+  caller: string,
+  envelopeAgent: string | undefined,
+): Promise<void> {
+  // Who to credit with the decision. An in-process agent turn stamps
+  // `agent:<slug>` on the proposing principal; a proposal made over the API
+  // stamps its caller there and names the agent in the envelope instead, so
+  // both have to be read. Neither knowing it means the ladder itself is
+  // the decider — the honest answer, rather than crediting an agent we
+  // cannot name.
+  const decidingAgent = agentSlugFromPrincipal(caller) ?? envelopeAgent;
+  await db
+    .update(actionRunSchema)
+    .set({
+      proposal: {
+        ...(storedProposal ?? {}),
+        autoApproved: true,
+        autoApprovedThreshold: verdict.threshold ?? undefined,
+        autoApprovedReason: verdict.reason,
+        autoApprovedBy: verdict.source,
+      } as never,
+      // `approvedByAgent` is the system of record for who decided; the
+      // envelope key above predates it and is kept so runs written before
+      // the column landed still read as auto-approved.
+      //
+      // Stamping the decision fields here is what makes "did a decision
+      // happen" one question instead of two: before this, an auto-approved
+      // run left `decidedBy` and `decidedAt` empty and was indistinguishable
+      // from one nobody had touched.
+      approvedByAgent: true,
+      decidedBy: decidingAgent ? `agent:${decidingAgent}` : 'trust-ladder',
+      decidedAt: new Date(),
+    })
+    .where(eq(actionRunSchema.id, runId));
 }
 
 /**

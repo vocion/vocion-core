@@ -82,6 +82,8 @@ async function propose(orgId: string, actionId: string, input: Meta, env: { conf
       // bounded by the attempt limit, not by the agent's Review budget, and
       // `factory.approve_plan` refuses an agent proposing it on its own.
       invokedBy: `factory:${PM}`,
+      // The factory's own step: its triggers and counters are kept.
+      internal: true,
       proposal: { confidence: env.confidence, rationale: env.rationale, agentSlug: PM, suggestedDecision: env.decision ?? 'approve', suggestedDecisionReason: env.reason },
     });
     return { ok: true, res };

@@ -372,6 +372,76 @@ export function followUpDecision(opts: { agents: RoutableAgent[]; message: strin
 }
 
 /**
+ * A CHAT ON A RECORD'S PAGE IS THE RECORD OWNER'S (the page is the context).
+ *
+ * Conversation 362 (2026-09-29): on request #227's page the person wrote
+ * "Three changes to this request: …"; the router scored the words, sent it to
+ * change-reviewer on "changes", and change-reviewer read the record and
+ * answered "two edits written to the record" with nothing written. The type
+ * says who answers for its records (`x-owner` in its schema); on its page
+ * that agent answers the conversation's first turn, unless the person names
+ * another. Null when the page names no record, the type names no owner, or
+ * the owner is not an active agent here — the router decides then.
+ * @param opts - The roster, the message, the page's record and its owner.
+ * @param opts.agents - Every agent the caller may route to.
+ * @param opts.message - The message as typed.
+ * @param opts.record - The page's record: its type and id.
+ * @param opts.record.objectType - The record's type slug.
+ * @param opts.record.id - The record's id.
+ * @param opts.ownerSlug - The type's `x-owner`.
+ * @param opts.surface - Where the message came from, for the record.
+ */
+export function pageOwnerDecision(opts: { agents: RoutableAgent[]; message: string; record: { objectType: string; id: string | number } | null; ownerSlug: string | null; surface: string }): RoutingDecision | null {
+  if (!opts.record || !opts.ownerSlug) {
+    return null;
+  }
+  const at = new Date().toISOString();
+  const named = namedAgent(opts.agents, opts.message);
+  if (named) {
+    return { chosen: named, defaulted: false, reason: `The person named ${named}.`, candidates: [], surface: opts.surface, at };
+  }
+  const owner = opts.agents.find(a => a.slug === opts.ownerSlug);
+  if (!owner || !isActive(owner)) {
+    return null;
+  }
+  const kind = opts.record.objectType.replace(/[_-]+/g, ' ');
+  return {
+    chosen: owner.slug,
+    defaulted: false,
+    reason: `The page is ${kind} #${opts.record.id}, and ${owner.slug} answers for ${kind}s on their page.`,
+    candidates: [],
+    surface: opts.surface,
+    at,
+  };
+}
+
+/**
+ * The agent a type names as answering for its records (`x-owner` in its
+ * stored schema), or null.
+ * @param orgId - The workspace.
+ * @param typeSlug - The type.
+ */
+export async function recordOwnerSlug(orgId: string, typeSlug: string | null | undefined): Promise<string | null> {
+  if (!typeSlug) {
+    return null;
+  }
+  try {
+    const { and, eq } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { businessObjectTypeSchema } = await import('@/models/Schema');
+    const [row] = await db
+      .select({ schema: businessObjectTypeSchema.schema })
+      .from(businessObjectTypeSchema)
+      .where(and(eq(businessObjectTypeSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, typeSlug)))
+      .limit(1);
+    const owner = (row?.schema as Record<string, unknown> | null)?.['x-owner'];
+    return typeof owner === 'string' && owner.trim() ? owner.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The projection of an agent row the router reads.
  * @param row
  */

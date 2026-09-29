@@ -225,11 +225,15 @@ export async function withdrawProposal(opts: { orgId: string; agentSlug: string;
     if (!row) {
       return { ok: false, message: `No proposal #${opts.id}.` };
     }
+    // What it IS comes first: a proposal that already ran is not a duplicate
+    // card to tidy away, and "not yours" hid that it had executed
+    // (conversation 360: the PM tried to withdraw #5016, which had started
+    // the build, and learned only that it was not its to withdraw).
+    if (row.status !== 'pending') {
+      return { ok: false, message: `Proposal #${opts.id} is already ${row.status === 'done' ? 'done — it ran; read what it did before anything else' : row.status}. Nothing was withdrawn.` };
+    }
     if (row.invokedBy !== `agent:${opts.agentSlug}`) {
       return { ok: false, message: `Proposal #${opts.id} is not yours to withdraw.` };
-    }
-    if (row.status !== 'pending') {
-      return { ok: false, message: `Proposal #${opts.id} is already ${row.status}.` };
     }
     const { rejectAction } = await import('@/services/ActionService');
     await rejectAction(opts.id, opts.orgId, note, { reviewedBy: `agent:${opts.agentSlug}` });

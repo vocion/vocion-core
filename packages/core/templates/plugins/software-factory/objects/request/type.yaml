@@ -21,6 +21,12 @@ schema:
   # When a question about a request stops being a question (backlog 039): a
   # Review item asking about one closes itself once the request ends here.
   x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
+  # WHO ANSWERS ON ITS PAGE (core: services/agents/router.ts pageOwnerDecision).
+  # A chat opened on a request's page is the product manager's, whatever the
+  # message's keywords score, unless the person names another agent
+  # (conversation 362: "Three changes to this request…" went to
+  # change-reviewer on "changes", and nothing was written).
+  x-owner: product-manager
   # FILED THROUGH ITS OWN TOOL (core: services/agents/tools/fileRecord.ts).
   # An agent that works with requests gets `file_request`, whose arguments ARE
   # these fields: the proposal-ready bar below marked required, `product` as
@@ -30,7 +36,7 @@ schema:
   # "Stamp"`, no story, no dedupOn), was refused twice, and nothing was filed.
   x-agent-file:
     dedupOn: [product, title]
-    fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
+    fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, gapCheck, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
     omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.afterArtifactIds, visuals.drawnArtifactId]
   properties:
     kind:
@@ -117,10 +123,12 @@ schema:
         product, read at the moment work was about to start rather than when
         the ask arrived. A request records what was true the day somebody
         asked; a product that ships most days makes that a perishable claim.
-        Required before a request may enter `in_scope` or `building`, refused
-        in code rather than asked for in a prompt
-        (`libs/actions/gapGate.ts`), and good for fourteen days — so a replan
-        re-reads it rather than trusting a month-old look.
+        Required to FILE a gap or an idea (the proposal-ready gate: the
+        product's capabilities page, read in the filing turn, among its
+        sources) and again before a request may enter `in_scope` or
+        `building` (still-missing), refused in code rather than asked for in
+        a prompt, and good for fourteen days — so a replan re-reads it rather
+        than trusting a month-old look.
       properties:
         finding:
           type: string
@@ -132,8 +140,16 @@ schema:
           enum: [add, modify, none]
         how:
           type: string
-          description: What was actually looked at — the route, the screen, the endpoint, the file — so the next reader can repeat the check in one move rather than trusting it.
+          description: What was actually looked at — the route, the screen, the endpoint, the file — so the next reader can repeat the check in one move rather than trusting it. With `none`, what already ships, in a sentence the person can be told.
         checkedAt: {type: string, format: date-time}
+        sources:
+          type: array
+          items: {type: string}
+          description: >-
+            What the check read, one entry each: `wiki:<slug>` for a wiki page,
+            `artifact:<id>`, a URL or a file path. A gap or an idea names its
+            product's capabilities page (the product's `capabilitiesPage`),
+            opened with read_wiki_page in the same turn that files it.
     surface:
       x-display: {label: Surface, format: badge, group: Triage, tones: {ui: info, flow: info, data: muted, infra: muted, none: muted}}
       type: string
@@ -542,6 +558,35 @@ gates:
       - {field: mainRisk, present: true, message: name the one thing most likely to go wrong, in a sentence}
       - {field: visuals.surfaceUrl, present: true, message: name the live page this changes, and attach a before-shot of it as it is today}
       - {field: whyNote, present: true, message: 'say why this does not exist yet: the file, screen or marketing line you checked against what the product already does'}
+      # DOES IT ALREADY SHIP? Request #226 (2026-09-29) asked for link expiry
+      # "because today I have no way to revoke access" — the product shipped
+      # expiry and Kill, and its capabilities page said so. A gap or an idea is
+      # filed only against what the product does today, read in this turn.
+      - field: gapCheck.finding
+        if: {field: kind, oneOf: [gap, idea]}
+        oneOf: [add, modify]
+        missingMessage: >-
+          check what the product already does before filing: read its
+          capabilities page (read_wiki_page), then record gapCheck.finding as
+          add (none of it ships), modify (part of it ships — ask for the part
+          that does not) or none (it all ships), with gapCheck.how,
+          gapCheck.checkedAt and gapCheck.sources
+        valueMessages:
+          none: >-
+            already ships: {gapCheck.how}. Nothing was filed. Tell the person
+            where it is and how to use it, citing the page you read, instead of
+            filing a request for it
+        message: 'gapCheck.finding is "{value}", which is not one of add, modify or none'
+      - {field: gapCheck.how, if: {field: kind, oneOf: [gap, idea]}, present: true, message: 'say what the check looked at, so the next reader can repeat it in one move'}
+      - {field: gapCheck.checkedAt, if: {field: kind, oneOf: [gap, idea]}, present: true, message: say when the check was made}
+      - field: gapCheck.sources
+        if: {field: kind, oneOf: [gap, idea]}
+        readThisTurn: {includes: product.capabilitiesPage}
+        missingMessage: 'list what the check read in gapCheck.sources — the product''s capabilities page first, as wiki:<slug>'
+        message: >-
+          gapCheck.sources must name {page}, opened with read_wiki_page in this
+          turn — it lists what the product already ships. Read it, compare the
+          ask against it, and file only what it does not already do
   - name: decision-ready
     when: {field: state, becomes: [in_scope]}
     producedBy: product-manager

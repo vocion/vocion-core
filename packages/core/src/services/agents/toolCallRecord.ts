@@ -23,6 +23,7 @@ import { db } from '@/libs/DB';
 import { stopReasonOfMessage } from '@/libs/llm/stopReason';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { toolCallSchema } from '@/models/Schema';
+import { noteTurnRead } from '@/services/gates/turnReads';
 import { taskIdOf } from './traceEmitter';
 
 /** Output rows stay readable, not exhaustive — full payloads live in the trace. */
@@ -224,6 +225,9 @@ export function withToolCallRecord(
     const callInput = repair.normalizeArgs ? repairedInput(input, repair.normalizeArgs) : input;
     try {
       const result = await originalInvoke(callInput as never, config as never);
+      // A read is evidence the moment it returns: a filing later in this
+      // turn may be refused without it (`services/gates/turnReads.ts`).
+      noteTurnRead(ctx, toolObj.name, normalizeInput(callInput), normalizeOutput(result));
       void persistToolCall({
         ctx,
         tool: toolObj.name,

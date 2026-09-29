@@ -42,6 +42,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { AgentEvent, RuntimeContext } from './types';
 import type { ModelRole } from '@/libs/llm';
+import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
 
 /** At most this many cards per pass — the agents' own rule is "top 3–5 by leverage". */
 export const MAX_CARDS = 5;
@@ -226,7 +227,9 @@ export async function buildOrFiling(shaped: Record<string, unknown>, requestExis
     return { call: shaped, mapped: false };
   }
   const contract = input.contract && typeof input.contract === 'object' ? input.contract as Record<string, unknown> : {};
-  const title = thingOf(typeof contract.title === 'string' && contract.title.trim() ? contract.title : String(shaped.label ?? '')).slice(0, 200);
+  // A filing names a record that does not exist yet: every record number the
+  // model typed into the build it meant is dropped (s1: "(request 207)").
+  const title = labelWithResolvedRefs(thingOf(typeof contract.title === 'string' && contract.title.trim() ? contract.title : String(shaped.label ?? '')), {}).slice(0, 200);
   const summary = [contract.objective, shaped.rationale].find(v => typeof v === 'string' && v.trim()) as string | undefined;
   return {
     mapped: true,
