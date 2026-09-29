@@ -444,6 +444,11 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
           ? clamp(rect.top, rect.left + rect.width + 14)
           : clamp(rect.top + rect.height + 14, rect.left); // bottom (default)
 
+  const dim = (step.mask ?? tour.mask) !== 'none';
+  const caption = tour.presentation === 'caption';
+  // The caption sits along the bottom unless the element it points at is
+  // down there too (a decision bar, a composer): then it moves to the top.
+  const captionTop = caption && rect !== null && rect.top + rect.height > vh - 200;
   const waiting = step.advance === 'appear';
   const tapStep = step.advance === 'click';
   // Page taps reach the page on interactive steps, and on tap steps (where
@@ -458,6 +463,9 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       aria-modal="true"
       aria-label={tour.title}
       data-tour-chrome
+      data-tour-slug={slug}
+      data-tour-step={idx + 1}
+      data-tour-steps={steps.length}
     >
       <style>
         {`
@@ -477,7 +485,11 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
               className="absolute rounded-xl"
               style={{
                 ...rect,
-                boxShadow: '0 0 0 99999px rgba(12, 20, 26, 0.42)',
+                // Dimmed: one giant shadow darkens everything else. Undimmed:
+                // the page stays as it is and the element gets a ring.
+                boxShadow: dim
+                  ? '0 0 0 99999px rgba(12, 20, 26, 0.42)'
+                  : '0 0 0 3px rgba(242, 106, 27, 0.95), 0 0 0 9px rgba(242, 106, 27, 0.16), 0 18px 40px -12px rgba(12, 20, 26, 0.35)',
                 transition: 'top 450ms cubic-bezier(.2,.8,.2,1), left 450ms cubic-bezier(.2,.8,.2,1), width 450ms cubic-bezier(.2,.8,.2,1), height 450ms cubic-bezier(.2,.8,.2,1)',
                 pointerEvents: 'none',
               }}
@@ -493,7 +505,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
               )}
             </div>
           )
-        : <div className="absolute inset-0 bg-[rgba(12,20,26,0.42)]" style={{ transition: 'opacity 300ms' }} />}
+        : dim && <div className="absolute inset-0 bg-[rgba(12,20,26,0.42)]" style={{ transition: 'opacity 300ms' }} />}
       {/* click shield: keeps the walkthrough on rails; Esc / End tour always exits */}
       {!passThrough && !waiting && <div className="absolute inset-0" aria-hidden="true" />}
 
@@ -508,64 +520,94 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
         ✕ End tour
       </button>
 
-      <div
-        ref={popRef}
-        key={`${slug}-${idx}`}
-        className="absolute z-10 max-h-[calc(100vh-24px)] w-[400px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-2xl border border-border bg-background p-5 shadow-2xl"
-        style={{ ...popStyle, pointerEvents: 'auto', animation: 'wsx-tour-in 380ms cubic-bezier(.2,.8,.2,1) both', transition: 'top 450ms cubic-bezier(.2,.8,.2,1), left 450ms cubic-bezier(.2,.8,.2,1)' }}
-      >
-        <div className="mb-3 flex items-center gap-2">
-          <div className="flex flex-1 gap-1">
-            {steps.map((s, i) => (
-              <div
-                key={`${s.title}-${i}`}
-                className={`h-1 flex-1 rounded-full transition-colors duration-500 ${i <= idx ? 'bg-foreground' : 'bg-muted'}`}
-              />
-            ))}
+      {caption && (
+        <div
+          ref={popRef}
+          key={`caption-${slug}-${idx}`}
+          className={`absolute inset-x-0 z-10 ${captionTop ? 'top-0 flex flex-col-reverse' : 'bottom-0'}`}
+          style={{ pointerEvents: 'auto', animation: 'wsx-tour-in 420ms cubic-bezier(.2,.8,.2,1) both' }}
+        >
+          <div className="h-1 w-full bg-black/10">
+            <div className="h-full bg-[#F26A1B]" style={{ width: `${((idx + 1) / steps.length) * 100}%`, transition: 'width 600ms cubic-bezier(.2,.8,.2,1)' }} />
           </div>
-          <div className="font-mono text-[11px] text-muted-foreground tabular-nums">
-            {idx + 1}
-            /
-            {steps.length}
+          <div className="flex items-center gap-8 bg-[#1B2733]/95 px-12 py-7 text-white backdrop-blur">
+            <div className="min-w-0 flex-1">
+              <div className="mb-1.5 text-[15px] font-semibold tracking-[0.12em] text-[#F26A1B] uppercase">{step.eyebrow ?? tour.title}</div>
+              <div className="text-[34px] leading-tight font-semibold tracking-tight">{step.caption ?? step.title}</div>
+            </div>
+            {waiting && (
+              <div className="relative h-1.5 w-40 shrink-0 overflow-hidden rounded-full bg-white/15">
+                <div className="absolute inset-y-0 w-1/3 rounded-full bg-[#F26A1B]" style={{ animation: 'wsx-tour-work 1.2s ease-in-out infinite' }} />
+              </div>
+            )}
+            {!autoplay && (
+              <button type="button" onClick={advance} className="shrink-0 rounded-xl bg-white px-6 py-3 text-lg font-semibold text-[#1B2733]">
+                {isLast ? 'Finish' : 'Next'}
+              </button>
+            )}
           </div>
         </div>
-        <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-          {step.eyebrow ?? tour.title}
-        </div>
-        <div className="mb-1.5 text-lg leading-snug font-semibold">{step.title}</div>
-        <p className="mb-4 text-[15px] leading-relaxed whitespace-pre-line text-muted-foreground">{step.body}</p>
-        {waiting && (
-          <div className="relative mb-4 h-1 overflow-hidden rounded-full bg-muted">
-            <div className="absolute inset-y-0 w-1/3 rounded-full bg-amber-400" style={{ animation: 'wsx-tour-work 1.2s ease-in-out infinite' }} />
+      )}
+      {!caption && (
+        <div
+          ref={popRef}
+          key={`${slug}-${idx}`}
+          className="absolute z-10 max-h-[calc(100vh-24px)] w-[400px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-2xl border border-border bg-background p-5 shadow-2xl"
+          style={{ ...popStyle, pointerEvents: 'auto', animation: 'wsx-tour-in 380ms cubic-bezier(.2,.8,.2,1) both', transition: 'top 450ms cubic-bezier(.2,.8,.2,1), left 450ms cubic-bezier(.2,.8,.2,1)' }}
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <div className="flex flex-1 gap-1">
+              {steps.map((s, i) => (
+                <div
+                  key={`${s.title}-${i}`}
+                  className={`h-1 flex-1 rounded-full transition-colors duration-500 ${i <= idx ? 'bg-foreground' : 'bg-muted'}`}
+                />
+              ))}
+            </div>
+            <div className="font-mono text-[11px] text-muted-foreground tabular-nums">
+              {idx + 1}
+              /
+              {steps.length}
+            </div>
           </div>
-        )}
-        <div className="flex items-center gap-2">
-          {idx > 0 && !autoplay && (
-            <button type="button" onClick={() => setIdx(i => i - 1)} className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted">
-              Back
-            </button>
-          )}
-          {!autoplay && step.advance === 'next' && (
-            <button type="button" onClick={advance} className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90">
-              {step.nextLabel ?? (isLast ? 'Finish' : 'Next')}
-            </button>
-          )}
-          {!autoplay && tapStep && (
-            <span className="text-sm font-medium text-amber-600 dark:text-amber-400">
-              {step.nextLabel ?? 'Tap the highlighted button'}
-            </span>
-          )}
+          <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+            {step.eyebrow ?? tour.title}
+          </div>
+          <div className="mb-1.5 text-lg leading-snug font-semibold">{step.title}</div>
+          <p className="mb-4 text-[15px] leading-relaxed whitespace-pre-line text-muted-foreground">{step.body}</p>
           {waiting && (
-            <span className="text-sm text-muted-foreground">{step.nextLabel ?? 'Working…'}</span>
+            <div className="relative mb-4 h-1 overflow-hidden rounded-full bg-muted">
+              <div className="absolute inset-y-0 w-1/3 rounded-full bg-amber-400" style={{ animation: 'wsx-tour-work 1.2s ease-in-out infinite' }} />
+            </div>
           )}
-          {autoplay && (
-            <span className="text-xs text-muted-foreground">Playing automatically</span>
-          )}
-          <button type="button" onClick={end} className="ml-auto text-xs text-muted-foreground hover:text-foreground">
-            End tour
-          </button>
+          <div className="flex items-center gap-2">
+            {idx > 0 && !autoplay && (
+              <button type="button" onClick={() => setIdx(i => i - 1)} className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted">
+                Back
+              </button>
+            )}
+            {!autoplay && step.advance === 'next' && (
+              <button type="button" onClick={advance} className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90">
+                {step.nextLabel ?? (isLast ? 'Finish' : 'Next')}
+              </button>
+            )}
+            {!autoplay && tapStep && (
+              <span className="text-sm font-medium text-amber-600 dark:text-amber-400">
+                {step.nextLabel ?? 'Tap the highlighted button'}
+              </span>
+            )}
+            {waiting && (
+              <span className="text-sm text-muted-foreground">{step.nextLabel ?? 'Working…'}</span>
+            )}
+            {autoplay && (
+              <span className="text-xs text-muted-foreground">Playing automatically</span>
+            )}
+            <button type="button" onClick={end} className="ml-auto text-xs text-muted-foreground hover:text-foreground">
+              End tour
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

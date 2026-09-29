@@ -59,7 +59,12 @@ const StepSchema = z.object({
   nextLabel: z.string().optional(),
   /** Autoplay: how long the step holds before moving on. Defaults from the body's length. */
   dwellMs: z.number().int().positive().optional(),
-}).refine(s => s.advance !== 'appear' || s.waitFor !== undefined, { message: 'advance: appear needs waitFor — the selector whose arrival ends the step', path: ['waitFor'] })
+  /** Override the tour's `mask` for this step. */
+  mask: z.enum(['dim', 'none']).optional(),
+  /** The takeaway for `presentation: caption` — one line, read from across a room. Defaults to the title. */
+  caption: z.string().optional(),
+})
+  .refine(s => s.advance !== 'appear' || s.waitFor !== undefined, { message: 'advance: appear needs waitFor — the selector whose arrival ends the step', path: ['waitFor'] })
   .refine(s => s.advance !== 'click' || s.selector !== undefined, { message: 'advance: click needs selector — the element the audience taps', path: ['selector'] });
 
 export const TourManifestSchema = z.object({
@@ -74,6 +79,19 @@ export const TourManifestSchema = z.object({
   next: z.string().optional(),
   /** Launcher order; lower first. */
   order: z.number().default(0),
+  /**
+   * How the rest of the page looks while a step is up. `dim` darkens
+   * everything but the spotlit element; `none` leaves the app at full
+   * brightness and rings the element instead — for a recording, or a
+   * screen people watch rather than tap.
+   */
+  mask: z.enum(['dim', 'none']).default('dim'),
+  /**
+   * `popover` — a card beside the element, for someone holding the screen.
+   * `caption` — a full-width lower third with each step's takeaway in large
+   * type, for a screen watched from a distance or a recording.
+   */
+  presentation: z.enum(['popover', 'caption']).default('popover'),
   /** Keep it out of the launcher menu (still startable by `?tour=<slug>`). */
   hidden: z.boolean().default(false),
   steps: z.array(StepSchema).min(1),
