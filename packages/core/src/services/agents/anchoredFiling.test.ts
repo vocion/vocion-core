@@ -47,6 +47,10 @@ describe('anchoredFilingRefusal', () => {
     expect(anchoredFilingRefusal({ message: CHANGE, objectType: 'request', anchor: { id: 25, objectType: 'product' } })).toContain('no request is open');
   });
 
+  it('files a bug reported as "fix this" with no record open: that is a new problem, not an edit', () => {
+    expect(anchoredFilingRefusal({ message: 'Fix this: uploads fail on a phone when the signal drops.', objectType: 'request', anchor: null })).toBeNull();
+  });
+
   it('files when the person asked for a new or separate one', () => {
     expect(anchoredFilingRefusal({ message: 'Change this so it is its own request: a pinned note for viewers.', objectType: 'request', anchor: onRequest })).toBeNull();
     expect(anchoredFilingRefusal({ message: 'Update this, and file a new request for the digest email.', objectType: 'request', anchor: onRequest })).toBeNull();

@@ -35,7 +35,7 @@ import { asksToChange, asksToFile, owedChangeTarget } from './owedWriteBackstop'
 const ASKS_FOR_A_NEW_ONE = /\b(?:new|separate|another|second|different|fresh)\s+(?:[\w-]+\s+){0,2}(?:requests?|features?|tickets?|ideas?|records?|bugs?|issues?|tasks?)\b|\bits own (?:request|feature|ticket|record|idea)\b|\bsplit (?:it|this|that) (?:out|off)\b/i;
 
 /** "Change this: …", "edit it", "please update that" — a change aimed at what is on screen. */
-const CHANGES_THIS = /^\s*(?:(?:please|ok(?:ay)?|now|then|and|also)[,\s]+)*(?:change|edit|update|amend|revise|modify|fix|tweak|rework|reword|rewrite)\s+(?:this|that|it)\b/i;
+const CHANGES_THIS = /^\s*(?:(?:please|ok(?:ay)?|now|then|and|also)[,\s]+)*(?:change|edit|update|amend|revise|modify|tweak|reword|rewrite)\s+(?:this|that|it)\b/i;
 
 /**
  * Did the person ask for a new or separate record, in so many words?
