@@ -1,0 +1,21 @@
+# A PLANNING RUN THAT ENDS WITHOUT A PLAN IS CAUGHT WHEN IT ENDS (Chris,
+# 2026-09-29, request #246: "Why was there no visibility to why or way
+# through? … The system isn't smart enough to heal or recover without my direct
+# intervention"). When the plan-request run finishes, the request is carried
+# on at once: built from its plan when one is approved, or planned again with
+# what stopped the last attempt. After the limit, one ask names every attempt.
+# Deterministic: a built-in job, the same logic the hourly sweep runs.
+slug: factory-planning-ended
+name: A planning run ended
+description: >-
+  When the run that writes a request's plan finishes, carry the request on:
+  build from the approved plan, or plan again with what stopped the last
+  attempt, or ask a person once the attempts are used up.
+status: active
+agent: product-manager
+when:
+  event: automation_run.completed
+  filter:
+    slug: factory-plan-request
+do:
+  job: factory-planning-ended

@@ -309,7 +309,18 @@ async function planningEnded(orgId: string, requestId: number, askedAt: string):
     return null;
   }
   const last = [...fires].sort((a, b) => b.id - a.id)[0]!;
-  return { why: `the planning run (automation run #${last.id}) ended without filing a plan${last.error ? `: ${last.error.split('\n')[0]!.slice(0, 200).replace(/[.\s]+$/, '')}` : ''}` };
+  // What the planner was told when it tried to file, in the tool's own words
+  // — the reason the next attempt needs, and the one the page shows.
+  const { desc } = await import('drizzle-orm');
+  const { toolCallSchema } = await import('@/models/Schema');
+  const [filing] = await db.select({ output: toolCallSchema.output, error: toolCallSchema.error }).from(toolCallSchema).where(and(
+    eq(toolCallSchema.orgId, orgId),
+    eq(toolCallSchema.tool, 'file_architecture_plan'),
+    gte(toolCallSchema.createdAt, new Date(Date.parse(askedAt) - 1000)),
+    sql`${toolCallSchema.input} ->> 'requestId' = ${String(requestId)}`,
+  )).orderBy(desc(toolCallSchema.id)).limit(1);
+  const told = (filing?.error || filing?.output || '').trim().slice(0, 400);
+  return { why: `the planning run (automation run #${last.id}) ended without filing a plan${told ? `; its filing was answered: "${told}"` : filing ? '' : '; it never called file_architecture_plan'}${last.error ? `; the run failed: ${last.error.split('\n')[0]!.slice(0, 200)}` : ''}` };
 }
 
 /**
@@ -819,7 +830,12 @@ async function replan(orgId: string, request: FactoryRecord, state: RecoveryStat
   const at = now.toISOString();
   await updateRecovery(orgId, request.id, s => noteAttempt(s, { at, kind: 'plan', trigger: 'recovery', runId: null, taskId: null, line: planWhy }));
   const { FACTORY_PLAN_REQUESTED, emitEvent } = await import('@/services/EventService');
-  await emitEvent({ orgId, type: FACTORY_PLAN_REQUESTED, payload: { requestId: request.id, title: request.title, why: planWhy }, dedupeKey: `${FACTORY_PLAN_REQUESTED}:${request.id}:${at}`, invokedBy: `factory:${PM}`, dispatchMode: 'auto' });
+  // The planner reads what stopped the last attempt, so it does not repeat it.
+  await emitEvent({ orgId, type: FACTORY_PLAN_REQUESTED, payload: { requestId: request.id, title: request.title, why: `${planWhy}. The last attempt did not file a plan — ${why}. Do not repeat what stopped it` }, dedupeKey: `${FACTORY_PLAN_REQUESTED}:${request.id}:${at}`, invokedBy: `factory:${PM}`, dispatchMode: 'auto' });
+  // What the page's Current state reads: that it is planning again, which
+  // attempt this is, and why the last one stopped.
+  const again = `Planning again (attempt ${fresh.attempts.length + 1} of ${fresh.limit}) because ${why}.`;
+  await updateRecovery(orgId, request.id, s => logLine({ ...s, line: again }, again, at));
   return { requestId: request.id, did: 'plan', line: `Recovered: planning again because ${why}.` };
 }
 
@@ -1055,24 +1071,9 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
       continue;
     }
     if (state.stage === 'planning') {
-      const plan = await approvedPlan(work.plans);
-      if (plan) {
-        acted.push(await buildFromApprovedPlan(orgId, { planId: plan.id, requestId: id, approvedBy: String(plan.meta.approvedBy ?? 'a person'), byPerson: false }));
-        continue;
-      }
-      const asked = state.planRequestedAt ? Date.parse(state.planRequestedAt) : Number.NaN;
-      // A PLANNING RUN THAT ENDED WITHOUT A PLAN IS A FAILED STEP, not
-      // "already planning" (#201, mission 6017: it read the request and
-      // proposed an approval for a plan it never filed). It counts toward the
-      // limit: plan again, or stop and ask.
-      const filedSince = work.plans.some(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && (p.createdAt?.getTime() ?? 0) >= asked - 1000);
-      const ended = !filedSince && state.planRequestedAt ? await planningEnded(orgId, id, state.planRequestedAt) : null;
-      if (ended) {
-        acted.push(await replan(orgId, request, state, ended.why, now));
-        continue;
-      }
-      if (work.plans.length === 0 && Number.isFinite(asked) && now.getTime() - asked > PLAN_STALE_MS) {
-        acted.push({ requestId: id, did: 'escalate', line: await escalate(orgId, request, 'Stopped: a plan was asked for a day ago and none was written', 'write the plan, or say the work does not need one') });
+      const r = await carryPlanningStage(orgId, request, state, work, now);
+      if (r) {
+        acted.push(r);
       }
       continue;
     }
@@ -1085,6 +1086,73 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
     }
   }
   return { acted };
+}
+
+/**
+ * A REQUEST AT PLANNING, CARRIED ON. Shared by the hourly sweep and by the
+ * moment the planning run ends (`planningRunEnded`), so a planner that ends
+ * without a plan is caught when it ends, not up to an hour later (request
+ * #246, 2026-09-29: the plan was refused, the run ended "completed", and the
+ * page said "Planning" with nothing behind it; Chris: "Why was there no
+ * visibility to why or way through? … The system isn't smart enough to heal
+ * or recover without my direct intervention.").
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param state - Its recovery state.
+ * @param work - Its plans, runs and asks.
+ * @param now - The clock.
+ */
+async function carryPlanningStage(orgId: string, request: FactoryRecord, state: RecoveryState, work: Awaited<ReturnType<typeof workFor>>, now: Date): Promise<CarryResult | null> {
+  const id = request.id;
+  const plan = await approvedPlan(work.plans);
+  if (plan) {
+    return buildFromApprovedPlan(orgId, { planId: plan.id, requestId: id, approvedBy: String(plan.meta.approvedBy ?? 'a person'), byPerson: false });
+  }
+  const asked = state.planRequestedAt ? Date.parse(state.planRequestedAt) : Number.NaN;
+  // A PLANNING RUN THAT ENDED WITHOUT A PLAN IS A FAILED STEP, not
+  // "already planning" (#201, mission 6017: it read the request and
+  // proposed an approval for a plan it never filed). It counts toward the
+  // limit: plan again, with what stopped it, or stop and ask.
+  const filedSince = work.plans.some(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? '')) && (p.createdAt?.getTime() ?? 0) >= asked - 1000);
+  const ended = !filedSince && state.planRequestedAt ? await planningEnded(orgId, id, state.planRequestedAt) : null;
+  if (ended) {
+    return replan(orgId, request, state, ended.why, now);
+  }
+  if (work.plans.length === 0 && Number.isFinite(asked) && now.getTime() - asked > PLAN_STALE_MS) {
+    return { requestId: id, did: 'escalate', line: await escalate(orgId, request, 'Stopped: a plan was asked for a day ago and none was written', 'write the plan, or say the work does not need one') };
+  }
+  return null;
+}
+
+/**
+ * The planning run for a request ended (`automation_run.completed` of the
+ * plan-request automation): carry the request on now — build from its
+ * approved plan, or plan again with what stopped the last attempt.
+ * @param orgId - Tenant.
+ * @param payload - The event payload (`automationRunId`).
+ */
+export async function planningRunEnded(orgId: string, payload: Record<string, unknown>): Promise<CarryResult> {
+  const runId = Number(payload.automationRunId);
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { automationRunSchema } = await import('@/models/Schema');
+  const [run] = Number.isInteger(runId) && runId > 0
+    ? await db.select({ input: automationRunSchema.input }).from(automationRunSchema).where(and(eq(automationRunSchema.orgId, orgId), eq(automationRunSchema.id, runId))).limit(1)
+    : [];
+  const requestId = Number((run?.input as { requestId?: unknown } | null)?.requestId);
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return skip(null, 'no request on the run');
+  }
+  const request = await (await lib()).readRecord(orgId, requestId);
+  if (!request || !isOpen(request)) {
+    return skip(requestId, 'request closed');
+  }
+  const state = readRecovery(request.meta);
+  if (state.stage !== 'planning') {
+    return skip(requestId, 'not planning');
+  }
+  const r = await carryPlanningStage(orgId, request, state, await workFor(orgId, requestId), new Date());
+  return r ?? skip(requestId, 'planning still running, or a plan was filed');
 }
 
 /** The request fields that make up its contract: writing one after QA changes what was approved. */

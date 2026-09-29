@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, agentSchema, askSchema, automationSchema, businessObjectSchema, eventLogSchema, trustRuleSchema, workerRunSchema } = await import('@/models/Schema');
+const { actionRunSchema, agentSchema, askSchema, automationRunSchema, automationSchema, businessObjectSchema, eventLogSchema, toolCallSchema, trustRuleSchema, workerRunSchema } = await import('@/models/Schema');
 const { createObjectType, getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
 const carry = await import('./carry');
@@ -358,6 +358,42 @@ describe('the live gaps (backlog 038, the first sweep)', () => {
 
     expect(after.stage).toBe('planning');
     expect(after.attempts.filter(a => a.kind === 'plan').map(a => a.failure?.class ?? null)).toEqual(['no_plan', null]);
+  });
+});
+
+describe('a planning run that ends without a plan is caught when it ends (#246, 2026-09-29)', () => {
+  it('plans again at once, handing the planner and the page what its filing was told', async () => {
+    const r = await request({ product: 'fleet', title: 'Fleet theme toggle' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const asked = ((await read(r.id)).metadata as { recovery: { planRequestedAt: string } }).recovery.planRequestedAt;
+    // The plan-request automation picked it up, ran, and its filing was refused.
+    const [event] = (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.plan_requested'))))
+      .filter(e => (e.payload as { requestId: number }).requestId === r.id);
+    await db.update(eventLogSchema).set({ triggered: [{ slug: 'automation:factory-plan-request' }] } as never).where(eq(eventLogSchema.id, event!.id));
+    const [run] = await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'factory-plan-request', kind: 'mission_check', status: 'completed', input: { requestId: r.id }, startedAt: new Date(Date.parse(asked) + 1000) } as never).returning();
+    await db.insert(toolCallSchema).values({ orgId: ORG, agentSlug: 'product-manager', tool: 'file_architecture_plan', input: { requestId: r.id }, output: 'Refused: nothing was filed (VALIDATION_FAILED). components must name a package.', createdAt: new Date(Date.parse(asked) + 2000) } as never);
+
+    const out = await carry.planningRunEnded(ORG, { automationRunId: run!.id, slug: 'factory-plan-request' });
+
+    expect(out).toMatchObject({ did: 'plan' });
+    expect(out.line).toContain('its filing was answered: "Refused: nothing was filed (VALIDATION_FAILED). components must name a package."');
+
+    // The next planner reads what stopped the last one.
+    const next = (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.plan_requested'))))
+      .filter(e => (e.payload as { requestId: number }).requestId === r.id)
+      .map(e => (e.payload as { why: string }).why);
+
+    expect(next.at(-1)).toContain('The last attempt did not file a plan');
+    expect(next.at(-1)).toContain('components must name a package');
+
+    // The page says so: planning again, which attempt, and why.
+    const recovery = ((await read(r.id)).metadata as { recovery: { line: string } }).recovery;
+
+    expect(recovery.line).toMatch(/^Planning again \(attempt \d of 3\) because the planning run \(automation run #\d+\) ended without filing a plan/);
+  });
+
+  it('does nothing for a run that is not a request\'s planning', async () => {
+    expect((await carry.planningRunEnded(ORG, { automationRunId: 999999 })).did).toBe('no request on the run');
   });
 });
 
