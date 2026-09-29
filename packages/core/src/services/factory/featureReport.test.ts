@@ -1406,3 +1406,16 @@ describe('the activity preview', () => {
     expect([...times].sort((a, b) => b - a)).toEqual(times);
   });
 });
+
+describe('merged means merged (#201: "Merged: Yes" beside "Ready to merge")', () => {
+  it('reads a done merge or a release, never a head commit on the task', async () => {
+    const { mergedPullRequests } = await import('./featureReport');
+    const pr = 'https://github.com/acme/northwind/pull/127';
+    const merge = (status: string) => ({ id: 1, actionId: 'git.merge', status, input: { externalRef: { url: pr } }, decidedBy: null, decidedAt: null, approvedByAgent: null, note: null, createdAt: new Date() }) as never;
+
+    expect(mergedPullRequests([], []).has(pr)).toBe(false);
+    expect(mergedPullRequests([], [merge('pending')]).has(pr)).toBe(false);
+    expect(mergedPullRequests([], [merge('done')]).has(pr)).toBe(true);
+    expect(mergedPullRequests([{ id: 9, title: 'send@abc', status: null, meta: { prUrls: [pr] } } as never], []).has(pr)).toBe(true);
+  });
+});

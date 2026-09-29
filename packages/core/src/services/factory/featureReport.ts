@@ -1675,18 +1675,25 @@ function moneySection(line: MoneyLine): ReportSection {
 }
 
 /**
- * The pull requests the records say merged — a task with both a pull request
- * and a merge commit, or a pull request a release carries. Used only to flag
- * a run that disagrees; nothing in the report is inferred from it.
- * @param tasks - The tasks.
+ * The pull requests the records say merged — a done merge for it, or a
+ * release that carries it.
  * @param releases - The releases.
+ * @param actionRuns - The request's action runs (a done `git.merge` names its pull request).
  */
-function mergedPullRequests(tasks: ReportObject[], releases: ReportObject[]): Set<string> {
+export function mergedPullRequests(releases: ReportObject[], actionRuns: readonly ReportActionRun[] = []): Set<string> {
+  // A MERGE IS WHAT MERGED IT, NOT A COMMIT ON THE TASK (#201, 2026-09-29:
+  // "Merged: Yes" beside "Ready to merge"). A task's commitSha is its PR's head
+  // — every finished attempt has one. Merged means a done git.merge for that
+  // pull request (a person's press, the trust rule, or GitHub's webhook), or a
+  // release that lists it.
   const merged = new Set<string>();
-  for (const task of tasks) {
-    const pr = str(task.meta, 'prUrl');
-    if (pr && str(task.meta, 'commitSha')) {
-      merged.add(pr);
+  for (const run of actionRuns) {
+    if (run.actionId !== 'git.merge' || run.status !== 'done') {
+      continue;
+    }
+    const url = (run.input.externalRef as { url?: unknown } | undefined)?.url;
+    if (typeof url === 'string') {
+      merged.add(url);
     }
   }
   for (const release of releases) {
@@ -3157,7 +3164,7 @@ const MEANINGFUL: ReadonlySet<TimelineEntry['kind']> = new Set(['asked', 'plan',
 export function assembleFeatureReport(input: FeatureReportInput): FeatureReport {
   const runs = [...input.workerRuns].sort((a, b) => runAt(a).getTime() - runAt(b).getTime());
   const normalised: FeatureReportInput = { ...input, workerRuns: runs };
-  const mergedPrs = mergedPullRequests(input.tasks, input.releases);
+  const mergedPrs = mergedPullRequests(input.releases, input.actionRuns);
   const line = moneyLine(input.request, input.tasks, runs);
   // BUILD IS NEVER OFFERED OVER A LIVE BUILD (2026-09-28). A run still going,
   // or a dispatch still waiting to execute, means the work has started.
