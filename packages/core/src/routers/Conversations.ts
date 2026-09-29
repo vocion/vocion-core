@@ -52,8 +52,11 @@ export const get = os
     // (`artifactChipsByMessage`): the chip is a persisted fact, not a
     // memory of the live stream.
     const chips = artifactChipsByMessage(messages, produced);
+    const { answeringIn } = await import('@/libs/streams/buffer');
     return {
       ...conv,
+      // Whether a turn is running for it now: a client waits for a reply only then.
+      answering: answeringIn(orgId, input.id),
       messages: messages.map(m => ({
         ...m,
         attachments: (uploads.get(m.id) ?? []).map(attachmentFromArtifact),

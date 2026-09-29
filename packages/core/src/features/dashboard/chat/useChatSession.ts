@@ -1090,7 +1090,8 @@ export function useChatSession({
             .map(run => run.text)
             .join('\n\n'),
           status: (m.content || (m.runs ?? []).length > 0 ? 'incomplete' : 'failed') as TurnStatus,
-          statusReason: (error as Error).message,
+          // A stream the server no longer knows was lost in a restart.
+          statusReason: (error as Error).message.startsWith('HTTP 404') ? 'This reply was cut off — the app restarted while it was answering. Send your message again.' : (error as Error).message,
         }));
       } else {
         // Expired/unreachable — drop the placeholder; rehydrate covers the rest.
@@ -1203,6 +1204,14 @@ export function useChatSession({
       const { messages: next } = hydrateTranscript((conv.messages ?? []) as PersistedMessageRow[], nameOfAgent);
       if (next.length > seen && next[next.length - 1]?.role === 'assistant') {
         setMessages(next);
+        break;
+      }
+      // NOTHING IS ANSWERING: the turn was lost (an app restart mid-turn), or
+      // the message never started one. Waiting would lock the composer for
+      // ten minutes; say what happened and hand it back.
+      if ((conv as { answering?: boolean }).answering === false) {
+        setMessages([...next, { role: 'assistant', content: '', runs: [], status: 'incomplete' as TurnStatus, statusReason: 'This reply was cut off — the app restarted while it was answering. Send your message again.' }]);
+        setTurnOutcome('error');
         break;
       }
     }

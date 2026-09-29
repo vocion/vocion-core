@@ -39,6 +39,8 @@ type BufferedStream = {
    * acts on somebody's running turn has to prove it belongs to them first.
    */
   owner: { orgId: string; userId: string };
+  /** The conversation the turn belongs to, when it has one (`answeringIn`). */
+  conversationId?: number | null;
 };
 
 const streams = new Map<string, BufferedStream>();
@@ -60,10 +62,11 @@ function sweep(): void {
  * @param owner
  * @param owner.orgId
  * @param owner.userId
+ * @param conversationId
  */
-export function openStream(id: string, owner: { orgId: string; userId: string }): { append: (data: string) => void; close: () => void } {
+export function openStream(id: string, owner: { orgId: string; userId: string }, conversationId: number | null = null): { append: (data: string) => void; close: () => void } {
   sweep();
-  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner };
+  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner, conversationId };
   streams.set(id, s);
   return {
     append: (data: string) => {
@@ -185,4 +188,22 @@ export function markStopped(id: string, by: { orgId: string; userId: string }): 
  */
 export function wasStopped(id: string): boolean {
   return streams.get(id)?.stopped === true;
+}
+
+/**
+ * Is a turn running for this conversation right now, in this process? A
+ * client that finds a question with no answer under it asks this before it
+ * waits: a turn the app lost in a restart is not running, and waiting ten
+ * minutes for it left the composer locked (Chris, 2026-09-29: "It's also stuck
+ * on queued and I can't send commands").
+ * @param orgId - The workspace.
+ * @param conversationId - The conversation.
+ */
+export function answeringIn(orgId: string, conversationId: number): boolean {
+  for (const s of streams.values()) {
+    if (!s.done && s.owner.orgId === orgId && s.conversationId === conversationId) {
+      return true;
+    }
+  }
+  return false;
 }
