@@ -5,6 +5,7 @@ import { ArrowRight, CalendarClock, Check, Clock3, FilePen, Loader2, Mail, Penci
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cardDedupKey } from '@/libs/actions/cardDedupKey';
+import { slugifyOption } from '@/libs/asks/optionId';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
@@ -129,6 +130,44 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       setDeciding('approve');
       await client.review.decideAction({ id: res.runId, decision: 'approve' });
       record('approve', res.runId);
+    } catch (err) {
+      setDecideError((err as Error).message);
+    } finally {
+      setDeciding(null);
+    }
+  };
+
+  /**
+   * A RULING'S BUTTONS ARE ITS OPTIONS (Chris, 2026-09-29). Choosing one files
+   * the question and answers it in one press — the choice rides the approval
+   * as the reviewer's edit (`answer`), and an option that carries an action
+   * runs it as the person (`ask.file` → `decideAsk`).
+   * @param optionId - The chosen option.
+   */
+  const answerWith = async (optionId: string) => {
+    if (!rec.actionId) {
+      return;
+    }
+    setDeciding('approve');
+    setDecideError(null);
+    try {
+      let runId = phase.runId;
+      if (runId === undefined) {
+        const res = await client.review.propose({
+          actionId: rec.actionId,
+          input: rec.input,
+          agentSlug: rec.agentSlug,
+          rationale: rec.rationale,
+          confidence: rec.confidence,
+          dedupKey: cardDedupKey({ actionId: rec.actionId, label: rec.label, input: rec.input }),
+          ...recommendedActionAdvice(rec),
+        }) as { runId: number; status: string };
+        runId = res.runId;
+        setPhase({ status: 'proposed', runId });
+        onProposed?.(runId);
+      }
+      await client.review.decideAction({ id: runId, decision: 'approve', editedInput: { ...rec.input, answer: optionId } });
+      record('approve', runId);
     } catch (err) {
       setDecideError((err as Error).message);
     } finally {
@@ -321,6 +360,25 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
         )
       : stateText;
 
+  const choices = rulingChoices(rec);
+  const choiceButtons = choices && canApprove
+    ? choices.map(c => (
+        <button
+          key={c.id}
+          type="button"
+          onClick={() => void answerWith(c.id)}
+          disabled={busy || deciding !== null}
+          data-testid="ruling-choice"
+          className={c.recommended
+            ? 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60'
+            : 'inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted disabled:opacity-60'}
+        >
+          {deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+          {c.label}
+        </button>
+      ))
+    : null;
+
   return (
     <div data-testid="recommended-action-card" data-run-status={status ?? undefined} data-draft={draft ? 'needed' : undefined} className={`mt-2.5 flex flex-col overflow-hidden rounded-xl border bg-card ${done ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border'}`}>
       {/* Header — compact: label + confidence, rationale clamped */}
@@ -442,7 +500,13 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
           : !deferredUntil && phase.status === 'proposed'
               ? (
                   <>
-                    {status === 'pending' && canApprove && (
+                    {status === 'pending' && canApprove && choiceButtons && (
+                      <>
+                        {choiceButtons}
+                        {deferButton}
+                      </>
+                    )}
+                    {status === 'pending' && canApprove && !choiceButtons && (
                       <>
                         <button
                           type="button"
@@ -495,7 +559,8 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
                     *"I wanted to approve. I shouldn't have to click twice."*
                     Preparing is still offered, for when you want to look first
                     or edit the draft. */}
-                      {canApprove && !isDraft && (
+                      {canApprove && !isDraft && choiceButtons}
+                      {canApprove && !isDraft && !choiceButtons && (
                         <button
                           type="button"
                           onClick={() => void prepareAndApprove()}
@@ -546,4 +611,26 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       </div>
     </div>
   );
+}
+
+/**
+ * The choices a ruling card offers in place of Approve: the options of an
+ * `ask.file` filing, recommended first. Null for any other card.
+ * @param rec - The recommendation.
+ * @param rec.actionId
+ * @param rec.input
+ */
+export function rulingChoices(rec: { actionId?: string | null; input: Record<string, unknown> }): Array<{ id: string; label: string; recommended: boolean }> | null {
+  if (rec.actionId !== 'ask.file' || !Array.isArray(rec.input.options) || rec.input.options.length === 0) {
+    return null;
+  }
+  const out = (rec.input.options as unknown[]).map((o) => {
+    if (typeof o === 'string') {
+      return { id: slugifyOption(o), label: o, recommended: false };
+    }
+    const r = (o ?? {}) as { id?: string; label?: string; recommended?: boolean };
+    const label = typeof r.label === 'string' ? r.label : '';
+    return { id: typeof r.id === 'string' && r.id.trim() ? r.id.trim() : slugifyOption(label), label, recommended: r.recommended === true };
+  }).filter(o => o.label);
+  return out.length > 0 ? [...out].sort((a, b) => Number(b.recommended) - Number(a.recommended)) : null;
 }

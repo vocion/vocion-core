@@ -1,11 +1,13 @@
 import type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
 import { and, asc, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { verbosityHints } from '@/features/dashboard/inbox/askText';
+import { slugifyOption } from '@/libs/asks/optionId';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
 import { ASK_KINDS, ASK_RISKS, askSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
 import { recordAskAlignment } from '@/services/alignment/AlignmentService';
+
 import { proposeLearningFromDecision } from '@/services/feedback/askFeedbackQueue';
 import { askDecidedPayload } from '@/services/inbox/askDecided';
 
@@ -80,14 +82,7 @@ export function isAskStatus(value: unknown): value is AskStatus {
   return typeof value === 'string' && (ASK_STATUSES as readonly string[]).includes(value);
 }
 
-/**
- * A URL-safe id from a label — how a bare string option gets its id.
- * @param label
- */
-export function slugifyOption(label: string): string {
-  const slug = label.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036F]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return slug || 'option';
-}
+export { slugifyOption };
 
 /**
  * Normalise what a caller sent as `options` — bare strings, objects, or a mix —
@@ -125,6 +120,10 @@ export function normaliseOptions(raw: unknown): AskOption[] {
       }
       if (o.recommended === true) {
         option.recommended = true;
+      }
+      const act = o.action as { id?: unknown; input?: unknown } | undefined;
+      if (act && typeof act === 'object' && typeof act.id === 'string' && act.id.trim()) {
+        option.action = { id: act.id.trim(), input: act.input && typeof act.input === 'object' && !Array.isArray(act.input) ? act.input as Record<string, unknown> : {} };
       }
       if (o.confidence !== undefined && o.confidence !== null) {
         if (typeof o.confidence !== 'number' || Number.isNaN(o.confidence) || o.confidence < 0 || o.confidence > 1) {
@@ -560,7 +559,41 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
     recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
   ]);
   announceDecided(row);
+  await carryOutChosenOption(row, opts.decidedBy);
   return row;
+}
+
+/**
+ * THE CHOSEN OPTION'S ACTION RUNS, AS THE PERSON WHO CHOSE IT. Proposed under
+ * their name and executed with them as reviewer — exactly what pressing
+ * Approve on that action's card does — so the trust ladder, the action's own
+ * precheck and its Undo all apply. A failure is written on the ask's
+ * decision note, where the person reads it, and never unwinds the answer.
+ * @param row - The decided ask.
+ * @param decidedBy - The person.
+ */
+export async function carryOutChosenOption(row: Ask, decidedBy: string): Promise<{ runId: number; status: string } | null> {
+  const chosen = (row.options ?? []).find(o => o.id === row.decision);
+  if (!chosen?.action || !decidedBy.startsWith('usr-')) {
+    return null;
+  }
+  try {
+    const { executeAction, proposeAction } = await import('@/services/ActionService');
+    const res = await proposeAction({
+      orgId: row.orgId,
+      actionId: chosen.action.id,
+      input: chosen.action.input,
+      principal: { kind: 'user', id: decidedBy, role: 'member', scope: { orgId: row.orgId } },
+      invokedBy: decidedBy,
+      proposal: { rationale: `Chosen on ask #${row.id}: ${chosen.label}`, suggestedDecision: 'approve' },
+    } as never) as { runId: number; status: string };
+    const done = res.status === 'pending' ? await executeAction(res.runId, row.orgId, { reviewedBy: decidedBy }) as { runId?: number; status: string } : res;
+    await db.update(askSchema).set({ decisionNote: [row.decisionNote, `${chosen.label}: started (run #${res.runId}).`].filter(Boolean).join('\n'), updatedAt: new Date() }).where(and(eq(askSchema.orgId, row.orgId), eq(askSchema.id, row.id)));
+    return { runId: res.runId, status: done.status };
+  } catch (err) {
+    await db.update(askSchema).set({ decisionNote: [row.decisionNote, `${chosen.label}: could not start — ${(err as Error).message}`].filter(Boolean).join('\n'), updatedAt: new Date() }).where(and(eq(askSchema.orgId, row.orgId), eq(askSchema.id, row.id)));
+    return null;
+  }
 }
 
 /**

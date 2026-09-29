@@ -4226,6 +4226,13 @@ export type AskOption = {
    * alignment shape as an action proposal on the sheet. Advisory only.
    */
   confidence?: number;
+  /**
+   * What choosing it DOES (Chris, 2026-09-29: "a ruling card's buttons are its
+   * options, and choosing one is the answer that restarts the build"). Run as
+   * the person who chose it, through the action rail — the same as pressing
+   * Approve on that action's card.
+   */
+  action?: { id: string; input: Record<string, unknown> };
 };
 
 /**

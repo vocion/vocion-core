@@ -48,6 +48,13 @@ const option = z.union([
     recommended: z.boolean().optional(),
     /** How sure the asker is of THIS option, 0–1. Meant for the recommended one. */
     confidence: z.number().min(0).max(1).optional(),
+    /**
+     * What choosing it does: an action and its input, run as the person who
+     * chose it (e.g. `factory.dispatch_task` with the amended contract). A
+     * ruling whose options carry actions is answered AND carried out in one
+     * press; one without is only an answer.
+     */
+    action: z.object({ id: z.string().min(1).max(120), input: z.record(z.string(), z.unknown()).default({}) }).optional(),
   }),
 ]);
 
@@ -82,6 +89,12 @@ const askFileInput = z.object({
   ).optional(),
   /** Optional collapsed Details, markdown. */
   contextMd: z.string().max(20_000).optional(),
+  /**
+   * The person's answer, an option id — set when a person decides the card by
+   * choosing an option on it. Honoured only when a person approves the filing
+   * (`ctx.reviewedBy`); a model setting it answers nothing.
+   */
+  answer: z.string().min(1).max(80).optional(),
   /** The caller's idempotency key. Re-filing it updates the open ask instead of doubling it. Absent, the action run's id is used. */
   sourceRef: z.string().min(1).max(200).optional(),
   dueAt: z.string().datetime().optional(),
@@ -136,6 +149,16 @@ function describeOptions(options: AskFileInput['options']): string | undefined {
     .join(' · ');
 }
 
+/**
+ * The record a ruling is about, as its key: `ruling:request:124`. Null for any
+ * other kind, or a ruling that names no record.
+ * @param input - The filing.
+ */
+export function rulingKey(input: Pick<AskFileInput, 'kind' | 'objectRefs'>): string | null {
+  const ref = input.kind === 'ruling' ? input.objectRefs?.[0] : undefined;
+  return ref ? `ask.file:ruling:${ref.type}:${ref.id}`.toLowerCase() : null;
+}
+
 function describeRefs(refs: AskFileInput['objectRefs']): string | undefined {
   if (!refs || refs.length === 0) {
     return undefined;
@@ -154,7 +177,15 @@ export const askFileAction: Action<typeof askFileInput> = {
   // A caller with an idempotency key of its own collapses onto it; a plain
   // question stands as its own card. Never a constant: two unrelated
   // questions must never become one queue item.
-  dedupKeyFor: input => (input.sourceRef ? `ask.file:${input.sourceRef.trim().toLowerCase()}` : undefined),
+  // ONE DECISION, ONE CARD (#124, 2026-09-29: "Restore prisma paths &
+  // re-dispatch" and "Rule: restore prisma paths or split the task?" — one
+  // ruling, two cards two seconds apart, because the card's key hashed its
+  // title). A ruling about a record is keyed on the record, so a second
+  // wording refreshes the first.
+  dedupKeyFor: input => (input.sourceRef ? `ask.file:${input.sourceRef.trim().toLowerCase()}` : rulingKey(input) ?? undefined),
+  ownsDedupKey: true,
+  // Only a person's choice on the card sets the answer (as an edit at approval).
+  internalInput: ['answer'],
   // The option shape the input schema cannot check — duplicate ids, two
   // recommended — is what the service refuses, and the refusal should leave
   // no queue item behind.
@@ -206,7 +237,10 @@ export const askFileAction: Action<typeof askFileInput> = {
     const agentSlug = agentSlugFromInvoker(ctx.invokedBy) ?? input.agentSlug ?? null;
     // The run that asked is the idempotency key, so a retried execution
     // updates the ask it already filed instead of asking twice.
-    const sourceRef = input.sourceRef?.trim() || (ctx.runId ? `action_run:${ctx.runId}` : null);
+    // A ruling on a record that already has one OPEN refreshes that ask: one
+    // decision in front of the person, whatever the wording.
+    const openRuling = input.sourceRef ? null : await openRulingSourceRef(ctx.orgId, input);
+    const sourceRef = input.sourceRef?.trim() || openRuling || (ctx.runId ? `action_run:${ctx.runId}` : null);
     const { ask, created } = await upsertAsk({
       orgId: ctx.orgId,
       createdBy: ctx.invokedBy ?? null,
@@ -228,8 +262,19 @@ export const askFileAction: Action<typeof askFileInput> = {
         dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
       },
     });
+    // A PERSON CHOSE AN OPTION ON THE CARD: the filing and the answer are one
+    // press. The option's action (if it carries one) runs as that person
+    // (`AskService.carryOutChosenOption`, from `decideAsk`).
+    let answered: string | null = null;
+    const person = ctx.reviewedBy && ctx.reviewedBy.startsWith('usr-') ? ctx.reviewedBy : null;
+    if (input.answer && person && ask.status === 'open') {
+      const { decideAsk } = await import('@/services/AskService');
+      const decided = await decideAsk({ orgId: ctx.orgId, id: ask.id, decision: input.answer, decidedBy: person });
+      answered = decided.decision ?? null;
+    }
     const slug = await projectSlugById(ctx.orgId);
     return {
+      answered,
       askId: ask.id,
       url: slug ? askUrlFor(slug, ask.id) : null,
       created,
@@ -260,3 +305,25 @@ export const askFileAction: Action<typeof askFileInput> = {
     return { askId, withdrawn: ask.status === 'superseded', status: ask.status };
   },
 };
+
+/**
+ * The sourceRef of the open ruling already asked about this record, if any.
+ * @param orgId - The workspace.
+ * @param input - The filing.
+ */
+async function openRulingSourceRef(orgId: string, input: AskFileInput): Promise<string | null> {
+  const ref = input.kind === 'ruling' ? input.objectRefs?.[0] : undefined;
+  if (!ref) {
+    return null;
+  }
+  const { and, desc, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { askSchema } = await import('@/models/Schema');
+  const [row] = await db
+    .select({ sourceRef: askSchema.sourceRef })
+    .from(askSchema)
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), eq(askSchema.kind, 'ruling'), sql`${askSchema.objectRefs} @> ${JSON.stringify([{ type: ref.type, id: ref.id }])}::jsonb`))
+    .orderBy(desc(askSchema.id))
+    .limit(1);
+  return row?.sourceRef ?? null;
+}
