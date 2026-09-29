@@ -76,6 +76,7 @@ import { restTools } from './restDirect';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
+import { setVoiceTool } from './setVoice';
 import { updateObjectTools } from './updateObject';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
@@ -160,6 +161,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Where in Vocion a person does something, as a link — so an answer never
     // describes a screen it could have linked to. Read-only; on for every agent.
     whereToTool(ctx),
+    setVoiceTool(ctx),
     // What the workspace could turn on — plugins and connectors, on or off —
     // so a gap becomes a recommendation instead of a workaround. Read-only.
     listCapabilitiesTool(ctx),

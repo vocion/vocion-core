@@ -13,6 +13,13 @@ accent: rose
 active: true
 agentType: operational
 temperature: '0.2'
+# How it talks in chat (Chris, 2026-09-29: "DONT TELL ME WHAT YOURE GOING TO
+# TELL ME, JUST TELL ME"). A person can change it from the agent's page, MCP,
+# the API or by asking in chat; that setting survives an apply.
+voice:
+  length: brief
+  narration: off
+  creativity: 0.2
 eyebrow: Software factory · PM
 team: software-factory
 handles:

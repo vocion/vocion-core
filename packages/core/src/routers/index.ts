@@ -1,3 +1,4 @@
+import { setVoice as setAgentVoiceRoute } from './Agents';
 import {
   adoptionAgentDetailRoute,
   adoptionAgentsRoute,
@@ -196,6 +197,9 @@ export const router = {
   playbooks: {
     list: listPlaybooks,
     get: getPlaybook,
+  },
+  agents: {
+    setVoice: setAgentVoiceRoute,
   },
   automations: {
     pause: pauseAutomationRoute,

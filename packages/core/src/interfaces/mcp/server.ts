@@ -11,6 +11,7 @@ import { playbookTools } from './tools/playbook-tools';
 import { pluginTools } from './tools/plugin-tools';
 import { reviewTools } from './tools/review-tools';
 import { teamsTools } from './tools/teams-tools';
+import { voiceTools } from './tools/voice-tools';
 import { workflowTools } from './tools/workflow-tools';
 import { workspaceTools } from './tools/workspace-tools';
 
@@ -57,6 +58,7 @@ export async function buildServer(
     ...playbookTools(config),
     ...chatTools(config, identity),
     ...reviewTools(config, identity),
+    ...voiceTools(config, identity),
     ...(await agentTools(config, identity)),
   ];
 

@@ -692,6 +692,8 @@ async function upsertAgent(
     systemPrompt: agent.resolvedSystemPrompt,
     model: agent.model ?? defaults.model ?? 'gpt-4o',
     temperature: String(agent.temperature ?? defaults.temperature ?? '0.3'),
+    // What the YAML says; `voiceOverride` (a person's setting) is never written here.
+    voice: agent.voice ?? null,
     skillSlugs: agent.skills,
     connectorSources: agent.connectorSources,
     objectTypeSlugs: agent.objectTypes,

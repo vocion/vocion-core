@@ -798,6 +798,10 @@ export const agentSchema = pgTable(
     /** LLM model (e.g. claude-sonnet-4-20250514, gpt-4o) */
     model: text('model').default('gpt-4o'),
     temperature: text('temperature').default('0.3'),
+    /** How it talks in chat, from its YAML (`libs/agents/voice.ts`); rewritten on apply. */
+    voice: jsonb('voice').$type<import('@/libs/agents/voice').Voice>(),
+    /** How a person set it to talk (page, MCP, API, chat); no apply writes it. */
+    voiceOverride: jsonb('voice_override').$type<import('@/libs/agents/voice').Voice>(),
     /** Skill slugs this agent mounts (SKILL.md units). */
     skillSlugs: jsonb('skill_slugs').$type<string[]>().default([]),
     /** Playbook slugs attached to this agent by name — always-present context. */

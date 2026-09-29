@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { createElement } from 'react';
 import { AgentMemoryPanel } from '@/features/agents/AgentMemoryPanel';
+import { AgentVoiceControl } from '@/features/dashboard/AgentVoiceControl';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
@@ -10,6 +11,7 @@ import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { agentAccent as accent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
+import { resolveVoice } from '@/libs/agents/voice';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
@@ -257,15 +259,15 @@ export default async function AgentDetailPage(props: {
             </RailGroup>
           )}
 
+          <RailGroup label="Voice">
+            <AgentVoiceControl slug={agent.slug} voice={resolveVoice(agent.voice, agent.voiceOverride)} override={agent.voiceOverride ?? null} />
+          </RailGroup>
+
           <RailGroup label="Configuration">
             <dl className="flex flex-col gap-2 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Model</dt>
                 <dd className="font-mono text-foreground/90">{agent.model ?? '—'}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">Temperature</dt>
-                <dd className="font-mono text-foreground/90">{agent.temperature ?? '—'}</dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Role</dt>

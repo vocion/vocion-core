@@ -1,5 +1,6 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
+import { VoiceSchema } from '@/libs/agents/voice';
 import { agentSkillsNameError } from '@/libs/skills/name';
 import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
@@ -656,6 +657,8 @@ export const AgentManifestSchema = z.object({
   team: z.string().optional(),
   model: z.string().optional(),
   temperature: z.union([z.string(), z.number()]).optional(),
+  /** How it talks in chat: length, narration, creativity, a style page (`libs/agents/voice.ts`). */
+  voice: VoiceSchema.optional(),
   systemPromptFile: z.string().optional().describe('path to markdown system prompt, relative to agent file'),
   systemPrompt: z.string().optional().describe('inline system prompt — prefer systemPromptFile for long prompts'),
   skills: z.array(z.string()).default([]).describe('skill slugs this agent can invoke'),

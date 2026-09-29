@@ -80,6 +80,27 @@ and shown in chat as "via *Agent*" with the reason on hover. An agent with no
 Exactly one of the two is required. The loader resolves whichever is present
 into the agent's effective prompt.
 
+## Voice — how it talks in chat
+
+`voice:` sets how the agent talks in chat. You steer the agent, never its replies after they are written.
+
+| Key | Values | What it does |
+|---|---|---|
+| `length` | `brief` \| `standard` \| `detailed` | How long a reply runs. `brief` fits a phone screen, and detail goes to the card or the record. |
+| `narration` | `off` \| `on` | `off`: it never announces its next step ("Let me check…", "Here's the card:"). The trace shows its steps, and its cards sit under the reply. |
+| `creativity` | `0`–`1` | `0` stays with what the records and wiki support, and `1` offers ideas beyond them. It also sets the sampling temperature on models that accept one. Claude 4.7+ and the 5 family do not, and there the prompt carries it alone. |
+| `style` | a wiki page slug | That page, in prose, is composed in as how this workspace talks. |
+
+```yaml
+voice:
+  length: brief
+  narration: off
+  creativity: 0.2
+  style: house-voice
+```
+
+A person can change the voice from the agent's page (the Voice panel, which saves on each tap and offers Undo), by asking in chat (the `set_voice` tool: "be briefer"), over MCP (`agent_voice_get` and `agent_voice_set`), or over the API (`GET` and `PUT /api/v1/agents/:slug/voice`). All four call one service and write the agent's `voice_override`. An apply rewrites `voice` from the YAML and leaves the override alone. "Reset to the workspace voice" (or `clear: true`) drops the override. With no `voice:` at all, an agent runs with the platform voice.
+
 ## What the agent can reach
 
 | Field | Type | Default | What it does |
