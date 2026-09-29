@@ -866,6 +866,14 @@ export const AgentManifestSchema = z.object({
      */
     recommendActionBackstop: z.boolean().optional(),
     /**
+     * How many times one turn may go on while it is making progress — each
+     * pass making calls it has not made before — when it has not answered
+     * yet or ended on a promise (Chris, 2026-09-29: "if we are making real
+     * progress maybe we need higher retry limits"). A pass that repeats
+     * itself or makes no call ends it whatever this says. Default 6.
+     */
+    maxContinuations: z.number().int().min(0).max(20).optional(),
+    /**
      * Action kinds this agent earns trust for on its OWN ledger. A proposal
      * of a listed kind keys the autonomy ladder on `<kind>.<agent-slug>`
      * (`wiki.write_page.wiki-researcher`) instead of the shared kind, so a

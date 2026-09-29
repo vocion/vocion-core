@@ -1237,28 +1237,44 @@ export async function runAgentDeep(opts: {
           messages: continueWith(nudge, [...input.messages, ...(empty ? [] : [{ role: 'assistant', content: soFar }])]),
         } as typeof input);
       }
-      // A CONTINUATION THAT WORKED AND STOPPED AGAIN KEEPS GOING. The one
-      // continuation does the reads it promised and then the turn ends on a
-      // tool result — no write, no words — and the tool-less answer pass
-      // composes the rest. With no tools it can only describe the write: on
-      // mission run 5074 (2026-09-25, backlog 006) it wrote the whole
-      // update_object payload out and said "The call returned. Fields
-      // written", and nothing was. While the last pass made progress (new
-      // tool calls) and ended on a tool result, the loop re-enters, at most
-      // twice more; a pass that makes no call, or answers, ends it.
+      // A TURN THAT IS MAKING PROGRESS KEEPS GOING. The one continuation
+      // does the reads it promised, and then the pass ends on a tool result,
+      // or on a new promise ("I'll read that page now and refile",
+      // conversation 386, and nothing followed). While each pass makes calls
+      // it has not made before (the same tool with the same input is not
+      // progress), the turn goes on — up to the agent's `maxContinuations`
+      // (default 6; Chris, 2026-09-29: "if we are making real progress maybe
+      // we need higher retry limits"). A pass that repeats itself, makes no
+      // call, or answers ends it; the deadline and the budget still stop it.
       if (continued) {
+        const cap = Number((compiled.agentRow.harnessConfig as { maxContinuations?: unknown } | null)?.maxContinuations ?? 6);
+        const signature = (c: { tool: string; input?: unknown }) => `${c.tool}:${JSON.stringify(c.input ?? {})}`;
+        const seen = new Set(toolCallLog.slice(0, callsBeforeContinuation).map(signature));
         let mark = callsBeforeContinuation;
-        for (let extra = 0; extra < 2; extra++) {
-          const progressed = toolCallLog.length > mark;
-          if (!progressed || answeredSinceTool) {
-            break;
+        for (let extra = 0; extra < (Number.isFinite(cap) ? cap : 6); extra++) {
+          const fresh = toolCallLog.slice(mark).filter(c => !seen.has(signature(c)));
+          for (const c of toolCallLog.slice(mark)) {
+            seen.add(signature(c));
           }
           mark = toolCallLog.length;
-          console.warn('agent turn: the continuation worked and stopped on a tool result; once more', { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, extra: extra + 1 });
-          emit({ type: 'status', label: 'Making the change it owes' });
+          if (fresh.length === 0) {
+            break;
+          }
+          let nudge = 'You have the results of the calls you just made. Now do what the person asked — make the write (call the tool) if one is owed — and then answer. Do not repeat a call you already made. Never write a tool call as text.';
+          if (answeredSinceTool) {
+            // It said something after its last call: an answer ends the turn;
+            // a new promise (a model's reading) is kept, not left hanging.
+            const now = await judgeAnswer({ orgId: opts.orgId, message: opts.message, reply: normalizeAnswerHtml(finalText).trim(), steps: stepLines(toolCallLog), cards: emittedCards.length });
+            if (now.answered && !now.ends_on_promise) {
+              break;
+            }
+            nudge = `You ended on "${now.promise ?? 'a promise'}". Do it now, with your tools, then answer. Do not repeat a call you already made.`;
+          }
+          console.warn('agent turn: making progress; going on', { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, fresh: fresh.length, extra: extra + 1, cap });
+          emit({ type: 'status', label: `Still working · ${toolCallLog.length} steps so far` });
           await runGraph({
             ...input,
-            messages: continueWith('You have the results of the reads you just made. Now do what the person asked — make the write (call the tool) if one is owed — and then answer in one screen. Do not read again what you already read. Never write a tool call as text.', [...input.messages, ...(normalizeAnswerHtml(finalText).trim() ? [{ role: 'assistant', content: normalizeAnswerHtml(finalText).trim() }] : [])]),
+            messages: continueWith(nudge, [...input.messages, ...(normalizeAnswerHtml(finalText).trim() ? [{ role: 'assistant', content: normalizeAnswerHtml(finalText).trim() }] : [])]),
           } as typeof input);
         }
       }

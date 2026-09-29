@@ -361,7 +361,35 @@ describe('the deliverable contract', () => {
       // text, so without this the pass re-reads blind (mission run 5081).
       expect(third.messages.at(-1)?.content).toContain('What your tool calls in this turn returned');
       expect(third.messages.at(-1)?.content).toContain('### read_object');
-      expect(warn.mock.calls.some(c => String(c[0]).includes('worked and stopped on a tool result'))).toBe(true);
+      expect(warn.mock.calls.some(c => String(c[0]).includes('making progress; going on'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('goes on past three passes while each pass makes a new call, and stops at the first pass that repeats one (Chris, 2026-09-29)', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    const read = (id: number): AsyncIterable<unknown> => ({ async* [Symbol.asyncIterator]() {
+      yield { event: 'on_tool_end', name: 'read_object', metadata: { checkpoint_ns: `tools:read-${id}` }, data: { input: { id }, output: { content: `{"id":${id}}` } } };
+    } });
+    judge.readings = [{ answered: false, ends_on_promise: true, promise: 'Let me check the right structure first.' }];
+    streamEvents.mockClear();
+    streamEvents
+      .mockResolvedValueOnce(narrationStream())
+      .mockResolvedValueOnce(read(30))
+      .mockResolvedValueOnce(read(31))
+      .mockResolvedValueOnce(read(32))
+      .mockResolvedValueOnce(read(33))
+      // The same read again is not progress: the loop stops here.
+      .mockResolvedValueOnce(read(33))
+      .mockResolvedValue(lookupStream('[{"id":30}]'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await run({ message: 'Backfill requests 30 to 33.', deliverable: 'answer', conversationId: conv.id });
+
+      // first pass, the promise's continuation, then one pass per new read (31, 32, 33), and the repeat of 33 ends it
+      expect(streamEvents).toHaveBeenCalledTimes(6);
+      expect(warn.mock.calls.filter(c => String(c[0]).includes('making progress; going on'))).toHaveLength(4);
     } finally {
       warn.mockRestore();
     }
