@@ -24,8 +24,8 @@ import { closePreview, openPreview, useOpenPreviewRef } from '@/features/preview
 import { client } from '@/libs/Orpc';
 import { setLiveSources } from '@/libs/preview/liveSources';
 import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef';
-import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
-import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
+import { pageShowsRecord, recordFromPath, scopeRefToRecord } from '@/services/chat/pageContext';
+import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, followExcludeOf } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
@@ -285,6 +285,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  // The record the page beside the rail is about — it refreshes itself, so
+  // the turn's follow chips leave it out (Chris, 2026-09-29).
+  const pageRecord = useMemo(() => followExcludeOf(effectiveContext?.record ?? (effectiveContext?.path ? recordFromPath(effectiveContext.path) : null) ?? (scopeRef ? scopeRefToRecord(scopeRef) : null)), [effectiveContext, scopeRef]);
   // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
   const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
     if (session.conversationId === null) {
@@ -745,6 +748,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                     // The rail's second pane is the preview pane: a turn's
                     // sources open there, beside the thread (Chris,
                     // 2026-09-29: "clicking source … doesn't do anything").
+                    pageRecord={pageRecord}
                     onShowSources={openSources}
                     onCitationClick={(_n, messageId) => openSources(messageId)}
                     blocks={blocks}

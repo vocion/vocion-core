@@ -1,6 +1,7 @@
 'use client';
 
 import type { ChatMessage, ConversationAutonomy } from './types';
+import type { FollowExclude } from '@/libs/chat/turnFollowups';
 import { Quote } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef } from 'react';
@@ -36,6 +37,8 @@ export type MessageListProps = {
    * "via"; any other agent's turn is attributed to it (backlog 009).
    */
   ownAgentSlug?: string;
+  /** The record the page beside the conversation is about: it refreshes itself, so a turn's follow chips leave it out. */
+  pageRecord?: FollowExclude | null;
   /** Provided when streaming so the latest message scrolls into view. */
   streaming?: boolean;
   /** Live status line while streaming — rendered in the last agent message's work timeline. */
@@ -64,7 +67,7 @@ export type MessageListProps = {
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId }: MessageListProps) {
+export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId, pageRecord }: MessageListProps) {
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -200,6 +203,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                     autonomy={autonomy}
                     onOpenArtifact={onOpenArtifact}
                     conversationId={conversationId}
+                    pageRecord={pageRecord}
                   />
                 )}
             {blocksAfter(i)}

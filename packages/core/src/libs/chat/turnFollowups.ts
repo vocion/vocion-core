@@ -69,14 +69,23 @@ function words(slug: string): string {
   return slug.replace(/[_-]+/g, ' ').trim();
 }
 
+/** A ref to leave out: the record the page is about, which refreshes itself. */
+export type FollowExclude = { type: string; id: string };
+
 /**
- * Every thing the turn's steps started or made, each once, in the order the
- * turn did them.
+ * Every thing the turn's steps started, made or changed, each once, in the
+ * order the turn did them — except what the page the person is on already
+ * shows (Chris, 2026-09-29: "just when we generate something or update
+ * something I would want to follow on and watch (that's not our current
+ * page, getting auto refreshed)"). A read is never a chip.
  * @param runs - The turn's steps (`message.runs`).
+ * @param opts - What to leave out.
+ * @param opts.exclude - The page's own record(s), and anything already drawn (the turn's artifact chips).
  */
-export function turnFollowups(runs: readonly TurnToolStep[] | undefined): TurnFollowup[] {
+export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: { exclude?: readonly FollowExclude[] } = {}): TurnFollowup[] {
   const out: TurnFollowup[] = [];
-  const seen = new Set<string>();
+  const seen = new Set<string>((opts.exclude ?? []).map(e => `${e.type}:${e.id}`));
+  const onPage = (type: string, id: string) => seen.has(`${type}:${id}`);
   const push = (l: ResultLink) => {
     if (!l.ref) {
       return;
@@ -94,20 +103,49 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined): TurnFo
     if (r.name === 'propose_action') {
       const result = proposeResultOf(r.output);
       const actionId = typeof r.input?.action_id === 'string' ? r.input.action_id : '';
+      const actionInput = (r.input?.input as Record<string, unknown> | undefined) ?? null;
       if (result) {
-        resultLinks({ actionId, input: (r.input?.input as Record<string, unknown> | undefined) ?? null, result }, genericRecordLinker).forEach(push);
+        resultLinks({ actionId, input: actionInput, result }, genericRecordLinker).forEach(push);
+        // The record the action changed, when its result does not name it
+        // (`objects.update_meta` returns what it set, not the id it set it on).
+        const id = actionInput?.id;
+        const type = actionInput?.objectType;
+        if ((typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) && typeof type === 'string') {
+          push({ label: `${words(type)} #${id}`, href: genericRecordLinker({ objectType: type, id: String(id) }), ref: { type: 'object', id: String(id) } });
+        }
+      }
+      continue;
+    }
+    if (r.name === 'update_object') {
+      // Changed another record in place: watch it too. A proposal to change
+      // one is waiting on a person and is its card's business.
+      const m = /^(\S+) #(\d+)(?: "[^"]*")? updated/.exec(r.output);
+      if (m && !/\bPENDING\b/.test(r.output)) {
+        push({ label: `${words(m[1]!)} #${m[2]}`, href: genericRecordLinker({ objectType: m[1]!, id: m[2]! }), ref: { type: 'object', id: m[2]! } });
+      }
+      continue;
+    }
+    if (r.name === 'update_artifact') {
+      const id = r.input?.id;
+      if (r.output.startsWith('Updated "') && (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id)))) {
+        push({ label: `artifact #${id}`, href: `/dashboard/artifacts/${id}`, ref: { type: 'artifact', id: String(id) } });
       }
       continue;
     }
     if (r.name === 'decide_ask' || r.name === 'file_ask') {
       const ask = /^(?:Decided ask|Ask) #(\d+)/.exec(r.output)?.[1];
+      // What the decision was about, which is what it set moving.
+      const about = [...(/About: ([^.]+)\./.exec(r.output)?.[1] ?? '').matchAll(/([\w-]+) #(\d+)/g)].map(m => ({ type: m[1]!, id: m[2]! }));
+      // A decision whose only subject is the page's own record is shown by
+      // the page, which refreshes itself: no chip for it, or for the ask.
+      if (about.length > 0 && about.every(a => onPage('object', a.id))) {
+        continue;
+      }
       if (ask) {
         push({ label: `ask #${ask}`, href: inboxHref('ask', Number(ask)), ref: { type: 'ask', id: ask } });
       }
-      // What the decision was about, which is what it set moving.
-      const about = /About: ([^.]+)\./.exec(r.output)?.[1] ?? '';
-      for (const m of about.matchAll(/([\w-]+) #(\d+)/g)) {
-        push({ label: `${words(m[1]!)} #${m[2]}`, href: genericRecordLinker({ objectType: m[1]!, id: m[2]! }), ref: { type: 'object', id: m[2]! } });
+      for (const a of about) {
+        push({ label: `${words(a.type)} #${a.id}`, href: genericRecordLinker({ objectType: a.type, id: a.id }), ref: { type: 'object', id: a.id } });
       }
     }
   }

@@ -229,3 +229,17 @@ export function composerSurfaceOf(from: Element | null): HTMLElement | null {
   }
   return null;
 }
+
+/**
+ * The page's record as a follow-chip exclusion (`turnFollowups`): a request
+ * or any business record is an `object` there, a run a `worker_run`.
+ * @param record - The record the page is about, or null.
+ * @param record.type - Its ref type.
+ * @param record.id - Its id.
+ */
+export function followExcludeOf(record: { type: string; id: string } | null | undefined): { type: string; id: string } | null {
+  if (!record || !/^\d+$/.test(record.id)) {
+    return null;
+  }
+  return { type: record.type === 'request' ? 'object' : record.type, id: record.id };
+}

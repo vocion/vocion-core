@@ -2,7 +2,7 @@
 
 import type { DashboardLinkKind } from './links';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
-import type { TurnToolStep } from '@/libs/chat/turnFollowups';
+import type { FollowExclude, TurnToolStep } from '@/libs/chat/turnFollowups';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
@@ -94,6 +94,8 @@ export type AgentMessageProps = {
   onOpenArtifact?: (id: number) => void;
   /** The thread this turn belongs to — stamped into a failed step's Copy details. */
   conversationId?: number | null;
+  /** The page's own record: never a follow chip (it refreshes itself). */
+  pageRecord?: FollowExclude | null;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -175,12 +177,16 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, conversationId, pageRecord }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
-  const follow = useMemo(() => turnFollowups(message.runs as TurnToolStep[] | undefined), [message.runs]);
+  // What the turn set moving, less the page's own record and the artifacts
+  // the row already shows.
+  const follow = useMemo(() => turnFollowups(message.runs as TurnToolStep[] | undefined, {
+    exclude: [...(pageRecord ? [pageRecord] : []), ...(message.artifacts ?? []).map(a => ({ type: 'artifact', id: String(a.id) }))],
+  }), [message.runs, message.artifacts, pageRecord]);
   // A failure is a failure whether it arrived as a legacy run or as a typed
   // trace node — #368 persists the latter, and the badge has to find both.
   // A step a later step of the same kind recovered from is not a failure of
