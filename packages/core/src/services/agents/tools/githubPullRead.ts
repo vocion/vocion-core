@@ -32,7 +32,7 @@ export function parsePullUrl(url: string): { owner: string; repo: string; number
   return m ? { owner: m[1]!, repo: m[2]!, number: Number(m[3]) } : null;
 }
 
-async function tokenForRepo(orgId: string, fullName: string): Promise<string | null> {
+export async function tokenForRepo(orgId: string, fullName: string): Promise<string | null> {
   const rows = await db
     .select({ config: knowledgeSourceSchema.configJson, apiTokenId: knowledgeSourceSchema.apiTokenId })
     .from(knowledgeSourceSchema)

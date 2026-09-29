@@ -33,8 +33,8 @@ describe('the factory hand-offs are registered', () => {
     expect(factoryActions).toHaveLength(8);
   });
 
-  it('every one is a hand-off, external, and irreversible except the push', () => {
-    for (const a of factoryActions) {
+  it('every one is a hand-off, external, and irreversible except the push — and the merge, which runs and reverts', () => {
+    for (const a of factoryActions.filter(x => x.id !== 'git.merge')) {
       expect(isManualAction(a), a.id).toBe(true);
       expect(a.external, a.id).toBe(true);
       expect(a.undo, a.id).toBeUndefined();
@@ -42,6 +42,10 @@ describe('the factory hand-offs are registered', () => {
     }
 
     expect(gitPushBranchAction.manual).toEqual({ reversible: true });
+    // One press (2026-09-29): the merge is performed here, and Undo opens the revert.
+    expect(isManualAction(gitMergeAction)).toBe(false);
+    expect(gitMergeAction.external).toBe(true);
+    expect(gitMergeAction.undo).toBeDefined();
   });
 
   it('the shared input needs a title, a summary and the steps in one form or the other; the merge needs a risk class too', () => {
@@ -123,8 +127,8 @@ describe('the factory hand-offs are registered', () => {
     ]));
     // "Can be put back" is a badge now, not a row three tabs away.
     expect(card.fields.map(f => f.label)).not.toContain('Can be put back');
-    expect(card.verbs).toEqual({ approve: 'Approve', reject: 'Reject' });
-    expect(card.nextAction).toMatch(/Nothing runs here/);
+    expect(card.verbs).toEqual({ approve: 'Merge', reject: 'Hold' });
+    expect(card.nextAction).toMatch(/^Approving merges the pull request now/);
   });
 
   it('the card leads with one sentence and the badges that settle it: system, Irreversible, cost, target', async () => {
