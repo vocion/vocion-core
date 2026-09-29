@@ -15,7 +15,7 @@ import { openAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
 import { describeActionEffect, describeCardState } from './recommendedAction';
-import { rulingChoices } from './rulingChoices';
+import { answerInput, rulingChoices } from './rulingChoices';
 import { TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
 /**
@@ -76,6 +76,8 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   // buttons do not come back in the gap between the decision returning and
   // the status catching up (Chris, 2026-09-29: pressed Approve twice).
   const [asked, setAsked] = useState<'approve' | 'reject' | null>(null);
+  // Which option is being chosen, so only its button spins.
+  const [choosing, setChoosing] = useState<string | null>(null);
   // Bumped after a decision so the status is read now, not on the backoff.
   const [pollNonce, setPollNonce] = useState(0);
   const live = useActionRunStatus(phase.runId, pollNonce);
@@ -173,6 +175,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
     if (!rec.actionId) {
       return;
     }
+    setChoosing(optionId);
     setDeciding('approve');
     setDecideError(null);
     try {
@@ -191,7 +194,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
         setPhase({ status: 'proposed', runId });
         onProposed?.(runId);
       }
-      await client.review.decideAction({ id: runId, decision: 'approve', editedInput: { ...rec.input, answer: optionId } });
+      await client.review.decideAction({ id: runId, decision: 'approve', editedInput: answerInput(rec.input, optionId) });
       record('approve', runId);
       settle('approve');
     } catch (err) {
@@ -337,7 +340,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   // What the run made, each one move away — the record link above already
   // names one of them when it is the same page.
   const madeLinks = status === 'done' ? (live?.links ?? []).filter(l => l.href !== recordLink?.href) : [];
-  const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent, unfiled, summary: live?.summary, draft: Boolean(draft) }, fmtTime);
+  const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent, unfiled, summary: live?.summary, draft: Boolean(draft), choice: live?.choice }, fmtTime);
   // Done reads as done at a glance: a green edge, not the card that waits on you.
   const done = status === 'done';
   // Draft needed → one tap asks the agent for the whole record, here.
@@ -402,6 +405,24 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       : stateText;
 
   const choices = rulingChoices(rec);
+  // A RULING WAITING ON YOU IS ITS QUESTION AND ITS ANSWERS (Chris,
+  // 2026-09-29, proposal 5210: "overall that card is complex?"): the question,
+  // one line of why, the options, and review one quiet icon away. The effect
+  // and "Waiting on you" rows go — the buttons say both. Once chosen, the
+  // state line comes back: "You chose X · Undo".
+  const pendingRuling = Boolean(choices) && canApprove && !draft && !deferredUntil && (status === null || status === 'pending');
+  const title = choices ? str(rec.input.title).trim() || rec.label : rec.label;
+  const reviewHref = phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal';
+  const decideInReviewIcon = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link href={reviewHref} aria-label="Decide in review" data-testid="ruling-review-link" className={QUIET_ICON}>
+          <ArrowRight className="size-4" aria-hidden />
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent>Decide in review</TooltipContent>
+    </Tooltip>
+  );
   const choiceButtons = choices && canApprove
     ? choices.map(c => (
         <button
@@ -414,7 +435,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
             ? 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60'
             : 'inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted disabled:opacity-60'}
         >
-          {deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+          {deciding === 'approve' && choosing === c.id ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
           {c.label}
         </button>
       ))
@@ -430,12 +451,12 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold break-words">
             {rec.href
-              ? <Link href={rec.href} className="hover:underline" data-testid="recommended-action-title-link">{rec.label}</Link>
-              : rec.label}
+              ? <Link href={rec.href} className="hover:underline" data-testid="recommended-action-title-link">{title}</Link>
+              : title}
           </div>
-          {rec.rationale && <p className="mt-0.5 line-clamp-2 text-xs break-words text-muted-foreground">{rec.rationale}</p>}
+          {rec.rationale && <p className={`mt-0.5 ${pendingRuling ? 'line-clamp-1' : 'line-clamp-2'} text-xs break-words text-muted-foreground`} data-testid="recommended-action-why">{rec.rationale}</p>}
         </div>
-        {pct !== null && (
+        {pct !== null && !pendingRuling && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span
@@ -480,34 +501,38 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
           "I don't understand what the first card did. Is it an auto approve
           recommendation? Make that clear."). The effect comes from the action
           id, never the agent's title. */}
-      <div className="mx-3 mt-2 flex min-w-0 items-center gap-1.5 text-xs text-foreground/80">
-        <span className="flex min-w-0 items-center gap-1.5" data-testid="recommended-action-effect">
-          <Zap className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="truncate">{draft ? 'Nothing is filed until the draft meets the bar' : effect}</span>
-        </span>
-        {recordLink && (
-          <Link href={recordLink.href} data-testid="recommended-action-record-link" className="ml-auto inline-flex shrink-0 items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
-            {recordLink.label}
-            <ArrowRight className="size-3" aria-hidden />
-          </Link>
-        )}
-      </div>
-      <div className="mx-3 mt-1 flex min-w-0 items-center gap-2 text-xs" data-testid="recommended-action-status">
-        {/* Nothing waits on anyone for a card with nothing to press. */}
-        {(rec.actionId || phase.runId !== undefined) && stateLabel}
-        {status === 'done' && live?.undoable && (
-          <button
-            type="button"
-            onClick={() => void undo()}
-            disabled={deciding !== null}
-            data-testid="recommended-undo"
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
-          >
-            {deciding === 'undo' ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RotateCcw className="size-3" aria-hidden />}
-            Undo
-          </button>
-        )}
-      </div>
+      {!pendingRuling && (
+        <div className="mx-3 mt-2 flex min-w-0 items-center gap-1.5 text-xs text-foreground/80">
+          <span className="flex min-w-0 items-center gap-1.5" data-testid="recommended-action-effect">
+            <Zap className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate">{draft ? 'Nothing is filed until the draft meets the bar' : effect}</span>
+          </span>
+          {recordLink && (
+            <Link href={recordLink.href} data-testid="recommended-action-record-link" className="ml-auto inline-flex shrink-0 items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
+              {recordLink.label}
+              <ArrowRight className="size-3" aria-hidden />
+            </Link>
+          )}
+        </div>
+      )}
+      {!pendingRuling && (
+        <div className="mx-3 mt-1 flex min-w-0 items-center gap-2 text-xs" data-testid="recommended-action-status">
+          {/* Nothing waits on anyone for a card with nothing to press. */}
+          {(rec.actionId || phase.runId !== undefined) && stateLabel}
+          {status === 'done' && live?.undoable && (
+            <button
+              type="button"
+              onClick={() => void undo()}
+              disabled={deciding !== null}
+              data-testid="recommended-undo"
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
+            >
+              {deciding === 'undo' ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RotateCcw className="size-3" aria-hidden />}
+              Undo
+            </button>
+          )}
+        </div>
+      )}
       {madeLinks.length > 0 && <ResultLinks links={madeLinks} className="mx-3 mt-1 text-xs" />}
       {/* CTA — pinned to the bottom, so cards stretched to one height in a
           strip keep their buttons on one line. */}
@@ -545,7 +570,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
                     {status === 'pending' && canApprove && choiceButtons && (
                       <>
                         {choiceButtons}
-                        {deferButton}
+                        {decideInReviewIcon}
                       </>
                     )}
                     {status === 'pending' && canApprove && !choiceButtons && (
@@ -570,13 +595,15 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
                         {deferButton}
                       </>
                     )}
-                    <Link
-                      href={phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal'}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
-                    >
-                      {status === 'pending' ? 'Decide in review' : 'Open in review'}
-                      <ArrowRight className="size-3.5" aria-hidden />
-                    </Link>
+                    {!(pendingRuling && choiceButtons) && (
+                      <Link
+                        href={reviewHref}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
+                      >
+                        {status === 'pending' ? 'Decide in review' : 'Open in review'}
+                        <ArrowRight className="size-3.5" aria-hidden />
+                      </Link>
+                    )}
                     {decideError && (
                       <span className="text-xs text-destructive">
                         Couldn’t decide it:
@@ -614,30 +641,43 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
                           {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
                         </button>
                       )}
-                      {canApprove && !isDraft
+                      {canApprove && !isDraft && choiceButtons
                         ? (
+                            // A ruling's review is one quiet icon: it files the
+                            // question into review without answering it.
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <button type="button" onClick={prepare} disabled={busy} aria-label={busy ? 'Preparing…' : 'Review first'} className={QUIET_ICON}>
-                                  {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                                <button type="button" onClick={prepare} disabled={busy} aria-label="Decide in review" data-testid="ruling-review-link" className={QUIET_ICON}>
+                                  {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ArrowRight className="size-4" aria-hidden />}
                                 </button>
                               </TooltipTrigger>
-                              <TooltipContent>Review first</TooltipContent>
+                              <TooltipContent>Decide in review</TooltipContent>
                             </Tooltip>
                           )
-                        : (
-                      // The only way forward on this card, so it keeps its words.
-                            <button
-                              type="button"
-                              onClick={prepare}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-                            >
-                              {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
-                              {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
-                            </button>
-                          )}
-                      {canApprove && deferButton}
+                        : canApprove && !isDraft
+                          ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button type="button" onClick={prepare} disabled={busy} aria-label={busy ? 'Preparing…' : 'Review first'} className={QUIET_ICON}>
+                                    {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>Review first</TooltipContent>
+                              </Tooltip>
+                            )
+                          : (
+                        // The only way forward on this card, so it keeps its words.
+                              <button
+                                type="button"
+                                onClick={prepare}
+                                disabled={busy}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                              >
+                                {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                                {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
+                              </button>
+                            )}
+                      {canApprove && !choiceButtons && deferButton}
                     </>
                   )}
         {isDraft && phase.status !== 'proposed' && (

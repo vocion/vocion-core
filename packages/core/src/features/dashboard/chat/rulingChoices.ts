@@ -21,3 +21,14 @@ export function rulingChoices(rec: { actionId?: string | null; input: Record<str
   }).filter(o => o.label);
   return out.length > 0 ? [...out].sort((a, b) => Number(b.recommended) - Number(a.recommended)) : null;
 }
+
+/**
+ * The filing's input with a person's choice on it — what deciding a ruling
+ * sends as `editedInput`, from the card and the review page alike, so the two
+ * decide it exactly the same way (`ask.file` reads `answer`).
+ * @param input - The filing's input.
+ * @param optionId - The chosen option.
+ */
+export function answerInput(input: Record<string, unknown>, optionId: string): Record<string, unknown> {
+  return { ...input, answer: optionId };
+}

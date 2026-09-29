@@ -24,6 +24,14 @@ describe('what a done run did, in one clause (Chris, 2026-09-28: "Done for you Â
       .toBe('started the build of request #201 â€” run #355');
   });
 
+  it('a ruling says which option it was answered with, and who chose it (proposal 5210, 2026-09-29)', () => {
+    expect(doneSummary({ actionId: 'ask.file', input: { kind: 'ruling' }, result: { askId: 9, answered: 'hide', answeredLabel: 'Hide on locked rows', answeredBy: 'trust-ladder' } }))
+      .toBe('chose "Hide on locked rows" for you');
+    expect(doneSummary({ actionId: 'ask.file', input: { kind: 'ruling' }, result: { askId: 9, answered: 'upsell', answeredLabel: 'Show with upsell', answeredBy: 'usr-dana' } }))
+      .toBe('chose "Show with upsell"');
+    expect(doneSummary({ actionId: 'ask.file', input: {}, result: { askId: 9, answered: null } })).toBeNull();
+  });
+
   it('says nothing it cannot back: no record, no clause', () => {
     expect(doneSummary({ actionId: 'objects.update_meta', input: { set: { outcome: 'x' } }, result: {} })).toBeNull();
     expect(doneSummary({ actionId: 'gmail.send', input: { to: 'a@northwind.example' }, result: {} })).toBeNull();

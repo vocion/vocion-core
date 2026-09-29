@@ -170,6 +170,8 @@ export type CardStateInput = {
   summary?: string | null;
   /** The filing misses its type's bar; nothing is filed until a draft is written. */
   draft?: boolean;
+  /** A ruling's answer: the option, and whether the trust bar chose it. */
+  choice?: { label: string; byTrustBar: boolean } | null;
 };
 
 /**
@@ -206,6 +208,10 @@ export function describeCardState(s: CardStateInput, time: (iso: string) => stri
         ? { label: 'Done for you · running', tone: 'amber' }
         : { label: `Approved${by} · running`, tone: 'amber' };
     case 'done':
+      // A ruling reads as its answer: the option, and who chose it.
+      if (s.choice) {
+        return { label: s.choice.byTrustBar ? `Chose ${s.choice.label} for you` : `You chose ${s.choice.label}`, tone: 'green' };
+      }
       return s.approvedByAgent
         ? { label: `Done for you${did}`, tone: 'green' }
         : { label: `Approved${by}${at}${did}`, tone: 'green' };

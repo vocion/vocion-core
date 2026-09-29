@@ -26,10 +26,15 @@
  */
 
 import type { Action, ActionContext, ReviewCard } from './types';
+import type { AskOption } from '@/models/Schema';
+import type { Ask } from '@/services/AskService';
 import { z } from 'zod';
 // From the schema leaf, not the service: the registry loads this module, and
 // the service's import graph reaches back into the registry (`policyKey`).
 import { ASK_KINDS, ASK_RISKS } from '@/models/Schema';
+
+/** Who decided an ask the trust bar answered — never a person, so nothing runs as one. */
+export const TRUST_LADDER_DECIDER = 'trust-ladder';
 
 /** One record the ask is about. `id` is kept as a string; a number is accepted and stringified. */
 const objectRef = z.object({
@@ -266,15 +271,29 @@ export const askFileAction: Action<typeof askFileInput> = {
     // press. The option's action (if it carries one) runs as that person
     // (`AskService.carryOutChosenOption`, from `decideAsk`).
     let answered: string | null = null;
+    let answeredBy: string | null = null;
     const person = ctx.reviewedBy && ctx.reviewedBy.startsWith('usr-') ? ctx.reviewedBy : null;
     if (input.answer && person && ask.status === 'open') {
       const { decideAsk } = await import('@/services/AskService');
       const decided = await decideAsk({ orgId: ctx.orgId, id: ask.id, decision: input.answer, decidedBy: person });
       answered = decided.decision ?? null;
+      answeredBy = person;
+    } else if (!input.answer && ask.status === 'open') {
+      // DONE FOR YOU: a ruling sure enough of its recommendation is answered
+      // with it on the workspace's own bar for asking (Chris, 2026-09-29, on
+      // proposal 5210). Undo reopens it.
+      const chose = await answerOnTheTrustBar(ctx, input, ask);
+      if (chose) {
+        answered = chose;
+        answeredBy = TRUST_LADDER_DECIDER;
+      }
     }
+    const answeredLabel = answered ? ask.options.find(o => o.id === answered)?.label ?? answered : null;
     const slug = await projectSlugById(ctx.orgId);
     return {
       answered,
+      answeredLabel,
+      answeredBy,
       askId: ask.id,
       url: slug ? askUrlFor(slug, ask.id) : null,
       created,
@@ -297,6 +316,13 @@ export const askFileAction: Action<typeof askFileInput> = {
     if (askId === null) {
       throw new Error('This run recorded no ask id, so there is nothing to withdraw.');
     }
+    // The trust bar answered it: Undo takes the answer back and the question
+    // is open again, in front of a person. A person's own answer never is.
+    if (result.answeredBy === TRUST_LADDER_DECIDER) {
+      const { reopenLadderDecision } = await import('@/services/AskService');
+      const ask = await reopenLadderDecision(ctx.orgId, askId);
+      return { askId, reopened: ask.status === 'open', status: ask.status };
+    }
     if (result.created === false) {
       return { askId, withdrawn: false, reason: 'this run refreshed an ask another filing created; withdraw that one instead' };
     }
@@ -305,6 +331,66 @@ export const askFileAction: Action<typeof askFileInput> = {
     return { askId, withdrawn: ask.status === 'superseded', status: ask.status };
   },
 };
+
+/**
+ * Answer a ruling with its recommended option when the recommendation clears
+ * the workspace's trust bar for `ask.file` — the same ladder verdict that let
+ * the filing run (`clearsTrustBar`), at the option's own confidence, else the
+ * proposal's. Returns the option id it chose, or null when a person decides.
+ *
+ * Only a ruling, only a recommended option, and never one that carries an
+ * action: an option's action runs as the PERSON who chose it
+ * (`carryOutChosenOption`), so a choice nobody made starts nothing, and a
+ * ruling that would start something waits for someone to make it.
+ * @param ctx - The execution.
+ * @param input - The filing.
+ * @param ask - The ask it filed, still open.
+ */
+export async function answerOnTheTrustBar(ctx: ActionContext, input: AskFileInput, ask: Ask): Promise<string | null> {
+  if (input.kind !== 'ruling') {
+    return null;
+  }
+  const rec = pickRecommended(ask.options);
+  if (!rec || rec.action) {
+    return null;
+  }
+  const confidence = rec.confidence ?? await proposalConfidence(ctx);
+  if (typeof confidence !== 'number') {
+    return null;
+  }
+  const { clearsTrustBar } = await import('@/services/ActionService');
+  if (!(await clearsTrustBar({ orgId: ctx.orgId, actionId: 'ask.file', input: input as unknown as Record<string, unknown>, confidence }))) {
+    return null;
+  }
+  const { decideAsk } = await import('@/services/AskService');
+  const decided = await decideAsk({ orgId: ctx.orgId, id: ask.id, decision: rec.id, decidedBy: TRUST_LADDER_DECIDER, note: `Chosen for you at ${Math.round(confidence * 100)}% confidence, within the trust bar for asking. Undo reopens it.` });
+  return decided.decision ?? null;
+}
+
+/**
+ * The one recommended option, or null when none (or, malformed, several) is.
+ * @param options - The ask's options.
+ */
+export function pickRecommended(options: readonly AskOption[]): AskOption | null {
+  const recs = options.filter(o => o.recommended === true);
+  return recs.length === 1 ? recs[0]! : null;
+}
+
+/**
+ * The confidence the filing was proposed with, from its run.
+ * @param ctx - The execution; `runId` names the run.
+ */
+async function proposalConfidence(ctx: ActionContext): Promise<number | null> {
+  if (!ctx.runId) {
+    return null;
+  }
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ proposal: actionRunSchema.proposal }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ctx.orgId), eq(actionRunSchema.id, ctx.runId))).limit(1);
+  const c = (row?.proposal as { confidence?: unknown } | null)?.confidence;
+  return typeof c === 'number' ? c : null;
+}
 
 /**
  * The sourceRef of the open ruling already asked about this record, if any.

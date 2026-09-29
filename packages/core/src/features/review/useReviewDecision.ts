@@ -4,6 +4,7 @@ import type { ContentEdit } from './contentKinds';
 import type { ReviewCardRun } from './ReviewSurface';
 import type { ReviewContentEdit } from '@/libs/actions/types';
 import { useEffect, useState } from 'react';
+import { answerInput } from '@/features/dashboard/chat/rulingChoices';
 import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
 import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
@@ -155,10 +156,18 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
 
   // One press, one decision: the guard closes before the next render.
   const once = useSingleFlight();
-  const decide = (decision: ReviewDecision) => once(async () => {
+  /**
+   * @param decision - The verb.
+   * @param opts - A ruling's choice rides the approval as its answer, exactly
+   * as the chat card sends it (`answerInput`).
+   * @param opts.answer - The chosen option's id.
+   */
+  const decide = (decision: ReviewDecision, opts?: { answer?: string }) => once(async () => {
     setBusy(true);
     try {
-      const { contentEdits: ce, editedInput } = buildDecision();
+      const built = buildDecision();
+      const ce = built.contentEdits;
+      const editedInput = opts?.answer && decision === 'approve' ? answerInput(built.editedInput ?? run.input, opts.answer) : built.editedInput;
       // Never less than ~400ms in flight: a decision that lands instantly
       // reads as nothing having happened.
       const outcome = await withMinimumPending(client.review.decideAction({

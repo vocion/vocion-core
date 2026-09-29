@@ -303,7 +303,9 @@ describe('a ruling: one card per record, and its options are the answer (#124)',
     kind: 'ruling',
     objectRefs: [{ type: 'request', id: 124 }],
     options: [
-      { id: 'restore', label: 'Restore paths', recommended: true },
+      // Unsure of its own recommendation, so the ruling waits for a person
+      // (above the bar it would answer itself: `ask-file.ladder.test.ts`).
+      { id: 'restore', label: 'Restore paths', recommended: true, confidence: 0.6 },
       { id: 'split', label: 'Split the task' },
     ],
     ...over,

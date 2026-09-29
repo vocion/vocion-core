@@ -763,6 +763,28 @@ export async function willExecuteOnItsOwn(opts: { orgId: string; actionId: strin
 }
 
 /**
+ * Whether the workspace's trust bar for this action clears at this
+ * confidence — the ladder's own verdict (`ladderVerdict`), for a caller
+ * inside an action that decides a second thing on the same bar: a ruling
+ * answering itself with its recommended option (`ask.file`). Read-only;
+ * never a threshold of its own.
+ * @param opts - The action and what the bar is asked about.
+ * @param opts.orgId - Tenant.
+ * @param opts.actionId - The action whose bar applies.
+ * @param opts.input - Its input, unparsed.
+ * @param opts.confidence - How sure the proposer is.
+ */
+export async function clearsTrustBar(opts: { orgId: string; actionId: string; input: Record<string, unknown>; confidence: number }): Promise<boolean> {
+  const action = getAction(opts.actionId);
+  const parsed = action?.inputSchema.safeParse(opts.input);
+  if (!action || !parsed?.success) {
+    return false;
+  }
+  const verdict = await ladderVerdict(opts.orgId, action, parsed.data as Record<string, unknown>, { confidence: opts.confidence, suggestedDecision: 'approve' }, undefined);
+  return verdict.mode === 'execute';
+}
+
+/**
  * Execute a proposed action (called on approval, or directly for non-gated).
  * Resolves the source's vault credentials, runs the action, records the result.
  * @param runId

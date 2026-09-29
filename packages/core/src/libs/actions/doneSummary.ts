@@ -29,6 +29,25 @@ function fieldList(keys: string[]): string {
 }
 
 /**
+ * The option a ruling was answered with, and whether the trust bar chose it
+ * (`ask.file` done for you) or a person did. Null for any other run.
+ * @param run - The run.
+ * @param run.actionId - Its action.
+ * @param run.result - What it returned.
+ */
+export function chosenOption(run: { actionId: string; result: Meta | null }): { label: string; byTrustBar: boolean } | null {
+  if (run.actionId !== 'ask.file' || !run.result) {
+    return null;
+  }
+  const id = typeof run.result.answered === 'string' ? run.result.answered : null;
+  if (!id) {
+    return null;
+  }
+  const label = typeof run.result.answeredLabel === 'string' && run.result.answeredLabel ? run.result.answeredLabel : id;
+  return { label, byTrustBar: run.result.answeredBy === 'trust-ladder' };
+}
+
+/**
  * The clause for a done run.
  * @param run - The run.
  * @param run.actionId - Its action.
@@ -50,6 +69,10 @@ export function doneSummary(run: { actionId: string; input: Meta | null; result:
       return null;
     }
     return keys.length > 0 ? `changed ${words(type)} #${id}: ${fieldList(keys)}` : `changed ${words(type)} #${id}`;
+  }
+  const chosen = chosenOption(run);
+  if (chosen) {
+    return chosen.byTrustBar ? `chose "${chosen.label}" for you` : `chose "${chosen.label}"`;
   }
   if (run.actionId === 'objects.rename') {
     const id = positiveInt(input.id) ?? made?.id ?? null;

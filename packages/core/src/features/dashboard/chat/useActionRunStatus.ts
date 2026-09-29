@@ -33,6 +33,8 @@ export type ActionRunStatus = {
   recordHrefLabel?: string | null;
   /** Everything a done run made, as links (`libs/actions/resultLinks.ts`). */
   links?: ResultLink[];
+  /** A ruling's answer (`chosenOption`): the option, and whether the trust bar chose it. */
+  choice?: { label: string; byTrustBar: boolean } | null;
   fetchedAt: number;
 };
 
@@ -83,7 +85,7 @@ export function useActionRunStatus(runId: number | undefined, nonce = 0): Action
 
     const tick = async () => {
       try {
-        const res = await client.review.actionStatus({ id }) as { status: string; summary?: string | null; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null; links?: ResultLink[] };
+        const res = await client.review.actionStatus({ id }) as { status: string; summary?: string | null; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null; links?: ResultLink[]; choice?: { label: string; byTrustBar: boolean } | null };
         if (cancelled) {
           return;
         }
@@ -94,7 +96,7 @@ export function useActionRunStatus(runId: number | undefined, nonce = 0): Action
             unchanged = 0;
             delay = MIN_MS;
           }
-          return { status: res.status, summary: res.summary ?? null, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, recordHref: res.recordHref ?? null, recordHrefLabel: res.recordHrefLabel ?? null, links: res.links ?? [], fetchedAt: Date.now() };
+          return { status: res.status, summary: res.summary ?? null, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, recordHref: res.recordHref ?? null, recordHrefLabel: res.recordHrefLabel ?? null, links: res.links ?? [], choice: res.choice ?? null, fetchedAt: Date.now() };
         });
         if (TERMINAL_STATUSES.has(res.status)) {
           return;

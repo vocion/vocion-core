@@ -552,11 +552,16 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
       'ask.decided',
       { agentSlug: ask.agentSlug, resource: ['ask', ask.id], meta: { kind: ask.kind as AskKind, status, objectRefs: ask.objectRefs ?? [] } },
     ),
-    // A correction with a reason is a rule waiting to be written.
-    proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy }),
-    // And every answer is alignment evidence: did the person choose the
-    // option the team recommended? Read back on the sheet and by the ladder.
-    recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
+    // A correction with a reason is a rule waiting to be written — and every
+    // answer is alignment evidence: did the person choose the option the team
+    // recommended? Read back on the sheet and by the ladder. Neither when the
+    // trust bar chose: the recommendation agreeing with itself is no evidence.
+    ...(opts.decidedBy === 'trust-ladder'
+      ? []
+      : [
+          proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy }),
+          recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
+        ]),
   ]);
   announceDecided(row);
   await carryOutChosenOption(row, opts.decidedBy);
@@ -647,6 +652,30 @@ export async function supersedeAsk(orgId: string, id: number, note?: string | nu
     .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id)))
     .returning();
   return row!;
+}
+
+/**
+ * Take back an answer the trust bar gave (`ask.file` done for you, undone):
+ * the ask is open again, undecided, in front of people. Only an ask the trust
+ * bar decided — a person's answer is never unwritten here — and idempotent on
+ * one already open.
+ * @param orgId - The workspace.
+ * @param id - The ask.
+ */
+export async function reopenLadderDecision(orgId: string, id: number): Promise<Ask> {
+  const ask = await getAsk(orgId, id);
+  if (!ask) {
+    throw new AskError('NOT_FOUND', `No ask ${id}`, 404);
+  }
+  if (ask.status === 'open' || ask.decidedBy !== 'trust-ladder') {
+    return ask;
+  }
+  const [row] = await db
+    .update(askSchema)
+    .set({ status: 'open', decision: null, decisionNote: null, followUp: false, decidedBy: null, decidedAt: null, updatedAt: new Date() })
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id), eq(askSchema.decidedBy, 'trust-ladder')))
+    .returning();
+  return row ?? ask;
 }
 
 /**
