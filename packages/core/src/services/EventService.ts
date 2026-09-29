@@ -131,6 +131,16 @@ export const ARTIFACT_SAVED = 'artifact.saved';
  */
 export const OBJECT_CREATED = 'object.created';
 
+/**
+ * A business object's fields were written (`objects.update_meta`): which type,
+ * which fields, by whom. Domain-free — a plugin decides what a change means.
+ * The software factory subscribes (`factory-contract-changed`): a request
+ * whose contract changed while its merge was waiting goes back through the
+ * loop (Chris, 2026-09-29). Payload: `objectId`, `objectType`, `fields`
+ * (comma-joined, sorted), `actor`, `byPerson`, `orgId`.
+ */
+export const OBJECT_UPDATED = 'object.updated';
+
 /** Payload of `object.created`. Scalars only — `when.filter` compares with `===`. */
 export type ObjectCreatedPayload = {
   objectId: number;

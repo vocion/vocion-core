@@ -644,3 +644,30 @@ describe('a blocker whose move was made is cleared (#130, 2026-09-29)', () => {
     expect(((await read(waiting.id)).metadata as { blocker: unknown }).blocker).not.toBeNull();
   });
 });
+
+describe('the contract changed after QA (#201)', () => {
+  it('holds the waiting merge and starts the next attempt against the new contract', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms are scoped to the acting team', state: 'building' });
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.engineering_task!, title: 'Scope rooms', status: 'accepted', metadata: { requestId: r.id, status: 'accepted', prUrl: 'https://github.com/acme/northwind/pull/12', verdict: { value: 'approve', proven: 6, total: 6 }, branch: 'factory/t12' } }).returning();
+    const [merge] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'pending', input: { taskId: task!.id, riskClass: 'logic', title: 'Merge', summary: 'x', recipe: 'merge', commitSha: 'a1b2c3d', rollback: 'revert the merge' } } as never).returning();
+
+    const out = await carry.reopenForContractChange(ORG, { objectId: r.id, objectType: 'request', fields: 'acceptance,outcome', actor: 'usr-chris' });
+
+    expect(out.did).toBe('reopen');
+    expect((await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, merge!.id)))[0]!.status).toBe('rejected');
+    // Held (Changes asked), and — since the next attempt started straight away — superseded by it.
+    expect(['changes_requested', 'abandoned']).toContain(((await read(task!.id)).metadata as { status: string }).status);
+
+    const [next] = (await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.actionId, 'factory.dispatch_task'))))
+      .filter(a => Number((a.input as { requestId?: unknown }).requestId) === r.id);
+
+    expect((next!.input as { recoveryClass?: string }).recoveryClass).toBe('contract_changed');
+  });
+
+  it('does nothing when no contract field changed, or no merge is waiting', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms show their owner', state: 'building' });
+
+    expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: 'priority' })).did).toBe('no contract field changed');
+    expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: 'acceptance' })).did).toBe('no task to reopen');
+  });
+});

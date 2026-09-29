@@ -402,6 +402,18 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // the same way the gap gate is gated on `gapCheck`: this action is
     // domain-free and must stay so.
     const visual = declaresVisuals(objectType.schema) ? await redraw(ctx.orgId, row.id, next, keys) : null;
+    // Said to whoever subscribes (`object.updated`): what changed, and who changed it.
+    void (async () => {
+      const { emitEvent, OBJECT_UPDATED } = await import('@/services/EventService');
+      const actor = ctx.reviewedBy ?? ctx.invokedBy ?? 'system';
+      await emitEvent({
+        orgId: ctx.orgId,
+        type: OBJECT_UPDATED,
+        payload: { objectId: row.id, objectType: input.objectType, fields: keys.join(','), actor, byPerson: actor.startsWith('usr-'), orgId: ctx.orgId },
+        dedupeKey: `${OBJECT_UPDATED}:${row.id}:${ctx.runId ?? Date.now()}`,
+        invokedBy: actor,
+      });
+    })().catch(err => console.warn('object.updated was not announced', { objectId: row.id, message: (err as Error).message }));
     // The run is the record's history: who wrote what, why, and what was
     // there before — in one place, queryable by the dedup key's prefix.
     return {

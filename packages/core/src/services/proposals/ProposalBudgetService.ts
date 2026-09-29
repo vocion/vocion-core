@@ -267,7 +267,7 @@ export async function withdrawProposal(opts: { orgId: string; agentSlug: string;
   const note = `Withdrawn by ${opts.agentSlug}: ${opts.reason.trim()}${opts.supersededBy ? ` — superseded by ${opts.supersededBy}` : ''}`;
   if (opts.kind === 'run') {
     const [row] = await db
-      .select({ id: actionRunSchema.id, invokedBy: actionRunSchema.invokedBy, status: actionRunSchema.status })
+      .select({ id: actionRunSchema.id, invokedBy: actionRunSchema.invokedBy, status: actionRunSchema.status, proposal: actionRunSchema.proposal })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.orgId, opts.orgId), eq(actionRunSchema.id, opts.id)))
       .limit(1);
@@ -281,7 +281,13 @@ export async function withdrawProposal(opts: { orgId: string; agentSlug: string;
     if (row.status !== 'pending') {
       return { ok: false, message: `Proposal #${opts.id} is already ${row.status === 'done' ? 'done — it ran; read what it did before anything else' : row.status}. Nothing was withdrawn.` };
     }
-    if (!seatInvokedBy(opts.agentSlug).includes(row.invokedBy ?? '')) {
+    // ITS OWN RECOMMENDATION, WHOEVER FILED IT (#201's dock, 2026-09-29: the
+    // PM could not withdraw #5232 or #5233 — "not yours" — because the chat
+    // card files the recommendation as the person looking at it). Undecided,
+    // and recommended by this seat (`proposal.agentSlug`), it is the agent's
+    // to take back.
+    const recommendedBy = (row.proposal as { agentSlug?: unknown } | null)?.agentSlug;
+    if (!seatInvokedBy(opts.agentSlug).includes(row.invokedBy ?? '') && recommendedBy !== opts.agentSlug) {
       return { ok: false, message: `Proposal #${opts.id} is not yours to withdraw.` };
     }
     const { rejectAction } = await import('@/services/ActionService');

@@ -14,6 +14,7 @@ export const FACTORY_PLAN_BUILD_JOB = 'factory-plan-build';
 export const FACTORY_RECOVER_JOB = 'factory-recover';
 export const FACTORY_RECOVERY_ANSWER_JOB = 'factory-recovery-answer';
 export const FACTORY_SWEEP_JOB = 'factory-sweep';
+export const FACTORY_CONTRACT_CHANGED_JOB = 'factory-contract-changed';
 
 type Job = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -33,6 +34,8 @@ export const factoryCarryJobs: Record<string, Job> = {
   },
   /** `ask.decided` on a stop: the person's answer starts the count again. */
   [FACTORY_RECOVERY_ANSWER_JOB]: async (orgId, input) => (await import('@/services/factory/carry')).answerRecoveryAsk(orgId, input),
+  /** `object.updated` (request): a contract changed while its merge waited — back through the loop. */
+  [FACTORY_CONTRACT_CHANGED_JOB]: async (orgId, input) => (await import('@/services/factory/carry')).reopenForContractChange(orgId, input),
   /** Scheduled: the same recovery for requests that were already stuck. */
   [FACTORY_SWEEP_JOB]: async (orgId, input) => (await import('@/services/factory/carry')).sweepStuckRequests(orgId, new Date(), typeof input.limit === 'number' ? input.limit : 10),
 };

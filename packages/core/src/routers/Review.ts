@@ -219,6 +219,8 @@ export const proposeFromRecommendationRoute = os
         principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
         invokedBy: userId ?? agentId,
         proposal: {
+          // Who recommended it, so that seat can take it back (`withdrawProposal`).
+          ...(input.agentSlug ? { agentSlug: input.agentSlug } : {}),
           confidence: input.confidence,
           rationale: input.rationale,
           suggestedDecision: input.suggestedDecision,

@@ -1,0 +1,20 @@
+# THE CONTRACT CHANGED AFTER QA (Chris, 2026-09-29, on #201 waiting at "Review
+# the merge": "I wanted from chat to expand the requirements and send it back to
+# the plan/build/qa loop"). A request whose outcome or acceptance is written
+# while one of its tasks waits to merge holds that merge, and the next attempt
+# starts on its own — continuing the pull request's branch against the new
+# contract, so QA judges every criterion again. Deterministic: a built-in job.
+slug: factory-contract-changed
+name: A request's contract changed after QA
+description: >-
+  When a request's outcome, acceptance, story, surface or main risk is written
+  while one of its tasks waits to merge, hold that merge and start the next
+  attempt against the new contract, continuing the pull request's branch.
+status: active
+agent: product-manager
+when:
+  event: object.updated
+  filter:
+    objectType: request
+do:
+  job: factory-contract-changed

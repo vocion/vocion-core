@@ -1086,3 +1086,76 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
   }
   return { acted };
 }
+
+/** The request fields that make up its contract: writing one after QA changes what was approved. */
+export const CONTRACT_FIELDS = ['acceptance', 'outcome', 'story', 'surface', 'mainRisk'] as const;
+
+/**
+ * THE CONTRACT CHANGED AFTER QA — back through the loop (Chris, 2026-09-29, on
+ * #201 waiting at "Review the merge": "I wanted from chat to expand the
+ * requirements and send it back to the plan/build/qa loop"). When a request's
+ * contract is written while one of its tasks waits to merge, that merge is held
+ * with the reason (the task goes back to Changes asked), and the next attempt
+ * starts on its own against the new contract — continuing the pull request's
+ * branch (`pickResumeBase`), so QA judges every criterion again.
+ * @param orgId - The workspace.
+ * @param payload - The `object.updated` payload.
+ */
+export async function reopenForContractChange(orgId: string, payload: Record<string, unknown>): Promise<CarryResult> {
+  const requestId = Number(payload.objectId);
+  const fields = String(payload.fields ?? '').split(',').filter(Boolean);
+  const changed = fields.filter(f => (CONTRACT_FIELDS as readonly string[]).includes(f));
+  if (!Number.isInteger(requestId) || requestId <= 0 || changed.length === 0) {
+    return skip(Number.isInteger(requestId) ? requestId : null, 'no contract field changed');
+  }
+  const { and, eq, inArray } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const work = await workFor(orgId, requestId);
+  const taskIds = work.tasks.map(t => t.id);
+  if (taskIds.length === 0) {
+    return skip(requestId, 'no task to reopen');
+  }
+  const pending = (await db.select({ id: actionRunSchema.id, input: actionRunSchema.input }).from(actionRunSchema).where(and(
+    eq(actionRunSchema.orgId, orgId),
+    eq(actionRunSchema.actionId, 'git.merge'),
+    inArray(actionRunSchema.status, ['pending', 'awaiting_execution']),
+  ))).filter(r => taskIds.includes(Number((r.input as { taskId?: unknown } | null)?.taskId)));
+  if (pending.length === 0) {
+    // No merge waiting: the next Build already builds to the new contract.
+    return skip(requestId, 'no merge waiting');
+  }
+  const by = typeof payload.actor === 'string' && payload.actor ? payload.actor : 'factory';
+  const why = `The request's ${changed.join(', ')} changed after QA approved; it goes back for another attempt against the new contract.`;
+  const { rejectAction, proposeAction } = await import('@/services/ActionService');
+  for (const run of pending) {
+    // Its onRejected holds the task (Changes asked) with this reason as the note.
+    await rejectAction(run.id, orgId, why, { reviewedBy: by });
+  }
+  const held = work.tasks.find(t => pending.some(r => Number((r.input as { taskId?: unknown }).taskId) === t.id));
+  const planId = Number(held?.meta.planId);
+  const res = await proposeAction({
+    orgId,
+    actionId: 'factory.dispatch_task',
+    input: {
+      requestId,
+      // The plan was made against the old contract, so it is planned again: plan → build → QA.
+      ...(Number.isFinite(planId) && planId > 0
+        ? { planId, replan: `the request's contract changed after QA approved (${changed.join(', ')}); plan against the new acceptance` }
+        : {}),
+      trigger: 'recovery',
+      recoveryClass: 'contract_changed',
+      // One reopen per held attempt: the attempt's run keys it.
+      ...(Number(held?.meta.workerRunId) > 0 ? { recoveryOfRun: Number(held?.meta.workerRunId) } : {}),
+      note: `The contract changed after QA approved (${changed.join(', ')}). Continue the branch: keep what is proven, meet the new acceptance, and prove every criterion again.`,
+      reason: why,
+    },
+    principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
+    invokedBy: 'factory:product-manager',
+    internal: true,
+    proposal: { confidence: 0.9, rationale: why, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'The contract a person just changed is what the next attempt builds to.' },
+  }) as { runId: number; status: string };
+  const line = `Contract changed after QA (${changed.join(', ')}): held the merge and ${res.status === 'pending' ? `put the next attempt on a card (action #${res.runId})` : `started the next attempt (action #${res.runId})`}.`;
+  await updateRecovery(orgId, requestId, s => logLine(s, line, new Date().toISOString()));
+  return { requestId, did: 'reopen', line };
+}
