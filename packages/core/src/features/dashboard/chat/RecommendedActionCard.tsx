@@ -4,6 +4,8 @@ import type { RecommendedAction } from './types';
 import { ArrowRight, CalendarClock, Check, Clock3, FilePen, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
+import { ResultLinks } from '@/features/review/ResultLinks';
 import { cardDedupKey } from '@/libs/actions/cardDedupKey';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
@@ -70,7 +72,29 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   const [deciding, setDeciding] = useState<'approve' | 'reject' | 'defer' | 'undo' | null>(null);
   const [decideError, setDecideError] = useState<string | null>(null);
   const [deferredUntil, setDeferredUntil] = useState<Date | null>(null);
-  const live = useActionRunStatus(phase.runId);
+  // What this person already decided here, until the poll says so too: the
+  // buttons do not come back in the gap between the decision returning and
+  // the status catching up (Chris, 2026-09-29: pressed Approve twice).
+  const [asked, setAsked] = useState<'approve' | 'reject' | null>(null);
+  // Bumped after a decision so the status is read now, not on the backoff.
+  const [pollNonce, setPollNonce] = useState(0);
+  const live = useActionRunStatus(phase.runId, pollNonce);
+  // One gesture at a time, closed synchronously on the first press.
+  const once = useSingleFlight();
+  /**
+   * A decision landed — or was refused because it already had. Either way the
+   * card settles; only a refusal that is NOT the asked-for state is an error.
+   * @param decision - What was pressed.
+   * @param err - What the call threw, when it threw.
+   */
+  const settle = (decision: 'approve' | 'reject', err?: unknown) => {
+    if (err !== undefined && !alreadySettled((err as Error)?.message, decision)) {
+      setDecideError((err as Error)?.message ?? String(err));
+      return;
+    }
+    setAsked(decision);
+    setPollNonce(n => n + 1);
+  };
 
   const prepare = async () => {
     // Belt and braces behind `readRecommendedAction` (the event boundary): a
@@ -109,7 +133,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
    * id is in hand for the decision. One network round trip more than the
    * two-click path, and one click fewer.
    */
-  const prepareAndApprove = async () => {
+  const prepareAndApprove = () => once(async () => {
     if (!rec.actionId) {
       setPhase({ status: 'error', message: 'This recommendation named no action, so there is nothing to approve.' });
       return;
@@ -130,12 +154,13 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       setDeciding('approve');
       await client.review.decideAction({ id: res.runId, decision: 'approve' });
       record('approve', res.runId);
+      settle('approve');
     } catch (err) {
-      setDecideError((err as Error).message);
+      settle('approve', err);
     } finally {
       setDeciding(null);
     }
-  };
+  });
 
   /**
    * A RULING'S BUTTONS ARE ITS OPTIONS (Chris, 2026-09-29). Choosing one files
@@ -144,7 +169,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
    * runs it as the person (`ask.file` → `decideAsk`).
    * @param optionId - The chosen option.
    */
-  const answerWith = async (optionId: string) => {
+  const answerWith = (optionId: string) => once(async () => {
     if (!rec.actionId) {
       return;
     }
@@ -168,14 +193,15 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       }
       await client.review.decideAction({ id: runId, decision: 'approve', editedInput: { ...rec.input, answer: optionId } });
       record('approve', runId);
+      settle('approve');
     } catch (err) {
-      setDecideError((err as Error).message);
+      settle('approve', err);
     } finally {
       setDeciding(null);
     }
-  };
+  });
 
-  const decide = async (decision: 'approve' | 'reject') => {
+  const decide = (decision: 'approve' | 'reject') => once(async () => {
     if (phase.runId === undefined) {
       return;
     }
@@ -184,19 +210,20 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
     try {
       await client.review.decideAction({ id: phase.runId, decision });
       record(decision, phase.runId);
+      settle(decision);
     } catch (err) {
-      setDecideError((err as Error).message);
+      settle(decision, err);
     } finally {
       setDeciding(null);
     }
-  };
+  });
 
   /**
    * Defer: "not now" without it reading as "no". The proposal is filed if it
    * is not yet, then snoozed in review until a week out (`deferral.ts`) — the
    * queue's own snooze, so the card and the queue say the same thing.
    */
-  const defer = async () => {
+  const defer = () => once(async () => {
     setDeciding('defer');
     setDecideError(null);
     try {
@@ -226,7 +253,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
     } finally {
       setDeciding(null);
     }
-  };
+  });
 
   // Icon only, no border: one labelled button on a card — the one you came to
   // press — and the rest quiet, named on hover and to a screen reader
@@ -251,7 +278,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
 
   // Done for you → Undo, from the card that said it was done (principle 10:
   // one move from where the claim is read).
-  const undo = async () => {
+  const undo = () => once(async () => {
     if (phase.runId === undefined) {
       return;
     }
@@ -259,12 +286,14 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
     setDecideError(null);
     try {
       await client.review.undoAction({ id: phase.runId });
+      setAsked(null);
+      setPollNonce(n => n + 1);
     } catch (err) {
       setDecideError((err as Error).message);
     } finally {
       setDeciding(null);
     }
-  };
+  });
 
   // The server files a card under done-for-you and sends its run id after
   // the card (`card_update`); the card adopts it and shows the run. It used to
@@ -285,10 +314,19 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   const isDraft = rec.input.draft === true;
   const busy = phase.status === 'working';
 
-  const status = live?.status ?? (phase.status === 'proposed' ? 'pending' : null);
+  const polled = live?.status ?? (phase.status === 'proposed' ? 'pending' : null);
+  // A decision that returned outranks a poll that has not caught up with it.
+  const status = polled === 'pending' && asked ? (asked === 'approve' ? 'executing' : 'rejected') : polled;
   const unfiled = rec.state === 'unfiled' && phase.runId === undefined;
   const terminal = status ? TERMINAL_STATUSES.has(status) : false;
   const effect = describeActionEffect(rec.actionId);
+  // A settled run's error is stale: the state line now says what happened.
+  useEffect(() => {
+    if (terminal) {
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+      setDecideError(null);
+    }
+  }, [terminal]);
   // The record this card is about opens from the card; once the card's action
   // has made a record (a filed request), the link is to THAT record (Chris,
   // 2026-09-28: "I want to click through to the feature detail page").
@@ -296,6 +334,9 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
     ? { href: live.recordHref, label: live.recordHrefLabel ?? 'Open record' }
     : rec.href ? { href: rec.href, label: rec.hrefLabel ?? 'Open record' } : null;
   const draft = rec.draft && phase.runId === undefined ? rec.draft : null;
+  // What the run made, each one move away — the record link above already
+  // names one of them when it is the same page.
+  const madeLinks = status === 'done' ? (live?.links ?? []).filter(l => l.href !== recordLink?.href) : [];
   const state = describeCardState({ status, decidedBy: live?.decidedBy, decidedAt: live?.decidedAt, approvedByAgent: live?.approvedByAgent, unfiled, summary: live?.summary, draft: Boolean(draft) }, fmtTime);
   // Done reads as done at a glance: a green edge, not the card that waits on you.
   const done = status === 'done';
@@ -467,6 +508,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
           </button>
         )}
       </div>
+      {madeLinks.length > 0 && <ResultLinks links={madeLinks} className="mx-3 mt-1 text-xs" />}
       {/* CTA — pinned to the bottom, so cards stretched to one height in a
           strip keep their buttons on one line. */}
       <div className="mt-auto flex flex-wrap items-center gap-2 px-3 py-2.5">

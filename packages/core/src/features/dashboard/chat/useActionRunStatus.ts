@@ -1,5 +1,6 @@
 'use client';
 
+import type { ResultLink } from '@/libs/actions/resultLinks';
 import { useEffect, useRef, useState } from 'react';
 import { client } from '@/libs/Orpc';
 
@@ -30,6 +31,8 @@ export type ActionRunStatus = {
   recordHref?: string | null;
   /** The words on that link: "Open feature". */
   recordHrefLabel?: string | null;
+  /** Everything a done run made, as links (`libs/actions/resultLinks.ts`). */
+  links?: ResultLink[];
   fetchedAt: number;
 };
 
@@ -57,7 +60,12 @@ export function isRequestRejected(err: unknown): boolean {
   return typeof status === 'number' && status >= 400 && status < 500;
 }
 
-export function useActionRunStatus(runId: number | undefined): ActionRunStatus | null {
+/**
+ * @param runId - The run to follow.
+ * @param nonce - Change it to read the status now rather than on the backoff —
+ * after a decision, so the card does not sit on a stale "pending".
+ */
+export function useActionRunStatus(runId: number | undefined, nonce = 0): ActionRunStatus | null {
   const [state, setState] = useState<ActionRunStatus | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -75,7 +83,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
 
     const tick = async () => {
       try {
-        const res = await client.review.actionStatus({ id }) as { status: string; summary?: string | null; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null };
+        const res = await client.review.actionStatus({ id }) as { status: string; summary?: string | null; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null; links?: ResultLink[] };
         if (cancelled) {
           return;
         }
@@ -86,7 +94,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
             unchanged = 0;
             delay = MIN_MS;
           }
-          return { status: res.status, summary: res.summary ?? null, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, recordHref: res.recordHref ?? null, recordHrefLabel: res.recordHrefLabel ?? null, fetchedAt: Date.now() };
+          return { status: res.status, summary: res.summary ?? null, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, recordHref: res.recordHref ?? null, recordHrefLabel: res.recordHrefLabel ?? null, links: res.links ?? [], fetchedAt: Date.now() };
         });
         if (TERMINAL_STATUSES.has(res.status)) {
           return;
@@ -114,7 +122,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
         clearTimeout(timer.current);
       }
     };
-  }, [runId]);
+  }, [runId, nonce]);
 
   return state;
 }

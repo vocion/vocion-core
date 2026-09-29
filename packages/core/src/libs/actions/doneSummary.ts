@@ -57,8 +57,16 @@ export function doneSummary(run: { actionId: string; input: Meta | null; result:
     return id !== null && title ? `renamed #${id} to "${title.slice(0, 80)}"` : null;
   }
   if (run.actionId === 'factory.dispatch_task') {
-    const requestId = positiveInt(input.requestId);
-    return requestId !== null ? `started the build of request #${requestId}` : 'started the build';
+    const requestId = positiveInt(result.requestId) ?? positiveInt(input.requestId);
+    const of = requestId !== null ? ` of request #${requestId}` : '';
+    // A dispatch whose plan no longer fits sends the request back to planning
+    // and starts nothing (`planning: true`); saying "started the build" there
+    // was a claim the run did not make (2026-09-29, action run 5201).
+    if (result.planning === true) {
+      return requestId !== null ? `sent request #${requestId} back to planning` : 'sent it back to planning';
+    }
+    const workerRunId = positiveInt(result.workerRunId);
+    return `started the build${of}${workerRunId !== null ? ` — run #${workerRunId}` : ''}`;
   }
   if (made && made.type !== run.actionId) {
     return run.actionId === 'objects.propose_candidate' ? `filed ${words(made.type)} #${made.id}` : `made ${words(made.type)} #${made.id}`;

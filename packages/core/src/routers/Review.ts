@@ -304,11 +304,19 @@ export const actionStatusRoute = os
     // What it did, from its own result — the words a done card reads.
     const { doneSummary } = await import('@/libs/actions/doneSummary');
     const summary = row.status === 'done' ? doneSummary({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, made) : null;
+    // Everything it made — the run it started, the request it planned, the
+    // PR — so the settled card opens each in one move (Chris, 2026-09-29).
+    const { resultLinks } = await import('@/libs/actions/resultLinks');
+    const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
+    const links = row.status === 'done'
+      ? resultLinks({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, await recordLinkerForOrg(orgId))
+      : [];
     return {
       status: row.status,
       summary,
       recordHref: recordLink,
       recordHrefLabel: recordLink ? openLabelFor(recordLink) : null,
+      links,
       decidedBy: row.name ?? row.email ?? row.decidedBy,
       decidedAt: row.decidedAt?.toISOString() ?? null,
       // Done for you: the ladder released it, and the kind can be put back.

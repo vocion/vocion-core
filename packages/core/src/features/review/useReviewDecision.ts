@@ -6,6 +6,7 @@ import type { ReviewContentEdit } from '@/libs/actions/types';
 import { useEffect, useState } from 'react';
 import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
 import { withMinimumPending } from '@/features/dashboard/inbox/pending';
+import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
 import { currentCopy, currentHash, seedApprovals, seedEditsFromApprovals } from './contentWalk';
@@ -152,7 +153,9 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     return { contentEdits: edits.length > 0 ? edits : undefined, editedInput };
   };
 
-  const decide = async (decision: ReviewDecision) => {
+  // One press, one decision: the guard closes before the next render.
+  const once = useSingleFlight();
+  const decide = (decision: ReviewDecision) => once(async () => {
     setBusy(true);
     try {
       const { contentEdits: ce, editedInput } = buildDecision();
@@ -164,7 +167,18 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(decision === 'approve' && ce ? { contentEdits: ce } : {}),
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
-      }));
+      })).catch((err: unknown) => {
+        // Already what was asked (a second press, another tab): decided, not failed.
+        if ((decision === 'approve' || decision === 'reject') && alreadySettled((err as Error)?.message, decision)) {
+          return { settled: true } as const;
+        }
+        throw err;
+      });
+      if ('settled' in outcome) {
+        setExecError(null);
+        onDecided?.(decision);
+        return;
+      }
       // A failed execution is NOT a completed decision: the surface stays
       // with the error on it and Approve becomes Retry.
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
@@ -176,7 +190,7 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     } finally {
       setBusy(false);
     }
-  };
+  });
 
   const snooze = async (untilOrDays: number | Date) => {
     setBusy(true);
