@@ -174,6 +174,26 @@ describe('build is one path through the plan gate', () => {
   });
 });
 
+describe('an approved plan builds', () => {
+  it('even while a second approve card for the same plan is still pending (#130)', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms show who has not opened', state: 'building' });
+    const [plan] = await db.insert(businessObjectSchema).values({
+      orgId: ORG,
+      typeId: types.architecture_plan!,
+      title: 'Plan: who has not opened',
+      status: 'approved',
+      metadata: { requestId: r.id, status: 'approved', approvedBy: 'a person', approach: 'Match sends to opens in the core package and show them on the room page.', components: ['apps/web — the room page', 'packages/core — the match'], alternatives: ['None.'], verification: 'A test.', dataImpact: 'None.', ruleLevel: 'required' },
+    }).returning();
+    // The duplicate card a chat turn left behind, never decided.
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'factory.approve_plan', status: 'pending', input: { planId: plan!.id }, invokedBy: 'usr-1' } as never);
+
+    const out = await carry.buildFromApprovedPlan(ORG, { planId: plan!.id, requestId: r.id, approvedBy: 'a person', byPerson: true });
+
+    expect(out.did).not.toBe('skip');
+    expect(await runsFor(r.id)).toHaveLength(1);
+  });
+});
+
 describe('a failed run recovers', () => {
   it('sends failed checks again with their output, and stops after three attempts with one ask', async () => {
     const r = await request({ product: 'rooms', title: 'The invite email links to the wrong room' });
