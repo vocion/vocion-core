@@ -22,7 +22,7 @@ import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { ActionError, proposeAction, willExecuteOnItsOwn } from '@/services/ActionService';
 import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
 import { readsThisTurn } from '@/services/gates/turnReads';
-import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
+import { checkProposalBudget, IDEA_ACTION_ID, isAgentsOwnSchedule, isFactoryStep } from '@/services/proposals/ProposalBudgetService';
 import { emitSelfUpdate } from '../selfUpdateEvent';
 import { withArgumentRepair } from '../toolCallRecord';
 
@@ -69,13 +69,21 @@ export async function runProposal(
   opts: { tool: string; refused?: (code: string, message: string) => string },
 ): Promise<string> {
   const { actionId: action_id, input: action_input, confidence, rationale, evidence, suggestedDecision: suggested_decision, suggestedDecisionReason: reason, suggestedSnoozeUntil: suggested_snooze_until } = req;
+  // Structural, not the model's say-so: this turn is the factory's own step
+  // (planning, recovery, intake) when the mission run it belongs to was
+  // started in that name (`isFactoryStep`), never by asking what the model
+  // is filing. Scoped to the idea filing itself (`objects.propose_candidate`
+  // — a plan, a card): every other action a model might call from the same
+  // turn is still stamped `agent:<slug>`, so `factory.approve_plan`'s guard
+  // against an agent proposing its own approval (#845) is unaffected.
+  const factoryStep = isFactoryStep(ctx) && action_id === IDEA_ACTION_ID;
   // THE PROPOSAL BUDGET. An agent on its own schedule may hold only so
   // many undecided items in Review; past that it withdraws one of its
   // own before it files another. A person's own turn is never counted.
   if (ctx.agentSlug && isAgentsOwnSchedule(ctx)) {
     // Only what would wait for a person counts against the Review limit.
     const queuesForPerson = !(await willExecuteOnItsOwn({ orgId: ctx.orgId, actionId: action_id, input: action_input, principal: { kind: 'agent', id: `agent:${ctx.agentSlug}`, scope: { orgId: ctx.orgId }, grants: ['*'], autonomy: 2 }, proposal: { confidence, suggestedDecision: suggested_decision } }).catch(() => false));
-    const verdict = await checkProposalBudget({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, actionId: action_id, queuesForPerson });
+    const verdict = await checkProposalBudget({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, actionId: action_id, queuesForPerson, factoryStep });
     if (!verdict.ok) {
       return verdict.message;
     }
@@ -102,7 +110,11 @@ export async function runProposal(
         // Working autonomy: external writes always gate to human approval.
         autonomy: 2,
       },
-      invokedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId,
+      // A factory step is stamped `factory:<slug>`, never `agent:<slug>`, so
+      // it never lands in this seat's own weekly idea count (which reads
+      // `agent:<slug>` alone) — `openProposals`/`withdrawProposal` still find
+      // it under either stamp (`seatInvokedBy`).
+      invokedBy: ctx.agentSlug ? `${factoryStep ? 'factory' : 'agent'}:${ctx.agentSlug}` : ctx.userId,
       // The thread and the person whose turn it was, so a record this
       // files can say it was asked for (a P1 filed in chat starts its build).
       origin: ctx.conversationId ? { conversationId: ctx.conversationId, userId: ctx.userId ?? null, byPerson: !isAgentsOwnSchedule(ctx) } : undefined,
@@ -110,6 +122,11 @@ export async function runProposal(
         confidence,
         rationale,
         evidence,
+        // `invokedBy` cannot always answer "which agent's judgement is this"
+        // once it carries `factory:<slug>` instead of `agent:<slug>` — the
+        // team report and adoption stream fall back to this field exactly
+        // as they already do for a token/API-invoked proposal.
+        agentSlug: ctx.agentSlug,
         suggestedDecision: suggested_decision,
         suggestedDecisionReason: reason,
         suggestedSnoozeUntil: suggested_snooze_until,

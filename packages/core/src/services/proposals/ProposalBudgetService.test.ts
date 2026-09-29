@@ -20,13 +20,13 @@ async function wipe() {
   await db.delete(agentSchema);
 }
 
-async function pendingRun(title: string, opts: { agent?: string; actionId?: string; status?: string; createdAt?: Date } = {}) {
+async function pendingRun(title: string, opts: { agent?: string; actionId?: string; status?: string; createdAt?: Date; invokedBy?: string } = {}) {
   const [row] = await db.insert(actionRunSchema).values({
     orgId: ORG,
     actionId: opts.actionId ?? 'objects.propose_candidate',
     input: { title },
     status: opts.status ?? 'pending',
-    invokedBy: `agent:${opts.agent ?? AGENT}`,
+    invokedBy: opts.invokedBy ?? `agent:${opts.agent ?? AGENT}`,
     ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
   } as never).returning({ id: actionRunSchema.id });
   return row!.id;
@@ -42,6 +42,15 @@ beforeEach(wipe);
 afterAll(wipe);
 
 describe('whose turn it is', () => {
+  it('identifies a factory step by its userId stamp, structurally — never by asking the model', () => {
+    expect(svc.isFactoryStep({ userId: 'factory:product-manager' })).toBe(true);
+    expect(svc.isFactoryStep({ userId: 'agent:product-manager' })).toBe(false);
+    expect(svc.isFactoryStep({ userId: 'user_chris' })).toBe(false);
+    expect(svc.isFactoryStep({ userId: 'scheduled' })).toBe(false);
+    expect(svc.isFactoryStep({})).toBe(false);
+    expect(svc.isFactoryStep({ userId: null })).toBe(false);
+  });
+
   it('a person in the conversation exempts the turn; a schedule, a mission or no conversation does not', () => {
     expect(svc.isAgentsOwnSchedule({ userId: 'user_chris', conversationId: 12 })).toBe(false);
     expect(svc.isAgentsOwnSchedule({ userId: 'mcp', conversationId: 12 })).toBe(false);
@@ -94,6 +103,47 @@ describe('the cap on undecided items', () => {
 
     expect(idea).toMatchObject({ ok: false, reason: 'weekly', weekly: 2 });
     expect(notIdea.ok).toBe(true);
+  });
+
+  it('a factory step at the weekly cap still files; the agent\'s own idea at the same cap is still refused (prod #224, 2026-09-29)', async () => {
+    await db.insert(agentSchema).values({ orgId: ORG, slug: AGENT, name: 'PM', systemPrompt: 'x', model: 'm', temperature: '0.2', approvalPolicy: { proposals: { openMax: 50, weeklyMax: 10 } } } as never);
+    // 11 of 10 this week, all the agent's own — exactly the prod shape.
+    for (let i = 0; i < 11; i++) {
+      await pendingRun(`Idea ${i}`, { status: 'done' });
+    }
+
+    const factoryPlan = await svc.checkProposalBudget({ orgId: ORG, agentSlug: AGENT, actionId: 'objects.propose_candidate', factoryStep: true });
+    const agentsOwnIdea = await svc.checkProposalBudget({ orgId: ORG, agentSlug: AGENT, actionId: 'objects.propose_candidate' });
+
+    expect(factoryPlan).toMatchObject({ ok: true });
+    expect(agentsOwnIdea).toMatchObject({ ok: false, reason: 'weekly', weekly: 11 });
+  });
+
+  it('a factory-filed run (invokedBy factory:<slug>) never inflates the weekly count that bounds the agent\'s own ideas', async () => {
+    await db.insert(agentSchema).values({ orgId: ORG, slug: AGENT, name: 'PM', systemPrompt: 'x', model: 'm', temperature: '0.2', approvalPolicy: { proposals: { openMax: 50, weeklyMax: 2 } } } as never);
+    await pendingRun('Filed by the factory', { status: 'done', invokedBy: `factory:${AGENT}` });
+    await pendingRun('Filed by the factory too', { status: 'done', invokedBy: `factory:${AGENT}` });
+
+    expect(await svc.weeklyIdeaCount(ORG, AGENT)).toBe(0);
+    expect(await svc.checkProposalBudget({ orgId: ORG, agentSlug: AGENT, actionId: 'objects.propose_candidate' })).toMatchObject({ ok: true });
+  });
+});
+
+describe('a factory step still shows up in the seat\'s own queue', () => {
+  it('counts a factory-filed pending run toward the open (Review WIP) limit and its list, same as the agent\'s own', async () => {
+    await db.insert(agentSchema).values({ orgId: ORG, slug: AGENT, name: 'PM', systemPrompt: 'x', model: 'm', temperature: '0.2', approvalPolicy: { proposals: { openMax: 1, weeklyMax: 10 } } } as never);
+    await pendingRun('Write the plan', { invokedBy: `factory:${AGENT}` });
+
+    const open = await svc.openProposals(ORG, AGENT);
+
+    expect(open.map(o => o.title)).toEqual(['Write the plan']);
+    expect(await svc.checkProposalBudget({ orgId: ORG, agentSlug: AGENT })).toMatchObject({ ok: false, reason: 'open' });
+  });
+
+  it('withdraws a factory-filed run in the agent\'s name, same as its own', async () => {
+    const planId = await pendingRun('Write the plan', { invokedBy: `factory:${AGENT}` });
+
+    expect(await svc.withdrawProposal({ orgId: ORG, agentSlug: AGENT, kind: 'run', id: planId, reason: 'superseded by a smaller plan' })).toEqual({ ok: true });
   });
 });
 

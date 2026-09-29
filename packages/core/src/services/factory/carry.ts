@@ -390,7 +390,11 @@ export async function startPlanning(orgId: string, opts: { request: { id: number
     type: FACTORY_PLAN_REQUESTED,
     payload: { requestId: opts.request.id, title: opts.request.title, why: opts.why },
     dedupeKey: `${FACTORY_PLAN_REQUESTED}:${opts.request.id}:${opts.at}`,
-    invokedBy: `agent:${PM}`,
+    // The factory's own step, in the PM's name but not the PM's turn (same
+    // stamp `replan` below uses): the mission check this fires carries it as
+    // `ctx.userId`, so the plan filing it prompts is bounded by the attempt
+    // limit, not the PM's weekly idea cap (`isFactoryStep`).
+    invokedBy: `factory:${PM}`,
     dispatchMode: 'auto',
   });
   return { planId: null, via: 'planner', previous };
