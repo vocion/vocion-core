@@ -24,6 +24,7 @@ import { agentSchema } from '@/models/Schema';
 import { verifyClaim } from './claims';
 import { loadFilingTypes } from './tools/fileRecord';
 import { buildDomainTools } from './tools/registry';
+import { loadRestSources } from './tools/restDirect';
 
 /**
  * The workspace facts the in-process harness reads once per graph build, read
@@ -90,6 +91,8 @@ export async function executeToolCall(opts: {
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     // The typed filing tools the catalog listed, rebuilt the same way.
     filingTypes: await loadFilingTypes(claim.orgId, row.objectTypeSlugs ?? []).catch(() => []),
+    // The REST tools the catalog listed, rebuilt the same way.
+    restSources: await loadRestSources(claim.orgId, row.connectorSources ?? []).catch(() => []),
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     conversationId: claim.conversationId,

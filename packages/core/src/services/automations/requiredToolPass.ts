@@ -80,6 +80,8 @@ export async function forceRequiredTool(opts: {
   // pass built its belt without the agent's filing types.
   const { loadFilingTypes } = await import('@/services/agents/tools/fileRecord');
   ctx.filingTypes = await loadFilingTypes(opts.orgId, agent.objectTypeSlugs ?? []).catch(() => []);
+  const { loadRestSources } = await import('@/services/agents/tools/restDirect');
+  ctx.restSources = await loadRestSources(opts.orgId, agent.connectorSources ?? []).catch(() => []);
   const { buildDomainTools } = await import('@/services/agents/tools/registry');
   const tool = buildDomainTools(ctx).find(t => t.name === toolName) as StructuredToolInterface | undefined;
   if (!tool) {

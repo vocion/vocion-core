@@ -31,6 +31,7 @@ import type { SubAgent } from 'deepagents';
 import type { FilingType } from './tools/fileRecord';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
+import type { RestSourceSpec } from '@/libs/rest/spec';
 import type { OperatingIntentManifest } from '@/libs/workspace/schemas';
 import type { Initiative } from '@/services/agents/initiative';
 import { tool as makeTool } from '@langchain/core/tools';
@@ -57,6 +58,7 @@ import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { loadFilingTypes } from './tools/fileRecord';
 import { buildDomainTools } from './tools/registry';
+import { loadRestSources } from './tools/restDirect';
 
 /* ------------------------------------------------------------------ */
 /* LRU cache of agent blueprints — never of per-request state          */
@@ -245,6 +247,8 @@ type AgentBlueprint = {
   enabledPlugins: string[];
   /** The agent's types filed through their own typed tool (`tools/fileRecord.ts`). */
   filingTypes?: FilingType[];
+  /** The agent's `rest` sources with their declared endpoints (`tools/restDirect.ts`). */
+  restSources?: RestSourceSpec[];
 };
 
 /**
@@ -318,6 +322,10 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // with reference fields resolved to this workspace's record slugs. Once per
   // blueprint, like the plugins: an apply resets the cache.
   const filingTypes = await loadFilingTypes(orgId, row.objectTypeSlugs ?? []).catch(() => [] as FilingType[]);
+  // The REST sources the agent holds, with the endpoints each declares —
+  // the tool builder is synchronous, so they are read here, once per
+  // blueprint, the way the filing types are.
+  const restSources = await loadRestSources(orgId, row.connectorSources ?? []).catch(() => [] as RestSourceSpec[]);
 
   // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
   // the registry (agent-chat-surface.md §9 — routing is delegation): agents
@@ -446,7 +454,7 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     });
   }
 
-  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes };
+  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes, restSources };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
@@ -513,6 +521,7 @@ function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: 
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     enabledPlugins: blueprint.enabledPlugins,
     filingTypes: blueprint.filingTypes,
+    restSources: blueprint.restSources,
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     defaultTimeZone: blueprint.defaultTimeZone,

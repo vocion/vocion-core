@@ -436,6 +436,15 @@ export type RuntimeContext = {
    */
   filingTypes?: import('./tools/fileRecord').FilingType[];
   /**
+   * The `rest` sources this agent's `connectorSources` name, with their
+   * declared endpoints (`tools/restDirect.ts`): one live read tool per
+   * `tools[]` entry and an action catalog per source. Resolved once per
+   * graph build like `filingTypes`, because the declarations live on the
+   * source row and the tool builder is synchronous; absent means no REST
+   * tools.
+   */
+  restSources?: import('@/libs/rest/spec').RestSourceSpec[];
+  /**
    * Plugins the workspace has on (`project.enabled_plugins`), resolved once at
    * graph build. Plugin-owned tool sets (wiki, data rooms) are present only
    * when their plugin is; `list_capabilities` reads it to say what is off.

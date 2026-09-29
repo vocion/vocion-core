@@ -70,6 +70,7 @@ import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
 import { recordVerdictTools } from './recordVerdict';
 import { renderArtifactTools } from './renderArtifacts';
+import { restTools } from './restDirect';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
@@ -227,6 +228,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...hubspotDirectTools(ctx),
     // Source-gated — empty unless an Apollo source is in the agent's scope.
     ...apolloTools(ctx),
+    // Source-gated — the live reads every `rest` source in scope declares,
+    // plus its action catalog. Empty without one (`ctx.restSources`).
+    ...restTools(ctx),
     // Source-gated — the PostHog daily mirror, summed. Empty without a posthog source.
     ...posthogCountTools(ctx),
     // Source-gated read-through caches (zoom / gmail sources in scope).

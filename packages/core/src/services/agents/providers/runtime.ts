@@ -140,6 +140,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     enabledPlugins: definition.enabledPlugins,
     filingTypes: definition.filingTypes,
+    restSources: definition.restSources,
     searchConfig: (row.searchConfig as never) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     defaultTimeZone: definition.defaultTimeZone,
