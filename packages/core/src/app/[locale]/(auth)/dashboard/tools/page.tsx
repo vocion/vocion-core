@@ -1,32 +1,22 @@
 import type { Metadata } from 'next';
-import { Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
 import { combinedPageTitle } from '@/features/navigation/combinedPages';
-import { ReadinessBadge } from '@/features/tools/ReadinessBadge';
-import { Link } from '@/libs/I18nNavigation';
-import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
+import { ToolCatalogView } from '@/features/tools/ToolCatalogView';
+import { toolCatalogForOrg } from '@/libs/tools/orgCatalog';
 import { requireOrganization } from '@/utils/Auth';
 
-const CATEGORY_LABELS: Record<string, string> = {
-  research: 'Research the web',
-  create: 'Create & deliver',
-  compute: 'Compute',
-};
-
 /**
- * Whose key each capability spends, in the words a workspace admin would use.
- * `none` covers both "needs no key" and "nobody has one", which the readiness
- * badge on the same card tells apart, so it says nothing rather than guessing.
+ * The Tools tab of "Skills & tools" — see `skills/page.tsx`.
+ *
+ * What this workspace's agents can actually reach: the six built-ins, the
+ * typed filing tools of its object types, each source family it has
+ * connected (HubSpot, Apollo, Gmail, Calendar, Zoom, PostHog), every `rest`
+ * source with its reads and its writes, and the workspace's own tools —
+ * from the same registry and the same context the agents run with
+ * (`toolCatalogForOrg`), so the page and the model never disagree about
+ * what a tool is called or who holds it.
  */
-const KEY_SOURCE_LABELS: Record<string, string> = {
-  workspace: 'On this workspace\'s key',
-  server: 'On the Vocion server key',
-  unknown: 'Could not check this workspace\'s key',
-  none: '',
-};
-
-/** The Tools tab of "Skills & tools" — see `skills/page.tsx`. */
 export const metadata: Metadata = { title: combinedPageTitle('/dashboard/tools') };
 
 export default async function ToolsPage(props: {
@@ -36,104 +26,15 @@ export default async function ToolsPage(props: {
   setRequestLocale(locale);
 
   const { orgId } = await requireOrganization();
-  const statuses = await capabilityStatuses(orgId);
-  const statusByCapability = new Map(statuses.map(s => [s.capability, s]));
-  const ready = statuses.filter(s => s.ready).length;
-
-  const categories = ['research', 'create', 'compute'] as const;
+  const catalog = await toolCatalogForOrg(orgId);
 
   return (
     <>
       <CombinedPageHeader
         active="/dashboard/tools"
-        description="Built-in capabilities every agent can use out of the box — live web search, browsing, image generation, calculation, and artifacts. Paid providers run on this workspace's own key when it has stored one, and on the Vocion server key otherwise."
+        description="Every tool this workspace's agents can reach, by where it comes from: the built-ins every agent has, the records they file, each connected source, and any REST API declared as a source — with who holds it and whether it can run. Paid providers run on this workspace's own key when it has stored one, and on the Vocion server key otherwise."
       />
-
-      <div className="mb-6 grid grid-cols-3 gap-3">
-        <Stat label="Built-in tools" value={BUILTIN_TOOLS.length} />
-        <Stat label="Capabilities ready" value={ready} />
-        <Stat label="Need a key" value={statuses.length - ready} />
-      </div>
-
-      <div className="flex flex-col gap-8">
-        {categories.map((cat) => {
-          const tools = BUILTIN_TOOLS.filter(t => t.category === cat);
-          if (tools.length === 0) {
-            return null;
-          }
-          return (
-            <section key={cat}>
-              <h2 className="mb-3 text-xs font-medium text-muted-foreground">
-                {CATEGORY_LABELS[cat]}
-              </h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {tools.map((tool) => {
-                  const status = statusByCapability.get(tool.capability);
-                  const isReady = status?.ready ?? true;
-                  const keySourceLabel = KEY_SOURCE_LABELS[status?.keySource ?? 'none'];
-                  return (
-                    <Link
-                      key={tool.name}
-                      href={`/dashboard/tools/${tool.name}`}
-                      className="block rounded-lg border border-border bg-background p-4 transition hover:border-primary/30 hover:bg-muted/40"
-                    >
-                      <div className="mb-2 flex items-center gap-2">
-                        <Wrench className="size-4 text-primary" />
-                        <span className="text-sm font-medium">{tool.title}</span>
-                        <span className="ml-auto">
-                          <ReadinessBadge
-                            ready={isReady}
-                            keyStateUnknown={status?.keySource === 'unknown'}
-                          />
-                        </span>
-                      </div>
-                      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="font-mono">{tool.name}</span>
-                        {keySourceLabel !== '' && (
-                          <span>
-                            ·
-                            {' '}
-                            {keySourceLabel}
-                          </span>
-                        )}
-                      </div>
-                      <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{tool.description}</p>
-                      <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span>
-                          provider:
-                          {' '}
-                          <span className="font-mono">{status?.provider ?? 'builtin'}</span>
-                        </span>
-                        {!isReady && status?.missingEnv.length
-                          ? (
-                              <>
-                                <span>·</span>
-                                <span className="font-mono text-amber-600 dark:text-amber-400">
-                                  set
-                                  {' '}
-                                  {status.missingEnv.join(', ')}
-                                </span>
-                              </>
-                            )
-                          : null}
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+      <ToolCatalogView catalog={catalog} />
     </>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border p-3 text-center">
-      <div className="text-xl font-bold">{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-    </div>
   );
 }

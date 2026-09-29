@@ -249,6 +249,23 @@ For the example above, an agent holding `acme-delivery` has:
 | `delivery_get_project` | `GET /api/projects/{documentId}`. |
 | `delivery_list_actions` | The write catalog: each action's name, description, input schema and reversibility, and how to propose one. |
 
+### Where the tools show up
+
+The same tools, wherever a person looks for them:
+
+- **The Tools page** (`/dashboard/tools`) lists the source under its own
+  name, after the built-ins: its reads as cards, each saying which agents
+  hold it, and beneath them the writes reachable through `rest.request`. The
+  chip at the top says whether the source has a credential connected; a
+  source with none says so and links to the Connectors page, and a source no
+  agent holds yet says that. Each read has its own page with the endpoint,
+  the query template and the arguments as a field table.
+- **In chat**, a step reads as the source, then the act — *Acme Delivery API ·
+  Listing projects…* — and a proposed write as *Proposed update milestone on
+  Acme Delivery API*, so a person watching knows which system was asked.
+- **Over MCP** (`/api/mcp`), the same reads are served for the configured
+  agent, from the same registry.
+
 A read tool returns the API's own answer as compact JSON — no indentation,
 so a page costs half the characters it would pretty-printed, against
  and against the model's context alike. A failure is data

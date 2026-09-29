@@ -14,7 +14,10 @@ loses a tool altogether with `harness.excludeTools` ([agent](../entities/agent.m
 
 The tool surface is one list, `packages/core/src/services/agents/tools/registry.ts`, and every
 harness — in-process, AgentCore, and the MCP server at `/api/mcp` — serves the same tools with the
-same gates.
+same gates, built from one context (`services/agents/runtimeContext.ts`). The Tools page
+(`/dashboard/tools`) reads that same list per agent and shows the union by family — the built-ins,
+the typed filing tools, each connected source, each REST source's reads and writes — with the
+agents that hold each tool, so what the page says an agent has is what the agent has.
 
 ## The tools
 
