@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rulingChoices } from './RecommendedActionCard';
+import { rulingChoices } from './rulingChoices';
 
 describe('a ruling card offers its options, not Approve', () => {
   it('lists the options of an ask.file filing, recommended first, with the ids the ask stores', () => {

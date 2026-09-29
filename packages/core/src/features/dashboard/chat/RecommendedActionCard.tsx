@@ -5,7 +5,6 @@ import { ArrowRight, CalendarClock, Check, Clock3, FilePen, Loader2, Mail, Penci
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cardDedupKey } from '@/libs/actions/cardDedupKey';
-import { slugifyOption } from '@/libs/asks/optionId';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
@@ -14,6 +13,7 @@ import { openAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
 import { describeActionEffect, describeCardState } from './recommendedAction';
+import { rulingChoices } from './rulingChoices';
 import { TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
 /**
@@ -611,26 +611,4 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       </div>
     </div>
   );
-}
-
-/**
- * The choices a ruling card offers in place of Approve: the options of an
- * `ask.file` filing, recommended first. Null for any other card.
- * @param rec - The recommendation.
- * @param rec.actionId
- * @param rec.input
- */
-export function rulingChoices(rec: { actionId?: string | null; input: Record<string, unknown> }): Array<{ id: string; label: string; recommended: boolean }> | null {
-  if (rec.actionId !== 'ask.file' || !Array.isArray(rec.input.options) || rec.input.options.length === 0) {
-    return null;
-  }
-  const out = (rec.input.options as unknown[]).map((o) => {
-    if (typeof o === 'string') {
-      return { id: slugifyOption(o), label: o, recommended: false };
-    }
-    const r = (o ?? {}) as { id?: string; label?: string; recommended?: boolean };
-    const label = typeof r.label === 'string' ? r.label : '';
-    return { id: typeof r.id === 'string' && r.id.trim() ? r.id.trim() : slugifyOption(label), label, recommended: r.recommended === true };
-  }).filter(o => o.label);
-  return out.length > 0 ? [...out].sort((a, b) => Number(b.recommended) - Number(a.recommended)) : null;
 }
