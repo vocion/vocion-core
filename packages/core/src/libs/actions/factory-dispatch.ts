@@ -738,6 +738,51 @@ async function earlierStarts(orgId: string, requestId: number, excludeRunId?: nu
 }
 
 /**
+ * Close what a person's start of a request makes moot: its open "Stopped"
+ * ask (the recovery's) and any other pending Build card for it. Each closes
+ * with the reason, so the queue says what happened instead of waiting.
+ * @param orgId - The workspace.
+ * @param request - The request being started.
+ * @param request.id
+ * @param request.meta
+ * @param opts - Who started it, and the run doing so (never closed).
+ * @param opts.by
+ * @param opts.runId
+ */
+export async function settleMootDecisions(orgId: string, request: { id: number; meta: Meta }, opts: { by: string; runId: number | null }): Promise<{ asks: number[]; cards: number[] }> {
+  const { and, eq, ne, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const why = `A person started request #${request.id}${opts.runId ? ` (run #${opts.runId})` : ''}.`;
+  const asks: number[] = [];
+  const askId = Number((request.meta.recovery as { askId?: unknown } | undefined)?.askId);
+  if (Number.isInteger(askId) && askId > 0) {
+    const { getAsk, supersedeAsk } = await import('@/services/AskService');
+    const ask = await getAsk(orgId, askId);
+    if (ask && ask.status === 'open') {
+      await supersedeAsk(orgId, askId, `${why} This stop is answered.`);
+      asks.push(askId);
+    }
+  }
+  const pending = await db.select({ id: actionRunSchema.id }).from(actionRunSchema).where(and(
+    eq(actionRunSchema.orgId, orgId),
+    eq(actionRunSchema.actionId, DISPATCH_ACTION_ID),
+    eq(actionRunSchema.status, 'pending'),
+    sql`${actionRunSchema.input}->>'requestId' = ${String(request.id)}`,
+    ...(opts.runId ? [ne(actionRunSchema.id, opts.runId)] : []),
+  ));
+  const cards: number[] = [];
+  if (pending.length > 0) {
+    const { rejectAction } = await import('@/services/ActionService');
+    for (const row of pending) {
+      await rejectAction(row.id, orgId, `${why} This card is moot.`, { reviewedBy: opts.by }).catch(() => undefined);
+      cards.push(row.id);
+    }
+  }
+  return { asks, cards };
+}
+
+/**
  * The refusal for a start of a request that is already building, or null.
  * @param orgId - Tenant.
  * @param requestId - The request, when the start names one.
@@ -859,6 +904,14 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     }
     const automatic = isAutomatic(input, ctx);
     const at = new Date().toISOString();
+    // A PERSON'S START SETTLES WHAT IT ANSWERS (Chris, 2026-09-29, #201:
+    // approving the re-dispatch left "Needs your decision: Stopped …" and a
+    // second card standing beside it). Whatever this start goes on to do —
+    // build or plan first — the stop is answered and any other Build card
+    // for the request is moot.
+    if (request && ctx.reviewedBy && !automatic) {
+      await settleMootDecisions(ctx.orgId, request, { by: ctx.reviewedBy, runId: ctx.runId ?? null }).catch(() => undefined);
+    }
     // A STALE PLAN IS PLANNED AGAIN BEFORE ANYTHING IS SENT: superseded, and
     // the planner is briefed with the paths that are gone and the ones that
     // exist. Undo puts the plan back as it was.

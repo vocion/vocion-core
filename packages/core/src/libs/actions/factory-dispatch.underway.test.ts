@@ -8,12 +8,13 @@
  * run #N" and starts nothing. Every name below is invented.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildUnderway, factoryDispatchAction, underwayRefusal } from './factory-dispatch';
+import { buildUnderway, factoryDispatchAction, settleMootDecisions, underwayRefusal } from './factory-dispatch';
 
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, workerRunSchema } = await import('@/models/Schema');
+const { eq } = await import('drizzle-orm');
 
 const NOW = new Date('2026-09-29T03:23:09Z');
 const planning = { planning: true, requestId: 224, workerRunId: null, why: 'the allowed paths span 3 packages' };
@@ -88,5 +89,28 @@ describe('buildUnderway, read from the runs', () => {
     await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'factory.dispatch_task', input: { requestId: 130 }, status: 'done', executedAt: new Date(), result: { workerRunId: worker!.id, requestId: 130 } });
 
     expect(await buildUnderway(ORG, 130)).toMatch(new RegExp(`^already building: run #${worker!.id}`));
+  });
+});
+
+describe('a person\'s start settles what it answers (#201)', () => {
+  it('closes the request\'s open Stopped ask and any other pending Build card, and never the run doing the start', async () => {
+    const { askSchema } = await import('@/models/Schema');
+    const { upsertAsk } = await import('@/services/AskService');
+    const org = 'org_moot';
+    const { ask } = await upsertAsk({ orgId: org, createdBy: 'factory', ask: { kind: 'approval', title: 'Stopped: Rooms keep their order', sourceRef: 'factory:stopped:901', objectRefs: [{ type: 'request', id: '901' }] } as never });
+    const [starting] = await db.insert(actionRunSchema).values({ orgId: org, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: 901 } } as never).returning({ id: actionRunSchema.id });
+    const [other] = await db.insert(actionRunSchema).values({ orgId: org, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: 901 } } as never).returning({ id: actionRunSchema.id });
+    const [unrelated] = await db.insert(actionRunSchema).values({ orgId: org, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: 902 } } as never).returning({ id: actionRunSchema.id });
+
+    const out = await settleMootDecisions(org, { id: 901, meta: { recovery: { askId: ask.id } } }, { by: 'usr-chris', runId: starting!.id });
+
+    expect(out).toEqual({ asks: [ask.id], cards: [other!.id] });
+
+    const status = async (id: number) => (await db.select({ s: actionRunSchema.status, by: actionRunSchema.decidedBy }).from(actionRunSchema).where(eq(actionRunSchema.id, id)))[0];
+
+    expect(await status(other!.id)).toEqual({ s: 'rejected', by: 'usr-chris' });
+    expect((await status(starting!.id))!.s).toBe('pending');
+    expect((await status(unrelated!.id))!.s).toBe('pending');
+    expect((await db.select({ s: askSchema.status }).from(askSchema).where(eq(askSchema.id, ask.id)))[0]!.s).toBe('superseded');
   });
 });
