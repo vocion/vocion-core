@@ -34,7 +34,7 @@ import { DecisionCards } from './DecisionCards';
  * **No control on this page opens the conversation with a prefilled prompt.**
  * Every actionable item routes to the surface that does the thing; asking
  * about the brief is the SELECTION path — highlight a passage and the
- * standard control offers *Ask about this* — which is secondary by
+ * standard control offers *Ask* — which is secondary by
  * construction. A chip that sends "Do this: 4 learning candidates to adopt or
  * reject" as a chat message is a prompt pretending to be an action.
  *
@@ -149,7 +149,7 @@ export function BriefingView({ doc, liveDecisions, history, publisher }: {
     // Every `Section` below carries `data-comment-field` (the Detail
     // archetype's own opt-in), so highlighting a passage inside the
     // `CommentLayerProvider` this page is wrapped in raises the platform's
-    // one selection control — *Ask about this* — with the passage quoted
+    // one selection control — *Ask* — with the passage quoted
     // (docs/design/patterns.md § Select → talk). `data-briefing-root` stays
     // as this page's own marker, for tests and styling.
     <div data-briefing-root>

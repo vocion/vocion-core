@@ -439,8 +439,8 @@ function ItemPane(props: {
 
   return (
     // `data-comment-field`: the item is a region the selection control can
-    // anchor to, so highlighting a sentence in it offers *Ask about this* /
-    // *Add change* (`docs/design/patterns.md` § Select → talk).
+    // anchor to, so highlighting a sentence in it offers *Ask* /
+    // *Change* (`docs/design/patterns.md` § Select → talk).
     <div data-comment-field={props.label} data-testid={`item-pane-${props.item.id}`} className="@container">
       <div className="mb-1 flex items-baseline justify-between gap-3">
         <h3 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">

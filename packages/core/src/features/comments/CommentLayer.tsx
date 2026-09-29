@@ -5,6 +5,7 @@ import type { RecordRef } from '@/services/chat/pageContext';
 import { createContext, use, useCallback, useState } from 'react';
 import { requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { changeRef } from '@/features/dashboard/chat/composerTags';
+import { useOwnSelectionRoot } from '@/features/dashboard/context/useSelectionWatcher';
 import { CommentPopover, useAnchoredComments } from './AnchoredComments';
 
 /**
@@ -28,15 +29,15 @@ const CommentLayerContext = createContext<Layer>(null);
  * select-to-talk (`docs/design/patterns.md`).
  *
  * Both actions on the control end at the SAME place: `requestAgentSurface`,
- * the one entry function (agent-chat-surface.md §6). *Ask about this* sends
- * the passage as `PageContext.selection` and nothing else. *Add change*
+ * the one entry function (agent-chat-surface.md §6). *Ask* sends
+ * the passage as `PageContext.selection` and nothing else. *Change*
  * sends the passage AND the `@change` tag, which is what makes the send path
  * route to the sequence-draft rewrite.
  * @param root0 - Component props.
  * @param root0.targetRef - The document being commented on, e.g. `lead_brief:412`.
  * @param root0.children - The document and the agent surface.
  * @param root0.record - The record the page is about, carried with the passage.
- * @param root0.changeIntent - True where a sequence draft is in view: offers *Add change*.
+ * @param root0.changeIntent - True where a sequence draft is in view: offers *Change*.
  */
 export function CommentLayerProvider({ targetRef, children, record, changeIntent = false }: {
   targetRef: string;
@@ -49,6 +50,9 @@ export function CommentLayerProvider({ targetRef, children, record, changeIntent
   // during render.
   const [root, setRoot] = useState<HTMLElement | null>(null);
   const layer = useAnchoredComments({ targetRef, root });
+  // Its regions show this layer's toolbar, so the shell's page-wide one
+  // yields there — only there: a region outside this container is not ours.
+  useOwnSelectionRoot('[data-comment-layer] [data-comment-field]');
   const { pending, cancelPending } = layer;
 
   const contextFor = useCallback((quote: string) => ({
@@ -79,7 +83,7 @@ export function CommentLayerProvider({ targetRef, children, record, changeIntent
 
   return (
     <CommentLayerContext value={layer}>
-      <div ref={setRoot} className="flex min-w-0 flex-1 items-start">
+      <div ref={setRoot} data-comment-layer className="flex min-w-0 flex-1 items-start">
         {children}
       </div>
       {/* Keyed by the selection: a new selection mounts a fresh control with

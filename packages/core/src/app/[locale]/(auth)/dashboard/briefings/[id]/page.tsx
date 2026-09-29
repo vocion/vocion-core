@@ -66,7 +66,7 @@ export default async function BriefingPage(props: { params: Promise<{ locale: st
 
   return (
     // The brief is a commentable document: highlight a passage and the
-    // platform's one selection control offers *Ask about this*
+    // platform's one selection control offers *Ask*
     // (docs/design/patterns.md § Select → talk). The regions are the Detail
     // archetype's own `Section`s — nothing here traverses headings, and the
     // page invents no control of its own. No `changeIntent`: a briefing has
