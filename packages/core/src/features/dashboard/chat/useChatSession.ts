@@ -741,7 +741,7 @@ export function useChatSession({
         // showing it refetches in place and marks what changed (backlog 035).
         const v = evt as unknown as VersionWritten;
         if (v.ref && typeof v.to === 'number') {
-          announceVersionWritten({ ref: v.ref, to: v.to, from: v.from ?? null, ...(v.artifactId ? { artifactId: v.artifactId } : {}), ...(v.fields ? { fields: v.fields } : {}) });
+          announceVersionWritten({ ref: v.ref, to: v.to, from: v.from ?? null, ...(v.artifactId ? { artifactId: v.artifactId } : {}), ...(v.fields ? { fields: v.fields } : {}), ...(v.related ? { related: v.related } : {}) });
         }
         return;
       }

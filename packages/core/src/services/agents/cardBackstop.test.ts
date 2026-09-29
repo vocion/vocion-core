@@ -210,6 +210,29 @@ describe('the card pass writes every card at once, on the scripted model', () =>
   });
 });
 
+describe('a question back is not a card when the person just said what to do (conversation 378, 2026-09-29)', () => {
+  const askBack: Card = { label: 'File the question on #201', delayMs: 1, args: { action_id: 'ask.file', action_input: { title: 'What is the bug?', body: 'Tool results came back empty.' }, label: 'File the question on #201', rationale: 'need context' } };
+  const over = { hasAction: (id: string) => ['gmail.send', 'ask.file'].includes(id) };
+
+  it('drops an ask.file card in reply to "write it", with the reason on the log, and writes no card', async () => {
+    const h = harness([askBack], over);
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.', instruction: 'write it' }, h.deps);
+
+    expect(out.listed).toBe(0);
+    expect(h.events.some(e => e.type === 'recommended_action')).toBe(false);
+    expect(out.notes[0]).toMatch(/File the question on #201\*\* — not a card: the person told you what to do/);
+  });
+
+  it('keeps the question when the person asked one', async () => {
+    const h = harness([askBack], over);
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.', instruction: 'what is blocking #201?' }, h.deps);
+
+    expect(out.listed).toBe(1);
+  });
+});
+
 describe('a build of something nobody filed is a filing (conversation 351, 2026-09-28)', () => {
   const dispatch: Card = {
     label: 'Dispatch: link expiry & auto-disable',

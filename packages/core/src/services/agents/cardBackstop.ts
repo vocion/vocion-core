@@ -46,6 +46,7 @@ import type { ModelRole } from '@/libs/llm';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
 import { repairActionInput } from '@/libs/actions/repairInput';
 import { appBaseUrl } from '@/libs/links';
+import { asksForAction } from './owedDecision';
 
 /** At most this many cards per pass — the agents' own rule is "top 3–5 by leverage". */
 export const MAX_CARDS = 5;
@@ -63,6 +64,8 @@ const CARD_TIMEOUT_MS = 30_000;
 /** The build action, and the filing a build of an unfiled idea becomes. */
 export const BUILD_ACTION = 'factory.dispatch_task';
 export const FILE_ACTION = 'objects.propose_candidate';
+/** A question put to a person — never the answer to their instruction. */
+export const ASK_ACTION = 'ask.file';
 
 /** One decision the answer names, as the list step returns it. */
 export type OwedTouch = { label: string; why: string; actionId: string };
@@ -402,9 +405,10 @@ async function typedFilingInput(opts: { label: string; why: string; answer: stri
  * @param input.already - Labels of the cards already on screen.
  * @param input.agentPrompt - The agent's system prompt (its card rules and voice).
  * @param input.conversation
+ * @param input.instruction
  * @param deps - Everything outside.
  */
-export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string; conversation?: string }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
+export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string; conversation?: string; instruction?: string }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
   const log = deps.log ?? ((m: string, d: Record<string, unknown>) => console.warn(m, d));
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const result: CardBackstopResult = { listed: 0, emitted: 0, refused: 0, mapped: 0, typed: 0, drafts: 0, notes: [] };
@@ -429,6 +433,17 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
       break;
     }
     if (isSameCard(t.label, [...onScreen, ...touches.map(x => x.label)])) {
+      continue;
+    }
+    // A QUESTION BACK IS NOT A CARD WHEN THE PERSON JUST SAID WHAT TO DO.
+    // Conversation 378 (2026-09-29): "write it", a turn that did nothing, and
+    // a card asking the person to approve asking them for the context they
+    // had just given ("File the question on #201"). Chris: "WTF is it asking
+    // me to approve? … I JUST ASKED VOCION TO DO EXACTLY THAT". An ask back
+    // to the person who instructed the act is the act left undone.
+    if (t.actionId === ASK_ACTION && asksForAction(input.instruction)) {
+      result.notes.push(noteLine(t.label, 'the person told you what to do this turn; a question back to them is not a card'));
+      log('card backstop: a question back to the person who gave the instruction was dropped', { label: t.label });
       continue;
     }
     touches.push(t);

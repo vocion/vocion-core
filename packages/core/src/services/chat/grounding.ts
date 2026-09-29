@@ -194,9 +194,14 @@ export async function buildGrounding(orgId: string, ctx: PageContext | null | un
   text: string | null;
   artifacts: GroundedArtifact[];
 }> {
+  // The page's record travels too — its fields, what is filed under it and
+  // what waits on a person about it (`recordGrounding.ts`, conversation 378).
+  const { buildRecordGrounding } = await import('./recordGrounding');
+  const record = await buildRecordGrounding(orgId, ctx);
   if (!ctx?.artifacts || ctx.artifacts.length === 0) {
-    return { text: null, artifacts: [] };
+    return { text: record, artifacts: [] };
   }
   const artifacts = await resolveGroundedArtifacts(orgId, ctx.artifacts);
-  return { text: describeGrounding(artifacts, ctx.state), artifacts };
+  const shown = describeGrounding(artifacts, ctx.state);
+  return { text: [record, shown].filter(Boolean).join('\n\n') || null, artifacts };
 }

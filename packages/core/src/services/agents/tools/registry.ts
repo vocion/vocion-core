@@ -30,6 +30,7 @@ import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
 import { dataRoomTools } from './dataRooms';
+import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
@@ -193,6 +194,8 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     withdrawProposalTool(ctx),
     // A person deciding a card by saying so — the card's buttons, from the composer.
     decideProposalTool(ctx),
+    // …and an ask the same way: the Needs you sheet's buttons, from the composer.
+    decideAskTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),
     // Every interaction should teach the system something (design principle 11):

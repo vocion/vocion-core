@@ -72,4 +72,30 @@ describe('the pass', () => {
     expect(await runAnswerBackstop({ orgId: 'org', request: 'What unblocks the rename?', finalText: longButUnanswered, toolCalls: calls, compose, endedOnTool: true })).toContain('DNS record');
     expect(called).toBe(1);
   });
+
+  it('a turn that ran no tool answers from the conversation, never "the context is missing" (conversation 378)', async () => {
+    let seen: { system: string; human: string } | null = null;
+    const compose = async (input: { system: string; human: string }) => {
+      seen = input;
+      return 'Plan #215 is already approved; the re-dispatch card #5201 is what unblocks it.';
+    };
+
+    await runAnswerBackstop({
+      orgId: 'org',
+      request: 'write it',
+      finalText: '',
+      toolCalls: [],
+      compose,
+      history: [
+        { role: 'user', content: 'this is critical, what do we need to unblock and finish?' },
+        { role: 'assistant', content: 'Plan #215 was written and approved last night. Re-dispatch #203 with it and it runs.' },
+      ],
+    });
+
+    expect(seen!.human).toContain('The conversation so far:');
+    expect(seen!.human).toContain('Plan #215 was written and approved last night');
+    expect(seen!.human).toContain('no tool ran this turn');
+    expect(seen!.system).toContain('never say the context is missing');
+    expect(seen!.system).not.toContain('You ran 0 tool steps');
+  });
 });

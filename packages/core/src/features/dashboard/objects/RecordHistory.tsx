@@ -127,6 +127,10 @@ export function RecordHistory({ objectId, focusVersion = null }: { objectId: num
   // A version written anywhere — the chat, this page, the artifact pane —
   // lands here without a reload, marked (backlog 035).
   useVersionWritten([{ type: 'object', id: String(objectId) }], (v) => {
+    // A write beneath the record (a plan filed for it) is not one of its versions.
+    if (v.related) {
+      return;
+    }
     setFocus(v.to);
     void load();
   });
