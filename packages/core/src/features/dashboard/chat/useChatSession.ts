@@ -75,7 +75,13 @@ function clearActiveConversation(agentSlug: string): void {
  */
 const STREAM_STASH_KEY = 'vocion:chat:activestream';
 
-type StreamStash = { streamId: string; agentSlug: string; count: number };
+/**
+ * `conversationId` is what a remount matches on. The agent slug alone missed
+ * (#201's dock, 2026-09-29): the dock sends as the workspace lead, the server
+ * routes the turn to the product manager, and the returning dock boots as the
+ * product manager — the slugs differ and the running answer was dropped.
+ */
+type StreamStash = { streamId: string; agentSlug: string; count: number; conversationId?: number | null };
 
 function readStreamStash(): StreamStash | null {
   try {
@@ -1177,6 +1183,33 @@ export function useChatSession({
     }
   }, [agents, agent.slug, settleBoot, lastViewedLoading, scopeRef, scopedBoot, resumeConversationId]);
 
+  /**
+   * A thread whose last message is the person's, with no stream to re-attach
+   * to: poll until the agent's reply is stored (up to 10 minutes), then show
+   * it. The composer reads "working" meanwhile, so it never looks unanswered.
+   * @param id - The conversation.
+   * @param seen - How many messages are already shown.
+   */
+  const waitForReply = useCallback(async (id: number, seen: number) => {
+    setPhase('thinking');
+    setActivity('Still answering…');
+    const deadline = Date.now() + 10 * 60_000;
+    while (Date.now() < deadline && conversationIdRef.current === id) {
+      await new Promise(r => setTimeout(r, 3000));
+      const conv = await client.conversations.get({ id }).catch(() => null);
+      if (!conv || conversationIdRef.current !== id) {
+        continue;
+      }
+      const { messages: next } = hydrateTranscript((conv.messages ?? []) as PersistedMessageRow[], nameOfAgent);
+      if (next.length > seen && next[next.length - 1]?.role === 'assistant') {
+        setMessages(next);
+        break;
+      }
+    }
+    setPhase('idle');
+    setActivity(null);
+  }, [nameOfAgent]);
+
   // Resume the agent's saved thread on mount / agent-switch, so navigating
   // away and back doesn't start over. __search__ is ephemeral and never
   // resumes; an explicit page handoff also starts fresh (it stashes its own
@@ -1231,12 +1264,17 @@ export function useChatSession({
           // Mid-turn drop? If a stream stash exists for this agent and the
           // assistant's reply hasn't persisted yet, replay + re-attach live.
           const stash = readStreamStash();
-          if (stash && stash.agentSlug === slug) {
+          if (stash && (stash.conversationId === storedId || (stash.conversationId == null && stash.agentSlug === slug))) {
             if (hydrated[hydrated.length - 1]?.role === 'user') {
               void resumeStream(stash);
             } else {
               writeStreamStash(null); // turn already landed
             }
+          } else if (hydrated[hydrated.length - 1]?.role === 'user') {
+            // NO HANDLE TO RE-ATTACH TO (another tab, an older stash): the
+            // server is still answering, so wait for its reply to land
+            // rather than showing a question with nothing under it.
+            void waitForReply(storedId, hydrated.length);
           }
         } else if (scopeRef) {
           // Scoped id points at an empty/deleted thread — forget it.
@@ -1260,7 +1298,7 @@ export function useChatSession({
     return () => {
       cancelled = true;
     };
-  }, [agent.slug, isSearchOnly, settleBoot, resumeStream, bootTarget]);
+  }, [agent.slug, isSearchOnly, settleBoot, resumeStream, waitForReply, bootTarget]);
 
   const sendMessage = useCallback(async (raw: string) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
@@ -1424,11 +1462,13 @@ export function useChatSession({
             if (evt.type === 'stream_meta') {
               // Resume handle — stash it; replayed events are counted below
               // so a reconnect asks only for what it missed.
-              streamStashRef.current = { streamId: String(evt.streamId), agentSlug: agent.slug, count: 0 };
+              streamStashRef.current = { streamId: String(evt.streamId), agentSlug: agent.slug, count: 0, conversationId: conversationIdRef.current };
               writeStreamStash(streamStashRef.current);
             } else {
               if (streamStashRef.current) {
                 streamStashRef.current.count += 1;
+                // A new thread learns its id mid-stream; the stash learns it too.
+                streamStashRef.current.conversationId ??= conversationIdRef.current;
                 writeStreamStash(streamStashRef.current);
               }
               handleEvent(evt);
