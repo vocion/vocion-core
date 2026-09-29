@@ -64,7 +64,7 @@ export function placeholdersInTemplate(value: unknown): string[] {
 
 /**
  * Whether an argument counts as supplied. `null` is treated as absent, like an omitted optional.
- * @param value
+ * @param value - The argument as the validated input holds it.
  */
 function present(value: unknown): boolean {
   return value !== undefined && value !== null;
