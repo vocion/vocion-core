@@ -2,8 +2,9 @@
 
 import type { DashboardLinkKind } from './links';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
+import type { TurnToolStep } from '@/libs/chat/turnFollowups';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
@@ -11,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
 import { splitScratch } from '@/libs/chat/scratch';
+import { turnFollowups } from '@/libs/chat/turnFollowups';
 import { Link } from '@/libs/I18nNavigation';
 import { isFailure } from '@/services/chat/turnStatus';
 import { AgentMark } from './AgentMark';
@@ -178,6 +180,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
+  const follow = useMemo(() => turnFollowups(message.runs as TurnToolStep[] | undefined), [message.runs]);
   // A failure is a failure whether it arrived as a legacy run or as a typed
   // trace node — #368 persists the latter, and the badge has to find both.
   // A step a later step of the same kind recovered from is not a failure of
@@ -466,8 +469,12 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {(message.recommendations?.length ?? 0) > 0 && (
             <RecommendedActionStack recs={message.recommendations!} />
           )}
-          {(message.artifacts?.length ?? 0) > 0 && (
-            <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
+          {/* What the turn made and what it set moving, in one row: the
+              artifacts, then each run, record or ask its steps started,
+              followed live (Chris, 2026-09-29). Not while it streams: a
+              chip for a step still running would be a claim. */}
+          {((message.artifacts?.length ?? 0) > 0 || (!streaming && follow.length > 0)) && (
+            <ArtifactChips artifacts={message.artifacts ?? []} follow={streaming ? [] : follow} onOpen={onOpenArtifact} />
           )}
           {(message.selfUpdates?.length ?? 0) > 0 && (
             <SelfUpdateChips updates={message.selfUpdates!} />

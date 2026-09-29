@@ -30,6 +30,11 @@ export type ResultLink = {
   href: string;
   /** Opens outside the app (a PR, a deploy URL). */
   external?: boolean;
+  /**
+   * What it is, as a preview ref — so a surface can open it in the preview
+   * pane and follow its status (`preview.status`). Absent on an external link.
+   */
+  ref?: { type: 'worker_run' | 'object' | 'ask' | 'artifact'; id: string };
 };
 
 type Meta = Record<string, unknown>;
@@ -41,6 +46,15 @@ function positiveInt(v: unknown): number | null {
 
 function words(slug: string): string {
   return slug.replace(/[_-]+/g, ' ').trim();
+}
+
+/**
+ * A record as a preview ref — the business-object preview, whatever its type.
+ * @param _type - The object type slug (the preview reads it off the row).
+ * @param id - Its id.
+ */
+function recordRef(_type: string, id: number): NonNullable<ResultLink['ref']> {
+  return { type: 'object', id: String(id) };
 }
 
 /** Result key → the object type its id names. First key present wins per type. */
@@ -84,14 +98,14 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
   // The engineering run it started is what moves next: first.
   const workerRunId = positiveInt(result.workerRunId);
   if (workerRunId !== null) {
-    push({ label: `engineering run #${workerRunId}`, href: `/dashboard/p/runs/${workerRunId}` });
+    push({ label: `run #${workerRunId}`, href: `/dashboard/p/runs/${workerRunId}`, ref: { type: 'worker_run', id: String(workerRunId) } });
   }
 
   // The record it made or changed (`objects.*` return `objectId` / `id`).
   const objectId = positiveInt(result.objectId) ?? positiveInt(result.id);
   const objectType = typeof result.objectType === 'string' ? result.objectType : typeof input.objectType === 'string' ? input.objectType : null;
   if (objectId !== null && objectType && objectType !== run.actionId) {
-    push({ label: `${words(objectType)} #${objectId}`, href: link({ objectType, id: objectId }) });
+    push({ label: `${words(objectType)} #${objectId}`, href: link({ objectType, id: objectId }), ref: recordRef(objectType, objectId) });
   }
 
   const types = new Set<string>();
@@ -99,18 +113,18 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
     const id = positiveInt(result[key]);
     if (id !== null && !types.has(type)) {
       types.add(type);
-      push({ label: `${words(type)} #${id}`, href: link({ objectType: type, id }) });
+      push({ label: `${words(type)} #${id}`, href: link({ objectType: type, id }), ref: recordRef(type, id) });
     }
   }
 
   const askId = positiveInt(result.askId);
   if (askId !== null) {
-    push({ label: `ask #${askId}`, href: inboxHref('ask', askId) });
+    push({ label: `ask #${askId}`, href: inboxHref('ask', askId), ref: { type: 'ask', id: String(askId) } });
   }
 
   const artifactId = positiveInt(result.artifactId);
   if (artifactId !== null) {
-    push({ label: `artifact #${artifactId}`, href: `/dashboard/artifacts/${artifactId}` });
+    push({ label: `artifact #${artifactId}`, href: `/dashboard/artifacts/${artifactId}`, ref: { type: 'artifact', id: String(artifactId) } });
   }
 
   for (const { key, label } of URL_KEYS) {

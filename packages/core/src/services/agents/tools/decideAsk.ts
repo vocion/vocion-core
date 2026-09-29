@@ -43,7 +43,10 @@ export function decideAskTool(ctx: RuntimeContext) {
       try {
         const row = await decideAsk({ orgId: ctx.orgId, id: input.id, decision: input.decision, note: input.note ?? null, decidedBy: ctx.userId });
         const carried = row.decisionNote && row.decisionNote !== (input.note ?? null) ? ` ${row.decisionNote.split('\n').at(-1)}` : '';
-        return `Decided ask #${row.id} "${row.title}": ${row.decision} (${row.status}).${carried} It leaves Needs you now; say what it did in one sentence.`;
+        // The records it was about, named — so the answer can point at what
+        // the decision set moving (the turn's follow chips read this line).
+        const about = (row.objectRefs ?? []).slice(0, 3).map(r => `${r.type} #${r.id}`).join(', ');
+        return `Decided ask #${row.id} "${row.title}": ${row.decision} (${row.status}).${carried}${about ? ` About: ${about}.` : ''} It leaves Needs you now; say what it did in one sentence.`;
       } catch (err) {
         if (err instanceof AskError) {
           return `Refused: ${err.message}`;

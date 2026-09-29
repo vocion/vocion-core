@@ -27,3 +27,18 @@ export const getRoute = os
     const href = input.href?.startsWith('/') && !input.href.startsWith('//') ? input.href : undefined;
     return resolvePreview({ type: input.type, id: input.id, label: input.label, href }, { orgId, userId: userId ?? null });
   });
+
+/**
+ * preview.status — where each thing a turn set moving stands, for the status
+ * dots on the chips under an answer (`services/preview/followStatus`).
+ * Read-only and org-scoped; a ref the org does not hold is left out.
+ */
+export const statusRoute = os
+  .input(z.object({
+    refs: z.array(z.object({ type: z.enum(['worker_run', 'object', 'ask', 'artifact', 'mission_run']), id: z.string().regex(/^\d{1,12}$/) })).max(24),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const { followStatuses } = await import('@/services/preview/followStatus');
+    return followStatuses(orgId, input.refs);
+  });

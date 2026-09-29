@@ -114,7 +114,7 @@ import {
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { list as listPluginsRoute, set as setPluginRoute } from './Plugins';
-import { getRoute as getPreviewRoute } from './Preview';
+import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
@@ -188,6 +188,7 @@ export const router = {
   },
   preview: {
     get: getPreviewRoute,
+    status: previewStatusRoute,
   },
   runs: {
     log: runLogRoute,
