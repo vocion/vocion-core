@@ -336,3 +336,16 @@ describe('the contract names a repo the worker can clone (#130 run 416)', () => 
     expect(pickResumeBase([old], 136, '2026-09-29T01:00:00Z')?.id).toBe(225);
   });
 });
+
+describe('a source brings what is generated from it (#130 run 418)', () => {
+  it('lets the regenerated copy change when the plan names only its source', () => {
+    const c = deriveContract({
+      given: {},
+      request: { title: 'Remind who has not opened', acceptance: ['a'] },
+      plan: { components: ['packages/core/prisma/ — the authored schema'] },
+      repo: { title: 'Acme/northwind-core', generatedFrom: { 'apps/api/prisma/schema/**': ['packages/core/prisma/**', 'apps/api/prisma/schema/migrations/**'] } },
+    });
+
+    expect(c.allowedPaths).toEqual(expect.arrayContaining(['apps/api/prisma/schema/**']));
+  });
+});

@@ -375,7 +375,16 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // was out of bounds, so the engineer stopped rather than create tables at runtime).
   const generatedFrom = (repo.generatedFrom ?? {}) as Record<string, string | string[]>;
   const sources = planPaths.flatMap(x => Object.entries(generatedFrom).filter(([glob]) => x.startsWith(glob.replace(/\*+$/, '').replace(/\/$/, ''))).flatMap(([, source]) => (Array.isArray(source) ? source : [source])));
-  const basePaths = [...new Set([...planPaths, ...sources])];
+  // …AND A SOURCE BRINGS WHAT IS GENERATED FROM IT (#130 run 418, 2026-09-29:
+  // the plan named packages/core/prisma/**, the engineer changed it and
+  // regenerated, and the rewritten apps/stamp-api/prisma/schema/core.prisma
+  // was "outside allowed_paths" — a correct change refused, $11.35 in). A
+  // generated file changes whenever its source does, so it is always in bounds.
+  const prefix = (glob: string) => glob.replace(/\*+$/, '').replace(/\/$/, '');
+  const generated = Object.entries(generatedFrom)
+    .filter(([, source]) => (Array.isArray(source) ? source : [source]).some(src => planPaths.some(x => x.startsWith(prefix(src)) || prefix(src).startsWith(prefix(x)))))
+    .map(([glob]) => glob);
+  const basePaths = [...new Set([...planPaths, ...sources, ...generated])];
   // EVERY PACKAGE TOUCHED MAY BE TESTED (QA on PR #36, 2026-09-26: "the control
   // the plan mandates is an integration test, and the contract's allowed paths
   // make writing one impossible"). Each app or package root a path lives in
