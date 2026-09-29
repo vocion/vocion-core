@@ -97,12 +97,11 @@ export function fileAskTool(ctx: RuntimeContext) {
           ? { missionRunId: ctx.missionRunId, conversationId: ctx.conversationId }
           : undefined,
       };
-      // A ruling or recommendation is checked against the wiki first (`wikiDecision.ts`).
-      const { wikiDecisionCheck } = await import('../wikiDecision');
-      const unchecked = await wikiDecisionCheck(ctx, 'ask.file', input as Record<string, unknown>);
-      if (unchecked) {
-        return unchecked;
-      }
+      // The wiki pages that bear on a ruling travel with it as advice; the
+      // check never refuses (`wikiDecision.ts`, Chris 2026-09-29).
+      const { wikiPassagesUnread } = await import('../wikiDecision');
+      const unread = await wikiPassagesUnread(ctx, 'ask.file', input as Record<string, unknown>);
+      const wikiNote = unread ? `\n\nFor the record, these wiki pages may bear on it: ${unread.map(p => `${p.title} (wiki:${p.slug})`).join('; ')}. If one changes the question, say so in one line.` : '';
       try {
         const res = await proposeAction({
           orgId: ctx.orgId,
@@ -137,7 +136,7 @@ export function fileAskTool(ctx: RuntimeContext) {
         if (r.created === false) {
           return `Ask #${r.askId} already existed for source_ref "${args.source_ref}" and was updated in place (run #${res.runId}).${where}${group} Its status was left as it was.`;
         }
-        return `Ask #${r.askId} filed (${r.kind ?? args.kind ?? 'approval'}, run #${res.runId}).${where}${group} A person decides it there; you do not have the answer yet, so say the question was asked, not answered. Read the answer back from the ask.decided event or GET /api/v1/asks/${r.askId}.`;
+        return `Ask #${r.askId} filed (${r.kind ?? args.kind ?? 'approval'}, run #${res.runId}).${where}${group} A person decides it there; you do not have the answer yet, so say the question was asked, not answered. Read the answer back from the ask.decided event or GET /api/v1/asks/${r.askId}.${wikiNote}`;
       } catch (err) {
         if (err instanceof ActionError) {
           return `Ask refused (${err.code}): ${err.message}`;

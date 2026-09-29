@@ -127,18 +127,16 @@ export async function runProposal(
   // — not as a refusal to file it.
   const onPersonsWord = action_id === IDEA_ACTION_ID && await filingOnPersonsWord(ctx);
   const advice: string[] = [...(opts.advice ?? [])];
-  // A product decision is checked against the wiki first (`wikiDecision.ts`).
-  if (onPersonsWord) {
+  // THE WIKI INFORMS, IT NEVER REFUSES (Chris, 2026-09-29: "don't block
+  // me"). Request #246's plan was refused by this check with pages about
+  // another product, the planning run ended with no plan, and the feature
+  // sat at "Planning". The pages that bear on the decision now travel with
+  // the filing as advice, for a person's filing and the factory's alike.
+  {
     const { wikiPassagesUnread } = await import('../wikiDecision');
     const unread = await wikiPassagesUnread(ctx, action_id, action_input as Record<string, unknown>);
     if (unread) {
-      advice.push(`these wiki pages bear on it — ${unread.map(p => `${p.title} (wiki:${p.slug}): ${p.excerpt.slice(0, 300)}`).join(' | ')}`);
-    }
-  } else {
-    const { wikiDecisionCheck } = await import('../wikiDecision');
-    const unchecked = await wikiDecisionCheck(ctx, action_id, action_input as Record<string, unknown>);
-    if (unchecked) {
-      return unchecked;
+      advice.push(`these wiki pages may bear on it — ${unread.map(p => `${p.title} (wiki:${p.slug}): ${p.excerpt.slice(0, 300)}`).join(' | ')}`);
     }
   }
   // What this turn has read, for a gate that asks for a source read in it
@@ -154,7 +152,7 @@ export async function runProposal(
   }
   const withAdvice = (out: string): string => (advice.length === 0
     ? out
-    : `${out}\n\nFiled on the person's word, before these checks were done: ${advice.join('; and ')}. It stands as filed — do not refile it. Do the checks now (read the pages named), write what you find onto the record with update_object, and tell the person in one line only if it changes what they asked for: validate it, or push back with the reason.`);
+    : `${out}\n\n${onPersonsWord ? 'Filed on the person\'s word, before these checks were done' : 'Filed; for the record, check it against these'}: ${advice.join('; and ')}. It stands as filed — do not refile it. If one of them changes it, read the page, write the change onto the record with update_object, and say so in one line.`);
   try {
     const res = await proposeAction({
       orgId: ctx.orgId,

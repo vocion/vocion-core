@@ -13,7 +13,7 @@ vi.mock('@/services/wiki/wikiIndex', async (orig) => {
   };
 });
 
-const { decisionText, wikiDecisionCheck } = await import('./wikiDecision');
+const { decisionText, wikiPassagesUnread } = await import('./wikiDecision');
 const { passagesFrom } = await import('@/services/wiki/wikiIndex');
 
 describe('what a product decision is', () => {
@@ -27,16 +27,15 @@ describe('what a product decision is', () => {
 });
 
 describe('a product decision is checked against the wiki, by relevance', () => {
-  it('hands the pages that bear on it over once, then lets the filing through', async () => {
+  it('hands the pages that bear on it over once, as data for advice — it never refuses a filing', async () => {
     const ctx = { orgId: 'org_wiki', turnReads: [] } as unknown as RuntimeContext;
     const ruling = { kind: 'ruling', title: 'Copy-link on locked rows?', options: ['Show disabled', 'Show with upsell'] };
 
-    const first = await wikiDecisionCheck(ctx, 'ask.file', ruling);
+    const first = await wikiPassagesUnread(ctx, 'ask.file', ruling);
 
-    expect(first).toMatch(/^Not filed yet: this is a product decision/);
-    expect(first).toContain('Pricing principles (wiki:pricing-principles');
-
-    expect(await wikiDecisionCheck(ctx, 'ask.file', ruling)).toBeUndefined();
+    expect(first?.some(p => p.slug === 'pricing-principles')).toBe(true);
+    // Handed over: the turn has read it now, so it is not handed over twice.
+    expect(await wikiPassagesUnread(ctx, 'ask.file', ruling)).toBeNull();
   });
 
   it('keeps one passage per page, most relevant first', () => {
