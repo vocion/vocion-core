@@ -12,7 +12,7 @@
  *     slug alone cannot tell apart
  *   - one agent per workspace, because the switcher hides empty workspaces
  *   - one colleague per account, so the Members page shows whose account
- *     the session is in
+ *     the session is in; First's can sign in, and is in First only
  *   - a third account, "E2E Switch Invited", that the person is NOT in yet,
  *     with its own `e2e-switch-shared` workspace and an open invite for the
  *     person's email, so the spec can join it on the login they already have
@@ -34,7 +34,8 @@ const SECOND_ACCOUNT = { slug: 'e2e-switch-second', name: 'E2E Switch Second' };
 const INVITED_ACCOUNT = { slug: 'e2e-switch-invited', name: 'E2E Switch Invited' };
 const INVITE_TOKEN = 'e2e-switch-invite-token';
 const PERSON = { email: 'switch-person@e2e.test', name: 'Switch Person', password: 'account-switch-e2e-pass-1' };
-const FIRST_COLLEAGUE = { email: 'switch-first-colleague@e2e.test', name: 'First Colleague' };
+// Can sign in, for the spec where a second person uses the same browser.
+const FIRST_COLLEAGUE = { email: 'switch-first-colleague@e2e.test', name: 'First Colleague', password: 'account-switch-e2e-pass-2' };
 const SECOND_COLLEAGUE = { email: 'switch-second-colleague@e2e.test', name: 'Second Colleague' };
 
 /**
@@ -80,6 +81,7 @@ async function main(): Promise<void> {
   const invitedId = `acct-e2e-switch-invited-${runTag}`;
   const userId = `usr-e2e-switch-${runTag}`;
   const passwordHash = await hashPassword(PERSON.password);
+  const colleaguePasswordHash = await hashPassword(FIRST_COLLEAGUE.password);
 
   await db.transaction(async (tx) => {
     await tx.insert(tenantAccountSchema).values([
@@ -89,7 +91,7 @@ async function main(): Promise<void> {
     ]);
     await tx.insert(userSchema).values([
       { id: userId, name: PERSON.name, email: PERSON.email, passwordHash },
-      { id: `${userId}-first-colleague`, name: FIRST_COLLEAGUE.name, email: FIRST_COLLEAGUE.email },
+      { id: `${userId}-first-colleague`, name: FIRST_COLLEAGUE.name, email: FIRST_COLLEAGUE.email, passwordHash: colleaguePasswordHash },
       { id: `${userId}-second-colleague`, name: SECOND_COLLEAGUE.name, email: SECOND_COLLEAGUE.email },
     ]);
     // Joined First a year before Second: First is the default.

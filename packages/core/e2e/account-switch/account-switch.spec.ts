@@ -23,6 +23,8 @@ const SEED_SCRIPT = 'e2e/account-switch/support/seed-account-switch-fixtures.ts'
 // Must match the seed script. Duplicated rather than imported because
 // importing the script would run it.
 const PERSON = { email: 'switch-person@e2e.test', password: 'account-switch-e2e-pass-1' };
+// In First only.
+const FIRST_COLLEAGUE_LOGIN = { email: 'switch-first-colleague@e2e.test', password: 'account-switch-e2e-pass-2' };
 const FIRST_ACCOUNT = 'E2E Switch First';
 const SECOND_ACCOUNT = 'E2E Switch Second';
 const INVITED_ACCOUNT = 'E2E Switch Invited';
@@ -67,11 +69,24 @@ async function switchTo(page: Page, account: string, workspace: string): Promise
 /**
  * Fill in and submit the sign-in form the page is on.
  * @param page - A page showing the sign-in form.
+ * @param login - Who signs in; the person in two accounts by default.
+ * @param login.email - Their email.
+ * @param login.password - Their password.
  */
-async function signIn(page: Page): Promise<void> {
-  await page.getByLabel('Email').fill(PERSON.email);
-  await page.getByLabel('Password', { exact: true }).fill(PERSON.password);
+async function signIn(page: Page, login: { email: string; password: string } = PERSON): Promise<void> {
+  await page.getByLabel('Email').fill(login.email);
+  await page.getByLabel('Password', { exact: true }).fill(login.password);
   await page.getByRole('button', { name: /sign in/i }).click();
+}
+
+/**
+ * Sign out from the account menu, the way a person does.
+ * @param page - A signed-in page.
+ */
+async function signOut(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Account menu' }).filter({ visible: true }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
+  await page.waitForURL(/\/sign-in/);
 }
 
 test('switching to a workspace on another account moves the whole session there, and it survives a bare /dashboard link', async ({ page }) => {
@@ -204,4 +219,48 @@ test('two tabs on two accounts each keep their own, even after the other tab swi
   expect(secondAccountId).toBeTruthy();
   expect(await sessionAccountOf(page)).toBe(secondAccountId);
   expect(await sessionAccountOf(otherTab)).not.toBe(secondAccountId);
+});
+
+test('a different person signing in on the same browser lands in their own account, not the last person\'s', async ({ page, context }) => {
+  seedFixtures();
+
+  // The person in two accounts leaves the browser in Second.
+  await page.goto('/sign-in');
+  await signIn(page);
+  await page.waitForURL(/\/w\/e2e-switch-home\/dashboard/);
+
+  await expect(switcher(page)).toContainText(FIRST_ACCOUNT);
+
+  const firstAccountId = await sessionAccountOf(page);
+  await switchTo(page, SECOND_ACCOUNT, 'Shared In Second');
+  await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard/);
+
+  await expect(switcher(page)).toContainText(SECOND_ACCOUNT);
+
+  await signOut(page);
+
+  // Signing out keeps "last active", still naming Second's workspace.
+  expect((await context.cookies()).some(c => c.name === 'vocion_active_project' && c.value !== '')).toBe(true);
+
+  // A colleague who is only in First signs in on the same browser.
+  await signIn(page, FIRST_COLLEAGUE_LOGIN);
+  await page.waitForURL(/\/w\/e2e-switch-home\/dashboard/);
+
+  await expect(switcher(page)).toContainText('Switch Home');
+  await expect(switcher(page)).toContainText(FIRST_ACCOUNT);
+  expect(firstAccountId).toBeTruthy();
+  expect(await sessionAccountOf(page)).toBe(firstAccountId);
+
+  // Nothing of Second's reaches them: not in the switcher, not in Members.
+  await switcher(page).click();
+
+  await expect(page.getByRole('option', { name: /Shared In First/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Shared In Second/ })).toHaveCount(0);
+
+  await page.keyboard.press('Escape');
+  await page.goto('/dashboard/members');
+
+  // First's people, which includes the person who just signed out.
+  await expect(page.getByText('Switch Person')).toBeVisible();
+  await expect(page.getByText(SECOND_COLLEAGUE)).toHaveCount(0);
 });
