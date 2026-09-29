@@ -20,7 +20,7 @@
 import type { InputSchema } from './jsonSchema';
 import { z } from 'zod';
 import { EMPTY_INPUT_SCHEMA, inputPropertyNames, inputSchemaProblems } from './jsonSchema';
-import { placeholdersIn, placeholdersInTemplate } from './template';
+import { builtinPlaceholderProblems, placeholdersIn, placeholdersInTemplate } from './template';
 
 /** The HTTP methods an endpoint may declare. */
 export const REST_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -113,9 +113,17 @@ function refineEndpoint(endpoint: RestEndpoint, ctx: z.RefinementCtx, at: (strin
   check(placeholdersIn(endpoint.path), 'path');
   check(placeholdersInTemplate(endpoint.query), 'query');
   // `reversible` always parses on an action (it has a default); `body` may be absent.
-  if ('reversible' in endpoint) {
+  const isAction = 'reversible' in endpoint;
+  if (isAction) {
     check(placeholdersInTemplate(endpoint.body), 'body');
     check(placeholdersInTemplate(endpoint.review ?? {}), 'review');
+  }
+  // A `{$…}` that is not a built-in date would reach the API verbatim.
+  const templates = { path: endpoint.path, query: endpoint.query, ...(isAction ? { body: endpoint.body, review: endpoint.review } : {}) };
+  for (const [where, template] of Object.entries(templates)) {
+    for (const problem of builtinPlaceholderProblems(template)) {
+      ctx.addIssue({ code: 'custom', path: at, message: `${endpoint.name}: ${where} — ${problem}` });
+    }
   }
   // A required path parameter cannot be optional: the endpoint cannot be
   // called without it, and `renderPath` would refuse every call.

@@ -27,12 +27,14 @@
 
 import type { Action, ReviewCard } from './types';
 import type { RestAction as RestEndpointAction, RestSourceSpec } from '@/libs/rest/spec';
+import type { TemplateClock } from '@/libs/rest/template';
 import { z } from 'zod';
 import { buildUrl, capJson, pickPath, restCall, restCredentialsOf } from '@/libs/rest/client';
 import { zodFromInputSchema } from '@/libs/rest/jsonSchema';
 import { restSourceForOrg } from '@/libs/rest/sources';
 import { endpointDescription } from '@/libs/rest/spec';
 import { renderPath, renderQuery, renderString, renderTemplate } from '@/libs/rest/template';
+import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 
 const restRequestInput = z.object({
   /** The REST source, by its slug — what `<prefix>_list_actions` reports as `sourceSlug`. */
@@ -41,12 +43,13 @@ const restRequestInput = z.object({
   action: z.string().min(1),
   /** The endpoint's arguments, matching its declared input schema. */
   input: z.record(z.string(), z.unknown()).default({}),
-  /** What this change does, in plain language — the headline a reviewer reads. */
+  /**
+   * What this change does, in plain language — the headline a reviewer
+   * reads. The why and the evidence are NOT here: the proposal envelope
+   * (`propose_action`'s rationale, evidence, confidence) already carries
+   * them, and the card shell renders them from the run.
+   */
   summary: z.string().min(1),
-  /** Why it should happen. */
-  rationale: z.string().optional(),
-  /** Where the facts behind it came from — document uris, record links. */
-  evidence: z.array(z.string()).optional(),
 });
 
 type RestRequestInput = z.infer<typeof restRequestInput>;
@@ -76,21 +79,40 @@ async function resolveEndpoint(orgId: string, input: Pick<RestRequestInput, 'sou
 type RenderedRequest = { path: string; query: Record<string, string>; body: unknown };
 
 /**
+ * The clock an action's templates resolve built-in dates against: now, in
+ * the workspace's zone (UTC when it has none).
+ * @param orgId - The workspace.
+ */
+async function clockFor(orgId: string): Promise<TemplateClock> {
+  return { now: new Date(), timeZone: await workspaceTimeZone(orgId) };
+}
+
+/**
  * The endpoint's request rendered from the arguments, or the reason it cannot be.
  * @param endpoint - The declared action.
  * @param args - The endpoint's arguments, already validated.
+ * @param clock - What built-in dates resolve against.
  */
-function renderRequest(endpoint: RestEndpointAction, args: Record<string, unknown>): { ok: true; request: RenderedRequest } | { ok: false; message: string } {
-  const path = renderPath(endpoint.path, args);
+function renderRequest(endpoint: RestEndpointAction, args: Record<string, unknown>, clock: TemplateClock): { ok: true; request: RenderedRequest } | { ok: false; message: string } {
+  const path = renderPath(endpoint.path, args, clock);
   if (!path.ok) {
     return { ok: false, message: `${endpoint.name} needs ${path.missing.map(n => `"${n}"`).join(', ')} in input to build its path.` };
+  }
+  let body: unknown;
+  if (endpoint.body !== undefined) {
+    body = renderTemplate(endpoint.body, args, clock);
+    // An object template whose every key dropped still sends `{}`: the
+    // endpoint declared a body, and the API decides what an empty one means.
+    if (body === undefined && typeof endpoint.body === 'object' && endpoint.body !== null && !Array.isArray(endpoint.body)) {
+      body = {};
+    }
   }
   return {
     ok: true,
     request: {
       path: path.path,
-      query: renderQuery(endpoint.query, args),
-      body: endpoint.body === undefined ? undefined : renderTemplate(endpoint.body, args),
+      query: renderQuery(endpoint.query, args, clock),
+      body,
     },
   };
 }
@@ -133,7 +155,7 @@ export const restRequestAction: Action<typeof restRequestInput> = {
     if (!args.ok) {
       return args.message;
     }
-    const request = renderRequest(resolved.endpoint, args.args);
+    const request = renderRequest(resolved.endpoint, args.args, await clockFor(ctx.orgId));
     if (!request.ok) {
       return request.message;
     }
@@ -147,7 +169,6 @@ export const restRequestAction: Action<typeof restRequestInput> = {
       system: input.sourceSlug,
       headline: input.summary,
       fields: [],
-      summary: input.rationale,
       verbs: { approve: 'Send request', reject: 'Reject' },
     };
     if (!resolved.ok) {
@@ -155,16 +176,17 @@ export const restRequestAction: Action<typeof restRequestInput> = {
     }
     const { spec, endpoint } = resolved;
     const args = input.input;
-    const title = endpoint.review?.title ? renderString(endpoint.review.title, args) : undefined;
+    const clock = await clockFor(ctx.orgId);
+    const title = endpoint.review?.title ? renderString(endpoint.review.title, args, clock) : undefined;
     // A row whose value resolved to nothing is left off the card.
     const fields: Array<{ label: string; value: string }> = [];
     for (const field of endpoint.review?.fields ?? []) {
-      const value = renderString(field.value, args);
+      const value = renderString(field.value, args, clock);
       if (value !== undefined && value !== '') {
         fields.push({ label: field.label, value: typeof value === 'string' ? value : JSON.stringify(value) });
       }
     }
-    const request = renderRequest(endpoint, args);
+    const request = renderRequest(endpoint, args, clock);
     const requestText = request.ok
       ? `${endpoint.method} ${buildUrl('', request.request.path, request.request.query)}${request.request.body === undefined ? '' : `\n\n${JSON.stringify(request.request.body, null, 2)}`}`
       : request.message;
@@ -182,7 +204,6 @@ export const restRequestAction: Action<typeof restRequestInput> = {
         { label: 'Path', value: request.ok ? request.request.path : endpoint.path },
       ],
       content: [{ kind: 'text', id: 'request', label: 'Request', body: requestText, preformatted: true }],
-      links: input.evidence?.length ? input.evidence.filter(e => /^https?:\/\//i.test(e)).map(e => ({ label: e, href: e })) : undefined,
     };
   },
 
@@ -199,7 +220,7 @@ export const restRequestAction: Action<typeof restRequestInput> = {
     if (!args.ok) {
       throw new Error(args.message);
     }
-    const request = renderRequest(resolved.endpoint, args.args);
+    const request = renderRequest(resolved.endpoint, args.args, await clockFor(ctx.orgId));
     if (!request.ok) {
       throw new Error(request.message);
     }

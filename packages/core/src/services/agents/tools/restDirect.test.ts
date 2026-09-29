@@ -191,6 +191,27 @@ describe('a declared read, executed', () => {
     expect(JSON.parse(await tool.invoke({}))).toMatchObject({ ok: false, error: 'timeout' });
   });
 
+  it('resolves built-in dates in the turn\'s zone, and never asks the model for them', async () => {
+    await db.delete(knowledgeSourceSchema);
+    await seedSource(ORG, 'acme-delivery', { toolPrefix: 'delivery', tools: [{ name: 'due_soon', method: 'GET', path: '/api/milestones', query: { 'filters[dueDate][$gte]': '{$today}', 'filters[dueDate][$lte]': '{$today+7d}' } }] });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-29T23:30:00Z'));
+    const f = vi.fn(async () => res(200, []));
+    vi.stubGlobal('fetch', f);
+    try {
+      const ctx = { ...(await ctxFor()), timeZone: 'Pacific/Auckland' };
+      const tool = (restTools(ctx) as unknown as Invokable[]).find(t => t.name === 'delivery_due_soon')!;
+
+      expect(JSON.stringify((tool as unknown as { schema: unknown }).schema)).not.toContain('today');
+
+      await tool.invoke({});
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(decodeURIComponent((f.mock.calls[0] as unknown as [string])[0])).toBe('https://api.northwind.example/api/milestones?filters[dueDate][$gte]=2026-09-30&filters[dueDate][$lte]=2026-10-07');
+  });
+
   it('says when the picked path is missing from the answer rather than returning the whole document', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => res(200, { results: [] })));
     const out = JSON.parse(await (await toolsByName()).get('delivery_list_projects')!.invoke({}));

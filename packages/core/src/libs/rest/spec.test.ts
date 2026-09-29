@@ -107,6 +107,23 @@ describe('restConfigSchema', () => {
       .toEqual([expect.stringContaining('a: review uses {thing}')]);
   });
 
+  it('accepts built-in date placeholders anywhere, and refuses a {$…} it does not know, naming where', () => {
+    expect(problemsOf({
+      tools: [{ name: 'due', method: 'GET', path: '/api/reports/{$today}', query: { 'filters[dueDate][$gte]': '{$today-7d}', 'until': '{$monthEnd}' } }],
+      actions: [{ name: 'plan', method: 'POST', path: '/api/plans', body: { data: { from: '{$weekStart}', to: '{$today+30d}' } }, review: { title: 'Plan from {$weekStart}' } }],
+    })).toEqual([]);
+    expect(problemsOf({ tools: [{ name: 'due', method: 'GET', path: '/a', query: { since: '{$yesterday}' } }] }))
+      .toEqual([expect.stringContaining('due: query — {$yesterday} is not a built-in placeholder')]);
+    expect(problemsOf({ actions: [{ name: 'plan', method: 'POST', path: '/a', body: { at: '{$now}' } }] }))
+      .toEqual([expect.stringContaining('plan: body — {$now} is not a built-in placeholder')]);
+  });
+
+  it('accepts query on an action as well as a tool', () => {
+    const parsed = restConfigSchema.parse({ actions: [{ name: 'toggle_automation', method: 'POST', path: '/api/automations/{id}/toggle', input: { type: 'object', properties: { id: { type: 'string' }, dryRun: { type: 'boolean' } }, required: ['id'] }, query: { dryRun: '{dryRun}' } }] });
+
+    expect(parsed.actions[0]!.query).toEqual({ dryRun: '{dryRun}' });
+  });
+
   it('refuses a path parameter that is not required, because the endpoint cannot be called without it', () => {
     expect(problemsOf({ tools: [{ name: 'a', method: 'GET', path: '/a/{id}', input: { type: 'object', properties: { id: { type: 'string' } } } }] }))
       .toEqual([expect.stringContaining('path parameter {id} must be listed under input.required')]);

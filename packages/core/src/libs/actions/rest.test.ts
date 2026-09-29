@@ -47,6 +47,8 @@ afterEach(() => vi.unstubAllGlobals());
 describe('the contract', () => {
   it('is external, not reversible, keyed per endpoint, and takes its credential from the named source', () => {
     expect(restRequestAction.external).toBe(true);
+    // The envelope (propose_action) carries rationale, evidence and confidence; the input does not ask twice.
+    expect(Object.keys(restRequestAction.inputSchema.shape).sort()).toEqual(['action', 'input', 'sourceSlug', 'summary']);
     expect(restRequestAction.undo).toBeUndefined();
     expect(restRequestAction.sourceSlug).toBeUndefined();
     expect(restRequestAction.sourceSlugFor!(parse(GOOD))).toBe('acme-delivery');
@@ -82,7 +84,7 @@ describe('precheck', () => {
 
 describe('reviewCard', () => {
   it('reads the endpoint\'s hints, drops a row that resolved to nothing, and shows the request', async () => {
-    const card = await restRequestAction.reviewCard!({ orgId: ORG }, parse({ ...GOOD, input: { documentId: 'm-12', name: 'Kickoff' }, rationale: 'The client asked on Monday.' }));
+    const card = await restRequestAction.reviewCard!({ orgId: ORG }, parse({ ...GOOD, input: { documentId: 'm-12', name: 'Kickoff' } }));
 
     expect(card.title).toBe('Update milestone m-12');
     expect(card.system).toBe('Acme Delivery API');
@@ -94,7 +96,7 @@ describe('reviewCard', () => {
       { label: 'Path', value: '/api/milestones/m-12' },
     ]);
     expect(card.content).toEqual([{ kind: 'text', id: 'request', label: 'Request', preformatted: true, body: 'PUT /api/milestones/m-12\n\n{\n  "data": {\n    "name": "Kickoff"\n  }\n}' }]);
-    expect(card.summary).toBe('The client asked on Monday.');
+    expect(card.summary).toBeUndefined();
   });
 
   it('still renders for a source that has gone, saying why', async () => {
@@ -122,12 +124,37 @@ describe('execute', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok-fixture');
   });
 
-  it('drops body keys whose argument was not supplied', async () => {
+  it('drops body keys whose argument was not supplied, and still sends {} when every key dropped', async () => {
     const f = vi.fn(async () => res(200, {}));
     vi.stubGlobal('fetch', f);
     await restRequestAction.execute(CTX, parse({ ...GOOD, input: { documentId: 'm-12', name: 'Kickoff' } }));
 
     expect(JSON.parse(String((f.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual({ data: { name: 'Kickoff' } });
+
+    await restRequestAction.execute(CTX, parse({ ...GOOD, input: { documentId: 'm-12' } }));
+
+    expect(String((f.mock.calls[1] as unknown as [string, RequestInit])[1].body)).toBe('{}');
+  });
+
+  it('resolves built-in dates in the workspace\'s zone, on the server, and sends query on an action', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-29T23:30:00Z'));
+    await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'planner', kind: 'plugin', configJson: {
+      _connector: 'rest',
+      actions: [{ name: 'plan_week', method: 'POST', path: '/api/plans', query: { dryRun: '{dryRun}' }, input: { type: 'object', properties: { dryRun: { type: 'boolean' } } }, body: { data: { from: '{$weekStart}', to: '{$today+7d}' } } }],
+    } });
+    const f = vi.fn(async () => res(200, {}));
+    vi.stubGlobal('fetch', f);
+    try {
+      await restRequestAction.execute(CTX, parse({ sourceSlug: 'planner', action: 'plan_week', input: { dryRun: true }, summary: 'Plan the week.' }));
+    } finally {
+      vi.useRealTimers();
+    }
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+
+    // No project row here, so the zone is the server default (UTC): still 2026-09-29.
+    expect(url).toBe('https://api.northwind.example/api/plans?dryRun=true');
+    expect(JSON.parse(String(init.body))).toEqual({ data: { from: '2026-09-28', to: '2026-10-06' } });
   });
 
   it('fails the run on a non-2xx, with the API\'s answer as the reason', async () => {

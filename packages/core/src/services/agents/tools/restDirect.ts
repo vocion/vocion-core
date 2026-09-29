@@ -23,12 +23,14 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import type { RestSourceSpec, RestTool } from '@/libs/rest/spec';
+import type { TemplateClock } from '@/libs/rest/template';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { capJson, noRestCredentials, pickPath, restCall, restCredentialsOf } from '@/libs/rest/client';
 import { zodFromInputSchema } from '@/libs/rest/jsonSchema';
 import { endpointDescription, REST_LIST_ACTIONS_TOOL, restToolName, toolPrefixFor } from '@/libs/rest/spec';
 import { renderPath, renderQuery } from '@/libs/rest/template';
+import { resolveTimeZone } from '@/libs/time/zone';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 import { asJson } from './hubspotDirect';
 
@@ -64,7 +66,9 @@ function restReadTool(ctx: RuntimeContext, spec: RestSourceSpec, prefix: string,
   return tool(
     async (input) => {
       const args = input as Record<string, unknown>;
-      const path = renderPath(endpoint.path, args);
+      // Built-in dates resolve in the person's zone for this turn, else the workspace's.
+      const clock: TemplateClock = { now: new Date(), timeZone: resolveTimeZone(ctx.timeZone, ctx.defaultTimeZone) };
+      const path = renderPath(endpoint.path, args, clock);
       if (!path.ok) {
         return asJson({ ok: false, error: 'missing_path_param', message: `This endpoint needs ${path.missing.map(name => `"${name}"`).join(', ')} to build its path. Pass ${path.missing.length === 1 ? 'it' : 'them'} and call again.` });
       }
@@ -76,7 +80,7 @@ function restReadTool(ctx: RuntimeContext, spec: RestSourceSpec, prefix: string,
         credentials,
         method: endpoint.method,
         path: path.path,
-        query: renderQuery(endpoint.query, args),
+        query: renderQuery(endpoint.query, args, clock),
       });
       if (!result.ok) {
         return asJson({ ok: false, error: result.error, status: result.status, message: result.message });
