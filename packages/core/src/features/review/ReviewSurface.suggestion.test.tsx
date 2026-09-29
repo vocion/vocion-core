@@ -62,7 +62,7 @@ describe('the agent recommendation on the review surface', () => {
 
     // Evidence is on the page now rather than behind a tab, so the advice is
     // read without a click.
-    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Agent suggests turning down');
+    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Turning it down');
   });
 
   it('gives the reason its own zone under Why, in full', async () => {
@@ -96,7 +96,7 @@ describe('the agent recommendation on the review surface', () => {
 
     expect(page.getByTestId('suggested-decision-reason').elements()).toHaveLength(0);
 
-    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Agent suggests approving');
+    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Approving');
   });
 
   it('renders no reason when nothing was recommended', async () => {

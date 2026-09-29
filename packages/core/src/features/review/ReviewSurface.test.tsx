@@ -199,7 +199,8 @@ describe('one flat template, every object type', () => {
     // is the whole screen rather than a lone tab a reviewer has to open.
     expect(page.getByTestId('review-tabs').elements()).toHaveLength(0);
     await expect.element(page.getByText('No rationale recorded for this recommendation.')).toBeVisible();
-    await expect.element(page.getByText('No citations recorded.')).toBeVisible();
+    // No evidence, no section — an empty Sources heading is not shown.
+    expect(page.getByText('No citations recorded.').elements()).toHaveLength(0);
     await expect.element(page.getByTestId('run-details')).toBeVisible();
   });
 

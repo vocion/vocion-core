@@ -102,7 +102,7 @@ describe('the hand-off card, pending', () => {
     expect(badges.map(b => b.textContent)).toEqual(['Deploy', 'Irreversible', '$14/year', 'AWS account acme-prod (123456789012)']);
     expect(badges[1]!.getAttribute('data-tone')).toBe('warn');
 
-    await expect.element(page.getByTestId('decision-recommendation')).toHaveTextContent('send-lead suggests approving · 90% confident');
+    await expect.element(page.getByTestId('decision-recommendation')).toHaveTextContent('Send lead suggests approving · 90% confident');
   });
 
   it('reads Approve, Reject and Snooze — in words, on a phone too', async () => {
@@ -152,7 +152,7 @@ describe('the hand-off card, pending', () => {
     expect(why.textContent).not.toContain('The reasoning');
     expect(why.textContent).not.toContain('Why it suggests that');
     expect(page.getByTestId('suggested-decision-reason').elements()).toHaveLength(0);
-    await expect.element(page.getByTestId('why-suggestion')).toHaveTextContent('send-lead suggests approving · 90% confident · Fourteen dollars a year and nothing depends on it yet.');
+    await expect.element(page.getByTestId('why-suggestion')).toHaveTextContent('Send lead suggests approving · 90% confident · Fourteen dollars a year and nothing depends on it yet.');
   });
 
   it('renders the named sources as links, and says the recommendation nowhere else', async () => {
@@ -260,7 +260,7 @@ describe('the hand-off card, done', () => {
 });
 
 describe('a card without a headline', () => {
-  it('renders as before: no decision header, the three recommendation rows still under Run details', async () => {
+  it('renders as before: no decision header, the three recommendation rows still under the record of the decision', async () => {
     const run = handoff();
     delete run.card.headline;
     delete run.card.badges;
@@ -270,7 +270,7 @@ describe('a card without a headline', () => {
     expect(page.getByTestId('decision-header').elements()).toHaveLength(0);
 
     await expect.element(page.getByTestId('run-details')).toHaveTextContent('Recommended by');
-    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Agent suggests approving');
+    await expect.element(page.getByTestId('run-details')).toHaveTextContent('Approving');
     expect(page.getByTestId('handoff-lifecycle').elements()).toHaveLength(0);
   });
 });

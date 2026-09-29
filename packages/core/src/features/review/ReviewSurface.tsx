@@ -152,9 +152,9 @@ const STATUS_LABEL: Record<string, string> = {
 const RED_STATUSES = new Set(['failed', 'rejected']);
 
 const SUGGESTION_LABEL: Record<SuggestedDecision, string> = {
-  approve: 'Agent suggests approving',
-  reject: 'Agent suggests turning down',
-  snooze: 'Agent suggests revisiting later',
+  approve: 'Approving',
+  reject: 'Turning it down',
+  snooze: 'Coming back to it later',
 };
 
 /** The same advice as one word, for "send-lead suggests approving". */
@@ -938,7 +938,9 @@ export function ReviewSurface(props: {
     ...(props.meta ?? []),
   ];
 
-  const agent = run.invokedBy?.replace('agent:', '');
+  // The proposer as a person reads it — "Closeout coordinator", not the slug.
+  const agentSlug = run.invokedBy?.replace('agent:', '');
+  const agent = agentSlug ? agentSlug.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()) : undefined;
   const alignmentRate = run.alignment && run.alignment.n > 0 ? run.alignment.agreementRate : null;
   // Said once. Most presenters build the recommendation's detail and the
   // summary out of the same sentence the run already carries as its
@@ -1073,7 +1075,7 @@ export function ReviewSurface(props: {
       return (
         <div data-testid="why-pane">
           {rationale && (
-            <Section eyebrow="The reasoning">
+            <Section eyebrow="Why">
               <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{rationale}</p>
             </Section>
           )}
@@ -1082,8 +1084,10 @@ export function ReviewSurface(props: {
               wants turned down they are different arguments. */}
           {/* An orphan reason renders nothing: a sentence arguing for an
               outcome, with no outcome named, tells a reviewer nothing. */}
-          {run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason && (
-            <Section eyebrow="Why it suggests that" data-testid="suggested-decision-reason">
+          {/* Said once: a reason that repeats the rationale word for word is
+              the same sentence twice, not a second argument. */}
+          {run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason && run.proposal.suggestedDecisionReason.trim() !== rationale?.trim() && (
+            <Section eyebrow="Why it recommends this" data-testid="suggested-decision-reason">
               <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{run.proposal.suggestedDecisionReason}</p>
             </Section>
           )}
@@ -1106,9 +1110,13 @@ export function ReviewSurface(props: {
     if (id === 'evidence') {
       return (
         <div data-testid="evidence-pane">
-          <Section eyebrow="Citations">
-            <EvidenceRefs sources={run.proposal?.evidence ?? []} empty="No citations recorded." />
-          </Section>
+          {/* No evidence, no section: an empty "Citations" heading is the
+              product talking about itself, not about the decision. */}
+          {(run.proposal?.evidence?.length ?? 0) > 0 && (
+            <Section eyebrow="Sources">
+              <EvidenceRefs sources={run.proposal?.evidence ?? []} empty="" />
+            </Section>
+          )}
           {readOnlyFields.length > 0 && (
             <Section eyebrow="Details">
               <FactList facts={readOnlyFields.map(f => ({ label: f.label, value: f.value, href: f.href }))} />
@@ -1124,13 +1132,13 @@ export function ReviewSurface(props: {
             </Section>
           )}
           {props.evidenceExtra}
-          <Section eyebrow="Run details" data-testid="run-details">
+          <Section eyebrow="Record of this decision" data-testid="run-details">
             {lifecycle && <HandoffLifecycle steps={lifecycle} />}
             <FactList
               className={lifecycle ? 'mt-4' : undefined}
               facts={[
                 { label: 'Status', value: <StatusDot tone={RED_STATUSES.has(run.status) ? 'fail' : 'pass'} label={STATUS_LABEL[run.status] ?? run.status} /> },
-                card.system ? { label: 'System', value: card.system } : null,
+                card.system ? { label: 'Record type', value: card.system } : null,
                 // The recommendation is said once, under the decision header,
                 // on a card that has one; these three rows are for the rest.
                 agent && !brief ? { label: 'Recommended by', value: agent } : null,
@@ -1139,8 +1147,8 @@ export function ReviewSurface(props: {
                 !brief && !card.recommendation && run.proposal?.confidence !== undefined
                   ? { label: card.confidenceSubject ?? 'Recommendation', value: <ConfidenceMeter value={run.proposal.confidence} label={card.confidenceSubject ?? 'Recommendation'} /> }
                   : null,
-                !brief && run.proposal?.suggestedDecision ? { label: 'Agent suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
-                { label: 'Run', value: `#${run.id}` },
+                !brief && run.proposal?.suggestedDecision ? { label: 'Suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
+                { label: 'Reference', value: `#${run.id}` },
                 handoff ? { label: 'Who runs it', value: <span data-testid="who-runs-it">{whoRunsIt}</span> } : null,
                 alignmentRate !== null && run.alignment
                   ? {
