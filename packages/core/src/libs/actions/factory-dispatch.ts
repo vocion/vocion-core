@@ -160,6 +160,30 @@ async function engineerSlug(orgId: string, preferred: unknown): Promise<string |
   return workers[0] ?? null;
 }
 
+/**
+ * THE SEAT'S MODEL IS THE RUN'S MODEL (2026-09-29): `send-engineer` pinned
+ * `claude-opus-5`, and nothing carried it to the worker — every one of 60
+ * runs used the worker's `DEFAULT_MODEL` (Sonnet). The worker reads only
+ * `model_policy` on the contract, so the engineer seat's `harness.model`
+ * (and `harness.effort`, when it is one the worker takes) goes there.
+ * @param orgId - The workspace.
+ * @param slug - The engineer seat that will claim the run.
+ * @returns The policy, or null when the seat names no model.
+ */
+export async function seatModelPolicy(orgId: string, slug: string): Promise<{ model: string; effort?: string } | null> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { agentSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ harness: agentSchema.harnessConfig }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, slug))).limit(1);
+  const h = (row?.harness ?? {}) as { model?: unknown; effort?: unknown };
+  const model = typeof h.model === 'string' && h.model.trim() ? h.model.trim() : null;
+  if (!model) {
+    return null;
+  }
+  const effort = typeof h.effort === 'string' && ['low', 'medium', 'high', 'max'].includes(h.effort) ? h.effort : undefined;
+  return { model, ...(effort ? { effort } : {}) };
+}
+
 const str = (m: Meta, k: string): string | null => (typeof m[k] === 'string' && (m[k] as string).trim() !== '' ? (m[k] as string).trim() : null);
 const list = (m: Meta, k: string): string[] => (Array.isArray(m[k])
   ? (m[k] as unknown[]).map(v => (typeof v === 'string' ? v : (v && typeof v === 'object' && typeof (v as Meta).statement === 'string' ? (v as Meta).statement as string : ''))).filter(Boolean)
@@ -206,12 +230,13 @@ export function contractGaps(meta: Meta): string[] {
  * @param opts
  * @param opts.product
  * @param opts.plan
+ * @param opts.modelPolicy - The engineer seat's model (`seatModelPolicy`), used when the task names none.
  * @param opts.plan.id
  * @param opts.plan.approach
  * @param opts.plan.approvedBy
  * @param opts.plan.approvedAt
  */
-export function contractFromTask(task: { id: number; title: string; meta: Meta }, opts: { product: string | null; plan?: { id: number; approach: string | null; approvedBy: string; approvedAt: string } }): Record<string, unknown> {
+export function contractFromTask(task: { id: number; title: string; meta: Meta }, opts: { product: string | null; plan?: { id: number; approach: string | null; approvedBy: string; approvedAt: string }; modelPolicy?: { model: string; effort?: string } | null }): Record<string, unknown> {
   const m = task.meta;
   const repoSlug = str(m, 'repoSlug');
   const repo = str(m, 'repo') ?? (repoSlug ? `https://github.com/${repoSlug}.git` : null);
@@ -235,8 +260,11 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
   if (Array.isArray(m.dependencies)) {
     out.dependencies = m.dependencies;
   }
+  // A task's own policy wins; otherwise the engineer seat's (`seatModelPolicy`).
   if (m.modelPolicy && typeof m.modelPolicy === 'object') {
     out.model_policy = m.modelPolicy;
+  } else if (opts.modelPolicy) {
+    out.model_policy = opts.modelPolicy;
   }
   if (m.environment && typeof m.environment === 'object') {
     out.environment = m.environment;
@@ -902,6 +930,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     const contract = contractFromTask(task, {
       product: request ? str(request.meta, 'product') : null,
       plan: plan ? { id: plan.id, approach: str(plan.meta, 'approach'), approvedBy, approvedAt } : undefined,
+      modelPolicy: await seatModelPolicy(ctx.orgId, agentSlug),
     });
     const capCents = typeof task.meta.tokenBudget === 'number' ? Math.round(task.meta.tokenBudget * 100) : null;
     const run = await createWorkerRun({ orgId: ctx.orgId, agentSlug, input: { task: contract, record: { id: task.id, type: 'engineering_task' } }, capCents, createdBy: approvedBy });

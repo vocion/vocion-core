@@ -308,3 +308,16 @@ describe('a retry continues the attempt that proved the most (#224)', () => {
     expect(meta.resumedFrom).toBeUndefined();
   });
 });
+
+describe('the engineer seat\'s model reaches the worker', () => {
+  const task = { id: 5, title: 'Copy link', meta: { objective: 'Add it.', acceptanceContract: ['a'], allowedPaths: ['apps/web/**'], requiredChecks: ['test'], riskClass: 'ui', repo: 'https://github.com/acme/app.git' } };
+
+  it('carries the seat\'s model as model_policy, which is all the worker reads', () => {
+    expect(contractFromTask(task, { product: 'send', modelPolicy: { model: 'claude-opus-5' } }).model_policy).toEqual({ model: 'claude-opus-5' });
+    expect(contractFromTask(task, { product: 'send' }).model_policy).toBeUndefined();
+  });
+
+  it('a task\'s own policy wins over the seat\'s', () => {
+    expect(contractFromTask({ ...task, meta: { ...task.meta, modelPolicy: { model: 'claude-sonnet-5' } } }, { product: 'send', modelPolicy: { model: 'claude-opus-5' } }).model_policy).toEqual({ model: 'claude-sonnet-5' });
+  });
+});
