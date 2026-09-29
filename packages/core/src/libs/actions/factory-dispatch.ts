@@ -410,7 +410,13 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const risk = givenRisk && (WORKER_RISK as readonly string[]).includes(givenRisk)
     ? givenRisk
     : riskFromPaths(paths, (repo.riskDefaults ?? {}) as Record<string, string>) ?? 'logic';
-  const repoSlug = str(g, 'repoSlug') ?? (Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null) ?? str(repo, 'title');
+  // AN OWNER IN THE SLUG (#130 run 416, 2026-09-29: plan #136 named its repo
+  // "squatch-core", and the worker cloned https://github.com/squatch-core.git).
+  // A bare name is qualified from the repo record's title (owner/name).
+  const planRepo = Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null;
+  const repoTitle = str(repo, 'title');
+  const qualified = (s: string | null) => (s && !s.includes('/') && repoTitle?.includes('/') && repoTitle.split('/').pop() === s ? repoTitle : s);
+  const repoSlug = qualified(str(g, 'repoSlug')) ?? qualified(planRepo) ?? repoTitle;
   // THE LAST ATTEMPT'S VERDICT IS THIS ATTEMPT'S BRIEF. QA sent #157 back
   // with "0 of 8 proven" and a line per criterion saying what would settle it
   // (2026-09-26); a rebuild that starts from the request alone repeats the
@@ -503,13 +509,19 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
  * page does not render, and proved 1 of 8). An attempt that proved nothing is
  * a wrong direction, never a base; one under another plan was built to other
  * paths. Newest wins a tie.
+ * An attempt built before the plan's current approval was built to the plan
+ * as it read then (#130: plan #136 was rewritten in place for the Send →
+ * Stamp rename, and the resume picked a branch cut to the old paths).
  * @param rows - The request's sent-back and superseded attempts.
  * @param planId - The plan this build answers, or null when it has none.
+ * @param planApprovedAt - When that plan was last approved (ISO), if known.
  */
-export function pickResumeBase(rows: Array<{ id: number; meta: Meta }>, planId: number | null): { id: number; meta: Meta } | null {
+export function pickResumeBase(rows: Array<{ id: number; meta: Meta; createdAt?: Date | null }>, planId: number | null, planApprovedAt?: string | null): { id: number; meta: Meta } | null {
   const proven = (m: Meta) => Number((m.verdict as { proven?: unknown } | undefined)?.proven ?? 0) || 0;
   const samePlan = (m: Meta) => (Number(m.planId) > 0 ? Number(m.planId) : null) === planId;
-  const eligible = rows.filter(r => typeof r.meta.branch === 'string' && r.meta.branch.startsWith('factory/') && proven(r.meta) > 0 && samePlan(r.meta));
+  const since = planApprovedAt ? Date.parse(planApprovedAt) : Number.NaN;
+  const afterApproval = (r: { createdAt?: Date | null }) => Number.isNaN(since) || !r.createdAt || r.createdAt.getTime() >= since;
+  const eligible = rows.filter(r => typeof r.meta.branch === 'string' && r.meta.branch.startsWith('factory/') && proven(r.meta) > 0 && samePlan(r.meta) && afterApproval(r));
   return eligible.sort((a, b) => proven(b.meta) - proven(a.meta) || b.id - a.id)[0] ?? null;
 }
 
@@ -519,13 +531,14 @@ export function pickResumeBase(rows: Array<{ id: number; meta: Meta }>, planId: 
  * @param orgId - The workspace.
  * @param requestId - The request.
  * @param planId - The plan this build answers.
+ * @param planApprovedAt - When that plan was last approved.
  */
-async function sentBackTask(orgId: string, requestId: number, planId: number | null): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
+async function sentBackTask(orgId: string, requestId: number, planId: number | null, planApprovedAt?: string | null): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
   const { and, eq, inArray, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
   const rows = await db
-    .select({ id: businessObjectSchema.id, status: businessObjectSchema.status, meta: businessObjectSchema.metadata })
+    .select({ id: businessObjectSchema.id, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, createdAt: businessObjectSchema.createdAt })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(
@@ -536,9 +549,9 @@ async function sentBackTask(orgId: string, requestId: number, planId: number | n
     ))
     .orderBy(sql`${businessObjectSchema.id} desc`)
     .limit(20);
-  const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta }));
+  const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta, createdAt: r.createdAt }));
   const latest = all.find(r => r.status === 'changes_requested') ?? null;
-  return { latest: latest ? { id: latest.id, meta: latest.meta } : null, resume: pickResumeBase(all, planId) };
+  return { latest: latest ? { id: latest.id, meta: latest.meta } : null, resume: pickResumeBase(all, planId, planApprovedAt) };
 }
 
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
@@ -552,7 +565,7 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     ? await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? (stored ? str(stored.meta, 'repoSlug') : null) ?? (request ? str(request.meta, 'ownerRepo') : null), request ? str(request.meta, 'product') : null)
     : null;
   if (!stored && request) {
-    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null);
+    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null, plan ? str(plan.meta, 'approvedAt') : null);
     const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note });
     task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
   }

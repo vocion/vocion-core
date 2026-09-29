@@ -321,3 +321,18 @@ describe('the engineer seat\'s model reaches the worker', () => {
     expect(contractFromTask({ ...task, meta: { ...task.meta, modelPolicy: { model: 'claude-sonnet-5' } } }, { product: 'send', modelPolicy: { model: 'claude-opus-5' } }).model_policy).toEqual({ model: 'claude-sonnet-5' });
   });
 });
+
+describe('the contract names a repo the worker can clone (#130 run 416)', () => {
+  it('qualifies a bare plan repo name with the owner from the repo record', () => {
+    const meta = deriveContract({ given: {}, request: { title: 'Remind who has not opened', acceptance: ['a'] }, plan: { repoSlugs: ['squatch-core'] }, repo: { title: 'Acme/squatch-core' } });
+
+    expect(meta.repoSlug).toBe('Acme/squatch-core');
+  });
+
+  it('never resumes from an attempt built before the plan was last approved', () => {
+    const old = { id: 225, createdAt: new Date('2026-09-29T03:23:00Z'), meta: { branch: 'factory/t225', planId: 136, verdict: { proven: 5, total: 8 } } };
+
+    expect(pickResumeBase([old], 136, '2026-09-29T14:20:14Z')).toBeNull();
+    expect(pickResumeBase([old], 136, '2026-09-29T01:00:00Z')?.id).toBe(225);
+  });
+});
