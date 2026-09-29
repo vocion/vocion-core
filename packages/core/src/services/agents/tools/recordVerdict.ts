@@ -203,6 +203,41 @@ export async function markReviewFailed(orgId: string, prUrl: string): Promise<nu
   return task.id;
 }
 
+/** Where a sent-back attempt goes next. */
+export type SendBack = { to: 'engineer' | 'plan'; why: string };
+
+/**
+ * WHERE A SEND-BACK GOES (Chris, 2026-09-29: "does our flow handle a QA send
+ * back to plan/eng?"). The engineer by default; planning when QA says the plan
+ * cannot be built as written, or — whatever QA said — when the same criterion
+ * stayed unproven on two attempts in a row under one plan, because a third
+ * build to the same plan repeats the second (#224: "a visible confirmation"
+ * open on attempts 2 and 3 of plan #236).
+ * @param input - The verdict just recorded and the attempt before it.
+ * @param input.asked - QA's own `send_back_to`.
+ * @param input.why - QA's reason for it.
+ * @param input.criteria - This verdict's criteria.
+ * @param input.planId - The plan this attempt was built to.
+ * @param input.previous - The attempt this one superseded: its verdict's criteria and its plan.
+ * @param input.previous.criteria
+ * @param input.previous.planId
+ */
+export function sendBackRoute(input: { asked?: 'engineer' | 'plan' | null; why?: string | null; criteria: VerdictCriterion[]; planId: number | null; previous?: { criteria: VerdictCriterion[]; planId: number | null } | null }): SendBack {
+  if (input.asked === 'plan') {
+    return { to: 'plan', why: input.why?.trim() || 'QA read the plan as what stands in the way.' };
+  }
+  const prev = input.previous;
+  if (prev && input.planId !== null && prev.planId === input.planId) {
+    const open = (list: VerdictCriterion[]) => new Set(list.filter(c => c.status !== 'proven').map(c => c.criterion.trim().toLowerCase()));
+    const before = open(prev.criteria);
+    const twice = input.criteria.filter(c => c.status !== 'proven' && before.has(c.criterion.trim().toLowerCase())).map(c => c.criterion);
+    if (twice.length > 0) {
+      return { to: 'plan', why: `${twice.length === 1 ? 'a criterion' : `${twice.length} criteria`} stayed unproven on two attempts in a row under plan #${input.planId}: ${twice.slice(0, 3).map(c => `"${c}"`).join('; ')}` };
+    }
+  }
+  return { to: 'engineer', why: input.why?.trim() || 'QA named what would settle each open criterion.' };
+}
+
 /**
  * BUILD AGAIN, DONE FOR YOU (Chris, 2026-09-26: "auto Build again, yes").
  * When QA sends back an attempt a person started, the next attempt starts on
@@ -214,11 +249,14 @@ export async function markReviewFailed(orgId: string, prUrl: string): Promise<nu
  * @param task - The task QA just sent back.
  * @param task.id
  * @param task.meta
+ * @param route
  * @returns One sentence for the verdict's receipt, or null when nothing started.
  */
-export async function buildAgain(orgId: string, task: { id: number; meta: Record<string, unknown> }): Promise<string | null> {
+export async function buildAgain(orgId: string, task: { id: number; meta: Record<string, unknown> }, route: SendBack = { to: 'engineer', why: '' }): Promise<string | null> {
   const requestId = Number(task.meta.requestId);
-  if (!Number.isFinite(requestId) || requestId <= 0 || task.meta.autoRetryOf) {
+  // A re-plan is a different step from a rebuild, so a retry may still send
+  // its work back to planning; the three-per-request limit bounds both.
+  if (!Number.isFinite(requestId) || requestId <= 0 || (task.meta.autoRetryOf && route.to === 'engineer')) {
     return task.meta.autoRetryOf ? 'This attempt was already the automatic retry, so the next build is a person\'s call.' : null;
   }
   try {
@@ -231,19 +269,24 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
     }
     const { proposeAction } = await import('@/services/ActionService');
     const planId = Number(task.meta.planId);
+    const hasPlan = Number.isFinite(planId) && planId > 0;
+    const toPlan = route.to === 'plan'
+      ? (hasPlan ? { replan: route.why.slice(0, 1500) } : { planFirst: `QA sent attempt #${task.id} back to planning: ${route.why}`.slice(0, 1000) })
+      : {};
     const res = await proposeAction({
       orgId,
       actionId: 'factory.dispatch_task',
-      input: { requestId, ...(Number.isFinite(planId) && planId > 0 ? { planId } : {}), autoRetryOf: task.id, reason: `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.` },
+      input: { requestId, ...(hasPlan ? { planId } : {}), autoRetryOf: task.id, ...toPlan, reason: route.to === 'plan' ? `QA sent attempt #${task.id} back to planning: ${route.why}`.slice(0, 500) : `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.` },
       principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: 'agent:product-manager',
       // Core's own retry, not the model's: `autoRetryOf` is kept.
       internal: true,
       proposal: { confidence: 0.9, rationale: `QA sent attempt #${task.id} back with named gaps; one automatic retry carries them.`, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'One automatic retry after changes asked.' },
     });
+    const what = route.to === 'plan' ? `Planning again (${route.why})` : 'Build again';
     return res.status === 'pending'
-      ? `Build again is on a card for a person (run #${res.runId}).`
-      : `Build again started on its own (run #${res.runId}, ${res.status}); Undo cancels it until a worker claims it.`;
+      ? `${what} is on a card for a person (run #${res.runId}).`
+      : `${what} started on its own (run #${res.runId}, ${res.status}); Undo cancels it until a worker claims it.`;
   } catch (err) {
     return `Build again could not start: ${(err as Error).message}`;
   }
@@ -333,10 +376,29 @@ export async function unopenedShots(ctx: RuntimeContext, taskId: number): Promis
   return `Not recorded: task #${taskId} has ${shots.length} screenshots and this review opened none of them. Open the ones each criterion needs with fetch_image, then record the verdict on what they show:\n${links}`;
 }
 
+/**
+ * The attempt a task superseded, with its verdict's criteria, for {@link sendBackRoute}.
+ * @param orgId - The workspace.
+ * @param id - `previousTaskId` from the task.
+ */
+async function previousAttempt(orgId: string, id: unknown): Promise<{ meta: Record<string, unknown>; criteria: VerdictCriterion[] } | null> {
+  const taskId = Number(id);
+  if (!Number.isFinite(taskId) || taskId <= 0) {
+    return null;
+  }
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, taskId))).limit(1);
+  const meta = (row?.meta ?? null) as Record<string, unknown> | null;
+  const criteria = (meta?.verdict as { criteria?: VerdictCriterion[] } | undefined)?.criteria;
+  return meta && Array.isArray(criteria) ? { meta, criteria } : null;
+}
+
 export function recordVerdictTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
-      const args = raw as { pr_url: string; value: typeof VERDICT_VALUES[number]; criteria: unknown; findings?: unknown; note: string; independent_checks?: unknown };
+      const args = raw as { pr_url: string; value: typeof VERDICT_VALUES[number]; criteria: unknown; findings?: unknown; note: string; independent_checks?: unknown; send_back_to?: 'engineer' | 'plan'; send_back_reason?: string };
       // THE SHAPE THE MODEL SENDS, accepted (as update_object learned, backlog
       // 006): on the first live verdict (fire 7051) the lists arrived as JSON
       // text. Text that parses to a list IS the list; the rules then judge it.
@@ -406,7 +468,16 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value: args.value, proven, total } } as never);
       const count = `${proven} of ${total} criteria proven`;
       if (args.value !== 'approve') {
-        const retry = args.value === 'changes' ? await buildAgain(ctx.orgId, task) : null;
+        let retry: string | null = null;
+        if (args.value === 'changes') {
+          const planOf = (m: Record<string, unknown>) => (Number(m.planId) > 0 ? Number(m.planId) : null);
+          const previous = await previousAttempt(ctx.orgId, task.meta.previousTaskId);
+          const route = sendBackRoute({ asked: args.send_back_to ?? null, why: args.send_back_reason ?? null, criteria, planId: planOf(task.meta), previous: previous ? { criteria: previous.criteria, planId: planOf(previous.meta) } : null });
+          if (route.to === 'plan') {
+            await writeTask(ctx.orgId, task.id, { sendBack: route });
+          }
+          retry = await buildAgain(ctx.orgId, task, route);
+        }
         return `Verdict recorded on task #${task.id}: ${args.value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[args.value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''}`;
       }
       const riskRaw = typeof task.meta.riskClass === 'string' ? task.meta.riskClass : 'logic';
@@ -468,6 +539,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         // task sat in Awaiting QA. A long sentence is clipped, never refused.
         note: z.string().min(1).describe('One sentence for the person who merges: what they accept and the one risk to know.'),
         independent_checks: z.union([z.array(z.string()), z.string()]).optional().describe('Checks that ran on trusted CI or that you reproduced, not the worker\'s report.'),
+        send_back_to: z.enum(['engineer', 'plan']).optional().describe('With changes: engineer (default) when a better build of the same plan would settle it; plan when the plan itself stands in the way — wrong component or surface, a path or API it never named, a risk it did not answer.'),
+        send_back_reason: z.string().max(600).optional().describe('With send_back_to plan: what about the plan must change, in one or two sentences the planner can act on.'),
       }),
     },
   );

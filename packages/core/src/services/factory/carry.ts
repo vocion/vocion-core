@@ -160,7 +160,12 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
     // to planning, whose plan is now being approved), not someone's move.
     eq(actionRunSchema.status, 'pending'),
   ));
-  const waiting = pending.some((a) => {
+  // A PLAN IN REVIEW IS A PERSON'S MOVE TOO (#130, 2026-09-29): a re-plan
+  // refreshed plan #136's own pending proposal in place (0.80, under the bar),
+  // so no new plan was created, and the sweep read "ended without filing a
+  // plan", planned again twice and asked a person to "write the plan" — one
+  // that was written and waiting for them.
+  const waiting = plans.some(p => String(p.meta.status ?? '') === 'in_review') || pending.some((a) => {
     const i = (a.input ?? {}) as Meta;
     return a.actionId === DISPATCH
       ? Number(i.requestId) === requestId || taskIds.includes(String(i.taskId))

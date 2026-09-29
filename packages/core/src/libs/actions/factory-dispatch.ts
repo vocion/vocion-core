@@ -83,6 +83,12 @@ const dispatchInput = z.object({
   recoveryClass: z.string().max(40).optional(),
   /** The worker's own "plan is required" sentence: plan first, whatever the rule reads. */
   planFirst: z.string().max(1000).optional(),
+  /**
+   * QA SENT IT BACK TO PLANNING (Chris, 2026-09-29: "does our flow handle a QA
+   * send back to plan?"): why the approved plan cannot be built as written. The
+   * plan is superseded and planned again with this as the brief, before any run.
+   */
+  replan: z.string().trim().min(1).max(1500).optional(),
 }).refine(v => v.taskId !== undefined || v.requestId !== undefined, { message: 'Name the engineering task (taskId), or the request (requestId) — the contract is filled from the request, its plan and the repo.' });
 
 type Meta = Record<string, unknown>;
@@ -299,9 +305,10 @@ export function riskFromPaths(paths: string[], defaults: Record<string, string>)
  * @param input.plan
  * @param input.repo
  * @param input.previous
+ * @param input.resume - The attempt this one continues from ({@link pickResumeBase}): its branch is the base, its verdict the brief.
  * @param input.note - What the person pressing Build (or the factory's recovery) asks of this attempt.
  */
-export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null; note?: string }): Meta {
+export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null; resume?: { id: number; meta: Meta } | null; note?: string }): Meta {
   const g = input.given;
   const r = input.request ?? {};
   const p = input.plan ?? {};
@@ -380,14 +387,20 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // with "0 of 8 proven" and a line per criterion saying what would settle it
   // (2026-09-26); a rebuild that starts from the request alone repeats the
   // same gap. The unproven lines ride the objective, where the worker reads.
-  const prev = input.previous ?? null;
+  // The verdict that is carried is the one about the code this attempt starts from.
+  const resume = str(g, 'baseSha') ? null : input.resume ?? null;
+  const prev = resume ?? input.previous ?? null;
   const prevVerdict = (prev?.meta.verdict ?? null) as { note?: string; criteria?: Array<{ criterion?: string; status?: string; evidence?: string }> } | null;
   const owed = (prevVerdict?.criteria ?? []).filter(c => c.status !== 'proven' && c.criterion);
   const carried = prev && prevVerdict
     ? `\n\nThe last attempt (task #${prev.id}${str(prev.meta, 'prUrl') ? `, ${str(prev.meta, 'prUrl')}` : ''}) was sent back by ${(prevVerdict as { heldBy?: string }).heldBy === 'person' ? 'the person who merges' : 'QA'}: ${String(prevVerdict.note ?? 'changes asked').replace(/^A person held the merge: /, '')}${owed.length > 0 ? `\nProve each of these with evidence a reviewer can open (a named test, a screenshot of that exact state):\n${owed.map(c => `- ${c.criterion}${c.evidence ? ` (QA: ${c.evidence})` : ''}`).join('\n')}` : ''}`
     : '';
   const asked = input.note ? `\n\nFor this attempt: ${input.note}` : '';
-  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + carried + asked;
+  const resumeProven = resume ? (resume.meta.verdict as { proven?: number; total?: number } | undefined) : undefined;
+  const continued = resume
+    ? `\n\nThis attempt continues branch ${String(resume.meta.branch)} (task #${resume.id}, ${resumeProven?.proven ?? 0} of ${resumeProven?.total ?? '?'} criteria proven). Keep what is proven; change only what the open criteria need.`
+    : '';
+  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + carried + continued + asked;
   // A ui change is refused without a QA flow (the worker screenshots it
   // before and after). The request says where it lives; that page is the flow.
   const visuals = (r.visuals ?? {}) as Meta;
@@ -411,7 +424,8 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     ...(environment ? { environment } : {}),
     title: str(g, 'title') ?? (typeof r.title === 'string' ? r.title : null),
     objective: objective || null,
-    ...(prev ? { previousTaskId: prev.id } : {}),
+    ...(input.previous ? { previousTaskId: input.previous.id } : prev ? { previousTaskId: prev.id } : {}),
+    ...(resume ? { baseSha: String(resume.meta.branch), attempt: (Number(resume.meta.attempt) || 1) + 1, resumedFrom: resume.id } : {}),
     acceptanceContract: acceptance,
     allowedPaths: paths,
     requiredChecks: checks,
@@ -455,27 +469,48 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
 }
 
 /**
- * The newest attempt at this request that QA sent back, if any.
+ * The attempt a retry continues from: the one under this plan that proved the
+ * most, whatever came after it (#224, 2026-09-29: attempt 2 proved 6 of 8 on
+ * PR #121; attempt 3 started again from main, edited a component the library
+ * page does not render, and proved 1 of 8). An attempt that proved nothing is
+ * a wrong direction, never a base; one under another plan was built to other
+ * paths. Newest wins a tie.
+ * @param rows - The request's sent-back and superseded attempts.
+ * @param planId - The plan this build answers, or null when it has none.
+ */
+export function pickResumeBase(rows: Array<{ id: number; meta: Meta }>, planId: number | null): { id: number; meta: Meta } | null {
+  const proven = (m: Meta) => Number((m.verdict as { proven?: unknown } | undefined)?.proven ?? 0) || 0;
+  const samePlan = (m: Meta) => (Number(m.planId) > 0 ? Number(m.planId) : null) === planId;
+  const eligible = rows.filter(r => typeof r.meta.branch === 'string' && r.meta.branch.startsWith('factory/') && proven(r.meta) > 0 && samePlan(r.meta));
+  return eligible.sort((a, b) => proven(b.meta) - proven(a.meta) || b.id - a.id)[0] ?? null;
+}
+
+/**
+ * The newest attempt at this request that QA sent back, and the attempt the
+ * next build continues from ({@link pickResumeBase}).
  * @param orgId - The workspace.
  * @param requestId - The request.
+ * @param planId - The plan this build answers.
  */
-async function sentBackTask(orgId: string, requestId: number): Promise<{ id: number; meta: Meta } | null> {
-  const { and, eq, sql } = await import('drizzle-orm');
+async function sentBackTask(orgId: string, requestId: number, planId: number | null): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
+  const { and, eq, inArray, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
-  const [row] = await db
-    .select({ id: businessObjectSchema.id, meta: businessObjectSchema.metadata })
+  const rows = await db
+    .select({ id: businessObjectSchema.id, status: businessObjectSchema.status, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(
       eq(businessObjectSchema.orgId, orgId),
       eq(businessObjectTypeSchema.slug, 'engineering_task'),
       sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
-      eq(businessObjectSchema.status, 'changes_requested'),
+      inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']),
     ))
     .orderBy(sql`${businessObjectSchema.id} desc`)
-    .limit(1);
-  return row ? { id: row.id, meta: (row.meta ?? {}) as Meta } : null;
+    .limit(20);
+  const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta }));
+  const latest = all.find(r => r.status === 'changes_requested') ?? null;
+  return { latest: latest ? { id: latest.id, meta: latest.meta } : null, resume: pickResumeBase(all, planId) };
 }
 
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
@@ -489,8 +524,8 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     ? await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? (stored ? str(stored.meta, 'repoSlug') : null) ?? (request ? str(request.meta, 'ownerRepo') : null), request ? str(request.meta, 'product') : null)
     : null;
   if (!stored && request) {
-    const previous = await sentBackTask(ctx.orgId, request.id);
-    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, note: input.note });
+    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null);
+    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note });
     task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
   }
   return { task, plan, request, repo };
@@ -697,7 +732,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   // ONE BUILD CARD PER REQUEST: a card's own label hash never splits one
   // request into two runs, and a model cannot write the factory's triggers.
   ownsDedupKey: true,
-  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst'],
+  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst', 'replan'],
   policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : input.trigger ? `${DISPATCH_ACTION_ID}.${TRIGGER_KEY[input.trigger]}` : DISPATCH_ACTION_ID),
   async precheck(ctx, input) {
     const { externalWorkersEnabled } = await import('@/services/WorkerRunService');
@@ -788,13 +823,15 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     // exist. Undo puts the plan back as it was.
     const stale = await stalePlan(plan, loaded.repo);
     let supersededPlan: { id: number; status: unknown } | null = null;
-    if (stale && plan) {
+    if ((stale || input.replan) && plan) {
       const { replanBrief, staleFailure } = await import('@/services/factory/recovery');
       supersededPlan = { id: plan.id, status: plan.meta.status ?? null };
-      await supersedePlan(ctx.orgId, plan.id, `it ${stale.reason.replace(/^it /, '')}`, at);
+      await supersedePlan(ctx.orgId, plan.id, stale ? `it ${stale.reason.replace(/^it /, '')}` : `QA sent the build back to planning: ${input.replan}`, at);
       plan = null;
       if (request) {
-        const why = `plan #${supersededPlan.id} is stale; ${replanBrief(staleFailure(stale))}`.slice(0, 1000);
+        const why = (stale
+          ? `plan #${supersededPlan.id} is stale; ${replanBrief(staleFailure(stale))}`
+          : `QA sent the build of plan #${supersededPlan.id} back to planning: ${input.replan}`).slice(0, 1000);
         const { startPlanning } = await import('@/services/factory/carry');
         const planning = await startPlanning(ctx.orgId, { request, plan: null, why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
         return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, supersededPlan };

@@ -253,6 +253,30 @@ describe('a request already stuck', () => {
     expect((await carry.sweepStuckRequests(ORG)).acted.find(a => a.requestId === r.id)).toBeUndefined();
   });
 
+  it('a plan waiting in Review is a person\'s move, not a planning run that "ended without a plan" (#130)', async () => {
+    const asked = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    const setUp = async (title: string, withPlan: boolean) => {
+      const r = await request({ product: 'rooms', title, state: 'building' });
+      // Filed days ago and superseded as stale, so planning starts with no plan…
+      const [plan] = withPlan
+        ? await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: `Plan: ${title}`, createdAt: new Date(Date.now() - 3 * 86_400_000), metadata: { requestId: r.id, status: 'superseded', approach: 'Change the room page.', components: ['apps/web — the room page'] } }).returning()
+        : [];
+      await carry.startPlanning(ORG, { request: { id: r.id, title: r.title, meta: (await read(r.id)).metadata as Record<string, unknown> }, plan: null, why: 'the plan is stale', counted: true, trigger: 'recovery', by: 'the factory', at: asked });
+      // …then the planner's filing refreshed that plan's pending proposal in place: back in review, nothing newer created.
+      if (plan) {
+        await db.update(businessObjectSchema).set({ metadata: { ...(plan.metadata as Record<string, unknown>), status: 'in_review' } }).where(eq(businessObjectSchema.id, plan.id));
+      }
+      return r;
+    };
+    const waiting = await setUp('Rooms remind who has not opened', true);
+    const control = await setUp('Rooms remind who has not opened, unplanned', false);
+
+    const { acted } = await carry.sweepStuckRequests(ORG);
+
+    expect(acted.find(a => a.requestId === waiting.id)).toBeUndefined();
+    expect(acted.find(a => a.requestId === control.id)).toBeDefined();
+  });
+
   it('leaves a run that failed weeks ago alone: that work was left, not stuck', async () => {
     const r = await request({ product: 'rooms', title: 'An old idea nobody came back to', state: 'building' });
     const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.engineering_task!, title: 'Old idea', status: 'dispatched', metadata: { requestId: r.id, status: 'dispatched' } }).returning();

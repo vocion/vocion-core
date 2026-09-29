@@ -515,6 +515,35 @@ async function capabilitiesGapCheck(ctx: RuntimeContext, spec: FilingType, field
 }
 
 /**
+ * ONE RUN, ONE FILING (#234, 2026-09-29): a planning run for #130, whose job
+ * was `file_architecture_plan`, filed a new request duplicating #130 instead.
+ * When the automation that started this run requires one typed filing, any
+ * other `file_*` filing in the run is refused and named.
+ * @param ctx - The turn.
+ * @param toolName - The filing tool being called.
+ * @returns The refusal, or undefined when the filing is this run's job (or the run has none).
+ */
+export async function wrongFilingForRun(ctx: RuntimeContext, toolName: string): Promise<string | undefined> {
+  if (!ctx.missionRunId) {
+    return undefined;
+  }
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { automationSchema, missionRunSchema } = await import('@/models/Schema');
+  const [run] = await db.select({ causedBy: missionRunSchema.causedBy }).from(missionRunSchema).where(and(eq(missionRunSchema.orgId, ctx.orgId), eq(missionRunSchema.id, ctx.missionRunId))).limit(1);
+  const slug = (run?.causedBy as Array<{ automationSlug?: string }> | null | undefined)?.[0]?.automationSlug;
+  if (!slug) {
+    return undefined;
+  }
+  const [auto] = await db.select({ doConfig: automationSchema.doConfig }).from(automationSchema).where(and(eq(automationSchema.orgId, ctx.orgId), eq(automationSchema.slug, slug))).limit(1);
+  const required = String((auto?.doConfig as { requireTool?: unknown } | null | undefined)?.requireTool ?? '').split(':')[0] ?? '';
+  if (!required.startsWith('file_') || required === toolName) {
+    return undefined;
+  }
+  return `Not filed: this run ("${slug}") exists to call ${required}, and ${toolName} files a different record. File what this run is for with ${required}; if you found separate work, say so in your report and a person decides.`;
+}
+
+/**
  * The typed filing tool for one type.
  * @param ctx - The turn.
  * @param spec - The filing type.
@@ -525,6 +554,10 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
   const built = tool(
     async (raw) => {
       const args = raw as Record<string, unknown>;
+      const offJob = await wrongFilingForRun(ctx, spec.toolName).catch(() => undefined);
+      if (offJob) {
+        return offJob;
+      }
       const { title, fields } = filingInputOf(spec, args);
       const notYetFiled = await capabilitiesGapCheck(ctx, spec, fields);
       if (notYetFiled) {
