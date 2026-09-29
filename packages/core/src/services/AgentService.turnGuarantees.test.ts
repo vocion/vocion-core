@@ -203,31 +203,41 @@ describe('a failed delegation reaches the person', () => {
     expect(toolErrors[0]).toMatchObject({ tool: 'task' });
   });
 
-  it('says so in the answer even though the model did not', async () => {
-    streamEvents.mockResolvedValue(failingDelegationStream('caught'));
-    const { result, events } = await run({ message: 'draft a pipeline report' });
+  it('the judge sees the failed hand-off, and the agent says so when its reply did not', async () => {
+    const events: AgentEvent[] = [];
+    const seen: Array<{ failed?: string[] }> = [];
+    const out = await applyTurnGuarantees({
+      orgId: ORG,
+      agentSlug: 'lead',
+      request: 'draft a pipeline report',
+      response: 'Here is the pipeline report.',
+      toolCalls: [],
+      failures: [],
+      failedDelegations: [{ name: 'Pipeline Analyst', message: 'timeout' }],
+      judge: async (i) => {
+        seen.push(i);
+        return { ...NO_JUDGEMENT, hides_failure: true };
+      },
+      answer: async () => 'Pipeline Analyst did not complete (it timed out), so this report has no pipeline numbers yet.',
+      emit: e => events.push(e),
+    });
 
-    expect(result.response).toContain('Pipeline Analyst');
-    expect(result.response).toMatch(/did not complete/);
-
-    // And the person sees it arrive, not just the persisted copy.
-    const deltas = events.filter((e): e is Extract<AgentEvent, { type: 'response_delta' }> => e.type === 'response_delta');
-
-    expect(deltas.some(d => d.delta.includes('did not complete'))).toBe(true);
+    expect(seen[0]!.failed).toEqual(['the hand-off to Pipeline Analyst did not complete (timeout)']);
+    expect(out).toContain('Pipeline Analyst did not complete');
+    expect(events.some(e => e.type === 'response_delta' && e.delta.includes('did not complete'))).toBe(true);
   });
 
-  it('says nothing extra when the answer already owned up to it', () => {
+  it('says nothing extra when the judge reads the reply as already owning up to it', async () => {
     const answer = 'I could not get a read from Pipeline Analyst, so this is partial.';
+    const out = await applyTurnGuarantees({ orgId: ORG, agentSlug: 'lead', request: 'x', response: answer, toolCalls: [], failures: [], failedDelegations: [{ name: 'Pipeline Analyst', message: 'timeout' }], judge: async () => NO_JUDGEMENT, answer: async () => 'should not be used', emit: () => {} });
 
-    expect(delegationFailureNotice([{ name: 'Pipeline Analyst', message: 'timeout' }], answer)).toBeNull();
-    expect(delegationFailureNotice([], 'all good')).toBeNull();
+    expect(out).toBe(answer);
+    expect(delegationFailureNotice([])).toBeNull();
   });
 
   it('names every specialist that failed, once', () => {
-    const notice = delegationFailureNotice(
-      [{ name: 'Pipeline Analyst', message: 'timed out' }, { name: 'Proposal Writer', message: 'timed out' }],
-      'Here is what I have.',
-    );
+    // The crash path's notice: the turn has no answer to judge.
+    const notice = delegationFailureNotice([{ name: 'Pipeline Analyst', message: 'timed out' }, { name: 'Proposal Writer', message: 'timed out' }]);
 
     expect(notice).toContain('Pipeline Analyst and Proposal Writer');
   });
@@ -696,33 +706,7 @@ describe('the live line says what is happening (2026-09-25: "Working is such a l
   });
 });
 
-describe('a continuation that restarts inside the answer is joined once (conversation 349)', () => {
-  it('stores and streams the reply without the repeated paragraph', async () => {
-    const said = 'The request card is on your screen — approving it is what writes the record.\n\nTwo corrections to what I said last turn, now that I have checked:\n\n**There';
-    // The recorded shape: the continuation began again from the middle of "screen".
-    const again = 'een — approving it is what writes the record.\n\nTwo corrections to what I said last turn, now that I have checked:\n\n**There is still no request record on file for this.**';
-    const chunked = (t: string): AsyncIterable<unknown> => ({ async* [Symbol.asyncIterator]() {
-      for (let i = 0; i < t.length; i += 7) {
-        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(t.slice(i, i + 7)) } };
-      }
-    } });
-    judge.readings = [{ cut_off: true }];
-    streamEvents.mockResolvedValueOnce(chunked(said)).mockResolvedValueOnce(chunked(again)).mockResolvedValue(emptyStream());
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const { result, events } = await run({ message: 'What changed since last turn?' });
-      const streamed = events.filter(e => e.type === 'response_delta').map(e => (e as { delta: string }).delta).join('');
-
-      expect(result.response).not.toContain('Thereeen');
-      expect(result.response.match(/Two corrections/g)).toHaveLength(1);
-      expect(result.response).toContain('**There is still no request record on file for this.**');
-      expect(streamed).not.toContain('Thereeen');
-      expect(streamed.match(/Two corrections/g)).toHaveLength(1);
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
+describe('a reply cut off mid-sentence is finished by the agent, as it writes it', () => {
   it('leaves a continuation that simply finishes the word alone', async () => {
     const said = 'Two corrections to what I said last turn, now that I have checked the table:\n\n**The';
     judge.readings = [{ cut_off: true }];

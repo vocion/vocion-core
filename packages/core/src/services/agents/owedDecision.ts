@@ -12,19 +12,19 @@
  * went up asking the person to approve asking them for context. Chris: "I
  * JUST ASKED VOCION TO DO EXACTLY THAT".
  *
- * Three shapes, one rule — an instruction is carried out, in code:
+ * Three shapes, one rule — an instruction is carried out, in code. Whether
+ * the person gave one, and whether a reply only announced it, is a model's
+ * reading (`turnJudge.ts`), never a word match (Chris, 2026-09-29):
  *
- *   1. {@link announcedAction}: a turn whose last sentence announces an
- *      action it did not take, when the person asked for action
- *      ({@link asksForAction}), continues once with its tools (the same
- *      re-entry as the other stall shapes in `AgentService`).
- *   2. {@link personSaid}: the person's explicit words are the gate on a
- *      decision taken on their behalf (`decide_proposal`, `decide_ask`) —
- *      never the model's reading of them alone.
- *   3. {@link decideOwed}: when the person's words decide something waiting
- *      on them and the turn decided nothing, one pass with the decide tools
- *      bound and a call REQUIRED carries it out, the way the owed-write pass
- *      files a record (`owedWriteBackstop.ts`).
+ *   1. a turn that ended announcing an action it did not take, when the
+ *      person asked for action, continues once with its tools (`AgentService`);
+ *   2. a decision taken on a person's behalf (`decide_proposal`,
+ *      `decide_ask`) needs a model reading of their own words that says they
+ *      told it to (`turnJudge.saidToDecide`);
+ *   3. {@link decideOwed}: when the person decided something waiting on them
+ *      and the turn decided nothing, one pass with the decide tools bound and
+ *      a call REQUIRED carries it out, the way the owed-write pass files a
+ *      record (`owedWriteBackstop.ts`).
  */
 
 import type { BaseMessage } from '@langchain/core/messages';
@@ -40,139 +40,9 @@ export function personWords(message: string | null | undefined): string {
   return ((message ?? '').split('\n\n--- ')[0] ?? '').trim();
 }
 
-/** Verbs a person uses to tell an agent to act. */
-const ACT_VERB = '(?:approve|go|proceed|run|re-?run|retry|build|ship|merge|dispatch|start|restart|fix|do|write|file|update|change|add|put|make|send|decide|finish|unblock|continue|kick\\s+off|resume)';
-
-/** The message (or a clause of it) opens on the instruction: "approve, fix and run", "write it". */
-const OPENS_ON_ACT = new RegExp(`^(?:(?:ok(?:ay)?|yes|yep|yeah|sure|please|great|good|perfect|right|and|then|now|so|alright)[,.!\\s]+)*${ACT_VERB}\\b`, 'i');
-
-/** A bare go-ahead: "yes", "do it", "go ahead", "ship it". */
-const AFFIRM = /^(?:yes|yep|yeah|ok(?:ay)?|sure|lgtm|do it|go(?: ahead)?|ship it|sounds good|please do)[\s.!]*$/i;
-
-/** Asking about acting is not asking to act. */
-const NOT_ACT = /\b(?:don'?t|do not|never|not yet|hold off|wait for|should (?:i|we)|how (?:do|can|would|should)|what (?:would|if|do)|why)\b/i;
-
-const CLAUSE = /\n|[:;]\s*|(?:^|\s)(?:\d+[).]|[-*•])\s+/;
-
-/**
- * Did the person tell the agent to do something, rather than ask about it?
- * "approve, fix and run" and "write it" do; "what do we need to unblock and
- * finish?" and "should I approve it?" do not.
- * @param request - The person's message, as the model received it.
- */
-export function asksForAction(request: string | null | undefined): boolean {
-  const text = personWords(request);
-  if (!text || NOT_ACT.test(text) || /\?\s*$/.test(text)) {
-    return false;
-  }
-  return AFFIRM.test(text) || OPENS_ON_ACT.test(text) || text.split(CLAUSE).some(c => OPENS_ON_ACT.test(c.trim()));
-}
-
-/** A sentence that announces the next move: "Let me write the plan now.", "I'll put the card up now.", "Next I'll dispatch it." */
-const ANNOUNCES = /^(?:(?:ok(?:ay)?|right|so|now|next|then|first)[,\s]+)?(?:let me\s|i(?:['’]ll| will| am going to|['’]m going to| am about to|['’]m about to)\s|(?:putting|writing|filing|drafting|adding|starting|dispatching|approving|updating|running|doing)\s(?:[^.!?]*\s)?now\b)/i;
-
-/** Announcements that are not a promise of work this turn: "Let me know…", "I'll be here…". */
-const NOT_A_PROMISE = /^(?:let me know|i(?:['’]ll| will) (?:be |wait|hold|stand by|leave|keep|check back|come (?:straight )?back|follow up|report back|need|let you know))/i;
-
-/**
- * The sentence a turn ended on when it announces an action instead of
- * taking it — null when the answer ends any other way.
- * @param text - The turn's finished text.
- */
-export function announcedAction(text: string): string | null {
-  const lines = (text ?? '').replace(/<[^>]*>/g, ' ').split('\n').map(l => l.trim()).filter(Boolean);
-  const last = lines.at(-1);
-  if (!last) {
-    return null;
-  }
-  const sentence = (last.split(/(?<=[.!?…])\s+/).filter(Boolean).at(-1) ?? '').replace(/^[*_#>\s-]+|[*_\s]+$/g, '');
-  if (sentence.length === 0 || sentence.length > 200 || sentence.endsWith('?')) {
-    return null;
-  }
-  return ANNOUNCES.test(sentence) && !NOT_A_PROMISE.test(sentence) ? sentence : null;
-}
-
+/** A decision on a proposal. */
 export type Decision = 'approve' | 'reject' | 'defer';
 
-const SAID: Record<Decision, RegExp> = {
-  approve: /\b(?:approve[ds]?|approving|go ahead|go for it|yes|yep|yeah|ok(?:ay)?|do it|run it|build it|ship it|start it|dispatch it|lgtm|confirm(?:ed)?|accept(?:ed)?|sounds good|green ?light|proceed)\b/i,
-  reject: /\b(?:reject(?:ed)?|declined?|no|nope|kill it|drop it|cancel(?:led)?|turn (?:it )?down|leave it stopped)\b/i,
-  defer: /\b(?:defer(?:red)?|snooze|later|next week|not now|park it)\b/i,
-};
-
-/** "don't approve it", "do not run" — the verb said, and refused. */
-const NEGATED = /\b(?:don'?t|do not|never|not yet|hold off(?: on)?)\s+(?:\w+\s+){0,2}?(?:approve|run|build|ship|dispatch|start|go|reject|defer|decide)\b/i;
-
-/**
- * Did the person's own words say to take this decision? The gate on every
- * decision an agent takes for a person: their message, not the model's
- * reading of the thread.
- * @param message - The person's words (their message this turn).
- * @param decision - `approve`, `reject`, `defer`, or an ask's option id.
- * @param option - The option, when `decision` is one: its label and whether it is the recommended one.
- * @param option.label - The option's label.
- * @param option.recommended - Whether it is the ask's recommended answer.
- */
-export function personSaid(message: string | null | undefined, decision: string, option?: { label?: string; recommended?: boolean }): boolean {
-  const words = personWords(message);
-  if (!words || NEGATED.test(words) || /^(?:should|can|could|would|do|does|is|are)\b[^.!]*\?\s*$/i.test(words)) {
-    return false;
-  }
-  if (decision in SAID) {
-    return SAID[decision as Decision].test(words);
-  }
-  const lower = words.toLowerCase();
-  const id = decision.replace(/[_-]+/g, ' ').toLowerCase();
-  if (id.length > 2 && lower.includes(id)) {
-    return true;
-  }
-  const label = (option?.label ?? '').toLowerCase().trim();
-  if (label && lower.includes(label)) {
-    return true;
-  }
-  return option?.recommended === true && SAID.approve.test(words);
-}
-
-/**
- * Did the person say it, in this turn — or, when this turn's message is a
- * bare follow-on ("write it", "do it") to an instruction the last turn did
- * not carry out, in the message before? One message back, never further.
- * @param messages - The person's messages, newest first.
- * @param decision - See {@link personSaid}.
- * @param option - See {@link personSaid}.
- * @param option.label
- * @param option.recommended
- */
-export function personSaidRecently(messages: ReadonlyArray<string | null | undefined>, decision: string, option?: { label?: string; recommended?: boolean }): boolean {
-  const [latest, previous] = messages;
-  if (personSaid(latest, decision, option)) {
-    return true;
-  }
-  const said = personWords(latest);
-  if (!previous || !asksForAction(latest) || NEGATED.test(said) || (SAID.reject.test(said) && decision !== 'reject')) {
-    return false;
-  }
-  return personSaid(previous, decision, option);
-}
-
-/**
- * The first decision the person's words name, if any.
- * @param message
- */
-export function decisionNamed(message: string | null | undefined): Decision | null {
-  const words = personWords(message);
-  if (!words || NEGATED.test(words)) {
-    return null;
-  }
-  for (const d of ['approve', 'reject', 'defer'] as const) {
-    if (SAID[d].test(words)) {
-      return d;
-    }
-  }
-  return null;
-}
-
-/** Something waiting on the person: a pending proposal (a card) or an open ask. */
 export type OpenDecision = {
   kind: 'proposal' | 'ask';
   id: number;

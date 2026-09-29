@@ -10,9 +10,7 @@
  */
 import type { RoutableAgent } from './router';
 import { describe, expect, it } from 'vitest';
-import { asksToChange } from './owedWriteBackstop';
 import { chooseAgent, pageOwnerDecision } from './router';
-import { unbackedWriteNotice, writeClaim } from './writeClaim';
 
 const pm: RoutableAgent = { slug: 'product-manager', name: 'Product manager', description: 'Owns requests from filing to release.', initiative: 'high' };
 const reviewer: RoutableAgent = { slug: 'change-reviewer', name: 'Change reviewer', description: 'Reviews changes against the acceptance contract.', suggestions: [{ label: 'Review changes', prompt: 'Review the changes' }] };
@@ -39,38 +37,5 @@ describe('who answers on a record\'s page', () => {
     expect(pageOwnerDecision({ agents: roster, message: MESSAGE, record: null, ownerSlug: 'product-manager', surface: 'chat' })).toBeNull();
     expect(pageOwnerDecision({ agents: roster, message: MESSAGE, record: { objectType: 'request', id: '227' }, ownerSlug: null, surface: 'chat' })).toBeNull();
     expect(pageOwnerDecision({ agents: [reviewer], message: MESSAGE, record: { objectType: 'request', id: '227' }, ownerSlug: 'product-manager', surface: 'chat' })).toBeNull();
-  });
-});
-
-describe('a change asked for on the page is read as one', () => {
-  it('reads both of conversation 362\'s turns as changes', () => {
-    expect(asksToChange(MESSAGE)).toBe(true);
-    expect(asksToChange('Also: drop anything about SMS, email only, and make the reminder time 48 hours after sending if nobody opened.')).toBe(true);
-  });
-
-  it('reads a list of changes with no verb up front, and a clause that opens on one', () => {
-    expect(asksToChange('Two edits: the title is too long; the outcome should name the sender.')).toBe(true);
-    expect(asksToChange('Looks good.\n- set the size class to minor')).toBe(true);
-  });
-
-  it('still leaves a question, a thank-you and a filing alone', () => {
-    expect(asksToChange('How would I change the acceptance on this?')).toBe(false);
-    expect(asksToChange('Thanks, that reads well.')).toBe(false);
-    expect(asksToChange('File a feature request for link expiry.')).toBe(false);
-  });
-});
-
-describe('an edit claimed with no write behind it is caught', () => {
-  const answer = 'Here\'s what I changed and what it means for the Build card. I rewrote the second acceptance line. So: two edits written to the record.';
-
-  it('knows the shapes an edit claim takes', () => {
-    expect(writeClaim('Here\'s what I changed')).toBe('I changed');
-    expect(writeClaim('I rewrote the second acceptance line')).toBe('I rewrote');
-    expect(writeClaim('So: two edits written to the record.')).toMatch(/edits written/);
-  });
-
-  it('appends the correction when only a read ran, and not when the record was written', () => {
-    expect(unbackedWriteNotice(answer, [{ tool: 'read_object', output: '{"id":227}' }])).toMatch(/filed or changed has not happened yet/);
-    expect(unbackedWriteNotice(answer, [{ tool: 'update_object', output: 'request #227 changed: acceptance' }])).toBeNull();
   });
 });

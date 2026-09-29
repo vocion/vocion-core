@@ -186,8 +186,6 @@ export type FailedDelegation = { name: string; message: string };
 
 /** Words a model uses when it HAS owned up to a failure. */
 
-const ADMITS_FAILURE = /\b(?:fail(?:ed|ure)?|could ?n[o']t|was ?n[o']t able|unable|errored|error|did ?n[o']t (?:complete|finish|work)|broke)\b/i;
-
 /**
  * The sentence a person gets when a hand-off failed and the answer did not say
  * so.
@@ -203,15 +201,11 @@ const ADMITS_FAILURE = /\b(?:fail(?:ed|ure)?|could ?n[o']t|was ?n[o']t able|unab
  * @param failed - Delegations that did not complete.
  * @param answer - The answer text as it stands.
  */
-export function delegationFailureNotice(failed: ReadonlyArray<FailedDelegation>, answer: string): string | null {
+export function delegationFailureNotice(failed: ReadonlyArray<FailedDelegation>): string | null {
   if (failed.length === 0) {
     return null;
   }
-  const text = answer ?? '';
-  const named = failed.filter(f => !(text.toLowerCase().includes(f.name.toLowerCase()) && ADMITS_FAILURE.test(text)));
-  if (named.length === 0) {
-    return null;
-  }
+  const named = failed;
   const names = named.map(f => f.name);
   const who = names.length === 1
     ? names[0]!
@@ -328,23 +322,23 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
     console.warn(`answer backstop failed for org ${input.orgId} agent ${input.agentSlug}: ${(err as Error).message}`);
   }
 
-  const notice = delegationFailureNotice(input.failedDelegations, text);
-  if (notice) {
-    append(notice);
-  }
-
   // A WRITE CLAIMED WITH NO WRITE BEHIND IT (finding 23), after the answer
   // pass so a claim it made is checked too. Whether the reply claims work the
   // steps do not show is a model's reading, never a word match; the
   // correction is the agent's own sentence, written by its model from the
   // claim and the steps, not a line core appends (Chris, 2026-09-29).
   try {
-    const judged = await (input.judge ?? judgeAnswer)({ orgId: input.orgId, message: input.request, reply: text, steps: stepLines(input.toolCalls), cards: input.cardsShown ?? 0 });
-    if (judged.claims_unrecorded_work) {
-      console.warn(`turn claimed work with none behind it for org ${input.orgId} agent ${input.agentSlug}: "${judged.claim ?? ''}"`);
+    const failed = input.failedDelegations.map(f => `the hand-off to ${f.name} did not complete${f.message.trim() ? ` (${f.message.trim()})` : ''}`);
+    const judged = await (input.judge ?? judgeAnswer)({ orgId: input.orgId, message: input.request, reply: text, steps: stepLines(input.toolCalls), cards: input.cardsShown ?? 0, failed });
+    if (judged.claims_unrecorded_work || judged.hides_failure) {
+      console.warn(`turn reply needs a correction for org ${input.orgId} agent ${input.agentSlug}`, { claim: judged.claim, hidesFailure: judged.hides_failure });
+      const owed = [
+        judged.claims_unrecorded_work ? `your reply says "${judged.claim ?? 'that something was done'}", and the steps you took do not show it done` : '',
+        judged.hides_failure ? `a step failed and your reply does not say so: ${failed.join('; ')}` : '',
+      ].filter(Boolean).join('; and ');
       const correction = (await (input.answer ?? composeAnswerWithModel)({
         orgId: input.orgId,
-        system: `${input.systemPrompt ?? ''}\n\nYour reply this turn says "${judged.claim ?? 'that something was done'}", and the steps you took do not show it done. In one or two sentences, tell the person plainly what was not done and what happens next. Do not repeat the rest of your reply.`.trim(),
+        system: `${input.systemPrompt ?? ''}\n\nThis turn, ${owed}. In one or two sentences, tell the person plainly what did not happen and what happens next. Do not repeat the rest of your reply.`.trim(),
         human: `Steps you took:\n${stepLines(input.toolCalls).join('\n') || '(none)'}\n\nYour reply:\n${text.slice(-3_000)}`,
       })).trim();
       if (correction) {
@@ -929,14 +923,14 @@ export async function runAgentDeep(opts: {
         orgId: opts.orgId,
         message: opts.message,
         page: opts.pageContext?.record?.label ?? null,
+        recordTypes: (boundCtx.filingTypes ?? []).map(t => t.slug),
         previous: {
           person: [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'user')?.content,
           agent: [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content,
         },
       })
     : Promise.resolve(NO_INTENT);
-  // Set while the mid-sentence continuation streams (see below).
-  let continuationJoin: import('./agents/truncation').ContinuationJoin | null = null;
+  boundCtx.turnIntent = intentP;
   // A RE-ENTRY CARRIES WHAT THE TOOLS RETURNED. `runGraph` starts a fresh
   // graph from text messages, so the previous pass's tool calls and results
   // were not in the new pass's context at all: mission run 5081 (2026-09-25,
@@ -1096,12 +1090,9 @@ export async function runAgentDeep(opts: {
                   emit(node);
                 }
               }
-              // A continuation that restarts inside what was already said
-              // is joined without the repeat (`ContinuationJoin`).
-              const released = continuationJoin ? continuationJoin.push(answer) : answer;
-              if (released) {
-                finalText += released;
-                emit({ type: 'response_delta', delta: released });
+              if (answer) {
+                finalText += answer;
+                emit({ type: 'response_delta', delta: answer });
               }
             }
           }
@@ -1276,25 +1267,16 @@ export async function runAgentDeep(opts: {
       // 2026-09-26: the QA verdict ended at "Head read at `"). Once, the
       // turn re-enters with where it stopped and finishes from there.
       {
-        const { ContinuationJoin } = await import('./agents/truncation');
         const shown = normalizeAnswerHtml(finalText).trim();
         if (after.cut_off && !after.wrote_call_as_text) {
           console.warn('agent turn: the answer stopped mid-sentence; finishing it', { orgId: opts.orgId, agentSlug: opts.agentSlug, tail: shown.slice(-80) });
           emit({ type: 'status', label: 'Finishing the answer' });
-          continuationJoin = new ContinuationJoin(finalText);
-          try {
-            await runGraph({
-              ...input,
-              messages: continueWith(`Your answer stopped mid-sentence at "${shown.slice(-120)}". Continue exactly from where it stopped and finish it. Do not repeat what you already wrote and do not read again what you already read.`, [...input.messages, { role: 'assistant', content: shown }]),
-            } as typeof input);
-          } finally {
-            const held = continuationJoin.flush();
-            continuationJoin = null;
-            if (held) {
-              finalText += held;
-              emit({ type: 'response_delta', delta: held });
-            }
-          }
+          // The continuation reads its own last message in the real
+          // conversation and goes on from it; its words stream as written.
+          await runGraph({
+            ...input,
+            messages: continueWith(`Your answer stopped mid-sentence at "${shown.slice(-120)}". Continue exactly from where it stopped and finish it. Do not repeat what you already wrote and do not read again what you already read.`, [...input.messages, { role: 'assistant', content: shown }]),
+          } as typeof input);
         }
       }
       // A CALL WRITTEN OUT AFTER THE CONTINUATION. The one continuation can
@@ -1414,7 +1396,7 @@ export async function runAgentDeep(opts: {
       }
       // There will be no answer, so the words have to go into the transcript
       // here — a badge in the trace is not the person being told.
-      const notice = delegationFailureNotice(failedDelegations, finalText);
+      const notice = delegationFailureNotice(failedDelegations);
       if (notice) {
         emit({ type: 'response_delta', delta: `${finalText.trim().length > 0 ? '\n\n' : ''}${notice}` });
       }
@@ -1484,7 +1466,7 @@ export async function runAgentDeep(opts: {
       // The typed filing tool when the agent has one (file_request), so the
       // pass fills the type's own schema; else propose_action (conversation 353).
       const history = opts.conversationHistory ?? [];
-      const proposeTool = owedWriteTool(buildDomainTools(boundCtx), [opts.message, ...history.map(t => t.content)].join('\n'));
+      const proposeTool = owedWriteTool(buildDomainTools(boundCtx), intent.record_type);
       if (proposeTool) {
         emit({ type: 'status', label: 'Filing what you asked for' });
         const { buildChatModelForOrg } = await import('@/libs/llm');
@@ -1709,7 +1691,6 @@ export async function runAgentDeep(opts: {
   // suppress the pass when the answer names several owed touches. The pass
   // sees what's already carded and only tops up the missing ones.
   const backstopOn = (compiled.agentRow.harnessConfig as { recommendActionBackstop?: boolean } | null)?.recommendActionBackstop === true;
-  let cardsOnScreen = emittedCards.length;
   if (backstopOn && emittedCards.length < 3 && finalText.length > 300) {
     try {
       // TWO STEPS, IN SECONDS (services/agents/cardBackstop.ts): a fast call
@@ -1725,12 +1706,13 @@ export async function runAgentDeep(opts: {
           agentPrompt: compiled.agentRow.systemPrompt ?? '',
           // A filing card is written from the conversation, not the answer alone.
           conversation: [...(opts.conversationHistory ?? []).slice(-8).map(t => `${t.role === 'user' ? 'Person' : 'You'}: ${String(t.content ?? '').slice(0, 3_000)}`), `Person: ${opts.message.split('\n\n--- ')[0]!.slice(0, 3_000)}`].join('\n\n'),
-          // The person's words this turn: an instruction is never answered with a question card.
+          // The person's words this turn, and whether they were an instruction
+          // (the intent read): an instruction is never answered with a question card.
           instruction: opts.message,
+          instructed: (await intentP).wants_action,
         },
         await realCardBackstopDeps({ ctx: compiled.ctx, orgId: opts.orgId, agentSlug: opts.agentSlug, userId: opts.userId, emit }),
       );
-      cardsOnScreen += out.emitted;
       // A decision that could not be a card is dropped from what the person
       // sees — no dead card, and no "— not a card: its input does not fit…"
       // line under the answer either (Chris, 2026-09-29). Its tool_call row

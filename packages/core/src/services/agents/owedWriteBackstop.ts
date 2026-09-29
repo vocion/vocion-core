@@ -33,39 +33,20 @@
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 
-/** "file a feature request", "log a bug", "open a ticket for…", "create the record". */
-const ASKS_TO_FILE_A_THING = /\b(?:file|log|open|raise|submit|create|record|capture)\s+(?:a|an|the|one|this|that|another)\s+(?:[\w-]+\s+){0,3}(?:request|ticket|bug|issue|feature|task|record|incident)s?\b/i;
-
-/** "please file it now", "file this", "log that". */
-const ASKS_TO_FILE_IT = /\b(?:file|log|raise|submit)\s+(?:it|this|that)\b/i;
-
-/** A request that is plainly about something else ("how do I file…", "don't file"). */
-const NOT_AN_ASK = /\b(?:how (?:do|can|would) (?:i|we|you)|don'?t|do not|never|should (?:i|we))\s(?:[^.?!\n]{0,20}\s)?(?:file|log|open|raise|submit|create|record)\b/i;
-
-/**
- * Does the person's message ask for something to be filed?
- * @param request - The person's message, as typed.
- */
-export function asksToFile(request: string): boolean {
-  const text = (request ?? '').split('\n\n--- ')[0] ?? '';
-  return (ASKS_TO_FILE_A_THING.test(text) || ASKS_TO_FILE_IT.test(text)) && !NOT_AN_ASK.test(text);
-}
-
 /**
  * The tool the pass is bound to: the agent's typed filing tool when it has
- * one (the one whose type the conversation names, when it has several), else
- * propose_action.
+ * one (the one for the record type the person wants, as the turn's intent
+ * read names it, when it has several), else propose_action.
  * @param tools - The agent's tools, as the registry built them.
- * @param text - The person's words and the conversation, to pick among typed tools.
+ * @param recordType - The type the person wants filed (`TurnIntent.record_type`), when the read named one.
  */
-export function owedWriteTool(tools: readonly StructuredToolInterface[], text = ''): StructuredToolInterface | undefined {
+export function owedWriteTool(tools: readonly StructuredToolInterface[], recordType: string | null = null): StructuredToolInterface | undefined {
   const typed = tools.filter(t => typeof (t as { filesType?: unknown }).filesType === 'string');
   if (typed.length === 1) {
     return typed[0];
   }
-  if (typed.length > 1) {
-    const words = text.toLowerCase();
-    const named = typed.find(t => words.includes(String((t as { filesType?: string }).filesType).replace(/[_-]+/g, ' ')));
+  if (typed.length > 1 && recordType) {
+    const named = typed.find(t => (t as { filesType?: string }).filesType === recordType);
     if (named) {
       return named;
     }
@@ -205,7 +186,7 @@ export function answerNamesFiled(text: string, output: string): boolean {
  * saved" — true, and still not the change.
  *
  * The same backstop as a filing, for an update: when the page names a record,
- * the message asks to change it, and no write to THAT record ran, the
+ * the person wants it changed (the turn's intent read), and no write to THAT record ran, the
  * conversation goes to the model once more with update_object bound and
  * CHOSEN, the record's current fields in front of it, and the id and type
  * fixed from the page — the model transcribes the change into the typed
@@ -214,56 +195,6 @@ export function answerNamesFiled(text: string, output: string): boolean {
  * with Undo above the bar, a card in Review below it), the tool-call row, and
  * the record's history (the action run IS the version, `recordBody.ts`).
  */
-
-/** "change this request", "update the acceptance", "add … to it", "rename it". */
-const CHANGE_VERB = '(?:change|update|edit|amend|revise|modify|add|append|remove|drop|delete|rename|retitle|rewrite|reword|replace|include|mark|make|set|swap|switch|cut|shorten|tighten|expand|widen|broaden|extend|narrow|rescope|fold)';
-
-/**
- * The change said as a destination: "get it into the spec on this ticket",
- * "put that in the acceptance", "work it into this request" (conversation
- * 382, 2026-09-29 — no verb above, and the turn wrote nothing).
- */
-const INTO_THE_RECORD = /\b(?:get|put|work|fold|write|bake|roll)\s+(?:it|this|that|them|these)\s+(?:in|into|to)\s+(?:the|this|that|its)\s+(?:spec|request|ticket|record|acceptance|outcome|story|scope|contract|feature)\b/i;
-
-/** The message opens on the change: "Change this request: …", "Please also add …". */
-const OPENS_ON_CHANGE = new RegExp(`^\\s*(?:(?:please|ok(?:ay)?|and|also|now|then)[,\\s]+)*${CHANGE_VERB}\\b`, 'im');
-
-/** The change names its target: "this request", "the acceptance", "it". */
-const NAMES_THE_RECORD = new RegExp(`\\b${CHANGE_VERB}\\s+(?:(?:this|that|the|its|it|our)\\b|[\\w-]+\\s+(?:to|on|in|from)\\s+(?:this|that|the|it)\\b)`, 'i');
-
-/**
- * The message announces its changes: "Three changes to this request: 1) …",
- * "two edits:", "a few tweaks to it". Conversation 362 (2026-09-29) opened
- * this way, with no verb in front, and read as no change at all.
- */
-const ANNOUNCES_CHANGES = /\b(?:\d+|one|two|three|four|five|six|a few|some|these|the following|a couple of)\s+(?:changes?|edits?|tweaks?|fixes|updates?|corrections?)\b|\b(?:changes?|edits?|tweaks?|updates?|corrections?)\s+(?:to|on|for)\s+(?:this|that|the|it)\b/i;
-
-/**
- * Where a clause of a message starts: a line, a list marker ("1)", "2.",
- * "-"), or after a colon or a semicolon — "Also: drop anything about SMS"
- * opens its clause on the verb even though the message does not.
- */
-const CLAUSE_BREAK = /\n|[:;]\s*|(?:^|\s)(?:\d+[).]|[-*•])\s+/;
-
-/** Asking about a change is not asking for one. */
-const NOT_A_CHANGE = new RegExp(`\\b(?:how (?:do|can|would|should) (?:i|we|you)|don'?t|do not|never|should (?:i|we)|would it|could we|can we|what (?:would|if)|why)\\s(?:[^.?!\\n]{0,20}\\s)?${CHANGE_VERB}\\b`, 'i');
-
-/**
- * Does the person's message ask for the record on their page to be changed?
- * Only meaningful with a record in page context: the pronoun is the page.
- * @param request - The person's message, as typed.
- */
-export function asksToChange(request: string): boolean {
-  const text = (request ?? '').split('\n\n--- ')[0] ?? '';
-  if (asksToFile(text) || NOT_A_CHANGE.test(text) || /\bupdate (?:me|us)\b/i.test(text)) {
-    return false;
-  }
-  return OPENS_ON_CHANGE.test(text)
-    || NAMES_THE_RECORD.test(text)
-    || INTO_THE_RECORD.test(text)
-    || ANNOUNCES_CHANGES.test(text)
-    || text.split(CLAUSE_BREAK).some(clause => OPENS_ON_CHANGE.test(clause.trim()));
-}
 
 /**
  * Did a write to this record run (or go to Review) in the turn — not a refusal?

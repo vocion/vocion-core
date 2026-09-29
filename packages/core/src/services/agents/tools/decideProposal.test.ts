@@ -8,6 +8,16 @@ vi.mock('@/libs/DB', () => ({ db: { select: () => {
   throw new Error('no database in this test');
 } } }));
 
+// Whether the person said to take a decision is a model's reading of their
+// words (`turnJudge.saidToDecide`); here, what that reading is for each case.
+const CONSENTS: Record<string, string[]> = {
+  'approve the first one, and defer the second': ['approve proposal #41', 'defer proposal #42'],
+  'approve it': ['approve proposal #43'],
+};
+vi.mock('../turnJudge', () => ({
+  saidToDecide: vi.fn(async ({ messages, decision }: { messages: string[]; decision: string }) => ({ said: (CONSENTS[messages[0] ?? ''] ?? []).includes(decision), quote: null })),
+}));
+
 const { decideProposalTool } = await import('./decideProposal');
 
 const said = (turnMessage: string) => ({ orgId: 'org', userId: 'usr-1', conversationId: 7, connectorSources: [], turnMessage }) as never;

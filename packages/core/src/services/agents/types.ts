@@ -435,6 +435,12 @@ export type RuntimeContext = {
    */
   turnMessage?: string;
   /**
+   * What the person wants from this turn, read by a model at its start
+   * (`turnJudge.readIntent`). Tools that act on the person's meaning read
+   * this, never their words by pattern. Absent off the in-process loop.
+   */
+  turnIntent?: Promise<import('./turnJudge').TurnIntent>;
+  /**
    * The zone THIS turn's dates are judged in: the person's browser zone when
    * a turn carries one, else the workspace's (`defaultTimeZone`). Set per
    * request in `compileAgentForRequest`; the tools read it at call time.

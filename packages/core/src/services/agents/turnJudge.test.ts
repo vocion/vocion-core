@@ -21,9 +21,9 @@ function modelSaying(args: Record<string, unknown>, seen: unknown[] = []) {
 describe('what the person meant, read by a model', () => {
   it('returns the typed reading the model reports, with the report tool forced', async () => {
     const seen: unknown[] = [];
-    const intent = await readIntent({ orgId: 'org_judge', message: 'can you expand the scope of this request and send it back?', page: 'request #41' }, modelSaying({ changes_page_record: true, files_new_record: false, decides: true, wants_action: true, summary: 'widen #41 and rebuild' }, seen));
+    const intent = await readIntent({ orgId: 'org_judge', message: 'can you expand the scope of this request and send it back?', page: 'request #41' }, modelSaying({ ...NO_INTENT, changes_page_record: true, changes_existing_record: true, decides: true, wants_action: true, summary: 'widen #41 and rebuild' }, seen));
 
-    expect(intent).toEqual({ changes_page_record: true, files_new_record: false, decides: true, wants_action: true, summary: 'widen #41 and rebuild' });
+    expect(intent).toEqual({ ...NO_INTENT, changes_page_record: true, changes_existing_record: true, decides: true, wants_action: true, summary: 'widen #41 and rebuild' });
     expect(seen[0]).toEqual({ tools: ['report_intent'], opts: { tool_choice: 'report_intent' } });
   });
 
@@ -48,5 +48,17 @@ describe('how the reply ended, read by a model', () => {
 
   it('lists each step with what it answered, for the model to read', () => {
     expect(stepLines([{ tool: 'withdraw_proposal', output: 'Proposal #5232 is not yours to withdraw.' }])).toEqual(['withdraw_proposal → Proposal #5232 is not yours to withdraw.']);
+  });
+});
+
+describe('consent to a decision, read by a model', () => {
+  it('is the model\'s reading of the person\'s own words, and no consent when there are none or the read fails', async () => {
+    const { saidToDecide } = await import('./turnJudge');
+
+    expect(await saidToDecide({ orgId: 'org_judge', messages: ['approve the first one'], decision: 'approve proposal #41' }, modelSaying({ said: true, quote: 'approve the first one' }))).toEqual({ said: true, quote: 'approve the first one' });
+    expect(await saidToDecide({ orgId: 'org_judge', messages: [], decision: 'approve proposal #41' }, modelSaying({ said: true, quote: 'x' }))).toEqual({ said: false, quote: null });
+    expect(await saidToDecide({ orgId: 'org_judge', messages: ['approve it'], decision: 'approve proposal #41' }, { bindTools: () => ({ invoke: async () => {
+      throw new Error('down');
+    } }) } as never)).toEqual({ said: false, quote: null });
   });
 });

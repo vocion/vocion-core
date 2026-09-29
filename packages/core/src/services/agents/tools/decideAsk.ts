@@ -2,7 +2,8 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
-import { personMessages, personSaidRecently } from '../owedDecision';
+import { personMessages } from '../owedDecision';
+import { saidToDecide } from '../turnJudge';
 
 /**
  * A PERSON ANSWERS AN ASK BY SAYING SO.
@@ -37,7 +38,7 @@ export function decideAskTool(ctx: RuntimeContext) {
         return `Ask #${input.id} was already decided (${ask.status}${ask.decision ? `: ${ask.decision}` : ''}); nothing to do.`;
       }
       const option = (ask.options ?? []).find(o => o.id === input.decision);
-      if (!ctx.userId.startsWith('token:') && !personSaidRecently(await personMessages(ctx), input.decision, option)) {
+      if (!ctx.userId.startsWith('token:') && !(await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `answer ask #${input.id} "${ask.title}" with "${option?.label ?? input.decision}"` })).said) {
         return `Refused: the person has not said to answer ask #${input.id} with "${input.decision}" in their message. Recommend the answer and let them say so.`;
       }
       try {

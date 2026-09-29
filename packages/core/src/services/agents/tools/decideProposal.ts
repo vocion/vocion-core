@@ -3,7 +3,8 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { deferUntil } from '@/features/dashboard/chat/deferral';
 import { isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
-import { personMessages, personSaidRecently } from '../owedDecision';
+import { personMessages } from '../owedDecision';
+import { saidToDecide } from '../turnJudge';
 
 /**
  * A PERSON DECIDES A CARD BY SAYING SO.
@@ -29,9 +30,10 @@ export function decideProposalTool(ctx: RuntimeContext) {
       }
       // THE PERSON'S WORDS ARE THE GATE (conversation 378): a decision taken
       // for a person is one they said, in this turn's message (or the one
-      // before, when this one is a bare "do it"). A workspace token is the
+      // before, when this one is a bare "do it") — read by a model, never a
+      // word match (`turnJudge.saidToDecide`). A workspace token is the
       // person's own client acting directly, so it carries no message.
-      if (!ctx.userId.startsWith('token:') && !personSaidRecently(await personMessages(ctx), input.decision)) {
+      if (!ctx.userId.startsWith('token:') && !(await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `${input.decision} proposal #${input.id}` })).said) {
         return `Refused: the person has not said to ${input.decision} proposal #${input.id} in their message. Recommend it and let them say so, or let them press the card.`;
       }
       const { decide, snooze } = await import('@/services/ReviewService');

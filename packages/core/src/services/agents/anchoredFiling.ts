@@ -28,44 +28,34 @@
  * words and the page, never the model's account of them.
  */
 
+import type { TurnIntent } from './turnJudge';
 import type { RuntimeContext } from './types';
-import { asksToChange, asksToFile, owedChangeTarget } from './owedWriteBackstop';
-
-/** "a new request", "a separate feature", "its own ticket", "split it out". */
-const ASKS_FOR_A_NEW_ONE = /\b(?:new|separate|another|second|different|fresh)\s+(?:[\w-]+\s+){0,2}(?:requests?|features?|tickets?|ideas?|records?|bugs?|issues?|tasks?)\b|\bits own (?:request|feature|ticket|record|idea)\b|\bsplit (?:it|this|that) (?:out|off)\b/i;
-
-/** "Change this: …", "edit it", "please update that" — a change aimed at what is on screen. */
-const CHANGES_THIS = /^\s*(?:(?:please|ok(?:ay)?|now|then|and|also)[,\s]+)*(?:change|edit|update|amend|revise|modify|tweak|reword|rewrite)\s+(?:this|that|it)\b/i;
-
-/**
- * Did the person ask for a new or separate record, in so many words?
- * @param text - The person's message.
- */
-export function asksForANewRecord(text: string): boolean {
-  return asksToFile(text) || ASKS_FOR_A_NEW_ONE.test(text);
-}
+import { owedChangeTarget } from './owedWriteBackstop';
 
 /**
  * The answer to send instead of filing, or null to file.
  * @param opts - The filing and where it was asked for.
- * @param opts.message - The person's message this turn.
+ * @param opts.message - The person's message this turn (quoted in the refusal).
+ * @param opts.intent - What they want, as the turn's intent read says.
  * @param opts.objectType - The type being filed.
  * @param opts.anchor - The page's record, typed (`owedChangeTarget`), or null.
  */
-export function anchoredFilingRefusal(opts: { message: string; objectType: string; anchor: { id: number; objectType: string | null } | null }): string | null {
+export function anchoredFilingRefusal(opts: { message: string; intent: TurnIntent; objectType: string; anchor: { id: number; objectType: string | null } | null }): string | null {
   const text = (opts.message ?? '').split('\n\n--- ')[0] ?? '';
-  if (!text.trim() || asksForANewRecord(text)) {
+  // What they meant is the turn's intent read, never their wording.
+  const { intent } = opts;
+  if (!text.trim() || intent.files_new_record) {
     return null;
   }
   const kind = opts.objectType.replace(/[_-]+/g, ' ');
   const anchor = opts.anchor;
   if (anchor && anchor.objectType === opts.objectType) {
-    if (!asksToChange(text)) {
+    if (!intent.changes_page_record) {
       return null;
     }
     return `Not filed: the person is on ${kind} #${anchor.id}'s page and asked to change it, so the change belongs on ${kind} #${anchor.id}, not on a new ${kind}. Write it with update_object (object_type "${opts.objectType}", id ${anchor.id}), each field you change with its whole new value; it lands as a new version of #${anchor.id}. File a separate ${kind} only when the person asks for a new or separate one.`;
   }
-  if (!CHANGES_THIS.test(text)) {
+  if (!intent.changes_existing_record) {
     return null;
   }
   const said = text.trim().split('\n')[0]!.slice(0, 80);
@@ -121,25 +111,30 @@ export async function anchoredFilingCheck(ctx: RuntimeContext, input: Record<str
       const row = await getBusinessObject(target.id, ctx.orgId);
       anchor = { id: target.id, objectType: (row as { type?: { slug?: string } } | null)?.type?.slug ?? null };
     }
-    return anchoredFilingRefusal({ message, objectType, anchor });
+    return anchoredFilingRefusal({ message, intent: await intentOf(ctx, message), objectType, anchor });
   } catch (err) {
     console.warn('anchored filing check failed', { orgId: ctx.orgId, message: (err as Error).message });
     return null;
   }
 }
 
+/**
+ * What the person wants: the turn's own intent read, or — for a tool call
+ * made out of process, with no turn around it — the same read, made now.
+ * @param ctx - The turn.
+ * @param message - The person's latest message.
+ */
+async function intentOf(ctx: RuntimeContext, message: string): Promise<TurnIntent> {
+  if (ctx.turnIntent) {
+    return ctx.turnIntent;
+  }
+  const { readIntent } = await import('./turnJudge');
+  return readIntent({ orgId: ctx.orgId, message, page: ctx.pageContext?.record?.label ?? null });
+}
+
 /* ------------------------------------------------------------------ */
 /* An ask about the record the person is changing                      */
 /* ------------------------------------------------------------------ */
-
-/**
- * "which one", "give me options", "your call or mine", "let me decide" — the
- * person asked to be handed a choice.
- */
-const ASKS_FOR_A_CHOICE = /\b(?:which (?:one|option|way|of)|options?|alternatives?|choices?|choose|let me (?:decide|choose|pick)|ask me|my call|check with me|run it by me)\b/i;
-
-/** Asking for work ON the record: "add mocks to this", "draw it", "mock this up", "attach images". */
-const WORK_ON_IT = /\b(?:add|attach|put|draw|mock|design|sketch|show)\b[^.?!\n]{1,60}\b(?:this|it|here|the (?:request|feature|record|page))\b/i;
 
 /** How far ahead the recommended option has to be for the choice to be the agent's. */
 const CLEAR_LEAD = 0.2;
@@ -186,6 +181,7 @@ export function hasClearFavourite(options: readonly AskOption[] | undefined): bo
  * a person can make.
  * @param opts - The ask and where it was filed.
  * @param opts.message - The person's message this turn.
+ * @param opts.intent
  * @param opts.anchor - The page's record, typed (`owedChangeTarget`), or null.
  * @param opts.kind - The ask's kind.
  * @param opts.options - Its options.
@@ -193,6 +189,7 @@ export function hasClearFavourite(options: readonly AskOption[] | undefined): bo
  */
 export function anchoredAskRefusal(opts: {
   message: string;
+  intent: TurnIntent;
   anchor: { id: number; objectType: string | null } | null;
   kind: string | undefined;
   options?: readonly AskOption[];
@@ -200,7 +197,7 @@ export function anchoredAskRefusal(opts: {
 }): string | null {
   const text = (opts.message ?? '').split('\n\n--- ')[0] ?? '';
   const anchor = opts.anchor;
-  if (!anchor || !text.trim() || ASKS_FOR_A_CHOICE.test(text)) {
+  if (!anchor || !text.trim() || opts.intent.wants_to_choose) {
     return null;
   }
   if (opts.kind !== 'ruling' && opts.kind !== 'input') {
@@ -211,7 +208,7 @@ export function anchoredAskRefusal(opts: {
     return null;
   }
   const favourite = opts.kind === 'ruling' && hasClearFavourite(opts.options);
-  const working = asksToChange(text) || WORK_ON_IT.test(text);
+  const working = opts.intent.changes_page_record || opts.intent.wants_work_on_record;
   const equal = opts.kind === 'ruling' && !favourite && (opts.options?.length ?? 0) >= 2;
   if (!favourite && !(working && !equal)) {
     return null;
@@ -252,7 +249,7 @@ export async function anchoredAskCheck(ctx: RuntimeContext, input: { kind?: stri
       const row = await getBusinessObject(target.id, ctx.orgId);
       anchor = { id: target.id, objectType: (row as { type?: { slug?: string } } | null)?.type?.slug ?? null };
     }
-    return anchoredAskRefusal({ message, anchor, kind: input.kind ?? 'approval', options: input.options, objectRefs: input.objectRefs });
+    return anchoredAskRefusal({ message, intent: await intentOf(ctx, message), anchor, kind: input.kind ?? 'approval', options: input.options, objectRefs: input.objectRefs });
   } catch (err) {
     console.warn('anchored ask check failed', { orgId: ctx.orgId, message: (err as Error).message });
     return null;

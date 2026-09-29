@@ -46,7 +46,6 @@ import type { ModelRole } from '@/libs/llm';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
 import { repairActionInput } from '@/libs/actions/repairInput';
 import { appBaseUrl } from '@/libs/links';
-import { asksForAction } from './owedDecision';
 
 /** At most this many cards per pass — the agents' own rule is "top 3–5 by leverage". */
 export const MAX_CARDS = 5;
@@ -406,9 +405,10 @@ async function typedFilingInput(opts: { label: string; why: string; answer: stri
  * @param input.agentPrompt - The agent's system prompt (its card rules and voice).
  * @param input.conversation
  * @param input.instruction
+ * @param input.instructed
  * @param deps - Everything outside.
  */
-export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string; conversation?: string; instruction?: string }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
+export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string; conversation?: string; instruction?: string; instructed?: boolean }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
   const log = deps.log ?? ((m: string, d: Record<string, unknown>) => console.warn(m, d));
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const result: CardBackstopResult = { listed: 0, emitted: 0, refused: 0, mapped: 0, typed: 0, drafts: 0, notes: [] };
@@ -440,8 +440,9 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
     // a card asking the person to approve asking them for the context they
     // had just given ("File the question on #201"). Chris: "WTF is it asking
     // me to approve? … I JUST ASKED VOCION TO DO EXACTLY THAT". An ask back
-    // to the person who instructed the act is the act left undone.
-    if (t.actionId === ASK_ACTION && asksForAction(input.instruction)) {
+    // to the person who instructed the act is the act left undone. Whether
+    // they instructed it is the turn's intent read (`turnJudge.readIntent`).
+    if (t.actionId === ASK_ACTION && input.instructed === true) {
       result.notes.push(noteLine(t.label, 'the person told you what to do this turn; a question back to them is not a card'));
       log('card backstop: a question back to the person who gave the instruction was dropped', { label: t.label });
       continue;

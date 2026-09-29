@@ -12,6 +12,13 @@ vi.mock('@/libs/DB', () => ({ db: { select: () => {
 
 const { decideAskTool } = await import('./decideAsk');
 
+// Whether the person said to answer the ask this way is a model's reading of
+// their words (`turnJudge.saidToDecide`); here, the messages it reads as consent.
+const CONSENTING = new Set(['approve, fix and run', 'leave it stopped for now', 'approve']);
+vi.mock('../turnJudge', () => ({
+  saidToDecide: vi.fn(async ({ messages }: { messages: string[] }) => ({ said: CONSENTING.has(messages[0] ?? ''), quote: null })),
+}));
+
 const said = (turnMessage: string) => ({ orgId: 'org', userId: 'usr-1', conversationId: 378, connectorSources: [], turnMessage }) as never;
 
 describe('decide_ask — the person answers an ask by saying so', () => {

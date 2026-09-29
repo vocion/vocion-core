@@ -7,7 +7,7 @@
 import type { RuntimeContext } from './types';
 import { AIMessage } from '@langchain/core/messages';
 import { describe, expect, it, vi } from 'vitest';
-import { answerNamesFiled, asksToChange, attemptedChange, changedInTurn, changeLine, changeOwedRecord, owedChangeTarget } from './owedWriteBackstop';
+import { answerNamesFiled, attemptedChange, changedInTurn, changeLine, changeOwedRecord, owedChangeTarget } from './owedWriteBackstop';
 
 const proposed: Array<Record<string, unknown>> = [];
 let nextStatus: 'done' | 'pending' = 'done';
@@ -54,25 +54,6 @@ function modelMaking(calls: Array<Record<string, unknown>>) {
     },
   };
 }
-
-describe('which messages ask for the record on the page to change', () => {
-  it('reads journey 4\'s ask, and the usual shapes, as a change', () => {
-    expect(asksToChange('Change this request: also include which pages each viewer read, and the CSV filename should be the document title plus today\'s date.')).toBe(true);
-    expect(asksToChange('Please add a criterion that the export works on a phone.')).toBe(true);
-    expect(asksToChange('Remove the second acceptance line.')).toBe(true);
-    expect(asksToChange('Can you update the story to say founders, not owners?')).toBe(true);
-    expect(asksToChange('Mark it as deferred until the paid plan ships.')).toBe(true);
-  });
-
-  it('does not read a question, a refusal, a status ask or a new filing as a change', () => {
-    expect(asksToChange('How do I change the acceptance criteria?')).toBe(false);
-    expect(asksToChange('Don\'t change anything yet.')).toBe(false);
-    expect(asksToChange('Where is this now?')).toBe(false);
-    expect(asksToChange('Update me on where this stands.')).toBe(false);
-    expect(asksToChange('What would change if we built it?')).toBe(false);
-    expect(asksToChange('File a feature request for Send: a Download CSV button.')).toBe(false);
-  });
-});
 
 describe('what counts as the record changed in the turn', () => {
   it('a write to that record, landed or queued — never a refusal, never another record', () => {
@@ -173,7 +154,6 @@ describe('a change asked on /p/feature/N updates request N (conversation 355, 20
     const target = owedChangeTarget(page?.record);
 
     expect(target).toEqual({ id: 124, objectType: 'request' });
-    expect(asksToChange('remove push notifications from scope - limit to email notifications and create in-app notifications (that should probably be in core)')).toBe(true);
 
     proposed.length = 0;
     nextStatus = 'done';
@@ -199,12 +179,6 @@ describe('a change asked on /p/feature/N updates request N (conversation 355, 20
 });
 
 describe('a change asked in other words, or tried and refused (conversation 382)', () => {
-  it('reads "expand the scope" and "get it into the spec" as a change', () => {
-    expect(asksToChange('can you expand the scope of this request? and send the work back to get completed and tested?')).toBe(true);
-    expect(asksToChange('skip design for this, just get it into the spec on this ticket and send back to engineering')).toBe(true);
-    expect(asksToChange('what would it take to expand the scope?')).toBe(false);
-  });
-
   it('counts a refused card or a cut-off update as tried, not changed', () => {
     const calls = [
       { tool: 'recommend_action', input: { action_id: 'objects.update_meta', action_input: { id: 201, set: { scope: 'both halves' } } }, output: 'not put up: Object type "request" declares no field "scope".' },

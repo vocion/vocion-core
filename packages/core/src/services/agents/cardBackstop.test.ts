@@ -217,7 +217,8 @@ describe('a question back is not a card when the person just said what to do (co
   it('drops an ask.file card in reply to "write it", with the reason on the log, and writes no card', async () => {
     const h = harness([askBack], over);
 
-    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.', instruction: 'write it' }, h.deps);
+    // "write it" read as an instruction by the turn's intent read (`turnJudge.readIntent`).
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.', instruction: 'write it', instructed: true }, h.deps);
 
     expect(out.listed).toBe(0);
     expect(h.events.some(e => e.type === 'recommended_action')).toBe(false);

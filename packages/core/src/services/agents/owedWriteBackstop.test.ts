@@ -9,7 +9,7 @@ import { AIMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { explainProposeActionMiss, normalizeProposeActionArgs, proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
-import { asksToFile, fileOwedWrite, owedWriteLine, owedWriteTool } from './owedWriteBackstop';
+import { fileOwedWrite, owedWriteLine, owedWriteTool } from './owedWriteBackstop';
 
 vi.mock('@/libs/DB');
 
@@ -53,21 +53,6 @@ function modelMaking(calls: Array<Record<string, unknown>>, toolName = 'propose_
     },
   };
 }
-
-describe('which messages ask for a filing', () => {
-  it('reads the two asks of conversation 349 as asks', () => {
-    expect(asksToFile('Founders keep asking for the viewer list. File a feature request for Send: a Download CSV button.')).toBe(true);
-    expect(asksToFile('You said nothing was saved. Please file it now.')).toBe(true);
-    expect(asksToFile('Log a bug for the upload retry.')).toBe(true);
-  });
-
-  it('leaves questions and everything else alone', () => {
-    expect(asksToFile('How do I file a feature request?')).toBe(false);
-    expect(asksToFile('Don\'t file this yet, just draft it.')).toBe(false);
-    expect(asksToFile('What should I do right now?')).toBe(false);
-    expect(asksToFile('Which requests were filed this week?')).toBe(false);
-  });
-});
 
 describe('the line the person reads', () => {
   it('links a record that was filed, and says plainly when it waits for approval', () => {
