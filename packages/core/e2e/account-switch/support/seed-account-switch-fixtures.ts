@@ -11,6 +11,8 @@
  *     workspace on EACH account — the same slug twice, which is the case a
  *     slug alone cannot tell apart
  *   - one agent per workspace, because the switcher hides empty workspaces
+ *   - one colleague per account, so the Members page shows whose account
+ *     the session is in
  *
  * Idempotent: a rerun deletes this script's own rows first (matched by the
  * fixed slugs and email below), so the project stays repeatable.
@@ -18,7 +20,7 @@
  * Usage: npx dotenv -c -- npx tsx e2e/account-switch/support/seed-account-switch-fixtures.ts
  */
 import process from 'node:process';
-import { eq, inArray } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, agentSchema, projectSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
@@ -27,6 +29,8 @@ import 'dotenv/config';
 const FIRST_ACCOUNT = { slug: 'e2e-switch-first', name: 'E2E Switch First' };
 const SECOND_ACCOUNT = { slug: 'e2e-switch-second', name: 'E2E Switch Second' };
 const PERSON = { email: 'switch-person@e2e.test', name: 'Switch Person', password: 'account-switch-e2e-pass-1' };
+const FIRST_COLLEAGUE = { email: 'switch-first-colleague@e2e.test', name: 'First Colleague' };
+const SECOND_COLLEAGUE = { email: 'switch-second-colleague@e2e.test', name: 'Second Colleague' };
 
 /**
  * Delete this script's own rows so a rerun starts clean: agents before their
@@ -34,7 +38,10 @@ const PERSON = { email: 'switch-person@e2e.test', name: 'Switch Person', passwor
  * before the user (FK order).
  */
 async function resetFixtures(): Promise<void> {
-  const existingUsers = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, PERSON.email));
+  const existingUsers = await db
+    .select({ id: userSchema.id })
+    .from(userSchema)
+    .where(inArray(userSchema.email, [PERSON.email, FIRST_COLLEAGUE.email, SECOND_COLLEAGUE.email]));
   const userIds = existingUsers.map(user => user.id);
   if (userIds.length > 0) {
     await db.delete(accountMembershipSchema).where(inArray(accountMembershipSchema.userId, userIds));
@@ -72,11 +79,17 @@ async function main(): Promise<void> {
       { id: firstId, name: FIRST_ACCOUNT.name, slug: FIRST_ACCOUNT.slug },
       { id: secondId, name: SECOND_ACCOUNT.name, slug: SECOND_ACCOUNT.slug },
     ]);
-    await tx.insert(userSchema).values({ id: userId, name: PERSON.name, email: PERSON.email, passwordHash });
+    await tx.insert(userSchema).values([
+      { id: userId, name: PERSON.name, email: PERSON.email, passwordHash },
+      { id: `${userId}-first-colleague`, name: FIRST_COLLEAGUE.name, email: FIRST_COLLEAGUE.email },
+      { id: `${userId}-second-colleague`, name: SECOND_COLLEAGUE.name, email: SECOND_COLLEAGUE.email },
+    ]);
     // Joined First a year before Second: First is the default.
     await tx.insert(accountMembershipSchema).values([
       { accountId: firstId, userId, role: 'admin', createdAt: new Date('2025-01-01T00:00:00Z') },
       { accountId: secondId, userId, role: 'admin', createdAt: new Date('2026-01-01T00:00:00Z') },
+      { accountId: firstId, userId: `${userId}-first-colleague`, role: 'member' },
+      { accountId: secondId, userId: `${userId}-second-colleague`, role: 'member' },
     ]);
     // `home` is First's oldest workspace, so it is where a fresh sign-in lands.
     await tx.insert(projectSchema).values([

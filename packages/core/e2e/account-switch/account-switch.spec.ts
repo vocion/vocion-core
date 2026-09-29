@@ -10,9 +10,10 @@ import { expect, test } from '@playwright/test';
  * Fixtures come from `support/seed-account-switch-fixtures.ts`: one person in
  * "E2E Switch First" (joined first) and "E2E Switch Second", a `Switch Home`
  * workspace on First, and a workspace with the SAME slug, `e2e-switch-shared`,
- * on each account. The switcher's trigger shows the active workspace's name
- * over its account's name, and both come from the session's tenancy, so they
- * are what this spec reads.
+ * on each account, plus one colleague per account. The switcher's trigger
+ * shows the active workspace's name over its account's name, and the Members
+ * page lists the session account's people; all three come from the session's
+ * tenancy, so they are what this spec reads.
  */
 
 const SEED_SCRIPT = 'e2e/account-switch/support/seed-account-switch-fixtures.ts';
@@ -21,6 +22,8 @@ const SEED_SCRIPT = 'e2e/account-switch/support/seed-account-switch-fixtures.ts'
 const PERSON = { email: 'switch-person@e2e.test', password: 'account-switch-e2e-pass-1' };
 const FIRST_ACCOUNT = 'E2E Switch First';
 const SECOND_ACCOUNT = 'E2E Switch Second';
+const FIRST_COLLEAGUE = 'First Colleague';
+const SECOND_COLLEAGUE = 'Second Colleague';
 
 function seedFixtures(): void {
   // Through `dotenv -c` so the script sees the same env files as the app under test.
@@ -79,6 +82,11 @@ test('switching to a workspace on another account moves the whole session there,
   await expect(switcher(page)).toContainText('Shared In Second');
   await expect(switcher(page)).toContainText(SECOND_ACCOUNT);
 
+  // A reload keeps them there.
+  await page.reload();
+
+  await expect(switcher(page)).toContainText(SECOND_ACCOUNT);
+
   // A bare link carries no workspace and no account: "last active" must keep
   // them in Second, and the shared slug must resolve there too.
   await page.goto('/dashboard');
@@ -88,10 +96,19 @@ test('switching to a workspace on another account moves the whole session there,
   await expect(switcher(page)).toContainText('Shared In Second');
   await expect(switcher(page)).toContainText(SECOND_ACCOUNT);
 
+  // The rest of the dashboard moved too: Members lists Second's people, not First's.
+  await page.goto('/dashboard/members');
+
+  await expect(page.getByText(SECOND_COLLEAGUE)).toBeVisible();
+  await expect(page.getByText(FIRST_COLLEAGUE)).toHaveCount(0);
+
   // And back across to First's copy of the same slug.
   await switchTo(page, FIRST_ACCOUNT, 'Shared In First');
   await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard.*account=e2e-switch-first/);
 
   await expect(switcher(page)).toContainText('Shared In First');
   await expect(switcher(page)).toContainText(FIRST_ACCOUNT);
+  // The switch kept the Members page, now listing First's people.
+  await expect(page.getByText(FIRST_COLLEAGUE)).toBeVisible();
+  await expect(page.getByText(SECOND_COLLEAGUE)).toHaveCount(0);
 });

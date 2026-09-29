@@ -24,6 +24,7 @@ vi.mock('next/headers', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
+const { and, eq } = await import('drizzle-orm');
 const {
   accountMembershipSchema,
   groupProjectGrantSchema,
@@ -239,6 +240,25 @@ describe('tenancy resolution', () => {
       expect(t.projectId).toBe(CONTOSO_PROJECT);
     });
 
+    it('lets go of an account they were removed from, even with the cookie still pointing there', async () => {
+      headerBag.cookie = REVENUE;
+      await db.delete(accountMembershipSchema).where(and(eq(accountMembershipSchema.userId, ALEX), eq(accountMembershipSchema.accountId, ACCOUNT)));
+
+      const t = await resolveTenancyForUser(ALEX);
+
+      expect(t.accountId).toBe(CONTOSO);
+      expect(t.projectId).toBe(CONTOSO_PROJECT);
+    });
+
+    it('skips an oldest account with no workspace instead of leaving them on none', async () => {
+      await db.delete(projectSchema).where(eq(projectSchema.id, CONTOSO_PROJECT));
+
+      const t = await resolveTenancyForUser(ALEX);
+
+      expect(t.accountId).toBe(ACCOUNT);
+      expect(t.projectId).not.toBeNull();
+    });
+
     it('refuses a cookie naming a workspace on an account they are not in', async () => {
       headerBag.cookie = FABRIKAM_PROJECT;
 
@@ -262,6 +282,15 @@ describe('tenancy resolution', () => {
         expect(inContoso).toEqual({ accountId: CONTOSO, projectId: CONTOSO_PROJECT, role: 'admin', workspaceRole: 'admin' });
         // Northwind member, admin of revenue only through the group grant.
         expect(inNorthwind).toEqual({ accountId: ACCOUNT, projectId: REVENUE, role: 'member', workspaceRole: 'admin' });
+      });
+
+      it('moves on to an account where they hold a workspace when the oldest has none they hold', async () => {
+        // Contoso's only workspace becomes someone else's personal one.
+        await db.update(projectSchema).set({ kind: 'personal', ownerUserId: BRIT }).where(eq(projectSchema.id, CONTOSO_PROJECT));
+
+        const t = await resolveTenancyForUser(ALEX);
+
+        expect(t).toEqual({ accountId: ACCOUNT, projectId: REVENUE, role: 'member', workspaceRole: 'admin' });
       });
 
       it('keeps them in the picked account when they cannot open that workspace, landing on one they hold there', async () => {

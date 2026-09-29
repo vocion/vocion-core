@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
+const { eq } = await import('drizzle-orm');
 const {
   accountMembershipSchema,
   groupProjectGrantSchema,
@@ -23,7 +24,7 @@ const {
   userGroupSchema,
   userSchema,
 } = await import('@/models/Schema');
-const { accessibleProjects, defaultMembershipFor, effectiveRole, memberWorkspace, reachForAccount, strongerRole } = await import('@/services/WorkspaceAccessService');
+const { accessibleProjects, effectiveRole, memberWorkspace, reachForAccount, resolveActiveWorkspace, strongerRole } = await import('@/services/WorkspaceAccessService');
 
 const ACCOUNT = 'acct-northwind';
 const OTHER_ACCOUNT = 'acct-kestrel';
@@ -233,8 +234,17 @@ describe('workspace access', () => {
       expect(await memberWorkspace(BRIT, KESTREL_DEALS)).toBeNull();
     });
 
-    it('defaults to the oldest membership, not the first row written', async () => {
-      expect(await defaultMembershipFor(ALEX)).toEqual({ accountId: OTHER_ACCOUNT, role: 'admin' });
+    it('lands in the oldest membership when nothing is picked, not the first row written', async () => {
+      expect(await resolveActiveWorkspace(ALEX)).toEqual({ accountId: OTHER_ACCOUNT, accountRole: 'admin', projectId: KESTREL_DEALS, workspaceRole: 'admin' });
+    });
+
+    it('skips an oldest account with no workspace, so the person is not stranded with no switcher', async () => {
+      await db.delete(projectSchema).where(eq(projectSchema.id, KESTREL_DEALS));
+
+      const active = await resolveActiveWorkspace(ALEX);
+
+      expect(active?.accountId).toBe(ACCOUNT);
+      expect(active?.projectId).not.toBeNull();
     });
   });
 

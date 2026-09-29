@@ -14,14 +14,7 @@ import type { SQL } from 'drizzle-orm';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
-import {
-  accessibleProjectIds,
-  accessibleProjects,
-  defaultMembershipFor,
-  effectiveRole,
-  enforcementEnabled,
-  memberWorkspace,
-} from '@/services/WorkspaceAccessService';
+import { accessibleProjectIds, effectiveRole, enforcementEnabled, resolveActiveWorkspace } from '@/services/WorkspaceAccessService';
 
 export type ProjectSummary = {
   id: string;
@@ -123,12 +116,14 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
  *
  * Slug matching is case-insensitive (`Vocion-Workforce` finds
  * `vocion-workforce`) because slugs travel in mails and chat where people
- * retype them. A slug can exist on more than one of the person's accounts: a
- * link naming an account (`preference.accountSlug`) resolves only there;
- * otherwise the account of the last-active workspace wins, then the account
- * they joined first. Returns null when the project does not exist or belongs
- * to an account the user is not a member of — the caller cannot tell the two
- * apart, on purpose.
+ * retype them. A slug can exist on more than one of the person's accounts, and
+ * it resolves on ONE of them: the account a link names
+ * (`preference.accountSlug`), else the account of the last-active workspace,
+ * else the account they joined first. If they cannot open the workspace on
+ * that account, the answer is null — never a quiet move to a same-named
+ * workspace in a different client's account. Returns null when the project
+ * does not exist or belongs to an account the user is not a member of — the
+ * caller cannot tell the two apart, on purpose.
  * @param userId - Auth.js user id.
  * @param selector - `{ id }` or `{ slug }`.
  * @param preference - Which account wins when a slug is on several of them.
@@ -141,82 +136,53 @@ export async function resolveProjectForUser(
   const match = 'id' in selector
     ? eq(projectSchema.id, selector.id)
     : eq(sql`lower(${projectSchema.slug})`, selector.slug.trim().toLowerCase());
-  const namedAccount = preference.accountSlug?.trim();
-  const candidates = await db
+  // Account slugs travel in links people retype, like workspace slugs.
+  const namedAccount = preference.accountSlug?.trim().toLowerCase();
+  const [project] = await db
     .select(summaryColumns)
     .from(projectSchema)
     .innerJoin(accountMembershipSchema, membershipInProjectAccount(userId))
     .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId))
-    .where(namedAccount ? and(match, eq(tenantAccountSchema.slug, namedAccount)) : match)
+    .where(namedAccount ? and(match, eq(sql`lower(${tenantAccountSchema.slug})`, namedAccount)) : match)
     .orderBy(
       lastActiveAccountFirst(preference.lastActiveProjectId?.trim() || null),
       asc(accountMembershipSchema.createdAt),
       asc(projectSchema.accountId),
-    );
-  if (!enforcementEnabled()) {
-    return candidates[0] ?? null;
-  }
-  if (candidates.length === 0) {
+    )
+    .limit(1);
+  if (!project) {
     return null;
   }
-  // Null, exactly as for a project on another account — the caller turns both
-  // into the same 404, so "not yours" and "no such thing" are one answer. On a
-  // deployment where workspaces are named after people, the difference between
-  // them is itself a disclosure.
-  const reachable = new Set(await accessibleProjectIds(userId));
-  return candidates.find(p => reachable.has(p.id)) ?? null;
+  if (enforcementEnabled() && !(await effectiveRole(userId, project.id))) {
+    // Null, exactly as for a project on another account — the caller turns
+    // both into the same 404, so "not yours" and "no such thing" are one
+    // answer. On a deployment where workspaces are named after people, the
+    // difference between them is itself a disclosure.
+    return null;
+  }
+  return project;
 }
 
 /**
  * The workspace a bare `/dashboard/…` request belongs to, for the redirect
  * that makes every URL canonical (`src/proxy.ts`).
  *
- * The same decision `resolveTenancyForUser` makes, so the redirect can never
- * send a reader to a workspace the page would then resolve differently:
- * "last active" is the `vocion_active_project` cookie when it names a project
- * on one of the user's accounts, and that account is where they stay. With no
- * usable cookie it is the oldest account's first project. Null when the user
- * has no workspace at all (onboarding), which the caller reads as "leave the
- * URL alone".
+ * The same decision tenancy makes (`resolveActiveWorkspace`), so the redirect
+ * can never send a reader to a workspace the page would then resolve
+ * differently: the `vocion_active_project` cookie's workspace when it is on one
+ * of the user's accounts and they may open it, otherwise the first workspace
+ * they can open. Null when the user has no workspace at all (onboarding), which
+ * the caller reads as "leave the URL alone".
  * @param userId - Auth.js user id.
  * @param preferredProjectId - `project.id` from the cookie, if any.
  */
 export async function activeWorkspaceForUser(userId: string, preferredProjectId?: string | null): Promise<{ id: string; accountId: string; slug: string } | null> {
-  const preferred = preferredProjectId?.trim();
-  const picked = preferred ? await memberWorkspace(userId, preferred) : null;
-  const enforced = enforcementEnabled();
-  if (picked && (!enforced || await effectiveRole(userId, picked.projectId))) {
-    return { id: picked.projectId, accountId: picked.accountId, slug: picked.slug };
-  }
-
-  // A picked workspace they may not open still keeps them in its account;
-  // otherwise the default account.
-  const accountId = picked?.accountId ?? (await defaultMembershipFor(userId))?.accountId;
-  if (!accountId) {
+  const active = await resolveActiveWorkspace(userId, preferredProjectId);
+  if (!active?.projectId) {
     return null;
   }
-  const columns = { id: projectSchema.id, slug: projectSchema.slug };
-  if (enforced) {
-    // The first workspace they actually hold on that account, ordered so a
-    // person's landing workspace does not change between requests.
-    const reachable = (await accessibleProjects(userId, accountId)).map(a => a.projectId).sort();
-    const firstId = reachable[0];
-    if (!firstId) {
-      return null;
-    }
-    const [row] = await db.select(columns).from(projectSchema).where(eq(projectSchema.id, firstId)).limit(1);
-    return row ? { ...row, accountId } : null;
-  }
-  // Ordered for the same reason as `resolveTenancyForUser`: an unordered
-  // "first project" is whatever the planner returns, which stops being a
-  // harmless detail as soon as an account holds more than a handful.
-  const [first] = await db
-    .select(columns)
-    .from(projectSchema)
-    .where(eq(projectSchema.accountId, accountId))
-    .orderBy(asc(projectSchema.createdAt), asc(projectSchema.id))
-    .limit(1);
-  return first ? { ...first, accountId } : null;
+  const slug = await projectSlugById(active.projectId);
+  return slug ? { id: active.projectId, accountId: active.accountId, slug } : null;
 }
 
 /**

@@ -69,6 +69,8 @@ export function strongerRole(a: WorkspaceRole | null, b: WorkspaceRole | null): 
 
 export type WorkspaceAccess = {
   projectId: string;
+  /** The account that owns the workspace. A person in two accounts reaches workspaces on both. */
+  accountId: string;
   role: WorkspaceRole;
   /** Why they have it, for the access list in the UI. Strongest source wins. */
   via: 'owner' | 'direct' | 'group' | 'account-admin';
@@ -103,9 +105,9 @@ function toMembership(row: { accountId: string; role: string }): Membership {
  *
  * Self-hosted this is one row. On cloud a person can belong to several — a
  * consultant in two clients' accounts — and the workspace they pick decides
- * which one a request runs in (`libs/tenancy.ts`, vocion-core#128). The order
- * is fixed (oldest first, account id as the tie-break) so every list built from
- * it, and the default below, reads the same on every request.
+ * which one a request runs in (`resolveActiveWorkspace`, vocion-core#128). The
+ * order is fixed (oldest first, account id as the tie-break) so every list and
+ * every fallback built from it reads the same on every request.
  * @param userId - The signed-in person.
  */
 export async function membershipsFor(userId: string): Promise<Membership[]> {
@@ -115,29 +117,6 @@ export async function membershipsFor(userId: string): Promise<Membership[]> {
     .where(eq(accountMembershipSchema.userId, userId))
     .orderBy(asc(accountMembershipSchema.createdAt), asc(accountMembershipSchema.accountId));
   return rows.map(toMembership);
-}
-
-/**
- * The account a person lands in when nothing has picked one: a first sign-in
- * in a fresh browser, a stale cookie naming a workspace they have left, a
- * script or the worker with no request at all.
- *
- * It used to be the only answer, read with a bare `LIMIT 1`, so a person in two
- * accounts got whichever row Postgres returned first and could move between
- * tenants mid-session (vocion-core#128). Now the picked workspace decides the
- * account, and this is only the fallback: the oldest membership, the same one
- * on every read.
- * @param userId - The signed-in person.
- * @returns Their oldest membership, or null for a person in no account.
- */
-export async function defaultMembershipFor(userId: string): Promise<Membership | null> {
-  const [row] = await db
-    .select({ accountId: accountMembershipSchema.accountId, role: accountMembershipSchema.role })
-    .from(accountMembershipSchema)
-    .where(eq(accountMembershipSchema.userId, userId))
-    .orderBy(asc(accountMembershipSchema.createdAt), asc(accountMembershipSchema.accountId))
-    .limit(1);
-  return row ? toMembership(row) : null;
 }
 
 /** A workspace together with the membership that lets this person into its account. */
@@ -169,6 +148,113 @@ export async function memberWorkspace(userId: string, projectId: string): Promis
   return row ? { ...row, accountRole: row.accountRole as 'admin' | 'member' } : null;
 }
 
+/** The account and workspace a request runs in. */
+export type ActiveWorkspace = {
+  accountId: string;
+  /** The person's role on that account. */
+  accountRole: 'admin' | 'member';
+  /** Null when they can open no workspace on any of their accounts (onboarding). */
+  projectId: string | null;
+  /** The role held IN `projectId`, which is what `services/authz.ts` receives. Null with it. */
+  workspaceRole: WorkspaceRole | null;
+};
+
+/**
+ * Which account and workspace a request runs in — the one decision behind
+ * tenancy (`libs/tenancy.ts`) and the bare-`/dashboard` redirect
+ * (`ProjectService.activeWorkspaceForUser`). One function, so the redirect can
+ * never send a reader to a workspace the page then resolves differently.
+ *
+ * **The account follows the workspace** (vocion-core#128):
+ *
+ * 1. The picked workspace (the URL's, else the last-active cookie's) wins when
+ *    the person is a member of the account that owns it and, with access
+ *    enforced, holds the workspace itself. Its account is where they are.
+ * 2. Otherwise, the first workspace they can open — looking first in the
+ *    picked workspace's account (a room they cannot open still keeps them with
+ *    that client), then in each of their accounts, oldest membership first. An
+ *    account with nothing they can open is skipped, so a person whose oldest
+ *    account is empty lands in the next one instead of on no workspace at all,
+ *    where even the switcher (which needs a workspace to load) would be shut.
+ * 3. No workspace on any account: their first account in that order, with a
+ *    null project — the onboarding state.
+ *
+ * The picked id is untrusted: on `/api/` routes it arrives in a header the
+ * caller controls. It can only choose an account the person is a member of,
+ * because `memberWorkspace` finds nothing otherwise.
+ * @param userId - The signed-in person.
+ * @param pickedProjectId - The workspace the request names, unchecked.
+ * @returns Where they are, or null for a person in no account.
+ */
+export async function resolveActiveWorkspace(userId: string, pickedProjectId?: string | null): Promise<ActiveWorkspace | null> {
+  const pickedId = pickedProjectId?.trim();
+  const picked = pickedId ? await memberWorkspace(userId, pickedId) : null;
+  const enforced = enforcementEnabled();
+  if (picked) {
+    const workspaceRole = enforced ? await effectiveRole(userId, picked.projectId) : picked.accountRole;
+    if (workspaceRole) {
+      return { accountId: picked.accountId, accountRole: picked.accountRole, projectId: picked.projectId, workspaceRole };
+    }
+  }
+
+  const memberships = await membershipsFor(userId);
+  if (memberships.length === 0) {
+    return null;
+  }
+  const searchOrder = picked
+    ? [...memberships.filter(m => m.accountId === picked.accountId), ...memberships.filter(m => m.accountId !== picked.accountId)]
+    : memberships;
+  const landing = enforced
+    ? await firstHeldWorkspace(userId, searchOrder)
+    : await firstWorkspaceOnAccounts(searchOrder);
+  if (landing) {
+    return landing;
+  }
+  const home = searchOrder[0]!;
+  return { accountId: home.accountId, accountRole: home.role, projectId: null, workspaceRole: null };
+}
+
+/**
+ * Unenforced landing: every member reaches every workspace on an account, so
+ * the answer is the oldest workspace on the first account that has one. One
+ * row per account (`DISTINCT ON`), ordered so the landing workspace does not
+ * change between requests.
+ * @param searchOrder - The person's memberships, in the order to try them.
+ */
+async function firstWorkspaceOnAccounts(searchOrder: readonly Membership[]): Promise<ActiveWorkspace | null> {
+  const oldestPerAccount = await db
+    .selectDistinctOn([projectSchema.accountId], { id: projectSchema.id, accountId: projectSchema.accountId })
+    .from(projectSchema)
+    .where(inArray(projectSchema.accountId, searchOrder.map(m => m.accountId)))
+    .orderBy(asc(projectSchema.accountId), asc(projectSchema.createdAt), asc(projectSchema.id));
+  for (const membership of searchOrder) {
+    const first = oldestPerAccount.find(p => p.accountId === membership.accountId);
+    if (first) {
+      return { accountId: membership.accountId, accountRole: membership.role, projectId: first.id, workspaceRole: membership.role };
+    }
+  }
+  return null;
+}
+
+/**
+ * Enforced landing: the first workspace the person actually holds on the
+ * first account where they hold one, by project id so it is stable.
+ * @param userId - The signed-in person.
+ * @param searchOrder - Their memberships, in the order to try them.
+ */
+async function firstHeldWorkspace(userId: string, searchOrder: readonly Membership[]): Promise<ActiveWorkspace | null> {
+  const reachable = await accessibleProjects(userId);
+  for (const membership of searchOrder) {
+    const held = reachable
+      .filter(a => a.accountId === membership.accountId)
+      .sort((a, b) => a.projectId.localeCompare(b.projectId))[0];
+    if (held) {
+      return { accountId: membership.accountId, accountRole: membership.role, projectId: held.projectId, workspaceRole: held.role };
+    }
+  }
+  return null;
+}
+
 /** A project, reduced to the two columns access depends on. */
 type AccessProject = { id: string; kind: string; ownerUserId: string | null };
 
@@ -185,16 +271,17 @@ type Grants = {
  * rows and `reachForAccount` reads a whole account's, and both must answer
  * identically or the screen disagrees with the resolver that gates the request.
  * @param userId - The person asking.
- * @param projects - Every project on their account.
- * @param grants - Their account role and their grant rows.
+ * @param accountId - The account being resolved; every project passed is on it.
+ * @param projects - Every project on that account.
+ * @param grants - Their role on that account and their grant rows.
  */
-function resolveAccess(userId: string, projects: readonly AccessProject[], grants: Grants): WorkspaceAccess[] {
+function resolveAccess(userId: string, accountId: string, projects: readonly AccessProject[], grants: Grants): WorkspaceAccess[] {
   const best = new Map<string, WorkspaceAccess>();
   const offer = (projectId: string, role: WorkspaceRole, via: WorkspaceAccess['via']) => {
     const held = best.get(projectId);
     const winner = strongerRole(held?.role ?? null, role);
     if (!held || winner !== held.role) {
-      best.set(projectId, { projectId, role, via });
+      best.set(projectId, { projectId, accountId, role, via });
     }
   };
   const onAccount = new Set(projects.map(p => p.id));
@@ -292,7 +379,7 @@ export async function accessibleProjects(userId: string, onlyAccountId?: string)
   const access: WorkspaceAccess[] = [];
   for (const membership of memberships) {
     const onAccount = projects.filter(p => p.accountId === membership.accountId);
-    access.push(...resolveAccess(userId, onAccount, { accountRole: membership.role, group, direct }));
+    access.push(...resolveAccess(userId, membership.accountId, onAccount, { accountRole: membership.role, group, direct }));
   }
   return access;
 }
@@ -368,7 +455,7 @@ export async function reachForAccount(accountId: string, userIds: readonly strin
     if (!accountRole) {
       continue;
     }
-    out.set(userId, resolveAccess(userId, projects, {
+    out.set(userId, resolveAccess(userId, accountId, projects, {
       accountRole,
       group: groupBy.get(userId) ?? [],
       direct: directBy.get(userId) ?? [],

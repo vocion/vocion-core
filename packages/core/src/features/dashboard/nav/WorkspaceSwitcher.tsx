@@ -4,7 +4,7 @@ import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
 import { ArrowLeftRight, Check, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
@@ -113,6 +113,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null);
   const accounts = props.accounts ?? [];
   const groups = accounts.length > 1 ? groupByAccount(visible, accounts) : null;
+  const headingIdPrefix = useId();
 
   const go = (p: SwitcherProject) => {
     if (active && p.id === active.id) {
@@ -200,8 +201,8 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
           )}
           {groups
             ? groups.map(g => (
-                <div key={g.account.id} role="group" aria-label={g.account.name}>
-                  <div className="px-2 pt-2 pb-1 text-[11px] font-medium text-muted-foreground" aria-hidden>{g.account.name}</div>
+                <div key={g.account.id} role="group" aria-labelledby={`${headingIdPrefix}-${g.account.id}`}>
+                  <div id={`${headingIdPrefix}-${g.account.id}`} className="px-2 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">{g.account.name}</div>
                   {g.projects.map(p => <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} />)}
                 </div>
               ))

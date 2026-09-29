@@ -1,3 +1,4 @@
+import process from 'node:process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -113,6 +114,25 @@ describe('for a person in more than one account', () => {
     await db.insert(projectSchema).values({ id: 'proj-third', accountId: 'acct-third', slug: 'vocion-workforce', name: 'Not theirs' });
 
     expect(await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' }, { accountSlug: 'third-co' })).toBeNull();
+  });
+
+  it('matches the named account however it was typed', async () => {
+    expect(await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' }, { accountSlug: ' Other-Co ' })).toMatchObject({ id: 'proj-foreign' });
+  });
+
+  it('with access enforced, 404s a same-named workspace they cannot open on their current account rather than moving them to the other account\'s', async () => {
+    process.env.VOCION_ENFORCE_WORKSPACE_ACCESS = '1';
+    try {
+      // Chris is only a member of Other Co and holds no grant there, so its
+      // `vocion-workforce` is closed to them; Metacto's (admin) is open.
+      const fromOtherCo = await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' }, { lastActiveProjectId: 'proj-foreign' });
+      const fromMetacto = await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' }, { lastActiveProjectId: 'proj-revenue' });
+
+      expect(fromOtherCo).toBeNull();
+      expect(fromMetacto).toMatchObject({ id: 'proj-workforce' });
+    } finally {
+      delete process.env.VOCION_ENFORCE_WORKSPACE_ACCESS;
+    }
   });
 
   it('finds a workspace by id on either account', async () => {
