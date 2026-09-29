@@ -21,6 +21,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
 import { recordRef } from '@/services/chat/recordContext';
+import { loadAnswerListeners } from '@/services/inbox/answerListeners';
 import { parseInboxRef } from '@/services/inbox/inboxRef';
 import { loadPendingAction } from '@/services/inbox/pendingAction';
 import { askGroupHref } from '@/services/inbox/recordKey';
@@ -84,10 +85,13 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
         notFound();
       }
       const kind = kindForAsk(ask.kind);
+      // What each answer starts, so the rows say what Approve does instead
+      // of "go ahead as proposed" on an ask that proposes nothing.
+      const listeners = ask.status === 'open' ? (await loadAnswerListeners(orgId, [ask])).get(ask.id) : undefined;
       return (
         <div className="mx-auto w-full max-w-3xl">
           {ask.status === 'open'
-            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }))]} kind={kind} />
+            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }), listeners)]} kind={kind} />
             : (
                 <>
                   <ReviewHeader crumbs={decisionCrumbs(kind, ask.title)} title={ask.title} system="Answered" status={ask.status} proposedBy={ask.agentSlug ? `asked by ${ask.agentSlug}` : null} />

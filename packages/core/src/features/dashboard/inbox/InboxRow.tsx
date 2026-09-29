@@ -265,7 +265,8 @@ function nextFor(item: InboxItem, verb: DecisionVerb): string {
   if (item.kind === 'learning') {
     return verb.id === 'approve' ? 'The agent reads the rule on its next run.' : 'Dropped; the reason is kept for the classifier.';
   }
-  return 'The team reads your answer on its next cycle.';
+  // Deciding an ask runs nothing by itself; the ask page names what an answer starts.
+  return 'Your answer is recorded.';
 }
 
 /**

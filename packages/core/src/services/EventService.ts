@@ -17,8 +17,13 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { eventLogSchema, workflowSchema } from '@/models/Schema';
 import { eventFireCeiling, selfTriggerReason } from '@/services/automations/fireGuards';
+import { matchesFilter, subscribesTo } from '@/services/eventFilter';
 import { startWorkflow } from '@/services/WorkflowService';
 import { readWorkspacePauseWithName, refusalMessage } from '@/services/workspacePause';
+
+// The pure half of subscription matching lives in a leaf, so the decision
+// page can preview a match without loading the bus (`services/eventFilter`).
+export { matchesFilter, subscribesTo };
 
 export type EmitEventInput = {
   orgId: string;
@@ -309,43 +314,6 @@ export type EmitEventResult = {
   /** Automations that matched and were refused by a guard, with the `skipped` run row that says why. */
   skipped: Array<{ slug: string; automationRunId: number; reason: SkipReason }>;
 };
-
-/**
- * A trigger fires only if every key in `filter` matches the payload: equal,
- * or — for a key ending in `Prefix` — the field it names starts with the
- * value (`branchPrefix: factory/` matches `branch: factory/send-t146-…`).
- *
- * The plugin's QA automations have filtered on `branchPrefix` since they were
- * written, and with `===` only they compared against a `branchPrefix` field no
- * event carries, so the QA-on-PR and learn-from-merged automations never fired
- * once (red team, 2026-09-26).
- * @param payload
- * @param filter
- */
-export function matchesFilter(payload: Record<string, unknown>, filter: unknown): boolean {
-  if (!filter || typeof filter !== 'object') {
-    return true;
-  }
-  return Object.entries(filter as Record<string, unknown>).every(([k, v]) => {
-    if (payload[k] === v) {
-      return true;
-    }
-    if (k.endsWith('Prefix') && typeof v === 'string') {
-      const field = payload[k.slice(0, -'Prefix'.length)];
-      return typeof field === 'string' && field.startsWith(v);
-    }
-    return false;
-  });
-}
-
-/**
- * Whether an automation's `when.event` — one type or several — names this one.
- * @param subscribed - `whenConfig.event` as stored.
- * @param type - The event being emitted.
- */
-export function subscribesTo(subscribed: string | string[] | undefined, type: string): boolean {
-  return Array.isArray(subscribed) ? subscribed.includes(type) : subscribed === type;
-}
 
 /**
  * The slugs of this org's agents authored `initiative: low` — the ones that

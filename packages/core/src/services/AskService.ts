@@ -7,6 +7,7 @@ import { ASK_KINDS, ASK_RISKS, askSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
 import { recordAskAlignment } from '@/services/alignment/AlignmentService';
 import { proposeLearningFromDecision } from '@/services/feedback/askFeedbackQueue';
+import { askDecidedPayload } from '@/services/inbox/askDecided';
 
 export type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
 // The vocabulary lives beside the row (see `models/Schema.ts`); this is its home for readers.
@@ -578,20 +579,8 @@ function announceDecided(row: Ask): void {
       await emitEvent({
         orgId: row.orgId,
         type: ASK_DECIDED,
-        payload: {
-          askId: row.id,
-          kind: row.kind,
-          status: row.status,
-          decision: row.decision ?? '',
-          followUp: row.followUp,
-          agentSlug: row.agentSlug ?? null,
-          teamSlug: row.teamSlug ?? null,
-          groupKey: row.groupKey ?? null,
-          sourceRef: row.sourceRef ?? null,
-          objectRefs: row.objectRefs ?? [],
-          decidedBy: row.decidedBy ?? '',
-          decidedAt: (row.decidedAt ?? new Date()).toISOString(),
-        },
+        // The same payload the decision page previews its answers against.
+        payload: askDecidedPayload(row),
         dedupeKey: `ask.decided:${row.id}`,
         invokedBy: row.decidedBy ?? `ask:${row.id}`,
       });

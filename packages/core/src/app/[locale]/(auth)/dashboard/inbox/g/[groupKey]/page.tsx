@@ -8,6 +8,7 @@ import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { agentKeyOf, scoresByAgentAndKey } from '@/services/alignment/AlignmentService';
 import { listAskGroup } from '@/services/AskService';
+import { loadAnswerListeners } from '@/services/inbox/answerListeners';
 import { parseRecordKeyParam } from '@/services/inbox/recordKey';
 import { kindForAsk } from '@/services/InboxService';
 
@@ -34,8 +35,12 @@ export default async function AskGroupPage(props: { params: Promise<{ locale: st
   }
   const open = asks.filter(a => a.status === 'open');
   // The asker's alignment on each kind, for the meta row under the question.
-  const alignment = await scoresByAgentAndKey(orgId, '30d', new Date(), 'ask');
-  const sheet = open.map(a => toSheetAsk(a, alignment.get(agentKeyOf(a.agentSlug, a.kind)) ?? null));
+  // And what each answer starts, so every row says what it does.
+  const [alignment, listeners] = await Promise.all([
+    scoresByAgentAndKey(orgId, '30d', new Date(), 'ask'),
+    loadAnswerListeners(orgId, open),
+  ]);
+  const sheet = open.map(a => toSheetAsk(a, alignment.get(agentKeyOf(a.agentSlug, a.kind)) ?? null, listeners.get(a.id)));
   const decided = asks.filter(a => a.status !== 'open');
   const title = asks.find(a => a.groupTitle)?.groupTitle ?? groupKey;
   const kind = kindForAsk((open[0] ?? asks[0]!).kind);
