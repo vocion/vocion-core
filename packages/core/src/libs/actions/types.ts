@@ -389,6 +389,14 @@ export type Action<S extends z.ZodType = z.ZodType> = {
      * every key is trusted.
      */
     keyIsTrustworthy?: (input: z.infer<S>) => boolean;
+    /**
+     * Whether the decided run's decision still answers for this key. A
+     * decision is about the record it produced; once that record is
+     * superseded, a new filing under the same key is a new record (#201,
+     * 2026-09-29: the replacement for stale plan #215 was refused because
+     * plan #215 had been approved the day before).
+     */
+    decisionStillStands?: (orgId: string, decidedResult: Record<string, unknown> | null) => Promise<boolean>;
   };
   /**
    * Last check before anything is written, once the caller is known to be

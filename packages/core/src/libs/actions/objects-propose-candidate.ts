@@ -938,6 +938,19 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
     // Those still reach a reviewer, who has the card's "Dedup field left
     // blank" and "Possible duplicate" rows to tell them apart.
     keyIsTrustworthy: input => emptyIdentityFields(input).length === 0,
+    // The record that decision produced, superseded since, no longer answers
+    // for the key: its replacement is a new record to judge.
+    decisionStillStands: async (orgId, result) => {
+      const id = Number(result?.objectId);
+      if (!Number.isInteger(id) || id <= 0) {
+        return true;
+      }
+      const { and, eq } = await import('drizzle-orm');
+      const { db } = await import('@/libs/DB');
+      const { businessObjectSchema } = await import('@/models/Schema');
+      const [row] = await db.select({ meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id))).limit(1);
+      return !row || String((row.meta as { status?: unknown } | null)?.status ?? '') !== 'superseded';
+    },
   },
 
   // The candidate becomes a real row the moment it is proposed, holding the

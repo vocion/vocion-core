@@ -228,6 +228,7 @@ async function findDecidedRunForKey(
       decidedAt: actionRunSchema.decidedAt,
       executedAt: actionRunSchema.executedAt,
       createdAt: actionRunSchema.createdAt,
+      result: actionRunSchema.result,
     })
     .from(actionRunSchema)
     .where(and(
@@ -250,6 +251,9 @@ async function findDecidedRunForKey(
     if (Date.now() >= staleAt) {
       return undefined;
     }
+  }
+  if (!cardKey && config?.decisionStillStands && !(await config.decisionStillStands(orgId, (row.result ?? null) as Record<string, unknown> | null).catch(() => true))) {
+    return undefined;
   }
   return { id: row.id, status: row.status as 'done' | 'failed' | 'rejected', decidedAt };
 }

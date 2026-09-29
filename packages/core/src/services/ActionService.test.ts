@@ -287,6 +287,21 @@ registerAction({
   execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
 });
 
+// A decision about a record that has since been superseded: its replacement
+// is a new record to judge (#201, 2026-09-29).
+let recordSuperseded = false;
+registerAction({
+  id: 'test.candidate-replaceable',
+  name: 'Test candidate whose record can be superseded',
+  description: 'test',
+  inputSchema: z.object({ value: z.string() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.candidate-replaceable:${(input as { value: string }).value}`,
+  dedupAgainstDecided: { decisionStillStands: async () => !recordSuperseded },
+  execute: async (_ctx, input) => ({ objectId: 1, echoed: (input as { value: string }).value }),
+});
+
 describe('proposing against an already-decided run', () => {
   beforeEach(() => {
     candidatesExecuted = 0;
@@ -581,5 +596,23 @@ describe('an action that decides what a refresh stores', () => {
     const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
 
     expect(row!.input).toEqual({ value: 'open-mic', note: 'second' });
+  });
+});
+
+describe('a decision about a superseded record no longer blocks its replacement (#201)', () => {
+  it('blocks while the decided record stands, and lets the replacement through once it is superseded', async () => {
+    recordSuperseded = false;
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-replaceable', input: { value: 'plan-for-201' }, principal: agent(2) });
+    await db.update(actionRunSchema).set({ status: 'done', decidedAt: new Date() }).where(eq(actionRunSchema.id, first.runId));
+
+    const blocked = await proposeAction({ orgId: ORG, actionId: 'test.candidate-replaceable', input: { value: 'plan-for-201' }, principal: agent(2) });
+
+    expect(blocked.outcome).toBe('already_decided');
+
+    recordSuperseded = true;
+    const replacement = await proposeAction({ orgId: ORG, actionId: 'test.candidate-replaceable', input: { value: 'plan-for-201' }, principal: agent(2) });
+
+    expect(replacement.outcome).toBe('created');
+    expect(replacement.runId).not.toBe(first.runId);
   });
 });
