@@ -501,6 +501,19 @@ schema:
         owner: {type: string, description: 'Who can clear it — a person by email, or an agent slug.'}
         next: {type: string, description: The one move that clears it.}
         since: {type: string, format: date-time}
+        waitsOn:
+          type: array
+          description: >-
+            The records whose decision clears it — a plan to approve, an ask to
+            answer, a review item (action run) to decide. When any of them is
+            decided the blocker is cleared on its own and the request's
+            Activity says so (`services/factory/blocker.ts`); without this, the
+            records `next` names ("approve plan 136") are read the same way.
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [plan, ask, action]}
+              id: {type: integer}
 
 rollups:
   - {field: estimateCents, from: {type: engineering_task, by: requestId}, sum: estimateCents}

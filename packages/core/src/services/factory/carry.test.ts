@@ -615,3 +615,32 @@ describe('a stale plan is planned again (#130, 2026-09-29: a plan written before
     expect(again.acted.find(a => a.requestId === r.id)?.did).not.toBe('replan');
   });
 });
+
+describe('a blocker whose move was made is cleared (#130, 2026-09-29)', () => {
+  const planMeta = { approach: 'Match sends to opens in the core package.', components: ['packages/core — the match'], alternatives: ['None.'], verification: 'A test.', dataImpact: 'None.' };
+
+  it('when the plan it names is approved, and the Activity says why', async () => {
+    const r = await request({ product: 'rooms', title: 'Remind who has not opened', state: 'building' });
+    const [plan] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: remind', status: 'approved', metadata: { requestId: r.id, status: 'approved', approvedBy: 'a person', approvedAt: '2026-09-29T14:20:14.000Z', ...planMeta } }).returning();
+    await db.update(businessObjectSchema).set({ metadata: { ...(r.metadata as Record<string, unknown>), blocker: { what: 'The replanned plan cannot be filed', owner: 'dana@northwind.example', next: `approve plan ${plan!.id}` } } }).where(eq(businessObjectSchema.id, r.id));
+
+    await carry.buildFromApprovedPlan(ORG, { planId: plan!.id, requestId: r.id, approvedBy: 'a person', byPerson: true });
+    const meta = (await read(r.id)).metadata as { blocker: unknown; recovery: { log: Array<{ text: string }> } };
+
+    expect(meta.blocker).toBeNull();
+    expect(meta.recovery.log.some(l => l.text.startsWith(`Cleared the blocker, because plan #${plan!.id} was approved (2026-09-29 14:20 UTC)`))).toBe(true);
+  });
+
+  it('by the sweep when the ask it waits on was answered elsewhere, and not while it is open', async () => {
+    const [open] = await db.insert(askSchema).values({ orgId: ORG, kind: 'decision', title: 'Which region?', status: 'open' } as never).returning();
+    const [answered] = await db.insert(askSchema).values({ orgId: ORG, kind: 'decision', title: 'Which bucket?', status: 'approved', decidedAt: new Date('2026-09-29T10:00:00Z') } as never).returning();
+    const waiting = await request({ product: 'rooms', title: 'Export waits on a region', state: 'decided', blocker: { what: 'The region is not chosen', owner: 'dana@northwind.example', next: 'choose it', waitsOn: [{ kind: 'ask', id: open!.id }] } });
+    const moved = await request({ product: 'rooms', title: 'Export waits on a bucket', state: 'decided', blocker: { what: 'The bucket is not chosen', owner: 'dana@northwind.example', next: `answer ask #${answered!.id}` } });
+
+    const { acted } = await carry.sweepStuckRequests(ORG, new Date(), 100);
+
+    expect(acted.find(a => a.requestId === moved.id)?.did).toBe('blocker cleared');
+    expect(((await read(moved.id)).metadata as { blocker: unknown }).blocker).toBeNull();
+    expect(((await read(waiting.id)).metadata as { blocker: unknown }).blocker).not.toBeNull();
+  });
+});

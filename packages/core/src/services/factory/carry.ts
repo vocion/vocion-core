@@ -21,10 +21,12 @@
  * this stop" are both one move from where they are read.
  */
 
+import type { BlockerFacts } from './blocker';
 import type { Failure, RecoveryState } from './recovery';
 import type { FactoryRecord } from '@/libs/actions/factory-dispatch';
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
+import { blockerRefs, blockerResolution } from './blocker';
 import { classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
 /** The seat whose judgement the factory's own proposals represent. */
@@ -108,6 +110,53 @@ async function updateRecovery(orgId: string, requestId: number, change: (s: Reco
   const next = change(readRecovery(request.meta));
   await writeMeta(orgId, requestId, { recovery: next });
   return next;
+}
+
+/**
+ * A BLOCKER WHOSE MOVE WAS MADE IS CLEARED (#130, 2026-09-29): "approve plan
+ * 136" stayed on the request as Blocked after plan 136 was approved, because
+ * nothing read the blocker back when the state it named moved. The records it
+ * waits on (`blocker.ts`) are read here; when one has been decided the blocker
+ * is removed and the request's Activity says why, with the date.
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param request.id - Its id.
+ * @param request.meta - Its metadata, blocker included.
+ * @param plans - Its plans, when the caller already has them.
+ * @param now - The clock.
+ */
+export async function clearResolvedBlocker(orgId: string, request: { id: number; meta: Meta }, plans?: Row[], now: Date = new Date()): Promise<string | null> {
+  const raw = request.meta.blocker;
+  const refs = blockerRefs(raw);
+  if (refs.length === 0) {
+    return null;
+  }
+  const { and, eq, inArray } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema, askSchema } = await import('@/models/Schema');
+  const idsOf = (kind: string) => refs.filter(r => r.kind === kind).map(r => r.id);
+  const planRows = plans ?? (await workFor(orgId, request.id)).plans;
+  const { readRecord } = await lib();
+  // A plan it names may belong to another request; read it by id when it is not one of this request's.
+  const namedPlans = await Promise.all(idsOf('plan').map(async id => planRows.find(p => p.id === id) ?? await readRecord(orgId, id)));
+  const askIds = idsOf('ask');
+  const actionIds = idsOf('action');
+  const facts: BlockerFacts = {
+    plans: namedPlans.filter((p): p is NonNullable<typeof p> => Boolean(p)).map(p => ({ id: p.id, status: p.meta.status, approvedAt: p.meta.approvedAt })),
+    asks: askIds.length === 0 ? [] : await db.select({ id: askSchema.id, status: askSchema.status, decidedAt: askSchema.decidedAt }).from(askSchema).where(and(eq(askSchema.orgId, orgId), inArray(askSchema.id, askIds))),
+    actions: actionIds.length === 0 ? [] : await db.select({ id: actionRunSchema.id, status: actionRunSchema.status, decidedAt: actionRunSchema.decidedAt, executedAt: actionRunSchema.executedAt }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, actionIds))),
+  };
+  const resolved = blockerResolution(raw, facts);
+  if (!resolved) {
+    return null;
+  }
+  const { writeMeta } = await lib();
+  const what = String((raw as Meta).what ?? 'the blocker');
+  const when = (resolved.at ?? now).toISOString();
+  const line = `Cleared the blocker, because ${resolved.line}${resolved.at ? ` (${when.slice(0, 16).replace('T', ' ')} UTC)` : ''}: ${what}`;
+  await writeMeta(orgId, request.id, { blocker: null });
+  await updateRecovery(orgId, request.id, s => logLine(s, line, now.toISOString()));
+  return line;
 }
 
 /**
@@ -566,6 +615,7 @@ export async function buildFromApprovedPlan(orgId: string, payload: { planId?: u
     return skip(Number.isInteger(requestId) ? requestId : null, 'no open request for this plan');
   }
   const work = await workFor(orgId, requestId);
+  await clearResolvedBlocker(orgId, request, work.plans).catch(err => console.warn('[factory] could not read the blocker back', { requestId, error: (err as Error).message }));
   if (work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting) {
     return skip(requestId, 'a build is already running or waiting');
   }
@@ -719,6 +769,7 @@ export async function answerRecoveryAsk(orgId: string, payload: Partial<AskDecid
   }
   const by = String(payload.decidedBy ?? 'a person');
   const at = new Date().toISOString();
+  await clearResolvedBlocker(orgId, request).catch(() => null);
   const approved = payload.status === 'approved' || payload.decision === 'approve';
   await updateRecovery(orgId, requestId, s => personActed(s, at, `${by} answered the stop: ${approved ? 'build again' : 'leave it stopped'}.`));
   if (!approved) {
@@ -994,6 +1045,12 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
     }
     const state = readRecovery(request.meta);
     const work = await workFor(orgId, id);
+    // A blocker whose move was made elsewhere (an ask answered, a card
+    // decided) is cleared here, within the hour.
+    const cleared = await clearResolvedBlocker(orgId, request, work.plans, now).catch(() => null);
+    if (cleared) {
+      acted.push({ requestId: id, did: 'blocker cleared', line: cleared });
+    }
     if (work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting || work.openAsks.length > 0) {
       continue;
     }

@@ -1243,6 +1243,25 @@ describe('the status sentence and its one action', () => {
     expect(proposal().status.tone).not.toBe('bad');
     expect(assembleFeatureReport(input()).notices.every(n => n.severity === 'inconsistency')).toBe(true);
   });
+
+  // #130, 2026-09-29: "Chris to approve plan 136" stayed Blocked after plan 136 was approved.
+  it('is not Blocked once the plan the blocker waits on is approved', () => {
+    const waiting = { what: 'The replanned plan cannot be filed', owner: 'dana@northwind.example', next: 'Decide the pending review item #4068 / approve plan 32' };
+    const plan32 = (meta: Record<string, unknown>): ReportObject => ({ ...plan, id: 32, meta: { ...plan.meta, ...meta } });
+    const still = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, blocker: waiting } }, plans: [plan32({ status: 'in_review', approvedAt: null })] }));
+    const moved = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, blocker: waiting } }, plans: [plan32({ status: 'approved', approvedAt: '2026-09-29T14:20:00Z' })] }));
+
+    expect(still.state.key).toBe('blocked');
+    expect(moved.state.key).not.toBe('blocked');
+    expect(moved.status.headline).not.toBe('Blocked');
+  });
+
+  it('is not Blocked once the typed ask it waits on is answered', () => {
+    const blocker = { what: 'Which region hosts the export', owner: 'dana@northwind.example', next: 'answer it', waitsOn: [{ kind: 'ask', id: ask.id }] };
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, blocker } } }));
+
+    expect(r.state.key).not.toBe('blocked');
+  });
 });
 
 describe('record problems, said plainly', () => {

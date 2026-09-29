@@ -65,12 +65,14 @@
  * posted.
  */
 
+import type { BlockerFacts } from './blocker';
 import type { PlanDecision, PlanRecord } from './planRule';
 import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { blockerResolution } from './blocker';
 import { planRecordFromTask, planRequirementForTask } from './planRule';
 import { bare, classifyFailure, nextAfter, readRecovery, recoveryStage } from './recovery';
 
@@ -600,6 +602,18 @@ export function blockerOf(meta: Record<string, unknown>): { what: string; owner:
   const text = (k: string) => (typeof b[k] === 'string' && (b[k] as string).trim() !== '' ? (b[k] as string).trim() : null);
   const what = text('what');
   return what === null ? null : { what, owner: text('owner'), next: text('next') };
+}
+
+/**
+ * What the report's own records say about everything a blocker can name.
+ * @param input - The report's inputs.
+ */
+function blockerFactsOf(input: FeatureReportInput): BlockerFacts {
+  return {
+    plans: input.plans.map(p => ({ id: p.id, status: p.meta.status, approvedAt: p.meta.approvedAt })),
+    asks: input.asks.map(a => ({ id: a.id, status: a.status, decidedAt: a.decidedAt })),
+    actions: input.actionRuns.map(r => ({ id: r.id, status: r.status, decidedAt: r.decidedAt, executedAt: r.executedAt })),
+  };
 }
 
 export function asDate(v: unknown): Date | null {
@@ -2093,8 +2107,11 @@ function buildState(input: FeatureReportInput): ReportState {
   // AN ACTUAL OBSTACLE FIRST, and only an actual obstacle reads as Blocked
   // (review, 2026-09-24). Waiting on a decision, on QA or on a merge are
   // waits with names; each says whose move it is in a plain sentence.
+  // A blocker whose move was made is not current (#130: "approve plan 136"
+  // read as Blocked after plan 136 was approved) — `services/factory/blocker.ts`.
   const blocker = blockerOf(input.request.meta);
-  if (blocker) {
+  const stale = blocker ? blockerResolution(input.request.meta.blocker, blockerFactsOf(input)) : null;
+  if (blocker && !stale) {
     return {
       key: 'blocked',
       label: 'Blocked',
