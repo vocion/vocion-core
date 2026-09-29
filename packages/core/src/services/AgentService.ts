@@ -1201,7 +1201,9 @@ export async function runAgentDeep(opts: {
       // A FRAGMENT IS NOT AN ANSWER. Conversation 382 (2026-09-29): after a
       // full reasoning pass the model's whole reply was "Pic" — three
       // characters, no sentence — and the turn was saved complete. A few
-      // characters with no sentence end is continued like an empty turn.
+      // characters with no sentence end is continued like an empty turn. The
+      // words stay as written: the turn goes on, the copy is not edited
+      // (Chris, 2026-09-29: never post-process the copy).
       const fragment = soFar.length > 0 && soFar.length < 16 && !/[.!?)\]*`]$/.test(soFar);
       const callsBeforeContinuation = toolCallLog.length;
       // THE EIGHTH SHAPE: an answer that explains, then ENDS on the move it
@@ -1220,9 +1222,6 @@ export async function runAgentDeep(opts: {
         if (narrated) {
           narratedNudged = true;
           finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
-        }
-        if (fragment) {
-          finalText = '';
         }
         finalText += '\n\n';
         emit({ type: 'response_delta', delta: '\n\n' });
