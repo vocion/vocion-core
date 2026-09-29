@@ -29,6 +29,7 @@ same gates.
 | `update_mission_notes` | `mission.update_notes` | The running mission's working notes. | inside a mission check (not over MCP) | self-improving: the learning dial |
 | `remember_preference`, `add_learning`, `update_learning`, `remove_learning` | `learning.adopt_rule` and the learning services | Standing rules the agent reads on later turns. | every agent | self-improving: the learning dial |
 | `file_feedback` | — proposes a rule for a person | A suggested rule on Needs you. | every agent | always a person |
+| `propose_action` with `rest.request` (after reading `<prefix>_list_actions`) | `rest.request` | An endpoint a [`rest` source](./rest.md) declares under `actions[]` — a write to the workspace's own API. | agents with a REST source in `connectorSources:` | external, not reversible → always asks, until `trust.yaml` promotes one endpoint (`rest.request.<source>.<action>`) |
 | `apollo_add_to_list`, `apollo_remove_from_list` | Apollo, direct | A prospect list that can feed a live cadence. | agents granted them (`harness.grantTools`) with an Apollo source | the grant is the gate |
 
 Data-room filing (`file_to_data_room`, `unfile_from_data_room`) and artifact editing
