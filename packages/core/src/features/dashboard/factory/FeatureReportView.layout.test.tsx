@@ -157,7 +157,8 @@ describe('the feature page, in the order a product owner reads it', () => {
 
   it('draws a record disagreement quietly, never red, with what it blocks and one move', async () => {
     await page.viewport(1440, 900);
-    await draw(fixture());
+    // Merged means the merge ran (a done git.merge), never a commit on the task.
+    await draw(fixture({ actionRuns: [{ id: 4950, actionId: 'git.merge', status: 'done', input: { taskId: 77, externalRef: { url: LONG_PR } }, decidedBy: 'usr-owner', decidedAt: T('2026-09-05T10:00:00Z'), approvedByAgent: null, note: null, createdAt: T('2026-09-05T09:00:00Z'), executedAt: T('2026-09-05T10:00:00Z') }] }));
 
     const notice = document.querySelector('#report-notices [data-severity="inconsistency"]')!;
 
@@ -169,7 +170,8 @@ describe('the feature page, in the order a product owner reads it', () => {
 
   it('keeps run completed, checks, merged, acceptance and released apart', async () => {
     await page.viewport(1440, 900);
-    await draw(fixture());
+    // Merged means the merge ran (a done git.merge), never a commit on the task.
+    await draw(fixture({ actionRuns: [{ id: 4950, actionId: 'git.merge', status: 'done', input: { taskId: 77, externalRef: { url: LONG_PR } }, decidedBy: 'usr-owner', decidedAt: T('2026-09-05T10:00:00Z'), approvedByAgent: null, note: null, createdAt: T('2026-09-05T09:00:00Z'), executedAt: T('2026-09-05T10:00:00Z') }] }));
 
     const steps = [...document.querySelectorAll('[data-testid="report-ladder"] [data-step]')].map(el => [el.getAttribute('data-step'), el.getAttribute('data-state')]);
 
