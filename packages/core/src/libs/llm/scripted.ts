@@ -260,7 +260,10 @@ export class ScriptedChatModel extends BaseChatModel {
    */
   override async* _streamResponseChunks(messages: BaseMessage[], _options: this['ParsedCallOptions'], runManager?: CallbackManagerForLLMRun): AsyncGenerator<ChatGenerationChunk> {
     if (this.unscripted(messages)) {
-      for await (const chunk of await this.live!.stream(messages)) {
+      // No callbacks of its own: it would otherwise inherit this run's
+      // handlers and every token would reach the chat twice — once from the
+      // inner model, once from the chunk yielded here.
+      for await (const chunk of await this.live!.stream(messages, { callbacks: [] })) {
         const text = typeof chunk.content === 'string' ? chunk.content : '';
         yield new ChatGenerationChunk({ text, message: chunk });
         if (text) {
@@ -342,7 +345,7 @@ export class ScriptedChatModel extends BaseChatModel {
 
   async _generate(messages: BaseMessage[], options?: this['ParsedCallOptions'], _runManager?: CallbackManagerForLLMRun): Promise<ChatResult> {
     if (this.unscripted(messages)) {
-      const message = await this.live!.invoke(messages, options);
+      const message = await this.live!.invoke(messages, { ...options, callbacks: [] });
       return { generations: [{ text: typeof message.content === 'string' ? message.content : '', message }] };
     }
     const { human, toolResults } = positionInTurn(messages);
