@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RecordRef } from '@/services/chat/pageContext';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { sourcesMarkdown } from '@/libs/preview/sourcesRef';
 
 /**
  * The pane while the server restarts, and when a reference truly cannot be
@@ -23,6 +25,20 @@ vi.mock('@/libs/I18nNavigation', () => ({
 vi.mock('./previewFetch', async importOriginal => ({ ...(await importOriginal<typeof import('./previewFetch')>()), RETRY_DELAYS_MS: [10, 10, 10] }));
 
 const { PreviewPane } = await import('./PreviewPane');
+const { openPreview, useOpenPreviewRef } = await import('./previewState');
+
+/**
+ * Stands in for `RailColumn`'s own wiring — read the open ref back off the
+ * URL and hand it to the pane as `recordRef`, keyed so a new ref remounts it
+ * — without pulling in the rail's chat chrome (and the next-intl navigation
+ * it drags along) just to prove a peek link swaps the pane's content.
+ * @param props
+ * @param props.initial - What is open before anything is clicked.
+ */
+function PreviewHost({ initial }: { initial: Pick<RecordRef, 'type' | 'id'> }) {
+  const ref = useOpenPreviewRef() ?? initial;
+  return <PreviewPane key={`${ref.type}:${ref.id}`} recordRef={ref} />;
+}
 
 /**
  * What oRPC throws for an HTTP answer.
@@ -152,5 +168,70 @@ describe('the sources of an answer still being written', () => {
     expect(page.getByText('No sources were kept for this answer.').elements()).toHaveLength(0);
 
     setLiveSources(381, null);
+  });
+});
+
+describe('a source that names one of our own records (Chris, 2026-09-29: "sidebar source previews were pretty much empty")', () => {
+  afterEach(() => {
+    // `openPreview` writes `?preview=…` onto the URL; leave the address bar
+    // the way the next test file expects to find it.
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('lists the tracker record numbered as cited, then opens IT — same pane, its own fields and body — when the source is followed', async () => {
+    get.mockReset();
+    get.mockImplementation(async ({ type, id }: { type: string; id: string }) => {
+      if (type === 'conversation' && id === '512.sources') {
+        return {
+          ref: { type: 'conversation', id: '512.sources' },
+          title: 'Sources · 1',
+          sourceLabel: 'Sources',
+          body: sourcesMarkdown([{
+            document_id: 'object-42',
+            semantic_identifier: 'Squatch Core',
+            link: '/dashboard/objects/tracker/42',
+            source_type: 'tracker',
+            blurb: 'active',
+            citationIndex: 1,
+          }]),
+        };
+      }
+      if (type === 'object' && id === '42') {
+        // The record's OWN preview — what its own page would show, not a
+        // kind label and a status line.
+        return {
+          ref: { type: 'object', id: '42' },
+          title: 'Squatch Core',
+          sourceLabel: 'Tracker',
+          facts: [{ label: 'Status', value: 'active' }],
+          body: 'Renewal call scheduled for next week — champion confirmed budget.',
+          href: '/dashboard/objects/tracker/42',
+          hrefLabel: 'Open Tracker record',
+        };
+      }
+      throw new Error(`preview.get called for an unexpected ref: ${type}:${id}`);
+    });
+
+    openPreview({ type: 'conversation', id: '512.sources' }, null);
+    render(<PreviewHost initial={{ type: 'conversation', id: '512.sources' }} />);
+
+    const panel = page.getByTestId('preview-panel');
+
+    // The list: numbered as cited, the record's title, nothing more than its
+    // title and status — a compact row, not an empty detail page.
+    await expect.element(panel).toHaveTextContent('[1]');
+    await expect.element(panel).toHaveTextContent('Squatch Core');
+    await expect.element(panel).toHaveTextContent('active');
+
+    // Following the source swaps THIS pane for the record's own preview — no
+    // second drawer, no "Back" into a bespoke detail view.
+    await page.getByTestId('preview-peek-link').click();
+
+    await expect.element(panel).toHaveTextContent('Renewal call scheduled for next week');
+    await expect.element(page.getByRole('heading')).toHaveTextContent('Squatch Core');
+    await expect.element(page.getByTestId('preview-detail-link')).toHaveAttribute('href', '/dashboard/objects/tracker/42');
+    // The bespoke drawer's own "Open in tracker" affordance is gone — the
+    // pane's one link-out (above) is the only way to the full record.
+    expect(panel.element().textContent).not.toContain('Open in tracker');
   });
 });
