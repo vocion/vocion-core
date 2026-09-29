@@ -265,7 +265,8 @@ Still never auto-committed: a person adopts or rejects every candidate at `/dash
   scope AND on `platform:all`, so sum one or the other, never both.
 - **Every paid model call charges.** Embeddings, rerank, the review queue's
   rewrite, transcript classification, chip synthesis, feedback classification
-  and dedupe, skill turns, the eval judge and `generate_image` all call
+  and dedupe, skill turns, the eval judge, `generate_image` and the kit-vision
+  tool (`tool.vision`) all call
   `chargeUsage` — most of them through `services/budget/chargeModelCall.ts`,
   which reads usage off the LangChain response and prices it by the model id
   the response reports rather than the role the trace span was named after.
