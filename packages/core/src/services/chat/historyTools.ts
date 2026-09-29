@@ -51,6 +51,14 @@ const MAX_MARKER = 600;
 /** A replayed tool result is evidence, not the whole ledger; the live turn already read it. */
 const MAX_RESULT = 1200;
 
+/**
+ * What a cut replay says about itself. Conversation 364 (2026-09-29): the
+ * replay of request #224 stopped at 1,200 characters, before its history,
+ * and the next turn read the absence as a fact: "That wasn't in the record;
+ * I asserted it" about a gate that had fired twice. A cut is not an absence.
+ */
+const CUT_NOTE = ' [cut on replay: that turn read the whole result; what is not shown here may still be in it. Read it again before saying it is not there.]';
+
 function entries(runs: unknown): RunEntry[] {
   return Array.isArray(runs) ? (runs as RunEntry[]).filter(r => r && typeof r === 'object') : [];
 }
@@ -82,7 +90,7 @@ export function historyMessages(turn: HistoryTurn): HistoryMessage[] {
       calls.push({ id, name: r.name, args: args(r.input) });
       const out = typeof r.output === 'string' ? r.output : '';
       const body = r.state === 'error' ? `Error: ${out || 'the tool failed'}` : out || '(no output)';
-      results.push({ role: 'tool', toolCallId: id, name: r.name, content: body.length > MAX_RESULT ? `${body.slice(0, MAX_RESULT - 1)}…` : body });
+      results.push({ role: 'tool', toolCallId: id, name: r.name, content: body.length > MAX_RESULT ? `${body.slice(0, MAX_RESULT - 1)}…${CUT_NOTE}` : body });
     } else if (r.type === 'card' && typeof r.label === 'string') {
       calls.push({ id, name: 'recommend_action', args: { label: r.label, action_id: r.actionId, ...args(r.input) } });
       results.push({ role: 'tool', toolCallId: id, name: 'recommend_action', content: cardResult(r) });

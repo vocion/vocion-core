@@ -23,6 +23,7 @@ import { ActionError, proposeAction, willExecuteOnItsOwn } from '@/services/Acti
 import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
 import { readsThisTurn } from '@/services/gates/turnReads';
 import { checkProposalBudget, IDEA_ACTION_ID, isAgentsOwnSchedule, isFactoryStep } from '@/services/proposals/ProposalBudgetService';
+import { anchoredFilingCheck } from '../anchoredFiling';
 import { emitSelfUpdate } from '../selfUpdateEvent';
 import { withArgumentRepair } from '../toolCallRecord';
 
@@ -86,6 +87,16 @@ export async function runProposal(
     const verdict = await checkProposalBudget({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, actionId: action_id, queuesForPerson, factoryStep });
     if (!verdict.ok) {
       return verdict.message;
+    }
+  }
+  // A CHANGE IS NOT A NEW RECORD (conversation 367, request #232): a filing
+  // in a person's turn whose words ask to change the record on the page, or
+  // "this" with no record open, is refused with what to write instead
+  // (`anchoredFiling.ts`). A factory step or a schedule has no person's ask.
+  if (action_id === IDEA_ACTION_ID && !factoryStep && !isAgentsOwnSchedule(ctx)) {
+    const refusal = await anchoredFilingCheck(ctx, action_input);
+    if (refusal) {
+      return refusal;
     }
   }
   // What this turn has read, for a gate that asks for a source read in it

@@ -74,8 +74,22 @@ describe('historyMessages', () => {
 
     const long = historyMessages({ role: 'assistant', content: 'Done.', runs: [{ type: 'tool', name: 't', input: {}, output: 'x'.repeat(5000) }] });
 
-    expect((long[1] as { content: string }).content.length).toBe(1200);
-    expect((long[1] as { content: string }).content.endsWith('…')).toBe(true);
+    expect((long[1] as { content: string }).content.startsWith(`${'x'.repeat(1199)}…`)).toBe(true);
+  });
+
+  it('says a cut replay is a cut, never an absence', () => {
+    // Conversation 364 (2026-09-29): request #224's read was 3,452 characters,
+    // its history began at 1,225, and the next turn — seeing only 1,200 —
+    // said the gate that had fired twice "wasn't in the record".
+    const cut = historyMessages({ role: 'assistant', content: 'Done.', runs: [{ type: 'tool', name: 'read_object', input: { id: 224 }, output: 'x'.repeat(3452) }] });
+    const content = (cut[1] as { content: string }).content;
+
+    expect(content).toContain('[cut on replay:');
+    expect(content).toContain('Read it again before saying it is not there.');
+
+    const whole = historyMessages({ role: 'assistant', content: 'Done.', runs: [{ type: 'tool', name: 'read_object', input: { id: 224 }, output: 'short' }] });
+
+    expect((whole[1] as { content: string }).content).toBe('short');
   });
 
   it('flattens to the one-line marker for the loops that take text only', () => {

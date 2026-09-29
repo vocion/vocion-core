@@ -731,6 +731,7 @@ export async function runAgentDeep(opts: {
       missionRunId: opts.missionRunId,
       conversationId: opts.conversationId,
       pageContext: opts.pageContext,
+      turnMessage: opts.message,
       timeZone: opts.timeZone,
     },
     { modelOverride },
@@ -1269,6 +1270,7 @@ export async function runAgentDeep(opts: {
             missionRunId: opts.missionRunId,
             conversationId: opts.conversationId,
             pageContext: opts.pageContext,
+            turnMessage: opts.message,
             timeZone: opts.timeZone,
           },
           // A ModelOverride names its model; without one the provider lookup

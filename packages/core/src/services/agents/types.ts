@@ -420,6 +420,14 @@ export type RuntimeContext = {
    */
   pageContext?: import('@/services/chat/pageContext').PageContext;
   /**
+   * The person's message THIS turn, as typed — what a gate on the turn's own
+   * ask reads (`anchoredFiling.ts`: "Change this: …" is a change, never a new
+   * filing). Set per request in `compileAgentForRequest`; undefined for
+   * schedules and out-of-process tool calls, which read the conversation's
+   * latest person message instead.
+   */
+  turnMessage?: string;
+  /**
    * The zone THIS turn's dates are judged in: the person's browser zone when
    * a turn carries one, else the workspace's (`defaultTimeZone`). Set per
    * request in `compileAgentForRequest`; the tools read it at call time.
