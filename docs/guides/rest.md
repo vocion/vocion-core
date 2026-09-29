@@ -50,7 +50,7 @@ config:
       response:
         pick: data # optional dotted path into the JSON to return
         select: ['[].documentId', '[].name', '[].status'] # optional: only these leaves, after pick
-        maxChars: 40000 # default 40000; past it the text is cut and says how long it was
+        maxChars: 40000 # default 40000, measured on the compact JSON; past it the text is cut and says how long it was
     - name: get_project
       method: GET
       path: /api/projects/{documentId} # path parameters come from the input, and must be required
@@ -102,7 +102,7 @@ Every tool or action:
 | `query` | no | Parameter name → template, on a tool or an action alike. A parameter whose template resolves to nothing is not sent. |
 | `response.pick` | no | Dotted path into the JSON to return, e.g. `data.items`. A missing path is reported, not papered over. |
 | `response.select` | no | The leaves to keep, applied after `pick` — see [Selecting fields](#selecting-fields). Anything not named is dropped. |
-| `response.maxChars` | 40000 | Longest text handed back. Past it the text is cut and ends with a notice giving the total length. |
+| `response.maxChars` | 40000 | Longest text handed back, measured on the compact JSON the model reads (no indentation). Past it the text is cut and ends with a notice giving the total length. |
 
 An action also takes:
 
@@ -249,7 +249,9 @@ For the example above, an agent holding `acme-delivery` has:
 | `delivery_get_project` | `GET /api/projects/{documentId}`. |
 | `delivery_list_actions` | The write catalog: each action's name, description, input schema and reversibility, and how to propose one. |
 
-A read tool returns the API's own answer as pretty JSON. A failure is data
+A read tool returns the API's own answer as compact JSON — no indentation,
+so a page costs half the characters it would pretty-printed, against
+ and against the model's context alike. A failure is data
 the model can say out loud, never a thrown error:
 
 | `error` | When |

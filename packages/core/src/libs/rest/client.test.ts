@@ -128,6 +128,8 @@ describe('shaping the response', () => {
 
     expect(text.length).toBeLessThan(700);
     expect(text).toMatch(/truncated: the response is \d+ characters; the first 500 are shown/);
-    expect(capJson({ a: 1 }, 500)).toBe('{\n  "a": 1\n}');
+    expect(capJson({ a: 1 }, 500)).toBe('{"a":1}');
+    // Compact: the cap measures what the model reads, not an indented copy of it.
+    expect(capJson({ rows: [{ i: 1 }] }, 500)).toBe('{"rows":[{"i":1}]}');
   });
 });

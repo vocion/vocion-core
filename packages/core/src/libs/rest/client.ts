@@ -114,14 +114,19 @@ export function pickPath(data: unknown, path: string | undefined): unknown {
 }
 
 /**
- * A response as pretty JSON text, cut at `maxChars` with a notice that says
+ * A response as compact JSON text, cut at `maxChars` with a notice that says
  * the total length — so the model knows it is reading a prefix, and can ask
  * for a narrower call instead of treating the cut as the end of the list.
+ *
+ * Compact, not pretty: indentation doubled every payload against the cap and
+ * against the model's context (a 29-row project page was ~26k characters
+ * pretty and ~13k compact), and the model reads either. The cap measures
+ * this form.
  * @param data - What to render.
  * @param maxChars - The cap.
  */
 export function capJson(data: unknown, maxChars: number): string {
-  const text = data === undefined ? 'null' : JSON.stringify(data, null, 2);
+  const text = data === undefined ? 'null' : JSON.stringify(data);
   if (text.length <= maxChars) {
     return text;
   }
