@@ -291,9 +291,12 @@ function StepLog({ lines, follow }: { lines: RunLogLine[]; follow: boolean }) {
         <tbody>
           {lines.map((l, i) => (
             // eslint-disable-next-line react/no-array-index-key
-            <tr key={i} className={cn(l.level === 'error' && 'text-brand-fail', l.level === 'warn' && 'text-brand-borderline')}>
+            <tr key={i} data-line-kind={l.kind} className={cn(l.level === 'error' && 'text-brand-fail', l.level === 'warn' && 'text-brand-borderline', l.kind === 'add' && 'bg-brand-pass/10 text-brand-pass', l.kind === 'del' && 'bg-brand-fail/10 text-brand-fail', l.kind === 'out' && 'text-muted-foreground')}>
               <td className="w-10 pr-3 pl-2 text-right align-top text-muted-foreground/60 tabular-nums select-none">{i + 1}</td>
-              <td className="pr-3 whitespace-pre">{l.text || ' '}</td>
+              {l.kind === 'say'
+                // The engineer's words read as prose, wrapped, like the terminal's commentary.
+                ? <td className="max-w-[70ch] py-1 pr-3 font-sans text-[13px] leading-5 whitespace-pre-wrap text-foreground">{l.text}</td>
+                : <td className="pr-3 whitespace-pre">{l.text || ' '}</td>}
             </tr>
           ))}
         </tbody>

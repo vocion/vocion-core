@@ -102,7 +102,45 @@ export type RunLogData = {
 
 export type RunStepStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
 
-export type RunLogLine = { text: string; level: RunLogLevel };
+/**
+ * `kind` draws a line the way a Claude Code terminal does (Chris, 2026-09-29:
+ * "it doesn't look like my claude code terminal that has more commentary and
+ * +/- diff in color"): `say` is the engineer's own words, `add`/`del` a diff
+ * line, `out` a command's output under it. Absent = a plain log line.
+ */
+export type RunLogLine = { text: string; level: RunLogLevel; kind?: 'say' | 'add' | 'del' | 'out' };
+
+/** At most this many diff or output lines under one tool call. */
+const MAX_DETAIL_LINES = 40;
+
+/**
+ * A tool call's detail lines: its diff (`+`/`-` prefixed, as the worker sends
+ * it) and what the command printed.
+ * @param diff - The call's diff, if any.
+ * @param output - What it printed, if any.
+ */
+export function detailLines(diff: unknown, output: unknown): RunLogLine[] {
+  const lines: RunLogLine[] = [];
+  if (typeof diff === 'string' && diff.trim()) {
+    const all = stripAnsi(diff).replace(/\s+$/, '').split('\n');
+    for (const t of all.slice(0, MAX_DETAIL_LINES)) {
+      lines.push({ text: `  ${t}`, level: 'info', kind: t.startsWith('+') ? 'add' : t.startsWith('-') ? 'del' : 'out' });
+    }
+    if (all.length > MAX_DETAIL_LINES) {
+      lines.push({ text: `  … ${all.length - MAX_DETAIL_LINES} more lines`, level: 'info', kind: 'out' });
+    }
+  }
+  if (typeof output === 'string' && output.trim()) {
+    const all = stripAnsi(output).replace(/\s+$/, '').split('\n');
+    for (const t of all.slice(0, MAX_DETAIL_LINES)) {
+      lines.push({ text: `  ${t}`, level: 'info', kind: 'out' });
+    }
+    if (all.length > MAX_DETAIL_LINES) {
+      lines.push({ text: `  … ${all.length - MAX_DETAIL_LINES} more lines`, level: 'info', kind: 'out' });
+    }
+  }
+  return lines;
+}
 
 export type RunStep = {
   key: string;
@@ -284,7 +322,7 @@ function scalar(v: unknown): string | null {
 }
 
 /** How a tool call came back: from its `claude.tool.result` line, or from the call's own `ok`. */
-export type ToolOutcome = { ok: boolean; error: string | null };
+export type ToolOutcome = { ok: boolean; error: string | null; output?: string | null };
 
 /**
  * The lines one event contributes to its step: a headline, then any
@@ -298,10 +336,15 @@ export function eventLines(e: RunLogEvent, outcome?: ToolOutcome | null): RunLog
   const level = eventLevel(e);
   const f = e.fields;
   let head: string;
+  if (e.phase === 'claude.text' && typeof f.text === 'string') {
+    // The engineer's own words between tool calls, as a paragraph.
+    return [{ text: stripAnsi(f.text).trim(), level: 'info', kind: 'say' }];
+  }
   if (e.phase === 'claude.tool') {
     const r = outcome ?? (typeof f.ok === 'boolean' ? { ok: f.ok, error: typeof f.error === 'string' ? f.error : null } : null);
     const mark = r === null ? '...' : r.ok ? 'ok ' : 'err';
     const lines: RunLogLine[] = [{ text: stripAnsi(`${mark} ${String(f.tool ?? 'tool')}${f.target ? ` ${String(f.target)}` : ''}`), level: r && !r.ok ? 'warn' : 'info' }];
+    lines.push(...detailLines(f.diff, r?.ok ? r.output : null));
     if (r?.error) {
       lines.push(...stripAnsi(r.error).replace(/\s+$/, '').split('\n').map(t => ({ text: `  ${t}`, level: 'warn' as const })));
     }
@@ -364,7 +407,7 @@ export function workerSteps(events: readonly RunLogEvent[], header: RunHeader): 
   const outcomes = new Map<string, ToolOutcome>();
   for (const e of events) {
     if (e.phase === 'claude.tool.result' && typeof e.fields.id === 'string') {
-      outcomes.set(e.fields.id, { ok: e.fields.ok !== false, error: typeof e.fields.error === 'string' ? e.fields.error : null });
+      outcomes.set(e.fields.id, { ok: e.fields.ok !== false, error: typeof e.fields.error === 'string' ? e.fields.error : null, output: typeof e.fields.output === 'string' ? e.fields.output : null });
     }
   }
   const sorted = [...events]
