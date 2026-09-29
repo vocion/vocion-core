@@ -38,7 +38,27 @@ const TOTAL_CHARS = 14_000;
  * prose out. `onDelta`, when given, receives the answer as it is written, so
  * the person watches it arrive instead of seeing it land whole.
  */
-export type AnswerComposer = (input: { orgId: string; system: string; human: string; onDelta?: (delta: string) => void }) => Promise<string>;
+/** A call the pass made, handed back to be run as the real tool. */
+export type AnswerPassCall = { id: string; name: string; args: Record<string, unknown> };
+
+export type AnswerComposer = (input: {
+  orgId: string;
+  system: string;
+  human: string;
+  onDelta?: (delta: string) => void;
+  /**
+   * The graph's own messages for this turn (the model's calls and the tool
+   * results, in the tool channel). When present the pass reads them instead
+   * of the pasted evidence in `human`: conversation 384's answer continued
+   * that pasted "What you already did and found:" block with tool results it
+   * made up.
+   */
+  messages?: readonly unknown[];
+  /** Tools the pass may call — the agent's card tools, so a card it means is a real call (conversation 384 wrote one out as text). */
+  tools?: readonly import('@langchain/core/tools').StructuredToolInterface[];
+  /** Receives each call the pass makes; the caller runs it through the real tool. */
+  onToolCall?: (call: AnswerPassCall) => Promise<void>;
+}) => Promise<string>;
 
 /**
  * Does this finished turn owe an answer? Tool calls ran and the text is
@@ -98,6 +118,9 @@ export function answerPassSystem(systemPrompt: string | undefined, steps: number
  * @param input.endedOnTool
  * @param input.onDelta - Receives the answer as it streams.
  * @param input.history
+ * @param input.messages
+ * @param input.tools
+ * @param input.onToolCall
  * @returns The text to append, or null when the turn already answered or the pass could not.
  */
 export async function runAnswerBackstop(input: {
@@ -117,9 +140,23 @@ export async function runAnswerBackstop(input: {
    * of it. The pass reads what the turn could read.
    */
   history?: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }>;
+  /** The graph's own messages for the turn; the pass continues from them when present. */
+  messages?: readonly unknown[];
+  /** Tools the pass may call, and where its calls go. */
+  tools?: readonly import('@langchain/core/tools').StructuredToolInterface[];
+  onToolCall?: (call: AnswerPassCall) => Promise<void>;
 }): Promise<string | null> {
   if (!owesAnswer(input.finalText, input.toolCalls, input.endedOnTool)) {
     return null;
+  }
+  if (input.messages && input.messages.length > 0) {
+    // The real conversation carries the results; the instruction is all the pass adds.
+    try {
+      const answer = (await input.compose({ orgId: input.orgId, system: answerPassSystem(input.systemPrompt, input.toolCalls.length), human: `The person said:\n${input.request.trim()}\n\nAnswer them now, from what your steps above returned.`, messages: input.messages, tools: input.tools, onToolCall: input.onToolCall, onDelta: input.onDelta })).trim();
+      return answer.length > 0 ? answer : null;
+    } catch {
+      return null;
+    }
   }
   const convo = (input.history ?? []).slice(-6).map(t => `${t.role === 'user' ? 'Person' : 'You'}: ${t.content.slice(0, 3_000)}`).join('\n\n');
   const human = [
@@ -161,19 +198,32 @@ export function chunkText(content: unknown): string {
  * @param root0.system - The pass's system prompt.
  * @param root0.human - The turn laid out for the pass.
  * @param root0.onDelta - Receives the answer as it is written.
+ * @param root0.messages
+ * @param root0.tools
+ * @param root0.onToolCall
  */
-export const composeAnswerWithModel: AnswerComposer = async ({ orgId, system, human, onDelta }) => {
+export const composeAnswerWithModel: AnswerComposer = async ({ orgId, system, human, onDelta, messages, tools, onToolCall }) => {
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-  const model = await buildChatModelForOrg('main', orgId, { temperature: 0.2, streaming: true, maxTokens: 2_000 });
-  const stream = await model.stream([new SystemMessage(system), new HumanMessage(human)], { signal: AbortSignal.timeout(60_000) });
+  const base = await buildChatModelForOrg('main', orgId, { temperature: 0.2, streaming: true, maxTokens: 2_000 });
+  const model = tools && tools.length > 0 && typeof (base as { bindTools?: unknown }).bindTools === 'function'
+    ? (base as unknown as { bindTools: (t: unknown[]) => typeof base }).bindTools([...tools])
+    : base;
+  const stream = await model.stream([new SystemMessage(system), ...((messages ?? []) as never[]), new HumanMessage(human)], { signal: AbortSignal.timeout(60_000) });
   let text = '';
+  type Gathered = { concat?: (c: unknown) => unknown; tool_calls?: Array<{ id?: string; name: string; args: Record<string, unknown> }> };
+  let whole: Gathered | undefined;
   for await (const chunk of stream) {
+    const prev: Gathered | undefined = whole;
+    whole = (prev?.concat ? prev.concat(chunk) : chunk) as Gathered;
     const delta = chunkText(chunk.content);
     if (delta) {
       text += delta;
       onDelta?.(delta);
     }
+  }
+  for (const [i, call] of ((whole as Gathered | undefined)?.tool_calls ?? []).entries()) {
+    await onToolCall?.({ id: call.id ?? `answer-pass-${i}`, name: call.name, args: call.args ?? {} });
   }
   return text;
 };

@@ -99,3 +99,38 @@ describe('the pass', () => {
     expect(seen!.system).not.toContain('You ran 0 tool steps');
   });
 });
+
+describe('the answer pass continues the real conversation (conversation 384)', () => {
+  it('reads the graph\'s messages instead of pasted evidence, and hands back a card it calls', async () => {
+    const { runAnswerBackstop } = await import('./answerBackstop');
+    const messages = [
+      { role: 'user', content: 'Add branded share links to Northwind' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', name: 'read_wiki_page', args: { slug: 'northwind-capabilities' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: '# Northwind capabilities\n- Share links (UUID)' },
+    ];
+    const seen: Array<Record<string, unknown>> = [];
+    const calls: string[] = [];
+    const answer = await runAnswerBackstop({
+      orgId: 'org_answer_pass',
+      request: 'Add branded share links to Northwind',
+      finalText: 'Let me read the capabilities page.',
+      toolCalls: [{ tool: 'read_wiki_page', input: { slug: 'northwind-capabilities' }, output: '# Northwind capabilities' }],
+      endedOnTool: true,
+      messages,
+      tools: [{ name: 'recommend_action' } as never],
+      onToolCall: async (call) => {
+        calls.push(call.name);
+      },
+      compose: async (input) => {
+        seen.push(input as unknown as Record<string, unknown>);
+        await input.onToolCall?.({ id: 'c2', name: 'recommend_action', args: { action_id: 'factory.dispatch_task', label: 'Build branded links', action_input: { requestId: 88 } } });
+        return 'Branded links are not built; the Build card is below.';
+      },
+    });
+
+    expect(answer).toContain('not built');
+    expect(seen[0]!.messages).toBe(messages);
+    expect(String(seen[0]!.human)).not.toContain('What you already did and found');
+    expect(calls).toEqual(['recommend_action']);
+  });
+});

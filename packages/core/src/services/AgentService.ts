@@ -270,6 +270,12 @@ export type TurnGuaranteeInput = {
   answer?: AnswerComposer;
   /** The conversation before this turn, so the answer pass reads what the turn could. */
   history?: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }>;
+  /** The graph's own messages for the turn, for the answer pass to continue from. */
+  messages?: readonly unknown[];
+  /** The agent's card tools, bound in the answer pass so a card is a real call. */
+  cardTools?: readonly import('@langchain/core/tools').StructuredToolInterface[];
+  /** Where the answer pass's calls are run and recorded. */
+  onToolCall?: (call: import('./agents/answerBackstop').AnswerPassCall) => Promise<void>;
 };
 
 /**
@@ -325,6 +331,9 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
       endedOnTool: input.endedOnTool === true,
       systemPrompt: input.systemPrompt,
       history: input.history,
+      messages: input.messages,
+      tools: input.cardTools,
+      onToolCall: input.onToolCall,
       // Say it: the answer is being written from what the steps found.
       compose: (args) => {
         input.emit({ type: 'status', label: `Writing the answer from ${input.toolCalls.length} step${input.toolCalls.length === 1 ? '' : 's'}` });
@@ -930,6 +939,20 @@ export async function runAgentDeep(opts: {
   const withResults = (instruction: string): string => (toolCallLog.length === 0
     ? instruction
     : `${instruction}\n\nWhat your tool calls in this turn returned (they ran; do not repeat them):\n\n${evidenceBlock(toolCallLog)}`);
+  // A RE-ENTRY CONTINUES THE REAL CONVERSATION. Conversation 384
+  // (2026-09-29): the results above were pasted back as text shaped
+  // `### tool {input}` + output, and the model — which still held its tools —
+  // wrote more of that shape instead of calling them, inventing a wiki page
+  // and five requests the answer then recommended building on. When the
+  // graph's own messages are in hand (each pass's final state: the model's
+  // messages with their tool calls, and the tool results), the next pass
+  // continues from them: results arrive in the tool channel they came from,
+  // and there is no text shape to imitate. The pasted form stays only as the
+  // fallback for a pass that ended without a state.
+  let graphMessages: unknown[] | null = null;
+  const continueWith = (instruction: string, fallback: unknown[]): unknown[] => (graphMessages
+    ? [...graphMessages, { role: 'user', content: instruction }]
+    : [...fallback, { role: 'user', content: withResults(instruction) }]);
   // What is waiting on the person on this page and in this thread — the
   // page record's open asks and pending proposals, and the cards still up in
   // the replay. Read when a pass needs it, fresh each time (a decision in
@@ -973,6 +996,13 @@ export async function runAgentDeep(opts: {
 
     for await (const evUnknown of stream as AsyncIterable<RawStreamEvent>) {
       const ev = evUnknown;
+      // The pass's final state, for the next re-entry to continue from.
+      if (ev.event === 'on_chain_end' && ((ev as { parent_ids?: unknown[] }).parent_ids ?? []).length === 0) {
+        const state = ev.data?.output as { messages?: unknown[] } | undefined;
+        if (Array.isArray(state?.messages) && state.messages.length > 0) {
+          graphMessages = state.messages;
+        }
+      }
 
       // 1) Typed trace nodes for the UI (reason/tool/skill/search/delegate + citations).
       const nodes = tracer.handle(ev);
@@ -1207,11 +1237,7 @@ export async function runAgentDeep(opts: {
               : `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.`;
         await runGraph({
           ...input,
-          messages: [
-            ...input.messages,
-            ...(empty || fragment ? [] : [{ role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar }]),
-            { role: 'user', content: withResults(nudge) },
-          ],
+          messages: continueWith(nudge, [...input.messages, ...(empty || fragment ? [] : [{ role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar }])]),
         } as typeof input);
       }
       // A CONTINUATION THAT WORKED AND STOPPED AGAIN KEEPS GOING. The one
@@ -1235,11 +1261,7 @@ export async function runAgentDeep(opts: {
           emit({ type: 'status', label: 'Making the change it owes' });
           await runGraph({
             ...input,
-            messages: [
-              ...input.messages,
-              ...(normalizeAnswerHtml(finalText).trim() ? [{ role: 'assistant', content: normalizeAnswerHtml(finalText).trim() }] : []),
-              { role: 'user', content: withResults('You have the results of the reads you just made. Now do what the person asked — make the write (call the tool) if one is owed — and then answer in one screen. Do not read again what you already read. Never write a tool call as text.') },
-            ],
+            messages: continueWith('You have the results of the reads you just made. Now do what the person asked — make the write (call the tool) if one is owed — and then answer in one screen. Do not read again what you already read. Never write a tool call as text.', [...input.messages, ...(normalizeAnswerHtml(finalText).trim() ? [{ role: 'assistant', content: normalizeAnswerHtml(finalText).trim() }] : [])]),
           } as typeof input);
         }
       }
@@ -1256,11 +1278,7 @@ export async function runAgentDeep(opts: {
           try {
             await runGraph({
               ...input,
-              messages: [
-                ...input.messages,
-                { role: 'assistant', content: shown },
-                { role: 'user', content: withResults(`Your answer stopped mid-sentence at "${shown.slice(-120)}". Continue exactly from where it stopped and finish it. Do not repeat what you already wrote and do not read again what you already read.`) },
-              ],
+              messages: continueWith(`Your answer stopped mid-sentence at "${shown.slice(-120)}". Continue exactly from where it stopped and finish it. Do not repeat what you already wrote and do not read again what you already read.`, [...input.messages, { role: 'assistant', content: shown }]),
             } as typeof input);
           } finally {
             const held = continuationJoin.flush();
@@ -1291,11 +1309,7 @@ export async function runAgentDeep(opts: {
           console.warn(`agent turn: wrote a ${lateName} call out after continuing; once more to make it`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length });
           await runGraph({
             ...input,
-            messages: [
-              ...input.messages,
-              { role: 'assistant', content: tail },
-              { role: 'user', content: withResults(`Your last message wrote a ${lateName} call out as text instead of calling it, so nothing was written. Call ${lateName} now with exactly the arguments your message described, then reply in one sentence. Never write a tool call as text.`) },
-            ],
+            messages: continueWith(`Your last message wrote a ${lateName} call out as text instead of calling it, so nothing was written. Call ${lateName} now with exactly the arguments your message described, then reply in one sentence. Never write a tool call as text.`, [...input.messages, { role: 'assistant', content: tail }]),
           } as typeof input);
         }
       }
@@ -1329,10 +1343,7 @@ export async function runAgentDeep(opts: {
         );
         await runGraph({
           ...input,
-          messages: [
-            ...input.messages,
-            { role: 'user', content: withResults('Your last two attempts produced no words and no tool calls. Answer now in plain text, or make the tool calls you need — say what you found and what you did.') },
-          ],
+          messages: continueWith('Your last two attempts produced no words and no tool calls. Answer now in plain text, or make the tool calls you need — say what you found and what you did.', [...input.messages]),
         } as typeof input);
       }
     }
@@ -1358,11 +1369,7 @@ export async function runAgentDeep(opts: {
         const soFar = normalizeAnswerHtml(finalText).trim();
         await runGraph({
           ...input,
-          messages: [
-            ...input.messages,
-            ...(soFar ? [{ role: 'assistant', content: soFar }] : []),
-            { role: 'user', content: withResults(`Your last tool call was rejected: ${detail}. Call it again with valid arguments, or do without it — and answer. Do not stop.`) },
-          ],
+          messages: continueWith(`Your last tool call was rejected: ${detail}. Call it again with valid arguments, or do without it — and answer. Do not stop.`, [...input.messages, ...(soFar ? [{ role: 'assistant', content: soFar }] : [])]),
         } as typeof input);
         recovered = true;
       } catch (again) {
@@ -1615,6 +1622,15 @@ export async function runAgentDeep(opts: {
 
   // End-of-turn guarantees (structural): a failed hand-off is stated in the
   // answer, and a turn sent with `deliverable: 'artifact'` ends with one.
+  const answerPassTools = await (async () => {
+    try {
+      const { buildDomainTools } = await import('./agents/tools/registry');
+      return buildDomainTools(boundCtx).filter(t => t.name === 'recommend_action' || t.name === 'propose_action');
+    } catch {
+      // No tools, no card calls: the pass still answers in words.
+      return [];
+    }
+  })();
   finalText = await applyTurnGuarantees({
     orgId: opts.orgId,
     agentSlug: opts.agentSlug,
@@ -1631,6 +1647,23 @@ export async function runAgentDeep(opts: {
     systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
     history: (opts.conversationHistory ?? []).map(t => ({ role: t.role, content: t.content })),
     emit,
+    // The answer pass continues the real conversation and holds the card
+    // tools, so a card it means is a real call (conversation 384).
+    ...(graphMessages ? { messages: graphMessages } : {}),
+    cardTools: answerPassTools,
+    onToolCall: async (call) => {
+      const tool = answerPassTools.find(t => t.name === call.name);
+      if (!tool) {
+        return;
+      }
+      emit({ type: 'tool_start', tool: call.name, input: call.args });
+      const output = await tool.invoke({ type: 'tool_call', id: call.id, name: call.name, args: call.args } as never).then(
+        r => (typeof r === 'string' ? r : String((r as { content?: unknown }).content ?? '')),
+        (err: Error) => `Error: ${err.message}`,
+      );
+      toolCallLog.push({ tool: call.name, input: call.args, output });
+      emit(output.startsWith('Error:') ? { type: 'tool_error', tool: call.name, message: output.slice(0, 500) } : { type: 'tool_end', tool: call.name, input: call.args, output: output.slice(0, 2000) });
+    },
   });
 
   // The filing receipt, only when the answer does not already name the record.

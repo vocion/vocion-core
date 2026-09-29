@@ -128,3 +128,30 @@ describe('a write beneath the page\'s record reaches the page', () => {
     expect(off.events.some(e => e.type === 'version_written')).toBe(false);
   });
 });
+
+describe('a re-entry continues the real conversation (conversation 384)', () => {
+  it('hands the next pass the graph\'s own messages, with the results in the tool channel, and pastes no transcript', async () => {
+    const state = [
+      { role: 'user', content: 'Add branded share links to Northwind' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'call-1', name: 'lookup_objects', args: { type_slug: 'product' } }] },
+      { role: 'tool', tool_call_id: 'call-1', content: '[{"id":120,"title":"Northwind Share"}]' },
+      { role: 'assistant', content: 'Let me read the capabilities page and open requests before filing.' },
+    ];
+    const inputs = passes(
+      [toolEnd('lookup_objects', '[{"id":120,"title":"Northwind Share"}]'), say('Let me read the capabilities page and open requests before filing.'), { event: 'on_chain_end', name: 'LangGraph', parent_ids: [], data: { output: { messages: state } } }],
+      [say('Branded share links are not built yet; request #88 asks for them. Build it when you are ready.')],
+    );
+
+    await run('Add branded share links to Northwind');
+
+    expect(inputs).toHaveLength(2);
+
+    const next = inputs[1]!.messages;
+
+    expect(next.slice(0, state.length)).toEqual(state);
+    expect(next).toHaveLength(state.length + 1);
+    expect(next.at(-1)).toMatchObject({ role: 'user' });
+    expect(JSON.stringify(next)).not.toContain('What your tool calls in this turn returned');
+    expect(JSON.stringify(next)).not.toContain('### lookup_objects');
+  });
+});
