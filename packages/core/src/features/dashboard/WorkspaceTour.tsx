@@ -131,6 +131,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
   const step = steps[Math.min(idx, steps.length - 1)]!;
   const stepKey = `${slug}:${idx}`;
   const rect = measured?.key === stepKey ? measured.rect : null;
+  const ringOnly = (step.mask ?? tour.mask) === 'none';
   const isLast = idx >= steps.length - 1;
   // The path a step route names: no locale, no `/w/<workspace>` prefix
   // (docs/routing.md), no trailing slash.
@@ -266,8 +267,11 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       }
       const r = el.getBoundingClientRect();
       const top = Math.max(8, r.top - 8);
-      const height = Math.min(r.height + 16, vh * 0.62, vh - top - 8);
-      const next = { top, left: Math.max(8, r.left - 8), width: Math.min(r.width + 16, window.innerWidth - 16), height: Math.max(40, height) };
+      // A dimmed spotlight caps tall elements so the page still shows; a ring
+      // traces the whole element. Both stay inside the viewport.
+      const height = ringOnly ? Math.min(r.height + 16, vh - top - 8) : Math.min(r.height + 16, vh * 0.62, vh - top - 8);
+      const left = Math.max(8, r.left - 8);
+      const next = { top, left, width: Math.min(r.width + 16, window.innerWidth - left - 8), height: Math.max(40, height) };
       setMeasured((prev) => {
         const p = prev?.key === stepKey ? prev.rect : null;
         const same = p && Math.abs(p.top - next.top) < 1 && Math.abs(p.left - next.left) < 1 && Math.abs(p.width - next.width) < 1 && Math.abs(p.height - next.height) < 1;
@@ -288,7 +292,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
     };
-  }, [active, stepKey, onRoute, step.selector, step.selectorText]);
+  }, [active, stepKey, onRoute, step.selector, step.selectorText, ringOnly]);
 
   // `advance: appear` — move on once the awaited element is on the page.
   useEffect(() => {
@@ -315,7 +319,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
     const onClick = (e: MouseEvent) => {
       const t = e.target as Node | null;
       // Toasts are the product talking back; they stay closable mid-tour.
-      if (!t || popRef.current?.contains(t) || (t as HTMLElement).closest?.('[data-tour-chrome], [data-toast-viewport]')) {
+      if (!t || popRef.current?.contains(t) || (t as HTMLElement).closest?.('[data-tour-chrome]')) {
         return;
       }
       const el = targetRef.current ?? findTarget(step.selector!, step.selectorText);
@@ -446,9 +450,6 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
 
   const dim = (step.mask ?? tour.mask) !== 'none';
   const caption = tour.presentation === 'caption';
-  // The caption sits along the bottom unless the element it points at is
-  // down there too (a decision bar, a composer): then it moves to the top.
-  const captionTop = caption && rect !== null && rect.top + rect.height > vh - 200;
   const waiting = step.advance === 'appear';
   const tapStep = step.advance === 'click';
   // Page taps reach the page on interactive steps, and on tap steps (where
@@ -471,7 +472,8 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
         {`
         /* Toasts leave the bottom-right, where tour cards and decision
            buttons sit, for the top-left, and stay above the mask. */
-        [data-toast-viewport] { top: 72px !important; bottom: auto !important; right: auto !important; left: 16px !important; z-index: 60 !important; pointer-events: auto; }
+        /* A tour is a performance: the product's toasts wait until it ends. */
+        [data-toast-viewport] { display: none !important; }
         @keyframes wsx-tour-in { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
         @keyframes wsx-tour-pulse { 0% { box-shadow: 0 0 0 0 rgba(245,158,11,.55); } 70% { box-shadow: 0 0 0 14px rgba(245,158,11,0); } 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); } }
         @keyframes wsx-tour-work { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
@@ -509,22 +511,27 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       {/* click shield: keeps the walkthrough on rails; Esc / End tour always exits */}
       {!passThrough && !waiting && <div className="absolute inset-0" aria-hidden="true" />}
 
-      {/* Escape hatch pinned to the viewport — reachable no matter where the
-          popover lands or how tall the spotlight is. */}
-      <button
-        type="button"
-        onClick={end}
-        className="absolute top-4 right-4 z-20 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-lg hover:bg-muted"
-        style={{ pointerEvents: 'auto' }}
-      >
-        ✕ End tour
-      </button>
+      {/* Escape hatch, bottom-left: clear of the account menu and the
+          header, reachable wherever the popover lands. In caption mode it
+          lives inside the caption bar instead. */}
+      {!caption && (
+        <button
+          type="button"
+          onClick={end}
+          data-tour-end
+          className="absolute bottom-4 left-4 z-20 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-lg hover:bg-muted"
+          style={{ pointerEvents: 'auto' }}
+        >
+          ✕ End tour
+        </button>
+      )}
 
       {caption && (
         <div
           ref={popRef}
           key={`caption-${slug}-${idx}`}
-          className={`absolute inset-x-0 z-10 ${captionTop ? 'top-0 flex flex-col-reverse' : 'bottom-0'}`}
+          className="absolute inset-x-0 bottom-0 z-10"
+          data-tour-caption
           style={{ pointerEvents: 'auto', animation: 'wsx-tour-in 420ms cubic-bezier(.2,.8,.2,1) both' }}
         >
           <div className="h-1 w-full bg-black/10">
@@ -545,6 +552,9 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
                 {isLast ? 'Finish' : 'Next'}
               </button>
             )}
+            <button type="button" onClick={end} data-tour-end className="shrink-0 rounded-full border border-white/25 px-4 py-2 text-sm text-white/80 hover:bg-white/10">
+              ✕ End tour
+            </button>
           </div>
         </div>
       )}
