@@ -19,7 +19,7 @@ vi.mock('@/services/ActionService', async importOriginal => ({
 const { db } = await import('@/libs/DB');
 const { conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
 const { proposeAction } = await import('@/services/ActionService');
-const { anchoredFilingCheck, anchoredFilingRefusal, asksForANewRecord } = await import('./anchoredFiling');
+const { anchoredAskCheck, anchoredAskRefusal, anchoredFilingCheck, anchoredFilingRefusal, asksForANewRecord, hasClearFavourite } = await import('./anchoredFiling');
 const { runProposal } = await import('./tools/proposeAction');
 
 const ORG = 'org_anchored_filing';
@@ -120,5 +120,67 @@ describe('a filing in a person\'s turn (runProposal)', () => {
     await runProposal(ctx, filing, { tool: 'file_request' });
 
     expect(proposeAction).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A conflict found while doing the work is an edit, not an ask. Request
+ * #224 (2026-09-29 16:34Z): asked on the feature page to add mocks, the
+ * designer found a criterion that did not fit the drawing and filed a ruling
+ * recommending its own answer at 0.85 over 0.3, instead of changing the
+ * request.
+ */
+describe('anchoredAskRefusal', () => {
+  const MOCKS = 'can you add mocks/images to this request?';
+  const lopsided = [
+    { label: 'Amend criterion 1 to "every row with a share link"', recommended: true, confidence: 0.85 },
+    { label: 'A disabled control on locked rows too', confidence: 0.3 },
+    { label: 'Move the control beside the badge' },
+  ];
+  const even = [
+    { label: 'In the row', confidence: 0.5 },
+    { label: 'In the menu', confidence: 0.5 },
+  ];
+
+  it('refuses the #224 shape — a ruling about the page\'s request with a clear favourite — and says to edit it', () => {
+    const out = anchoredAskRefusal({ message: MOCKS, anchor: onRequest, kind: 'ruling', options: lopsided, objectRefs: [{ type: 'request', id: 227 }, { type: 'architecture_plan', id: 9 }] });
+
+    expect(out).toContain('Not asked');
+    expect(out).toContain('update_object (object_type "request", id 227)');
+    expect(out).toContain('Ask only when two readings are equally good');
+  });
+
+  it('refuses an input ask while the person has the agent working on the record', () => {
+    expect(anchoredAskRefusal({ message: 'Change this: the reminder goes out after 48 hours.', anchor: onRequest, kind: 'input' })).toContain('a gap you found in it is yours to close');
+    expect(anchoredAskRefusal({ message: 'mock this up', anchor: onRequest, kind: 'input' })).toContain('Not asked');
+  });
+
+  it('lets through two equally good readings, a choice the person asked for, and decisions only a person makes', () => {
+    expect(anchoredAskRefusal({ message: MOCKS, anchor: onRequest, kind: 'ruling', options: even })).toBeNull();
+    expect(anchoredAskRefusal({ message: 'Mock it up and give me options for where the button goes.', anchor: onRequest, kind: 'ruling', options: lopsided })).toBeNull();
+
+    for (const kind of ['approval', 'recommendation', 'credential', 'merge', 'gate']) {
+      expect(anchoredAskRefusal({ message: MOCKS, anchor: onRequest, kind, options: lopsided })).toBeNull();
+    }
+  });
+
+  it('leaves an ask about another record, or with no record on the page, alone', () => {
+    expect(anchoredAskRefusal({ message: MOCKS, anchor: onRequest, kind: 'ruling', options: lopsided, objectRefs: [{ type: 'request', id: 300 }] })).toBeNull();
+    expect(anchoredAskRefusal({ message: MOCKS, anchor: null, kind: 'ruling', options: lopsided })).toBeNull();
+  });
+
+  it('reads a favourite only off scored options', () => {
+    expect(hasClearFavourite(lopsided)).toBe(true);
+    expect(hasClearFavourite(even)).toBe(false);
+    expect(hasClearFavourite([{ label: 'A', recommended: true }, { label: 'B' }])).toBe(false);
+    expect(hasClearFavourite([{ label: 'A', recommended: true, confidence: 0.6 }, { label: 'B', confidence: 0.5 }])).toBe(false);
+    expect(hasClearFavourite(['A', 'B'])).toBe(false);
+  });
+
+  it('never gates an unattended run, and reads the page from the turn', async () => {
+    const page = { path: '/dashboard/p/feature/227', title: 'Feature', record: { type: 'object' as const, id: '227', objectType: 'request' } };
+
+    expect(await anchoredAskCheck(ctxFor({ turnMessage: MOCKS, pageContext: page }), { kind: 'ruling', options: lopsided })).toContain('Not asked');
+    expect(await anchoredAskCheck(ctxFor({ turnMessage: MOCKS, pageContext: page, missionRunId: 5 } as Partial<RuntimeContext>), { kind: 'ruling', options: lopsided })).toBeNull();
   });
 });
