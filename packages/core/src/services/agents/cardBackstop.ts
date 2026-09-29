@@ -1,3 +1,4 @@
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 /**
  * THE CARD PASS — the cards a finished answer owes, in seconds.
  *
@@ -37,10 +38,10 @@
  * a build card that can only fail.
  */
 
-import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { AgentEvent, RuntimeContext } from './types';
+import type { Action } from '@/libs/actions/types';
 import type { ModelRole } from '@/libs/llm';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
 import { repairActionInput } from '@/libs/actions/repairInput';
@@ -608,7 +609,12 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
       if (!action) {
         return `no registered action "${actionId}"`;
       }
-      const parsed = action.inputSchema.safeParse(input);
+      // What the model may not write (`internalInput`: a dispatch's trigger,
+      // retry and replan fields) is dropped before the check, exactly as the
+      // proposal will drop it — #124's Restore card was refused for a
+      // `replan: false` it had no business sending.
+      const { withoutInternalInput } = await import('@/services/ActionService');
+      const parsed = action.inputSchema.safeParse(withoutInternalInput(action, input));
       if (!parsed.success) {
         return `its input does not fit ${actionId}: ${parsed.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`;
       }
@@ -616,7 +622,7 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
     },
     repair: (actionId, input, label) => {
       const action = registry.getAction(actionId);
-      return action ? repairActionInput(action.inputSchema, input, { label, baseUrl: appBaseUrl() }) : { input, repaired: [] };
+      return action ? repairCardInput(action, input, label, appBaseUrl()) : { input, repaired: [] };
     },
     requestExists: async (id) => {
       const { readRecord } = await import('@/libs/actions/factory-dispatch');
@@ -636,4 +642,21 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
     emit: opts.emit,
     callbacks: [handler],
   };
+}
+
+/**
+ * A card's input as its action will take it: the fields a model may not
+ * write (`internalInput`) dropped, as the proposal drops them, then the
+ * repairs with one right answer (`repairActionInput`).
+ * @param action - The card's action.
+ * @param input - What the model sent.
+ * @param label - The card's label.
+ * @param baseUrl - The app's origin, for relative links.
+ */
+export function repairCardInput(action: Pick<Action, 'inputSchema' | 'internalInput'>, input: Record<string, unknown>, label: string, baseUrl: string): { input: Record<string, unknown>; repaired: string[] } {
+  const internal = new Set(action.internalInput ?? []);
+  const dropped = Object.keys(input).filter(k => internal.has(k));
+  const own = dropped.length > 0 ? Object.fromEntries(Object.entries(input).filter(([k]) => !internal.has(k))) : input;
+  const fixed = repairActionInput(action.inputSchema, own, { label, baseUrl });
+  return dropped.length > 0 ? { input: fixed.input, repaired: [...fixed.repaired, ...dropped.map(k => `dropped internal ${k}`)] } : fixed;
 }

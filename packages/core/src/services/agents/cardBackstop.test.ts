@@ -406,3 +406,16 @@ describe('a card input with one right repair is repaired, not refused (2026-09-2
     expect((events.find(e => e.type === 'recommended_action') as Extract<AgentEvent, { type: 'recommended_action' }>).recommendation.input.title).toBe('Factory filing bug — plan writes to a pending review item');
   });
 });
+
+describe('a card never carries what only the factory writes (#124)', () => {
+  it('drops a dispatch\'s internal fields before the check, so the card goes up', async () => {
+    const { repairCardInput } = await import('./cardBackstop');
+    const { getAction } = await import('@/libs/actions/registry');
+    const dispatch = getAction('factory.dispatch_task')!;
+    const out = repairCardInput(dispatch, { requestId: 124, reason: 'Restore the paths.', replan: false, trigger: 'recovery', autoRetryOf: 407 }, 'Restore & dispatch', 'https://agents.example.com');
+
+    expect(out.input).toEqual({ requestId: 124, reason: 'Restore the paths.' });
+    expect(out.repaired).toEqual(expect.arrayContaining(['dropped internal replan', 'dropped internal trigger', 'dropped internal autoRetryOf']));
+    expect(dispatch.inputSchema.safeParse(out.input).success).toBe(true);
+  });
+});
