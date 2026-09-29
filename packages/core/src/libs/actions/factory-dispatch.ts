@@ -353,7 +353,22 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // files only, brings its src/** — a visible criterion needs its component.
   const riskMap = (repo.riskDefaults ?? {}) as Record<string, string>;
   const uiSrc = [...roots].filter(r => riskMap[`${r}/**`] === 'ui' && !basePaths.includes(`${r}/**`) && !basePaths.includes(`${r}/src/**`)).map(r => `${r}/src/**`);
-  const paths = [...new Set([...basePaths, ...uiSrc, ...[...roots].map(r => `${r}/tests/**`)])];
+  // A CHANGE A PERSON CAN SEE GETS ITS UI APP. #214 (a Download CSV button) had
+  // a plan naming the api and the marketing site but not the web app, so no
+  // attempt could build the button and QA refused the visible criteria three
+  // times (runs 405–407, 2026-09-28). A ui or flow request whose paths reach no
+  // ui app gets its product's ui app (the repo's productPaths + riskDefaults).
+  const uiRoot = (x: string) => /^((?:apps|packages|services)\/[\w.-]+)/.exec(x)?.[1] ?? null;
+  const isUiRoot = (root: string | null): root is string => root !== null && riskMap[`${root}/**`] === 'ui';
+  const touchesUi = [...basePaths, ...uiSrc].some(x => isUiRoot(uiRoot(x)));
+  const productGlobs = ((repo.productPaths ?? {}) as Record<string, string[]>)[String(r.product ?? '')] ?? [];
+  const uiApps = ['ui', 'flow'].includes(String(r.surface ?? '')) && !touchesUi
+    ? [...new Set(productGlobs.map(uiRoot).filter(isUiRoot))]
+    : [];
+  for (const root of uiApps) {
+    roots.add(root);
+  }
+  const paths = [...new Set([...basePaths, ...uiSrc, ...uiApps.map(root => `${root}/src/**`), ...[...roots].map(r => `${r}/tests/**`)])];
   const givenChecks = list(g, 'requiredChecks').filter(c => repoChecks.length === 0 ? /^[\w:.-]+$/.test(c) : repoChecks.includes(c));
   const checks = givenChecks.length > 0 ? givenChecks : repoChecks;
   const givenRisk = str(g, 'riskClass');

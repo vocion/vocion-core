@@ -260,3 +260,20 @@ describe('a QA flow name fits the worker\'s contract (#214: a 64-character title
     expect(flows[0]!.name.length).toBeLessThanOrEqual(60);
   });
 });
+
+describe('a change a person can see gets its ui app (#214: the plan left out the web app, so the button could not be built)', () => {
+  const repo = { title: 'Acme/northwind-core', checks: [{ name: 'test' }], riskDefaults: { 'apps/web/**': 'ui', 'apps/api/**': 'logic', 'apps/site/**': 'marketing' }, productPaths: { northwind: ['apps/api/**', 'apps/web/**', 'apps/site/**'] } };
+  const plan = { components: ['apps/api/src/routes/documents.ts — the export endpoint', 'apps/site — nothing'] };
+
+  it('adds the product\'s ui app to a ui request whose plan names none', () => {
+    const c = deriveContract({ given: {}, request: { title: 'Download CSV', product: 'northwind', surface: 'ui', acceptance: [{ statement: 'A button.' }] }, plan, repo });
+
+    expect(c.allowedPaths).toEqual(expect.arrayContaining(['apps/web/src/**', 'apps/web/tests/**', 'apps/api/src/routes/documents.ts']));
+  });
+
+  it('leaves a data request to its own paths', () => {
+    const c = deriveContract({ given: {}, request: { title: 'Export API', product: 'northwind', surface: 'data', acceptance: [{ statement: 'An endpoint.' }] }, plan, repo });
+
+    expect((c.allowedPaths as string[]).some(x => x.startsWith('apps/web'))).toBe(false);
+  });
+});
