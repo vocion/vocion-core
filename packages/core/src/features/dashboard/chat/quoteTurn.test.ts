@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { splitQuote } from './UserMessage';
 import { quoteThenAsk } from './useChatSession';
+import { splitQuote } from './UserMessage';
 
 describe('a highlighted passage is part of the turn', () => {
   it('opens the turn as a quote, and is the whole turn when nothing was typed', () => {
