@@ -242,7 +242,8 @@ function decideOrder(a: PageRow, b: PageRow, time: (r: PageRow) => number): numb
  * @param row - The row.
  */
 export function isDismissed(row: PageRow): boolean {
-  return str(row, 'state') === 'out_of_scope' || str(row, 'recommendationState') === 'rejected';
+  // A duplicate ends where it is marked (`duplicateOf`); its work is the other request's.
+  return str(row, 'state') === 'out_of_scope' || str(row, 'recommendationState') === 'rejected' || (num(row, 'duplicateOf') ?? 0) > 0;
 }
 
 export function laneOf(row: PageRow): WorkLane {

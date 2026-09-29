@@ -333,7 +333,7 @@ schema:
     duplicateOf:
       x-display: {label: Duplicate of, format: link, to: request}
       type: integer
-      description: The id of the open request this duplicates. Set by triage; the asker is told, and this record ends here.
+      description: The id of the open request this duplicates. Setting it closes this request by itself — leave state as it is (no state means "duplicate"); the Work page archives it and the factory stops. Set by triage or a person; the asker is told.
     dedupeKey:
       x-display: {label: Dedupe key, format: mono, group: Where it came from}
       type: string

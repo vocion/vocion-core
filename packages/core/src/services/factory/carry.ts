@@ -260,7 +260,9 @@ async function planningEnded(orgId: string, requestId: number, askedAt: string):
  * @param request - The request.
  */
 function isOpen(request: FactoryRecord): boolean {
-  return request.typeSlug === 'request' && !CLOSED.has(String(request.meta.state ?? '')) && request.meta.recommendationState !== 'rejected';
+  // A DUPLICATE IS CLOSED (#232/#234, 2026-09-29): `duplicateOf` ends the
+  // record by itself — intake already skipped one; the sweep carried it on.
+  return request.typeSlug === 'request' && !CLOSED.has(String(request.meta.state ?? '')) && request.meta.recommendationState !== 'rejected' && !(Number(request.meta.duplicateOf ?? 0) > 0);
 }
 
 /**

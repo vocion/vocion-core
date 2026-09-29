@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stageOf, stateOf, visualArtifactId, visualGap, whyLine, workLine } from './workQueue';
+import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isDismissed, isProbeRow, laneOf, stageOf, stateOf, visualArtifactId, visualGap, whyLine, workLine } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -700,5 +700,12 @@ describe('a Build card already up (journey 4, 2026-09-28: #214\'s card #4945 pen
 
     expect(out[0]!.meta.state).toBe('Not triaged');
     expect(out[0]!.meta.pendingBuildRunId).toBeUndefined();
+  });
+});
+
+describe('a duplicate is closed (#232, #234)', () => {
+  it('leaves the queue once it names the request it duplicates, whatever its state', () => {
+    expect(isDismissed(row(232, 'Note on a send', { state: 'new', duplicateOf: 233 }))).toBe(true);
+    expect(isDismissed(row(233, 'Pin a note', { state: 'new' }))).toBe(false);
   });
 });
