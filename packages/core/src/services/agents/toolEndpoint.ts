@@ -17,34 +17,13 @@
  * only ever act inside the tenant scope core itself signed.
  */
 
-import type { AgentEvent, RuntimeContext } from './types';
+import type { AgentEvent } from './types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
 import { verifyClaim } from './claims';
-import { loadFilingTypes } from './tools/fileRecord';
+import { runtimeContextForAgent } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
-import { loadRestSources } from './tools/restDirect';
-
-/**
- * The workspace facts the in-process harness reads once per graph build, read
- * here per call because this endpoint has no graph.
- *
- * Without them the tool set differed from the in-process one: `wikiTools`
- * builds nothing when `enabledPlugins` is absent, so an agent on the container
- * lost the wiki entirely, and every date a tool rendered fell back to UTC
- * instead of the workspace's zone.
- * @param orgId - The workspace, from the verified claim.
- */
-export async function workspaceScope(orgId: string): Promise<Pick<RuntimeContext, 'enabledPlugins' | 'defaultTimeZone' | 'timeZone'>> {
-  const { enabledPluginsForOrg } = await import('@/services/PluginService');
-  const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
-  const [enabledPlugins, defaultTimeZone] = await Promise.all([
-    enabledPluginsForOrg(orgId).catch(() => [] as string[]),
-    workspaceTimeZone(orgId),
-  ]);
-  return { enabledPlugins, defaultTimeZone, timeZone: defaultTimeZone };
-}
 
 export type ToolCallOutcome
   = | { ok: true; output: string; events: AgentEvent[] }
@@ -78,31 +57,20 @@ export async function executeToolCall(opts: {
   }
 
   const events: AgentEvent[] = [];
-  const ctx: RuntimeContext = {
-    ...(await workspaceScope(claim.orgId)),
-    orgId: claim.orgId,
+  // The same context the in-process harness builds — plugins, zone, typed
+  // filing tools and REST sources included — read per call because this
+  // endpoint has no graph. Per-call facts come from the claim alone.
+  const ctx = await runtimeContextForAgent(claim.orgId, row, {
     userId: claim.userId,
-    citationSeq: { current: 0 },
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: claim.allowedSourceSlugs,
     missionSlug: claim.missionSlug,
     missionRunId: claim.missionRunId,
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    // The typed filing tools the catalog listed, rebuilt the same way.
-    filingTypes: await loadFilingTypes(claim.orgId, row.objectTypeSlugs ?? []).catch(() => []),
-    // The REST tools the catalog listed, rebuilt the same way.
-    restSources: await loadRestSources(claim.orgId, row.connectorSources ?? []).catch(() => []),
-    searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig: row.harnessConfig ?? {},
     conversationId: claim.conversationId,
     pageContext: claim.pageContext,
+    timeZone: claim.timeZone,
     provider: 'runtime',
     emit: e => events.push(e),
-  };
-  if (claim.timeZone) {
-    ctx.timeZone = claim.timeZone;
-  }
+  });
 
   const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
   const toolObj = buildDomainTools(ctx).find(t => t.name === opts.tool && !excludeTools.has(t.name));

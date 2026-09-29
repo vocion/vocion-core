@@ -30,7 +30,7 @@
 
 import type { HarnessMessage, HarnessContentBlock as SdkContentBlock } from '@aws-sdk/client-bedrock-agentcore';
 import type { HarnessSummary, HarnessTool } from '@aws-sdk/client-bedrock-agentcore-control';
-import type { AgentEvent, RuntimeContext } from '../types';
+import type { AgentEvent } from '../types';
 import { createHash, randomUUID } from 'node:crypto';
 import { BedrockAgentCoreClient, InvokeHarnessCommand } from '@aws-sdk/client-bedrock-agentcore';
 import {
@@ -47,6 +47,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
 import { composeUserText } from '@/services/chat/attachments';
+import { runtimeContextForAgent } from '../runtimeContext';
 import { agentCoreToolRounds, stepLimitMessage } from '../stepLimit';
 import { withToolCallRecord } from '../toolCallRecord';
 import { searchKnowledgeTool } from '../tools/searchKnowledge';
@@ -400,21 +401,15 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
     throw new Error(`agent ${opts.agentSlug} is provider: agentcore but has no harness ARN — run workspace:apply to provision it`);
   }
 
-  // Same RuntimeContext the local provider builds — the inline tools
-  // are the local tool implementations, so gating/ACL/emit all match.
-  const ctx: RuntimeContext = {
-    orgId: opts.orgId,
+  // Same RuntimeContext the local provider builds, from the same builder —
+  // the inline tools are the local tool implementations, so gating/ACL/emit
+  // all match.
+  const ctx = await runtimeContextForAgent(opts.orgId, row, {
     userId: opts.userId,
-    citationSeq: { current: 0 },
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: opts.allowedSourceSlugs,
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig: row.harnessConfig ?? {},
     provider: 'agentcore',
     emit,
-  };
+  });
   // The SAME LangChain tool objects the local provider wires into its
   // graph — invoked directly here with the harness's inline-call args.
   // Wrapped so each invocation writes a tool_call row, like the others.

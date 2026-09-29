@@ -46,6 +46,7 @@ import { TurnBudgetGuard } from '../budgetStop';
 import { signClaim } from '../claims';
 import { buildAgentDefinition, buildInitialFiles } from '../harness';
 import { memoryMountPaths } from '../memoryDigest';
+import { runtimeContextFromScope } from '../runtimeContext';
 import { buildToolCatalog } from '../tools/registry';
 
 /**
@@ -127,28 +128,17 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
 
   // The catalog needs the same ctx shape the endpoint rebuilds at
   // execution time — descriptions embed source/operation lists, and
-  // plugin-owned tools exist only when their plugin is on.
-  const catalog = buildToolCatalog({
-    orgId: opts.orgId,
+  // plugin-owned tools exist only when their plugin is on. The definition
+  // already carries the resolved scope, so nothing is read twice.
+  const catalog = buildToolCatalog(runtimeContextFromScope(opts.orgId, row, definition, {
     userId: opts.userId,
-    citationSeq: { current: 0 },
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: opts.allowedSourceSlugs,
     missionSlug: opts.missionSlug,
     missionRunId: opts.missionRunId,
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    enabledPlugins: definition.enabledPlugins,
-    filingTypes: definition.filingTypes,
-    restSources: definition.restSources,
-    searchConfig: (row.searchConfig as never) ?? {},
-    harnessConfig: row.harnessConfig ?? {},
-    defaultTimeZone: definition.defaultTimeZone,
     timeZone,
     pageContext: opts.pageContext,
     conversationId: opts.conversationId,
-    emit: () => {},
-  });
+  }));
 
   const claim = signClaim({
     orgId: opts.orgId,

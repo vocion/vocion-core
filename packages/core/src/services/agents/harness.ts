@@ -43,8 +43,6 @@ import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
 import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
-import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
-import { resolveTimeZone } from '@/libs/time/zone';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { readInitiative } from '@/services/agents/initiative';
@@ -56,9 +54,8 @@ import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentServi
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
-import { loadFilingTypes } from './tools/fileRecord';
+import { agentScope, runtimeContextFromScope } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
-import { loadRestSources } from './tools/restDirect';
 
 /* ------------------------------------------------------------------ */
 /* LRU cache of agent blueprints — never of per-request state          */
@@ -311,23 +308,18 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     throw new Error(`agent ${agentSlug} not found in org ${orgId}`);
   }
 
-  const defaultTimeZone = await workspaceTimeZone(orgId);
-  // Plugins the workspace has on, once per blueprint: plugin-owned tool sets
-  // are present only with their plugin, and the prompt names what is off. An
-  // apply resets the blueprint cache, so a toggle reaches the next turn.
-  const enabledPlugins = await enabledPluginsForOrg(orgId).catch(() => [] as string[]);
+  // The agent's scope, once per blueprint, from the one builder every loop
+  // uses (`runtimeContext.ts`): the workspace's zone; the plugins it has on
+  // (plugin-owned tool sets are present only with their plugin, and the
+  // prompt names what is off); the agent's types filed through their own
+  // tool (`file_<slug>`), references resolved to this workspace's record
+  // slugs; and the REST sources it holds with the endpoints each declares.
+  // An apply resets the blueprint cache, so a toggle reaches the next turn.
+  const { enabledPlugins, defaultTimeZone, filingTypes, restSources } = await agentScope(orgId, row);
   // The workspace's stated operating intent, once per blueprint, from the
   // column the applier writes. `null` is "nobody has told this factory
   // anything", which the note says out loud rather than treating as permission.
   const operatingIntent = await operatingIntentForOrg(orgId).catch(() => null);
-  // The agent's types that are filed through their own tool (`file_<slug>`),
-  // with reference fields resolved to this workspace's record slugs. Once per
-  // blueprint, like the plugins: an apply resets the cache.
-  const filingTypes = await loadFilingTypes(orgId, row.objectTypeSlugs ?? []).catch(() => [] as FilingType[]);
-  // The REST sources the agent holds, with the endpoints each declares —
-  // the tool builder is synchronous, so they are read here, once per
-  // blueprint, the way the filing types are.
-  const restSources = await loadRestSources(orgId, row.connectorSources ?? []).catch(() => [] as RestSourceSpec[]);
 
   // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
   // the registry (agent-chat-surface.md §9 — routing is delegation): agents
@@ -531,36 +523,13 @@ async function getBlueprint(orgId: string, agentSlug: string): Promise<AgentBlue
  * @param request - What this one request brings.
  */
 function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: AgentRequest): RuntimeContext {
-  const row = blueprint.agentRow;
-  return {
-    orgId,
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    enabledPlugins: blueprint.enabledPlugins,
-    filingTypes: blueprint.filingTypes,
-    restSources: blueprint.restSources,
-    searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig: row.harnessConfig ?? {},
-    defaultTimeZone: blueprint.defaultTimeZone,
-    // The person's zone for this turn, else the workspace's.
-    timeZone: resolveTimeZone(request.timeZone, blueprint.defaultTimeZone),
-    emit: request.emit,
-    userId: request.userId,
-    allowedSourceSlugs: request.allowedSourceSlugs,
-    missionSlug: request.missionSlug,
-    missionRunId: request.missionRunId,
-    conversationId: request.conversationId,
-    pageContext: request.pageContext,
-    turnMessage: request.turnMessage,
+  return runtimeContextFromScope(orgId, blueprint.agentRow, blueprint, {
+    ...request,
     provider: 'local',
     // Delegation attribution for this turn only: the tool-call record reads
     // it to credit a specialist's calls (taskId → specialist name).
     delegations: new Map(),
-    // Citation numbering restarts each turn, and the numbers the model cites
-    // must belong to the sources THIS turn retrieved.
-    citationSeq: { current: 0 },
-  };
+  });
 }
 
 /**

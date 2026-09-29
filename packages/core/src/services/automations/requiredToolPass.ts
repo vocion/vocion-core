@@ -66,14 +66,12 @@ export async function forceRequiredTool(opts: {
   if (!agent) {
     return { called: false, answer: `no agent "${opts.agentSlug}" in this workspace` };
   }
-  const ctx: RuntimeContext = {
-    orgId: opts.orgId,
-    citationSeq: { current: 0 },
-    agentSlug: agent.slug,
-    connectorSources: agent.connectorSources ?? [],
-    objectTypeSlugs: agent.objectTypeSlugs ?? [],
-    searchConfig: (agent.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig: agent.harnessConfig ?? {},
+  // THE SAME BELT THE RUN HAD — typed filing tools and REST sources included.
+  // A requirement of `file_<type>` (the planner's `file_architecture_plan`,
+  // 2026-09-28) found no such tool here while the pass built its belt by hand
+  // without the agent's filing types; the shared builder cannot leave them out.
+  const { runtimeContextForAgent } = await import('@/services/agents/runtimeContext');
+  const ctx = await runtimeContextForAgent(opts.orgId, agent, {
     missionRunId: opts.missionRunId,
     // THE PASS ACTS FOR WHOEVER THE RUN ACTED FOR (prod 2026-09-29: the
     // planner's plans for #130 and #224 were refused "13 of 10" five times
@@ -81,15 +79,7 @@ export async function forceRequiredTool(opts: {
     // initiative, so a factory step (`isFactoryStep`) was charged the weekly
     // idea cap the run itself is exempt from.
     ...(opts.invokedBy ? { userId: opts.invokedBy } : {}),
-    emit: () => {},
-  } as RuntimeContext;
-  // THE TYPED FILING TOOLS TOO. A requirement of `file_<type>` (the planner's
-  // `file_architecture_plan`, 2026-09-28) found no such tool here, because the
-  // pass built its belt without the agent's filing types.
-  const { loadFilingTypes } = await import('@/services/agents/tools/fileRecord');
-  ctx.filingTypes = await loadFilingTypes(opts.orgId, agent.objectTypeSlugs ?? []).catch(() => []);
-  const { loadRestSources } = await import('@/services/agents/tools/restDirect');
-  ctx.restSources = await loadRestSources(opts.orgId, agent.connectorSources ?? []).catch(() => []);
+  });
   const { buildDomainTools } = await import('@/services/agents/tools/registry');
   const tool = buildDomainTools(ctx).find(t => t.name === toolName) as StructuredToolInterface | undefined;
   if (!tool) {

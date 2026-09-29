@@ -18,7 +18,6 @@
  */
 
 import type { z } from 'zod';
-import type { RuntimeContext } from '@/services/agents/types';
 import { HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -28,6 +27,7 @@ import { buildChatModelForOrg } from '@/libs/llm';
 import { usageMetadataOf } from '@/libs/llm/usage';
 import { logger } from '@/libs/Logger';
 import { agentSchema } from '@/models/Schema';
+import { runtimeContextForAgent } from '@/services/agents/runtimeContext';
 import { buildDomainTools } from '@/services/agents/tools/registry';
 import { chargeModelCall } from '@/services/budget/chargeModelCall';
 import { mountSkills } from '@/services/playbooks/mount';
@@ -164,17 +164,10 @@ export async function runSkillTurn<T>(opts: SkillTurnOptions<T>): Promise<SkillT
     .filter(([path]) => path !== `/skills/${opts.skillSlug}/SKILL.md`)
     .map(([path, body]) => `--- ${path} ---\n${body}`);
 
-  const ctx: RuntimeContext = {
-    orgId: opts.orgId,
-    userId: opts.userId,
-    citationSeq: { current: 0 },
-    agentSlug: agent.slug,
-    connectorSources: agent.connectorSources ?? [],
-    objectTypeSlugs: agent.objectTypeSlugs ?? [],
-    searchConfig: (agent.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig: agent.harnessConfig ?? {},
-    emit: () => {},
-  };
+  // The agent's whole belt, from the one builder every loop uses — a REST
+  // source's reads and the typed filing tools included, so an allowlist that
+  // names one finds it.
+  const ctx = await runtimeContextForAgent(opts.orgId, agent, { userId: opts.userId });
 
   // Allowlist by name against the registry, so grant/source gating still
   // applies — a name the gates withheld simply is not there to call.
