@@ -17,6 +17,7 @@ import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostMicroCents } from '@/libs/pricing';
+import { toolPrefixFor } from '@/libs/rest/spec';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { versionLinksDelta } from '@/libs/versions/versionRef';
 import { agentSchema } from '@/models/Schema';
@@ -877,7 +878,11 @@ export async function runAgentDeep(opts: {
   // derive the answer text (LEAD assistant text only — a subagent's text
   // stays in its nested reason node and never leaks into the reply) and the
   // tool outputs the post-run sanitizer needs.
-  const tracer = new TraceEmitter({ leadName: compiled.agentRow.name ?? compiled.agentRow.slug ?? 'Assistant' });
+  const tracer = new TraceEmitter({
+    leadName: compiled.agentRow.name ?? compiled.agentRow.slug ?? 'Assistant',
+    // The REST sources this agent holds, so a step names the system it asked.
+    labelHints: { restSources: (compiled.ctx.restSources ?? []).map(s => ({ slug: s.slug, prefix: toolPrefixFor(s.slug, s.config), name: s.name })) },
+  });
   const PLUMBING = new Set(['write_todos', 'ls', 'glob', 'grep', 'read_file', 'edit_file', 'write_file']);
 
   const nsFor = (ev: RawStreamEvent): string => {

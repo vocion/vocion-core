@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fallbackStepLabels, isSafeStepLabels, normalizeStepLabels, stepLabelFor, stepProgressLabel } from './stepLabels';
+import { fallbackStepLabels, isSafeStepLabels, normalizeStepLabels, proposalStepLabels, restProposalWords, restSourceOfTool, stepLabelFor, stepProgressLabel } from './stepLabels';
 
 describe('fallbackStepLabels', () => {
   it('names the act, not the mechanism, for the tools a person sees most', () => {
@@ -54,5 +54,46 @@ describe('a long step says where it has got to', () => {
     expect(stepProgressLabel(stepLabelFor(labels, 'progress'))).toBe('Rendering the document…');
     expect(stepProgressLabel(stepLabelFor(labels, 'progress'), '  ')).toBe('Rendering the document…');
     expect(stepProgressLabel(stepLabelFor(labels, 'done'), 'sheet 7 of 12')).toBe('Rendered the document sheet 7 of 12');
+  });
+});
+
+describe('a REST source\'s tools name the source, then the act', () => {
+  const hints = { restSources: [
+    { slug: 'acme-delivery', prefix: 'delivery', name: 'Acme Delivery API' },
+    { slug: 'api', prefix: 'api', name: 'Short API' },
+    { slug: 'api-v2', prefix: 'api_v2', name: 'Longer API' },
+  ] };
+
+  it('renders <prefix>_<name> as "<Source name> · <name humanised>", in both tenses', () => {
+    expect(fallbackStepLabels('delivery_list_projects', hints)).toEqual({ running: 'Acme Delivery API · Listing projects…', done: 'Acme Delivery API · Listed projects' });
+    expect(fallbackStepLabels('delivery_get_project', hints)).toEqual({ running: 'Acme Delivery API · Reading project…', done: 'Acme Delivery API · Read project' });
+    expect(fallbackStepLabels('delivery_list_actions', hints)).toEqual({ running: 'Acme Delivery API · Listing actions…', done: 'Acme Delivery API · Listed actions' });
+    // A name with no known verb still reads as the source, then the words.
+    expect(fallbackStepLabels('delivery_milestones_due', hints)).toEqual({ running: 'Acme Delivery API · Running milestones due…', done: 'Acme Delivery API · Ran milestones due' });
+  });
+
+  it('matches the longest prefix, and leaves every other tool to the generic rules', () => {
+    expect(restSourceOfTool('api_v2_list_users', hints)?.name).toBe('Longer API');
+    expect(restSourceOfTool('api_list_users', hints)?.name).toBe('Short API');
+    expect(restSourceOfTool('apix_list_users', hints)).toBeUndefined();
+    expect(fallbackStepLabels('hubspot_get_contact', hints).done).toBe('Read the HubSpot contact');
+    // Without hints the prefix is just a word, as it always was.
+    expect(fallbackStepLabels('delivery_list_projects')).toEqual({ running: 'Running the delivery list projects…', done: 'Ran the delivery list projects' });
+  });
+
+  it('reads a rest.request proposal as "Proposed <action> on <source>", by display name when known, else the slug', () => {
+    const args = { action_id: 'rest.request', action_input: { sourceSlug: 'acme-delivery', action: 'update_milestone', input: { documentId: 'm-12' }, summary: 'Move it.' } };
+
+    expect(proposalStepLabels(args, hints)).toEqual({ running: 'Proposing update milestone on Acme Delivery API…', done: 'Proposed update milestone on Acme Delivery API' });
+    expect(proposalStepLabels(args)).toEqual({ running: 'Proposing update milestone on acme-delivery…', done: 'Proposed update milestone on acme-delivery' });
+    expect(restProposalWords(args.action_input, hints)).toBe('update milestone on Acme Delivery API');
+  });
+
+  it('leaves every other proposal, and a malformed rest.request, to the generic draft label', () => {
+    expect(proposalStepLabels({ action_id: 'hubspot.update', action_input: { sourceSlug: 'hubspot' } }, hints)).toBeNull();
+    expect(proposalStepLabels({ action_id: 'rest.request', action_input: { sourceSlug: 'acme-delivery' } }, hints)).toBeNull();
+    expect(proposalStepLabels({ action_id: 'rest.request' }, hints)).toBeNull();
+    expect(proposalStepLabels(undefined, hints)).toBeNull();
+    expect(restProposalWords('nope')).toBeNull();
   });
 });

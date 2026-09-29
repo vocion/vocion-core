@@ -283,3 +283,40 @@ describe('traceEmitter — a delegation that fails', () => {
     expect(em.takeSideEvents()).toEqual([]);
   });
 });
+
+describe('traceEmitter — a workspace\'s REST sources name their steps', () => {
+  const labelHints = { restSources: [{ slug: 'acme-delivery', prefix: 'delivery', name: 'Acme Delivery API' }] };
+
+  it('labels a REST tool as the source then the act, keeps it for done, and withholds it from the model half', () => {
+    const em = new TraceEmitter({ leadName: 'Lead', labelHints });
+    const start = em.handle({ event: 'on_tool_start', name: 'delivery_list_projects', metadata: { checkpoint_ns: 'tools:r1' }, data: { input: { input: '{"status":"active"}' } } });
+
+    expect(start[0]).toMatchObject({ kind: 'tool', status: 'start', label: 'Acme Delivery API · Listing projects…', labels: { done: 'Acme Delivery API · Listed projects' } });
+    expect(em.wantsLabels('r1')).toBe(false);
+
+    const end = em.handle({ event: 'on_tool_end', name: 'delivery_list_projects', metadata: { checkpoint_ns: 'tools:r1' }, data: { output: { content: '[{"documentId":"p1"}]' } } });
+
+    expect(end[0]?.label).toBe('Acme Delivery API · Listed projects');
+  });
+
+  it('says which endpoint on which source a rest.request proposal is, and how it failed', () => {
+    const em = new TraceEmitter({ leadName: 'Lead', labelHints });
+    const args = JSON.stringify({ action_id: 'rest.request', action_input: { sourceSlug: 'acme-delivery', action: 'update_milestone', input: {}, summary: 'x' } });
+    const start = em.handle({ event: 'on_tool_start', name: 'propose_action', metadata: { checkpoint_ns: 'tools:r2' }, data: { input: { input: args } } });
+
+    expect(start[0]?.label).toBe('Proposing update milestone on Acme Delivery API…');
+
+    const failed = em.handle({ event: 'on_tool_error', name: 'propose_action', metadata: { checkpoint_ns: 'tools:r2' }, data: { error: new Error('refused') } });
+
+    expect(failed[0]?.label).toBe('Proposed update milestone on Acme Delivery API — failed');
+  });
+
+  it('still asks the model half about an ordinary tool, and keeps the generic draft label for other proposals', () => {
+    const em = new TraceEmitter({ leadName: 'Lead', labelHints });
+    em.handle({ event: 'on_tool_start', name: 'get_brand', metadata: { checkpoint_ns: 'tools:r3' }, data: { input: { input: '{}' } } });
+    const draft = em.handle({ event: 'on_tool_start', name: 'propose_action', metadata: { checkpoint_ns: 'tools:r4' }, data: { input: { input: '{"action_id":"hubspot.update"}' } } });
+
+    expect(em.wantsLabels('r3')).toBe(true);
+    expect(draft[0]?.label).toBe('Preparing a recommendation');
+  });
+});

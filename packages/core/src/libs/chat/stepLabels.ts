@@ -124,14 +124,62 @@ const VERBS: Record<string, [running: string, done: string]> = {
 const VENDORS: Record<string, string> = { hubspot: 'HubSpot', apollo: 'Apollo', zoom: 'Zoom', gmail: 'Gmail', granola: 'Granola', slack: 'Slack' };
 
 /**
+ * What a workspace knows that a tool name alone does not. A `rest` source's
+ * tools are `<prefix>_<name>` with a prefix the workspace chose, so
+ * `delivery_list_projects` can only read as "Acme Delivery API · Listing
+ * projects" when the labeller is told which prefix is which source.
+ */
+export type StepLabelHints = {
+  restSources?: ReadonlyArray<{ slug: string; prefix: string; name: string }>;
+};
+
+/**
+ * The REST source a tool name belongs to, by its prefix; the longest prefix
+ * wins when one is a prefix of another (`api` and `api_v2`).
+ * @param tool - The raw tool name.
+ * @param hints - What the workspace knows.
+ */
+export function restSourceOfTool(tool: string, hints?: StepLabelHints): { slug: string; prefix: string; name: string } | undefined {
+  let best: { slug: string; prefix: string; name: string } | undefined;
+  for (const source of hints?.restSources ?? []) {
+    if (source.prefix && tool.startsWith(`${source.prefix}_`) && (!best || source.prefix.length > best.prefix.length)) {
+      best = source;
+    }
+  }
+  return best;
+}
+
+/**
+ * `['list', 'projects']` → `['Listing projects', 'Listed projects']`: the
+ * leading verb's two tenses and the object as written, no article.
+ * @param words - The name's words.
+ */
+function humanise(words: string[]): [running: string, done: string] {
+  const verbEntry = words.length > 0 ? VERBS[words[0]!] : undefined;
+  const [running, done] = verbEntry ?? ['Running', 'Ran'];
+  const object = (verbEntry ? words.slice(1) : words).join(' ');
+  return [object ? `${running} ${object}` : running, object ? `${done} ${object}` : done];
+}
+
+/**
  * A deterministic name for a tool step. Never wrong, occasionally plain:
  * the model half improves on it when it can.
+ *
+ * A `rest` source's tool reads as the source, then the act — "Acme Delivery
+ * API · Listing projects…" — so a person watching knows which system was
+ * asked, which is the one thing a generic name cannot say.
  * @param tool - The raw tool name, e.g. `hubspot_get_contact`.
+ * @param hints - What the workspace knows: its REST sources and their prefixes.
  */
-export function fallbackStepLabels(tool: string): StepLabels {
+export function fallbackStepLabels(tool: string, hints?: StepLabelHints): StepLabels {
   const known = KNOWN[tool];
   if (known) {
     return known;
+  }
+  const source = restSourceOfTool(tool, hints);
+  if (source) {
+    const [running, done] = humanise(tool.slice(source.prefix.length + 1).split(/[-_]/).filter(Boolean).map(w => w.toLowerCase()));
+    return { running: `${source.name} · ${running}…`, done: `${source.name} · ${done}` };
   }
   const words = tool.split(/[-_]/).filter(Boolean).map(w => w.toLowerCase());
   let vendor: string | undefined;
@@ -145,6 +193,42 @@ export function fallbackStepLabels(tool: string): StepLabels {
   const object = [vendor, objectWords].filter(Boolean).join(' ');
   const noun = object ? ` the ${object}` : '';
   return { running: `${running}${noun}…`, done: `${done}${noun}` };
+}
+
+/**
+ * What a `rest.request` proposal is, in words: "update milestone on Acme
+ * Delivery API" — the action's name humanised, on the source's display name
+ * when the hints know it, else its slug. Null for anything that is not a
+ * well-formed `rest.request` input.
+ * @param actionInput - The proposal's `action_input`.
+ * @param hints - What the workspace knows.
+ */
+export function restProposalWords(actionInput: unknown, hints?: StepLabelHints): string | null {
+  if (!actionInput || typeof actionInput !== 'object') {
+    return null;
+  }
+  const { action, sourceSlug } = actionInput as Record<string, unknown>;
+  if (typeof action !== 'string' || !action.trim() || typeof sourceSlug !== 'string' || !sourceSlug.trim()) {
+    return null;
+  }
+  const source = hints?.restSources?.find(s => s.slug === sourceSlug)?.name ?? sourceSlug;
+  return `${action.replace(/[-_]+/g, ' ').trim()} on ${source}`;
+}
+
+/**
+ * The labels for a `propose_action` step when the proposal is a
+ * `rest.request`: "Proposing update milestone on Acme Delivery API…" /
+ * "Proposed update milestone on Acme Delivery API". Null for every other
+ * proposal, which keeps its generic draft label.
+ * @param args - The `propose_action` call's arguments.
+ * @param hints - What the workspace knows.
+ */
+export function proposalStepLabels(args: Record<string, unknown> | undefined, hints?: StepLabelHints): StepLabels | null {
+  if (args?.action_id !== 'rest.request') {
+    return null;
+  }
+  const words = restProposalWords(args.action_input, hints);
+  return words ? { running: `Proposing ${words}…`, done: `Proposed ${words}` } : null;
 }
 
 /**

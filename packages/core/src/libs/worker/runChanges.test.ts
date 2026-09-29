@@ -67,3 +67,9 @@ describe('the first lines of a run\'s report', () => {
     expect(reportLead('\n\n')).toBeNull();
   });
 });
+
+it('names the endpoint and the source of a pending rest.request, not "request"', () => {
+  expect(runChanges([
+    call('propose_action', { action_id: 'rest.request', action_input: { sourceSlug: 'acme-delivery', action: 'update_milestone', input: { documentId: 'm-12' }, summary: 'Move it.' } }, 'Proposed rest.request → action run #9 is PENDING human approval in the review queue (confidence 0.7).'),
+  ])).toEqual([{ text: 'Proposed update milestone on acme-delivery — waiting for a person', href: null }]);
+});

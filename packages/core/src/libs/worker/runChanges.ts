@@ -14,6 +14,7 @@
  */
 
 import type { RecordLinker } from '@/libs/workspace/recordHref';
+import { restProposalWords } from '@/libs/chat/stepLabels';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 
 export type RunCallRow = {
@@ -94,7 +95,9 @@ export function callChange(call: RunCallRow, link: RecordLinker = genericRecordL
         return { text: `Ran ${actionWords(action)}${what}`, href };
       }
       if (pending || /was updated in place/.test(out)) {
-        return { text: `Proposed ${actionWords(action)} — waiting for a person`, href: null };
+        // A REST write says which endpoint on which source, not "request".
+        const words = action === 'rest.request' ? restProposalWords(input.action_input) : null;
+        return { text: `Proposed ${words ?? actionWords(action)} — waiting for a person`, href: null };
       }
       return null;
     }
