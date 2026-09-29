@@ -23,6 +23,7 @@ import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
+import { restRequestAction } from './rest';
 import { teamHireAgentAction } from './team-hire-agent';
 import { wikiWritePageAction } from './wiki-write-page';
 import { workspaceWriteOperatingIntentAction } from './workspace-operating-intent';
@@ -45,6 +46,9 @@ export function listActions(): Action[] {
 // Built-ins.
 registerAction(gmailSendAction);
 registerAction(hubspotUpdateAction);
+// A write to any `rest` source through an endpoint it declares — external,
+// not reversible, keyed per endpoint on the ladder (`rest.request.<source>.<action>`).
+registerAction(restRequestAction);
 registerAction(discoveryReviewProposalAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);
