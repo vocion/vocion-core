@@ -102,6 +102,11 @@ describe('describeActionEffect', () => {
 describe('describeCardState', () => {
   const time = () => '7:50 AM';
 
+  it('a ruling reads as its answer, and says when the trust bar chose it (proposal 5210)', () => {
+    expect(describeCardState({ status: 'done', decidedBy: 'Dana Reyes', choice: { label: 'Show with upsell', byTrustBar: false } }, time)).toEqual({ label: 'You chose Show with upsell', tone: 'green' });
+    expect(describeCardState({ status: 'done', approvedByAgent: true, choice: { label: 'Hide on locked rows', byTrustBar: true } }, time)).toEqual({ label: 'Chose Hide on locked rows for you', tone: 'green' });
+  });
+
   it('names one state, never two at once', () => {
     expect(describeCardState({ status: null }, time).label).toBe('Waiting on you');
     // Meant to be filed and not: nothing is waiting on anyone (conversation 349).

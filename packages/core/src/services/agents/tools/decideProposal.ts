@@ -3,6 +3,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { deferUntil } from '@/features/dashboard/chat/deferral';
 import { isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
+import { personMessages, personSaidRecently } from '../owedDecision';
 
 /**
  * A PERSON DECIDES A CARD BY SAYING SO.
@@ -26,6 +27,13 @@ export function decideProposalTool(ctx: RuntimeContext) {
       if (isAgentsOwnSchedule(ctx) || !ctx.userId) {
         return 'Refused: only a person can decide a proposal, in their own turn. Say what you recommend and let them decide.';
       }
+      // THE PERSON'S WORDS ARE THE GATE (conversation 378): a decision taken
+      // for a person is one they said, in this turn's message (or the one
+      // before, when this one is a bare "do it"). A workspace token is the
+      // person's own client acting directly, so it carries no message.
+      if (!ctx.userId.startsWith('token:') && !personSaidRecently(await personMessages(ctx), input.decision)) {
+        return `Refused: the person has not said to ${input.decision} proposal #${input.id} in their message. Recommend it and let them say so, or let them press the card.`;
+      }
       const { decide, snooze } = await import('@/services/ReviewService');
       const item = { kind: 'action' as const, id: input.id };
       if (input.decision === 'defer') {
@@ -39,7 +47,7 @@ export function decideProposalTool(ctx: RuntimeContext) {
     },
     {
       name: 'decide_proposal',
-      description: 'Decide a pending proposal card on the person\'s behalf, in their own turn: approve, reject, or defer a week. Use when the person says which card and what to do with it ("approve the first one", "reject the admin panel", "defer the rename"). Never on your own schedule. The card redraws itself; reply in one sentence.',
+      description: 'Decide a pending proposal card on the person\'s behalf, in their own turn: approve, reject, or defer a week. Use when the person says which card and what to do with it ("approve the first one", "reject the admin panel", "defer the rename") — their words this turn are the gate; the tool refuses a decision they did not say. Never on your own schedule. The card redraws itself; reply in one sentence.',
       schema: z.object({
         id: z.number().int().positive().describe('The proposal (action run) id — on the card, or from list_proposals'),
         decision: z.enum(['approve', 'reject', 'defer']).describe('What the person said to do with it'),

@@ -210,6 +210,29 @@ describe('the card pass writes every card at once, on the scripted model', () =>
   });
 });
 
+describe('a question back is not a card when the person just said what to do (conversation 378, 2026-09-29)', () => {
+  const askBack: Card = { label: 'File the question on #201', delayMs: 1, args: { action_id: 'ask.file', action_input: { title: 'What is the bug?', body: 'Tool results came back empty.' }, label: 'File the question on #201', rationale: 'need context' } };
+  const over = { hasAction: (id: string) => ['gmail.send', 'ask.file'].includes(id) };
+
+  it('drops an ask.file card in reply to "write it", with the reason on the log, and writes no card', async () => {
+    const h = harness([askBack], over);
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.', instruction: 'write it' }, h.deps);
+
+    expect(out.listed).toBe(0);
+    expect(h.events.some(e => e.type === 'recommended_action')).toBe(false);
+    expect(out.notes[0]).toMatch(/File the question on #201\*\* — not a card: the person told you what to do/);
+  });
+
+  it('keeps the question when the person asked one', async () => {
+    const h = harness([askBack], over);
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.', instruction: 'what is blocking #201?' }, h.deps);
+
+    expect(out.listed).toBe(1);
+  });
+});
+
 describe('a build of something nobody filed is a filing (conversation 351, 2026-09-28)', () => {
   const dispatch: Card = {
     label: 'Dispatch: link expiry & auto-disable',
@@ -367,5 +390,55 @@ describe('the pieces', () => {
     expect(cardRecordRef({ requestId: '201' })).toEqual({ objectType: 'request', id: 201 });
     expect(cardRecordRef({ objectType: 'deal', id: 7 })).toEqual({ objectType: 'deal', id: 7 });
     expect(cardRecordRef({ to: 'a@b.example' })).toBeNull();
+  });
+});
+
+describe('a card input with one right repair is repaired, not refused (2026-09-29)', () => {
+  const fileBug: Card = {
+    label: 'File factory filing bug — plan writes to a pending review item',
+    delayMs: 5,
+    args: { action_id: 'ask.file', action_input: { body: 'Two planning runs wrote to a pending review item instead of filing a plan.' }, label: 'File factory filing bug — plan writes to a pending review item', rationale: 'seen twice today' },
+  };
+
+  it('fills a missing title from the label before the action\'s checks read it, and the card goes up', async () => {
+    const { getAction } = await import('@/libs/actions/registry');
+    const { repairActionInput } = await import('@/libs/actions/repairInput');
+    const seen: Array<Record<string, unknown>> = [];
+    const h = harness([fileBug], {
+      hasAction: id => id === 'ask.file',
+      precheck: async (_id, input) => {
+        seen.push(input);
+        return typeof input.title === 'string' ? undefined : 'its input does not fit ask.file: title: Invalid input: expected string, received undefined';
+      },
+      repair: (id, input, label) => repairActionInput(getAction(id)!.inputSchema, input, { label, baseUrl: 'https://agents.example.com' }),
+    });
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.' }, h.deps);
+
+    expect(seen[0]).toMatchObject({ title: 'Factory filing bug — plan writes to a pending review item' });
+    expect(out).toMatchObject({ emitted: 1, refused: 0, repaired: 1, notes: [] });
+    expect(h.events.filter(e => e.type === 'recommended_action')).toHaveLength(1);
+  });
+
+  it('the tool itself repairs the same input when the model calls it directly', async () => {
+    const events: AgentEvent[] = [];
+    const ctx = { orgId: 'org_cards', agentSlug: 'product-manager', emit: (e: AgentEvent) => events.push(e) } as unknown as RuntimeContext;
+    const out = String(await recommendActionTool(ctx).invoke(fileBug.args as never));
+
+    expect(out).toMatch(/^Surfaced a one-tap recommendation/);
+    expect((events.find(e => e.type === 'recommended_action') as Extract<AgentEvent, { type: 'recommended_action' }>).recommendation.input.title).toBe('Factory filing bug — plan writes to a pending review item');
+  });
+});
+
+describe('a card never carries what only the factory writes (#124)', () => {
+  it('drops a dispatch\'s internal fields before the check, so the card goes up', async () => {
+    const { repairCardInput } = await import('./cardBackstop');
+    const { getAction } = await import('@/libs/actions/registry');
+    const dispatch = getAction('factory.dispatch_task')!;
+    const out = repairCardInput(dispatch, { requestId: 124, reason: 'Restore the paths.', replan: false, trigger: 'recovery', autoRetryOf: 407 }, 'Restore & dispatch', 'https://agents.example.com');
+
+    expect(out.input).toEqual({ requestId: 124, reason: 'Restore the paths.' });
+    expect(out.repaired).toEqual(expect.arrayContaining(['dropped internal replan', 'dropped internal trigger', 'dropped internal autoRetryOf']));
+    expect(dispatch.inputSchema.safeParse(out.input).success).toBe(true);
   });
 });

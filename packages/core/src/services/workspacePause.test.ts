@@ -311,17 +311,20 @@ describe('what the switch deliberately allows', () => {
     const { executeAction } = await import('@/services/ActionService');
     const { getAction } = await import('@/libs/actions/registry');
     const { isManualAction } = await import('@/libs/actions/manual');
-    // `git.merge` is the factory's own hand-off — the one Chris performs by
-    // hand, which is exactly why a paused workspace still releases it.
-    const handoff = getAction('git.merge');
+    // `deploy.provision` is a hand-off — a person performs it by hand, which is
+    // exactly why a paused workspace still releases it. (`git.merge` was the
+    // example until 2026-09-29, when approving it began merging the PR itself —
+    // so a paused workspace now refuses it like any other code that runs.)
+    const handoff = getAction('deploy.provision');
 
     expect(handoff && isManualAction(handoff)).toBe(true);
+    expect(isManualAction(getAction('git.merge'))).toBe(false);
 
     const [run] = await db.insert(actionRunSchema).values({
       orgId: ORG,
-      actionId: 'git.merge',
+      actionId: 'deploy.provision',
       status: 'pending',
-      input: { riskClass: 'docs' },
+      input: { title: 'Provision the bucket', summary: 'A new bucket.', recipe: 'terraform apply' },
     } as never).returning();
     await pull();
 

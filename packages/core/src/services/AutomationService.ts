@@ -25,7 +25,7 @@ import {
   getTemporalClient,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
-import { automationRunSchema, automationSchema, knowledgeSourceSchema, toolCallSchema, userSchema } from '@/models/Schema';
+import { automationRunSchema, automationSchema, knowledgeSourceSchema, missionRunSchema, toolCallSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
 import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
@@ -918,6 +918,15 @@ export async function automationSourceFreshness(orgId: string, slugs: string[]):
 export const ABANDONED_RUN_AFTER_MS = 70 * 60_000;
 
 /**
+ * How long a mission check is given to start its mission run. `startMission`
+ * inserts the run within a second of the fire, so one with none after this
+ * never began: automation run 8561 (factory planning for #224, 2026-09-29) was
+ * recorded two seconds after the worker restarted, never started, and held the
+ * request "still planning" for 77 minutes.
+ */
+export const NEVER_STARTED_AFTER_MS = 15 * 60_000;
+
+/**
  * Close out fires that can no longer end.
  *
  * A `discovery-followup-check` row from 4 September sat `running` with no
@@ -949,7 +958,23 @@ export async function reconcileAbandonedRuns(opts: {
       opts.orgId ? eq(automationRunSchema.orgId, opts.orgId) : undefined,
     ))
     .returning({ id: automationRunSchema.id });
-  return { reconciled: rows.length, ids: rows.map(r => r.id) };
+  const neverStarted = await db
+    .update(automationRunSchema)
+    .set({
+      status: 'error',
+      error: 'abandoned: the check never started its run (the worker restarted as it fired)',
+      finishedAt: now,
+    })
+    .where(and(
+      eq(automationRunSchema.status, 'running'),
+      eq(automationRunSchema.kind, 'mission_check'),
+      lt(automationRunSchema.startedAt, new Date(now.getTime() - NEVER_STARTED_AFTER_MS)),
+      opts.orgId ? eq(automationRunSchema.orgId, opts.orgId) : undefined,
+      sql`not exists (select 1 from ${missionRunSchema} m where m.org_id = ${automationRunSchema.orgId} and m.caused_by @> jsonb_build_array(jsonb_build_object('automationRunId', ${automationRunSchema.id})))`,
+    ))
+    .returning({ id: automationRunSchema.id });
+  const ids = [...rows, ...neverStarted].map(r => r.id);
+  return { reconciled: ids.length, ids };
 }
 
 /* ------------------------------------------------------------------ */

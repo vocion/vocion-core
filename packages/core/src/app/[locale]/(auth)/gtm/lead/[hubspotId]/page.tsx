@@ -242,7 +242,7 @@ export default async function LeadPage(props: {
       targetRef={`lead_brief:${row.id}`}
       record={{ type: 'object', id: row.contactRef, label: row.contactName }}
       // The sequence draft is in view exactly when a decision is waiting, so
-      // that is exactly when the selection offers *Add change* and `(+)`
+      // that is exactly when the selection offers *Change* and `(+)`
       // offers `@change`.
       changeIntent={runState.run !== null}
     >

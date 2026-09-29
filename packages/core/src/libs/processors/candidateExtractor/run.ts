@@ -28,7 +28,9 @@ import type { DocumentProcessor, ProcessorResult } from '../types';
 import type { CandidateExtractorConfig } from './config';
 import type { PageLink } from '@/libs/sources/pageMetadata';
 import { pushScore } from '@/libs/Langfuse';
-import { dayPlus } from '@/libs/time/zone';
+import { icsOverriddenInstant, icsRecurrence } from '@/libs/sources/web';
+import { expandRecurrence } from '@/libs/time/recurrence';
+import { dayPlus, isoInZone, resolveTimeZone, startOfDay } from '@/libs/time/zone';
 import { keepIdentity, loadDocumentCards } from './identity';
 import { loadKnownCards } from './knownCards';
 import { labelRecords } from './labels';
@@ -99,6 +101,38 @@ async function learningStepsFor(orgId: string, config: CandidateExtractorConfig)
   }
 }
 
+/**
+ * The dates a repeating calendar entry falls on inside the horizon, for the
+ * prompt, or undefined when the document is not one or its rule is not read.
+ * @param content - the entry as the model reads it.
+ * @param metadata - the entry's stored metadata.
+ * @param metadata.feedUrl - the feed a split entry came from.
+ * @param metadata.calendarZone - the zone the calendar declares.
+ * @param metadata.overridden - the instances the feed writes as components of their own, as `splitIcs` stored them.
+ * @param config - the processor config.
+ * @param today - the run's day.
+ */
+function repeatingEntryDates(content: string, metadata: { feedUrl?: string; calendarZone?: string; overridden?: unknown }, config: CandidateExtractorConfig, today: string): string[] | undefined {
+  // A split calendar component, recognised by its text the way `splitFeed` in the web connector recognises the feed.
+  if (typeof metadata.feedUrl !== 'string' || !/^BEGIN:VEVENT/i.test(content)) {
+    return undefined;
+  }
+  const zone = resolveTimeZone(metadata.calendarZone, config.timezone);
+  const rec = icsRecurrence(content.split('\n'), zone);
+  if (!rec) {
+    return undefined;
+  }
+  const from = startOfDay(today, zone);
+  const to = new Date(startOfDay(dayPlus(today, config.recurrenceHorizonDays + 1), zone).getTime() - 1);
+  const stored = Array.isArray(metadata.overridden) ? metadata.overridden.filter((v): v is string => typeof v === 'string') : [];
+  const replaced = new Set(stored.map(v => icsOverriddenInstant(v, rec)?.getTime()).filter((t): t is number => t !== undefined));
+  const dates = expandRecurrence({ ...rec, from, to }).filter(d => !replaced.has(d.getTime()));
+  if (dates.length === 0) {
+    return undefined;
+  }
+  return dates.map(d => rec.allDay ? isoInZone(d, zone).slice(0, 10) : isoInZone(d, zone));
+}
+
 export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResult> => {
   const config = ctx.config as CandidateExtractorConfig;
   const counts: Record<string, number> = {};
@@ -118,6 +152,8 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     ogImage?: string;
     feedUrl?: string;
     endsOn?: string;
+    calendarZone?: string;
+    overridden?: unknown;
   };
 
   // A one-off entry that ended two days ago or more can only yield past
@@ -141,10 +177,12 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     notes.push(`learning steps that could not be read: ${rules.failedSteps.join(', ')}`);
   }
 
+  const occurrences = repeatingEntryDates(ctx.document.content, metadata, config, today);
   const prompt = buildExtractionPrompt({
     config,
     rules: rules.text,
     known: known.text,
+    occurrences,
     // Sent on its own only when the page text does not already carry it whole.
     jsonLd: jsonLdBlocks.length > 0 && metadata.jsonLdInText !== true ? JSON.stringify(jsonLdBlocks) : '',
     pageText: ctx.document.content,

@@ -5,6 +5,7 @@ import type { ProposalQueueEntry } from '@/services/InboxService';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/components/ui/toast';
+import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
 import { describeAction, ReviewFocusView } from '@/features/review/ReviewFocusView';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
@@ -129,12 +130,21 @@ export function ReviewFocus(props: {
     return undefined;
   };
 
-  const onDecide = async (decision: 'approve' | 'reject') => {
+  const once = useSingleFlight();
+  const onDecide = (decision: 'approve' | 'reject') => once(async () => {
     setBusy(true);
     const title = describeAction(run).title;
     try {
       const editedInput = decision === 'approve' ? buildEditedInput() : undefined;
-      const outcome = await withMinimumPending(client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) }));
+      // A second press (or another tab) that finds the run already where it
+      // was asked to go is the decision landing, not a failure.
+      const outcome = await withMinimumPending(client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) }))
+        .catch((err: unknown) => {
+          if (alreadySettled((err as Error)?.message, decision)) {
+            return { execution: undefined };
+          }
+          throw err;
+        });
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
         toast.error(`Approved, but it failed to run · ${title}`, { description: outcome.execution.error ?? 'The action threw. It stays on the review queue; Approve again to retry.' });
         router.refresh();
@@ -154,7 +164,7 @@ export function ReviewFocus(props: {
     } finally {
       setBusy(false);
     }
-  };
+  });
 
   const onSnooze = async (days: number) => {
     setBusy(true);

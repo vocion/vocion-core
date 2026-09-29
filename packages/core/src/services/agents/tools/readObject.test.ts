@@ -35,6 +35,46 @@ describe('read_object', () => {
     expect(parsed.id).toBe(3);
   });
 
+  it('puts the record\'s history up front, counted and dated, so a cut replay still carries it', async () => {
+    // Conversation 364 (2026-09-29): the plan gate fired twice on request
+    // #224; the replay cut the read at 1,200 characters, before `recovery`,
+    // and the next turn called the true count an invention.
+    const line = 'the allowed paths span 3 packages (apps/relay-api, apps/relay-web, apps/relay-site), so an architectural boundary is being crossed';
+    const recovery = {
+      stage: 'planning',
+      line: `Planning — ${line}`,
+      limit: 3,
+      since: null,
+      log: [
+        { at: '2026-01-05T03:22:35.309Z', text: 'Filed; the Build card is waiting on a person (action #15).', runId: null },
+        { at: '2026-01-05T03:22:41.872Z', text: `Planning first: ${line}.`, runId: null },
+        { at: '2026-01-05T03:23:09.195Z', text: `Planning first: ${line}.`, runId: null },
+      ],
+      attempts: [
+        { n: 1, at: '2026-01-05T03:22:41.872Z', kind: 'plan', trigger: 'request', runId: null, taskId: null, line, failure: null },
+        { n: 2, at: '2026-01-05T03:23:09.195Z', kind: 'plan', trigger: 'request', runId: null, taskId: null, line, failure: null },
+      ],
+    };
+    getBusinessObject.mockResolvedValue({ id: 24, title: 'Copy link on each row', status: 'approved', metadata: { body: 'b'.repeat(1200), recovery } });
+
+    const out = await readObjectTool(ctx(['request'])).invoke({ object_type: 'request', id: 24 }) as string;
+    const parsed = JSON.parse(out);
+
+    expect(parsed.recoverySummary).toMatchObject({ automaticAttempts: 2, byKind: { plan: 2 }, logEntries: 3, stage: 'planning', limit: 3 });
+    expect(parsed.recoverySummary.attemptsAt).toEqual(['plan #1 at 2026-01-05T03:22:41.872Z', 'plan #2 at 2026-01-05T03:23:09.195Z']);
+    // Before the fields, inside what a 1,200-character replay keeps.
+    expect(out.indexOf('"automaticAttempts":2')).toBeGreaterThan(0);
+    expect(out.indexOf('plan #2 at')).toBeLessThan(1200);
+    // The record itself is still whole.
+    expect(parsed.recovery.log).toHaveLength(3);
+  });
+
+  it('adds no summary to a record the factory never carried', async () => {
+    getBusinessObject.mockResolvedValue({ id: 5, title: 'Plain', status: 'active', metadata: { body: 'x' } });
+
+    expect(JSON.parse(await readObjectTool(ctx(['request'])).invoke({ object_type: 'request', id: 5 }) as string).recoverySummary).toBeUndefined();
+  });
+
   it('says so when the id is not a record here', async () => {
     getBusinessObject.mockResolvedValue(null);
 

@@ -83,7 +83,7 @@ export function evidenceBlock(toolCalls: ReadonlyArray<AnswerBackstopToolCall>):
  * @param steps - How many tool steps ran.
  */
 export function answerPassSystem(systemPrompt: string | undefined, steps: number): string {
-  return `${systemPrompt ?? ''}\n\nYou ran ${steps} tool step${steps === 1 ? '' : 's'} and ended your turn without answering the person; your reply so far is a sentence saying you would look. The results of those steps are below. Answer the person NOW, from those results, in your own voice. Phone-length: the one thing to do first, then at most one screen of why; detail belongs to a follow-up. Do not call tools and do not narrate what you are about to do. If the results do not settle something, say exactly what you could not establish and what would — never guess. If the person asked for something to be filed, decided or recommended and you did not do it, say so plainly and say what you need from them to do it. Speak as yourself: never mention this pass, a "live tool turn", or how your turns work — the person sees one answer from one agent (2026-09-25: a reply said "I cannot file those from the ANSWER PASS").`.trim();
+  return `${systemPrompt ?? ''}\n\n${steps > 0 ? `You ran ${steps} tool step${steps === 1 ? '' : 's'} and ended your turn without answering the person; your reply so far is a sentence saying you would look. The results of those steps are below.` : 'You ended your turn without answering the person and ran no tool in it. The conversation so far and the page the person is on are below: they are what you know — never say the context is missing or that results came back empty when the conversation holds them.'} Answer the person NOW, from those results, in your own voice. Phone-length: the one thing to do first, then at most one screen of why; detail belongs to a follow-up. Do not call tools and do not narrate what you are about to do. If the results do not settle something, say exactly what you could not establish and what would — never guess. If the person asked for something to be filed, decided or recommended and you did not do it, say so plainly; ask them only for what the conversation does not already hold, never for what they just told you. Speak as yourself: never mention this pass, a "live tool turn", or how your turns work — the person sees one answer from one agent (2026-09-25: a reply said "I cannot file those from the ANSWER PASS").`.trim();
 }
 
 /**
@@ -97,6 +97,7 @@ export function answerPassSystem(systemPrompt: string | undefined, steps: number
  * @param input.compose - The model call (injected in tests).
  * @param input.endedOnTool
  * @param input.onDelta - Receives the answer as it streams.
+ * @param input.history
  * @returns The text to append, or null when the turn already answered or the pass could not.
  */
 export async function runAnswerBackstop(input: {
@@ -108,14 +109,24 @@ export async function runAnswerBackstop(input: {
   compose: AnswerComposer;
   endedOnTool?: boolean;
   onDelta?: (delta: string) => void;
+  /**
+   * The conversation before this turn, oldest first. Conversation 378
+   * (2026-09-29): a turn that thought and wrote nothing reached this pass
+   * with no tool results, and the pass — handed only "write it" — answered
+   * "I don't have enough context from the prior steps". The thread held all
+   * of it. The pass reads what the turn could read.
+   */
+  history?: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }>;
 }): Promise<string | null> {
   if (!owesAnswer(input.finalText, input.toolCalls, input.endedOnTool)) {
     return null;
   }
+  const convo = (input.history ?? []).slice(-6).map(t => `${t.role === 'user' ? 'Person' : 'You'}: ${t.content.slice(0, 3_000)}`).join('\n\n');
   const human = [
+    ...(convo ? [`The conversation so far:\n\n${convo}`] : []),
     `The person said:\n${input.request.trim()}`,
     `Your reply so far (do not repeat it):\n${input.finalText.trim() || '(nothing)'}`,
-    `What you already did and found:\n\n${evidenceBlock(input.toolCalls)}`,
+    `What you already did and found:\n\n${input.toolCalls.length > 0 ? evidenceBlock(input.toolCalls) : '(no tool ran this turn — answer from the conversation and the page above)'}`,
   ].join('\n\n---\n\n');
   try {
     const answer = (await input.compose({ orgId: input.orgId, system: answerPassSystem(input.systemPrompt, input.toolCalls.length), human, onDelta: input.onDelta })).trim();

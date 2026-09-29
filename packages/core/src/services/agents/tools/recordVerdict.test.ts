@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable } from './recordVerdict';
+import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable, sendBackRoute } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -94,6 +94,12 @@ describe('buildAgain', () => {
     expect(await buildAgain('org_x', { id: 165, meta: { requestId: 131, autoRetryOf: 164 } })).toMatch(/already the automatic retry/);
     expect(await buildAgain('org_x', { id: 165, meta: {} })).toBeNull();
   });
+
+  it('a retry may still send its work back to planning: that is a different step, bounded by the request\'s limit', async () => {
+    const res = await buildAgain('org_x', { id: 238, meta: { requestId: 224, autoRetryOf: 237, planId: 236 } }, { to: 'plan', why: 'a criterion stayed unproven on two attempts' });
+
+    expect(res ?? '').not.toMatch(/already the automatic retry/);
+  });
 });
 
 describe('clipNote', () => {
@@ -127,5 +133,28 @@ describe('reachable evidence', () => {
     expect(reachable('1008: query \'msa\' narrows 3 results to 1')).toBe(false);
     expect(reachable('3 results narrow to 1', new Set([1006, 1008]))).toBe(false);
     expect(judgeVerdict('changes', [{ criterion: 'Empty state offers Clear', status: 'proven', evidence: 'the caption says Clear is visible' }], []).refusal).toMatch(/a description, not evidence/);
+  });
+});
+
+describe('sendBackRoute — a send-back goes to the engineer or back to planning', () => {
+  const c = (criterion: string, status: 'proven' | 'unproven') => ({ criterion, status });
+
+  it('goes to the engineer by default', () => {
+    expect(sendBackRoute({ criteria: [c('Every row has the control', 'unproven')], planId: 236, previous: null }).to).toBe('engineer');
+  });
+
+  it('goes to planning when QA says the plan stands in the way', () => {
+    expect(sendBackRoute({ asked: 'plan', why: 'The plan never names the library page.', criteria: [], planId: 236 })).toEqual({ to: 'plan', why: 'The plan never names the library page.' });
+  });
+
+  it('goes to planning when the same criterion stays open two attempts running under one plan, whatever QA said', () => {
+    const route = sendBackRoute({ asked: 'engineer', criteria: [c('A visible confirmation appears', 'unproven'), c('Every row has the control', 'unproven')], planId: 236, previous: { planId: 236, criteria: [c('A visible confirmation appears', 'unproven'), c('Every row has the control', 'proven')] } });
+
+    expect(route.to).toBe('plan');
+    expect(route.why).toContain('"A visible confirmation appears"');
+  });
+
+  it('a repeat under a different plan is a new plan\'s first try, not a repeat', () => {
+    expect(sendBackRoute({ criteria: [c('A', 'unproven')], planId: 236, previous: { planId: 136, criteria: [c('A', 'unproven')] } }).to).toBe('engineer');
   });
 });

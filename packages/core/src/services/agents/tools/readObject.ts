@@ -24,6 +24,48 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { getBusinessObject } from '@/services/BusinessObjectService';
+import { readRecovery } from '@/services/factory/recovery';
+
+/**
+ * THE RECORD'S HISTORY, COUNTED, AT THE TOP.
+ *
+ * Conversation 364 (2026-09-29 05:12Z): the product manager read request
+ * #224 and said "the plan gate has fired twice" — true: action runs 5016
+ * (03:22:41Z) and 5018 (03:23:09Z), both logged on `metadata.recovery`.
+ * On "go" the next turn disowned it ("That wasn't in the record; I asserted
+ * it … No gate") — false. The record was 3,452 characters and `recovery`
+ * began at character 1,225; the replay of that read keeps 1,200
+ * (`chat/historyTools.ts`), so the next turn saw a record with no history in
+ * it and believed the cut. The history is now counted and dated in a few
+ * hundred characters before the fields, so it survives any cut and no turn
+ * has to count log lines to state it.
+ * @param meta - The record's metadata.
+ */
+export function recoverySummary(meta: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!meta.recovery || typeof meta.recovery !== 'object') {
+    return undefined;
+  }
+  const r = readRecovery(meta);
+  if (r.log.length === 0 && r.attempts.length === 0) {
+    return undefined;
+  }
+  const byKind: Record<string, number> = {};
+  for (const a of r.attempts) {
+    byKind[a.kind] = (byKind[a.kind] ?? 0) + 1;
+  }
+  const last = r.attempts.at(-1);
+  return {
+    from: 'metadata.recovery — the factory\'s own account of this record; these counts are exact',
+    automaticAttempts: r.attempts.length,
+    ...(r.attempts.length > 0 ? { byKind, attemptsAt: r.attempts.map(a => `${a.kind} #${a.n} at ${a.at}${a.runId ? ` (run ${a.runId})` : ''}`) } : {}),
+    ...(last ? { lastAttemptWhy: last.line.slice(0, 200) } : {}),
+    countedSince: r.since ?? 'the record was filed',
+    limit: r.limit,
+    stage: r.stage,
+    logEntries: r.log.length,
+    ...(r.log.length > 0 ? { firstLoggedAt: r.log[0]!.at, lastLoggedAt: r.log.at(-1)!.at } : {}),
+  };
+}
 
 export function readObjectTool(ctx: RuntimeContext) {
   const readable = ctx.objectTypeSlugs;
@@ -43,12 +85,16 @@ export function readObjectTool(ctx: RuntimeContext) {
       }
       // The whole record as JSON, which is what a caller that asked for one
       // record in full wants. It is data to work from, never text to paste
-      // back — the same rule lookup_objects carries.
+      // back — the same rule lookup_objects carries. The record's history
+      // comes counted, up front (`recoverySummary`).
+      const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      const summary = recoverySummary(meta);
       return JSON.stringify({
         id: row.id,
         title: row.title,
         status: row.status,
-        ...(row.metadata ?? {}) as Record<string, unknown>,
+        ...(summary ? { recoverySummary: summary } : {}),
+        ...meta,
       });
     },
     {

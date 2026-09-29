@@ -1,6 +1,6 @@
 import type { AgentCallView, AgentTaskView, RunHeader, RunLogData, RunLogEvent } from './runLog';
 import { describe, expect, it } from 'vitest';
-import { agentSteps, deriveSteps, eventLines, fallbackWorkerSteps, fireFailedLine, focusStep, formatDuration, mergeRunLog, refusedBeforeStart, startingFireId, stepOfPhase, stopReason, stripAnsi, workerSteps } from './runLog';
+import { agentSteps, deriveSteps, detailLines, eventLines, fallbackWorkerSteps, fireFailedLine, focusStep, formatDuration, mergeRunLog, refusedBeforeStart, startingFireId, stepOfPhase, stopReason, stripAnsi, workerSteps } from './runLog';
 
 function header(over: Partial<RunHeader> = {}): RunHeader {
   return {
@@ -296,5 +296,31 @@ describe('a mission run under a failed fire (backlog 032)', () => {
     expect(fireFailedLine('abandoned: worker restart or activity timeout — the fire never reported an outcome'))
       .toBe('failed: abandoned: worker restart or activity timeout');
     expect(fireFailedLine(null)).toBe('failed: the automation reported an error');
+  });
+});
+
+describe('the engineer\'s log reads like a Claude Code terminal (2026-09-29)', () => {
+  const ev = (phase: string, fields: Record<string, unknown>, seq = 1) => ({ seq, ts: '2026-09-29T17:30:00Z', step: null, level: 'info' as const, phase, message: null, fields });
+
+  it('draws the engineer\'s words as prose, a diff as +/- lines, and a command\'s output under it', () => {
+    expect(eventLines(ev('claude.text', { text: 'The route reads the org from the session; the helper should take it as an argument.' }))).toEqual([
+      { text: 'The route reads the org from the session; the helper should take it as an argument.', level: 'info', kind: 'say' },
+    ]);
+
+    const edit = eventLines(ev('claude.tool', { tool: 'Edit', target: 'apps/api/src/routes/documents.ts', diff: '- const doc = await loadDocument(id);\n+ const doc = await loadDocument(id, actingOrg);' }), { ok: true, error: null });
+
+    expect(edit.map(l => l.kind)).toEqual([undefined, 'del', 'add']);
+
+    const bash = eventLines(ev('claude.tool', { tool: 'Bash', target: 'npm test' }), { ok: true, error: null, output: 'Tests  12 passed (12)' });
+
+    expect(bash[1]).toEqual({ text: '  Tests  12 passed (12)', level: 'info', kind: 'out' });
+  });
+
+  it('caps a long diff and says how much was left out', () => {
+    const diff = Array.from({ length: 60 }, (_, i) => `+ line ${i}`).join('\n');
+    const lines = detailLines(diff, null);
+
+    expect(lines).toHaveLength(41);
+    expect(lines.at(-1)!.text).toBe('  … 20 more lines');
   });
 });

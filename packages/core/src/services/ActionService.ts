@@ -228,6 +228,7 @@ async function findDecidedRunForKey(
       decidedAt: actionRunSchema.decidedAt,
       executedAt: actionRunSchema.executedAt,
       createdAt: actionRunSchema.createdAt,
+      result: actionRunSchema.result,
     })
     .from(actionRunSchema)
     .where(and(
@@ -250,6 +251,9 @@ async function findDecidedRunForKey(
     if (Date.now() >= staleAt) {
       return undefined;
     }
+  }
+  if (!cardKey && config?.decisionStillStands && !(await config.decisionStillStands(orgId, (row.result ?? null) as Record<string, unknown> | null).catch(() => true))) {
+    return undefined;
   }
   return { id: row.id, status: row.status as 'done' | 'failed' | 'rejected', decidedAt };
 }
@@ -756,6 +760,28 @@ export async function willExecuteOnItsOwn(opts: { orgId: string; actionId: strin
     return true;
   }
   return (await ladderVerdict(opts.orgId, action, parsed.data as Record<string, unknown>, opts.proposal, undefined)).mode === 'execute';
+}
+
+/**
+ * Whether the workspace's trust bar for this action clears at this
+ * confidence — the ladder's own verdict (`ladderVerdict`), for a caller
+ * inside an action that decides a second thing on the same bar: a ruling
+ * answering itself with its recommended option (`ask.file`). Read-only;
+ * never a threshold of its own.
+ * @param opts - The action and what the bar is asked about.
+ * @param opts.orgId - Tenant.
+ * @param opts.actionId - The action whose bar applies.
+ * @param opts.input - Its input, unparsed.
+ * @param opts.confidence - How sure the proposer is.
+ */
+export async function clearsTrustBar(opts: { orgId: string; actionId: string; input: Record<string, unknown>; confidence: number }): Promise<boolean> {
+  const action = getAction(opts.actionId);
+  const parsed = action?.inputSchema.safeParse(opts.input);
+  if (!action || !parsed?.success) {
+    return false;
+  }
+  const verdict = await ladderVerdict(opts.orgId, action, parsed.data as Record<string, unknown>, { confidence: opts.confidence, suggestedDecision: 'approve' }, undefined);
+  return verdict.mode === 'execute';
 }
 
 /**

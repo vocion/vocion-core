@@ -90,7 +90,7 @@ export function callChange(call: RunCallRow, link: RecordLinker = genericRecordL
         if (action === 'objects.propose_candidate' && record) {
           return { text: `Filed ${record}`, href };
         }
-        const what = ids.workerRunId ? ` — engineering run #${ids.workerRunId}` : record ? ` — ${record}` : '';
+        const what = ids.workerRunId ? ` — run #${ids.workerRunId}` : record ? ` — ${record}` : '';
         return { text: `Ran ${actionWords(action)}${what}`, href };
       }
       if (pending || /was updated in place/.test(out)) {

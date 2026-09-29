@@ -271,6 +271,8 @@ export type AgentRequest = {
   conversationId?: number;
   /** Where the person is in the app right now, read by the `page_context` tool. */
   pageContext?: RuntimeContext['pageContext'];
+  /** The person's message this turn, for gates on the turn's own ask. */
+  turnMessage?: string;
   /** The person's own time zone for this turn; falls back to the workspace's. */
   timeZone?: string;
 };
@@ -536,6 +538,7 @@ function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: 
     missionRunId: request.missionRunId,
     conversationId: request.conversationId,
     pageContext: request.pageContext,
+    turnMessage: request.turnMessage,
     provider: 'local',
     // Delegation attribution for this turn only: the tool-call record reads
     // it to credit a specialist's calls (taskId → specialist name).

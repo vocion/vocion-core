@@ -83,6 +83,12 @@ const dispatchInput = z.object({
   recoveryClass: z.string().max(40).optional(),
   /** The worker's own "plan is required" sentence: plan first, whatever the rule reads. */
   planFirst: z.string().max(1000).optional(),
+  /**
+   * QA SENT IT BACK TO PLANNING (Chris, 2026-09-29: "does our flow handle a QA
+   * send back to plan?"): why the approved plan cannot be built as written. The
+   * plan is superseded and planned again with this as the brief, before any run.
+   */
+  replan: z.string().trim().min(1).max(1500).optional(),
 }).refine(v => v.taskId !== undefined || v.requestId !== undefined, { message: 'Name the engineering task (taskId), or the request (requestId) — the contract is filled from the request, its plan and the repo.' });
 
 type Meta = Record<string, unknown>;
@@ -154,6 +160,30 @@ async function engineerSlug(orgId: string, preferred: unknown): Promise<string |
   return workers[0] ?? null;
 }
 
+/**
+ * THE SEAT'S MODEL IS THE RUN'S MODEL (2026-09-29): `send-engineer` pinned
+ * `claude-opus-5`, and nothing carried it to the worker — every one of 60
+ * runs used the worker's `DEFAULT_MODEL` (Sonnet). The worker reads only
+ * `model_policy` on the contract, so the engineer seat's `harness.model`
+ * (and `harness.effort`, when it is one the worker takes) goes there.
+ * @param orgId - The workspace.
+ * @param slug - The engineer seat that will claim the run.
+ * @returns The policy, or null when the seat names no model.
+ */
+export async function seatModelPolicy(orgId: string, slug: string): Promise<{ model: string; effort?: string } | null> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { agentSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ harness: agentSchema.harnessConfig }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, slug))).limit(1);
+  const h = (row?.harness ?? {}) as { model?: unknown; effort?: unknown };
+  const model = typeof h.model === 'string' && h.model.trim() ? h.model.trim() : null;
+  if (!model) {
+    return null;
+  }
+  const effort = typeof h.effort === 'string' && ['low', 'medium', 'high', 'max'].includes(h.effort) ? h.effort : undefined;
+  return { model, ...(effort ? { effort } : {}) };
+}
+
 const str = (m: Meta, k: string): string | null => (typeof m[k] === 'string' && (m[k] as string).trim() !== '' ? (m[k] as string).trim() : null);
 const list = (m: Meta, k: string): string[] => (Array.isArray(m[k])
   ? (m[k] as unknown[]).map(v => (typeof v === 'string' ? v : (v && typeof v === 'object' && typeof (v as Meta).statement === 'string' ? (v as Meta).statement as string : ''))).filter(Boolean)
@@ -200,12 +230,13 @@ export function contractGaps(meta: Meta): string[] {
  * @param opts
  * @param opts.product
  * @param opts.plan
+ * @param opts.modelPolicy - The engineer seat's model (`seatModelPolicy`), used when the task names none.
  * @param opts.plan.id
  * @param opts.plan.approach
  * @param opts.plan.approvedBy
  * @param opts.plan.approvedAt
  */
-export function contractFromTask(task: { id: number; title: string; meta: Meta }, opts: { product: string | null; plan?: { id: number; approach: string | null; approvedBy: string; approvedAt: string } }): Record<string, unknown> {
+export function contractFromTask(task: { id: number; title: string; meta: Meta }, opts: { product: string | null; plan?: { id: number; approach: string | null; approvedBy: string; approvedAt: string }; modelPolicy?: { model: string; effort?: string } | null }): Record<string, unknown> {
   const m = task.meta;
   const repoSlug = str(m, 'repoSlug');
   const repo = str(m, 'repo') ?? (repoSlug ? `https://github.com/${repoSlug}.git` : null);
@@ -229,8 +260,11 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
   if (Array.isArray(m.dependencies)) {
     out.dependencies = m.dependencies;
   }
+  // A task's own policy wins; otherwise the engineer seat's (`seatModelPolicy`).
   if (m.modelPolicy && typeof m.modelPolicy === 'object') {
     out.model_policy = m.modelPolicy;
+  } else if (opts.modelPolicy) {
+    out.model_policy = opts.modelPolicy;
   }
   if (m.environment && typeof m.environment === 'object') {
     out.environment = m.environment;
@@ -299,9 +333,10 @@ export function riskFromPaths(paths: string[], defaults: Record<string, string>)
  * @param input.plan
  * @param input.repo
  * @param input.previous
+ * @param input.resume - The attempt this one continues from ({@link pickResumeBase}): its branch is the base, its verdict the brief.
  * @param input.note - What the person pressing Build (or the factory's recovery) asks of this attempt.
  */
-export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null; note?: string }): Meta {
+export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null; resume?: { id: number; meta: Meta } | null; note?: string }): Meta {
   const g = input.given;
   const r = input.request ?? {};
   const p = input.plan ?? {};
@@ -340,7 +375,16 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // was out of bounds, so the engineer stopped rather than create tables at runtime).
   const generatedFrom = (repo.generatedFrom ?? {}) as Record<string, string | string[]>;
   const sources = planPaths.flatMap(x => Object.entries(generatedFrom).filter(([glob]) => x.startsWith(glob.replace(/\*+$/, '').replace(/\/$/, ''))).flatMap(([, source]) => (Array.isArray(source) ? source : [source])));
-  const basePaths = [...new Set([...planPaths, ...sources])];
+  // …AND A SOURCE BRINGS WHAT IS GENERATED FROM IT (#130 run 418, 2026-09-29:
+  // the plan named packages/core/prisma/**, the engineer changed it and
+  // regenerated, and the rewritten apps/stamp-api/prisma/schema/core.prisma
+  // was "outside allowed_paths" — a correct change refused, $11.35 in). A
+  // generated file changes whenever its source does, so it is always in bounds.
+  const prefix = (glob: string) => glob.replace(/\*+$/, '').replace(/\/$/, '');
+  const generated = Object.entries(generatedFrom)
+    .filter(([, source]) => (Array.isArray(source) ? source : [source]).some(src => planPaths.some(x => x.startsWith(prefix(src)) || prefix(src).startsWith(prefix(x)))))
+    .map(([glob]) => glob);
+  const basePaths = [...new Set([...planPaths, ...sources, ...generated])];
   // EVERY PACKAGE TOUCHED MAY BE TESTED (QA on PR #36, 2026-09-26: "the control
   // the plan mandates is an integration test, and the contract's allowed paths
   // make writing one impossible"). Each app or package root a path lives in
@@ -375,19 +419,31 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const risk = givenRisk && (WORKER_RISK as readonly string[]).includes(givenRisk)
     ? givenRisk
     : riskFromPaths(paths, (repo.riskDefaults ?? {}) as Record<string, string>) ?? 'logic';
-  const repoSlug = str(g, 'repoSlug') ?? (Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null) ?? str(repo, 'title');
+  // AN OWNER IN THE SLUG (#130 run 416, 2026-09-29: plan #136 named its repo
+  // "squatch-core", and the worker cloned https://github.com/squatch-core.git).
+  // A bare name is qualified from the repo record's title (owner/name).
+  const planRepo = Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null;
+  const repoTitle = str(repo, 'title');
+  const qualified = (s: string | null) => (s && !s.includes('/') && repoTitle?.includes('/') && repoTitle.split('/').pop() === s ? repoTitle : s);
+  const repoSlug = qualified(str(g, 'repoSlug')) ?? qualified(planRepo) ?? repoTitle;
   // THE LAST ATTEMPT'S VERDICT IS THIS ATTEMPT'S BRIEF. QA sent #157 back
   // with "0 of 8 proven" and a line per criterion saying what would settle it
   // (2026-09-26); a rebuild that starts from the request alone repeats the
   // same gap. The unproven lines ride the objective, where the worker reads.
-  const prev = input.previous ?? null;
+  // The verdict that is carried is the one about the code this attempt starts from.
+  const resume = str(g, 'baseSha') ? null : input.resume ?? null;
+  const prev = resume ?? input.previous ?? null;
   const prevVerdict = (prev?.meta.verdict ?? null) as { note?: string; criteria?: Array<{ criterion?: string; status?: string; evidence?: string }> } | null;
   const owed = (prevVerdict?.criteria ?? []).filter(c => c.status !== 'proven' && c.criterion);
   const carried = prev && prevVerdict
     ? `\n\nThe last attempt (task #${prev.id}${str(prev.meta, 'prUrl') ? `, ${str(prev.meta, 'prUrl')}` : ''}) was sent back by ${(prevVerdict as { heldBy?: string }).heldBy === 'person' ? 'the person who merges' : 'QA'}: ${String(prevVerdict.note ?? 'changes asked').replace(/^A person held the merge: /, '')}${owed.length > 0 ? `\nProve each of these with evidence a reviewer can open (a named test, a screenshot of that exact state):\n${owed.map(c => `- ${c.criterion}${c.evidence ? ` (QA: ${c.evidence})` : ''}`).join('\n')}` : ''}`
     : '';
   const asked = input.note ? `\n\nFor this attempt: ${input.note}` : '';
-  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + carried + asked;
+  const resumeProven = resume ? (resume.meta.verdict as { proven?: number; total?: number } | undefined) : undefined;
+  const continued = resume
+    ? `\n\nThis attempt continues branch ${String(resume.meta.branch)} (task #${resume.id}, ${resumeProven?.proven ?? 0} of ${resumeProven?.total ?? '?'} criteria proven). Keep what is proven; change only what the open criteria need.`
+    : '';
+  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + carried + continued + asked;
   // A ui change is refused without a QA flow (the worker screenshots it
   // before and after). The request says where it lives; that page is the flow.
   const visuals = (r.visuals ?? {}) as Meta;
@@ -411,7 +467,8 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     ...(environment ? { environment } : {}),
     title: str(g, 'title') ?? (typeof r.title === 'string' ? r.title : null),
     objective: objective || null,
-    ...(prev ? { previousTaskId: prev.id } : {}),
+    ...(input.previous ? { previousTaskId: input.previous.id } : prev ? { previousTaskId: prev.id } : {}),
+    ...(resume ? { baseSha: String(resume.meta.branch), attempt: (Number(resume.meta.attempt) || 1) + 1, resumedFrom: resume.id } : {}),
     acceptanceContract: acceptance,
     allowedPaths: paths,
     requiredChecks: checks,
@@ -455,27 +512,55 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
 }
 
 /**
- * The newest attempt at this request that QA sent back, if any.
+ * The attempt a retry continues from: the one under this plan that proved the
+ * most, whatever came after it (#224, 2026-09-29: attempt 2 proved 6 of 8 on
+ * PR #121; attempt 3 started again from main, edited a component the library
+ * page does not render, and proved 1 of 8). An attempt that proved nothing is
+ * a wrong direction, never a base; one under another plan was built to other
+ * paths. Newest wins a tie.
+ * An attempt built before the plan's current approval was built to the plan
+ * as it read then (#130: plan #136 was rewritten in place for the Send →
+ * Stamp rename, and the resume picked a branch cut to the old paths).
+ * @param rows - The request's sent-back and superseded attempts.
+ * @param planId - The plan this build answers, or null when it has none.
+ * @param planApprovedAt - When that plan was last approved (ISO), if known.
+ */
+export function pickResumeBase(rows: Array<{ id: number; meta: Meta; createdAt?: Date | null }>, planId: number | null, planApprovedAt?: string | null): { id: number; meta: Meta } | null {
+  const proven = (m: Meta) => Number((m.verdict as { proven?: unknown } | undefined)?.proven ?? 0) || 0;
+  const samePlan = (m: Meta) => (Number(m.planId) > 0 ? Number(m.planId) : null) === planId;
+  const since = planApprovedAt ? Date.parse(planApprovedAt) : Number.NaN;
+  const afterApproval = (r: { createdAt?: Date | null }) => Number.isNaN(since) || !r.createdAt || r.createdAt.getTime() >= since;
+  const eligible = rows.filter(r => typeof r.meta.branch === 'string' && r.meta.branch.startsWith('factory/') && proven(r.meta) > 0 && samePlan(r.meta) && afterApproval(r));
+  return eligible.sort((a, b) => proven(b.meta) - proven(a.meta) || b.id - a.id)[0] ?? null;
+}
+
+/**
+ * The newest attempt at this request that QA sent back, and the attempt the
+ * next build continues from ({@link pickResumeBase}).
  * @param orgId - The workspace.
  * @param requestId - The request.
+ * @param planId - The plan this build answers.
+ * @param planApprovedAt - When that plan was last approved.
  */
-async function sentBackTask(orgId: string, requestId: number): Promise<{ id: number; meta: Meta } | null> {
-  const { and, eq, sql } = await import('drizzle-orm');
+async function sentBackTask(orgId: string, requestId: number, planId: number | null, planApprovedAt?: string | null): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
+  const { and, eq, inArray, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
-  const [row] = await db
-    .select({ id: businessObjectSchema.id, meta: businessObjectSchema.metadata })
+  const rows = await db
+    .select({ id: businessObjectSchema.id, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, createdAt: businessObjectSchema.createdAt })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(
       eq(businessObjectSchema.orgId, orgId),
       eq(businessObjectTypeSchema.slug, 'engineering_task'),
       sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
-      eq(businessObjectSchema.status, 'changes_requested'),
+      inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']),
     ))
     .orderBy(sql`${businessObjectSchema.id} desc`)
-    .limit(1);
-  return row ? { id: row.id, meta: (row.meta ?? {}) as Meta } : null;
+    .limit(20);
+  const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta, createdAt: r.createdAt }));
+  const latest = all.find(r => r.status === 'changes_requested') ?? null;
+  return { latest: latest ? { id: latest.id, meta: latest.meta } : null, resume: pickResumeBase(all, planId, planApprovedAt) };
 }
 
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
@@ -489,8 +574,8 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     ? await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? (stored ? str(stored.meta, 'repoSlug') : null) ?? (request ? str(request.meta, 'ownerRepo') : null), request ? str(request.meta, 'product') : null)
     : null;
   if (!stored && request) {
-    const previous = await sentBackTask(ctx.orgId, request.id);
-    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, note: input.note });
+    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null, plan ? str(plan.meta, 'approvedAt') : null);
+    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note });
     task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
   }
   return { task, plan, request, repo };
@@ -662,6 +747,51 @@ async function earlierStarts(orgId: string, requestId: number, excludeRunId?: nu
 }
 
 /**
+ * Close what a person's start of a request makes moot: its open "Stopped"
+ * ask (the recovery's) and any other pending Build card for it. Each closes
+ * with the reason, so the queue says what happened instead of waiting.
+ * @param orgId - The workspace.
+ * @param request - The request being started.
+ * @param request.id
+ * @param request.meta
+ * @param opts - Who started it, and the run doing so (never closed).
+ * @param opts.by
+ * @param opts.runId
+ */
+export async function settleMootDecisions(orgId: string, request: { id: number; meta: Meta }, opts: { by: string; runId: number | null }): Promise<{ asks: number[]; cards: number[] }> {
+  const { and, eq, ne, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const why = `A person started request #${request.id}${opts.runId ? ` (run #${opts.runId})` : ''}.`;
+  const asks: number[] = [];
+  const askId = Number((request.meta.recovery as { askId?: unknown } | undefined)?.askId);
+  if (Number.isInteger(askId) && askId > 0) {
+    const { getAsk, supersedeAsk } = await import('@/services/AskService');
+    const ask = await getAsk(orgId, askId);
+    if (ask && ask.status === 'open') {
+      await supersedeAsk(orgId, askId, `${why} This stop is answered.`);
+      asks.push(askId);
+    }
+  }
+  const pending = await db.select({ id: actionRunSchema.id }).from(actionRunSchema).where(and(
+    eq(actionRunSchema.orgId, orgId),
+    eq(actionRunSchema.actionId, DISPATCH_ACTION_ID),
+    eq(actionRunSchema.status, 'pending'),
+    sql`${actionRunSchema.input}->>'requestId' = ${String(request.id)}`,
+    ...(opts.runId ? [ne(actionRunSchema.id, opts.runId)] : []),
+  ));
+  const cards: number[] = [];
+  if (pending.length > 0) {
+    const { rejectAction } = await import('@/services/ActionService');
+    for (const row of pending) {
+      await rejectAction(row.id, orgId, `${why} This card is moot.`, { reviewedBy: opts.by }).catch(() => undefined);
+      cards.push(row.id);
+    }
+  }
+  return { asks, cards };
+}
+
+/**
  * The refusal for a start of a request that is already building, or null.
  * @param orgId - Tenant.
  * @param requestId - The request, when the start names one.
@@ -697,7 +827,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   // ONE BUILD CARD PER REQUEST: a card's own label hash never splits one
   // request into two runs, and a model cannot write the factory's triggers.
   ownsDedupKey: true,
-  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst'],
+  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst', 'replan'],
   policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : input.trigger ? `${DISPATCH_ACTION_ID}.${TRIGGER_KEY[input.trigger]}` : DISPATCH_ACTION_ID),
   async precheck(ctx, input) {
     const { externalWorkersEnabled } = await import('@/services/WorkerRunService');
@@ -783,18 +913,28 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     }
     const automatic = isAutomatic(input, ctx);
     const at = new Date().toISOString();
+    // A PERSON'S START SETTLES WHAT IT ANSWERS (Chris, 2026-09-29, #201:
+    // approving the re-dispatch left "Needs your decision: Stopped …" and a
+    // second card standing beside it). Whatever this start goes on to do —
+    // build or plan first — the stop is answered and any other Build card
+    // for the request is moot.
+    if (request && ctx.reviewedBy && !automatic) {
+      await settleMootDecisions(ctx.orgId, request, { by: ctx.reviewedBy, runId: ctx.runId ?? null }).catch(() => undefined);
+    }
     // A STALE PLAN IS PLANNED AGAIN BEFORE ANYTHING IS SENT: superseded, and
     // the planner is briefed with the paths that are gone and the ones that
     // exist. Undo puts the plan back as it was.
     const stale = await stalePlan(plan, loaded.repo);
     let supersededPlan: { id: number; status: unknown } | null = null;
-    if (stale && plan) {
+    if ((stale || input.replan) && plan) {
       const { replanBrief, staleFailure } = await import('@/services/factory/recovery');
       supersededPlan = { id: plan.id, status: plan.meta.status ?? null };
-      await supersedePlan(ctx.orgId, plan.id, `it ${stale.reason.replace(/^it /, '')}`, at);
+      await supersedePlan(ctx.orgId, plan.id, stale ? `it ${stale.reason.replace(/^it /, '')}` : `QA sent the build back to planning: ${input.replan}`, at);
       plan = null;
       if (request) {
-        const why = `plan #${supersededPlan.id} is stale; ${replanBrief(staleFailure(stale))}`.slice(0, 1000);
+        const why = (stale
+          ? `plan #${supersededPlan.id} is stale; ${replanBrief(staleFailure(stale))}`
+          : `QA sent the build of plan #${supersededPlan.id} back to planning: ${input.replan}`).slice(0, 1000);
         const { startPlanning } = await import('@/services/factory/carry');
         const planning = await startPlanning(ctx.orgId, { request, plan: null, why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
         return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, supersededPlan };
@@ -865,6 +1005,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     const contract = contractFromTask(task, {
       product: request ? str(request.meta, 'product') : null,
       plan: plan ? { id: plan.id, approach: str(plan.meta, 'approach'), approvedBy, approvedAt } : undefined,
+      modelPolicy: await seatModelPolicy(ctx.orgId, agentSlug),
     });
     const capCents = typeof task.meta.tokenBudget === 'number' ? Math.round(task.meta.tokenBudget * 100) : null;
     const run = await createWorkerRun({ orgId: ctx.orgId, agentSlug, input: { task: contract, record: { id: task.id, type: 'engineering_task' } }, capCents, createdBy: approvedBy });

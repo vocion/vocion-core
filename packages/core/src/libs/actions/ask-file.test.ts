@@ -298,3 +298,76 @@ describe('ask.withdraw', () => {
     expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.actionId, 'ask.withdraw'))).toHaveLength(0);
   });
 });
+
+describe('a ruling: one card per record, and its options are the answer (#124)', () => {
+  const ruling = (title: string, over: Record<string, unknown> = {}) => ({
+    title,
+    kind: 'ruling',
+    objectRefs: [{ type: 'request', id: 124 }],
+    options: [
+      // Unsure of its own recommendation, so the ruling waits for a person
+      // (above the bar it would answer itself: `ask-file.ladder.test.ts`).
+      { id: 'restore', label: 'Restore paths', recommended: true, confidence: 0.6 },
+      { id: 'split', label: 'Split the task' },
+    ],
+    ...over,
+  });
+  const fileRuling = (title: string, confidence = 0.9, over: Record<string, unknown> = {}) => proposeAction({
+    orgId: ORG,
+    actionId: 'ask.file',
+    principal: productManager(),
+    invokedBy: 'agent:product-manager',
+    input: ruling(title, over),
+    proposal: { confidence, rationale: 'test', suggestedDecision: null, suggestedDecisionReason: null },
+  });
+
+  it('keys a ruling on the record it is about, not its wording', () => {
+    expect(askFileAction.dedupKeyFor!(askFileAction.inputSchema.parse(ruling('Restore prisma paths & re-dispatch')))).toBe('ask.file:ruling:request:124');
+    expect(askFileAction.dedupKeyFor!(askFileAction.inputSchema.parse(ruling('Rule: restore or split?')))).toBe('ask.file:ruling:request:124');
+  });
+
+  it('a second wording of the same ruling refreshes the open ask instead of standing beside it', async () => {
+    await fileRuling('Restore prisma paths & re-dispatch from PR #99');
+    await fileRuling('Rule: restore prisma paths or split the task?');
+
+    const asks = await db.select().from(askSchema).where(eq(askSchema.orgId, ORG));
+
+    expect(asks).toHaveLength(1);
+    expect(asks[0]!.title).toBe('Rule: restore prisma paths or split the task?');
+  });
+
+  it('a person choosing an option files and answers in one press; a model cannot pre-answer', async () => {
+    const res = await fileRuling('Restore paths or split?', 0.2, { answer: 'restore' });
+
+    expect(res.status).toBe('pending');
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, res.runId));
+
+    // The model's `answer` was stripped at proposal: only a person sets it.
+    expect((run!.input as Record<string, unknown>).answer).toBeUndefined();
+
+    const { updateActionInput } = await import('@/services/ActionService');
+    await updateActionInput(res.runId, ORG, { ...(run!.input as Record<string, unknown>), answer: 'restore' });
+    const done = await executeAction(res.runId, ORG, { reviewedBy: 'usr-chris' });
+    const ask = await getAsk(ORG, (done.result as { askId: number }).askId);
+
+    expect(ask!.status).not.toBe('open');
+    expect(ask!.decision).toBe('restore');
+    expect(ask!.decidedBy).toBe('usr-chris');
+  });
+
+  it('the chosen option\'s action runs as the person who chose it', async () => {
+    const other = await file(0.9);
+    const otherId = (other.result as { askId: number }).askId;
+    const res = await fileRuling('Withdraw the stale question?', 0.9, {
+      objectRefs: [{ type: 'request', id: 125 }],
+      options: [{ id: 'withdraw', label: 'Withdraw it', action: { id: 'ask.withdraw', input: { askId: otherId, reason: 'Superseded by the ruling.' } } }, { id: 'keep', label: 'Keep it' }],
+    });
+    const rulingId = (res.result as { askId: number }).askId;
+
+    await decideAsk({ orgId: ORG, id: rulingId, decision: 'withdraw', decidedBy: 'usr-chris' });
+
+    expect((await getAsk(ORG, otherId))!.status).toBe('superseded');
+    expect((await getAsk(ORG, rulingId))!.decisionNote).toMatch(/Withdraw it: started \(run #\d+\)/);
+  });
+});

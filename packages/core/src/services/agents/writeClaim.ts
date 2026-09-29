@@ -51,11 +51,19 @@ function failed(output: string | undefined): boolean {
 }
 
 /**
+ * Did this one call write something — a write tool, not refused or failed?
+ * @param call - One tool call.
+ */
+export function writeLanded(call: WriteClaimToolCall): boolean {
+  return isWriteTool(call.tool) && !failed(call.output);
+}
+
+/**
  * Did any write succeed in this turn?
  * @param toolCalls - The turn's tool calls.
  */
 export function wroteInTurn(toolCalls: ReadonlyArray<WriteClaimToolCall>): boolean {
-  return toolCalls.some(c => isWriteTool(c.tool) && !failed(c.output));
+  return toolCalls.some(writeLanded);
 }
 
 const DONE_WORDS = 'filed|recorded|created|logged|submitted|saved|queued|opened';

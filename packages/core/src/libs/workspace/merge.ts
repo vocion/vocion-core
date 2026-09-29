@@ -10,6 +10,13 @@
  * Merge vocabulary (see docs/workspace.md):
  *   - Scalars & objects (model, systemPromptFile, searchConfig) → the
  *     workspace value REPLACES the base value wholesale.
+ *   - Except `harness`, which is merged KEY BY KEY: it is a bag of
+ *     independent settings (model, runsOn, excludeTools…), and an override
+ *     that pins a model must not silently drop the base's tool exclusions.
+ *     On 2026-09-29 the squatch-factory designer override
+ *     (`harness: {modelProvider, model}`) replaced the plugin's harness and
+ *     put render_document back on a designer built not to have it. Inside it,
+ *     arrays take the same directives; a whole-list value still replaces.
  *   - Arrays (skills, connectorSources, objectTypes) → default REPLACE;
  *     opt into extend semantics with directives:
  *       { $append: [x] }  → base list + x   (order-preserving, de-duped)
@@ -26,6 +33,9 @@ export type Origin = 'core' | 'workspace' | 'merged';
 export const EXTENDS_CORE = 'core';
 
 type Raw = Record<string, unknown>;
+
+/** Objects merged key by key rather than replaced (see the module doc). */
+const KEY_MERGED: ReadonlySet<string> = new Set(['harness']);
 
 type ArrayDirective = { $append?: unknown[]; $remove?: unknown[] };
 
@@ -101,6 +111,8 @@ export function mergeManifest(base: Raw, patch: Raw): Raw {
   for (const [key, patchValue] of Object.entries(patch)) {
     if (isArrayDirective(patchValue)) {
       out[key] = applyDirective(base[key], patchValue, key);
+    } else if (KEY_MERGED.has(key) && isPlainObject(patchValue) && isPlainObject(base[key])) {
+      out[key] = mergeManifest(base[key] as Raw, patchValue);
     } else {
       out[key] = patchValue;
     }

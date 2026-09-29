@@ -1,3 +1,4 @@
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 /**
  * THE CARD PASS — the cards a finished answer owes, in seconds.
  *
@@ -37,12 +38,15 @@
  * a build card that can only fail.
  */
 
-import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { AgentEvent, RuntimeContext } from './types';
+import type { Action } from '@/libs/actions/types';
 import type { ModelRole } from '@/libs/llm';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
+import { repairActionInput } from '@/libs/actions/repairInput';
+import { appBaseUrl } from '@/libs/links';
+import { asksForAction } from './owedDecision';
 
 /** At most this many cards per pass — the agents' own rule is "top 3–5 by leverage". */
 export const MAX_CARDS = 5;
@@ -60,6 +64,8 @@ const CARD_TIMEOUT_MS = 30_000;
 /** The build action, and the filing a build of an unfiled idea becomes. */
 export const BUILD_ACTION = 'factory.dispatch_task';
 export const FILE_ACTION = 'objects.propose_candidate';
+/** A question put to a person — never the answer to their instruction. */
+export const ASK_ACTION = 'ask.file';
 
 /** One decision the answer names, as the list step returns it. */
 export type OwedTouch = { label: string; why: string; actionId: string };
@@ -81,6 +87,12 @@ export type CardBackstopDeps = {
   hasAction: (id: string) => boolean;
   /** The action's own checks on this input — schema, then its `precheck`. A reason to refuse, or nothing. */
   precheck: (actionId: string, input: Record<string, unknown>) => Promise<string | undefined>;
+  /**
+   * The repairs the action's schema admits with one right answer — a missing
+   * title from the label, a relative URL made absolute (`libs/actions/repairInput.ts`).
+   * Absent, nothing is repaired.
+   */
+  repair?: (actionId: string, input: Record<string, unknown>, label: string) => { input: Record<string, unknown>; repaired: string[] };
   /** Is there a request record with this id in the workspace? */
   requestExists: (id: number) => Promise<boolean>;
   /**
@@ -117,7 +129,13 @@ export type CardBackstopResult = {
   refused: number;
   /** Build cards turned into the filing. */
   mapped: number;
-  /** One line each for the decisions that could not be cards, to add under the answer. */
+  /** Cards whose input was repaired before it was checked. */
+  repaired?: number;
+  /**
+   * One line each for the decisions that could not be cards. For the run log
+   * and the trace, never the reply: a failure the person cannot act on is
+   * noise in the transcript (Chris, 2026-09-29).
+   */
   notes: string[];
 };
 
@@ -320,7 +338,7 @@ async function invokeRecommend(tool: StructuredToolInterface, args: Record<strin
  */
 function progress(total: number, ready: number, noted: number): string {
   const cards = `${total} decision card${total === 1 ? '' : 's'}`;
-  const tail = noted > 0 ? ` · ${noted} noted under the answer` : '';
+  const tail = noted > 0 ? ` · ${noted} set aside` : '';
   return ready + noted >= total
     ? `${ready} of ${cards} ready${tail}`
     : `Writing ${cards} · ${ready} of ${total} ready${tail}`;
@@ -387,9 +405,10 @@ async function typedFilingInput(opts: { label: string; why: string; answer: stri
  * @param input.already - Labels of the cards already on screen.
  * @param input.agentPrompt - The agent's system prompt (its card rules and voice).
  * @param input.conversation
+ * @param input.instruction
  * @param deps - Everything outside.
  */
-export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string; conversation?: string }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
+export async function runCardBackstop(input: { answer: string; already: readonly string[]; agentPrompt: string; conversation?: string; instruction?: string }, deps: CardBackstopDeps): Promise<CardBackstopResult> {
   const log = deps.log ?? ((m: string, d: Record<string, unknown>) => console.warn(m, d));
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const result: CardBackstopResult = { listed: 0, emitted: 0, refused: 0, mapped: 0, typed: 0, drafts: 0, notes: [] };
@@ -414,6 +433,17 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
       break;
     }
     if (isSameCard(t.label, [...onScreen, ...touches.map(x => x.label)])) {
+      continue;
+    }
+    // A QUESTION BACK IS NOT A CARD WHEN THE PERSON JUST SAID WHAT TO DO.
+    // Conversation 378 (2026-09-29): "write it", a turn that did nothing, and
+    // a card asking the person to approve asking them for the context they
+    // had just given ("File the question on #201"). Chris: "WTF is it asking
+    // me to approve? … I JUST ASKED VOCION TO DO EXACTLY THAT". An ask back
+    // to the person who instructed the act is the act left undone.
+    if (t.actionId === ASK_ACTION && asksForAction(input.instruction)) {
+      result.notes.push(noteLine(t.label, 'the person told you what to do this turn; a question back to them is not a card'));
+      log('card backstop: a question back to the person who gave the instruction was dropped', { label: t.label });
       continue;
     }
     touches.push(t);
@@ -485,8 +515,21 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
         result.typed = (result.typed ?? 0) + 1;
       }
     }
+    // A REPAIRABLE INPUT IS REPAIRED FIRST (2026-09-29: "title: expected
+    // string, received undefined", "steps.0.url: Invalid URL"): one right
+    // answer, in code, before the action's checks read it.
+    if (actionId && deps.repair) {
+      const fixed = deps.repair(actionId, actionInput, label);
+      if (fixed.repaired.length > 0) {
+        actionInput = fixed.input;
+        shaped.action_input = actionInput;
+        result.repaired = (result.repaired ?? 0) + 1;
+        log('card backstop: repaired a card input', { label, actionId, repaired: fixed.repaired });
+      }
+    }
     // A card with nothing to press is not a card, and a card whose action
-    // refuses it can only fail when pressed: both become a line under the answer.
+    // refuses it can only fail when pressed: neither goes up, and the reason
+    // is kept on the tool_call row and in the log — not in the reply.
     const refusal = !actionId
       ? 'no action can carry it; it stays in the answer'
       : await deps.precheck(actionId, actionInput).catch((err: Error) => err.message);
@@ -518,7 +561,7 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
       result.refused += 1;
       result.notes.push(noteLine(touch.label, refusal));
       await deps.record({ input: shaped, error: `not put up: ${refusal}`.slice(0, 2000), durationMs: Date.now() - started });
-      log('card backstop: a card was refused, noted under the answer', { label, actionId, reason: refusal.slice(0, 300), mapped });
+      log('card backstop: a card was refused and dropped', { label, actionId, reason: refusal.slice(0, 300), mapped });
       settle();
       return;
     }
@@ -530,7 +573,7 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
       release();
       result.refused += 1;
       result.notes.push(noteLine(touch.label, outcome.error ?? 'its action refused it'));
-      log('card backstop: a card was refused, noted under the answer', { label, actionId, reason: outcome.error, mapped });
+      log('card backstop: a card was refused and dropped', { label, actionId, reason: outcome.error, mapped });
     }
     settle();
   };
@@ -581,11 +624,20 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
       if (!action) {
         return `no registered action "${actionId}"`;
       }
-      const parsed = action.inputSchema.safeParse(input);
+      // What the model may not write (`internalInput`: a dispatch's trigger,
+      // retry and replan fields) is dropped before the check, exactly as the
+      // proposal will drop it — #124's Restore card was refused for a
+      // `replan: false` it had no business sending.
+      const { withoutInternalInput } = await import('@/services/ActionService');
+      const parsed = action.inputSchema.safeParse(withoutInternalInput(action, input));
       if (!parsed.success) {
         return `its input does not fit ${actionId}: ${parsed.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`;
       }
       return (await action.precheck?.({ orgId: opts.orgId, invokedBy: `agent:${opts.agentSlug}` }, parsed.data)) || undefined;
+    },
+    repair: (actionId, input, label) => {
+      const action = registry.getAction(actionId);
+      return action ? repairCardInput(action, input, label, appBaseUrl()) : { input, repaired: [] };
     },
     requestExists: async (id) => {
       const { readRecord } = await import('@/libs/actions/factory-dispatch');
@@ -605,4 +657,21 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
     emit: opts.emit,
     callbacks: [handler],
   };
+}
+
+/**
+ * A card's input as its action will take it: the fields a model may not
+ * write (`internalInput`) dropped, as the proposal drops them, then the
+ * repairs with one right answer (`repairActionInput`).
+ * @param action - The card's action.
+ * @param input - What the model sent.
+ * @param label - The card's label.
+ * @param baseUrl - The app's origin, for relative links.
+ */
+export function repairCardInput(action: Pick<Action, 'inputSchema' | 'internalInput'>, input: Record<string, unknown>, label: string, baseUrl: string): { input: Record<string, unknown>; repaired: string[] } {
+  const internal = new Set(action.internalInput ?? []);
+  const dropped = Object.keys(input).filter(k => internal.has(k));
+  const own = dropped.length > 0 ? Object.fromEntries(Object.entries(input).filter(([k]) => !internal.has(k))) : input;
+  const fixed = repairActionInput(action.inputSchema, own, { label, baseUrl });
+  return dropped.length > 0 ? { input: fixed.input, repaired: [...fixed.repaired, ...dropped.map(k => `dropped internal ${k}`)] } : fixed;
 }

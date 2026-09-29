@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stageOf, stateOf, visualArtifactId, visualGap, whyLine, workLine } from './workQueue';
+import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isDismissed, isProbeRow, laneOf, stageOf, stateOf, visualArtifactId, visualGap, whyLine, workLine } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -563,6 +563,13 @@ describe('which picture the card shows', () => {
     expect(visualArtifactId(row(4, 'd', { visuals: { beforeArtifactIds: [11] } }), 'done')).toBe(11);
   });
 
+  it('shows the drawn mockup, never the screenshot it was drawn on', () => {
+    const meta = { surface: 'ui', state: 'new', visuals: { beforeArtifactIds: [11], mockupArtifactIds: [31, 32] } };
+
+    expect(visualArtifactId(row(7, 'g', meta), 'proposed')).toBe(31);
+    expect(visualGap(row(7, 'g', meta), 'proposed')).toBeNull();
+  });
+
   it('has no picture for a row that names none', () => {
     expect(visualArtifactId(row(5, 'e', {}), 'proposed')).toBeNull();
     expect(visualArtifactId(row(6, 'f', { visuals: { beforeArtifactIds: [] } }), 'proposed')).toBeNull();
@@ -700,5 +707,12 @@ describe('a Build card already up (journey 4, 2026-09-28: #214\'s card #4945 pen
 
     expect(out[0]!.meta.state).toBe('Not triaged');
     expect(out[0]!.meta.pendingBuildRunId).toBeUndefined();
+  });
+});
+
+describe('a duplicate is closed (#232, #234)', () => {
+  it('leaves the queue once it names the request it duplicates, whatever its state', () => {
+    expect(isDismissed(row(232, 'Note on a send', { state: 'new', duplicateOf: 233 }))).toBe(true);
+    expect(isDismissed(row(233, 'Pin a note', { state: 'new' }))).toBe(false);
   });
 });

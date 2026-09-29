@@ -334,3 +334,17 @@ describe('file_request reads the product\'s capabilities page itself, structural
     expect(answer).toMatch(/already ships: Revoke exists today as Kill\.+ Nothing was filed/);
   });
 });
+
+describe('one run, one filing (#234)', () => {
+  it('refuses a different filing in a run whose automation requires one, and lets its own through', async () => {
+    const { automationSchema, missionRunSchema } = await import('@/models/Schema');
+    const { wrongFilingForRun } = await import('./fileRecord');
+    await db.insert(automationSchema).values({ orgId: 'org_onejob', slug: 'factory-plan-request', name: 'Plan', status: 'active', whenConfig: { event: 'factory.plan_requested' } as never, doConfig: { checkMission: 'close-the-gap', requireTool: 'file_architecture_plan' } as never });
+    const [run] = await db.insert(missionRunSchema).values({ orgId: 'org_onejob', title: 'factory-plan-request: Close the gap', brief: 'Plan it.', goal: 'Plan it.', team: [], createdBy: 'factory:product-manager', status: 'running', causedBy: [{ automationSlug: 'factory-plan-request', automationRunId: 1 }] } as never).returning({ id: missionRunSchema.id });
+    const ctx = { orgId: 'org_onejob', missionRunId: run!.id } as RuntimeContext;
+
+    expect(await wrongFilingForRun(ctx, 'file_request')).toMatch(/exists to call file_architecture_plan/);
+    expect(await wrongFilingForRun(ctx, 'file_architecture_plan')).toBeUndefined();
+    expect(await wrongFilingForRun({ orgId: 'org_onejob' } as RuntimeContext, 'file_request')).toBeUndefined();
+  });
+});

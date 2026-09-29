@@ -28,6 +28,12 @@ export type VersionWritten = {
   to: number;
   /** The record fields the write touched. */
   fields?: string[];
+  /**
+   * A write BENEATH the record (the tool that made it) rather than a version
+   * of it: a plan filed for the request, a card on it decided. The page
+   * refetches; no version is named, so nothing focuses one.
+   */
+  related?: string;
 };
 
 const EVENT = 'vocion:version-written';

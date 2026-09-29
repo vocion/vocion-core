@@ -154,7 +154,7 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
    * nothing.
    *
    * Two ways in, one path out (2026-09-16). `intent` is set when the person
-   * armed `@change` — the selection control's *Add change* puts the tag in
+   * armed `@change` — the selection control's *Change* puts the tag in
    * the composer — and it names the send the anchor pointed at. An ask with
    * the tag is ALWAYS a revision: the person said so, and a wording heuristic
    * has no business overruling them. Without the tag the heuristic still

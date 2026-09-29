@@ -126,6 +126,11 @@ export const fileSpecSchema = z.object({
   contentType: z.string(),
   bytes: z.number().int().nonnegative(),
   url: z.string(),
+  /** An image's pixel size, when the platform drew it. */
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  /** What a drawn image was drawn FROM (a mockup's HTML, CSS and look), so a redraw starts there. */
+  source: z.record(z.string(), z.unknown()).optional(),
 });
 export type FileSpec = z.infer<typeof fileSpecSchema>;
 

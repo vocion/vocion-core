@@ -20,10 +20,12 @@ import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
-import { closePreview, useOpenPreviewRef } from '@/features/preview/previewState';
+import { closePreview, openPreview, useOpenPreviewRef } from '@/features/preview/previewState';
 import { client } from '@/libs/Orpc';
-import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
-import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
+import { setLiveSources } from '@/libs/preview/liveSources';
+import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef';
+import { pageShowsRecord, recordFromPath, scopeRefToRecord } from '@/services/chat/pageContext';
+import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, followExcludeOf } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
@@ -283,6 +285,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  // The record the page beside the rail is about — it refreshes itself, so
+  // the turn's follow chips leave it out (Chris, 2026-09-29).
+  const pageRecord = useMemo(() => followExcludeOf(effectiveContext?.record ?? (effectiveContext?.path ? recordFromPath(effectiveContext.path) : null) ?? (scopeRef ? scopeRefToRecord(scopeRef) : null)), [effectiveContext, scopeRef]);
   // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
   const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
     if (session.conversationId === null) {
@@ -293,7 +298,18 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     });
   }, [session.conversationId]);
   const queueProps = useComposerQueueProps(session);
-  const onCommand = useChatCommands(session.handleNewChat);
+  const asideRef = useRef<HTMLElement | null>(null);
+  const openSources = useCallback((messageId?: number) => {
+    if (session.conversationId !== null) {
+      openPreview(sourcesPreviewRef(session.conversationId, messageId), document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    }
+  }, [session.conversationId]);
+  // `/new` lands the caret in the rail's box, as the header's New chat does.
+  const startNewChat = useCallback(() => {
+    session.handleNewChat();
+    focusAgentComposer(asideRef.current);
+  }, [session]);
+  const onCommand = useChatCommands(startNewChat);
   // The rail IS on a page, so `(+)` offers `@page` and the record in view
   // beside `@artifact` — the same list `@` resolves against. `@change` joins
   // it only where a sequence draft is in view, which is exactly where the
@@ -305,7 +321,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   useEffect(() => {
     sessionRef.current = session;
   });
-  const asideRef = useRef<HTMLElement | null>(null);
   const narrow = useNarrowViewport();
   // `document` exists only on the client; the rail paints nothing on the
   // server, which is already true of everything it depends on (localStorage,
@@ -338,7 +353,27 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   const cardsScrolledAway = cardAnchor < lastMessageIndex;
   const recallCards = () => setCardAnchor(lastMessageIndex);
 
-  const previewOpen = useOpenPreviewRef() !== null;
+  const openRef = useOpenPreviewRef();
+  const previewOpen = openRef !== null;
+  // A STREAMING ANSWER'S SOURCES REACH THE PANE (`liveSources.ts`): published
+  // while the turn runs; once the answer is stored, a sources pane opened
+  // mid-turn is pointed at that answer, which the server now has.
+  const latest = session.messages[session.messages.length - 1];
+  const latestDocs = latest?.role === 'assistant' ? latest.documents : undefined;
+  useEffect(() => {
+    if (session.conversationId === null) {
+      return;
+    }
+    if (session.isStreaming) {
+      setLiveSources(session.conversationId, latestDocs ?? null);
+      return;
+    }
+    setLiveSources(session.conversationId, null);
+    const open = openRef?.type === 'conversation' ? parseSourcesRefId(openRef.id) : null;
+    if (open && open.conversationId === session.conversationId && open.messageId === null && latest?.id) {
+      openPreview(sourcesPreviewRef(session.conversationId, latest.id), null);
+    }
+  }, [session.conversationId, session.isStreaming, latestDocs, latest?.id, openRef]);
   const setCollapsedPersisted = useCallback((next: boolean) => {
     setCollapsed(next);
     writeCollapsed(next);
@@ -670,6 +705,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                 search: session.searchConversations,
               }}
           compact={narrow}
+          fullPageHref={session.conversationId !== null ? `/dashboard/chat/${session.conversationId}` : '/dashboard/chat'}
         />
         {/* The sheet carries its own close control in this corner; a second
             one underneath it was two buttons in one 32px square. */}
@@ -709,6 +745,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                     agentName={session.workspaceName}
                     streaming={session.isStreaming}
                     activity={session.activity}
+                    // The rail's second pane is the preview pane: a turn's
+                    // sources open there, beside the thread (Chris,
+                    // 2026-09-29: "clicking source … doesn't do anything").
+                    pageRecord={pageRecord}
+                    onShowSources={openSources}
+                    onCitationClick={(_n, messageId) => openSources(messageId)}
                     blocks={blocks}
                     onFeedback={session.handleFeedback}
                     autonomy={session.autonomy}
@@ -812,7 +854,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           onStop={session.handleStop}
           placeholder={session.composerPlaceholder}
           commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
-          armed={(comments?.open.length ?? 0) > 0}
+          // A highlighted passage is something to send on its own.
+          armed={(comments?.open.length ?? 0) > 0 || Boolean(effectiveContext?.selection?.text)}
           pastedText={session.pastedText}
           onPasteText={session.setPastedText}
           onClearPasted={() => session.setPastedText(null)}

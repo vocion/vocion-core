@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import type { AnswerListeners } from './askOptions';
 import type { AskOption } from '@/models/Schema';
 import type { InboxKind } from '@/services/InboxService';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, CornerUpLeft, ExternalLink, RotateCcw, X } from 'lucide-react';
@@ -15,7 +16,7 @@ import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { decisionLegend, planDecision } from '@/features/review/reviewSheetModel';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { kindForAsk } from '@/services/inbox/kinds';
-import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
+import { consequenceOf, fixedRowsFor, labelFor, OTHER } from './askOptions';
 import { firstParagraph, isNearDuplicate, sentenceCase, splitBody } from './askText';
 import { DECISION_VERBS } from './decisionVerbs';
 import { decisionCrumbs, KIND_LABEL, riskTone } from './inboxMeta';
@@ -51,6 +52,8 @@ export type SheetAsk = {
   isEmail?: boolean;
   /** Review sheets: approving writes a draft rather than sending, so the verb says so. */
   draft?: boolean;
+  /** What each answer starts (`services/inbox/answerListeners`), so each row can say what it does. */
+  listeners?: AnswerListeners;
 };
 
 type Answer = { decision: string; note: string };
@@ -62,18 +65,21 @@ export type SheetExit = { label: string; href: string };
 const DEFAULT_EXIT: SheetExit = { label: 'Back to the review queue', href: '/dashboard/inbox' };
 
 /**
- * What happens next, for the toast — an answer is read by the team; an approved proposal runs.
+ * What happens next, for the toast. On a review an approved proposal runs. On
+ * an ask the answer is recorded, and whatever it starts is named from the
+ * same match the row showed (`consequenceOf`).
  * @param endpoint
  * @param decision
  * @param withNote
+ * @param ask - The ask answered, for what its answer starts.
  */
-function nextFor(endpoint: 'ask' | 'review', decision: string, withNote = false): string {
+function nextFor(endpoint: 'ask' | 'review', decision: string, withNote = false, ask?: SheetAsk): string {
   if (endpoint === 'review') {
     return decision === 'approve'
       ? withNote ? 'Your version is executing now, and the note is filed as feedback.' : 'Executing now.'
       : 'Nothing runs; the agent learns from it.';
   }
-  return decision === OTHER ? 'The team reads your answer and may come back with a follow-up.' : 'The team reads your answer on its next cycle.';
+  return ask ? consequenceOf(ask, decision, ask.listeners) : 'Your answer is recorded.';
 }
 
 /**
@@ -256,7 +262,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
     setPending(false);
     const chosen = label ?? labelFor(ask, a.decision);
     if (outcome.ok) {
-      toast.success(`${chosen} · ${sentenceCase(ask.title)}`, { description: nextFor(endpoint, a.decision, a.note.trim() !== '') });
+      toast.success(`${chosen} · ${sentenceCase(ask.title)}`, { description: nextFor(endpoint, a.decision, a.note.trim() !== '', ask) });
       onDecided?.(ask, { id: a.decision, label: chosen });
     } else {
       toast.error(`Could not submit “${sentenceCase(ask.title)}”`, { description: outcome.error });
@@ -421,7 +427,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
               ? anySentBack
                 ? 'Nothing here is waiting on you. What you sent back comes round again when the agent answers it.'
                 : 'All decided. Nothing here is waiting on you.'
-              : 'Every answer is in. The team reads them on its next cycle.'
+              : 'Every answer is in and recorded.'
             : 'Some answers did not land. Fix them and retry; the rest are already in.'}
         </p>
         <ol className={`mt-4 divide-y divide-border border-y border-border ${allDone && endpoint === 'review' && !anySentBack ? 'hidden' : ''}`}>
@@ -498,7 +504,9 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
 
   const answer = answerFor(current.id);
   const done = submitted(current.id);
-  const rows = current.options.length > 0 ? current.options : FIXED_ROWS;
+  // Named options ARE the choices; with none, the fixed rows say what each
+  // answer does, from what is subscribed to it (never "as proposed").
+  const rows = current.options.length > 0 ? current.options : fixedRowsFor(current, current.listeners);
   // Simplest useful explanation first: two sentences of the body; the rest,
   // the long-form markdown and the context link all live in one Details fold.
   const body = splitBody(current.body);
@@ -613,7 +621,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
             ))}
             {allowOther && (
               <OptionRow
-                option={{ id: OTHER, label: 'Other', description: 'Answer in your own words. The team reads it and may come back with a follow-up.' }}
+                option={{ id: OTHER, label: 'Other', description: `Answer in your own words. ${consequenceOf(current, OTHER, current.listeners)}` }}
                 selected={answer.decision === OTHER}
                 disabled={locked}
                 onSelect={() => setAnswer(current.id, { decision: OTHER })}
@@ -735,7 +743,8 @@ function OptionRow({ option, selected, disabled, onSelect }: { option: AskOption
           {option.recommended && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Recommended</span>}
         </span>
         {option.description && (
-          <span className={`mt-0.5 text-sm text-muted-foreground ${selected ? 'block' : 'line-clamp-2'}`} title={selected ? undefined : option.description}>
+          // Choosing the row shows the whole description, so it needs no hover text.
+          <span className={`mt-0.5 text-sm text-muted-foreground ${selected ? 'block' : 'line-clamp-2'}`}>
             {option.description}
           </span>
         )}

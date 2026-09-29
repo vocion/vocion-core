@@ -15,7 +15,9 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
 import { actionInputHints, getAction, listActions } from '@/libs/actions/registry';
+import { repairActionInput } from '@/libs/actions/repairInput';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { appBaseUrl } from '@/libs/links';
 import { openLabelFor } from '@/libs/workspace/recordHref';
 
 /**
@@ -104,7 +106,7 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
 
   return tool(
     async (input) => {
-      const { action_id, action_input, label: written, rationale, confidence, suggested_decision, suggested_decision_reason } = input as {
+      const { action_id, action_input: given, label: written, rationale, confidence, suggested_decision, suggested_decision_reason } = input as {
         action_id: string;
         action_input: Record<string, unknown>;
         label: string;
@@ -113,6 +115,8 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
         suggested_decision?: SuggestedDecision;
         suggested_decision_reason?: string;
       };
+      // Repaired below when the repair has one right answer.
+      let action_input = given;
       // A card is never lost to a missing sentence: the reviewer's suggested
       // decision defaults to approve — the tool is recommending — and its
       // reason to the rationale (2026-09-24: a decline case died in the
@@ -134,6 +138,13 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
           // (2026-09-24/25) every one of them counted as emitted (finding 20).
           console.warn('recommend_action refused: no such action', { agentSlug: ctx.agentSlug, actionId: action_id, label });
           return JSON.stringify({ ok: false, error: `No registered action "${action_id}". Registered: ${listActions().map(a => a.id).join(', ')}. Pick one of these, or recommend without an action id when the next step is a person's, not a system's.` });
+        }
+        // One right answer is applied, not asked for (a title from the
+        // label, a workspace path made absolute): `libs/actions/repairInput.ts`.
+        const fixed = repairActionInput(action.inputSchema, action_input ?? {}, { label: written, baseUrl: appBaseUrl() });
+        if (fixed.repaired.length > 0) {
+          action_input = fixed.input;
+          console.warn('recommend_action: repaired the input', { agentSlug: ctx.agentSlug, actionId: action_id, label, repaired: fixed.repaired });
         }
         const check = action.inputSchema.safeParse(action_input ?? {});
         if (!check.success) {

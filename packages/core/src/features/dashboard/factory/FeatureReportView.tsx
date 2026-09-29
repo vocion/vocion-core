@@ -1,17 +1,18 @@
 import type { DotTone } from '@/components/patterns';
-import type { FeatureReport, LiveBuild, ReportAction, ReportEvidence, ReportNotice, ReportStatus, Tone } from '@/services/factory/featureReport';
+import type { FeatureReport, LiveBuild, ReportAction, ReportAttempt, ReportEvidence, ReportNotice, ReportStatus, Tone } from '@/services/factory/featureReport';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Section, StatusDot } from '@/components/patterns';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
-import { money } from '@/services/factory/featureReport';
 import { FeatureActivity } from './FeatureActivity';
 import { FeatureBuild, FeatureHeadline } from './FeatureBuild';
 import { FeatureDismiss } from './FeatureDismiss';
-import { FeatureDrawerLink, PreviewOpen } from './FeatureDrawerLink';
+import { FeatureDrawerLink } from './FeatureDrawerLink';
 import { LocalDate } from './LocalDate';
 import { MediaCarousel } from './MediaCarousel';
+import { RunRow } from './RunRow';
 
 /**
  * The feature page, drawn for the person who owns the outcome (Chris,
@@ -219,7 +220,7 @@ function ActionButton({ action, report, primary, children }: { action: ReportAct
       {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
       data-testid={primary ? 'report-primary-action' : undefined}
       className={primary
-        ? 'inline-flex h-9 items-center rounded-md bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90'
+        ? buttonVariants({ variant: 'default' })
         : 'inline-flex h-8 items-center rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground'}
     >
       {action.label}
@@ -241,8 +242,16 @@ function StatusBlock({ report }: { report: FeatureReport }) {
       ? <FeatureDismiss requestId={report.requestId} />
       : <ActionButton action={s.secondary} report={report} primary={false} />;
   return (
-    <section id="report-state" data-testid="report-status" aria-label="Where this work is" className="space-y-3">
+    <section id="report-state" data-testid="report-status" aria-label="Current state" className="space-y-3">
+      {/* THE CURRENT STATE, said once, and the run carrying it as a row
+          that opens it (Chris, 2026-09-29: "is that 'current state'?"). */}
+      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Current state</div>
       <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={s.sentence} />
+      {s.activeRun && (
+        <div className="-mx-2 max-w-prose" data-testid="report-active-run">
+          <RunRow attempt={s.activeRun.attempt} of={s.activeRun.of} testId="report-active-run-row" />
+        </div>
+      )}
       {s.action && (
         <div className="flex flex-wrap items-center gap-2">
           {s.action.kind === 'build'
@@ -325,6 +334,20 @@ function PlanBlock({ report }: { report: FeatureReport }) {
   );
 }
 
+/** How many settled runs the Implementation shows beside the live ones. */
+const RECENT_RUNS = 3;
+
+/**
+ * The runs the Implementation draws as rows: every live one, then the most
+ * recent settled ones, newest first.
+ * @param attempts - Every attempt, newest first.
+ */
+export function shownRuns(attempts: ReportAttempt[]): ReportAttempt[] {
+  const live = attempts.filter(a => a.live);
+  const recent = attempts.filter(a => !a.live).slice(0, Math.max(0, RECENT_RUNS - live.length));
+  return [...live, ...recent];
+}
+
 /**
  * IMPLEMENTATION — build and the change as one. The latest attempt as a row,
  * the earlier ones counted, the five delivery facts kept apart (run completed
@@ -342,23 +365,26 @@ function ImplementationBlock({ report }: { report: FeatureReport }) {
         ? <p className="text-[15px] text-muted-foreground">{impl.absence}</p>
         : (
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px]" data-testid="report-latest-run">
-                <StatusDot tone={DOT_TONE[impl.latest.tone]} label={<span className="font-medium text-foreground">{impl.latest.outcome}</span>} />
-                <span className="text-[13px] text-muted-foreground tabular-nums">
-                  {`Latest run · ${impl.latest.ago}${impl.latest.cents !== null ? ` · ${money(impl.latest.cents)}` : ''}`}
-                </span>
-                {impl.prUrl && (
-                  <a href={impl.prUrl} target="_blank" rel="noreferrer" className="text-[13px] break-all text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
-                    {pr ? `Pull request #${pr}` : 'Pull request'}
-                  </a>
-                )}
-                <PreviewOpen recordRef={{ type: 'worker_run', id: String(impl.latest.runId) }} testId="report-view-run">View run</PreviewOpen>
-              </div>
+              {/* The runs as rows: every live one, then the most recent —
+                  each opens itself (Chris, 2026-09-29: "the summary should
+                  indicate active runs as rows"). */}
+              <ul className="-mx-2 max-w-prose" data-testid="report-runs">
+                {shownRuns(impl.attempts).map(a => (
+                  <li key={a.runId}>
+                    <RunRow attempt={a} of={impl.attempts.length} testId={a.runId === impl.latest!.runId ? 'report-latest-run' : undefined} />
+                  </li>
+                ))}
+              </ul>
+              {impl.prUrl && (
+                <a href={impl.prUrl} target="_blank" rel="noreferrer" className="inline-block text-[13px] break-all text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
+                  {pr ? `Pull request #${pr}` : 'Pull request'}
+                </a>
+              )}
               {impl.latest.why && impl.latest.tone !== 'ok' && <p className="max-w-prose text-[13px] leading-relaxed break-words text-muted-foreground">{impl.latest.why}</p>}
               {live && <WatchTheBuild live={live} />}
-              {impl.earlier > 0 && (
+              {impl.attempts.length > shownRuns(impl.attempts).length && (
                 <FeatureDrawerLink requestId={report.requestId} drawer="implementation" testId="report-earlier-attempts">
-                  {`${impl.earlier} earlier attempt${impl.earlier === 1 ? '' : 's'}`}
+                  {`${impl.attempts.length - shownRuns(impl.attempts).length} earlier attempt${impl.attempts.length - shownRuns(impl.attempts).length === 1 ? '' : 's'}`}
                 </FeatureDrawerLink>
               )}
             </div>

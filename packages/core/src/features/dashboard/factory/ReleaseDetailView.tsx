@@ -5,6 +5,7 @@ import type { Tone } from '@/libs/workspace/releaseFeed';
 import type { ReleaseCheck, ReleaseLink, ReleaseProofGroup, ReleaseProofRow, ReleaseReport } from '@/services/factory/releaseReport';
 import { DetailMeta, DetailPage, FactList, Section, StatusDot } from '@/components/patterns';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { Link } from '@/libs/I18nNavigation';
 
@@ -127,6 +128,8 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
       actions={(
         <>
           <Link href={backHref} className="whitespace-nowrap hover:text-foreground">Back to Releases</Link>
+          {/* Declares the release, so select-to-ask (the shell's) quotes it and offers Change. */}
+          <RecordContext record={{ type: 'object', id: String(report.id), label: report.title, href: `${backHref}/${report.id}` }} />
           <AskAboutThis
             record={{ type: 'object', id: String(report.id), label: report.title, href: `${backHref}/${report.id}` }}
             label="Ask about this release"

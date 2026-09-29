@@ -70,7 +70,8 @@ person to decide something whose commitment is not yet written down.
    sets) with its acceptance criteria, allowed paths,
    required checks, risk class, budgets and `mainRisk`, the `expectedResult`
    and `howWeCheck` on the request, and — for a `ui` or `flow` request — the
-   designer's mockup on `visuals.beforeArtifactIds` or a recorded
+   designer's mockup on `visuals.mockupArtifactIds` (drawn on the real screen
+   by `draw_mockup`) or a recorded
    `visuals.noVisualReason`. The platform's drawn thumbnail does not count.
    Nothing executes yet: the contract sits in `draft` until a person says yes.
 3. **Put ONE decision in front of the right person, from a card.** The build

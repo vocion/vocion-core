@@ -7,6 +7,7 @@
  * its place only where the capture itself is the thing under test.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { instantInZone, isoInZone } from '@/libs/time/zone';
 import { createSyncBudget } from '../budget';
 
 const invoke = vi.fn();
@@ -529,5 +530,104 @@ describe('candidate extractor, one document end to end', () => {
     await run(context());
 
     expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a repeating calendar entry', () => {
+    const feedUrl = 'https://bellwaterhall.example/feed.ics';
+    const compact = (d: string) => d.replaceAll('-', '');
+    const entry = (lines: string[], metadata: Record<string, unknown> = {}) => ({
+      ...document,
+      externalId: `${feedUrl}#weekly@bellwaterhall.example`,
+      uri: `${feedUrl}#weekly@bellwaterhall.example`,
+      content: ['BEGIN:VEVENT', 'UID:weekly@bellwaterhall.example', 'SUMMARY:Open Mic Night', ...lines, 'END:VEVENT'].join('\n'),
+      metadata: { contentType: 'text/calendar; charset=utf-8', feedUrl, calendarZone: 'America/New_York', ...metadata },
+    });
+    const weeklyAt23 = [`DTSTART:${compact(day(-7))}T230000Z`, 'RRULE:FREQ=WEEKLY'];
+    const at23 = (offset: number, zone = 'America/New_York') => isoInZone(new Date(`${day(offset)}T23:00:00Z`), zone);
+    const human = () => String((invoke.mock.calls[0]?.[0] as Array<{ content: unknown }>)[1]?.content);
+    const block = () => human().slice(human().indexOf('<occurrences>\n') + 14, human().indexOf('\n</occurrences>')).split('\n');
+
+    it('gets an occurrences block of its dates inside the horizon, none before today', async () => {
+      invoke.mockResolvedValue(answer());
+
+      await run(context({ document: entry(weeklyAt23) }));
+
+      expect(human()).toContain('<occurrences>');
+      expect(human()).toContain(at23(0));
+      expect(human()).not.toContain(`${day(-7)}T`);
+    });
+
+    it('leaves out an instance the feed writes as a component of its own', async () => {
+      invoke.mockResolvedValue(answer());
+
+      await run(context({ document: entry(weeklyAt23, { overridden: [`${compact(day(7))}T230000Z`] }) }));
+
+      expect(block()).toContain(at23(0));
+      expect(block()).not.toContain(at23(7));
+      expect(block()).toContain(at23(14));
+    });
+
+    it('leaves out an instance overridden in the local form a zoned series writes', async () => {
+      invoke.mockResolvedValue(answer());
+      const at19 = (offset: number) => isoInZone(instantInZone(`${day(offset)}T19:00:00`, 'America/New_York'), 'America/New_York');
+
+      await run(context({ document: entry([`DTSTART;TZID=America/New_York:${compact(day(-7))}T190000`, 'RRULE:FREQ=WEEKLY'], { overridden: [`${compact(day(7))}T190000`] }) }));
+
+      expect(block()).toContain(at19(0));
+      expect(block()).not.toContain(at19(7));
+      expect(block()).toContain(at19(14));
+    });
+
+    it('leaves out an instance overridden as a date on an all-day series', async () => {
+      invoke.mockResolvedValue(answer());
+
+      await run(context({ document: entry([`DTSTART;VALUE=DATE:${compact(day(-7))}`, 'RRULE:FREQ=WEEKLY'], { overridden: [compact(day(7))] }) }));
+
+      expect(block()).toContain(day(0));
+      expect(block()).not.toContain(day(7));
+      expect(block()).toContain(day(14));
+    });
+
+    it('reads the dates when the stored overrides are not a list', async () => {
+      invoke.mockResolvedValue(answer());
+
+      await expect(run(context({ document: entry(weeklyAt23, { overridden: `${compact(day(7))}T230000Z` }) }))).resolves.toBeDefined();
+
+      expect(block()).toContain(at23(7));
+    });
+
+    it('writes an all-day entry\'s dates as calendar days', async () => {
+      invoke.mockResolvedValue(answer());
+
+      await run(context({ document: entry([`DTSTART;VALUE=DATE:${compact(day(-7))}`, 'RRULE:FREQ=WEEKLY']) }));
+
+      expect(block()).toContain(day(0));
+      expect(block().every(line => /^\d{4}-\d{2}-\d{2}$/.test(line))).toBe(true);
+    });
+
+    it('falls back to the configured zone when the stored calendar zone is not one', async () => {
+      invoke.mockResolvedValue(answer());
+
+      await run(context({ document: entry(weeklyAt23, { calendarZone: 'Nowhere/Special' }) }));
+
+      expect(block()).toContain(at23(0, 'America/New_York'));
+    });
+
+    it('gets no block unless it is a split calendar component', async () => {
+      invoke.mockResolvedValue(answer());
+      const whole = entry(weeklyAt23);
+      whole.content = `BEGIN:VCALENDAR\n${whole.content}\nEND:VCALENDAR`;
+      const page = entry(weeklyAt23);
+      delete (page.metadata as { feedUrl?: string }).feedUrl;
+
+      await run(context({ document: whole }));
+      await run(context({ document: page }));
+
+      for (const call of invoke.mock.calls) {
+        expect(String((call[0] as Array<{ content: unknown }>)[1]?.content)).not.toContain('<occurrences>');
+      }
+
+      expect(invoke).toHaveBeenCalledTimes(2);
+    });
   });
 });

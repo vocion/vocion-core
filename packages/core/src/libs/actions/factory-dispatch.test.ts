@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, pathsFromComponents, riskFromPaths } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, pathsFromComponents, pickResumeBase, riskFromPaths } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -275,5 +275,77 @@ describe('a change a person can see gets its ui app (#214: the plan left out the
     const c = deriveContract({ given: {}, request: { title: 'Export API', product: 'northwind', surface: 'data', acceptance: [{ statement: 'An endpoint.' }] }, plan, repo });
 
     expect((c.allowedPaths as string[]).some(x => x.startsWith('apps/web'))).toBe(false);
+  });
+});
+
+describe('a retry continues the attempt that proved the most (#224)', () => {
+  const attempt = (id: number, proven: number, planId: number | null, branch = `factory/t${id}`) => ({ id, meta: { branch, planId, attempt: 1, prUrl: `https://github.com/acme/app/pull/${id}`, verdict: { proven, total: 8, note: 'changes', criteria: [{ criterion: 'A visible confirmation appears', status: 'unproven' }] } } });
+
+  it('picks the best attempt under this plan, not the newest, and never one that proved nothing', () => {
+    expect(pickResumeBase([attempt(238, 1, 236), attempt(237, 6, 236), attempt(231, 0, 236)], 236)?.id).toBe(237);
+    expect(pickResumeBase([attempt(231, 0, 236)], 236)).toBeNull();
+  });
+
+  it('ignores an attempt built to another plan, or with no factory branch', () => {
+    expect(pickResumeBase([attempt(230, 7, 136)], 236)).toBeNull();
+    expect(pickResumeBase([attempt(240, 5, 236, 'main')], 236)).toBeNull();
+  });
+
+  it('the contract starts from that branch, carries its verdict and says what it continues', () => {
+    const meta = deriveContract({ given: {}, request: { title: 'Copy link', acceptance: ['A visible confirmation appears'] }, plan: { approach: 'Add a control to the row.' }, repo: null, previous: attempt(238, 1, 236), resume: attempt(237, 6, 236) });
+
+    expect(meta.baseSha).toBe('factory/t237');
+    expect(meta.attempt).toBe(2);
+    expect(meta.previousTaskId).toBe(238);
+    expect(String(meta.objective)).toContain('continues branch factory/t237 (task #237, 6 of 8 criteria proven)');
+    expect(String(meta.objective)).toContain('pull/237');
+  });
+
+  it('a base a person named wins over the resume', () => {
+    const meta = deriveContract({ given: { baseSha: 'origin/main' }, request: { title: 'Copy link' }, plan: null, repo: null, resume: attempt(237, 6, null) });
+
+    expect(meta.baseSha).toBe('origin/main');
+    expect(meta.resumedFrom).toBeUndefined();
+  });
+});
+
+describe('the engineer seat\'s model reaches the worker', () => {
+  const task = { id: 5, title: 'Copy link', meta: { objective: 'Add it.', acceptanceContract: ['a'], allowedPaths: ['apps/web/**'], requiredChecks: ['test'], riskClass: 'ui', repo: 'https://github.com/acme/app.git' } };
+
+  it('carries the seat\'s model as model_policy, which is all the worker reads', () => {
+    expect(contractFromTask(task, { product: 'send', modelPolicy: { model: 'claude-opus-5' } }).model_policy).toEqual({ model: 'claude-opus-5' });
+    expect(contractFromTask(task, { product: 'send' }).model_policy).toBeUndefined();
+  });
+
+  it('a task\'s own policy wins over the seat\'s', () => {
+    expect(contractFromTask({ ...task, meta: { ...task.meta, modelPolicy: { model: 'claude-sonnet-5' } } }, { product: 'send', modelPolicy: { model: 'claude-opus-5' } }).model_policy).toEqual({ model: 'claude-sonnet-5' });
+  });
+});
+
+describe('the contract names a repo the worker can clone (#130 run 416)', () => {
+  it('qualifies a bare plan repo name with the owner from the repo record', () => {
+    const meta = deriveContract({ given: {}, request: { title: 'Remind who has not opened', acceptance: ['a'] }, plan: { repoSlugs: ['squatch-core'] }, repo: { title: 'Acme/squatch-core' } });
+
+    expect(meta.repoSlug).toBe('Acme/squatch-core');
+  });
+
+  it('never resumes from an attempt built before the plan was last approved', () => {
+    const old = { id: 225, createdAt: new Date('2026-09-29T03:23:00Z'), meta: { branch: 'factory/t225', planId: 136, verdict: { proven: 5, total: 8 } } };
+
+    expect(pickResumeBase([old], 136, '2026-09-29T14:20:14Z')).toBeNull();
+    expect(pickResumeBase([old], 136, '2026-09-29T01:00:00Z')?.id).toBe(225);
+  });
+});
+
+describe('a source brings what is generated from it (#130 run 418)', () => {
+  it('lets the regenerated copy change when the plan names only its source', () => {
+    const c = deriveContract({
+      given: {},
+      request: { title: 'Remind who has not opened', acceptance: ['a'] },
+      plan: { components: ['packages/core/prisma/ — the authored schema'] },
+      repo: { title: 'Acme/northwind-core', generatedFrom: { 'apps/api/prisma/schema/**': ['packages/core/prisma/**', 'apps/api/prisma/schema/migrations/**'] } },
+    });
+
+    expect(c.allowedPaths).toEqual(expect.arrayContaining(['apps/api/prisma/schema/**']));
   });
 });

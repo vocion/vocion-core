@@ -37,10 +37,10 @@ export const gitPushBranchAction = manualAction({
   reversible: true,
 });
 
-export const gitMergeAction = manualAction({
+const gitMergeHandoff = manualAction({
   id: 'git.merge',
   name: 'Merge a branch',
-  description: 'Merge a reviewed branch into the mainline. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Cannot be put back. Hand-off: a person merges, then marks it done.',
+  description: 'Merge a reviewed pull request into the mainline (squash), only onto the commit QA judged and only with its checks green. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Undo opens the revert pull request.',
   system: 'Git',
   grant: 'factory_write',
   extend: {
@@ -103,6 +103,56 @@ export const gitMergeAction = manualAction({
     }
   },
 });
+
+/**
+ * The pull request a merge card is about: its externalRef, else its first step's link.
+ * @param input
+ */
+function pullUrlOf(input: Record<string, unknown>): string | null {
+  const ref = input.externalRef as { url?: unknown } | undefined;
+  if (typeof ref?.url === 'string') {
+    return ref.url;
+  }
+  const steps = Array.isArray(input.steps) ? input.steps as Array<{ url?: unknown }> : [];
+  const url = steps.find(st => typeof st.url === 'string' && /github\.com\/.+\/pull\/\d+/.test(st.url))?.url;
+  return typeof url === 'string' ? url : null;
+}
+
+/**
+ * ONE PRESS (Chris, 2026-09-29: "simplify my work"). The merge is performed
+ * here, not handed off: approving the card — a person's press, or the trust
+ * rule for its risk class — merges the pull request (`githubMerge.ts`), onto
+ * the commit QA judged with its checks green. Undo opens the revert.
+ */
+export const gitMergeAction: Action = {
+  ...gitMergeHandoff,
+  manual: undefined,
+  external: true,
+  async reviewCard(ctx, raw) {
+    const card = await gitMergeHandoff.reviewCard!(ctx, raw);
+    return { ...card, nextAction: 'Approving merges the pull request now (squash), onto the commit QA judged, only with every check green — the merge is the deploy. Undo opens the revert.', verbs: { approve: 'Merge', reject: 'Hold' } };
+  },
+  async execute(ctx, raw) {
+    const input = raw as Record<string, unknown>;
+    const url = pullUrlOf(input);
+    if (!url) {
+      throw new Error('This merge card names no pull request, so there is nothing to merge.');
+    }
+    const { mergePull } = await import('@/services/factory/githubMerge');
+    const judged = typeof input.verdictCommitSha === 'string' ? input.verdictCommitSha : typeof input.commitSha === 'string' ? input.commitSha : null;
+    const res = await mergePull(ctx.orgId, url, judged);
+    return { merged: true, pullRequest: url, mergeSha: res.sha, alreadyMerged: res.already };
+  },
+  async undo(ctx, raw) {
+    const url = pullUrlOf(raw as Record<string, unknown>);
+    if (!url) {
+      throw new Error('This merge names no pull request, so there is nothing to revert.');
+    }
+    const { revertPull } = await import('@/services/factory/githubMerge');
+    const { revertUrl } = await revertPull(ctx.orgId, url);
+    return { reverted: false, revertPullRequest: revertUrl, note: 'The revert pull request is open; merging it takes the change back out.' };
+  },
+};
 
 /**
  * A person held the merge: the task reads Changes asked, the reason is QA's note.

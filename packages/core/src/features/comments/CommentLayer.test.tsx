@@ -42,9 +42,9 @@ function Harness({ changeIntent = true }: { changeIntent?: boolean } = {}) {
   );
 }
 
-/** Pick *Add change* on the control, which is where the note box opens. */
+/** Pick *Change* on the shared selection toolbar, which is where the note box opens. */
 async function beginChange() {
-  const btn = [...document.querySelectorAll('[data-comment-popover] button')].find(b => b.textContent?.includes('Add change')) as HTMLElement;
+  const btn = [...document.querySelectorAll('[data-comment-popover] button')].find(b => b.textContent?.trim() === 'Change') as HTMLElement;
   btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 }
 
@@ -89,10 +89,10 @@ describe('the comment layer', () => {
 
     await selectText('two');
 
-    await expect.element(page.getByRole('dialog', { name: 'What to do with the selection' })).toBeInTheDocument();
-    // Ask about this is the default everywhere; the intent action only shows
-    // where the page declares one.
-    await expect.element(page.getByRole('button', { name: 'Ask about this' })).toBeVisible();
+    // The same toolbar every page shows: Ask everywhere, Change only where
+    // the page declares an intent.
+    await expect.element(page.getByRole('toolbar', { name: 'Selected passage' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Ask', exact: true })).toBeVisible();
   });
 
   it('the selection stays native while the note is written, so copying still works', async () => {
@@ -213,7 +213,7 @@ describe('select \u2192 talk is the standard (2026-09-16)', () => {
       await render(<Harness />);
       await selectText('two sourced facts');
 
-      await userEvent.click(page.getByRole('button', { name: 'Ask about this' }));
+      await userEvent.click(page.getByRole('button', { name: 'Ask', exact: true }));
 
       await vi.waitFor(() => expect(seen).toHaveLength(1));
 
@@ -249,11 +249,11 @@ describe('select \u2192 talk is the standard (2026-09-16)', () => {
     }
   });
 
-  it('a page with no draft to rewrite offers only Ask about this', async () => {
+  it('a page with no draft to rewrite offers only Ask', async () => {
     await render(<Harness changeIntent={false} />);
     await selectText('two sourced facts');
 
-    await expect.element(page.getByRole('button', { name: 'Ask about this' })).toBeVisible();
-    expect(page.getByRole('button', { name: 'Add change' }).elements()).toHaveLength(0);
+    await expect.element(page.getByRole('button', { name: 'Ask', exact: true })).toBeVisible();
+    expect(page.getByRole('button', { name: 'Change', exact: true }).elements()).toHaveLength(0);
   });
 });

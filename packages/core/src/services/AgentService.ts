@@ -26,13 +26,14 @@ import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agen
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
+import { announcedAction, asksForAction, DECIDE_TOOLS, decidedInTurn, decideOwed, decisionNamed, describeOpenDecisions, mergeDecisions, openDecisionsOn, pendingCards, personWords } from './agents/owedDecision';
 import { answerNamesFiled, asksToChange, asksToFile, changedInTurn, changeOwedRecord, fileOwedWrite, owedChangeTarget, owedWriteTool } from './agents/owedWriteBackstop';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 import { TurnRefusedError } from './agents/turnRefusal';
-import { cardClaim, unbackedWriteNotice, writeClaim, wroteInTurn } from './agents/writeClaim';
+import { cardClaim, unbackedWriteNotice, writeClaim, writeLanded, wroteInTurn } from './agents/writeClaim';
 
 /**
  * A tool's name written as the turn's last word — narrated, not called — or a
@@ -50,7 +51,7 @@ function isToolInputError(err: unknown): boolean {
   return /did not match expected schema|Received tool input|invalid arguments/i.test(m);
 }
 
-const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal';
+const TOOL_NAMES = 'recommend_action|propose_action|file_ask|update_object|withdraw_proposal|decide_proposal|decide_ask';
 /**
  * A call written out instead of made. Three shapes seen in production:
  *   1. a fenced block that STARTS with the tool's name, at the end of the answer;
@@ -267,6 +268,8 @@ export type TurnGuaranteeInput = {
   compose?: Parameters<typeof runDeliverableBackstop>[0]['compose'];
   /** The answer pass for a stalled turn; injected in tests. */
   answer?: AnswerComposer;
+  /** The conversation before this turn, so the answer pass reads what the turn could. */
+  history?: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }>;
 };
 
 /**
@@ -321,6 +324,7 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
       toolCalls: input.toolCalls,
       endedOnTool: input.endedOnTool === true,
       systemPrompt: input.systemPrompt,
+      history: input.history,
       // Say it: the answer is being written from what the steps found.
       compose: (args) => {
         input.emit({ type: 'status', label: `Writing the answer from ${input.toolCalls.length} step${input.toolCalls.length === 1 ? '' : 's'}` });
@@ -438,12 +442,11 @@ async function runOutOfProcess(
     emit({ type: 'response_delta', delta: tail.answer });
   }
   if (heldCalls.length > 0) {
+    // A block that could not run is left out of the reply, not noted in it:
+    // the person cannot act on it (Chris, 2026-09-29). The log keeps it.
     const { extractTextCalls, parseTextCall } = await import('./agents/textToolCalls');
-    const { noteLine } = await import('./agents/cardBackstop');
-    const notes = heldCalls.map(c => noteLine(parseTextCall(c).label, 'it was written as text on a loop outside this process, so it did not run'));
-    const delta = `\n\n${notes.join('\n')}`;
-    emit({ type: 'response_delta', delta });
-    result.response = `${extractTextCalls(result.response).text}${delta}`;
+    console.warn('agent turn: tool-call blocks written as text on a loop outside this process did not run', { orgId: opts.orgId, agentSlug: opts.agentSlug, labels: heldCalls.map(c => parseTextCall(c).label) });
+    result.response = extractTextCalls(result.response).text;
   }
   const response = await applyTurnGuarantees({
     orgId: opts.orgId,
@@ -454,6 +457,7 @@ async function runOutOfProcess(
     request: opts.message,
     response: stripScratch(result.response),
     toolCalls: result.toolCalls,
+    history: (opts.conversationHistory ?? []).map(t => ({ role: t.role, content: t.content })),
     failures,
     // Delegation nesting is not visible across the transport (the other
     // harnesses run their own loop and report tool failures flat), so a failed
@@ -614,6 +618,8 @@ export async function runAgentDeep(opts: {
   const createdRecords: import('@/services/chat/pageContext').RecordRef[] = [];
   // Versions the turn wrote (a record changed) — linked at the end (`versionLinksDelta`).
   const writtenVersions: import('@/libs/versions/versionRef').WrittenVersion[] = [];
+  // The record the person's page shows, when it is one (`/p/feature/201` is request 201).
+  const pageRecordRef = opts.pageContext?.record?.type === 'object' && /^\d+$/.test(opts.pageContext.record.id) ? { type: 'object' as const, id: opts.pageContext.record.id, label: opts.pageContext.record.label } : null;
   const emit = (event: import('./agents/types').AgentEvent): void => {
     if (event.type === 'documents' && activeSpecialist) {
       for (const d of event.documents) {
@@ -628,11 +634,24 @@ export async function runAgentDeep(opts: {
     if (event.type === 'record_created') {
       createdRecords.push(event.record);
     }
-    if (event.type === 'version_written') {
+    if (event.type === 'version_written' && !event.related) {
       writtenVersions.push({ ref: event.ref, to: event.to });
     }
     recordedEvents.push(event);
     rawEmit(event);
+    // A WRITE BENEATH THE PAGE'S RECORD SHOWS ON THE PAGE. Conversation 378
+    // (2026-09-29): on request #201's feature page a plan, a task's contract
+    // or a decided card is a different record from #201, and the page
+    // watches #201 only, so nothing the turn did reached the screen until a
+    // reload (Chris: "changes should stream to the feature detail page").
+    // Every write that lands in a turn on a record's page is announced as a
+    // version beneath that record; the page refetches in place and marks
+    // the sections that changed (`VersionWatch`).
+    if (event.type === 'tool_end' && pageRecordRef && writeLanded({ tool: event.tool, output: event.output })) {
+      const beneath = { type: 'version_written' as const, ref: pageRecordRef, artifactId: 0, from: null, to: 0, related: event.tool };
+      recordedEvents.push(beneath);
+      rawEmit(beneath);
+    }
   };
 
   // Demo sandbox turn replay/record (VOCION_LLM_MODE) — see
@@ -731,6 +750,7 @@ export async function runAgentDeep(opts: {
       missionRunId: opts.missionRunId,
       conversationId: opts.conversationId,
       pageContext: opts.pageContext,
+      turnMessage: opts.message,
       timeZone: opts.timeZone,
     },
     { modelOverride },
@@ -910,6 +930,14 @@ export async function runAgentDeep(opts: {
   const withResults = (instruction: string): string => (toolCallLog.length === 0
     ? instruction
     : `${instruction}\n\nWhat your tool calls in this turn returned (they ran; do not repeat them):\n\n${evidenceBlock(toolCallLog)}`);
+  // What is waiting on the person on this page and in this thread — the
+  // page record's open asks and pending proposals, and the cards still up in
+  // the replay. Read when a pass needs it, fresh each time (a decision in
+  // the turn changes it).
+  const turnDecisions = async (): Promise<import('./agents/owedDecision').OpenDecision[]> => {
+    const target = owedChangeTarget(opts.pageContext?.record);
+    return mergeDecisions(target ? await openDecisionsOn(opts.orgId, target.id) : [], pendingCards(conversationHistory ?? []));
+  };
   // The lead's most recent model-turn namespace, so a scratch tail released
   // at flush lands on the reasoning node of the turn that wrote it.
   let leadNs = '';
@@ -1138,10 +1166,17 @@ export async function runAgentDeep(opts: {
       // accepted). An empty turn is not an answer either.
       const empty = soFar.length === 0 && toolCallLog.length === 0;
       const callsBeforeContinuation = toolCallLog.length;
-      const continued = empty || (soFar.length > 0 && (preambleOnly(soFar) || narrated));
+      // THE EIGHTH SHAPE: an answer that explains, then ENDS on the move it
+      // announces — "Let me write the plan now." — after the person said
+      // what to do ("approve, fix and run", conversation 378, 2026-09-29).
+      // Every sentence is not a promise, so `preambleOnly` let it through;
+      // the last one is, and the person asked for the act, not the plan of
+      // it. A call the model wrote out as text is the act, and runs below.
+      const announced = !empty && !narrated && !preambleOnly(soFar) && textCalls.length === 0 && asksForAction(opts.message) ? announcedAction(soFar) : null;
+      const continued = empty || (soFar.length > 0 && (preambleOnly(soFar) || narrated || announced !== null));
       if (continued) {
         const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? narrated[3] ?? 'a tool') : null;
-        const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : 'ended on a promise';
+        const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : announced ? 'announced an action it did not take' : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
         emit({ type: 'status', label: narrated ? `Making the ${narratedName} call it described` : toolCallLog.length > 0 ? `Reading what ${toolCallLog.length} step${toolCallLog.length === 1 ? '' : 's'} found` : 'Looking up what it needs' });
         if (narrated) {
@@ -1150,11 +1185,15 @@ export async function runAgentDeep(opts: {
         }
         finalText += '\n\n';
         emit({ type: 'response_delta', delta: '\n\n' });
+        // What is waiting on the person, so "approve" meets the call that decides it.
+        const waiting = announced ? await turnDecisions() : [];
         const nudge = empty
           ? 'You returned nothing — no words and no tool call. Answer the person now: run the lookups you need and reply in one screen.'
-          : narrated
-            ? `Your last message wrote "${narratedName}" as text — the name of a tool, or a block shaped like a call — instead of calling it. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
-            : `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.`;
+          : announced
+            ? `You ended your turn on "${announced}" — an announcement, not the action — and the person told you what to do: "${personWords(opts.message).slice(0, 300)}". Do it now, with your tools: make the calls it takes${waiting.length > 0 ? `; what is waiting on them, and the call that decides each:\n${describeOpenDecisions(waiting)}\n` : '. '}Then say in one screen what you did and what it started. Do not repeat that sentence, and never write a tool call as text.`
+            : narrated
+              ? `Your last message wrote "${narratedName}" as text — the name of a tool, or a block shaped like a call — instead of calling it. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
+              : `You wrote only "${soFar.slice(0, 200)}" and ended your turn. That is a promise, not an answer. Do what you said — run the lookups you need — and answer now, in one screen. Do not repeat that sentence.`;
         await runGraph({
           ...input,
           messages: [
@@ -1269,6 +1308,7 @@ export async function runAgentDeep(opts: {
             missionRunId: opts.missionRunId,
             conversationId: opts.conversationId,
             pageContext: opts.pageContext,
+            turnMessage: opts.message,
             timeZone: opts.timeZone,
           },
           // A ModelOverride names its model; without one the provider lookup
@@ -1395,12 +1435,9 @@ export async function runAgentDeep(opts: {
           emit({ type: 'tool_start', tool: o.tag, input: o.input });
           emit(o.ok ? { type: 'tool_end', tool: o.tag, input: o.input, output: o.output.slice(0, 2000) } : { type: 'tool_error', tool: o.tag, message: o.output.slice(0, 500) });
         }
-        if (ran.notes.length > 0) {
-          const delta = `${finalText ? '\n\n' : ''}${ran.notes.join('\n')}`;
-          finalText += delta;
-          emit({ type: 'response_delta', delta });
-        }
-        console.warn('text tool calls', { orgId: opts.orgId, agentSlug: opts.agentSlug, blocks: textCalls.length, ran: ran.outcomes.filter(o => o.ok).length, noted: ran.notes.length });
+        // What could not run is on the trace (the tool_error above) and in
+        // the log, never a line in the reply.
+        console.warn('text tool calls', { orgId: opts.orgId, agentSlug: opts.agentSlug, blocks: textCalls.length, ran: ran.outcomes.filter(o => o.ok).length, dropped: ran.notes });
       } catch (err) {
         console.warn('text tool calls failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
       }
@@ -1515,6 +1552,56 @@ export async function runAgentDeep(opts: {
     }
   }
 
+  // THE PERSON SAID WHAT TO DO WITH A DECISION WAITING ON THEM; THE TURN
+  // ENDS WITH IT DONE. Conversation 378 (2026-09-29): "approve, fix and run"
+  // on request #201's page, a re-dispatch card and a Stopped ask waiting —
+  // and the turn ended "Let me write the plan now."; the next ("write it")
+  // wrote nothing at all. When the person's words take a decision (this
+  // message, or the one before when this one is a bare "write it" / "do
+  // it") and the turn decided nothing, one pass with the decide tools bound
+  // and a call required carries it out (`agents/owedDecision.ts`). The tools
+  // gate on the person's own words, so the pass cannot decide what they did
+  // not say.
+  if (opts.userId && !opts.missionRunId && !decidedInTurn(toolCallLog)) {
+    const previous = [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'user')?.content;
+    const standing = decisionNamed(opts.message) ?? (asksForAction(opts.message) ? decisionNamed(previous) : null);
+    if (standing) {
+      try {
+        const waiting = await turnDecisions();
+        const { buildDomainTools } = await import('./agents/tools/registry');
+        const tools = waiting.length > 0 ? buildDomainTools(boundCtx).filter(t => (DECIDE_TOOLS as readonly string[]).includes(t.name) || t.name === 'update_object') : [];
+        if (tools.some(t => (DECIDE_TOOLS as readonly string[]).includes(t.name))) {
+          emit({ type: 'status', label: 'Doing what you said' });
+          const { buildChatModelForOrg } = await import('@/libs/llm');
+          const model = await buildChatModelForOrg('extractor', opts.orgId, { temperature: 0, streaming: false, maxTokens: 4000 });
+          const owed = await decideOwed({
+            request: opts.message,
+            history: (opts.conversationHistory ?? []).map(t => ({ role: t.role, content: t.content })),
+            answer: finalText,
+            systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
+            decisions: waiting,
+            tools,
+            model: model as never,
+          });
+          console.warn('owed decision pass', { orgId: opts.orgId, agentSlug: opts.agentSlug, conversationId: opts.conversationId ?? null, standing, waiting: waiting.map(d => `${d.kind}#${d.id}`), calls: owed.calls.map(c => `${c.tool}: ${c.output.slice(0, 120)}`) });
+          for (const c of owed.calls) {
+            toolCallLog.push({ tool: c.tool, input: c.input, output: c.output });
+            emit({ type: 'tool_start', tool: c.tool, input: c.input });
+            emit(/^\s*refused\b/i.test(c.output) ? { type: 'tool_error', tool: c.tool, message: c.output.slice(0, 500) } : { type: 'tool_end', tool: c.tool, input: c.input, output: c.output.slice(0, 2000) });
+          }
+          if (owed.lines.length > 0) {
+            const delta = `${finalText.trim() ? '\n\n' : ''}Done as you said: ${owed.lines.map(l => l.replace(/\.$/, '')).join('; ')}.`;
+            finalText += delta;
+            emit({ type: 'response_delta', delta });
+          }
+        }
+      } catch (err) {
+        // A backstop never fails the turn.
+        console.warn('owed decision pass failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
+      }
+    }
+  }
+
   // End-of-turn guarantees (structural): a failed hand-off is stated in the
   // answer, and a turn sent with `deliverable: 'artifact'` ends with one.
   finalText = await applyTurnGuarantees({
@@ -1531,6 +1618,7 @@ export async function runAgentDeep(opts: {
     failures,
     failedDelegations,
     systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
+    history: (opts.conversationHistory ?? []).map(t => ({ role: t.role, content: t.content })),
     emit,
   });
 
@@ -1592,21 +1680,20 @@ export async function runAgentDeep(opts: {
           agentPrompt: compiled.agentRow.systemPrompt ?? '',
           // A filing card is written from the conversation, not the answer alone.
           conversation: [...(opts.conversationHistory ?? []).slice(-8).map(t => `${t.role === 'user' ? 'Person' : 'You'}: ${String(t.content ?? '').slice(0, 3_000)}`), `Person: ${opts.message.split('\n\n--- ')[0]!.slice(0, 3_000)}`].join('\n\n'),
+          // The person's words this turn: an instruction is never answered with a question card.
+          instruction: opts.message,
         },
         await realCardBackstopDeps({ ctx: compiled.ctx, orgId: opts.orgId, agentSlug: opts.agentSlug, userId: opts.userId, emit }),
       );
       cardsOnScreen += out.emitted;
-      // A decision that could not be a card is one line UNDER the answer —
-      // added, never edited in: no dead card with nothing to press.
-      if (out.notes.length > 0) {
-        const delta = `\n\n${out.notes.join('\n')}`;
-        emit({ type: 'response_delta', delta });
-        finalText += delta;
-      }
+      // A decision that could not be a card is dropped from what the person
+      // sees — no dead card, and no "— not a card: its input does not fit…"
+      // line under the answer either (Chris, 2026-09-29). Its tool_call row
+      // and the log line below keep the reason for whoever debugs it.
       // Say what happened: a silent backstop cannot be told from one that
       // never ran (2026-09-24: eight production turns, zero cards, no way to
       // know which). One line per pass, in the app log.
-      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length - out.emitted, listed: out.listed, emitted: out.emitted, refused: out.refused, mapped: out.mapped, typed: out.typed ?? 0, drafts: out.drafts ?? 0, noted: out.notes.length, textChars: finalText.length });
+      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length - out.emitted, listed: out.listed, emitted: out.emitted, refused: out.refused, mapped: out.mapped, typed: out.typed ?? 0, drafts: out.drafts ?? 0, repaired: out.repaired ?? 0, dropped: out.notes, textChars: finalText.length });
     } catch (err) {
       /* backstop is best-effort — never fails the turn */
       console.warn('card backstop failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });

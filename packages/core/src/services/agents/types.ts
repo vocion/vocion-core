@@ -328,7 +328,14 @@ export type AgentEvent
      * changed between `from` and `to`; the answer links version `to` in the
      * history. `fields` names what the write touched, for a record.
      */
-    | { type: 'version_written'; ref: import('@/services/chat/pageContext').RecordRef; artifactId: number; from: number | null; to: number; fields?: string[] }
+    /**
+     * A version of a record or artifact was written. `related` (the tool's
+     * name) marks a write BENEATH the page's record rather than a version of
+     * it — a plan filed for the request, a card on it decided — so the page
+     * showing it refetches (conversation 378); `from`/`to` are then 0 and
+     * name no version.
+     */
+    | { type: 'version_written'; ref: import('@/services/chat/pageContext').RecordRef; artifactId: number; from: number | null; to: number; fields?: string[]; related?: string }
     /**
      * Record mentions in the finished answer ("#201", "request 201") and the
      * page each opens — applied to the answer's text, live and stored
@@ -419,6 +426,14 @@ export type RuntimeContext = {
    * `compileAgentForRequest`; undefined for schedules, MCP and API callers.
    */
   pageContext?: import('@/services/chat/pageContext').PageContext;
+  /**
+   * The person's message THIS turn, as typed — what a gate on the turn's own
+   * ask reads (`anchoredFiling.ts`: "Change this: …" is a change, never a new
+   * filing). Set per request in `compileAgentForRequest`; undefined for
+   * schedules and out-of-process tool calls, which read the conversation's
+   * latest person message instead.
+   */
+  turnMessage?: string;
   /**
    * The zone THIS turn's dates are judged in: the person's browser zone when
    * a turn carries one, else the workspace's (`defaultTimeZone`). Set per

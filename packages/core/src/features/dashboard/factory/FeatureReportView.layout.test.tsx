@@ -157,7 +157,8 @@ describe('the feature page, in the order a product owner reads it', () => {
 
   it('draws a record disagreement quietly, never red, with what it blocks and one move', async () => {
     await page.viewport(1440, 900);
-    await draw(fixture());
+    // Merged means the merge ran (a done git.merge), never a commit on the task.
+    await draw(fixture({ actionRuns: [{ id: 4950, actionId: 'git.merge', status: 'done', input: { taskId: 77, externalRef: { url: LONG_PR } }, decidedBy: 'usr-owner', decidedAt: T('2026-09-05T10:00:00Z'), approvedByAgent: null, note: null, createdAt: T('2026-09-05T09:00:00Z'), executedAt: T('2026-09-05T10:00:00Z') }] }));
 
     const notice = document.querySelector('#report-notices [data-severity="inconsistency"]')!;
 
@@ -169,7 +170,8 @@ describe('the feature page, in the order a product owner reads it', () => {
 
   it('keeps run completed, checks, merged, acceptance and released apart', async () => {
     await page.viewport(1440, 900);
-    await draw(fixture());
+    // Merged means the merge ran (a done git.merge), never a commit on the task.
+    await draw(fixture({ actionRuns: [{ id: 4950, actionId: 'git.merge', status: 'done', input: { taskId: 77, externalRef: { url: LONG_PR } }, decidedBy: 'usr-owner', decidedAt: T('2026-09-05T10:00:00Z'), approvedByAgent: null, note: null, createdAt: T('2026-09-05T09:00:00Z'), executedAt: T('2026-09-05T10:00:00Z') }] }));
 
     const steps = [...document.querySelectorAll('[data-testid="report-ladder"] [data-step]')].map(el => [el.getAttribute('data-step'), el.getAttribute('data-state')]);
 
@@ -234,7 +236,7 @@ describe('the action follows the state', () => {
     await expect.element(page.getByTestId('feature-dismiss')).toBeInTheDocument();
   });
 
-  it('never draws Build over a live run, and says View progress', async () => {
+  it('never draws Build over a live run: the current state names the run as a row that opens it (Chris, 2026-09-29)', async () => {
     await page.viewport(1440, 900);
     await draw(proposal({
       tasks: [{ id: 77, title: 'Room PDF export', status: 'running', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41 } }],
@@ -242,7 +244,18 @@ describe('the action follows the state', () => {
     }));
 
     expect(document.querySelector('[data-testid="feature-build"]')).toBeNull();
-    expect(document.querySelector('[data-testid="report-primary-action"]')!.textContent).toBe('View progress');
+    // The row is the move: no second "View progress" button beside it.
+    expect(document.querySelector('[data-testid="report-primary-action"]')).toBeNull();
+
+    const row = page.getByTestId('report-active-run-row');
+
+    await expect.element(row).toHaveTextContent('Running');
+    await expect.element(row).toHaveTextContent('Run #503');
+    await expect.element(row).toHaveTextContent('attempt 1 of 1');
+    expect(row.element().getAttribute('data-preview-key')).toBe('worker_run:503');
+    await expect.element(page.getByTestId('report-status')).toHaveTextContent('Current state');
+    // The Implementation lists the live run as a row too.
+    expect(document.querySelector('[data-testid="report-runs"] [data-run-row="503"][data-live="true"]')).not.toBeNull();
   });
 
   it('offers Build again, never Dismiss, once an attempt has run', async () => {
@@ -349,6 +362,29 @@ describe('the pieces that carried over', () => {
     await draw(fixture());
 
     await expect.element(page.getByTestId('report-preview-pending')).toBeInTheDocument();
+  });
+
+  it('shows the drawn mockups, not "Preview pending", once draw_mockup has written them (request #224)', async () => {
+    await page.viewport(390, 844);
+    const png = (id: number) => `/api/artifacts/o-${id}/o-${id}.png`;
+    await draw(fixture({
+      request: { id: 41, title: 'Copy a file\'s link from the list', status: 'new', createdAt: T('2026-09-20T09:00:00Z'), meta: { surface: 'ui', state: 'in_scope', product: 'northwind-portal', visuals: { beforeArtifactIds: [81], mockupArtifactIds: [92, 93] } } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [
+        { id: 81, kind: 'link', title: 'Files · desktop · before', recordType: 'object', recordId: '77', recordRole: 'qa-screenshot', spec: {}, url: png(81), createdAt: T('2026-09-19T09:00:00Z') },
+        { id: 92, kind: 'file', title: 'Copy a file\'s link · Default', recordType: 'object', recordId: '41', recordRole: 'mockup:default', spec: { contentType: 'image/png' }, url: png(92), createdAt: T('2026-09-20T09:00:00Z') },
+        { id: 93, kind: 'file', title: 'Copy a file\'s link · Link copied', recordType: 'object', recordId: '41', recordRole: 'mockup:link-copied', spec: { contentType: 'image/png' }, url: png(93), createdAt: T('2026-09-20T09:00:01Z') },
+      ],
+    }));
+
+    expect(document.querySelector('[data-testid="report-preview-pending"]')).toBeNull();
+
+    const srcs = [...document.querySelectorAll<HTMLImageElement>('[data-testid="report-slide"] img')].map(i => i.getAttribute('src'));
+
+    // Every drawn state, in order, beside the real screen it was drawn on.
+    expect([...srcs].sort()).toEqual([png(81), png(92), png(93)]);
+    expect(srcs.indexOf(png(92))).toBeLessThan(srcs.indexOf(png(93)));
   });
 
   it('says a missing plan in plain words', () => {

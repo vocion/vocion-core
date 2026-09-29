@@ -27,7 +27,8 @@ const CLAMP_THRESHOLD = 600;
 
 export function UserMessage({ content, attachments = [] }: UserMessageProps) {
   const [expanded, setExpanded] = useState(false);
-  const long = content.length > CLAMP_THRESHOLD;
+  const { quote, body } = splitQuote(content);
+  const long = body.length > CLAMP_THRESHOLD;
   return (
     <div className="flex justify-end">
       {/* `break-words`: a message carries whatever was pasted into it, and a
@@ -55,7 +56,12 @@ export function UserMessage({ content, attachments = [] }: UserMessageProps) {
                 )))}
           </div>
         )}
-        {long && !expanded ? `${content.slice(0, CLAMP_THRESHOLD)}…` : content}
+        {quote && (
+          <blockquote data-testid="message-quote" className="mb-1.5 border-l-2 border-brand-amber/60 pl-2.5 text-muted-foreground italic">
+            {quote}
+          </blockquote>
+        )}
+        {long && !expanded ? `${body.slice(0, CLAMP_THRESHOLD)}…` : body}
         {long && (
           <button
             type="button"
@@ -82,4 +88,21 @@ export function formatBytes(n: number): string {
     return `${Math.round(n / 1024)} KB`;
   }
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * A message that opens with a highlighted passage (`> …` lines,
+ * `quoteThenAsk`) shows it as a quote above what was asked.
+ * @param content - The message.
+ */
+export function splitQuote(content: string): { quote: string | null; body: string } {
+  const lines = content.split('\n');
+  let n = 0;
+  while (n < lines.length && lines[n]!.startsWith('> ')) {
+    n++;
+  }
+  if (n === 0) {
+    return { quote: null, body: content };
+  }
+  return { quote: lines.slice(0, n).map(l => l.slice(2)).join('\n'), body: lines.slice(n).join('\n').trim() };
 }

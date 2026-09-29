@@ -202,6 +202,7 @@
     "history_empty": "Aucune conversation pour l’instant",
     "history_no_match": "Aucun résultat",
     "new_chat": "Nouvelle conversation",
+    "open_full_chat": "Ouvrir en plein écran",
     "via": "via {name}",
     "search_mode": "Recherche seule — extraction, sans modèle",
     "autonomy_ask": "Demander d’abord",

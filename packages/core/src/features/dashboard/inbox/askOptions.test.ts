@@ -1,5 +1,6 @@
+import type { AnswerListeners } from './askOptions';
 import { describe, expect, it } from 'vitest';
-import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
+import { consequenceOf, FIXED_ROWS, fixedRowsFor, labelFor, OTHER } from './askOptions';
 
 describe('labelFor', () => {
   it('names the ask\'s own option', () => {
@@ -27,5 +28,30 @@ describe('labelFor', () => {
     // A regression here shows up as "Attempted to call labelFor() from the
     // server" in production, not as a failure at build time.
     expect(FIXED_ROWS).toHaveLength(3);
+  });
+});
+
+describe('what an answer does (ruling #145, 2026-09-29)', () => {
+  it('never says "as proposed": an ask with no options proposes nothing', () => {
+    const cases: Array<AnswerListeners | undefined> = [undefined, {}, { approve: ['Page the on-call engineer'] }];
+    for (const listeners of cases) {
+      for (const row of fixedRowsFor({ agentSlug: null }, listeners)) {
+        expect(row.description).not.toMatch(/as proposed/i);
+      }
+    }
+  });
+
+  it('names what an answer starts, from the subscribers it matches', () => {
+    expect(consequenceOf({ agentSlug: 'incident-lead' }, 'approve', { approve: ['Page the on-call engineer', 'Open an incident'] }))
+      .toBe('Starts “Page the on-call engineer” and “Open an incident”.');
+  });
+
+  it('says nothing runs only when the page looked and found nothing', () => {
+    expect(consequenceOf({ agentSlug: 'incident-lead' }, 'approve', { approve: [] }))
+      .toBe('Your answer is recorded for incident-lead; nothing runs on its own.');
+    expect(consequenceOf({ agentSlug: null }, 'reject', {}))
+      .toBe('Your answer is recorded for whoever asked.');
+    expect(consequenceOf({ agentSlug: null }, 'reject', undefined))
+      .toBe('Your answer is recorded for whoever asked.');
   });
 });

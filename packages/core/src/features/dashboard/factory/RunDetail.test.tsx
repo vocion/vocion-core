@@ -175,3 +175,37 @@ describe('the run page', () => {
     expect(document.querySelectorAll('[data-testid="run-step-log"] tr')).toHaveLength(1);
   });
 });
+
+describe('where the run belongs (Chris, 2026-09-29: "context of the implementation/plan/history")', () => {
+  it('names its feature, its plan, which attempt it is with the others one move away, and what it must prove', async () => {
+    log.mockResolvedValue({ header: header(), events: [], tasks: [], calls: [], cursor: 0 });
+    await render(
+      <RunDetail
+        initial={live({
+          context: {
+            feature: { id: 41, title: 'Room PDF export', href: '/w/acme/dashboard/p/feature/41' },
+            plan: { id: 52, title: 'Render the room to PDF on the server', href: '/w/acme/dashboard/objects/52' },
+            attempt: { n: 2, of: 2, others: [{ runId: 6, status: 'failed', href: '/dashboard/p/runs/6' }] },
+            acceptance: { count: 4, href: '/w/acme/dashboard/p/feature/41#report-acceptance' },
+          },
+        })}
+        pollMs={60_000}
+      />,
+    );
+
+    await expect.element(page.getByTestId('run-context-feature')).toHaveAttribute('href', '/w/acme/dashboard/p/feature/41');
+    await expect.element(page.getByTestId('run-context-feature')).toHaveTextContent('#41 Room PDF export');
+    await expect.element(page.getByTestId('run-context-plan')).toHaveTextContent('#52 Render the room to PDF on the server');
+    await expect.element(page.getByRole('link', { name: 'Run #6 · failed' })).toHaveAttribute('href', '/dashboard/p/runs/6');
+    await expect.element(page.getByTestId('run-context-acceptance')).toHaveTextContent('4 criteria');
+    // Which attempt of the feature, not the worker's own counter.
+    await expect.element(page.getByText('Attempt 2 of 2')).toBeVisible();
+  });
+
+  it('a run whose records name no feature draws no context block', async () => {
+    log.mockResolvedValue({ header: header(), events: [], tasks: [], calls: [], cursor: 0 });
+    await render(<RunDetail initial={live({ context: null })} pollMs={60_000} />);
+
+    expect(document.querySelector('[data-testid="run-context-feature"]')).toBeNull();
+  });
+});

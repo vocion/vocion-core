@@ -43,7 +43,7 @@ import type { IngestDoc } from '@/services/IngestionService';
 import { createHash } from 'node:crypto';
 import { load } from 'cheerio';
 import { z } from 'zod';
-import { dayKey, dayPlus, isoInZone, isValidTimeZone } from '@/libs/time/zone';
+import { dayKey, dayPlus, instantInZone, isoInZone, isValidTimeZone } from '@/libs/time/zone';
 import { JSON_LD_BLOCK_CAP, pageMetadata } from './pageMetadata';
 
 const urlsFromSchema = z.object({
@@ -605,6 +605,16 @@ function splitFeed(page: FetchedPage): IngestDoc[] | null {
 const ICS_EXPORT_STAMP = 'DTSTAMP';
 
 /**
+ * How many overridden instances a repeating entry's metadata keeps, the
+ * latest when a feed writes more, so one broken or hostile feed cannot write
+ * an arbitrarily large row and a long series keeps the ones still ahead. Only
+ * a value shaped like a date or a date-time counts, which bounds each one at
+ * sixteen characters.
+ */
+const OVERRIDDEN_CAP = 50;
+const ICS_INSTANCE_RE = /^\d{8}(?:T\d{6}Z?)?$/i;
+
+/**
  * Split an ICS body on `BEGIN:VEVENT` … `END:VEVENT`.
  *
  * A text split with no RRULE expansion. Every property read as a value is
@@ -645,6 +655,15 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
     return null;
   }
 
+  const overrides = new Map<string, Set<string>>();
+  for (const block of blocks) {
+    const rid = icsValue(block, 'RECURRENCE-ID');
+    if (ICS_INSTANCE_RE.test(rid)) {
+      const uid = icsValue(block, 'UID');
+      overrides.set(uid, (overrides.get(uid) ?? new Set<string>()).add(rid));
+    }
+  }
+
   const docs: IngestDoc[] = [];
   const seen = new Set<string>();
   for (const block of blocks) {
@@ -662,6 +681,7 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
     seen.add(externalId);
     const published = icsPublishedUrls(block, page.url);
     const endsOn = icsEndsOn(block, zone);
+    const overridden = recurrenceId ? [] : [...(overrides.get(uid) ?? [])].sort().slice(-OVERRIDDEN_CAP);
     docs.push({
       externalId,
       uri: externalId,
@@ -677,6 +697,8 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
         // the metadata it wrote before, or every sync reports a refresh.
         ...(published.length ? { publishedUrls: published } : {}),
         ...(endsOn ? { endsOn } : {}),
+        ...(zone ? { calendarZone: zone } : {}),
+        ...(overridden.length ? { overridden } : {}),
       },
     });
   }
@@ -1060,6 +1082,115 @@ function icsEndsOn(block: string[], zone?: string): string | undefined {
   }
   const day = `${m[1]}-${m[2]}-${m[3]}`;
   return end && !m[4] ? dayPlus(day, -1) : day;
+}
+
+/**
+ * A repeating component's rule and anchor, for a caller that expands it.
+ * Undefined when the component has no RRULE of its own, more than one, or an
+ * EXRULE, or when its start or any EXDATE or RDATE line cannot be read, or is
+ * a date where the start is a time (or the reverse): a cancelled date the
+ * reader skipped would otherwise stay in the list as if it were certain.
+ * @param lines - the component's lines, as written or as the model reads them.
+ * @param fallbackZone - the zone an all-day or floating start runs in.
+ */
+export function icsRecurrence(lines: string[], fallbackZone = 'UTC'): { start: Date; anchorZone: string; rule: string; exdates: Date[]; rdates: Date[]; allDay: boolean } | undefined {
+  const rules = icsProperties(lines, 'RRULE').filter(p => p.own);
+  if (rules.length !== 1 || icsProperties(lines, 'EXRULE').some(p => p.own)) {
+    return undefined;
+  }
+  const rule = rules[0]!.value;
+  const unfolded = unfoldIcs(lines);
+  const startLine = unfolded.find(line => /^DTSTART[;:]/i.test(line));
+  const read = startLine ? icsInstants(startLine, fallbackZone) : undefined;
+  if (!read || read.instants.length !== 1) {
+    return undefined;
+  }
+  const exdates: Date[] = [];
+  const rdates: Date[] = [];
+  for (const line of unfolded) {
+    const name = /^(EXDATE|RDATE)[;:]/i.exec(line)?.[1]?.toUpperCase();
+    if (!name) {
+      continue;
+    }
+    const extra = icsInstants(line, fallbackZone);
+    if (!extra || extra.allDay !== read.allDay) {
+      return undefined;
+    }
+    (name === 'EXDATE' ? exdates : rdates).push(...extra.instants);
+  }
+  return { start: read.instants[0]!, anchorZone: read.anchorZone, rule, exdates, rdates, allDay: read.allDay };
+}
+
+/**
+ * The instants one date or date-time property line names, with the clock they
+ * run on: `Z` is UTC, `TZID=` is that zone, a floating time is the fallback
+ * zone, and a bare date is noon there, so a zone whose clocks jump at
+ * midnight still names that day. Undefined for a period, a zone the runtime
+ * does not know, a list that mixes dates and date-times, a date or time that
+ * does not exist, or any other form.
+ * @param line - one unfolded content line.
+ * @param fallbackZone - the zone a date or a floating time runs in.
+ */
+function icsInstants(line: string, fallbackZone: string): { instants: Date[]; anchorZone: string; allDay: boolean } | undefined {
+  const { colon, guessed } = icsValueColon(line);
+  if (colon < 0 || guessed) {
+    return undefined;
+  }
+  const params = line.slice(0, colon).split(';').slice(1);
+  if (params.some(p => /^VALUE=PERIOD$/i.test(p))) {
+    return undefined;
+  }
+  const tzid = params.find(p => /^TZID=/i.test(p))?.slice(5);
+  const zone = tzid ? knownTimeZone(tzid) : undefined;
+  if (tzid && !zone) {
+    return undefined;
+  }
+  const instants: Date[] = [];
+  const kinds = new Set<'date' | 'local' | 'utc'>();
+  for (const value of line.slice(colon + 1).split(',')) {
+    const read = icsValueInstant(value, zone ?? fallbackZone);
+    if (!read) {
+      return undefined;
+    }
+    kinds.add(read.kind);
+    instants.push(read.at);
+  }
+  if (kinds.has('date') && kinds.size > 1) {
+    return undefined;
+  }
+  return { instants, anchorZone: kinds.size === 1 && kinds.has('utc') ? 'UTC' : (zone ?? fallbackZone), allDay: kinds.has('date') };
+}
+
+/**
+ * One date or date-time value as an instant: `Z` is UTC, a local time is on
+ * the zone's clock, and a bare date is noon there. Undefined for any other
+ * form, or a date or time that does not exist.
+ * @param value - `YYYYMMDD`, `YYYYMMDDTHHMMSS` or `YYYYMMDDTHHMMSSZ`.
+ * @param zone - the clock a date or a local time runs on.
+ */
+function icsValueInstant(value: string, zone: string): { at: Date; kind: 'date' | 'local' | 'utc' } | undefined {
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/i.exec(value);
+  if (!m) {
+    return undefined;
+  }
+  const kind = m[4] === undefined ? 'date' : m[7] ? 'utc' : 'local';
+  const at = instantInZone(`${m[1]}-${m[2]}-${m[3]}T${m[4] ?? '12'}:${m[5] ?? '00'}:${m[6] ?? '00'}`, kind === 'utc' ? 'UTC' : zone);
+  return Number.isNaN(at.getTime()) ? undefined : { at, kind };
+}
+
+/**
+ * The instant a stored `overridden` value names, read the way `icsRecurrence`
+ * reads the series: RFC 5545 writes a RECURRENCE-ID in its start's own form, so
+ * a local time runs on the series' clock and a date is noon there. Undefined
+ * for a date on a timed series, a time on an all-day one, or any other form.
+ * @param value - one value `splitIcs` stored, as the feed wrote it.
+ * @param series - the series as `icsRecurrence` read it.
+ * @param series.anchorZone - the clock the series runs on.
+ * @param series.allDay - whether the series is all-day.
+ */
+export function icsOverriddenInstant(value: string, series: { anchorZone: string; allDay: boolean }): Date | undefined {
+  const read = icsValueInstant(value, series.anchorZone);
+  return read && (read.kind === 'date') === series.allDay ? read.at : undefined;
 }
 
 /**

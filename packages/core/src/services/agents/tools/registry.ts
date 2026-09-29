@@ -30,9 +30,11 @@ import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
 import { dataRoomTools } from './dataRooms';
+import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
+import { drawMockupTools } from './drawMockup';
 import { editArtifactTools } from './editArtifacts';
 import { fetchImageTool } from './fetchImage';
 import { fetchUrlTool } from './fetchUrl';
@@ -163,6 +165,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     listCapabilitiesTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
+    // A mockup is the real screen with only the change drawn in, filed on the
+    // request it is for (request #224, 2026-09-29). For agents with requests.
+    ...drawMockupTools(ctx),
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
@@ -193,6 +198,8 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     withdrawProposalTool(ctx),
     // A person deciding a card by saying so — the card's buttons, from the composer.
     decideProposalTool(ctx),
+    // …and an ask the same way: the Needs you sheet's buttons, from the composer.
+    decideAskTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),
     // Every interaction should teach the system something (design principle 11):

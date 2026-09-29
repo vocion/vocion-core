@@ -1,10 +1,10 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { RunLink, RunLogData, RunLogLine, RunStep, RunStepStatus } from '@/libs/worker/runLog';
+import type { RunContext, RunLink, RunLogData, RunLogLine, RunStep, RunStepStatus } from '@/libs/worker/runLog';
 import { Check, CircleCheck, CircleDashed, CircleMinus, CircleX, Copy, LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { Accordion, DetailMeta, MetaChip, Section, StatusDot } from '@/components/patterns';
+import { Accordion, DetailMeta, FactList, MetaChip, Section, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
@@ -109,8 +109,11 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
         <DetailMeta
           items={[
             <StatusDot key="status" tone={statusTone(header.status)} label={statusLabel(header.status)} />,
-            <span key="run">{`${header.kind === 'agent' ? 'Agent run' : 'Engineering run'} #${header.id}`}</span>,
-            header.attempt ? <span key="attempt">{`Attempt ${header.attempt}`}</span> : null,
+            <span key="run">{`${header.kind === 'agent' ? 'Agent run' : 'Run'} #${header.id}`}</span>,
+            // Which attempt of its feature, when the records say; else the worker's own count.
+            header.context?.attempt
+              ? <span key="attempt">{`Attempt ${header.context.attempt.n} of ${header.context.attempt.of}`}</span>
+              : header.attempt ? <span key="attempt">{`Attempt ${header.attempt}`}</span> : null,
             refused
               ? <span key="took">Refused before it started</span>
               : runMs !== null ? <span key="took" className="tabular-nums">{formatDuration(runMs)}</span> : null,
@@ -123,6 +126,7 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
             live ? <span key="live" className="text-[12px]">{visible ? 'live' : 'paused while hidden'}</span> : null,
           ]}
         />
+        {header.context && <RunContextFacts context={header.context} />}
         {stopped && (
           <p className="mt-3 text-sm break-words text-foreground" data-testid="run-stopped">
             <span className="font-medium">Stopped</span>
@@ -291,9 +295,12 @@ function StepLog({ lines, follow }: { lines: RunLogLine[]; follow: boolean }) {
         <tbody>
           {lines.map((l, i) => (
             // eslint-disable-next-line react/no-array-index-key
-            <tr key={i} className={cn(l.level === 'error' && 'text-brand-fail', l.level === 'warn' && 'text-brand-borderline')}>
+            <tr key={i} data-line-kind={l.kind} className={cn(l.level === 'error' && 'text-brand-fail', l.level === 'warn' && 'text-brand-borderline', l.kind === 'add' && 'bg-brand-pass/10 text-brand-pass', l.kind === 'del' && 'bg-brand-fail/10 text-brand-fail', l.kind === 'out' && 'text-muted-foreground')}>
               <td className="w-10 pr-3 pl-2 text-right align-top text-muted-foreground/60 tabular-nums select-none">{i + 1}</td>
-              <td className="pr-3 whitespace-pre">{l.text || ' '}</td>
+              {l.kind === 'say'
+                // The engineer's words read as prose, wrapped, like the terminal's commentary.
+                ? <td className="max-w-[70ch] py-1 pr-3 font-sans text-[13px] leading-5 whitespace-pre-wrap text-foreground">{l.text}</td>
+                : <td className="pr-3 whitespace-pre">{l.text || ' '}</td>}
             </tr>
           ))}
         </tbody>
@@ -343,4 +350,38 @@ function subscribeVisibility(onChange: () => void): () => void {
 
 function readVisible(): boolean {
   return document.visibilityState !== 'hidden';
+}
+
+/**
+ * WHERE THIS RUN BELONGS, in four facts under its header (Chris, 2026-09-29:
+ * "When I'm on the active run I should have context of the
+ * implementation/plan/history"): the feature it builds, the plan it follows,
+ * the other attempts, and what it must prove — each one move away. The
+ * patterns' fact list, not a second layout.
+ * @param props
+ * @param props.context - From the run's records (`RunLogService.runContext`).
+ */
+function RunContextFacts({ context: c }: { context: RunContext }) {
+  const link = 'underline decoration-border underline-offset-2 hover:decoration-foreground';
+  return (
+    <FactList
+      className="mt-3"
+      facts={[
+        c.feature && { key: 'feature', label: 'Feature', value: <Link href={c.feature.href} className={link} data-testid="run-context-feature">{`#${c.feature.id} ${c.feature.title}`}</Link> },
+        c.plan && { key: 'plan', label: 'Plan', value: <Link href={c.plan.href} className={link} data-testid="run-context-plan">{`#${c.plan.id} ${c.plan.title}`}</Link> },
+        c.attempt && c.attempt.others.length > 0 && {
+          key: 'attempts',
+          label: 'Other attempts',
+          value: (
+            <span className="flex flex-wrap gap-x-3 gap-y-1" data-testid="run-context-attempts">
+              {c.attempt.others.map(o => (
+                <Link key={o.runId} href={o.href} className={link}>{`Run #${o.runId} · ${o.status}`}</Link>
+              ))}
+            </span>
+          ),
+        },
+        c.acceptance && { key: 'acceptance', label: 'Acceptance', value: <Link href={c.acceptance.href} className={link} data-testid="run-context-acceptance">{`${c.acceptance.count} criteri${c.acceptance.count === 1 ? 'on' : 'a'}`}</Link> },
+      ]}
+    />
+  );
 }

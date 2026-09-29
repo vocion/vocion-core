@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { ASK_KINDS, ASK_RISKS, getAsk } from '@/services/AskService';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
+import { anchoredAskCheck } from '../anchoredFiling';
 
 /**
  * The agent principal every tool-made proposal rides — working autonomy, judged by the ladder.
@@ -68,6 +69,13 @@ export function fileAskTool(ctx: RuntimeContext) {
         due_at?: string;
         confidence: number;
       };
+      // A CONFLICT FOUND WHILE DOING THE WORK IS AN EDIT (anchoredFiling.ts):
+      // on the page of the record the person asked to change, an ask whose
+      // answer the agent already has is refused with the edit to make instead.
+      const refusal = await anchoredAskCheck(ctx, { kind: args.kind, options: args.options, objectRefs: args.object_refs });
+      if (refusal) {
+        return refusal;
+      }
       const input: Record<string, unknown> = {
         title: args.title,
         body: args.body,
@@ -89,6 +97,12 @@ export function fileAskTool(ctx: RuntimeContext) {
           ? { missionRunId: ctx.missionRunId, conversationId: ctx.conversationId }
           : undefined,
       };
+      // A ruling or recommendation is checked against the wiki first (`wikiDecision.ts`).
+      const { wikiDecisionCheck } = await import('../wikiDecision');
+      const unchecked = await wikiDecisionCheck(ctx, 'ask.file', input as Record<string, unknown>);
+      if (unchecked) {
+        return unchecked;
+      }
       try {
         const res = await proposeAction({
           orgId: ctx.orgId,

@@ -30,6 +30,16 @@ describe('merge — scalars & objects replace', () => {
     expect(mergeManifest(base, patch)).toEqual({ searchConfig: { maxResults: 20 } });
   });
 
+  it('merges harness key by key, so pinning a model keeps the base\'s tool exclusions', () => {
+    const base = { harness: { excludeTools: ['render_document', 'generate_image'], recommendActionBackstop: true } };
+    const patch = { harness: { modelProvider: 'anthropic', model: 'claude-opus-5' } };
+
+    expect(mergeManifest(base, patch)).toEqual({ harness: { excludeTools: ['render_document', 'generate_image'], recommendActionBackstop: true, modelProvider: 'anthropic', model: 'claude-opus-5' } });
+    // A list inside harness still replaces whole, or takes a directive.
+    expect(mergeManifest(base, { harness: { excludeTools: ['propose_action'] } }).harness).toMatchObject({ excludeTools: ['propose_action'] });
+    expect(mergeManifest(base, { harness: { excludeTools: { $remove: ['generate_image'] } } }).harness).toMatchObject({ excludeTools: ['render_document'] });
+  });
+
   it('inherits base keys not named in the patch', () => {
     const base = { slug: 'x', name: 'X', model: 'a', skills: ['s1'] };
 

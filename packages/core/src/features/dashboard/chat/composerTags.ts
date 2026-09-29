@@ -45,7 +45,7 @@ export const INTENT_REF_TYPE = 'intent';
  * everywhere — select the words, talk about them — has one special outcome:
  * the ask goes to `ReviewService.rewriteDraft` and the send under review
  * comes back rewritten. That special outcome is a TAG, not a second control
- * (agent-chat-surface.md, "Intents"): the selection offers *Add change*, the
+ * (agent-chat-surface.md, "Intents"): the selection offers *Change*, the
  * tag lands in the composer beside the passage, and the send path reads it.
  * Without it the same words are an ordinary question.
  */

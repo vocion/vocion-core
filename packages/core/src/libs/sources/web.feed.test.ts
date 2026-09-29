@@ -22,7 +22,8 @@ import type { SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { webConnector } from './web';
+import { isoInZone } from '@/libs/time/zone';
+import { icsOverriddenInstant, icsRecurrence, webConnector } from './web';
 
 type Progress = { kind: string; uri?: string; message?: string };
 
@@ -1723,5 +1724,116 @@ END:VCALENDAR`;
     const { docs } = await run({ urls: ['https://venue.test/events.json'] });
 
     expect((JSON.parse(docs[0]!.content) as Record<string, unknown>).startDate).toBe('2026-10-18T22:00:00.000Z');
+  });
+
+  it('stores the calendar zone and the instances a repeating entry has overrides for, and leaves its text as written', async () => {
+    stubFetch(() => typed(zonedIcs('X-WR-TIMEZONE:America/New_York\n'), 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    const master = byId(docs, 'weekly@venue.test');
+
+    expect(master.metadata?.calendarZone).toBe('America/New_York');
+    expect(master.metadata?.overridden).toEqual(['20261118T230000Z']);
+    expect(master.content).toContain('RRULE:FREQ=WEEKLY');
+
+    const override = docs.find(d => d.externalId.includes('#weekly@venue.test#'))!;
+
+    expect(override.metadata?.overridden).toBeUndefined();
+
+    const late = byId(docs, 'late-show@venue.test');
+
+    expect(late.metadata?.calendarZone).toBe('America/New_York');
+    expect(late.metadata?.overridden).toBeUndefined();
+
+    stubFetch(() => typed(zonedIcs(''), 'text/calendar'));
+    const undeclared = await run({ urls: [ICS_URL] });
+
+    expect(byId(undeclared.docs, 'weekly@venue.test').metadata?.calendarZone).toBeUndefined();
+    expect(byId(undeclared.docs, 'late-show@venue.test').metadata?.calendarZone).toBeUndefined();
+  });
+
+  it('stores at most fifty overridden instances, sorted and date-shaped, whatever order the feed writes them in', async () => {
+    const instance = (i: number) => `${new Date(Date.UTC(2026, 9, 1 + i, 23)).toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`;
+    const override = (rid: string) => `BEGIN:VEVENT\nUID:daily@venue.test\nRECURRENCE-ID:${rid}\nSUMMARY:Daily Class, moved\nDTSTART:${rid}\nEND:VEVENT\n`;
+    const written = Array.from({ length: 60 }, (_, i) => instance(59 - i));
+    const feed = (rids: string[]) => `BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:daily@venue.test\nSUMMARY:Daily Class\nDTSTART:20261001T230000Z\nRRULE:FREQ=DAILY\nEND:VEVENT\n${rids.map(override).join('')}END:VCALENDAR`;
+    stubFetch(() => typed(feed([...written, 'not-a-date']), 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    const stored = byId(docs, 'daily@venue.test').metadata?.overridden as string[];
+
+    expect(stored).toHaveLength(50);
+    expect(stored).toEqual([...written].sort().slice(-50));
+
+    // A repeated override never reaches the metadata: the feed cannot tell the two apart, so the split is abandoned.
+    stubFetch(() => typed(feed([instance(0), instance(0)]), 'text/calendar'));
+    const repeated = await run({ urls: [ICS_URL] });
+
+    expect(repeated.docs.map(d => d.externalId)).toEqual([ICS_URL]);
+  });
+
+  it('reads a repeating entry\'s rule and anchor from its text', async () => {
+    stubFetch(() => typed(zonedIcs('X-WR-TIMEZONE:America/New_York\n'), 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    const master = byId(docs, 'weekly@venue.test');
+    const rec = icsRecurrence(master.content.split('\n'), 'America/New_York')!;
+
+    expect(rec.rule).toBe('FREQ=WEEKLY');
+    expect(rec.anchorZone).toBe('UTC');
+    expect(rec.start.toISOString()).toBe('2026-11-04T23:00:00.000Z');
+    expect(rec.exdates.map(d => d.toISOString())).toEqual(['2026-11-11T23:00:00.000Z', '2026-11-25T23:00:00.000Z']);
+    expect(rec.allDay).toBe(false);
+    expect(icsRecurrence(byId(docs, 'late-show@venue.test').content.split('\n'), 'America/New_York')).toBeUndefined();
+
+    const zoned = icsRecurrence(['BEGIN:VEVENT', 'DTSTART;TZID=America/Chicago:20261101T193000', 'RRULE:FREQ=WEEKLY', 'END:VEVENT'])!;
+
+    expect(zoned.anchorZone).toBe('America/Chicago');
+    expect(zoned.start.toISOString()).toBe('2026-11-02T01:30:00.000Z');
+
+    const allDay = icsRecurrence(['BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261010', 'RRULE:FREQ=WEEKLY', 'END:VEVENT'], 'America/New_York')!;
+
+    expect(allDay).toMatchObject({ anchorZone: 'America/New_York', allDay: true });
+    expect(allDay.start.toISOString()).toBe('2026-10-10T16:00:00.000Z');
+
+    // Santiago's clocks jump from 00:00 to 01:00 on 2026-09-06, so that day has no midnight.
+    const santiago = icsRecurrence(['BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20260906', 'RRULE:FREQ=DAILY', 'END:VEVENT'], 'America/Santiago')!;
+
+    expect(isoInZone(santiago.start, 'America/Santiago').slice(0, 10)).toBe('2026-09-06');
+    expect(icsRecurrence(['BEGIN:VEVENT', 'DTSTART;TZID=America/Chicago:20261340T193000', 'RRULE:FREQ=WEEKLY', 'END:VEVENT'])).toBeUndefined();
+    expect(icsRecurrence(['BEGIN:VEVENT', 'DTSTART:20261340T193000Z', 'RRULE:FREQ=WEEKLY', 'END:VEVENT'])).toBeUndefined();
+    expect(icsRecurrence(['BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20260231', 'RRULE:FREQ=WEEKLY', 'END:VEVENT'])).toBeUndefined();
+  });
+
+  it('leaves the rule to the model when an exception or an extra date cannot be read', () => {
+    const weekly = (line: string) => icsRecurrence(['BEGIN:VEVENT', 'DTSTART:20261104T230000Z', 'RRULE:FREQ=WEEKLY', line, 'END:VEVENT'], 'America/New_York');
+
+    expect(weekly('EXDATE:20261111T230000Z')?.exdates).toHaveLength(1);
+    expect(weekly('EXDATE;TZID=Eastern Standard Time:20261111T180000')).toBeUndefined();
+    expect(weekly('EXDATE:20261111T230000Z,garbage')).toBeUndefined();
+    expect(weekly('EXDATE:20261111T230000Z,20261118')).toBeUndefined();
+    expect(weekly('EXDATE;VALUE=DATE:20261111')).toBeUndefined();
+    expect(weekly('RDATE;VALUE=PERIOD:20261112T230000Z/PT1H')).toBeUndefined();
+    expect(weekly('RRULE:FREQ=WEEKLY;BYDAY=SA')).toBeUndefined();
+    expect(weekly('EXRULE:FREQ=MONTHLY')).toBeUndefined();
+  });
+
+  it('reads a stored override on the series\' own clock, in the form the feed wrote it', async () => {
+    stubFetch(() => typed(TWO_EVENT_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    const master = docs.find(d => d.externalId === `${ICS_URL}#evt-1@venue.test`)!;
+    const stored = master.metadata?.overridden as string[];
+    const series = icsRecurrence(master.content.split('\n'), 'America/New_York')!;
+
+    expect(stored).toEqual(['20261108T193000']);
+    expect(icsOverriddenInstant(stored[0]!, series)?.toISOString()).toBe('2026-11-09T00:30:00.000Z');
+    expect(icsOverriddenInstant('20261109T003000Z', series)?.toISOString()).toBe('2026-11-09T00:30:00.000Z');
+    expect(icsOverriddenInstant('20261108', series)).toBeUndefined();
+    expect(icsOverriddenInstant('20261108', { anchorZone: 'America/New_York', allDay: true })?.toISOString()).toBe('2026-11-08T17:00:00.000Z');
   });
 });

@@ -19,6 +19,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
+import { rulingChoices } from '@/features/dashboard/chat/rulingChoices';
 import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { isSelfUpdate } from '@/libs/actions/selfUpdate';
@@ -439,8 +440,8 @@ function ItemPane(props: {
 
   return (
     // `data-comment-field`: the item is a region the selection control can
-    // anchor to, so highlighting a sentence in it offers *Ask about this* /
-    // *Add change* (`docs/design/patterns.md` § Select → talk).
+    // anchor to, so highlighting a sentence in it offers *Ask* /
+    // *Change* (`docs/design/patterns.md` § Select → talk).
     <div data-comment-field={props.label} data-testid={`item-pane-${props.item.id}`} className="@container">
       <div className="mb-1 flex items-baseline justify-between gap-3">
         <h3 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
@@ -666,6 +667,11 @@ export function ReviewSurface(props: {
   // snooze goes — there is nothing to come back and decide.
   const awaitingExecution = run.status === 'awaiting_execution';
   const approveVerb = awaitingExecution ? 'Mark done' : card.verbs?.approve ?? 'Approve';
+  // ONE SHAPE (Chris, 2026-09-29, proposal 5210: "the chips don't match
+  // anything on Decide in review"): a ruling waiting on you is decided here by
+  // the same choices the chat card offers — recommended first and primary —
+  // sent the same way (`answerInput`), in place of approve / decline.
+  const choices = run.status === 'pending' ? rulingChoices({ actionId: run.actionId, input: run.input }) : null;
   const rejectVerb = awaitingExecution ? 'Could not be done' : card.verbs?.reject ?? 'Decline';
   // The shorter register (see the file comment): one header, one line for the
   // recommendation, one Why. Opted into by the presenter naming a headline.
@@ -756,11 +762,15 @@ export function ReviewSurface(props: {
     return () => clearTimeout(timer);
   }, [justChanged]);
 
-  const decide = async (decision: 'approve' | 'reject' | 'done') => {
+  const decide = async (decision: 'approve' | 'reject' | 'done', answer?: { id: string; label: string }) => {
     landed.current = false;
     const verbLabel = decision === 'reject' ? rejectVerb : approveVerb;
     try {
-      await d.decide(decision);
+      await d.decide(decision, answer ? { answer: answer.id } : undefined);
+      if (answer && landed.current) {
+        toast.success(`You chose ${answer.label} · ${card.title}`);
+        return;
+      }
       if (!landed.current) {
         // A failed execution is NOT a completed decision: the surface stays
         // with the error on it and the primary becomes Retry.
@@ -882,6 +892,10 @@ export function ReviewSurface(props: {
       void decide('done');
       return;
     }
+    if (choices) {
+      void decide('approve', choices[0]);
+      return;
+    }
     if (!walkStep) {
       void decide('approve');
       return;
@@ -906,7 +920,7 @@ export function ReviewSurface(props: {
       if (action === 'approve' && !heldPrimary) {
         e.preventDefault();
         pressPrimary();
-      } else if (action === 'decline') {
+      } else if (action === 'decline' && !choices) {
         e.preventDefault();
         void decide('reject');
       } else if (action === 'snooze' && !awaitingExecution) {
@@ -1237,24 +1251,29 @@ export function ReviewSurface(props: {
               primary={{
                 // One word, and the walk is what it does: Approve until every
                 // send carries a check, then the card's own verb.
-                'label': walkStep ? 'Approve' : d.execError ? `Retry ${approveVerb}` : approveVerb,
+                'label': choices ? choices[0]!.label : walkStep ? 'Approve' : d.execError ? `Retry ${approveVerb}` : approveVerb,
                 'onClick': pressPrimary,
                 'disabled': heldPrimary,
                 'busy': d.busy,
                 'icon': Check,
                 'shortcut': 'a',
                 'hint': props.hold?.reason ?? (walkStep?.open ? `Opens ${walkStep.label}, which is still waiting to be approved.` : undefined),
-                'data-testid': 'decide-approve',
+                'data-testid': choices ? 'ruling-choice' : 'decide-approve',
               }}
-              secondary={[
-                // A hand-off's verbs keep their words on a phone: Reject and
-                // Snooze as icons alone read as two mystery buttons beside
-                // Approve on the first one Chris met there.
-                { 'label': rejectVerb, 'onClick': () => void decide('reject'), 'disabled': d.held, 'icon': X, 'shortcut': 'd', 'tone': 'danger', 'labelAlways': Boolean(handoff), 'data-testid': 'decide-reject' },
-                ...(awaitingExecution
-                  ? []
-                  : [{ 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'labelAlways': Boolean(handoff), 'data-testid': 'decide-snooze' }]),
-              ]}
+              secondary={choices
+                ? [
+                    ...choices.slice(1).map(c => ({ 'label': c.label, 'onClick': () => void decide('approve', c), 'disabled': d.held, 'labelAlways': true, 'data-testid': 'ruling-choice' })),
+                    { 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'data-testid': 'decide-snooze' },
+                  ]
+                : [
+                    // A hand-off's verbs keep their words on a phone: Reject and
+                    // Snooze as icons alone read as two mystery buttons beside
+                    // Approve on the first one Chris met there.
+                    { 'label': rejectVerb, 'onClick': () => void decide('reject'), 'disabled': d.held, 'icon': X, 'shortcut': 'd', 'tone': 'danger', 'labelAlways': Boolean(handoff), 'data-testid': 'decide-reject' },
+                    ...(awaitingExecution
+                      ? []
+                      : [{ 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'labelAlways': Boolean(handoff), 'data-testid': 'decide-snooze' }]),
+                  ]}
               aside={snoozeOpen && (
                 <span className="inline-flex items-center gap-1 text-[13px] text-muted-foreground" role="group" aria-label="Snooze until" data-testid="snooze-picker">
                   <span className="px-1">Until</span>

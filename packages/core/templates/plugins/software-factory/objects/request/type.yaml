@@ -37,7 +37,7 @@ schema:
   x-agent-file:
     dedupOn: [product, title]
     fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, gapCheck, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
-    omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.afterArtifactIds, visuals.drawnArtifactId]
+    omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.beforeArtifactIds, visuals.mockupArtifactIds, visuals.afterArtifactIds, visuals.drawnArtifactId]
   properties:
     kind:
       x-display: {label: Kind, format: badge, group: Triage, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
@@ -175,7 +175,8 @@ schema:
         to be closed. `noVisualReason` is the recorded way out — a way out
         that is written down, never a silent skip.
       properties:
-        beforeArtifactIds: {type: array, items: {type: integer}, description: 'Mockups, flow and architecture diagrams — what we propose to build, so a decision is made against something a person can see.'}
+        beforeArtifactIds: {type: array, items: {type: integer}, description: 'The screen as it is today — the real screenshot a mockup is drawn on. Written by draw_mockup, never by hand. (On a record from before mockupArtifactIds existed it holds the mockups, and is read that way.)'}
+        mockupArtifactIds: {type: array, items: {type: integer}, description: 'What we propose to build: the same real screen with only the change drawn in, one image per state worth seeing (at rest, hover, confirmation). Written by draw_mockup — which also writes beforeArtifactIds — never by hand, so a decision is made against the real app rather than an invented one (request #224, 2026-09-29). A flow diagram for a flow change goes here too.'}
         afterArtifactIds: {type: array, items: {type: integer}, description: 'What shipped, captured from the running product. GIF and video later; a still is enough to close.'}
         surfaceUrl: {type: string, description: 'Where on the live product this can be seen — and, once it has shipped, where the after-shot was captured. One link, because they are the same place, and a shot nobody can check against the real thing is decoration.'}
         noVisualReason: {type: string, description: 'Why this user-facing change carries no visual. Recorded rather than assumed, so the gap is a decision somebody made and not an omission nobody noticed.'}
@@ -333,7 +334,7 @@ schema:
     duplicateOf:
       x-display: {label: Duplicate of, format: link, to: request}
       type: integer
-      description: The id of the open request this duplicates. Set by triage; the asker is told, and this record ends here.
+      description: The id of the open request this duplicates. Setting it closes this request by itself — leave state as it is (no state means "duplicate"); the Work page archives it and the factory stops. Set by triage or a person; the asker is told.
     dedupeKey:
       x-display: {label: Dedupe key, format: mono, group: Where it came from}
       type: string
@@ -501,6 +502,19 @@ schema:
         owner: {type: string, description: 'Who can clear it — a person by email, or an agent slug.'}
         next: {type: string, description: The one move that clears it.}
         since: {type: string, format: date-time}
+        waitsOn:
+          type: array
+          description: >-
+            The records whose decision clears it — a plan to approve, an ask to
+            answer, a review item (action run) to decide. When any of them is
+            decided the blocker is cleared on its own and the request's
+            Activity says so (`services/factory/blocker.ts`); without this, the
+            records `next` names ("approve plan 136") are read the same way.
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [plan, ask, action]}
+              id: {type: integer}
 
 rollups:
   - {field: estimateCents, from: {type: engineering_task, by: requestId}, sum: estimateCents}

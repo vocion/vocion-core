@@ -215,14 +215,14 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   // attach it to. Both are ordinary artifacts, so both arrive the same way.
   // Two different kinds of id, read two different ways. The request's own id
   // and its tasks' ids are RECORD ids: every artifact filed against them. The
-  // ids under `visuals.beforeArtifactIds` / `afterArtifactIds` are ARTIFACT
+  // ids under `visuals.beforeArtifactIds` / `mockupArtifactIds` / `afterArtifactIds` are ARTIFACT
   // ids — a picture may live on another record (the Share dialog 87 shipped
   // was captured on request 121) — so they are read by id. They were read as
   // record ids, and a picture filed anywhere but on the request itself never
   // reached its page.
   const requestVisuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
   const pictureIds = new Set<number>();
-  for (const key of ['beforeArtifactIds', 'afterArtifactIds']) {
+  for (const key of ['beforeArtifactIds', 'mockupArtifactIds', 'afterArtifactIds']) {
     const ids = requestVisuals[key];
     if (Array.isArray(ids)) {
       for (const id of ids) {

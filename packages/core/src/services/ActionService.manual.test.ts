@@ -192,10 +192,13 @@ describe('the factory trust rules bind to the registered ids', () => {
     const schema = await propose('git.merge', 1, { ...recipe, commitSha: 'a1b2c3d4e5f6', rollback: 'revert the merge commit and redeploy; no data written', title: 'Merge schema', riskClass: 'schema' });
     const unruled = await propose('git.merge', 1, { ...recipe, commitSha: 'a1b2c3d4e5f6', rollback: 'revert the merge commit and redeploy; no data written', title: 'Merge ui', riskClass: 'ui' });
 
-    expect(docs.status).toBe('awaiting_execution');
+    // The ladder released docs, and the merge ran (2026-09-29: git.merge merges
+    // the PR itself now). This fixture names no pull request, so the run fails
+    // saying so — what matters here is that the rule, not a person, released it.
+    expect(docs.status).not.toBe('pending');
     expect((await readRun(docs.runId)).proposal).toMatchObject({ autoApprovedBy: 'trust-rule' });
     expect(schema.status).toBe('pending');
-    // No rule for the class: an irreversible hand-off asks.
+    // No rule for the class: the parent rule asks.
     expect(unruled.status).toBe('pending');
   });
 });

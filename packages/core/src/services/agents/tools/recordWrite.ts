@@ -24,7 +24,8 @@
 
 import type { RuntimeContext } from '../types';
 import type { RecordRef } from '@/services/chat/pageContext';
-import { proposeAction } from '@/services/ActionService';
+import { guardVisuals } from '@/libs/factory/mockup';
+import { ActionError, proposeAction } from '@/services/ActionService';
 
 /** Record-ref types whose id is a `business_object.id`. */
 const RECORD_REF_TYPES: ReadonlySet<string> = new Set(['object', 'request']);
@@ -87,12 +88,14 @@ export type RecordWriteResult = Awaited<ReturnType<typeof proposeAction>> & {
  * @param input.reason - Why, in a sentence a person can check.
  * @param input.confidence - 0–1; decides done-for-you or Review under the trust rule.
  * @param input.label - The record as the person knows it, for the event ("request #214").
+ * @param input.ownsVisualIds - The mockup tool's own write: `visuals` ids are its to set, so they are not guarded.
  */
-export async function writeRecordAsAgent(ctx: RuntimeContext, input: { objectType: string; id: number; set: Record<string, unknown>; reason: string; confidence: number; label?: string }): Promise<RecordWriteResult> {
+export async function writeRecordAsAgent(ctx: RuntimeContext, input: { objectType: string; id: number; set: Record<string, unknown>; reason: string; confidence: number; label?: string; ownsVisualIds?: boolean }): Promise<RecordWriteResult> {
+  const set = input.ownsVisualIds || !('visuals' in input.set) ? input.set : await guardedVisualsSet(ctx, input.id, input.set);
   const res = await proposeAction({
     orgId: ctx.orgId,
     actionId: 'objects.update_meta',
-    input: { objectType: input.objectType, id: input.id, set: input.set, reason: input.reason },
+    input: { objectType: input.objectType, id: input.id, set, reason: input.reason },
     principal: {
       kind: 'agent',
       id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : 'agent:unknown',
@@ -117,10 +120,35 @@ export async function writeRecordAsAgent(ctx: RuntimeContext, input: { objectTyp
       artifactId: version.artifactId,
       from: version.from,
       to: version.to,
-      fields: Object.keys(input.set).sort(),
+      fields: Object.keys(set).sort(),
     });
   }
   return version ? { ...res, version } : res;
+}
+
+/**
+ * A hand-written `visuals`, checked and completed (`guardVisuals`): the
+ * screenshot and mockup ids are the mockup tool's to write, so a different
+ * list is refused, and keys the write left out are carried over from the
+ * record — `visuals` is written whole, and setting `surfaceUrl` once dropped
+ * the pictures beside it. Request #224, 2026-09-29: the designer typed the
+ * AFTER mockup's id into `beforeArtifactIds` by hand.
+ * @param ctx - The turn.
+ * @param id - The record.
+ * @param set - The write.
+ */
+async function guardedVisualsSet(ctx: RuntimeContext, id: number, set: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { getBusinessObject } = await import('@/services/BusinessObjectService');
+  const row = await getBusinessObject(id, ctx.orgId);
+  const current = ((row?.metadata ?? {}) as Record<string, unknown>).visuals;
+  const checked = guardVisuals(current, set.visuals);
+  if (!checked.ok) {
+    throw new ActionError('VALIDATION_FAILED', checked.reason);
+  }
+  if (checked.value === null) {
+    return set;
+  }
+  return { ...set, visuals: checked.value };
 }
 
 /**
@@ -198,7 +226,6 @@ export async function reviseRecordBody(ctx: RuntimeContext, body: BodyArtifact, 
   }
   const confidence = typeof args.confidence === 'number' && args.confidence >= 0 && args.confidence <= 1 ? args.confidence : 0.5;
   const lines: string[] = [];
-  const { ActionError } = await import('@/services/ActionService');
   try {
     if (Object.keys(set).length > 0) {
       const res = await writeRecordAsAgent(ctx, { objectType: typeSlug, id: rec.id, set, reason: args.changeSummary, confidence, label });

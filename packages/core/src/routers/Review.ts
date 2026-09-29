@@ -302,13 +302,23 @@ export const actionStatusRoute = os
     // A type is only a record type when the run named one; an action's own id is not.
     const recordLink = made && made.type !== row.actionId ? await recordHref(orgId, { objectType: made.type, id: made.id }).catch(() => null) : null;
     // What it did, from its own result — the words a done card reads.
-    const { doneSummary } = await import('@/libs/actions/doneSummary');
+    const { chosenOption, doneSummary } = await import('@/libs/actions/doneSummary');
     const summary = row.status === 'done' ? doneSummary({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, made) : null;
+    // Everything it made — the run it started, the request it planned, the
+    // PR — so the settled card opens each in one move (Chris, 2026-09-29).
+    const { resultLinks } = await import('@/libs/actions/resultLinks');
+    const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
+    const links = row.status === 'done'
+      ? resultLinks({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, await recordLinkerForOrg(orgId))
+      : [];
     return {
       status: row.status,
       summary,
       recordHref: recordLink,
       recordHrefLabel: recordLink ? openLabelFor(recordLink) : null,
+      links,
+      // A ruling's answer, for the card's settled line ("You chose X · Undo").
+      choice: row.status === 'done' ? chosenOption({ actionId: row.actionId, result: row.result as Record<string, unknown> | null }) : null,
       decidedBy: row.name ?? row.email ?? row.decidedBy,
       decidedAt: row.decidedAt?.toISOString() ?? null,
       // Done for you: the ladder released it, and the kind can be put back.
