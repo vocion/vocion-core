@@ -61,3 +61,44 @@ describe('WorkspaceSwitcher, collapsed', () => {
     await expect.element(page.getByRole('button', { name: 'Support', exact: true })).toBeInTheDocument();
   });
 });
+
+/**
+ * The open switcher, expanded, on Contoso's "Support".
+ * @param accounts - The accounts the person is in.
+ * @param projects - The workspaces it lists.
+ */
+function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[]) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <SidebarProvider>
+        <WorkspaceSwitcher
+          account={{ id: 'acct-contoso', name: 'Contoso' }}
+          accounts={accounts}
+          projects={projects}
+          activeId="p-contoso-support"
+          defaultOpen
+          navigate={() => {}}
+        />
+      </SidebarProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('WorkspaceSwitcher, open', () => {
+  const contosoOps: SwitcherProject = { id: 'p-contoso-ops', slug: 'ops', name: 'Ops', agentCount: 1, accountId: 'acct-contoso' };
+
+  it('lists a one-account person\'s workspaces as before, with no account headings', async () => {
+    await renderOpen([ACCOUNTS[1]!], [PROJECTS[1]!, contosoOps]);
+
+    await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
+    expect(page.getByRole('group').elements()).toHaveLength(0);
+    expect(page.getByText('Metacto').elements()).toHaveLength(0);
+  });
+
+  it('groups a two-account person\'s workspaces under each account\'s name', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps]);
+
+    await expect.element(page.getByRole('group', { name: 'Metacto' }).getByRole('option', { name: /Support/ })).toBeVisible();
+    await expect.element(page.getByRole('group', { name: 'Contoso' }).getByRole('option', { name: /Ops/ })).toBeVisible();
+  });
+});

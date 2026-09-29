@@ -262,6 +262,20 @@ describe('tenancy resolution', () => {
       expect(t).toMatchObject({ accountId: ACCOUNT, projectId: REVENUE, role: 'member' });
     });
 
+    it('lets a tab URL\'s ?account= pick between two workspaces with the same slug', async () => {
+      // Contoso has a `revenue` too, and "last active" is on Contoso.
+      await db.insert(projectSchema).values({ id: 'proj-contoso-revenue', accountId: CONTOSO, slug: 'revenue', name: 'Contoso Revenue' });
+      headerBag.cookie = CONTOSO_PROJECT;
+
+      headerBag.referer = 'https://agents.example.com/w/revenue/dashboard?account=northwind';
+
+      expect(await resolveTenancyForUser(ALEX)).toMatchObject({ accountId: ACCOUNT, projectId: REVENUE });
+
+      headerBag.referer = 'https://agents.example.com/w/revenue/dashboard';
+
+      expect(await resolveTenancyForUser(ALEX)).toMatchObject({ accountId: CONTOSO, projectId: 'proj-contoso-revenue' });
+    });
+
     it('reads a locale-prefixed tab URL too', async () => {
       headerBag.cookie = CONTOSO_PROJECT;
       headerBag.referer = 'https://agents.example.com/fr/w/revenue/dashboard';
