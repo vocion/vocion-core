@@ -138,7 +138,9 @@ describe('done for you — a confident filing lands on Needs you', () => {
     expect(ask!.options.map(o => o.id)).toEqual(['build', 'answer']);
     // The context link reaches the mission run the question came up in.
     expect(ask!.contextUrl).toBe('/dashboard/missions/product-review/77');
-    expect(result.url).toMatch(/\/w\/acme-product\/dashboard\/inbox\/\d+$/);
+    // Named with its account: a reader in two accounts with an `acme-product`
+    // each must open this one (vocion-core#128).
+    expect(result.url).toMatch(/\/w\/acme-product\/dashboard\/inbox\/\d+\?account=acme$/);
     expect(result.created).toBe(true);
   });
 

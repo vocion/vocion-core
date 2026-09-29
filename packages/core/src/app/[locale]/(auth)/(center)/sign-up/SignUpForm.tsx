@@ -37,7 +37,7 @@ export function SignUpForm({ inviteToken }: Props) {
           Accounts on this instance are created by invitation. Ask an admin for an invite link to join the team.
         </p>
         <p className="text-sm">
-          Already have an account?
+          Already have a login?
           {' '}
           <Link className="underline" href="/sign-in">Sign in</Link>
         </p>
@@ -72,7 +72,7 @@ export function SignUpForm({ inviteToken }: Props) {
     });
     setSubmitting(false);
     if (signin?.error) {
-      setError('Account created, but sign-in failed. Try signing in manually.');
+      setError('Your login was created, but signing in failed. Try signing in manually.');
       window.location.href = '/sign-in';
     } else {
       window.location.href = signin?.url ?? '/dashboard';
@@ -101,7 +101,7 @@ export function SignUpForm({ inviteToken }: Props) {
           <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="new-password" minLength={8} />
         </div>
         {error && (
-          <p className="text-sm text-destructive">
+          <p className="text-sm text-destructive" role="alert">
             {error}
             {hasLogin && (
               <>
@@ -112,10 +112,10 @@ export function SignUpForm({ inviteToken }: Props) {
           </p>
         )}
         <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting ? 'Creating account…' : 'Accept invite + sign in'}
+          {submitting ? 'Creating your login…' : 'Accept invite + sign in'}
         </Button>
         <p className="text-center text-sm">
-          Already have an account?
+          Already have a login?
           {' '}
           <Link className="underline" href={signInToAccept(inviteToken)}>Sign in</Link>
         </p>

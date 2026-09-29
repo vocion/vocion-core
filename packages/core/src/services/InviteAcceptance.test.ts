@@ -119,6 +119,9 @@ describe('acceptInviteAsExistingUser', () => {
     const results = await Promise.all([acceptInviteAsExistingUser('user-sam', 'tok-race'), acceptInviteAsExistingUser('user-sam', 'tok-race')]);
 
     expect(results.filter(r => r.ok)).toHaveLength(1);
+    // The loser is stopped by the invite claim ("already used"), not by the
+    // membership's unique index, which would say "already a member".
+    expect(results.find(r => !r.ok)).toEqual({ ok: false, status: 410, error: 'This invite has already been used.' });
     expect(await samsMemberships()).toEqual(['acct-contoso:member', 'acct-metacto:admin']);
   });
 

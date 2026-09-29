@@ -46,8 +46,9 @@ export async function POST(req: Request) {
   if (typeof slug !== 'string' || slug.trim() === '') {
     return jsonError('BAD_REQUEST', 'Name the workspace to share to (`workspace`)', 400);
   }
-  // On the account the session is in first — the one the workspace list offered.
-  const project = await resolveProjectForUser(userId, { slug: slug.trim() }, { lastActiveProjectId: session.user?.projectId });
+  // Only on the account the session is in: the workspace list offers nothing
+  // else, so a slug found only on another account is not one the phone showed.
+  const project = await resolveProjectForUser(userId, { slug: slug.trim() }, { accountId: session.user?.accountId ?? null });
   if (!project) {
     return jsonError('NOT_FOUND', 'No such workspace', 404);
   }

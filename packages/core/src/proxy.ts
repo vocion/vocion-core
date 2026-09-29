@@ -19,6 +19,8 @@ const handleI18nRouting = createMiddleware(routing);
 const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', 'api-docs', WORKSPACE_ENTRY_SEGMENT, ...SURFACE_PATH_SEGMENTS];
 const PROTECTED_PATH = new RegExp(`^/(?:[^/]+/)?(?:${PROTECTED_SEGMENTS.join('|')})(?:$|/|\\?)`);
 const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
+// The sign-up page itself, locale-prefixed or not: where an invite link lands.
+const SIGN_UP_PAGE = /^\/(?:[^/]+\/)?sign-up\/?$/;
 
 // Extract the locale prefix from a path — but ONLY if the first segment is an
 // actual configured locale. With `as-needed` prefixing, unprefixed paths like
@@ -85,7 +87,7 @@ export default async function proxy(request: NextRequest) {
   // Sign-in / sign-up pages: if already signed in, redirect to dashboard.
   // Except an invite link (`/sign-up?invite=…`): a signed-in person opens it to
   // join another account on the login they have (vocion-core#128).
-  const isInviteLink = path.includes('/sign-up') && request.nextUrl.searchParams.has('invite');
+  const isInviteLink = SIGN_UP_PAGE.test(path) && request.nextUrl.searchParams.has('invite');
   if (AUTH_PATH.test(path) && !path.includes('/setup') && !path.includes('/invite') && !isInviteLink) {
     if (user.signedIn) {
       const locale = localeOf(path);

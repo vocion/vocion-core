@@ -39,7 +39,11 @@ about. Everything else is a spelling of it:
    the one meant; without it the slug resolves on the account of the
    last-active workspace, then on the account they joined first.
 3. **Tenancy** (`resolveTenancyForUser`, `libs/tenancy.ts`) reads that header
-   first and the `vocion_active_project` cookie second. **The account follows
+   first. A browser fetch from a page (`/rpc`, `/api/chat`, the session poll)
+   never passes through that rewrite, so next comes the page's own
+   `/w/<slug>` from the `Referer`, which keeps a tab's calls in the tab's
+   workspace when another tab has since switched. The `vocion_active_project`
+   cookie comes last. **The account follows
    the workspace** (vocion-core#128): a candidate is accepted only when the
    user is a member of the account that owns it, and then that account is the
    one the request runs in. With no acceptable candidate it falls back to the
@@ -82,7 +86,11 @@ about. Everything else is a spelling of it:
   2.154.1, signed in only, invisible in local dev where the two origins match.
   `proxy.test.ts` walks the redirect chain so the cycle cannot come back.
 - **The cookie is "last active", nothing more.** It decides where a bare URL is
-  sent and which workspace a fresh sign-in lands in. It never overrides a URL.
+  sent and which workspace a fresh sign-in lands in. It never overrides a URL,
+  neither the one requested nor the one the request came from.
+- **Links that leave the app name the account.** Mail, Slack and API links
+  pass `accountSlug` to `workspaceUrl`, so `/w/sales/…?account=contoso` opens
+  Contoso's `sales` for a reader who also has a `sales` elsewhere.
 - **Pages that do not belong to a workspace are left alone**: `/rpc` (the oRPC
   transport), `/onboarding` (which runs before a workspace exists), `/api-docs`
   (account-wide), `/api/*` (owns its own routing). `isWorkspacePath()` is that

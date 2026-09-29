@@ -148,7 +148,8 @@ describe('ask_workspace', () => {
       expect(out.routing!.reason).toMatch(/wiki-researcher matched handles: wiki/);
       // The inactive agent handled "wiki" too and was never a candidate.
       expect(out.routing!.candidates.map(c => c.slug)).not.toContain('retired-agent');
-      expect(out.url).toBe(`/w/northwind/dashboard/chat/${out.conversationId}`);
+      // Named with its account, for a reader in two accounts (vocion-core#128).
+      expect(out.url).toBe(`/w/northwind/dashboard/chat/${out.conversationId}?account=northwind`);
 
       // The turn ran as the researcher, as the token, with the surface note under the message.
       expect(runAgentDeep).toHaveBeenCalledTimes(1);

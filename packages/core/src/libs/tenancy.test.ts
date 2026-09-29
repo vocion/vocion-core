@@ -16,10 +16,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
-const headerBag = { projectId: undefined as string | undefined, cookie: undefined as string | undefined };
+const headerBag = { projectId: undefined as string | undefined, cookie: undefined as string | undefined, referer: undefined as string | undefined };
+
+/**
+ * The request headers the mocked `headers()` answers with.
+ * @param k - The header name.
+ */
+function requestHeader(k: string): string | null {
+  if (k === 'x-vocion-project-id') {
+    return headerBag.projectId ?? null;
+  }
+  return k === 'referer' ? headerBag.referer ?? null : null;
+}
 
 vi.mock('next/headers', () => ({
-  headers: async () => ({ get: (k: string) => (k === 'x-vocion-project-id' ? headerBag.projectId ?? null : null) }),
+  headers: async () => ({ get: requestHeader }),
   cookies: async () => ({ get: (k: string) => (k === 'vocion_active_project' && headerBag.cookie ? { value: headerBag.cookie } : undefined) }),
 }));
 
@@ -69,6 +80,7 @@ describe('tenancy resolution', () => {
   beforeEach(async () => {
     headerBag.projectId = undefined;
     headerBag.cookie = undefined;
+    headerBag.referer = undefined;
     await db.delete(groupProjectGrantSchema);
     await db.delete(userGroupMemberSchema);
     await db.delete(userGroupSchema);
@@ -173,6 +185,14 @@ describe('tenancy resolution', () => {
       expect(t.accountId).toBe(ACCOUNT);
     });
 
+    it('lands on the oldest workspace they hold, the same order as with enforcement off, not the lowest id', async () => {
+      // Brit holds both; the personal one is older but sorts after by id.
+      await db.update(projectSchema).set({ createdAt: new Date('2020-01-01T00:00:00Z') }).where(eq(projectSchema.id, BRIT_PERSONAL));
+      await db.update(projectSchema).set({ createdAt: new Date('2025-01-01T00:00:00Z') }).where(eq(projectSchema.id, DELIVERY));
+
+      expect((await resolveTenancyForUser(BRIT)).projectId).toBe(BRIT_PERSONAL);
+    });
+
     it('is stable about where it lands someone with no header and no cookie', async () => {
       const first = await resolveTenancyForUser(BRIT);
       const second = await resolveTenancyForUser(BRIT);
@@ -229,6 +249,46 @@ describe('tenancy resolution', () => {
 
       expect(t.accountId).toBe(ACCOUNT);
       expect(t.projectId).toBe(REVENUE);
+    });
+
+    // A browser fetch from a tab (`/rpc`, `/api/chat`) has no proxy header; the
+    // tab's page URL arrives as the Referer.
+    it('runs a call from a tab in the tab\'s workspace, not the one another tab switched the cookie to', async () => {
+      headerBag.cookie = CONTOSO_PROJECT;
+      headerBag.referer = 'https://agents.example.com/w/revenue/dashboard/chat';
+
+      const t = await resolveTenancyForUser(ALEX);
+
+      expect(t).toMatchObject({ accountId: ACCOUNT, projectId: REVENUE, role: 'member' });
+    });
+
+    it('reads a locale-prefixed tab URL too', async () => {
+      headerBag.cookie = CONTOSO_PROJECT;
+      headerBag.referer = 'https://agents.example.com/fr/w/revenue/dashboard';
+
+      expect((await resolveTenancyForUser(ALEX)).projectId).toBe(REVENUE);
+    });
+
+    it('lets the proxy\'s header win over the Referer, since a page load names its own workspace', async () => {
+      headerBag.projectId = CONTOSO_PROJECT;
+      headerBag.referer = 'https://agents.example.com/w/revenue/dashboard';
+
+      expect((await resolveTenancyForUser(ALEX)).projectId).toBe(CONTOSO_PROJECT);
+    });
+
+    it('ignores a Referer naming a workspace on an account they are not in, and a page that is not a workspace', async () => {
+      headerBag.cookie = REVENUE;
+      headerBag.referer = 'https://agents.example.com/w/fabrikam-main/dashboard';
+
+      expect((await resolveTenancyForUser(ALEX)).projectId).toBe(REVENUE);
+
+      headerBag.referer = 'https://agents.example.com/sign-up?invite=tok';
+
+      expect((await resolveTenancyForUser(ALEX)).projectId).toBe(REVENUE);
+
+      headerBag.referer = 'not a url';
+
+      expect((await resolveTenancyForUser(ALEX)).projectId).toBe(REVENUE);
     });
 
     it('refuses a header naming a workspace on an account they are not in, and lands them in their default', async () => {

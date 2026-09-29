@@ -12,6 +12,12 @@ afterEach(() => {
 });
 
 describe('workspaceUrl', () => {
+  it('names the account when asked, keeping the path\'s own query and fragment (vocion-core#128)', () => {
+    expect(workspaceUrl('sales', '/dashboard/inbox/42', { accountSlug: 'Contoso' })).toBe('/w/sales/dashboard/inbox/42?account=contoso');
+    expect(workspaceUrl('sales', '/dashboard/inbox?status=open#top', { accountSlug: 'contoso' })).toBe('/w/sales/dashboard/inbox?status=open&account=contoso#top');
+    expect(workspaceUrl('sales', '/dashboard', {})).toBe('/w/sales/dashboard');
+  });
+
   it('puts the workspace in the path, Vercel-style', () => {
     expect(workspaceUrl('vocion-workforce', '/dashboard/inbox')).toBe('/w/vocion-workforce/dashboard/inbox');
     expect(workspaceUrl('vocion-workforce', 'dashboard/inbox')).toBe('/w/vocion-workforce/dashboard/inbox');

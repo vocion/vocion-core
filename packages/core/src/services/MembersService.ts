@@ -9,8 +9,12 @@
  * Invites are LINK-based by design: no mailer is configured (Resend/SES
  * deferred per roadmap Phase 3), so `createInvite` returns a token the
  * UI turns into a `/sign-up?invite=<token>` URL for the admin to share
- * out-of-band (Slack, DM). The accept flow already exists: the sign-up
- * page reads `?invite=` and `/api/signup` validates + consumes the row.
+ * out-of-band (Slack, DM). The sign-up page reads `?invite=`: someone with
+ * no login yet signs up there (`/api/signup` validates + consumes the row);
+ * someone who already has a login — in another account, say — joins this
+ * account on it (`/api/invites/accept`, `services/InviteAcceptance.ts`),
+ * which adds a membership and never a second user (vocion-core#128). So an
+ * invite is refused only for an email already in THIS account.
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';

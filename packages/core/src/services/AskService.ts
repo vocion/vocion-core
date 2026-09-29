@@ -1,4 +1,5 @@
 import type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
+import type { WorkspaceAddress } from '@/services/ProjectService';
 import { and, asc, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { verbosityHints } from '@/features/dashboard/inbox/askText';
 import { db } from '@/libs/DB';
@@ -192,11 +193,11 @@ export function normaliseObjectRefs(raw: unknown): AskObjectRef[] {
  * absolute when `NEXT_PUBLIC_APP_URL` is set. The one definition of that
  * link: the API's `url` field and an agent's `file_ask` receipt both read it,
  * so a link pasted into Slack from either opens the same screen.
- * @param projectSlug - The workspace slug (`projectSlugById`).
- * @param askId
+ * @param workspace - The workspace's slug and account (`workspaceAddressById`).
+ * @param askId - The ask.
  */
-export function askUrlFor(projectSlug: string, askId: number): string {
-  return workspaceUrl(projectSlug, `/dashboard/inbox/${askId}`, { absolute: true });
+export function askUrlFor(workspace: WorkspaceAddress, askId: number): string {
+  return workspaceUrl(workspace.slug, `/dashboard/inbox/${askId}`, { absolute: true, accountSlug: workspace.accountSlug });
 }
 
 /**

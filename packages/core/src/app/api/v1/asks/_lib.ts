@@ -1,7 +1,7 @@
 import type { NextResponse } from 'next/server';
 import type { Ask } from '@/services/AskService';
 import { AskError, askUrlFor } from '@/services/AskService';
-import { projectSlugById } from '@/services/ProjectService';
+import { workspaceAddressById } from '@/services/ProjectService';
 import { jsonError } from '../_shared';
 
 /** An ask as the API returns it: the row plus the canonical link to decide it. */
@@ -22,8 +22,8 @@ export type ApiAsk = Ask & {
  * @param asks - Rows from AskService.
  */
 export async function withAskUrls<T extends Ask>(orgId: string, asks: T[]): Promise<(T & { url: string | null })[]> {
-  const slug = asks.length ? await projectSlugById(orgId) : null;
-  return asks.map(a => ({ ...a, url: slug ? askUrlFor(slug, a.id) : null }));
+  const workspace = asks.length ? await workspaceAddressById(orgId) : null;
+  return asks.map(a => ({ ...a, url: workspace ? askUrlFor(workspace, a.id) : null }));
 }
 
 /**

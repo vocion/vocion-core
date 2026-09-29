@@ -43,6 +43,12 @@ export type AccountPreference = {
    * workspace in a different client's account.
    */
   accountSlug?: string | null;
+  /**
+   * `tenant_account.id` to resolve on, also a hard filter: for callers that
+   * know the account already (the mobile share, which only ever offers the
+   * session's account) rather than reading it from a link.
+   */
+  accountId?: string | null;
   /** The last-active workspace (the `vocion_active_project` cookie). With no account named, its account wins, so a person stays where they are. */
   lastActiveProjectId?: string | null;
 };
@@ -138,12 +144,19 @@ export async function resolveProjectForUser(
     : eq(sql`lower(${projectSchema.slug})`, selector.slug.trim().toLowerCase());
   // Account slugs travel in links people retype, like workspace slugs.
   const namedAccount = preference.accountSlug?.trim().toLowerCase();
+  const conditions: SQL[] = [match];
+  if (namedAccount) {
+    conditions.push(eq(sql`lower(${tenantAccountSchema.slug})`, namedAccount));
+  }
+  if (preference.accountId) {
+    conditions.push(eq(projectSchema.accountId, preference.accountId));
+  }
   const [project] = await db
     .select(summaryColumns)
     .from(projectSchema)
     .innerJoin(accountMembershipSchema, membershipInProjectAccount(userId))
     .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId))
-    .where(namedAccount ? and(match, eq(sql`lower(${tenantAccountSchema.slug})`, namedAccount)) : match)
+    .where(and(...conditions))
     .orderBy(
       lastActiveAccountFirst(preference.lastActiveProjectId?.trim() || null),
       asc(accountMembershipSchema.createdAt),
@@ -198,4 +211,25 @@ export async function projectSlugById(projectId: string): Promise<string | null>
     .where(eq(projectSchema.id, projectId))
     .limit(1);
   return row?.slug ?? null;
+}
+
+/** Where a workspace lives in a URL: its slug, and its account's for `?account=`. */
+export type WorkspaceAddress = { slug: string; accountSlug: string };
+
+/**
+ * A workspace's slug with its account's, for links that leave the app (mail,
+ * Slack, API responses): the slug alone is ambiguous for a reader in two
+ * accounts, so these links name the account too (`workspaceUrl`'s
+ * `accountSlug`).
+ * @param projectId - `project.id`.
+ * @returns The address, or null for an unknown workspace.
+ */
+export async function workspaceAddressById(projectId: string): Promise<WorkspaceAddress | null> {
+  const [row] = await db
+    .select({ slug: projectSchema.slug, accountSlug: tenantAccountSchema.slug })
+    .from(projectSchema)
+    .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId))
+    .where(eq(projectSchema.id, projectId))
+    .limit(1);
+  return row ?? null;
 }

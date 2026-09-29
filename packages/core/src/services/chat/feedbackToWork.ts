@@ -27,7 +27,7 @@ import type { Ask } from '@/services/AskService';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
-import { projectSchema, teamSchema } from '@/models/Schema';
+import { projectSchema, teamSchema, tenantAccountSchema } from '@/models/Schema';
 import { upsertAsk } from '@/services/AskService';
 import { createCandidate } from '@/services/LearningCandidateService';
 
@@ -165,8 +165,9 @@ export async function fileFeedback(input: FileFeedbackInput): Promise<FiledFeedb
     return { candidateId: candidate.id, ask: null, team: null, inboxUrl: null };
   }
 
-  const [project] = await db.select({ slug: projectSchema.slug, name: projectSchema.name })
+  const [project] = await db.select({ slug: projectSchema.slug, name: projectSchema.name, accountSlug: tenantAccountSchema.slug })
     .from(projectSchema)
+    .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId))
     .where(and(eq(projectSchema.id, input.orgId)))
     .limit(1);
 
@@ -200,6 +201,6 @@ export async function fileFeedback(input: FileFeedbackInput): Promise<FiledFeedb
     },
   });
 
-  const inboxUrl = project ? workspaceUrl(project.slug, `/dashboard/inbox/${ask.id}`, { absolute: true }) : null;
+  const inboxUrl = project ? workspaceUrl(project.slug, `/dashboard/inbox/${ask.id}`, { absolute: true, accountSlug: project.accountSlug }) : null;
   return { candidateId: candidate.id, ask, team, inboxUrl };
 }

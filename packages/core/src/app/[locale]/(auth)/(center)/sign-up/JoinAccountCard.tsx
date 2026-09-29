@@ -16,7 +16,7 @@ type Props = {
 };
 
 /** `openPath` is null when they joined but hold no workspace there yet. */
-type AcceptResponse = { ok: true; openPath: string | null } | { ok: false; error: string };
+type AcceptResponse = { ok: true; openPath: string | null } | { ok: false; error: string; signInAgain?: boolean };
 
 /**
  * Accept the invite on the signed-in login.
@@ -24,16 +24,54 @@ type AcceptResponse = { ok: true; openPath: string | null } | { ok: false; error
  * @returns Where to go next, or the refusal to show.
  */
 async function acceptInvite(inviteToken: string): Promise<AcceptResponse> {
-  const res = await fetch('/api/invites/accept', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ inviteToken }),
-  });
+  let res: Response;
+  try {
+    res = await fetch('/api/invites/accept', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ inviteToken }),
+    });
+  } catch (error) {
+    console.error('[JoinAccountCard] accepting the invite did not reach the server', error);
+    return { ok: false, error: 'Could not reach the server. Check your connection and try again.' };
+  }
   const body = await res.json().catch(() => ({}));
   if (res.ok) {
     return { ok: true, openPath: typeof body.openPath === 'string' ? body.openPath : null };
   }
-  return { ok: false, error: typeof body.error === 'string' ? body.error : 'Could not accept the invite. Try again.' };
+  return {
+    ok: false,
+    error: typeof body.error === 'string' ? body.error : 'Could not accept the invite. Try again.',
+    // The session ran out between loading the page and clicking.
+    signInAgain: res.status === 401,
+  };
+}
+
+/**
+ * Sign-in that comes back to this invite.
+ * @param inviteToken - The invite token from the link.
+ */
+function signInToAccept(inviteToken: string): string {
+  return `/sign-in?callbackUrl=${encodeURIComponent(`/sign-up?invite=${encodeURIComponent(inviteToken)}`)}`;
+}
+
+/**
+ * What to tell someone who joined, or was already in, an account where they
+ * hold no workspace yet: there is nothing to open, and `/dashboard` would put
+ * them back in their other account.
+ * @param props - The account.
+ * @param props.accountName - Its name.
+ * @param props.title - The heading.
+ */
+function NoWorkspaceYet({ accountName, title }: { accountName: string; title: string }) {
+  return (
+    <Card title={title}>
+      <p className="text-sm text-muted-foreground">
+        {`You don't have a workspace in ${accountName} yet. Once an admin there gives you one, it shows in your workspace switcher.`}
+      </p>
+      <Link className="text-sm underline" href="/dashboard">Go to your dashboard</Link>
+    </Card>
+  );
 }
 
 /**
@@ -64,6 +102,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 export function JoinAccountCard({ inviteToken, invite, signedInEmail }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+  const [signInAgain, setSignInAgain] = useState(false);
   const [joinedWithoutWorkspace, setJoinedWithoutWorkspace] = useState(false);
   const who = signedInEmail ?? 'this login';
 
@@ -77,14 +116,11 @@ export function JoinAccountCard({ inviteToken, invite, signedInEmail }: Props) {
   }
 
   if (joinedWithoutWorkspace) {
-    return (
-      <Card title={`You joined ${invite.accountName}`}>
-        <p className="text-sm text-muted-foreground">
-          {`You don't have a workspace there yet. Once an admin of ${invite.accountName} gives you one, it shows in your workspace switcher.`}
-        </p>
-        <Link className="text-sm underline" href="/dashboard">Go to your dashboard</Link>
-      </Card>
-    );
+    return <NoWorkspaceYet accountName={invite.accountName} title={`You joined ${invite.accountName}`} />;
+  }
+
+  if (invite.standing === 'member' && !invite.openPath) {
+    return <NoWorkspaceYet accountName={invite.accountName} title={`You're already in ${invite.accountName}`} />;
   }
 
   if (invite.standing === 'member') {
@@ -92,7 +128,7 @@ export function JoinAccountCard({ inviteToken, invite, signedInEmail }: Props) {
       <Card title={`You're already in ${invite.accountName}`}>
         <p className="text-sm text-muted-foreground">{`${who} is already a member, so there's nothing to accept.`}</p>
         <Button asChild className="w-full">
-          <a href={invite.openPath ?? '/dashboard'}>{`Open ${invite.accountName}`}</a>
+          <a href={invite.openPath ?? undefined}>{`Open ${invite.accountName}`}</a>
         </Button>
       </Card>
     );
@@ -109,9 +145,9 @@ export function JoinAccountCard({ inviteToken, invite, signedInEmail }: Props) {
 
   if (invite.standing === 'other-email') {
     return (
-      <Card title={`Join ${invite.accountName}`}>
+      <Card title="This invite is for a different email">
         <p className="text-sm text-muted-foreground">
-          {`This invite was sent to a different email than ${who}. Sign out, then sign in or sign up with the invited email.`}
+          {`You're signed in as ${who}, but this invite to ${invite.accountName} was sent to another email. Sign out, then sign in or sign up with the invited email.`}
         </p>
         <Button className="w-full" variant="outline" onClick={() => signOut({ callbackUrl: `/sign-up?invite=${encodeURIComponent(inviteToken)}` })}>
           Sign out and continue
@@ -136,15 +172,26 @@ export function JoinAccountCard({ inviteToken, invite, signedInEmail }: Props) {
       return;
     }
     setError(result.error);
+    setSignInAgain(Boolean(result.signInAgain));
     setJoining(false);
   };
 
   return (
     <Card title={`Join ${invite.accountName}`}>
       <p className="text-sm text-muted-foreground">
-        {`You've been invited as ${invite.role === 'admin' ? 'an admin' : 'a member'}. You'll join with ${who}, and can switch between your accounts from the workspace switcher.`}
+        {`You've been invited as ${invite.role === 'admin' ? 'an admin' : 'a member'}. You'll join with the login you're using now, ${who}, and ${invite.accountName}'s workspaces will show in your workspace switcher next to the ones you already have.`}
       </p>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+          {signInAgain && (
+            <>
+              {' '}
+              <Link className="underline" href={signInToAccept(inviteToken)}>Sign in again</Link>
+            </>
+          )}
+        </p>
+      )}
       <Button className="w-full" disabled={joining} onClick={onJoin}>
         {joining ? 'Joining…' : `Join ${invite.accountName}`}
       </Button>

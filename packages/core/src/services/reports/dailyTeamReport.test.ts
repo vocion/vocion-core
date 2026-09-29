@@ -93,11 +93,12 @@ describe('collectDailyTeamReport', () => {
     expect([null, 0]).toContain(openAsks);
     expect(needsYou).toEqual({ pendingActions: 1, runsAwaitingReview: 1, runsPaused: 0, pendingLearningCandidates: 1, total: 3 });
     expect(d.rollup).toMatchObject({ title: 'Workspace rollup — Mon' });
-    // Workspace-aware: the mail is about `vocion-workforce`, so its links must open it (not the reader's last-active project).
+    // Workspace-aware: the mail is about `vocion-workforce`, so its links must open it (not the reader's last-active project),
+    // on its own account — another account the reader is in may have a `vocion-workforce` too (vocion-core#128).
     expect(d.links).toEqual({
-      inbox: 'https://agents.example.com/w/vocion-workforce/dashboard/inbox',
-      teamReport: 'https://agents.example.com/w/vocion-workforce/dashboard/team-report',
-      briefings: 'https://agents.example.com/w/vocion-workforce/dashboard/briefings',
+      inbox: 'https://agents.example.com/w/vocion-workforce/dashboard/inbox?account=metacto',
+      teamReport: 'https://agents.example.com/w/vocion-workforce/dashboard/team-report?account=metacto',
+      briefings: 'https://agents.example.com/w/vocion-workforce/dashboard/briefings?account=metacto',
     });
   });
 

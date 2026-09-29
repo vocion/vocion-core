@@ -163,3 +163,45 @@ test('an invite into another account is accepted on the login they already have,
 
   await expect(page.getByRole('heading', { name: `You're already in ${INVITED_ACCOUNT}` })).toBeVisible();
 });
+
+/**
+ * The account a browser fetch from this tab runs in, as the session says.
+ * `/api/auth/session` resolves tenancy like every other call a page makes
+ * (`/rpc`, `/api/chat`), from the tab's own URL.
+ * @param page - A signed-in tab.
+ */
+async function sessionAccountOf(page: Page): Promise<string | undefined> {
+  return page.evaluate(async () => {
+    const session = await (await fetch('/api/auth/session')).json();
+    return session?.user?.accountId as string | undefined;
+  });
+}
+
+test('two tabs on two accounts each keep their own, even after the other tab switches', async ({ page, context }) => {
+  seedFixtures();
+
+  await page.goto('/sign-in');
+  await signIn(page);
+  await page.waitForURL(/\/w\/e2e-switch-home\/dashboard/);
+
+  // Wait for the switcher to load before opening it, as the first test does.
+  await expect(switcher(page)).toContainText(FIRST_ACCOUNT);
+
+  await switchTo(page, SECOND_ACCOUNT, 'Shared In Second');
+  await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard/);
+
+  await expect(switcher(page)).toContainText(SECOND_ACCOUNT);
+
+  const secondAccountId = await sessionAccountOf(page);
+
+  // A second tab opens First's workspace, which moves "last active" to First.
+  const otherTab = await context.newPage();
+  await otherTab.goto('/w/e2e-switch-home/dashboard');
+
+  await expect(switcher(otherTab)).toContainText(FIRST_ACCOUNT);
+
+  // Calls from the first tab still run in Second, the account it shows.
+  expect(secondAccountId).toBeTruthy();
+  expect(await sessionAccountOf(page)).toBe(secondAccountId);
+  expect(await sessionAccountOf(otherTab)).not.toBe(secondAccountId);
+});

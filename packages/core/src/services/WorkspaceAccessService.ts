@@ -240,19 +240,29 @@ async function firstWorkspaceOnAccounts(searchOrder: readonly Membership[]): Pro
 }
 
 /**
- * Enforced landing: the first workspace the person actually holds on the
- * first account where they hold one, by project id so it is stable.
+ * Enforced landing: the oldest workspace the person actually holds on the
+ * first account where they hold one. Oldest first, then id, the same order as
+ * the unenforced landing, so turning enforcement on does not move anyone's
+ * default to a different workspace they could already open.
  * @param userId - The signed-in person.
  * @param searchOrder - Their memberships, in the order to try them.
  */
 async function firstHeldWorkspace(userId: string, searchOrder: readonly Membership[]): Promise<ActiveWorkspace | null> {
   const reachable = await accessibleProjects(userId);
+  if (reachable.length === 0) {
+    return null;
+  }
+  const roleById = new Map(reachable.map(a => [a.projectId, a.role]));
+  const oldestFirst = await db
+    .select({ id: projectSchema.id, accountId: projectSchema.accountId })
+    .from(projectSchema)
+    .where(inArray(projectSchema.id, [...roleById.keys()]))
+    .orderBy(asc(projectSchema.createdAt), asc(projectSchema.id));
   for (const membership of searchOrder) {
-    const held = reachable
-      .filter(a => a.accountId === membership.accountId)
-      .sort((a, b) => a.projectId.localeCompare(b.projectId))[0];
-    if (held) {
-      return { accountId: membership.accountId, accountRole: membership.role, projectId: held.projectId, workspaceRole: held.role };
+    const held = oldestFirst.find(p => p.accountId === membership.accountId);
+    const role = held ? roleById.get(held.id) : undefined;
+    if (held && role) {
+      return { accountId: membership.accountId, accountRole: membership.role, projectId: held.id, workspaceRole: role };
     }
   }
   return null;

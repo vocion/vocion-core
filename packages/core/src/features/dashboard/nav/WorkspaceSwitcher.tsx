@@ -132,6 +132,9 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   };
 
   const name = active?.name ?? (loading ? '' : t('workspace_fallback'));
+  // The collapsed rail shows no account line, so with two accounts the label
+  // names it: two "Support" workspaces on two accounts must not read the same.
+  const railLabel = name && accounts.length > 1 && props.account?.name ? `${name} · ${props.account.name}` : name;
   const initial = (name || 'W').charAt(0).toUpperCase();
   const accent = active ? projectAccent(active.slug) : 'oklch(0.7 0 0)';
 
@@ -150,13 +153,13 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger
-              aria-label={name || t('switch_workspace')}
+              aria-label={railLabel || t('switch_workspace')}
               className="mx-auto flex size-8 items-center justify-center rounded-lg outline-hidden transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             >
               {avatar}
             </PopoverTrigger>
           </TooltipTrigger>
-          <TooltipContent side="right">{name || t('switch_workspace')}</TooltipContent>
+          <TooltipContent side="right">{railLabel || t('switch_workspace')}</TooltipContent>
         </Tooltip>
       )
     : (

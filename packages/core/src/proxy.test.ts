@@ -304,6 +304,12 @@ describe('sign-in and sign-up pages for a signed-in person', () => {
     expect(res.headers.get('location')).toBeNull();
   });
 
+  it('lets only the sign-up page itself through, not a path under it', async () => {
+    const res = await proxy(request('/sign-up/extra?invite=tok-contoso'));
+
+    expect(res.headers.get('location')).toBe('https://agents.example.com/dashboard');
+  });
+
   it('still bounces sign-in with a stray invite param — only the sign-up page accepts invites', async () => {
     const res = await proxy(request('/sign-in?invite=tok-contoso'));
 
