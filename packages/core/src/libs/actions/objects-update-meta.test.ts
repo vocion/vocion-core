@@ -211,7 +211,7 @@ describe('done for you — a confident write lands with its history on the run',
       objectsUpdateMetaAction.inputSchema.parse({ objectType: 'request', id: requestId, set: { state: 'in_scope', priority: 82 }, reason: 'r' }),
     );
 
-    expect(card.title).toBe('CSV export of the ledger — proposed change');
+    expect(card.title).toBe('Update request: CSV export of the ledger');
     expect(card.system).toBe('Request');
     expect(card.fields).toEqual([
       // The record itself (its workspace declares no page for it here), not the objects list.

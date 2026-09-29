@@ -23,15 +23,13 @@ describe('eval.add_case', () => {
   it('keys the same case the same way, whatever its spacing', () => {
     const a = evalAddCaseAction.dedupKeyFor!(evalAddCaseAction.inputSchema.parse(input));
     const b = evalAddCaseAction.dedupKeyFor!(evalAddCaseAction.inputSchema.parse({ ...input, input: '  Draft an   RFI with two options ' }));
-
     expect(a).toBe(b);
   });
 
   it('shows the person the case, the good answer and their own words', async () => {
     const card = await evalAddCaseAction.reviewCard!({} as never, evalAddCaseAction.inputSchema.parse(input));
     const labels = card.fields?.map(f => f.label);
-
-    expect(labels).toEqual(expect.arrayContaining(['The check', 'A good answer', 'They said']));
-    expect(card.verbs?.approve).toBe('Add the check');
+    expect(labels).toEqual(expect.arrayContaining(['Case', 'A good answer', 'They said', 'Suite']));
+    expect(card.verbs?.approve).toBe('Add the case');
   });
 });

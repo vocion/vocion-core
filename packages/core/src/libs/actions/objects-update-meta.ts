@@ -341,14 +341,12 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       });
     }
     return {
-      // Said the way the person who owns the record would say it: which
-      // record, and that a change to it is waiting — not "Update rfi: …".
-      title: `${row?.title ?? `${typeLabel} #${input.id}`} — proposed change`,
+      title: `Update ${typeLabel.toLowerCase()}: ${row?.title ?? `#${input.id}`}`,
       system: typeLabel,
       summary: input.reason,
       fields,
-      nextAction: 'Approving makes these changes to the record. You can undo it afterwards.',
-      verbs: { approve: 'Approve', reject: 'Not now' },
+      nextAction: 'Approving writes these fields on the record; the previous values stay on this run for Undo.',
+      verbs: { approve: 'Update', reject: 'Leave as is' },
     };
   },
   async execute(ctx, input) {

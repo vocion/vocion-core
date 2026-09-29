@@ -74,18 +74,18 @@ export const learningAdoptRuleAction: Action<typeof adoptRuleInput> = {
   dedupKeyFor: input => `learning.adopt_rule:${input.stepName ?? 'default'}:${ruleKeyOf(input.ruleText)}`,
   async reviewCard(_ctx, input) {
     return {
-      title: `Make this a rule: ${input.ruleText.slice(0, 90)}${input.ruleText.length > 90 ? '…' : ''}`,
+      title: `Adopt a rule: ${input.ruleText.slice(0, 90)}${input.ruleText.length > 90 ? '…' : ''}`,
       system: 'Learnings',
       confidenceSubject: 'This is a standing rule',
       summary: input.reason,
       fields: [
         { label: 'Rule', value: input.ruleText },
         { label: 'They said', value: input.note.slice(0, 400) },
-        { label: 'Applies to', value: input.stepName ? input.stepName.replace(/[_-]+/g, ' ') : 'the agent\'s work' },
+        { label: 'Step', value: input.stepName ?? 'the agent\'s first learning step' },
         { label: 'Agent', value: input.agentSlug ?? 'unattributed' },
       ],
-      nextAction: 'From its next piece of work on, it follows this rule. You can take it back at any time.',
-      verbs: { approve: 'Make it a rule', reject: 'Not a rule' },
+      nextAction: 'Approving files the rule in that step; the agent reads it before its next piece of work. Undo removes it again.',
+      verbs: { approve: 'Adopt', reject: 'Not a rule' },
     };
   },
   async execute(ctx, input) {

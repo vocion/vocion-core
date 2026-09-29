@@ -53,19 +53,19 @@ export const evalAddCaseAction: Action<typeof addCaseInput> = {
   dedupKeyFor: input => `eval.add_case:${input.datasetSlug}:${input.input.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 120)}:${input.expectedOutput.slice(0, 60)}`,
   async reviewCard(_ctx, input) {
     return {
-      title: `Add a check before any update: ${input.expectedOutput.slice(0, 80)}${input.expectedOutput.length > 80 ? '…' : ''}`,
+      title: `Add a regression case to ${input.datasetSlug}`,
       system: 'Evals',
       confidenceSubject: 'This belongs in the regression suite',
       summary: input.reason,
       fields: [
-        { label: 'The check', value: input.input.slice(0, 400) },
+        { label: 'Case', value: input.input.slice(0, 400) },
         { label: 'A good answer', value: input.expectedOutput },
         ...(input.assertions?.length ? [{ label: 'Must state', value: input.assertions.join(' · ') }] : []),
         { label: 'They said', value: input.note.slice(0, 400) },
-
+        { label: 'Suite', value: input.datasetSlug },
       ],
-      nextAction: 'Every future update has to pass this check before it goes live. You can take it back at any time.',
-      verbs: { approve: 'Add the check', reject: 'Not needed' },
+      nextAction: 'Approving adds the case to the suite; every later update to this agent runs it before it ships. Undo takes it out.',
+      verbs: { approve: 'Add the case', reject: 'Not a test' },
     };
   },
   async execute(ctx, input) {
