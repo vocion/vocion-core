@@ -22,7 +22,12 @@ const { resumeMission } = await import('@/services/MissionService');
 const ORG = 'org_approve_external';
 const mockRunAgent = vi.mocked(runAgentDeep);
 
-async function seedDraftOnlyRunWithAnAction(): Promise<number> {
+type PlanTask = NonNullable<typeof missionRunSchema.$inferInsert.plan>['tasks'][number];
+
+const SEND_EMAIL: PlanTask = { id: 'send', title: 'Send the email', ownerAgentSlug: 'agent-x', type: 'action', status: 'pending' };
+const LOG_IN_CRM: PlanTask = { id: 'log', title: 'Log the send in the CRM', ownerAgentSlug: 'agent-x', type: 'action', status: 'pending', dependsOn: ['send'] };
+
+async function seedDraftOnlyRun(tasks: PlanTask[]): Promise<number> {
   const [row] = await db.insert(missionRunSchema).values({
     orgId: ORG,
     title: 'Send the follow-up',
@@ -31,7 +36,7 @@ async function seedDraftOnlyRunWithAnAction(): Promise<number> {
     team: { lead: 'agent-x', members: [] },
     // Level 1, draft only: every external action waits for a person.
     autonomyPolicy: { level: 1 },
-    plan: { tasks: [{ id: 'send', title: 'Send the email', ownerAgentSlug: 'agent-x', type: 'action', status: 'pending' }] },
+    plan: { tasks },
   }).returning({ id: missionRunSchema.id });
   return row!.id;
 }
@@ -48,7 +53,7 @@ afterAll(async () => {
 
 describe('approving an external task at autonomy level 1', () => {
   it('waits for approval first, then runs the task and finishes once a person approves', async () => {
-    const id = await seedDraftOnlyRunWithAnAction();
+    const id = await seedDraftOnlyRun([SEND_EMAIL]);
 
     expect(await executeMissionRun(id, ORG)).toBe('awaiting_review');
     expect(mockRunAgent).not.toHaveBeenCalled();
@@ -57,5 +62,26 @@ describe('approving an external task at autonomy level 1', () => {
 
     expect(run.status).toBe('completed');
     expect(mockRunAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('approving one external task leaves the next one waiting for its own approval', async () => {
+    const id = await seedDraftOnlyRun([SEND_EMAIL, LOG_IN_CRM]);
+
+    expect(await executeMissionRun(id, ORG)).toBe('awaiting_review');
+
+    const afterFirstApproval = await resumeMission(id, ORG);
+    const [send, log] = afterFirstApproval.plan!.tasks;
+
+    expect(afterFirstApproval.status).toBe('awaiting_review');
+    expect(afterFirstApproval.pauseReason).toBe('awaiting_approval:log');
+    expect(send).toMatchObject({ status: 'completed', approvedAt: expect.any(String) });
+    expect(log).toMatchObject({ status: 'awaiting_approval' });
+    expect(log!.approvedAt).toBeUndefined();
+    expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+    const afterSecondApproval = await resumeMission(id, ORG);
+
+    expect(afterSecondApproval.status).toBe('completed');
+    expect(mockRunAgent).toHaveBeenCalledTimes(2);
   });
 });
