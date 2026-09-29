@@ -256,6 +256,136 @@
         ]
       }
     },
+    "/api/v1/agents/{slug}/voice": {
+      "get": {
+        "operationId": "get_agents_slug_voice",
+        "summary": "how the agent talks in chat: the voice it runs with, what its workspace YAML says, and what a person set over it.",
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "how the agent talks in chat: the voice it\nruns with, what its workspace YAML says, and what a person set over it.\n\nPUT /api/v1/agents/:slug/voice — set it. Body: any of `length` (brief |\nstandard | detailed), `narration` (off | on), `creativity` (0–1), `style`\n(a wiki page slug); a key sent as null clears it back to the YAML, and\n`{ \"clear\": true }` clears them all. Same service as the agent's page, MCP\n(`agent_voice_set`) and chat (`set_voice`). Needs the approve capability.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "put_agents_slug_voice",
+        "summary": "PUT /api/v1/agents/{slug}/voice",
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "**Requires the `approve` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "A JSON object. This endpoint reads its fields dynamically, so they are described in the prose above.",
+                "properties": {},
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "x-required-capability": [
+          "approve"
+        ]
+      }
+    },
     "/api/v1/artifacts": {
       "post": {
         "operationId": "post_artifacts",
