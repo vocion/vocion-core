@@ -53,6 +53,10 @@ export type CredentialPlatformId
     | 'notion'
     | 'posthog'
     | 'strapi'
+  // Any bearer-token REST API the workspace declares endpoints for
+  // (`libs/sources/rest.ts`). One-live for the same reason as `apollo` — see
+  // the descriptor — so a workspace holds one REST credential today.
+    | 'rest'
   // One credential, several connectors. A Google OAuth client is consented
   // once and its refresh token then serves Gmail, Drive, Calendar, Analytics
   // and Ads together; a Slack bot token reads every channel the workspace
@@ -562,6 +566,47 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       {
         name: 'token',
         label: 'API token',
+        pattern: null,
+        shapeHint: 'is any non-empty token',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'rest',
+    label: 'REST API (bearer token)',
+    keySource: 'supplied',
+    // `one-live`, like `apollo`, and for the same reason: widening it to
+    // `many` needs `api_token_org_platform_live_idx` rebuilt with `rest` in
+    // its carve-out, and a unique index on a populated table is exactly what
+    // `check:migrations` refuses (`migrations/CONVENTIONS.md`). Until that
+    // rebuild is decided, a workspace holds one live REST credential, so
+    // one REST API per workspace. The token is sent as
+    // `Authorization: Bearer <token>` on every call; there is no other
+    // header scheme, on purpose — one shape, and the first API to need
+    // another can add a `headerName` field beside these two.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['rest'],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an API base URL plus its bearer token',
+    helpText: 'A bearer token for a REST API of your own, and the base URL it was issued for. The token goes out as "Authorization: Bearer <token>" on every call: read rights for the read tools, write rights only for the endpoints the source declares as actions.',
+    fields: [
+      {
+        name: 'baseUrl',
+        label: 'API base URL',
+        pattern: /^https?:\/\/\S+$/i,
+        shapeHint: 'starts with http:// or https://',
+        // Part of the credential, as with Strapi: a token is issued for one
+        // API, so the two rotate together. Non-secret, so the credential
+        // list can show which API a token is for.
+        secret: false,
+      },
+      {
+        name: 'token',
+        label: 'Bearer token',
         pattern: null,
         shapeHint: 'is any non-empty token',
         secret: true,

@@ -422,6 +422,21 @@ describe('connector platforms', () => {
     })).toEqual({ baseUrl: 'https://cms.example.com', token: 'strapi-token' });
   });
 
+  it('keeps the base URL with the REST bearer token, shows it in full, and serves the rest connector', () => {
+    // Same shape as Strapi, for the same reason: a token is issued for one
+    // API. One-live until the partial unique index can be rebuilt — see the
+    // descriptor and the MANY_CREDENTIAL_PLATFORM_IDS case below.
+    const rest = getPlatform('rest');
+
+    expect(rest.label).toBe('REST API (bearer token)');
+    expect(rest.credentialsPerOrg).toBe('one-live');
+    expect(rest.fields.map(field => field.name)).toEqual(['baseUrl', 'token']);
+    expect(visibleFields(rest).map(field => field.name)).toEqual(['baseUrl']);
+    expect(platformForConnectorSlug('rest')?.id).toBe('rest');
+    expect(() => validatePlatformCredential('rest', { baseUrl: 'api.example', token: 'tok' })).toThrow(/API base URL/);
+    expect(validatePlatformCredential('rest', { baseUrl: ' https://api.example ', token: ' tok ' })).toEqual({ baseUrl: 'https://api.example', token: 'tok' });
+  });
+
   it('pairs the Jira token with the email it was issued to', () => {
     const jira = getPlatform('jira');
 

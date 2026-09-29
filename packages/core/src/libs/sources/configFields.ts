@@ -543,6 +543,26 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       help: 'The Notion-Version header sent on every request. Bump deliberately — later versions rename parts of the payload this connector reads.',
     },
   ],
+  // A REST source's endpoints (`tools`, `actions`) are declared in the
+  // workspace manifest, not typed into a form — the form asks only for the
+  // two scalars. The credential (base URL + bearer token) is taken by Connect.
+  'rest': [
+    {
+      key: 'toolPrefix',
+      label: 'Tool prefix',
+      type: 'text',
+      placeholder: 'billing_api',
+      help: 'The first word of every tool this source offers an agent. Leave blank to use the source slug.',
+    },
+    {
+      key: 'healthPath',
+      label: 'Health path',
+      type: 'text',
+      defaultValue: '/',
+      help: 'The path Test connection GETs with the token. Any 2xx counts.',
+    },
+  ],
+
   'posthog': [
     {
       key: 'projectName',

@@ -22,6 +22,7 @@
 
 import type { ProcessorRef } from '@/libs/sources/processor';
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { listProcessorSlugs, processorConfigSchema } from '@/libs/processors/registry';
 import { withManifestDir } from '@/libs/sources/manifestDir';
@@ -195,8 +196,13 @@ export function validateSourceSpec(spec: SourceUpsertSpec, known: KnownProcessor
   if (!connector) {
     throw new Error(`source "${spec.slug}" references unknown connector kind: "${spec.kind}". Registered: ${listConnectors().map(c => c.slug).join(', ')}`);
   }
-  // Validate the per-connector config blob. Throws ZodError on bad input.
-  connector.configSchema.parse(spec.config);
+  // Validate the per-connector config blob. A ZodError's own message is its
+  // issues as JSON; the apply prints `message`, so it is rewritten as the
+  // source's name plus one line per fault — what a person fixes the YAML from.
+  const parsed = connector.configSchema.safeParse(spec.config);
+  if (!parsed.success) {
+    throw new Error(`source "${spec.slug}" config is not valid for the ${spec.kind} connector:\n${z.prettifyError(parsed.error)}`);
+  }
   return validateSourceProcessor(spec, known);
 }
 
