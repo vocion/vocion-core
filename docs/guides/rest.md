@@ -16,6 +16,12 @@ earned autonomy.
 It is one mechanism, not a connector per product (design principle 12): the
 paths, the arguments and the review wording all come from the workspace.
 
+Not to be confused with the `strapi` connector: `strapi` syncs a Strapi
+instance's collections into search on a schedule (read-only, indexed, found
+with `search_knowledge`), while `rest` calls any bearer-token API live at the
+moment of the question and can propose writes to it — nothing is indexed. A
+Strapi instance can be both, as two sources.
+
 ## The source file
 
 ```yaml
@@ -92,7 +98,7 @@ Every tool or action:
 | `method` | yes | `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. |
 | `path` | yes | Under the credential's base URL. `{param}` segments are substituted from the input, URL-encoded; each must be a required input property. |
 | `input` | no | The arguments, as JSON Schema — see the subset below. Default: no arguments. |
-| `query` | no | Parameter name → template. A parameter whose template resolves to nothing is not sent. |
+| `query` | no | Parameter name → template, on a tool or an action alike. A parameter whose template resolves to nothing is not sent. |
 | `response.pick` | no | Dotted path into the JSON to return, e.g. `data.items`. A missing path is reported, not papered over. |
 | `response.maxChars` | 40000 | Longest text handed back. Past it the text is cut and ends with a notice giving the total length. |
 
@@ -116,10 +122,41 @@ An action also takes:
    nothing (so `Due: {dueDate}` vanishes from the card), and a mixed string
    with some arguments present renders the missing ones empty.
 3. An object key, an array entry or a query parameter that resolved to nothing
-   is dropped.
+   is dropped — and an object whose every key dropped is dropped with them,
+   recursively, so `priority: { name: '{priority}' }` with no priority never
+   sends `priority: {}`. A literal `{}` in the template is kept; an emptied
+   array stays `[]`.
 
 A path is stricter: a missing path parameter refuses the call, because
 `/api/projects/` is a different endpoint from `/api/projects/{id}`.
+
+#### Built-in dates
+
+Agents never do date arithmetic, and an API takes absolute dates, so a
+template can name a date the server works out at call time, in the
+workspace's timezone (`defaults.timezone`; the person's own zone for a chat
+turn; UTC when neither is set), as `YYYY-MM-DD`:
+
+| Placeholder | Resolves to |
+|---|---|
+| `{$today}` | today |
+| `{$today-7d}`, `{$today+30d}` | today plus or minus a whole number of days |
+| `{$weekStart}` | the Monday of this week |
+| `{$monthStart}`, `{$monthEnd}` | the first and last day of this month |
+
+They work anywhere an input placeholder does — a path, a query value, a body,
+a review row — and beside one: `'{$today-7d}..{$today}'`. They are not
+inputs: nothing about them reaches the model's tool schema, and the model
+passes nothing for them. Any other `{$…}` is refused at apply.
+
+```yaml
+- name: due_this_week
+  method: GET
+  path: /api/milestones
+  query:
+    'filters[dueDate][$gte]': '{$weekStart}'
+    'filters[dueDate][$lte]': '{$today+7d}'
+```
 
 ### The input schema subset
 
@@ -202,8 +239,10 @@ An agent proposes a write with `propose_action`:
 }
 ```
 
-`input` is checked against the endpoint's declared schema before any row is
-written: a source that does not exist or is not a REST source, an action the
+The why, the evidence and the confidence ride the proposal envelope, as they do
+for every action; `action_input` carries only what the endpoint needs plus the
+one-line `summary`. `input` is checked against the endpoint's declared schema
+before any row is written: a source that does not exist or is not a REST source, an action the
 source does not declare, an argument outside the schema, or a missing path
 parameter is refused with a sentence the model can act on.
 

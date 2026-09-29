@@ -84,7 +84,7 @@ export async function inspectRestApi(input: { credentials: RestCredentials; conf
 export const restConnector: SourceConnector<typeof restConfigSchema> = {
   slug: 'rest',
   name: 'REST API',
-  description: 'Any REST API with a bearer token, queried live. Read endpoints declared in the source become agent tools; write endpoints become proposals on the review queue.',
+  description: 'Any REST API with a bearer token, queried live — nothing is indexed. Read endpoints declared in the source become agent tools; write endpoints become proposals on the review queue. To index a Strapi instance into search instead, use Strapi.',
   icon: 'Plug',
   authKind: 'apikey',
   syncless: true,
