@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyFailure, contractDelta, environmentDelta, intakeDecision, markHandled, noteAttempt, personActed, planGate, readRecovery, RECOVERY_LIMIT, recoveryDecision, recoveryStage } from './recovery';
+import { classifyFailure, closestSibling, contractDelta, environmentDelta, intakeDecision, markHandled, noteAttempt, personActed, planGate, readRecovery, RECOVERY_LIMIT, recoveryDecision, recoveryStage, replanBrief, staleFailure, stalePlanRoots } from './recovery';
 
 // Every name, path and number below is invented. The failure texts are the
 // worker's own refusal shapes (factory/worker/worker.mjs), not a live run's.
@@ -194,5 +194,105 @@ describe('a planning step that ended without a plan', () => {
 
     expect(recoveryDecision({ failure, attempts: 1, planWhy: 'the change spans 2 packages' })).toEqual({ do: 'plan', why: 'the change spans 2 packages' });
     expect(recoveryDecision({ failure, attempts: 3 }).do).toBe('escalate');
+  });
+});
+
+describe('a stale plan (the worker\'s typed failure, or the records)', () => {
+  // A repo whose apps were renamed relay-* → courier-* after the plan was written.
+  const repo = {
+    riskDefaults: { 'apps/courier-api/**': 'logic', 'apps/courier-web/**': 'ui', 'packages/core/prisma/**': 'schema', 'docs/**': 'docs' },
+    productPaths: { relay: ['apps/courier-api/**', 'apps/courier-web/**', 'apps/courier-site/**'] },
+  };
+  const components = [
+    'packages/core/src/routes/parcel.ts — GET returns openedAt per address',
+    'apps/relay-api/prisma/schema/core.prisma — Parcel.remindedAt',
+    'apps/relay-web/src/routes/ParcelPage.tsx — the Remind dialog',
+  ];
+
+  it('reads the worker\'s paths_missing off result.failure, with the paths that exist', () => {
+    const f = classifyFailure({
+      status: 'failed',
+      error: 'paths missing: the allowed paths name apps/relay-api (did you mean apps/courier-api?), which is not in the repository. Nothing was changed and no model was called.',
+      failures: [{ scope: 'paths_missing', message: 'the allowed paths name apps/relay-api (did you mean apps/courier-api?), which is not in the repository' }],
+      result: { failure: { kind: 'paths_missing', missing: ['apps/relay-api/prisma/schema/core.prisma'], suggest: ['apps/courier-api/prisma/schema/core.prisma'], reason: 'the allowed paths name apps/relay-api (did you mean apps/courier-api?), which is not in the repository' } },
+    });
+
+    expect(f.class).toBe('stale_plan');
+    expect(f.sentence).toBe('the plan no longer fits the repository: the allowed paths name apps/relay-api (did you mean apps/courier-api?), which is not in the repository');
+    expect(f.stale).toMatchObject({ kind: 'paths_missing', suggest: ['apps/courier-api/prisma/schema/core.prisma'] });
+  });
+
+  it('reads out_of_bounds — the engineer\'s own words — instead of "no changes"', () => {
+    const f = classifyFailure({
+      status: 'failed',
+      error: 'out of bounds: Claude stopped because the work cannot be built inside the allowed paths. Nothing was changed. Claude said: I stopped without changing anything, because the plan can\'t be built inside the allowed paths.',
+      failures: [{ scope: 'out_of_bounds', message: 'I stopped without changing anything, because the plan can\'t be built inside the allowed paths.' }],
+      result: { failure: { kind: 'out_of_bounds', reason: 'I stopped without changing anything, because the plan can\'t be built inside the allowed paths.', detail: 'I stopped without changing anything…\n\n- Reminders need a schema change.' } },
+    });
+
+    expect(f.class).toBe('stale_plan');
+    expect(f.sentence).toMatch(/^the plan no longer fits the repository: the engineer stopped because the work cannot be built inside its paths/);
+  });
+
+  it('reads the kind off the failure entry\'s scope when result carries none', () => {
+    expect(classifyFailure({ status: 'failed', error: 'x', failures: [{ scope: 'out_of_bounds', message: 'The schema is outside the allowed paths.' }] }).class).toBe('stale_plan');
+  });
+
+  it('plans again, never sends it again and never asks for paths', () => {
+    const failure = classifyFailure({ status: 'failed', error: 'x', failures: [], result: { failure: { kind: 'paths_missing', missing: ['apps/relay-api/**'], suggest: ['apps/courier-api/**'], reason: 'the allowed paths name apps/relay-api, which is not in the repository' } } });
+    const d = recoveryDecision({ failure, attempts: 1 });
+
+    expect(d.do).toBe('replan');
+    expect(d.do === 'replan' && d.brief).toContain('Name these instead: apps/courier-api/**');
+    expect(d.do === 'replan' && d.brief).toContain('Paths the repository does not have: apps/relay-api/**');
+    expect(d.do === 'replan' && d.brief.length).toBeLessThanOrEqual(1000);
+
+    // At the limit, one ask, which says what a new plan must name.
+    const stopped = recoveryDecision({ failure, attempts: RECOVERY_LIMIT });
+
+    expect(stopped).toMatchObject({ do: 'escalate', unblock: expect.stringContaining('apps/courier-api/**') });
+  });
+
+  it('derives staleness from the repo record: roots the plan names that the record no longer lists', () => {
+    const stale = stalePlanRoots(components, repo);
+
+    expect(stale).toMatchObject({ kind: 'derived', missing: ['apps/relay-api', 'apps/relay-web'], suggest: ['apps/courier-api', 'apps/courier-web'] });
+    expect(stale!.reason).toBe('it names apps/relay-api (now apps/courier-api), apps/relay-web (now apps/courier-web), which the repository no longer has');
+  });
+
+  it('a plan that fits, or a repo record that lists no apps, is never stale', () => {
+    expect(stalePlanRoots(['apps/courier-api — x', 'packages/core/src/a.ts — y', 'docs/guide.md — z'], repo)).toBeNull();
+    expect(stalePlanRoots(components, { riskDefaults: { 'docs/**': 'docs' } })).toBeNull();
+    expect(stalePlanRoots(components, null)).toBeNull();
+  });
+
+  it('a "no changes" from an older worker against a stale plan is the stale plan', () => {
+    const failure = classifyFailure({ status: 'failed', error: 'verification failed: Claude produced no changes in the working tree (checks on the base: test=passed)', failures: [] });
+
+    expect(failure.class).toBe('no_changes');
+
+    const d = recoveryDecision({ failure, attempts: 0, stalePlan: stalePlanRoots(components, repo) });
+
+    expect(d).toMatchObject({ do: 'replan', why: 'the plan no longer fits the repository: it names apps/relay-api (now apps/courier-api), apps/relay-web (now apps/courier-web), which the repository no longer has' });
+    expect(recoveryDecision({ failure, attempts: 0 }).do).toBe('escalate');
+  });
+
+  it('the brief carries the engineer\'s words and caps at 1000 characters', () => {
+    const brief = replanBrief(staleFailure({ kind: 'out_of_bounds', missing: [], suggest: [], reason: 'It cannot be built inside the allowed paths.', detail: `Reminders need a schema change. ${'x'.repeat(2000)}` }));
+
+    expect(brief).toContain('The engineer said: Reminders need a schema change');
+    expect(brief.length).toBeLessThanOrEqual(1000);
+  });
+
+  it('the closest sibling is by suffix, and a tie is not guessed', () => {
+    expect(closestSibling('relay-api', ['courier-api', 'courier-web'])).toBe('courier-api');
+    expect(closestSibling('relay-api', ['courier-api', 'ledger-api'])).toBeNull();
+    expect(closestSibling('billing', ['courier-api'])).toBeNull();
+  });
+
+  it('the planner reads the carried refusal even when the rule also requires a plan', () => {
+    const contract = { risk_class: 'schema', allowed_paths: ['apps/courier-api/**', 'packages/core/**'] };
+
+    expect(planGate({ contract, planApproved: false, planFirst: 'the approved plan no longer fits the repository' })).toMatchObject({ go: false, why: 'the approved plan no longer fits the repository' });
   });
 });

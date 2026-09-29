@@ -27,7 +27,7 @@ import { planRequirement } from './planRule';
 export const RECOVERY_LIMIT = 3;
 
 /** What a failed engineering run's failure was, as far as the records say. */
-export type FailureClass = 'plan_required' | 'environment' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'refused_other';
+export type FailureClass = 'plan_required' | 'environment' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'stale_plan' | 'refused_other';
 
 export type Failure = {
   class: FailureClass;
@@ -37,6 +37,12 @@ export type Failure = {
   tail: string | null;
   /** The names of the checks that failed. */
   failedChecks: string[];
+  /**
+   * `stale_plan` only: the paths the plan names that the repository no longer
+   * has, and the closest ones it does (`apps/send-api/**` → `apps/stamp-api/**`),
+   * plus what the worker or the engineer said — the brief a new plan starts from.
+   */
+  stale?: { kind: 'paths_missing' | 'out_of_bounds' | 'derived'; missing: string[]; suggest: string[]; reason: string; detail: string | null };
 };
 
 /** Why an automatic step was taken. `retry` is QA's send-back (`autoRetryOf`). */
@@ -221,13 +227,70 @@ const TRANSIENT = /claim failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket 
  * @param run.status - `failed` or `lost`.
  * @param run.error - Its error.
  * @param run.failures - Its failures.
+ * @param run.result - Its result, where the worker puts a typed `failure` ({@link typedStale}).
  */
-export function classifyFailure(run: { status: string; error: string | null; failures?: Array<{ scope?: string | null; message?: string | null }> | null }): Failure {
+export function classifyFailure(run: { status: string; error: string | null; failures?: Array<{ scope?: string | null; message?: string | null }> | null; result?: Record<string, unknown> | null }): Failure {
   const f = classifyRaw(run);
   return { ...f, sentence: bare(humanize(f.sentence)) };
 }
 
-function classifyRaw(run: { status: string; error: string | null; failures?: Array<{ scope?: string | null; message?: string | null }> | null }): Failure {
+/** The worker's typed failure kinds that mean the plan no longer fits the repository. */
+const STALE_KINDS = new Set(['paths_missing', 'out_of_bounds']);
+
+/**
+ * THE WORKER SAYS WHAT KIND OF FAILURE IT WAS (squatch-core #119). Run 411
+ * (#130, 2026-09-29) was sent plan #136's paths — `apps/send-api/...`, from
+ * before the rename to `apps/stamp-*` — and Claude stopped in 28s: "the plan
+ * can't be built inside the allowed paths". The worker now refuses that run
+ * itself (`paths_missing`, with the directories that do exist) or reports
+ * Claude's own words (`out_of_bounds`), on `result.failure`; the failure
+ * entries carry the same kind as their scope. Read the kind, never the words.
+ * @param run - The run.
+ * @param run.result - Its result, where the worker puts `failure`.
+ * @param run.failures - Its failures, whose scope may name the kind.
+ */
+export function typedStale(run: { result?: Record<string, unknown> | null; failures?: Array<{ scope?: string | null; message?: string | null }> | null }): Failure['stale'] | null {
+  const raw = run.result?.failure;
+  const f = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+  const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  if (f && typeof f.kind === 'string' && STALE_KINDS.has(f.kind)) {
+    return {
+      kind: f.kind as 'paths_missing' | 'out_of_bounds',
+      missing: strings(f.missing),
+      suggest: strings(f.suggest),
+      reason: typeof f.reason === 'string' ? f.reason : '',
+      detail: typeof f.detail === 'string' ? f.detail : null,
+    };
+  }
+  const entry = (run.failures ?? []).find(e => STALE_KINDS.has(String(e.scope ?? '')));
+  return entry ? { kind: String(entry.scope) as 'paths_missing' | 'out_of_bounds', missing: [], suggest: [], reason: String(entry.message ?? ''), detail: null } : null;
+}
+
+/**
+ * The sentence a stale plan's failure reads as.
+ * @param stale - What made it stale.
+ */
+function staleSentence(stale: NonNullable<Failure['stale']>): string {
+  const reason = bare(firstSentence(stale.reason || 'the plan names paths the repository does not have', 300));
+  return stale.kind === 'out_of_bounds'
+    ? `the plan no longer fits the repository: the engineer stopped because the work cannot be built inside its paths (${reason})`
+    : `the plan no longer fits the repository: ${reason}`;
+}
+
+/**
+ * A stale plan as a failure, for a stop the records explain on their own
+ * (the plan names app or package directories the repo record no longer has).
+ * @param stale - What made it stale.
+ */
+export function staleFailure(stale: NonNullable<Failure['stale']>): Failure {
+  return { class: 'stale_plan', sentence: bare(staleSentence(stale)), tail: null, failedChecks: [], stale };
+}
+
+function classifyRaw(run: { status: string; error: string | null; failures?: Array<{ scope?: string | null; message?: string | null }> | null; result?: Record<string, unknown> | null }): Failure {
+  const stale = typedStale(run);
+  if (stale) {
+    return staleFailure(stale);
+  }
   const failures = (run.failures ?? []).map(f => ({ scope: String(f.scope ?? ''), message: String(f.message ?? '') }));
   const error = String(run.error ?? '');
   const all = [error, ...failures.map(f => f.message)].join('\n');
@@ -274,6 +337,8 @@ export function unblockFor(failure: Failure): string {
       return 'rebuild the worker (or fix the repository\'s environment) so it can set up, then press Build';
     case 'no_plan':
       return 'write the plan, or say the work does not need one, then press Build';
+    case 'stale_plan':
+      return `approve a plan written against the repository as it is now${failure.stale?.suggest.length ? ` (it names ${failure.stale.suggest.slice(0, 4).join(', ')})` : ''}, then press Build`;
     case 'no_changes':
       return 'name what the change may touch that the contract left out — a path on the plan\'s components, or the repo record\'s productPaths or generatedFrom — then press Build';
     case 'checks_failed':
@@ -299,6 +364,8 @@ export function nextAfter(failure: Failure): string {
       return 'the factory asks you, because the worker\'s environment fails before any work starts';
     case 'no_plan':
       return 'the factory asks for the plan again';
+    case 'stale_plan':
+      return 'the factory plans again against the repository as it is, and the new plan replaces the old one';
     case 'checks_failed':
       return 'the factory sends it again with what the checks reported';
     case 'lost':
@@ -313,6 +380,7 @@ export function nextAfter(failure: Failure): string {
 
 export type RecoveryDecision
   = | { do: 'plan'; why: string }
+    | { do: 'replan'; why: string; brief: string }
     | { do: 'dispatch'; why: string; note: string | null }
     | { do: 'escalate'; why: string; unblock: string };
 
@@ -320,6 +388,9 @@ export type RecoveryDecision
  * What the factory does about a failed run, within the limit.
  *
  * - `plan_required` — plan first (the build dispatches itself once it is approved).
+ * - `stale_plan` — the plan names paths the repository no longer has, or the
+ *   engineer said the work cannot be built inside them: plan again, with the
+ *   reason and the suggested paths in the brief; the new plan supersedes it.
  * - `no_changes` — only if the contract the records now give differs from the
  *   one that failed (paths, checks); the same contract again would fail again.
  * - `checks_failed` — send it again with the failing checks' output in the objective.
@@ -333,9 +404,12 @@ export type RecoveryDecision
  * @param input.lastWasInfraRetry - The failed run was itself the one retry of a lost or transient run.
  * @param input.environmentDelta - What changed in the worker or the repo's environment since the failed run (`environment` only).
  * @param input.planWhy - Why the plan was needed, when a planning step ended without one (`no_plan`).
+ * @param input.stalePlan - The plan the failed run was sent is stale by the records ({@link stalePlanRoots}): a `no_changes` failure is read as `stale_plan`.
  */
-export function recoveryDecision(input: { failure: Failure; attempts: number; limit?: number; contractDelta?: string[]; lastWasInfraRetry?: boolean; environmentDelta?: string[]; planWhy?: string }): RecoveryDecision {
-  const { failure } = input;
+export function recoveryDecision(input: { failure: Failure; attempts: number; limit?: number; contractDelta?: string[]; lastWasInfraRetry?: boolean; environmentDelta?: string[]; planWhy?: string; stalePlan?: NonNullable<Failure['stale']> | null }): RecoveryDecision {
+  // "No changes" against a plan the records already show is stale (an older
+  // worker, which says only "no changes") is the stale plan, not the engineer.
+  const failure = input.failure.class === 'no_changes' && input.stalePlan ? staleFailure(input.stalePlan) : input.failure;
   const limit = input.limit ?? RECOVERY_LIMIT;
   // THE WORKER'S ENVIRONMENT IS NOT AN ATTEMPT (#124, 2026-09-28). A worker
   // that cannot set itself up fails the same way on every try, so nothing is
@@ -366,6 +440,11 @@ export function recoveryDecision(input: { failure: Failure; attempts: number; li
       return { do: 'dispatch', why: `the worker's environment changed since (${(input.environmentDelta ?? []).join('; ')})`, note: null };
     case 'no_plan':
       return { do: 'plan', why: input.planWhy ?? failure.sentence };
+    // A STALE PLAN IS PLANNED AGAIN, never sent again as it is (the same
+    // paths fail the same way) and never read as "no changes" (a person would
+    // be asked to name paths the tree already names).
+    case 'stale_plan':
+      return { do: 'replan', why: failure.sentence, brief: replanBrief(failure) };
     case 'lost':
     case 'transient':
       return input.lastWasInfraRetry
@@ -499,7 +578,10 @@ export function planGate(input: { contract: Record<string, unknown>; planApprove
     estimateUsd: typeof c.token_budget_usd === 'number' ? c.token_budget_usd : null,
   });
   if (decision.level === 'required') {
-    return { go: false, why: decision.triggers.map(t => t.why).join('; '), triggers: decision.triggers };
+    // The refusal the factory carries (a stale plan's brief, the worker's own
+    // "plan is required") is what the planner reads; the rule's triggers stay
+    // on the gate.
+    return { go: false, why: input.planFirst || decision.triggers.map(t => t.why).join('; '), triggers: decision.triggers };
   }
   if (input.planFirst) {
     return { go: false, why: input.planFirst, triggers: [{ code: 'recorded', why: input.planFirst }] };
@@ -598,4 +680,114 @@ export function workerRebuiltSince(opts: {
     }
   }
   return seen.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0] ?? null;
+}
+
+/** The app or package a path lives in: `apps/send-api/prisma/x` → `apps/send-api`. */
+const ROOT = /^((?:apps|packages|services)\/[\w.-]+)(?:\/|$)/;
+
+/**
+ * Name tokens, last first: `stamp-api` → ['api', 'stamp'].
+ * @param name - A directory name.
+ */
+const nameTokens = (name: string): string[] => name.toLowerCase().split(/[-_.]+/).filter(Boolean).reverse();
+
+/**
+ * The closest existing sibling of a directory that is gone, by suffix
+ * (`send-api` → `stamp-api` among stamp-api, stamp-web, stamp-marketing);
+ * a tie is broken on the leading tokens, and left unsuggested rather than guessed.
+ * The same rule as the worker's preflight (squatch-core `factory/worker/preflight.mjs`).
+ * @param name - The missing directory's name.
+ * @param siblings - The names that exist beside it.
+ */
+export function closestSibling(name: string, siblings: string[]): string | null {
+  const want = nameTokens(name);
+  let best: string | null = null;
+  let score: [number, number] = [0, 0];
+  let tie = false;
+  for (const s of siblings) {
+    if (s === name) {
+      continue;
+    }
+    const have = nameTokens(s);
+    let suffix = 0;
+    while (suffix < want.length && suffix < have.length && want[suffix] === have[suffix]) {
+      suffix++;
+    }
+    if (suffix === 0) {
+      continue;
+    }
+    const a = [...want].reverse();
+    const b = [...have].reverse();
+    let prefix = 0;
+    while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) {
+      prefix++;
+    }
+    if (suffix > score[0] || (suffix === score[0] && prefix > score[1])) {
+      best = s;
+      score = [suffix, prefix];
+      tie = false;
+    } else if (suffix === score[0] && prefix === score[1]) {
+      tie = true;
+    }
+  }
+  return tie ? null : best;
+}
+
+/**
+ * IS THE PLAN STALE BY THE RECORDS? A plan's components name the apps and
+ * packages it changes (`apps/send-api/prisma/schema/core.prisma — …`). When
+ * the repo record's riskDefaults and productPaths — what the repository is
+ * now — list app or package roots and none of them is one the plan names, the
+ * plan was written before a rename (#130's plan #136, 2026-09-25, against
+ * `apps/stamp-*` from 2026-09-28). Only `apps/`, `packages/` and `services/`
+ * roots are judged, and only when the repo record lists some.
+ * @param components - The plan's components.
+ * @param repo - The repo record's metadata.
+ * @param repo.riskDefaults
+ * @param repo.productPaths
+ * @returns The missing roots and their closest successors, or null when the plan fits.
+ */
+export function stalePlanRoots(components: string[], repo: { riskDefaults?: unknown; productPaths?: unknown } | null): NonNullable<Failure['stale']> | null {
+  if (!repo) {
+    return null;
+  }
+  const globs = [
+    ...Object.keys(repo.riskDefaults && typeof repo.riskDefaults === 'object' ? repo.riskDefaults as Record<string, unknown> : {}),
+    ...Object.values(repo.productPaths && typeof repo.productPaths === 'object' ? repo.productPaths as Record<string, unknown> : {}).flatMap(v => (Array.isArray(v) ? v.map(String) : [])),
+  ];
+  const known = new Set(globs.map(g => ROOT.exec(g)?.[1]).filter((x): x is string => Boolean(x)));
+  if (known.size === 0) {
+    return null;
+  }
+  const heads = components.map(c => c.split(/\s+[\u2014-]\s+|\s\(/)[0]?.trim() ?? '');
+  const missing = [...new Set(heads.map(h => ROOT.exec(h)?.[1]).filter((x): x is string => Boolean(x) && !known.has(x!)))];
+  if (missing.length === 0) {
+    return null;
+  }
+  const pairs = missing.map((root) => {
+    const [parent, name] = root.split('/') as [string, string];
+    const sibling = closestSibling(name, [...known].filter(k => k.startsWith(`${parent}/`)).map(k => k.slice(parent.length + 1)));
+    return { root, now: sibling ? `${parent}/${sibling}` : null };
+  });
+  const named = pairs.map(p => (p.now ? `${p.root} (now ${p.now})` : p.root));
+  return { kind: 'derived', missing, suggest: pairs.flatMap(p => (p.now ? [p.now] : [])), reason: `it names ${named.join(', ')}, which the repository no longer has`, detail: null };
+}
+
+/**
+ * The planner's brief for a stale plan: why the last one failed, which paths
+ * are gone and which exist, and that the new plan replaces it. Fits the
+ * dispatch's `planFirst` (1000 characters).
+ * @param failure - The stale-plan failure.
+ */
+export function replanBrief(failure: Failure): string {
+  const st = failure.stale;
+  const parts = [
+    `the approved plan no longer fits the repository, so it is planned again and the new plan replaces it: ${bare(failure.sentence.replace(/^the plan no longer fits the repository:\s*/, ''))}`,
+    st && st.missing.length > 0 ? `Paths the repository does not have: ${st.missing.slice(0, 6).join(', ')}` : null,
+    st && st.suggest.length > 0 ? `Name these instead: ${st.suggest.slice(0, 6).join(', ')}` : null,
+    st?.detail ? `The engineer said: ${bare(st.detail.replace(/\s+/g, ' ').slice(0, 400))}` : null,
+    'Read the repository as it is now; name every package the change touches, its tests and any migrations directory',
+  ].filter((p): p is string => Boolean(p));
+  const text = `${parts.map(bare).join('. ')}.`;
+  return text.length > 1000 ? `${text.slice(0, 998).trimEnd()}…` : text;
 }

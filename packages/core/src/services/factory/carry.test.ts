@@ -78,11 +78,12 @@ async function runsFor(requestId: number) {
  * @param requestId
  * @param error
  * @param failures
+ * @param result - What the worker put on `result` (its typed `failure`).
  */
-async function failNewest(requestId: number, error: string, failures: Array<{ scope: string; message: string }> = []) {
+async function failNewest(requestId: number, error: string, failures: Array<{ scope: string; message: string }> = [], result?: Record<string, unknown>) {
   const run = (await runsFor(requestId)).at(-1)!;
   await claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w-1' });
-  await failWorkerRun({ orgId: ORG, id: run.id, workerId: 'w-1', error, failures });
+  await failWorkerRun({ orgId: ORG, id: run.id, workerId: 'w-1', error, failures, result });
   return run.id;
 }
 
@@ -445,5 +446,128 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
     await expect(carry.recoverFailedRun(ORG, runId)).rejects.toThrow(/did not produce an open ask/);
 
     spy.mockRestore();
+  });
+});
+
+describe('a stale plan is planned again (#130, 2026-09-29: a plan written before a rename)', () => {
+  /**
+   * A request with an approved plan, built from it on intake.
+   * @param title - The request's title.
+   * @param components - The plan's components.
+   */
+  async function builtFromPlan(title: string, components: string[]) {
+    const r = await request({ product: 'rooms', title });
+    const [plan] = await db.insert(businessObjectSchema).values({
+      orgId: ORG,
+      typeId: types.architecture_plan!,
+      title: `Plan: ${title}`,
+      metadata: { requestId: r.id, status: 'approved', approvedBy: 'usr-dana', approvedAt: '2026-09-25T21:00:00.000Z', approach: 'Change the room page.', components, repoSlugs: ['Acme/northwind-core'] },
+    }).returning();
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    return { r, plan: plan! };
+  }
+
+  const planRequests = async (requestId: number) => (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.plan_requested'))))
+    .filter(e => (e.payload as { requestId: number }).requestId === requestId);
+
+  it('paths_missing from the worker: the plan is superseded and planned again with the paths that exist, never sent again', async () => {
+    const { r, plan } = await builtFromPlan('Rooms show who has not opened the invite', ['apps/web — the room page lists who has not opened']);
+
+    expect(await runsFor(r.id)).toHaveLength(1);
+
+    const runId = await failNewest(r.id, 'paths missing: the allowed paths name apps/old-web (did you mean apps/web?), which is not in the repository. Nothing was changed and no model was called.', [{ scope: 'paths_missing', message: 'the allowed paths name apps/old-web (did you mean apps/web?), which is not in the repository' }], {
+      failure: { kind: 'paths_missing', missing: ['apps/old-web/src/**'], suggest: ['apps/web/src/**'], roots: [{ missing: 'apps/old-web', suggest: 'apps/web' }], reason: 'the allowed paths name apps/old-web (did you mean apps/web?), which is not in the repository' },
+    });
+    const out = await carry.recoverFailedRun(ORG, runId);
+
+    expect(out).toMatchObject({ did: 'replan', line: expect.stringMatching(/^Recovered: planning again because the plan no longer fits the repository: the allowed paths name apps\/old-web .*; plan #\d+ is superseded\.$/) });
+    // Nothing was sent again: the same paths would fail the same way.
+    expect(await runsFor(r.id)).toHaveLength(1);
+    expect(((await read(plan.id)).metadata as Record<string, unknown>).status).toBe('superseded');
+
+    const meta = (await read(r.id)).metadata as { recovery: { stage: string; attempts: Array<{ kind: string; trigger: string }> } };
+
+    expect(meta.recovery.stage).toBe('planning');
+    // The planning step is an attempt of the limit.
+    expect(meta.recovery.attempts.at(-1)).toMatchObject({ kind: 'plan', trigger: 'recovery' });
+
+    const [asked] = await planRequests(r.id);
+
+    expect((asked!.payload as { why: string }).why).toContain('Name these instead: apps/web/src/**');
+
+    // The new plan supersedes the old one, on both records.
+    const [next] = await db.insert(businessObjectSchema).values({
+      orgId: ORG,
+      typeId: types.architecture_plan!,
+      title: 'Plan: Rooms show who has not opened the invite (again)',
+      metadata: { requestId: r.id, status: 'in_review', approach: 'Change the room page in apps/web.', components: ['apps/web — the room page lists who has not opened'], alternatives: ['None.'], verification: 'A test.', dataImpact: 'None.' },
+    }).returning();
+    await carry.reviewFiledPlan(ORG, { objectType: 'architecture_plan', objectId: next!.id });
+
+    expect(((await read(plan.id)).metadata as Record<string, unknown>).supersededBy).toBe(next!.id);
+    expect(((await read(next!.id)).metadata as Record<string, unknown>).supersedes).toEqual([plan.id]);
+  });
+
+  it('out_of_bounds from the worker: the engineer\'s words, and a plan again rather than "no changes"', async () => {
+    const { r } = await builtFromPlan('Rooms remind who has not opened', ['apps/web — the Remind dialog']);
+    const reason = 'I stopped without changing anything, because the plan can\'t be built inside the allowed paths.';
+    const out = await carry.recoverFailedRun(ORG, await failNewest(r.id, `out of bounds: Claude stopped because the work cannot be built inside the allowed paths. Nothing was changed. Claude said: ${reason}`, [{ scope: 'out_of_bounds', message: reason }], { failure: { kind: 'out_of_bounds', reason, detail: `${reason}\n\n- Reminders need a schema change.` } }));
+
+    expect(out.did).toBe('replan');
+    expect(out.line).toContain('the engineer stopped because the work cannot be built inside its paths');
+    expect(((await planRequests(r.id))[0]!.payload as { why: string }).why).toContain('The engineer said: I stopped without changing anything');
+  });
+
+  it('at dispatch: a plan whose components name an app the repo record no longer lists is planned again before anything is sent', async () => {
+    const { r, plan } = await builtFromPlan('Rooms keep their invite list', ['apps/old-web — the invite list', 'packages/core — the invite read']);
+
+    expect(await runsFor(r.id)).toHaveLength(0);
+    expect(((await read(plan.id)).metadata as Record<string, unknown>)).toMatchObject({ status: 'superseded', supersededReason: 'it names apps/old-web (now apps/web), which the repository no longer has' });
+
+    const meta = (await read(r.id)).metadata as { recovery: { stage: string } };
+
+    expect(meta.recovery.stage).toBe('planning');
+    expect(((await planRequests(r.id))[0]!.payload as { why: string }).why).toMatch(/^plan #\d+ is stale; .*apps\/old-web \(now apps\/web\).*Name these instead: apps\/web/);
+
+    // Undo puts the plan back as it was.
+    const { factoryDispatchAction } = await import('@/libs/actions/factory-dispatch');
+    const [dispatch] = (await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.actionId, 'factory.dispatch_task'))))
+      .filter(a => (a.input as { requestId?: number }).requestId === r.id);
+    await factoryDispatchAction.undo!({ orgId: ORG } as never, dispatch!.input as never, dispatch!.result as never);
+
+    expect(((await read(plan.id)).metadata as Record<string, unknown>).status).toBe('approved');
+  });
+
+  it('the sweep answers a stop a stale plan explains: an older worker said only "no changes"', async () => {
+    const { r, plan } = await builtFromPlan('Rooms show the invite time', ['apps/web — the invite time']);
+    // The stop as it stands in production: "no changes", same contract, one ask.
+    const runId = await failNewest(r.id, 'verification failed: Claude produced no changes in the working tree (checks on the base: test=passed)');
+
+    expect((await carry.recoverFailedRun(ORG, runId)).did).toBe('escalate');
+
+    const askId = ((await read(r.id)).metadata as { recovery: { askId: number } }).recovery.askId;
+    // The plan was written before the rename: its app is gone from the repo record.
+    await db.update(businessObjectSchema).set({ metadata: { ...((await read(plan.id)).metadata as Record<string, unknown>), components: ['apps/old-web — the invite time'] } }).where(eq(businessObjectSchema.id, plan.id));
+
+    const { acted } = await carry.sweepStuckRequests(ORG);
+
+    expect(acted.find(a => a.requestId === r.id)).toMatchObject({ did: 'replan', line: expect.stringContaining('apps/old-web (now apps/web)') });
+
+    const [ask] = await db.select().from(askSchema).where(eq(askSchema.id, askId));
+
+    expect(ask!.status).toBe('superseded');
+    expect(((await read(plan.id)).metadata as Record<string, unknown>).status).toBe('superseded');
+
+    const meta = (await read(r.id)).metadata as { stalePlanReplannedFor: number; recovery: { stage: string; askId: number | null } };
+
+    expect(meta).toMatchObject({ stalePlanReplannedFor: runId, recovery: { stage: 'planning', askId: null } });
+    expect(await planRequests(r.id)).toHaveLength(1);
+
+    // Once per failed run: a second sweep does not supersede or plan again for
+    // the stale plan (with no planner in this fixture, it may notice the
+    // planning never started — that is the planning step's own rule).
+    const again = await carry.sweepStuckRequests(ORG);
+
+    expect(again.acted.find(a => a.requestId === r.id)?.did).not.toBe('replan');
   });
 });

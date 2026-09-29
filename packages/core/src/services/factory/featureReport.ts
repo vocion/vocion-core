@@ -2208,7 +2208,7 @@ function buildState(input: FeatureReportInput): ReportState {
     // contract refused: 1 problem: plan is required: … without a plan.."):
     // the failure in a sentence, and what happens next. The worker's own text
     // stays on the run page and in the Status drawer.
-    const failure = classifyFailure({ status: newestRun.status, error: newestRun.error, failures: newestRun.failures ?? [] });
+    const failure = classifyFailure({ status: newestRun.status, error: newestRun.error, failures: newestRun.failures ?? [], result: newestRun.result });
     const handled = readRecovery(input.request.meta).handledRunIds.includes(newestRun.id);
     const next = handled ? 'Build again starts a fresh attempt' : `next, ${nextAfter(failure)} — or Build again starts a fresh attempt now`;
     return { key: 'stuck', label: 'Engineering stopped', detail: `the last run failed: ${failure.sentence}; ${next}`, needsYou: handled, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };

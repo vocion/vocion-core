@@ -435,7 +435,7 @@ export function fitName(name: string, max: number): string {
   return `${(word > max / 2 ? cut.slice(0, word) : cut).replace(/[\s,;:.\-—"'(]+$/, '')}…`;
 }
 
-async function readRepo(orgId: string, slug: string | null, product?: string | null): Promise<Meta | null> {
+export async function readRepo(orgId: string, slug: string | null, product?: string | null): Promise<Meta | null> {
   if (!slug && !product) {
     return null;
   }
@@ -484,14 +484,45 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
   const requestId = stored ? Number(stored.meta.requestId) : Number(input.requestId);
   const request = Number.isFinite(requestId) ? await readRecord(ctx.orgId, requestId) : null;
   let task = stored;
+  const planRepo = plan && Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') || null : null;
+  const repo = request || plan
+    ? await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? (stored ? str(stored.meta, 'repoSlug') : null) ?? (request ? str(request.meta, 'ownerRepo') : null), request ? str(request.meta, 'product') : null)
+    : null;
   if (!stored && request) {
-    const planRepo = plan && Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') : null;
-    const repo = await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? str(request.meta, 'ownerRepo'), str(request.meta, 'product'));
     const previous = await sentBackTask(ctx.orgId, request.id);
     const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, note: input.note });
     task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
   }
-  return { task, plan, request };
+  return { task, plan, request, repo };
+}
+
+/**
+ * A PLAN WRITTEN BEFORE A RENAME IS STALE (#130, 2026-09-29): plan #136 named
+ * `apps/send-api/...` three days before those directories became
+ * `apps/stamp-*`, and its build ran into a fence it could not see. When the
+ * plan's components name app or package roots the repo record no longer
+ * lists, the build is not sent — the plan is superseded and planned again.
+ * @param plan - The named plan.
+ * @param repo - The repo record.
+ */
+async function stalePlan(plan: Rec | null, repo: Meta | null) {
+  if (!plan) {
+    return null;
+  }
+  const { stalePlanRoots } = await import('@/services/factory/recovery');
+  return stalePlanRoots(list(plan.meta, 'components'), repo);
+}
+
+/**
+ * Mark a plan superseded: it stays on the record, with why, and no longer
+ * counts as approved (`planIsApproved`), so nothing builds from it.
+ * @param orgId - Tenant.
+ * @param planId - The plan.
+ * @param why - Why it no longer stands.
+ * @param at - When.
+ */
+export async function supersedePlan(orgId: string, planId: number, why: string, at: string): Promise<void> {
+  await writeMeta(orgId, planId, { status: 'superseded', supersededAt: at, supersededReason: why });
 }
 
 /**
@@ -707,9 +738,12 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     return undefined;
   },
   async reviewCard(ctx, input): Promise<ReviewCard> {
-    const { task, plan, request } = await loadAll(ctx, input);
+    const { task, plan, request, repo } = await loadAll(ctx, input);
     const m = task?.meta ?? {};
-    const gate = task ? await gateFor(task, plan, request, { personApproving: true, planFirst: input.planFirst }) : { go: true as const };
+    const stale = await stalePlan(plan, repo);
+    const gate = stale
+      ? { go: false as const, why: `plan #${plan!.id} ${stale.reason}; it is planned again` }
+      : task ? await gateFor(task, plan, request, { personApproving: true, planFirst: input.planFirst }) : { go: true as const };
     const budget = typeof m.tokenBudget === 'number' ? `$${m.tokenBudget}` : 'the worker default';
     return {
       title: `Start the build: ${request?.title ?? task?.title ?? `task #${input.taskId}`}`,
@@ -735,7 +769,8 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   async execute(ctx, input) {
     const { createWorkerRun } = await import('@/services/WorkerRunService');
     const loaded = await loadAll(ctx, input);
-    const { plan, request } = loaded;
+    const { request } = loaded;
+    let { plan } = loaded;
     let task = loaded.task;
     if (!task) {
       throw new Error(`No engineering task #${input.taskId}.`);
@@ -748,6 +783,23 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     }
     const automatic = isAutomatic(input, ctx);
     const at = new Date().toISOString();
+    // A STALE PLAN IS PLANNED AGAIN BEFORE ANYTHING IS SENT: superseded, and
+    // the planner is briefed with the paths that are gone and the ones that
+    // exist. Undo puts the plan back as it was.
+    const stale = await stalePlan(plan, loaded.repo);
+    let supersededPlan: { id: number; status: unknown } | null = null;
+    if (stale && plan) {
+      const { replanBrief, staleFailure } = await import('@/services/factory/recovery');
+      supersededPlan = { id: plan.id, status: plan.meta.status ?? null };
+      await supersedePlan(ctx.orgId, plan.id, `it ${stale.reason.replace(/^it /, '')}`, at);
+      plan = null;
+      if (request) {
+        const why = `plan #${supersededPlan.id} is stale; ${replanBrief(staleFailure(stale))}`.slice(0, 1000);
+        const { startPlanning } = await import('@/services/factory/carry');
+        const planning = await startPlanning(ctx.orgId, { request, plan: null, why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
+        return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, supersededPlan };
+      }
+    }
     // BUILD IS ONE PATH THROUGH THE PLAN GATE (backlog 038: run 401 went out
     // with a contract spanning two packages and the worker refused it, "plan
     // is required"). The rule the worker enforces is read here first; a
@@ -763,7 +815,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       }
       const { startPlanning } = await import('@/services/factory/carry');
       const planning = await startPlanning(ctx.orgId, { request, plan, why: gate.why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
-      return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous };
+      return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous, supersededPlan };
     }
     let createdTaskId: number | null = null;
     if (!input.taskId) {
@@ -846,6 +898,10 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     if (result.planning) {
       if (result.requestId) {
         await writeMeta(ctx.orgId, Number(result.requestId), { recovery: result.previousRecovery ?? null });
+      }
+      const sp = result.supersededPlan as { id?: number; status?: unknown } | null | undefined;
+      if (sp?.id) {
+        await writeMeta(ctx.orgId, sp.id, { status: sp.status ?? 'approved', supersededAt: null, supersededReason: null });
       }
       return { stoppedPlanning: true };
     }

@@ -25,7 +25,7 @@ import type { Failure, RecoveryState } from './recovery';
 import type { FactoryRecord } from '@/libs/actions/factory-dispatch';
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
-import { classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
+import { classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
 /** The seat whose judgement the factory's own proposals represent. */
 const PM = 'product-manager';
@@ -176,6 +176,31 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
 async function approvedPlan(plans: Row[]): Promise<Row | null> {
   const { planIsApproved } = await lib();
   return [...plans].filter(p => planIsApproved(p.meta)).sort((a, b) => b.id - a.id)[0] ?? null;
+}
+
+/**
+ * Whether a plan is stale by the records: its components name app or package
+ * roots the repo record no longer lists (`stalePlanRoots`). Null when it fits,
+ * when there is no plan, or when no repo record says what the tree is.
+ * @param orgId - Tenant.
+ * @param planId - The plan the failed run was built from.
+ * @param request - The request, for its product.
+ * @param request.meta
+ */
+async function planStaleness(orgId: string, planId: number | null | undefined, request: { meta: Meta }): Promise<NonNullable<Failure['stale']> | null> {
+  if (!planId) {
+    return null;
+  }
+  const { readRecord, readRepo } = await lib();
+  const plan = await readRecord(orgId, planId);
+  if (!plan) {
+    return null;
+  }
+  const slug = Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') || null : null;
+  const product = typeof request.meta.product === 'string' ? request.meta.product : null;
+  const repo = await readRepo(orgId, slug ?? (typeof request.meta.ownerRepo === 'string' ? request.meta.ownerRepo : null), product);
+  const components = Array.isArray(plan.meta.components) ? (plan.meta.components as unknown[]).map(String) : [];
+  return stalePlanRoots(components, repo);
 }
 
 /**
@@ -483,6 +508,16 @@ export async function reviewFiledPlan(orgId: string, payload: Partial<ObjectCrea
   if (planIsApproved(plan.meta)) {
     return buildFromApprovedPlan(orgId, { planId, requestId, approvedBy: String(plan.meta.approvedBy ?? 'a person'), byPerson: false });
   }
+  // THE NEW PLAN SUPERSEDES THE STALE ONE, on both records: the old plan
+  // says what replaced it, the new one what it replaces.
+  const replaced = (await workFor(orgId, requestId)).plans.filter(p => p.id !== planId && p.meta.status === 'superseded' && !p.meta.supersededBy).map(p => p.id);
+  if (replaced.length > 0) {
+    const { writeMeta } = await lib();
+    for (const id of replaced) {
+      await writeMeta(orgId, id, { supersededBy: planId });
+    }
+    await writeMeta(orgId, planId, { supersedes: replaced });
+  }
   const { planConfidence } = await import('@/libs/actions/factory-approve-plan');
   const { confidence, gaps } = planConfidence(plan.meta);
   const content = gaps.filter(g => !g.startsWith('the rule named'));
@@ -596,9 +631,12 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   if (work.openAsks.length > 0) {
     return skip(requestId, `ask #${work.openAsks[0]} is open on it`);
   }
-  const failure: Failure = classifyFailure({ status: run.status, error: run.error, failures: run.failures as Array<{ scope?: string; message?: string }> });
+  const failure: Failure = classifyFailure({ status: run.status, error: run.error, failures: run.failures as Array<{ scope?: string; message?: string }>, result: (run.result ?? null) as Meta | null });
   const planId = Number(task.meta.planId) > 0 ? Number(task.meta.planId) : (await approvedPlan(work.plans))?.id;
   const base = { requestId, ...(planId ? { planId } : {}) };
+  // An older worker says only "no changes"; the records can still show the
+  // plan it was sent is stale (#130: plan #136 names apps/send-api).
+  const stalePlan = failure.class === 'no_changes' ? await planStaleness(orgId, planId, request) : null;
   let delta: string[] = [];
   if (failure.class === 'no_changes') {
     const before = ((run.input ?? {}) as { task?: Meta }).task ?? {};
@@ -614,12 +652,15 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
       { workerVersion: await newestWorkerVersion(orgId, run), environment: after?.environment ?? null },
     );
   }
-  const decision = recoveryDecision({ failure, attempts: state.attempts.length, limit: state.limit, contractDelta: delta, environmentDelta: envDelta, lastWasInfraRetry: ['lost', 'transient'].includes(String(task.meta.recoveryClass ?? '')) });
+  const decision = recoveryDecision({ failure, attempts: state.attempts.length, limit: state.limit, contractDelta: delta, environmentDelta: envDelta, lastWasInfraRetry: ['lost', 'transient'].includes(String(task.meta.recoveryClass ?? '')), stalePlan });
+  const handledAs = stalePlan && failure.class === 'no_changes' ? staleFailure(stalePlan) : failure;
   // Handled first, so the event and the sweep never both act on this run.
-  await updateRecovery(orgId, requestId, s => markHandled(s, run.id, failure));
+  await updateRecovery(orgId, requestId, s => markHandled(s, run.id, handledAs));
   let line: string;
   if (decision.do === 'escalate') {
-    line = await escalate(orgId, request, decision.why, decision.unblock, failure);
+    line = await escalate(orgId, request, decision.why, decision.unblock, handledAs);
+  } else if (decision.do === 'replan') {
+    line = await replanStale(orgId, { request, runId: run.id, planId: planId ?? null, why: decision.why, brief: decision.brief, failure: handledAs, now });
   } else {
     const input = {
       ...base,
@@ -722,6 +763,107 @@ async function replan(orgId: string, request: FactoryRecord, state: RecoveryStat
 }
 
 /**
+ * A STALE PLAN IS PLANNED AGAIN. The plan the failed run was built from is
+ * superseded (it no longer counts as approved, so nothing builds from it),
+ * and the build is dispatched as a recovery with the brief as its
+ * `planFirst`: the dispatch finds no approved plan, plans, and the planner
+ * reads why the last plan failed and which paths exist now. The planning
+ * step counts as an attempt; the new plan's approval builds it.
+ * @param orgId - Tenant.
+ * @param opts - The facts.
+ * @param opts.request - The request.
+ * @param opts.runId - The failed run.
+ * @param opts.planId - The stale plan, when there was one.
+ * @param opts.why - The failure in a sentence.
+ * @param opts.brief - The planner's brief (`replanBrief`).
+ * @param opts.failure - The failure, for a stop if the dispatch is refused.
+ * @param opts.now - The clock.
+ * @returns The line written on the run.
+ */
+async function replanStale(orgId: string, opts: { request: FactoryRecord; runId: number; planId: number | null; why: string; brief: string; failure: Failure; now: Date }): Promise<string> {
+  const { supersedePlan } = await lib();
+  const at = opts.now.toISOString();
+  if (opts.planId) {
+    await supersedePlan(orgId, opts.planId, opts.why, at);
+  }
+  const reason = `Recovered: planning again because ${opts.why}${opts.planId ? `; plan #${opts.planId} is superseded` : ''}.`;
+  const out = await propose(orgId, DISPATCH, { requestId: opts.request.id, trigger: 'recovery', recoveryOfRun: opts.runId, recoveryClass: 'stale_plan', planFirst: opts.brief, reason }, {
+    confidence: 0.9,
+    rationale: `Run #${opts.runId} failed because the plan no longer fits the repository: ${opts.why}. The same plan would fail the same way, so it is planned again.`,
+    reason: 'One automatic planning step within the limit; Undo cancels it.',
+  });
+  if (!out.ok) {
+    return escalate(orgId, opts.request, `Stopped: planning again for run #${opts.runId} could not start — ${out.error}`, unblockFor(opts.failure), opts.failure);
+  }
+  if (out.res.status === 'pending') {
+    const line = `${reason} It is on a card for a person (action #${out.res.runId}).`;
+    await updateRecovery(orgId, opts.request.id, s => logLine(s, line, at, opts.runId));
+    return line;
+  }
+  return reason;
+}
+
+/**
+ * A STALE PLAN ANSWERS ITS OWN STOP. #130 stopped at 04:27 on 2026-09-29
+ * (ask #223, "the last attempt made no changes … name what the change may
+ * touch"): the worker that ran it said only "no changes", but plan #136
+ * names `apps/send-api` and `apps/send-web`, which the repo record no longer
+ * lists. For every open stop whose request's newest failed run was a stale
+ * plan — typed by the worker (`paths_missing`, `out_of_bounds`), or a
+ * "no changes" whose plan the records show is stale — the ask is superseded
+ * and the request is planned again, once per failed run
+ * (`meta.stalePlanReplannedFor`), within the attempt limit.
+ * @param orgId - Tenant.
+ * @param now - The clock.
+ */
+export async function replanStaleStops(orgId: string, now: Date = new Date()): Promise<CarryResult[]> {
+  const { and, eq, like } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { askSchema } = await import('@/models/Schema');
+  const stops = await db.select({ id: askSchema.id, sourceRef: askSchema.sourceRef }).from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), like(askSchema.sourceRef, 'factory-recovery:%')));
+  const { readRecord, writeMeta } = await lib();
+  const { supersedeAsk } = await import('@/services/AskService');
+  const out: CarryResult[] = [];
+  for (const stop of stops) {
+    const requestId = Number(/^factory-recovery:(\d+):/.exec(String(stop.sourceRef ?? ''))?.[1]);
+    const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
+    if (!request || !isOpen(request)) {
+      continue;
+    }
+    const work = await workFor(orgId, requestId);
+    const failed = work.runs[0];
+    if (!failed || !['failed', 'lost'].includes(failed.status) || work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting || Number(request.meta.stalePlanReplannedFor) === failed.id) {
+      continue;
+    }
+    const state = readRecovery(request.meta);
+    if (state.attempts.length >= state.limit) {
+      continue;
+    }
+    const task = work.tasks.find(t => String(t.id) === String((failed.input.record as Meta | undefined)?.id));
+    const planId = Number(task?.meta.planId) > 0 ? Number(task!.meta.planId) : null;
+    const typed = classifyFailure({ status: failed.status, error: failed.error, failures: failed.failures, result: failed.result });
+    const stale = typed.class === 'stale_plan' ? typed.stale ?? null : typed.class === 'no_changes' ? await planStaleness(orgId, planId, request) : null;
+    if (!stale) {
+      continue;
+    }
+    const failure = typed.class === 'stale_plan' ? typed : staleFailure(stale);
+    // Written before the dispatch, so a sweep that overlaps this one never plans twice.
+    await writeMeta(orgId, requestId, { stalePlanReplannedFor: failed.id });
+    const line = await replanStale(orgId, { request, runId: failed.id, planId, why: failure.sentence, brief: replanBrief(failure), failure, now });
+    const at = now.toISOString();
+    const fresh = readRecovery((await readRecord(orgId, requestId))?.meta);
+    if (fresh.askId !== stop.id || fresh.stage !== 'stopped') {
+      // The dispatch went through (it moved the request to planning): the stop is answered.
+      await supersedeAsk(orgId, stop.id, `The plan was stale; planning again. ${line}`);
+      await updateRecovery(orgId, requestId, s => logLine({ ...s, askId: s.askId === stop.id ? null : s.askId, stage: s.stage === 'stopped' ? null : s.stage, line: s.stage === 'stopped' ? null : s.line }, `Ask #${stop.id} resolved itself: the plan was stale, and the factory is planning again.`, at, failed.id));
+    }
+    await recordRunLine(orgId, failed.id, line);
+    out.push({ requestId, did: 'replan', line });
+  }
+  return out;
+}
+
+/**
  * A REBUILT WORKER ANSWERS AN INFRASTRUCTURE STOP. Ask #220 (2026-09-28):
  * "Stopped: Open alerts — the infrastructure failed twice", filed at 19:09;
  * the worker image was rebuilt at 21:06 (the deploy's record-environment step
@@ -821,9 +963,20 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
     console.warn('factory sweep: the worker-rebuild check failed', { orgId, message: err.message });
     return [];
   });
+  // A stop a stale plan explains is planned again, the same way.
+  acted.push(...await replanStaleStops(orgId, now).catch((err: Error) => {
+    console.warn('factory sweep: the stale-plan check failed', { orgId, message: err.message });
+    return [];
+  }));
+  // A request one of those just carried on is not read again in this sweep:
+  // its planning started a moment ago, and nothing has picked it up yet.
+  const carried = new Set(acted.map(a => a.requestId));
   for (const id of requests) {
     if (acted.length >= limit) {
       break;
+    }
+    if (carried.has(id)) {
+      continue;
     }
     const request = await readRecord(orgId, id);
     if (!request || !isOpen(request)) {
