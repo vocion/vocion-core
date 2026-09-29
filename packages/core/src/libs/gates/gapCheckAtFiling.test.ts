@@ -136,6 +136,14 @@ describe('candidateGateRefusal — the door, with the product read off its recor
     expect(await candidateGateRefusal(ORG, type, { ...READY, kind: 'gap', gapCheck: CHECK }, { reads: [`artifact:${pageArtifactId}`] })).toBeUndefined();
   });
 
+  it('on the person\'s word it files, and says what the check still owes instead (Chris, 2026-09-29: "don\'t block me")', async () => {
+    const { candidateGateAdvice } = await import('@/libs/actions/objects-propose-candidate');
+
+    expect(await candidateGateRefusal(ORG, type, { ...READY, kind: 'idea' }, { reads: [], onPersonsWord: true })).toBeUndefined();
+    expect(await candidateGateAdvice(ORG, 'request', { ...READY, kind: 'idea' }, { reads: [], onPersonsWord: true })).toMatch(/the "proposal-ready" bar is not met yet — gapCheck\.finding: check what the product already does/);
+    expect(await candidateGateAdvice(ORG, 'request', { ...READY, kind: 'gap', gapCheck: CHECK }, { reads: ['wiki:relay-capabilities'], onPersonsWord: true })).toBeUndefined();
+  });
+
   it('without a turn (the API, a card filed later) the door asks for the check, not the read', async () => {
     expect(await candidateGateRefusal(ORG, type, { ...READY, kind: 'gap', gapCheck: CHECK })).toBeUndefined();
     expect(await candidateGateRefusal(ORG, type, { ...READY, kind: 'gap' })).toMatch(/check what the product already does/);

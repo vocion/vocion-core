@@ -78,6 +78,13 @@ export type GateFailure = { gate: HandoffGate; failed: Array<{ field: string; wh
  */
 export type GateTurn = {
   reads: readonly string[];
+  /**
+   * The person asked for this filing in their own turn (the turn's intent
+   * read). A person is never blocked (Chris, 2026-09-29: "I'm the PM asking
+   * for this … don't block me. Inform, help, accelerate."): the bar still
+   * runs, and what it finds is advice on the filing, not a refusal.
+   */
+  onPersonsWord?: boolean;
   resolved?: Record<string, { name: string; keys: string[] } | null | undefined>;
 };
 

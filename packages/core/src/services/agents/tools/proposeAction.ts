@@ -64,10 +64,29 @@ type ProposalRequest = {
  * @param opts.tool - The tool name progress events carry.
  * @param opts.refused - The answer for a refused proposal (ActionError).
  */
+/**
+ * Did the person ask for this filing in their own turn? Read off the turn's
+ * intent (a model's reading, never their words), and never true for a
+ * factory step, a schedule or a mission.
+ * @param ctx - The turn.
+ */
+export async function filingOnPersonsWord(ctx: RuntimeContext): Promise<boolean> {
+  if (!ctx.userId || ctx.missionRunId || isAgentsOwnSchedule(ctx) || isFactoryStep(ctx)) {
+    return false;
+  }
+  // A person's own client calling the tool directly over MCP (a workspace
+  // token, no chat turn around it) is their word by definition.
+  if (ctx.userId.startsWith('token:') && !ctx.turnIntent) {
+    return true;
+  }
+  const intent = await (ctx.turnIntent ?? Promise.resolve(null)).catch(() => null);
+  return intent?.files_new_record === true;
+}
+
 export async function runProposal(
   ctx: RuntimeContext,
   req: ProposalRequest,
-  opts: { tool: string; refused?: (code: string, message: string) => string },
+  opts: { tool: string; refused?: (code: string, message: string) => string; advice?: string[] },
 ): Promise<string> {
   const { actionId: action_id, input: action_input, confidence, rationale, evidence, suggestedDecision: suggested_decision, suggestedDecisionReason: reason, suggestedSnoozeUntil: suggested_snooze_until } = req;
   // Structural, not the model's say-so: this turn is the factory's own step
@@ -99,8 +118,23 @@ export async function runProposal(
       return refusal;
     }
   }
+  // A PERSON IS NEVER BLOCKED (Chris, 2026-09-29, conversation 386: "I'm
+  // the PM asking for this. That's a good signal to push back or validate —
+  // but in general, don't block me. Inform, help, accelerate."). When the
+  // person asked for this filing in their own turn (the turn's intent read,
+  // never their wording), the wiki check and the proposal bar still run, and
+  // what they find goes back to the agent as work to do on the filed record
+  // — not as a refusal to file it.
+  const onPersonsWord = action_id === IDEA_ACTION_ID && await filingOnPersonsWord(ctx);
+  const advice: string[] = [...(opts.advice ?? [])];
   // A product decision is checked against the wiki first (`wikiDecision.ts`).
-  {
+  if (onPersonsWord) {
+    const { wikiPassagesUnread } = await import('../wikiDecision');
+    const unread = await wikiPassagesUnread(ctx, action_id, action_input as Record<string, unknown>);
+    if (unread) {
+      advice.push(`these wiki pages bear on it — ${unread.map(p => `${p.title} (wiki:${p.slug}): ${p.excerpt.slice(0, 300)}`).join(' | ')}`);
+    }
+  } else {
     const { wikiDecisionCheck } = await import('../wikiDecision');
     const unchecked = await wikiDecisionCheck(ctx, action_id, action_input as Record<string, unknown>);
     if (unchecked) {
@@ -109,7 +143,18 @@ export async function runProposal(
   }
   // What this turn has read, for a gate that asks for a source read in it
   // (`readThisTurn`: a feature request names the product's capabilities page).
-  const turn = action_id === 'objects.propose_candidate' ? { reads: await readsThisTurn(ctx) } : undefined;
+  const turn = action_id === 'objects.propose_candidate' ? { reads: await readsThisTurn(ctx), onPersonsWord } : undefined;
+  if (onPersonsWord && turn) {
+    const { candidateGateAdvice } = await import('@/libs/actions/objects-propose-candidate');
+    const input = action_input as { objectType?: string; fields?: Record<string, unknown> };
+    const bar = input.objectType ? await candidateGateAdvice(ctx.orgId, input.objectType, input.fields ?? {}, turn).catch(() => undefined) : undefined;
+    if (bar) {
+      advice.push(bar);
+    }
+  }
+  const withAdvice = (out: string): string => (advice.length === 0
+    ? out
+    : `${out}\n\nFiled on the person's word, before these checks were done: ${advice.join('; and ')}. It stands as filed — do not refile it. Do the checks now (read the pages named), write what you find onto the record with update_object, and tell the person in one line only if it changes what they asked for: validate it, or push back with the reason.`);
   try {
     const res = await proposeAction({
       orgId: ctx.orgId,
@@ -170,7 +215,7 @@ export async function runProposal(
       return `Action run #${res.runId} for ${action_id} was updated in place — it was already waiting for approval, and now carries this payload (confidence ${confidence}). No new review item was created. Do NOT claim the change was made.`;
     }
     if (res.status === 'pending') {
-      return `Proposed ${action_id} → action run #${res.runId} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`;
+      return withAdvice(`Proposed ${action_id} → action run #${res.runId} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`);
     }
     // A DONE THAT MADE A RECORD SAYS WHICH, WITH ITS LINK. Conversation
     // 349 (2026-09-28): a request filed within bounds came back as a run
@@ -186,7 +231,7 @@ export async function runProposal(
       if (href) {
         ctx.emit({ type: 'record_created', record: { type: 'object', id: String(created.id), label: created.title ? `${name} — ${created.title}` : name, href } });
       }
-      return `${action_id} is DONE: filed as ${name} (run #${res.runId}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.`;
+      return withAdvice(`${action_id} is DONE: filed as ${name} (run #${res.runId}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.`);
     }
     return `${action_id} is DONE (run #${res.runId}, confidence ${confidence}) — it was reversible and above the bar, so it ran without waiting. Say it was done, and that a person can undo it from the Review queue's Decided tab. Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
   } catch (err) {

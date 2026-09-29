@@ -39,7 +39,7 @@
  * refused both times with the same "opened with read_wiki_page in this turn"
  * message, and never once called `read_wiki_page` — a gate that only a
  * second tool call satisfies is a prompt lever wearing a gate's clothes. So
- * `capabilitiesGapCheck` below reads the page itself, server-side, the
+ * `capabilitiesToCheck` below reads the page itself, server-side, the
  * moment a gap or an idea needs it and the turn has not read it — recorded
  * exactly as `read_wiki_page` would be (`recordCapabilitiesRead`, the same
  * `tool_call` shape `services/gates/turnReads.ts` already checks) — and,
@@ -61,7 +61,7 @@ import { gatesOf, sourceKey } from '@/libs/gates/handoffGate';
 import { noteTurnRead, readsThisTurn } from '@/services/gates/turnReads';
 import { renderWikiPageBody } from '@/services/wiki/WikiService';
 import { persistToolCall } from '../toolCallRecord';
-import { runProposal } from './proposeAction';
+import { filingOnPersonsWord, runProposal } from './proposeAction';
 
 type JsonSchema = Record<string, unknown>;
 
@@ -94,7 +94,7 @@ export type FilingType = {
   titleDescription?: string;
   /**
    * The type's raw stored schema (gates inside, as `x-gates`) — kept for
-   * `capabilitiesGapCheck`, which needs the full schema (`x-display.to`, the
+   * `capabilitiesToCheck`, which needs the full schema (`x-display.to`, the
    * candidate-ready gate's `readThisTurn` requirement) that the tool's own
    * narrowed `properties` above deliberately strips.
    */
@@ -483,7 +483,7 @@ async function recordCapabilitiesRead(ctx: RuntimeContext, page: WikiPage): Prom
  * @param spec - The filing type.
  * @param fields - The fields as they will be filed.
  */
-async function capabilitiesGapCheck(ctx: RuntimeContext, spec: FilingType, fields: Record<string, unknown>): Promise<string | undefined> {
+async function capabilitiesToCheck(ctx: RuntimeContext, spec: FilingType, fields: Record<string, unknown>): Promise<{ recordTitle: string; pageRef: string; excerpt: string } | undefined> {
   const req = capabilitiesRequirement(spec.schema);
   const includes = req?.readThisTurn?.includes;
   if (!req || !includes) {
@@ -510,8 +510,7 @@ async function capabilitiesGapCheck(ctx: RuntimeContext, spec: FilingType, field
   if (sources.some(s => pageKeys.includes(sourceKey(s)))) {
     return undefined; // already names the page — let the gate's own re-check pass it through
   }
-  const excerpt = target.wiki.md.trim().slice(0, 4000);
-  return `Not filed yet: here is what ${target.recordTitle} already ships (from ${pageRef}): ${excerpt}\n\nDecide gapCheck.finding (add | modify | none) against it and call ${spec.toolName} again with gapCheck.sources ["${pageRef}"].`;
+  return { recordTitle: target.recordTitle, pageRef, excerpt: target.wiki.md.trim().slice(0, 4000) };
 }
 
 /**
@@ -559,9 +558,12 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
         return offJob;
       }
       const { title, fields } = filingInputOf(spec, args);
-      const notYetFiled = await capabilitiesGapCheck(ctx, spec, fields);
-      if (notYetFiled) {
-        return notYetFiled;
+      const toCheck = await capabilitiesToCheck(ctx, spec, fields);
+      // On the person's word it files anyway, and what already ships goes
+      // back as advice on the filed record (`filingOnPersonsWord`).
+      const onPersonsWord = toCheck ? await filingOnPersonsWord(ctx) : false;
+      if (toCheck && !onPersonsWord) {
+        return `Not filed yet: here is what ${toCheck.recordTitle} already ships (from ${toCheck.pageRef}): ${toCheck.excerpt}\n\nDecide gapCheck.finding (add | modify | none) against it and call ${spec.toolName} again with gapCheck.sources ["${toCheck.pageRef}"].`;
       }
       const c = ENVELOPE[0] in spec.properties ? undefined : args.confidence;
       const confidence = typeof c === 'number' && c >= 0 && c <= 1 ? c : 0.8;
@@ -579,6 +581,7 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       }, {
         tool: spec.toolName,
         refused: (code, message) => `Refused: nothing was filed (${code}). ${message} Call ${spec.toolName} again with those fields.`,
+        ...(toCheck && onPersonsWord ? { advice: [`${toCheck.recordTitle}'s capabilities page (${toCheck.pageRef}) was not checked yet; it says: ${toCheck.excerpt.slice(0, 1_200)}`] } : {}),
       });
     },
     {

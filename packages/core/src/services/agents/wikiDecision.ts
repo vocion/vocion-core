@@ -43,20 +43,38 @@ export function decisionText(actionId: string, input: Record<string, unknown>): 
  * @param input - Its input.
  */
 export async function wikiDecisionCheck(ctx: RuntimeContext, actionId: string, input: Record<string, unknown>): Promise<string | undefined> {
-  const query = decisionText(actionId, input);
-  if (!query) {
+  const unread = await wikiPassagesUnread(ctx, actionId, input);
+  if (!unread) {
     return undefined;
   }
+  const { describeWikiContext } = await import('@/services/wiki/wikiIndex');
+  return `Not filed yet: this is a product decision, and the workspace wiki has pages that bear on it. Check it against them — the options, scope and acceptance must fit what they say — then file it again (unchanged if it already fits; read a whole page with read_wiki_page if a passage is not enough).\n\n${describeWikiContext(unread)}`;
+}
+
+/**
+ * The wiki passages that bear on this decision and that the turn has not
+ * read, handed over to the turn as read — or null when there are none. The
+ * check refuses with them; a filing on the person's word carries them as
+ * advice instead (`runProposal`).
+ * @param ctx - The turn.
+ * @param actionId - The action proposed.
+ * @param input - Its input.
+ */
+export async function wikiPassagesUnread(ctx: RuntimeContext, actionId: string, input: Record<string, unknown>): Promise<import('@/services/wiki/wikiIndex').WikiPassage[] | null> {
+  const query = decisionText(actionId, input);
+  if (!query) {
+    return null;
+  }
   try {
-    const { describeWikiContext, wikiContextFor } = await import('@/services/wiki/wikiIndex');
+    const { wikiContextFor } = await import('@/services/wiki/wikiIndex');
     const passages = await wikiContextFor(ctx.orgId, query, 3);
     if (passages.length === 0) {
-      return undefined;
+      return null;
     }
     const read = new Set(await readsThisTurn(ctx));
     const unread = passages.filter(p => !read.has(`wiki:${p.slug}`));
     if (unread.length === 0) {
-      return undefined;
+      return null;
     }
     // Handed over now, so the next filing in this turn goes through.
     for (const p of unread) {
@@ -64,9 +82,9 @@ export async function wikiDecisionCheck(ctx: RuntimeContext, actionId: string, i
       noteTurnRead(ctx, 'read_wiki_page', { slug: p.slug }, output);
       await persistToolCall({ ctx, tool: 'read_wiki_page', input: { slug: p.slug, via: 'decision check' }, output, durationMs: 0, ns: '' }).catch(() => undefined);
     }
-    return `Not filed yet: this is a product decision, and the workspace wiki has pages that bear on it. Check it against them — the options, scope and acceptance must fit what they say — then file it again (unchanged if it already fits; read a whole page with read_wiki_page if a passage is not enough).\n\n${describeWikiContext(unread)}`;
+    return unread;
   } catch (err) {
     console.warn('wiki decision check failed', { orgId: ctx.orgId, message: (err as Error).message });
-    return undefined;
+    return null;
   }
 }

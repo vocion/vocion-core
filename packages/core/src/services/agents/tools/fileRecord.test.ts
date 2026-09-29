@@ -305,6 +305,20 @@ describe('file_request reads the product\'s capabilities page itself, structural
     expect(await readsThisTurn(ctx2)).toContain('wiki:beacon-capabilities');
   });
 
+  it('on the person\'s word it files at once, and hands back what already ships as the check still owed (Chris, 2026-09-29: "don\'t block me")', async () => {
+    const filingTypes = await loadFilingTypes(ORG, ['request']);
+    const { NO_INTENT } = await import('../turnJudge');
+    const ctx = { ...ctxFor(filingTypes, 911), turnIntent: Promise.resolve({ ...NO_INTENT, files_new_record: true, wants_action: true, record_type: 'request' }) } as RuntimeContext;
+    const fileRequest = buildDomainTools(ctx).find(t => t.name === 'file_request')!;
+
+    const answer = String(await fileRequest.invoke({ ...BASE, title: 'Let a sender revoke a shared link (the PM asked)' }));
+
+    expect(answer).toMatch(/is DONE: filed as request #\d+/);
+    expect(answer).toContain('Filed on the person\'s word, before these checks were done');
+    expect(answer).toContain('revoke a link at any time (Kill)');
+    expect(answer).toContain('do not refile it');
+  });
+
   it('a second call, citing the page with a real gap, files it', async () => {
     const filingTypes = await loadFilingTypes(ORG, ['request']);
     const ctx = ctxFor(filingTypes, 910);

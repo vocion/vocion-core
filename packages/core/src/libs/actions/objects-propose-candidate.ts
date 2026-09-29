@@ -61,22 +61,52 @@ export function proposalRefusal(f: GateFailure, label: string): string {
 }
 
 /**
- * The door's refusal for a record becoming a candidate, or undefined. With a
- * turn, a `readThisTurn` requirement also checks the page it `includes` was
- * read in that turn: `product.capabilitiesPage` is read off the product the
- * record names (request #226, 2026-09-29, was filed claiming Stamp had no way
- * to revoke a link; its capabilities page lists expiry and Kill).
+ * What the door's bar finds wrong with a record becoming a candidate, or
+ * null when it passes. With a turn, a `readThisTurn` requirement also checks
+ * the page it `includes` was read in that turn: `product.capabilitiesPage`
+ * is read off the product the record names (request #226, 2026-09-29, was
+ * filed claiming Stamp had no way to revoke a link; its capabilities page
+ * lists expiry and Kill).
+ * @param orgId - The workspace.
+ * @param objectType - The type.
+ * @param fields - The candidate's fields.
+ * @param turn - What the proposing turn read, when a turn is proposing.
+ */
+async function candidateGateFailure(orgId: string, objectType: ObjectTypeRow, fields: Record<string, unknown>, turn?: GateTurn): Promise<GateFailure | null> {
+  const gates = gatesOf(objectType.schema);
+  const set = { ...fields, status: 'candidate' };
+  const resolvedTurn = turn ? { ...turn, resolved: { ...(turn.resolved ?? {}), ...await resolveIncludes(orgId, objectType.schema, gates, set) } } : undefined;
+  return evaluateGates(gates, {}, set, new Date(), resolvedTurn) ?? null;
+}
+
+/**
+ * The door's refusal, or undefined. On the person's word the bar informs and
+ * does not refuse (`GateTurn.onPersonsWord`); `candidateGateAdvice` says what it found.
  * @param orgId - The workspace.
  * @param objectType - The type.
  * @param fields - The candidate's fields.
  * @param turn - What the proposing turn read, when a turn is proposing.
  */
 export async function candidateGateRefusal(orgId: string, objectType: ObjectTypeRow, fields: Record<string, unknown>, turn?: GateTurn): Promise<string | undefined> {
-  const gates = gatesOf(objectType.schema);
-  const set = { ...fields, status: 'candidate' };
-  const resolvedTurn = turn ? { ...turn, resolved: { ...(turn.resolved ?? {}), ...await resolveIncludes(orgId, objectType.schema, gates, set) } } : undefined;
-  const failure = evaluateGates(gates, {}, set, new Date(), resolvedTurn);
+  if (turn?.onPersonsWord) {
+    return undefined;
+  }
+  const failure = await candidateGateFailure(orgId, objectType, fields, turn);
   return failure ? proposalRefusal(failure, objectType.label) : undefined;
+}
+
+/**
+ * What the bar found on a filing made on the person's word, for the agent to
+ * act on after filing — or undefined when it passes.
+ * @param orgId - The workspace.
+ * @param objectTypeSlug - The type being filed.
+ * @param fields - The record's fields.
+ * @param turn - What the turn read.
+ */
+export async function candidateGateAdvice(orgId: string, objectTypeSlug: string, fields: Record<string, unknown>, turn: GateTurn): Promise<string | undefined> {
+  const objectType = await loadObjectType(orgId, objectTypeSlug);
+  const failure = objectType ? await candidateGateFailure(orgId, objectType, fields, turn) : null;
+  return failure ? `the "${failure.gate.name}" bar is not met yet — ${failure.failed.map(x => `${x.field}: ${x.why}`).join('; ')}` : undefined;
 }
 
 /**
