@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ContinuationJoin, cutOffMidSentence, repeatedLead } from './truncation';
+import { ContinuationJoin, cutOffMidSentence, needsJoinSpace, repeatedLead } from './truncation';
 
 describe('an answer cut off mid-sentence', () => {
   it('is recognised when a code span or fence is left open, or a sentence stops mid-word', () => {
@@ -52,5 +52,43 @@ describe('a continuation joined to where it stopped', () => {
     expect(join.push(' still')).toBe(' is still');
     expect(join.push(' open.')).toBe(' open.');
     expect(join.flush()).toBe('');
+  });
+});
+
+describe('the join never glues two words (prod: "**Mylast message")', () => {
+  it('puts a space between a finished, capitalized word and a continuation that forgot one', () => {
+    expect(needsJoinSpace('**My', 'last message')).toBe(true);
+
+    const join = new ContinuationJoin('**My');
+    const out = join.push('last message') + join.flush();
+
+    expect(out).toBe(' last message');
+    expect(`**My${out}`).toBe('**My last message');
+  });
+
+  it('leaves a continuation alone when it already drew its own boundary', () => {
+    expect(needsJoinSpace('I changed', ' the title')).toBe(false);
+
+    const join = new ContinuationJoin('I changed');
+
+    expect(join.push(' the title')).toBe(' the title');
+    expect('I changed' + ' the title').toBe('I changed the title');
+  });
+
+  it('stays glued when the model resumed mid-word — a lowercase fragment, not a whole word', () => {
+    expect(needsJoinSpace('cont', 'inuation')).toBe(false);
+
+    const join = new ContinuationJoin('cont');
+    const out = join.push('inuation');
+
+    expect(out).toBe('inuation');
+    expect(`cont${out}`).toBe('continuation');
+  });
+
+  it('adds nothing when there is nothing to release, or the join is not letter-to-letter', () => {
+    expect(needsJoinSpace('cont', '')).toBe(false);
+    expect(needsJoinSpace('Ends with punctuation.', 'Next sentence.')).toBe(false);
+    expect(needsJoinSpace('version 2', '0 releases')).toBe(false);
+    expect(needsJoinSpace('', 'anything')).toBe(false);
   });
 });
