@@ -595,3 +595,14 @@ describe('agent prose fits a phone (backlog 023)', () => {
     expect(hanging.map(el => el.tagName)).toEqual([]);
   });
 });
+
+describe('AgentMessage and the card pass\'s refusals (2026-09-29)', () => {
+  it('never shows a "not a card" line from a stored turn', async () => {
+    const text = 'Plan 32 is approved; the build starts on its own.\n\n- **Link #41 to #42 as duplicate** — not a card: The values do not fit "request": state must be equal to one of the allowed values.';
+    await render(<AgentMessage agentName="Product" message={{ role: 'assistant', content: text, runs: [{ type: 'text', text }] }} />);
+
+    await expect.element(page.getByText(/Plan 32 is approved/)).toBeInTheDocument();
+
+    expect(document.body.textContent).not.toContain('not a card');
+  });
+});

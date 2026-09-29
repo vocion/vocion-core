@@ -9,7 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openPreview } from '@/features/preview/previewState';
-import { normalizeAnswerHtml } from '@/libs/chat/answerText';
+import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
 import { splitScratch } from '@/libs/chat/scratch';
 import { Link } from '@/libs/I18nNavigation';
 import { isFailure } from '@/services/chat/turnStatus';
@@ -427,7 +427,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                           },
                         }}
                       >
-                        {citeLinkify(normalizeAnswerHtml(piece.text))}
+                        {citeLinkify(normalizeAnswerHtml(stripCardNotes(piece.text)))}
                       </Markdown>
                     </div>
                   )))))}

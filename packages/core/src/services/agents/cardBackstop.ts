@@ -43,6 +43,8 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { AgentEvent, RuntimeContext } from './types';
 import type { ModelRole } from '@/libs/llm';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
+import { repairActionInput } from '@/libs/actions/repairInput';
+import { appBaseUrl } from '@/libs/links';
 
 /** At most this many cards per pass — the agents' own rule is "top 3–5 by leverage". */
 export const MAX_CARDS = 5;
@@ -81,6 +83,12 @@ export type CardBackstopDeps = {
   hasAction: (id: string) => boolean;
   /** The action's own checks on this input — schema, then its `precheck`. A reason to refuse, or nothing. */
   precheck: (actionId: string, input: Record<string, unknown>) => Promise<string | undefined>;
+  /**
+   * The repairs the action's schema admits with one right answer — a missing
+   * title from the label, a relative URL made absolute (`libs/actions/repairInput.ts`).
+   * Absent, nothing is repaired.
+   */
+  repair?: (actionId: string, input: Record<string, unknown>, label: string) => { input: Record<string, unknown>; repaired: string[] };
   /** Is there a request record with this id in the workspace? */
   requestExists: (id: number) => Promise<boolean>;
   /**
@@ -117,7 +125,13 @@ export type CardBackstopResult = {
   refused: number;
   /** Build cards turned into the filing. */
   mapped: number;
-  /** One line each for the decisions that could not be cards, to add under the answer. */
+  /** Cards whose input was repaired before it was checked. */
+  repaired?: number;
+  /**
+   * One line each for the decisions that could not be cards. For the run log
+   * and the trace, never the reply: a failure the person cannot act on is
+   * noise in the transcript (Chris, 2026-09-29).
+   */
   notes: string[];
 };
 
@@ -320,7 +334,7 @@ async function invokeRecommend(tool: StructuredToolInterface, args: Record<strin
  */
 function progress(total: number, ready: number, noted: number): string {
   const cards = `${total} decision card${total === 1 ? '' : 's'}`;
-  const tail = noted > 0 ? ` · ${noted} noted under the answer` : '';
+  const tail = noted > 0 ? ` · ${noted} set aside` : '';
   return ready + noted >= total
     ? `${ready} of ${cards} ready${tail}`
     : `Writing ${cards} · ${ready} of ${total} ready${tail}`;
@@ -485,8 +499,21 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
         result.typed = (result.typed ?? 0) + 1;
       }
     }
+    // A REPAIRABLE INPUT IS REPAIRED FIRST (2026-09-29: "title: expected
+    // string, received undefined", "steps.0.url: Invalid URL"): one right
+    // answer, in code, before the action's checks read it.
+    if (actionId && deps.repair) {
+      const fixed = deps.repair(actionId, actionInput, label);
+      if (fixed.repaired.length > 0) {
+        actionInput = fixed.input;
+        shaped.action_input = actionInput;
+        result.repaired = (result.repaired ?? 0) + 1;
+        log('card backstop: repaired a card input', { label, actionId, repaired: fixed.repaired });
+      }
+    }
     // A card with nothing to press is not a card, and a card whose action
-    // refuses it can only fail when pressed: both become a line under the answer.
+    // refuses it can only fail when pressed: neither goes up, and the reason
+    // is kept on the tool_call row and in the log — not in the reply.
     const refusal = !actionId
       ? 'no action can carry it; it stays in the answer'
       : await deps.precheck(actionId, actionInput).catch((err: Error) => err.message);
@@ -518,7 +545,7 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
       result.refused += 1;
       result.notes.push(noteLine(touch.label, refusal));
       await deps.record({ input: shaped, error: `not put up: ${refusal}`.slice(0, 2000), durationMs: Date.now() - started });
-      log('card backstop: a card was refused, noted under the answer', { label, actionId, reason: refusal.slice(0, 300), mapped });
+      log('card backstop: a card was refused and dropped', { label, actionId, reason: refusal.slice(0, 300), mapped });
       settle();
       return;
     }
@@ -530,7 +557,7 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
       release();
       result.refused += 1;
       result.notes.push(noteLine(touch.label, outcome.error ?? 'its action refused it'));
-      log('card backstop: a card was refused, noted under the answer', { label, actionId, reason: outcome.error, mapped });
+      log('card backstop: a card was refused and dropped', { label, actionId, reason: outcome.error, mapped });
     }
     settle();
   };
@@ -586,6 +613,10 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
         return `its input does not fit ${actionId}: ${parsed.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`;
       }
       return (await action.precheck?.({ orgId: opts.orgId, invokedBy: `agent:${opts.agentSlug}` }, parsed.data)) || undefined;
+    },
+    repair: (actionId, input, label) => {
+      const action = registry.getAction(actionId);
+      return action ? repairActionInput(action.inputSchema, input, { label, baseUrl: appBaseUrl() }) : { input, repaired: [] };
     },
     requestExists: async (id) => {
       const { readRecord } = await import('@/libs/actions/factory-dispatch');

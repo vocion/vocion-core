@@ -369,3 +369,40 @@ describe('the pieces', () => {
     expect(cardRecordRef({ to: 'a@b.example' })).toBeNull();
   });
 });
+
+describe('a card input with one right repair is repaired, not refused (2026-09-29)', () => {
+  const fileBug: Card = {
+    label: 'File factory filing bug — plan writes to a pending review item',
+    delayMs: 5,
+    args: { action_id: 'ask.file', action_input: { body: 'Two planning runs wrote to a pending review item instead of filing a plan.' }, label: 'File factory filing bug — plan writes to a pending review item', rationale: 'seen twice today' },
+  };
+
+  it('fills a missing title from the label before the action\'s checks read it, and the card goes up', async () => {
+    const { getAction } = await import('@/libs/actions/registry');
+    const { repairActionInput } = await import('@/libs/actions/repairInput');
+    const seen: Array<Record<string, unknown>> = [];
+    const h = harness([fileBug], {
+      hasAction: id => id === 'ask.file',
+      precheck: async (_id, input) => {
+        seen.push(input);
+        return typeof input.title === 'string' ? undefined : 'its input does not fit ask.file: title: Invalid input: expected string, received undefined';
+      },
+      repair: (id, input, label) => repairActionInput(getAction(id)!.inputSchema, input, { label, baseUrl: 'https://agents.example.com' }),
+    });
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'Cards.' }, h.deps);
+
+    expect(seen[0]).toMatchObject({ title: 'Factory filing bug — plan writes to a pending review item' });
+    expect(out).toMatchObject({ emitted: 1, refused: 0, repaired: 1, notes: [] });
+    expect(h.events.filter(e => e.type === 'recommended_action')).toHaveLength(1);
+  });
+
+  it('the tool itself repairs the same input when the model calls it directly', async () => {
+    const events: AgentEvent[] = [];
+    const ctx = { orgId: 'org_cards', agentSlug: 'product-manager', emit: (e: AgentEvent) => events.push(e) } as unknown as RuntimeContext;
+    const out = String(await recommendActionTool(ctx).invoke(fileBug.args as never));
+
+    expect(out).toMatch(/^Surfaced a one-tap recommendation/);
+    expect((events.find(e => e.type === 'recommended_action') as Extract<AgentEvent, { type: 'recommended_action' }>).recommendation.input.title).toBe('Factory filing bug — plan writes to a pending review item');
+  });
+});

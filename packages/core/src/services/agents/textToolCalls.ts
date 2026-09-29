@@ -12,8 +12,9 @@
  * (`AnswerStreamer` holds it back), and each block is executed as the real
  * tool it names — the same tool the model would have called, through the
  * same validation, trust ladder and card path. A block that does not parse,
- * or that its tool refuses, is not a card: it becomes one line under the
- * answer saying so (`noteLine`), never raw JSON.
+ * or that its tool refuses, is not a card: it is a failed step on the
+ * trace and a line in the log (`noteLine`) — never raw JSON, and never a
+ * line in the reply (Chris, 2026-09-29).
  */
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
@@ -125,11 +126,13 @@ export async function runTextCalls(calls: readonly TextCall[], tools: readonly S
     const parsed = parseTextCall(call);
     if (!parsed.ok) {
       notes.push(noteLine(parsed.label, parsed.reason));
+      outcomes.push({ tag: call.tag, label: parsed.label, input: { text: call.body.slice(0, 2000) }, output: JSON.stringify({ ok: false, error: parsed.reason }), ok: false });
       continue;
     }
     const tool = tools.find(t => t.name === call.tag);
     if (!tool) {
       notes.push(noteLine(parsed.label, `this agent does not hold ${call.tag}`));
+      outcomes.push({ tag: call.tag, label: parsed.label, input: parsed.args, output: JSON.stringify({ ok: false, error: `this agent does not hold ${call.tag}` }), ok: false });
       continue;
     }
     const args = call.tag === 'recommend_action' ? shapeRecommendCall(parsed.args) : parsed.args;

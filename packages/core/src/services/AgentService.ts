@@ -438,12 +438,11 @@ async function runOutOfProcess(
     emit({ type: 'response_delta', delta: tail.answer });
   }
   if (heldCalls.length > 0) {
+    // A block that could not run is left out of the reply, not noted in it:
+    // the person cannot act on it (Chris, 2026-09-29). The log keeps it.
     const { extractTextCalls, parseTextCall } = await import('./agents/textToolCalls');
-    const { noteLine } = await import('./agents/cardBackstop');
-    const notes = heldCalls.map(c => noteLine(parseTextCall(c).label, 'it was written as text on a loop outside this process, so it did not run'));
-    const delta = `\n\n${notes.join('\n')}`;
-    emit({ type: 'response_delta', delta });
-    result.response = `${extractTextCalls(result.response).text}${delta}`;
+    console.warn('agent turn: tool-call blocks written as text on a loop outside this process did not run', { orgId: opts.orgId, agentSlug: opts.agentSlug, labels: heldCalls.map(c => parseTextCall(c).label) });
+    result.response = extractTextCalls(result.response).text;
   }
   const response = await applyTurnGuarantees({
     orgId: opts.orgId,
@@ -1397,12 +1396,9 @@ export async function runAgentDeep(opts: {
           emit({ type: 'tool_start', tool: o.tag, input: o.input });
           emit(o.ok ? { type: 'tool_end', tool: o.tag, input: o.input, output: o.output.slice(0, 2000) } : { type: 'tool_error', tool: o.tag, message: o.output.slice(0, 500) });
         }
-        if (ran.notes.length > 0) {
-          const delta = `${finalText ? '\n\n' : ''}${ran.notes.join('\n')}`;
-          finalText += delta;
-          emit({ type: 'response_delta', delta });
-        }
-        console.warn('text tool calls', { orgId: opts.orgId, agentSlug: opts.agentSlug, blocks: textCalls.length, ran: ran.outcomes.filter(o => o.ok).length, noted: ran.notes.length });
+        // What could not run is on the trace (the tool_error above) and in
+        // the log, never a line in the reply.
+        console.warn('text tool calls', { orgId: opts.orgId, agentSlug: opts.agentSlug, blocks: textCalls.length, ran: ran.outcomes.filter(o => o.ok).length, dropped: ran.notes });
       } catch (err) {
         console.warn('text tool calls failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });
       }
@@ -1598,17 +1594,14 @@ export async function runAgentDeep(opts: {
         await realCardBackstopDeps({ ctx: compiled.ctx, orgId: opts.orgId, agentSlug: opts.agentSlug, userId: opts.userId, emit }),
       );
       cardsOnScreen += out.emitted;
-      // A decision that could not be a card is one line UNDER the answer —
-      // added, never edited in: no dead card with nothing to press.
-      if (out.notes.length > 0) {
-        const delta = `\n\n${out.notes.join('\n')}`;
-        emit({ type: 'response_delta', delta });
-        finalText += delta;
-      }
+      // A decision that could not be a card is dropped from what the person
+      // sees — no dead card, and no "— not a card: its input does not fit…"
+      // line under the answer either (Chris, 2026-09-29). Its tool_call row
+      // and the log line below keep the reason for whoever debugs it.
       // Say what happened: a silent backstop cannot be told from one that
       // never ran (2026-09-24: eight production turns, zero cards, no way to
       // know which). One line per pass, in the app log.
-      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length - out.emitted, listed: out.listed, emitted: out.emitted, refused: out.refused, mapped: out.mapped, typed: out.typed ?? 0, drafts: out.drafts ?? 0, noted: out.notes.length, textChars: finalText.length });
+      console.warn('card backstop', { orgId: opts.orgId, agentSlug: opts.agentSlug, already: emittedCards.length - out.emitted, listed: out.listed, emitted: out.emitted, refused: out.refused, mapped: out.mapped, typed: out.typed ?? 0, drafts: out.drafts ?? 0, repaired: out.repaired ?? 0, dropped: out.notes, textChars: finalText.length });
     } catch (err) {
       /* backstop is best-effort — never fails the turn */
       console.warn('card backstop failed', { orgId: opts.orgId, agentSlug: opts.agentSlug, message: (err as Error).message });

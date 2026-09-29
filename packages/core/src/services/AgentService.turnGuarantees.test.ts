@@ -450,7 +450,7 @@ describe('the tool-call log an eval reads', () => {
     expect(logged?.output).toBe(page);
   });
 
-  it('a card whose action is refused is not a dead card: it is one line under the answer, and the log says so (finding 20, conversation 351)', async () => {
+  it('a card whose action is refused is not a dead card, and not a line in the reply either: the log says so (finding 20, conversation 351; Chris, 2026-09-29)', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     backstop.on = true;
     backstop.calls.length = 0;
@@ -462,9 +462,10 @@ describe('the tool-call log an eval reads', () => {
       const { events, result } = await run({ message: 'Seven customers lost uploads.', deliverable: 'answer', conversationId: conv.id });
 
       expect(events.filter(e => e.type === 'recommended_action')).toHaveLength(0);
-      expect(result.response).toMatch(/\*\*File this as a request\*\* — not a card: no registered action "no\.such\.action"/);
-      expect(events.some(e => e.type === 'response_delta' && e.delta.includes('not a card'))).toBe(true);
-      expect(warn.mock.calls.some(c => String(c[0]).includes('refused, noted under the answer'))).toBe(true);
+      expect(result.response).not.toContain('not a card');
+      expect(events.some(e => e.type === 'response_delta' && e.delta.includes('not a card'))).toBe(false);
+      expect(warn.mock.calls.some(c => String(c[0]).includes('refused and dropped'))).toBe(true);
+      expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop' && String((c[1] as { dropped: string[] }).dropped).includes('no registered action "no.such.action"'))).toBe(true);
       expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop' && (c[1] as { emitted: number; refused: number }).emitted === 0 && (c[1] as { refused: number }).refused === 1)).toBe(true);
     } finally {
       warn.mockRestore();

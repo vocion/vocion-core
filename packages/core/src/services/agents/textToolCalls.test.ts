@@ -115,7 +115,7 @@ describe('each block runs as the real tool, so it renders as a card', () => {
     expect(cards[1]).toMatchObject({ actionId: 'objects.propose_candidate', label: 'File in-app notifications as its own request in core', input: { objectType: 'request', title: 'Add in-app notifications to core' } });
   });
 
-  it('unparseable JSON is removed and becomes one "not a card" line', async () => {
+  it('unparseable JSON is removed, and is a failed step on the trace with its reason for the log', async () => {
     const events: AgentEvent[] = [];
     const tool = recommendActionTool(ctxWithSink(events)) as unknown as StructuredToolInterface;
     const { text, calls } = extractTextCalls('Done.\n\n<recommend_action>\n{"action_id": "objects.update_meta", "label": "Write the scope", "action_input": {\n</recommend_action>');
@@ -124,6 +124,7 @@ describe('each block runs as the real tool, so it renders as a card', () => {
     expect(text).toBe('Done.');
     expect(events).toEqual([]);
     expect(ran.notes).toEqual(['- **Write the scope** — not a card: it was written as text and its JSON does not parse.']);
+    expect(ran.outcomes).toEqual([expect.objectContaining({ tag: 'recommend_action', label: 'Write the scope', ok: false, output: expect.stringContaining('does not parse') })]);
   });
 
   it('a block its tool refuses is a line, never a card that can only fail', async () => {
