@@ -28,6 +28,10 @@ export type GateRequirement = {
   anyOf?: GateRequirement[];
   /** Applies only while another field holds one of these values. */
   if?: { field: string; oneOf: string[] };
+  /** Does not apply while another field holds one of these values (a person's own words, say). */
+  unless?: { field: string; oneOf: string[] };
+  /** A text value must not match this pattern — words that do not belong in the field. */
+  notMatches?: { pattern: string; flags?: string };
   /** What to say for a specific bad value, keyed by the value. */
   valueMessages?: Record<string, string>;
   /** What to say when the field is missing; falls back to `message`. */
@@ -37,8 +41,12 @@ export type GateRequirement = {
 
 export type HandoffGate = {
   name: string;
-  /** The transition: `field` taking one of `becomes`. */
-  when: { field: string; becomes: string[] };
+  /**
+   * When the gate runs: `field` taking one of `becomes` (a transition), or —
+   * `written: true` — every write that sets `field` at all, for a rule about
+   * what a field may say rather than when a record may move.
+   */
+  when: { field: string; becomes?: string[]; written?: boolean };
   /** The seat whose work this is — where a failure is returned to. */
   producedBy: string;
   require: GateRequirement[];
@@ -106,6 +114,12 @@ export function requirementFailure(merged: Record<string, unknown>, r: GateRequi
       return null; // not this record's business
     }
   }
+  if (r.unless) {
+    const cond = get(merged, r.unless.field);
+    if (typeof cond === 'string' && r.unless.oneOf.includes(cond)) {
+      return null;
+    }
+  }
   if (r.anyOf) {
     const whys = r.anyOf.map(sub => requirementFailure(merged, sub, now, to));
     if (whys.includes(null)) {
@@ -138,6 +152,12 @@ export function requirementFailure(merged: Record<string, unknown>, r: GateRequi
       return fill(r.message ?? `${r.field} is ${Math.floor(days)} days old; it has to be within ${r.maxAgeDays}`, { to, days: Math.floor(days) });
     }
   }
+  if (r.notMatches && typeof v === 'string') {
+    const hit = new RegExp(r.notMatches.pattern, r.notMatches.flags).exec(v);
+    if (hit) {
+      return fill(r.message ?? `${r.field} says "${hit[0]}", which does not belong in it`, { to, value: hit[0] });
+    }
+  }
   if (r.allItems) {
     const items = Array.isArray(v) ? v.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null) : [];
     const rule = r.allItems;
@@ -162,17 +182,22 @@ export function evaluateGates(gates: HandoffGate[], current: Record<string, unkn
   const merged = { ...current, ...set };
   for (const gate of gates) {
     const to = set[gate.when.field];
-    if (typeof to !== 'string' || !gate.when.becomes.includes(to)) {
+    if (gate.when.written) {
+      if (to === undefined || to === null) {
+        continue; // this write does not say anything in the field
+      }
+    } else if (typeof to !== 'string' || !(gate.when.becomes ?? []).includes(to)) {
       continue;
-    }
-    if (current[gate.when.field] === to) {
+    } else if (current[gate.when.field] === to) {
       continue; // not a transition
     }
+    // A written gate moves nothing, so there is no state to name.
+    const target = typeof to === 'string' && !gate.when.written ? to : '';
     const failed = gate.require
-      .map(r => ({ field: r.field, why: requirementFailure(merged, r, now, to) }))
+      .map(r => ({ field: r.field, why: requirementFailure(merged, r, now, target) }))
       .filter((f): f is { field: string; why: string } => f.why !== null);
     if (failed.length > 0) {
-      return { gate, failed, to };
+      return { gate, failed, to: target };
     }
   }
   return null;
@@ -206,5 +231,8 @@ export function seatLabel(slug: string): string {
  */
 export function gateRefusal(f: GateFailure, label: string): string {
   const list = f.failed.map(x => `${x.field}: ${x.why}`).join('; ');
+  if (f.gate.when.written) {
+    return `Not written: the ${label.toLowerCase()} fails the "${f.gate.name}" gate — ${list}. Returned to ${seatLabel(f.gate.producedBy)}; rewrite it and write it again. A gate is not argued with in prose.`;
+  }
   return `Not moved to ${f.to}: the ${label.toLowerCase()} fails the "${f.gate.name}" gate — ${list}. Returned to ${seatLabel(f.gate.producedBy)}; fix the record, then move it again. A gate is not argued with in prose.`;
 }

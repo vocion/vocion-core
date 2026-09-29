@@ -68,8 +68,8 @@ const RELEASE: PageRow = {
 };
 
 const ARTIFACTS = [
-  { id: 1254, title: 'Uploads that survive a bad connection · desktop · before', kind: 'markdown', role: 'qa-screenshot' },
-  { id: 1255, title: 'Uploads that survive a bad connection · desktop · after', kind: 'link', role: 'qa-screenshot' },
+  { id: 1254, title: 'Uploads that survive a bad connection · desktop · before', kind: 'markdown', role: 'qa-screenshot', url: null, md: 'New surface, nothing to compare' },
+  { id: 1255, title: 'Uploads that survive a bad connection · desktop · after', kind: 'link', role: 'qa-screenshot', url: 'https://files.example/qa/relay/uploads-desktop-after.png?sig=1', md: null },
 ];
 
 function report(row: PageRow = RELEASE, linked: ReleaseLinked = LINKED) {
@@ -106,6 +106,8 @@ describe('the release page', () => {
       tone: 'ok',
       at: 'Mon, Sep 28, 2026, 7:58 AM UTC',
       href: '/dashboard/p/feature/41',
+      // The verdict judged no line by name, so there is no per-criterion proof to draw.
+      proof: null,
     }]);
     expect(verification.deployCheck).toMatchObject({ title: 'Post-deploy check', line: 'Health check passed on relay.example', tone: 'ok', at: 'Mon, Sep 28, 2026, 8:12 AM UTC' });
     expect(verification.impact[0]!.line).toBe('Not enough evidence yet to say whether it helped; the next check is due Wed, Sep 30, 2026');
@@ -163,7 +165,7 @@ describe('the release page', () => {
 
     expect(technical.pullRequests.map(p => p.label)).toEqual(['#96 · Uploads that survive a bad connection', '#95 · A skipped named test is not reported as passed (internal)']);
     expect(technical.evidence).toEqual([
-      { key: 'e-1254', label: 'QA screenshot: Uploads that survive a bad connection · desktop · before', href: '/dashboard/artifacts/1254' },
+      { key: 'e-1254', label: 'Before, not captured: Uploads that survive a bad connection · desktop · before', href: '/dashboard/artifacts/1254' },
       { key: 'e-1255', label: 'QA screenshot: Uploads that survive a bad connection · desktop · after', href: '/dashboard/artifacts/1255' },
       { key: 'e-999', label: 'Evidence artifact 999 is not in this workspace', href: null },
     ]);
@@ -189,5 +191,131 @@ describe('the release page', () => {
     expect(legacy.kind).toBe('deployment');
     expect(legacy.title).toBe('Relay web deployment');
     expect(legacy.technical.facts[0]).toEqual({ label: 'Surface', value: 'web (recorded as its own deployment, before one release per deploy)' });
+  });
+});
+
+/**
+ * THE PROOF ON THE RELEASE (Chris, 2026-09-29: "Is evidence in the release
+ * and well written?"). A release whose verdict judged each line: every
+ * criterion under the summary line with its status and its evidence — the
+ * after shot as a thumbnail, the before one click away, duplicates collapsed;
+ * a named test by name, linking the stored run at that test's section.
+ */
+describe('the release page, per criterion', () => {
+  const SHOT = 'https://files.example/qa/relay/resume-banner-desktop-after.png';
+  const RUN_MD = [
+    '# Named tests, run 77',
+    '',
+    '## Passed: A dropped upload resumes from the last chunk the server acknowledged.',
+    '',
+    '`npx vitest run tests/upload.test.ts -t "resume: picks up at the acknowledged chunk"`',
+    '',
+    '```',
+    ' ✓ tests/upload.test.ts > resume: picks up at the acknowledged chunk 41ms',
+    '```',
+    '',
+    '## Passed: The plan\'s risk is handled: A resumed upload could write a chunk twice',
+    '',
+    '`npx vitest run tests/upload.test.ts -t "resume: a chunk is never written twice"`',
+  ].join('\n');
+  const CONTRACT = [
+    'A banner reads "Resuming upload" while the file picks up where it stopped.',
+    'A dropped upload resumes from the last chunk the server acknowledged.',
+    'The plan\'s risk is handled: A resumed upload could write a chunk twice. Mitigation: the server keys chunks by offset.',
+  ];
+  const task: LinkedRecord = {
+    id: 52,
+    type: 'engineering_task',
+    title: 'Resumable uploads',
+    meta: {
+      requestId: 41,
+      workerRunId: 77,
+      prUrl: 'https://github.example/northwind/relay/pull/96',
+      acceptanceContract: CONTRACT,
+      verdict: {
+        value: 'approve',
+        at: '2026-09-28T07:58:00Z',
+        by: 'change-reviewer',
+        criteria: [
+          { criterion: CONTRACT[0], status: 'proven', evidence: `Screenshot resume-banner-desktop-after.png shows the banner. ${SHOT}` },
+          { criterion: CONTRACT[1], status: 'proven', evidence: 'Named test \'resume: picks up at the acknowledged chunk\' passed in run 77. https://app.example/dashboard/artifacts/1302' },
+          { criterion: CONTRACT[2], status: 'proven', evidence: 'Named test \'resume: a chunk is never written twice\' passed in run 77. https://app.example/dashboard/artifacts/1302' },
+        ],
+      },
+    },
+  };
+  const request: LinkedRecord = { ...REQUEST, meta: { ...REQUEST.meta, acceptance: [{ statement: CONTRACT[0] }, { statement: CONTRACT[1] }] } };
+  const linked: ReleaseLinked = { records: new Map([[41, request], [52, task]]), products: new Map([['relay', 'Relay']]), link: LINK };
+  const artifacts = [
+    { id: 1298, title: 'Resume banner · desktop · before', kind: 'markdown', role: 'qa-screenshot', url: null, md: 'New surface, nothing to compare' },
+    { id: 1299, title: 'Resume banner · desktop · after', kind: 'link', role: 'qa-screenshot', url: `${SHOT}?X-Amz-Signature=a`, md: null },
+    // The capture stored the same picture twice.
+    { id: 1300, title: 'Resume banner · desktop · after', kind: 'link', role: 'qa-screenshot', url: `${SHOT}?X-Amz-Signature=b`, md: null },
+    { id: 1302, title: 'Named tests, run 77', kind: 'markdown', role: 'qa-test-run', url: null, md: RUN_MD },
+  ];
+  const row: PageRow = { ...RELEASE, meta: { ...RELEASE.meta, verificationArtifactIds: [1298, 1299, 1300, 1302] } };
+  const page = () => assembleReleaseReport(row, { linked, artifacts, now: NOW, timeZone: 'UTC' });
+
+  it('keeps the summary line on top and lists each criterion under it, the plan risks as their own group', () => {
+    const [feature] = page().verification.acceptance;
+
+    expect(feature!.line).toBe('QA approved, 2 of 2 acceptance criteria proven, 1 plan risk handled (change-reviewer)');
+    expect(feature!.proof!.acceptance.map(r => [r.statement, r.state, r.kind])).toEqual([
+      [CONTRACT[0], 'passed', 'screenshot'],
+      [CONTRACT[1], 'passed', 'test'],
+    ]);
+    // A risk reads as the risk, not the contract's prefix and mitigation paragraph.
+    expect(feature!.proof!.risks.map(r => [r.statement, r.state, r.kind])).toEqual([['A resumed upload could write a chunk twice.', 'passed', 'test']]);
+  });
+
+  it('shows a screenshot proof as the after shot, opening its artifact, with the before shot one click away', () => {
+    const shot = page().verification.acceptance[0]!.proof!.acceptance[0]!;
+
+    expect(shot).toMatchObject({ line: 'Screenshot', href: '/dashboard/artifacts/1299', imageUrl: `${SHOT}?X-Amz-Signature=a`, before: { href: '/dashboard/artifacts/1298', label: 'Before: not captured' } });
+  });
+
+  it('shows a named-test proof by its name, linking the stored run at that test\'s section', () => {
+    const [, test] = page().verification.acceptance[0]!.proof!.acceptance;
+    const [risk] = page().verification.acceptance[0]!.proof!.risks;
+
+    expect(test).toMatchObject({ line: 'Named test “resume: picks up at the acknowledged chunk” passed', href: '/dashboard/artifacts/1302#passed-a-dropped-upload-resumes-from-the-last-chunk-the-server-acknowledged', imageUrl: null, before: null });
+    expect(risk!.href).toBe('/dashboard/artifacts/1302#passed-the-plans-risk-is-handled-a-resumed-upload-could-write-a-chunk-twice');
+  });
+
+  it('lists each piece of evidence once under technical details, the test run by what it is', () => {
+    expect(page().technical.evidence.map(e => e.label)).toEqual([
+      'Before, not captured: Resume banner · desktop · before',
+      'QA screenshot: Resume banner · desktop · after',
+      'Named tests: Named tests, run 77',
+    ]);
+  });
+
+  it('opens a task no page claims at the run that built it, through the workspace\'s own links', () => {
+    const task52 = page().technical.records.find(r => r.key === 'task-52')!;
+
+    expect(task52).toEqual({ key: 'task-52', label: 'Engineering task 52 · run 77 · Resumable uploads', href: '/dashboard/p/runs/77' });
+
+    const prefixed = recordLinker({ ...recordLinksOf([{ slug: 'feature', archetype: 'report', report: { subject: 'request' } }] as never), workspaceSlug: 'northwind' });
+
+    expect(assembleReleaseReport(row, { linked: { ...linked, link: prefixed }, artifacts, now: NOW }).technical.records.find(r => r.key === 'task-52')!.href).toBe('/w/northwind/dashboard/p/runs/77');
+  });
+});
+
+describe('the release notes', () => {
+  it('reads the deploy\'s commit log as no notes, and says the features by title until someone writes them', () => {
+    const logged = report({ ...RELEASE, meta: { ...RELEASE.meta, notes: '- logic: Uploads that survive a bad connection (#96)\n- fix(worker): a skipped named test is not reported as passed (#95)', notesSource: 'agent' } });
+
+    expect(logged.notes).toEqual({ source: 'features', lines: ['Uploads that survive a bad connection', 'Internal: A skipped named test is not reported as passed'] });
+    expect(JSON.stringify(logged.notes)).not.toMatch(/\(#\d+\)|fix\(worker\)/);
+  });
+
+  it('shows notes the product manager wrote, and a person\'s as theirs', () => {
+    const notes = '- Upload a large file on a phone, lose signal, and it picks up where it stopped.\n- Internal: the worker no longer reports a skipped test as passed.';
+
+    expect(report({ ...RELEASE, meta: { ...RELEASE.meta, notes, notesSource: 'agent' } }).notes).toEqual({
+      source: 'agent',
+      lines: ['Upload a large file on a phone, lose signal, and it picks up where it stopped.', 'Internal: the worker no longer reports a skipped test as passed.'],
+    });
+    expect(report({ ...RELEASE, meta: { ...RELEASE.meta, notes, notesSource: 'human' } }).notes.source).toBe('human');
   });
 });

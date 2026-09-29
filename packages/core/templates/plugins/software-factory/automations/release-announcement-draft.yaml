@@ -15,12 +15,16 @@ slug: release-announcement-draft
 name: Draft the release announcement
 description: >-
   Fires when a release is linked to the requests, tasks and QA verdicts it
-  shipped and something people use changed. The Product manager drafts the
-  announcement from the pack — the features by title, what each lets a person
-  do now, QA's verdict count — in the product's voice, leaving out internal
-  and worker changes, and writes it as `notesSource: agent`,
-  `announcementState: draft`. Publishes nothing: `release.announce` stays the
-  gated action a person presses.
+  shipped and something people use changed. The Product manager writes the
+  release notes — one plain line per change a person would notice, from the
+  feature's outcome, and internal changes apart as "Internal: …" — and the
+  announcement, one or two sentences on what people can do now, in the
+  product's voice. QA's counts, criteria, pull requests and plan risks stay on
+  the release page: the release type's `announcement-in-plain-words` gate
+  refuses a draft that carries them, with the reason. Writes
+  `notesSource: agent`, `announcementState: draft`, and never over notes a
+  person wrote. Publishes nothing: `release.announce` stays the gated action a
+  person presses.
 status: active
 agent: product-manager
 when:
@@ -33,22 +37,30 @@ do:
   requireTool: update_object
   prompt: >-
     A release was just linked to what it shipped; the event carries its
-    releaseId, product, requestIds and taskIds. Draft its announcement and
-    write it on the release, and do nothing else. Read the release
-    (lookup_objects, id releaseId): its evidence, shippedLine, commits,
+    releaseId, product, requestIds and taskIds. Write its release notes and
+    its announcement on the release, and do nothing else. Read the release
+    (lookup_objects, id releaseId): its evidence, commits, notes, notesSource,
     healthAfter. Read each request in requestIds for its title and outcome.
     If the product has a voice page on the wiki (read_wiki_page
     <product>-voice) write in that voice; otherwise the house-voice playbook.
-    Follow write-release-notes. The announcement is one or two sentences a
-    person could post whole: name each shipped feature by the request's
-    title, say what a person can do now that they could not before, and
-    close with QA's count in plain words ("QA proved 8 of 8 criteria"; "one
-    feature shipped without a QA verdict" when one did). Leave out every
-    internal change — worker, factory, deploy, CI, tests, refactors — and
-    anything reverted in the same deploy; no task ids, shas, file paths or
-    model names. Write it with update_object on the release: announcement
-    (the text), notesSource agent, announcementState draft. Never write over
-    notesSource human. Do not publish, do not propose release.announce, do
-    not tell any asker — a person approves the words and presses publish.
-    Report in one line: the release, the draft, and the evidence each claim
-    rests on.
+    Follow write-release-notes.
+    NOTES: one plain line per change a person using the product would
+    notice, written from the request's outcome (what a person can do now),
+    never from the commit subject; then each internal change on its own line
+    starting "Internal: " (worker, factory, deploy, CI, tests, refactors).
+    No commit prefixes, shas or pull request numbers. If notesSource is
+    human, a person owns the notes: do not write notes or notesSource at all.
+    ANNOUNCEMENT: one or two sentences a person could post whole: name each
+    shipped feature, say what a person can do now that they could not
+    before, and any limit that still holds. It is for the people who use the
+    product, so it never mentions QA, criteria, proof counts, pull request
+    numbers, plan risks, task ids, shas, file paths or model names, and
+    nothing internal or reverted; the release page carries the evidence
+    beside it. A draft that does is refused with the reason; rewrite it and
+    write it again.
+    Write both with one update_object on the release: notes, announcement,
+    notesSource agent, announcementState draft (leave out notes and
+    notesSource when notesSource is human). Do not publish, do not propose
+    release.announce, do not tell any asker — a person approves the words and
+    presses publish. Report in one line: the release, the draft, and the
+    evidence each claim rests on.

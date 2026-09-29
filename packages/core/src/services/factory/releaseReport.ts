@@ -1,10 +1,14 @@
 import type { ReleaseArtifact } from './releaseData';
+import type { CriterionEvidence } from '@/libs/workspace/criterionEvidence';
+import type { ProofState } from '@/libs/workspace/featureProof';
 import type { PageRow } from '@/libs/workspace/pageFields';
-import type { FeatureVerdict, ReleaseCommit, ReleaseLinked, ReleaseReading, Tone } from '@/libs/workspace/releaseFeed';
+import type { FeatureVerdict, LinkedRecord, ReleaseCommit, ReleaseFeature, ReleaseLinked, ReleaseNotes, ReleaseReading, Tone } from '@/libs/workspace/releaseFeed';
 import { formatDateTime } from '@/libs/time/zone';
+import { criterionEvidence, shotParts } from '@/libs/workspace/criterionEvidence';
+import { featureProof, isPlanRiskLine, PLAN_RISK_PREFIX } from '@/libs/workspace/featureProof';
 import { formatMoney } from '@/libs/workspace/pageFields';
-import { genericRecordLinker } from '@/libs/workspace/recordHref';
-import { NO_LINKS, prNumberOf, readRelease, verdictCount } from '@/libs/workspace/releaseFeed';
+import { genericRecordLinker, rawRecordPath } from '@/libs/workspace/recordHref';
+import { firstSentence, NO_LINKS, prNumberOf, readRelease, releaseNotes, verdictCount } from '@/libs/workspace/releaseFeed';
 
 /**
  * THE RELEASE PAGE — one release, read the way the person who owns the
@@ -33,6 +37,29 @@ export type ReleaseChange = {
 
 export type ReleaseCheck = { key: string; title: string; line: string; tone: Tone; at: string | null; href: string | null };
 
+/**
+ * One criterion on the release page: its words, whether it passed, and the
+ * proof one click away — the after shot as a thumbnail (the before shot
+ * beside it), or the named test and the stored run that holds its output.
+ */
+export type ReleaseProofRow = {
+  key: string;
+  statement: string;
+  state: ProofState;
+  tone: Tone;
+  kind: CriterionEvidence['kind'];
+  /** "Screenshot", "Named test “…” passed", or why there is nothing to open. */
+  line: string;
+  /** The proof: the artifact's page (at the test's section when it has one), else the link QA named. */
+  href: string | null;
+  /** The after shot, drawn small. */
+  imageUrl: string | null;
+  before: { href: string; label: string } | null;
+};
+
+/** One shipped feature's criteria, the plan's risks as their own group. */
+export type ReleaseProofGroup = { key: string; title: string; href: string; acceptance: ReleaseProofRow[]; risks: ReleaseProofRow[] };
+
 export type ReleaseAction = 'draft' | 'review' | 'publish';
 
 export type ReleaseActivity = { key: string; at: Date; line: string; href: string | null; when?: string };
@@ -54,8 +81,11 @@ export type ReleaseReport = {
   summary: string;
   attention: string[];
   changes: ReleaseChange[];
+  /** The notes a person reads: written ones, or the features' own titles until someone writes them. */
+  notes: ReleaseNotes;
   verification: {
-    acceptance: ReleaseCheck[];
+    /** Per feature: the summary line, and under it each criterion with its proof. */
+    acceptance: Array<ReleaseCheck & { proof: ReleaseProofGroup | null }>;
     deployCheck: ReleaseCheck;
     impact: ReleaseCheck[];
   };
@@ -121,6 +151,105 @@ function verdictLine(v: FeatureVerdict | null): { line: string; tone: Tone } {
   return { line: `QA said ${v.value}${counted}${who}`, tone: 'bad' };
 }
 
+const STATE_TONE: Record<ProofState, Tone> = { passed: 'ok', failed: 'bad', unverified: 'warn' };
+
+function artifactHref(id: number, anchor?: string): string {
+  return `/dashboard/artifacts/${id}${anchor ? `#${anchor}` : ''}`;
+}
+
+/**
+ * A plan-risk line as a person reads it: the risk, without the contract's
+ * prefix or the mitigation paragraph after it.
+ * @param statement - The contract line.
+ */
+function riskWords(statement: string): string {
+  return isPlanRiskLine(statement) ? firstSentence(statement.trim().slice(PLAN_RISK_PREFIX.trim().length).trim()) ?? statement : statement;
+}
+
+/**
+ * One shipped feature's criteria with their proof, from the one count
+ * (`featureProof`) and the artifacts the attempt that counts stored.
+ * @param f - The feature.
+ * @param linked - The records the release names.
+ * @param artifacts - The artifacts the release cites.
+ */
+function proofGroup(f: ReleaseFeature, linked: ReleaseLinked, artifacts: ReleaseArtifact[]): ReleaseProofGroup | null {
+  const tasks = f.taskIds.map(id => linked.records.get(id)).filter((t): t is LinkedRecord => t !== undefined);
+  if (tasks.length === 0) {
+    return null;
+  }
+  const request = f.requestId !== null ? linked.records.get(f.requestId) ?? null : null;
+  const proof = featureProof({ request, tasks, shippedTaskIds: f.taskIds });
+  if (proof.attempt === null || proof.acceptance.length + proof.risks.length === 0) {
+    return null;
+  }
+  const byId = new Map(artifacts.map(a => [a.id, a]));
+  const paired = criterionEvidence(proof, artifacts);
+  const row = (c: typeof proof.acceptance[number], i: number): ReleaseProofRow => {
+    const e = paired[i]!;
+    const art = e.artifactId !== null ? byId.get(e.artifactId) : undefined;
+    const before = e.beforeArtifactId !== undefined ? byId.get(e.beforeArtifactId) : undefined;
+    const word = c.state === 'passed' ? 'passed' : c.state === 'failed' ? 'failed' : 'not proven';
+    const line = e.kind === 'test'
+      ? `Named test${e.testName ? ` “${e.testName}”` : ''} ${word}`
+      : e.kind === 'screenshot'
+        ? (c.state === 'failed' ? 'Screenshot shows it failing' : c.state === 'passed' ? 'Screenshot' : 'Screenshot, not accepted as proof')
+        : c.note ?? (c.evidence ? firstSentence(c.evidence) ?? c.evidence : 'No evidence attached');
+    const beforeUnseen = before && before.kind === 'markdown';
+    return {
+      key: `${f.requestId ?? f.taskIds[0]}-${c.group}-${i}`,
+      statement: c.group === 'risk' ? riskWords(c.statement) : c.statement,
+      state: c.state,
+      tone: STATE_TONE[c.state],
+      kind: e.kind,
+      line: c.note && e.kind !== null ? `${line} · ${c.note}` : line,
+      href: art ? artifactHref(art.id, e.anchor) : c.evidenceUrl,
+      imageUrl: e.kind === 'screenshot' && art?.url && art.kind !== 'markdown' ? art.url : null,
+      before: before ? { href: artifactHref(before.id), label: beforeUnseen ? 'Before: not captured' : 'Before' } : null,
+    };
+  };
+  const all = [...proof.acceptance, ...proof.risks].map(row);
+  return {
+    key: `proof-${f.requestId ?? f.taskIds[0]}`,
+    title: f.title,
+    href: f.href,
+    acceptance: all.slice(0, proof.acceptance.length),
+    risks: all.slice(proof.acceptance.length),
+  };
+}
+
+/**
+ * The evidence list under Technical details: each artifact once — a capture
+ * that stored the same picture twice is one line — labelled by what it is.
+ * @param ids - `verificationArtifactIds`.
+ * @param artifacts - The artifacts loaded for them.
+ */
+function evidenceLinks(ids: number[], artifacts: ReleaseArtifact[]): ReleaseLink[] {
+  const byId = new Map(artifacts.map(x => [x.id, x]));
+  const seen = new Set<string>();
+  const out: ReleaseLink[] = [];
+  for (const id of ids) {
+    const x = byId.get(id);
+    if (!x) {
+      out.push({ key: `e-${id}`, label: `Evidence artifact ${id} is not in this workspace`, href: null });
+      continue;
+    }
+    const same = x.url ? x.url.replace(/[?#].*$/, '') : `id:${id}`;
+    if (seen.has(same)) {
+      continue;
+    }
+    seen.add(same);
+    const side = x.role === 'qa-screenshot' ? shotParts(x.title).side : null;
+    const label = x.role === 'qa-test-run'
+      ? `Named tests: ${x.title}`
+      : x.role === 'qa-screenshot'
+        ? side === 'before' && x.kind === 'markdown' ? `Before, not captured: ${x.title}` : `QA screenshot: ${x.title}`
+        : `Evidence: ${x.title}`;
+    out.push({ key: `e-${id}`, label, href: artifactHref(id) });
+  }
+  return out;
+}
+
 /**
  * Assemble one release's page.
  * @param row - The release record.
@@ -148,9 +277,12 @@ export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseL
   ];
 
   // VERIFICATION: three different questions, never merged into one badge.
-  const acceptance: ReleaseCheck[] = r.features.map((f) => {
+  // Each feature's summary line stays on top; under it, every criterion
+  // with the proof it rests on (principle 10: the claim and its evidence in
+  // one move), not a link to the feature page that holds them.
+  const acceptance = r.features.map((f) => {
     const v = verdictLine(f.verdict);
-    return { key: `qa-${f.requestId ?? f.taskIds[0]}`, title: f.title, line: v.line, tone: v.tone, at: when(f.verdict?.at, tz), href: f.href };
+    return { key: `qa-${f.requestId ?? f.taskIds[0]}`, title: f.title, line: v.line, tone: v.tone, at: when(f.verdict?.at, tz), href: f.href, proof: proofGroup(f, linked, options.artifacts ?? []) };
   });
   const health = r.verification.health;
   const deployCheck: ReleaseCheck = {
@@ -252,20 +384,29 @@ export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseL
     return { key: url, label: `${n !== null ? `#${n}` : 'Pull request'}${commit ? ` · ${commit.plain}` : ''}${commit && (commit.kind === 'internal' || commit.kind === 'reverted') ? ` (${COMMIT_LABEL[commit.kind].toLowerCase()})` : ''}`, href: url };
   });
   const artifactIds = (Array.isArray(meta.verificationArtifactIds) ? meta.verificationArtifactIds : []).map(Number).filter(n => Number.isSafeInteger(n) && n > 0);
-  const byId = new Map((options.artifacts ?? []).map(x => [x.id, x]));
-  const evidence: ReleaseLink[] = artifactIds.map((id) => {
-    const x = byId.get(id);
-    return x
-      ? { key: `e-${id}`, label: `${x.role === 'qa-screenshot' ? 'QA screenshot' : 'Evidence'}: ${x.title}`, href: `/dashboard/artifacts/${id}` }
-      : { key: `e-${id}`, label: `Evidence artifact ${id} is not in this workspace`, href: null };
-  });
+  const evidence = evidenceLinks(artifactIds, options.artifacts ?? []);
+  const link = linked.link ?? genericRecordLinker;
+  // ONE LINK FOR EVERY RECORD (`recordHref`): a task opens where its
+  // workspace opens one, and a task no page claims opens the run that built
+  // it — "Engineering task 222" led to the raw record, the page that says
+  // least about what the task did.
+  const taskHref = (id: number) => {
+    const href = link({ objectType: 'engineering_task', id });
+    const run = Number(linked.records.get(id)?.meta.workerRunId ?? linked.records.get(id)?.meta.runId);
+    return href.endsWith(rawRecordPath(id)) && Number.isSafeInteger(run) && run > 0
+      ? `${href.slice(0, href.length - rawRecordPath(id).length)}/dashboard/p/runs/${run}`
+      : href;
+  };
   const records: ReleaseLink[] = [
     // The raw record, deliberately: this IS the release's page, and the
     // generic view is where its fields are edited and its history read.
     { key: 'release', label: `Release record ${row.id}`, href: `/dashboard/objects/${row.id}` },
     ...r.features.flatMap(f => [
       ...(f.requestId !== null ? [{ key: `req-${f.requestId}`, label: `Request ${f.requestId} · ${f.title}`, href: f.href }] : []),
-      ...f.taskIds.map(t => ({ key: `task-${t}`, label: `Engineering task ${t} · ${linked.records.get(t)?.title ?? f.title}`, href: (linked.link ?? genericRecordLinker)({ objectType: 'engineering_task', id: t }) })),
+      ...f.taskIds.map((t) => {
+        const run = linked.records.get(t)?.meta.workerRunId ?? linked.records.get(t)?.meta.runId;
+        return { key: `task-${t}`, label: `Engineering task ${t}${run ? ` · run ${String(run)}` : ''} · ${linked.records.get(t)?.title ?? f.title}`, href: taskHref(t) };
+      }),
     ]),
   ];
   const facts: ReleaseReport['technical']['facts'] = [];
@@ -319,6 +460,7 @@ export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseL
     summary: r.summary,
     attention: r.attention,
     changes,
+    notes: releaseNotes(meta, r),
     verification: { acceptance, deployCheck, impact },
     announcement,
     included,

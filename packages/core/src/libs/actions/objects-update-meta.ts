@@ -371,7 +371,7 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     const previous = previousValues(row.metadata, keys);
     // A write that crosses a gated transition and passes clears the return:
     // the seat did the work the gate asked for.
-    const crossedGates = gatesOf(objectType.schema).filter(g => typeof input.set[g.when.field] === 'string' && g.when.becomes.includes(input.set[g.when.field] as string) && row.metadata[g.when.field] !== input.set[g.when.field]);
+    const crossedGates = gatesOf(objectType.schema).filter(g => typeof input.set[g.when.field] === 'string' && (g.when.becomes ?? []).includes(input.set[g.when.field] as string) && row.metadata[g.when.field] !== input.set[g.when.field]);
     const crossed = crossedGates.length > 0;
     const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...input.set, returnedTo: null, gate: null } : input.set);
     await bodyBefore(ctx.orgId, row.id);

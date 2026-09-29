@@ -181,3 +181,23 @@ rollups:
   - {field: estimateCents, from: {type: engineering_task, ids: taskIds}, sum: estimateCents}
   - {field: actualCents, from: {type: engineering_task, ids: taskIds}, sum: actualCents}
   - {field: varianceCents, from: {type: engineering_task, ids: taskIds}, sum: varianceCents}
+# THE ANNOUNCEMENT IS FOR THE PEOPLE WHO USE THE PRODUCT. A drafted
+# announcement closed "QA proved 6 of 6 criteria" (2026-09-29): true, and a
+# sentence about the factory, not the product. The draft automation's prompt
+# says so; this refuses it where the record changes, with the reason, so the
+# product manager rewrites it rather than a person catching it. Words a person
+# owns (`notesSource: human`) are theirs and are not checked. The pattern is
+# `ANNOUNCEMENT_INTERNAL` in libs/workspace/releaseFeed.ts, and a test holds
+# the two equal.
+gates:
+  - name: announcement-in-plain-words
+    when: {field: announcement, written: true}
+    producedBy: product-manager
+    require:
+      - field: announcement
+        notMatches: {pattern: 'QA|criteria|proven|PR #|\bplan risk', flags: i}
+        unless: {field: notesSource, oneOf: [human]}
+        message: >-
+          it says "{value}". The announcement is what a person can now do, in
+          the product's words: no QA counts, criteria, pull request numbers or
+          plan risks, which are on the release page beside it

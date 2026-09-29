@@ -195,7 +195,7 @@ function cleanProperty(prop: JsonSchema, path: string, omit: Set<string>): JsonS
  */
 function candidateRequirements(schema: JsonSchema | null | undefined): GateRequirement[] {
   const gated = gatesOf(schema)
-    .filter(g => g.when.field === 'status' && g.when.becomes.includes('candidate'))
+    .filter(g => g.when.field === 'status' && (g.when.becomes ?? []).includes('candidate'))
     .flatMap(g => g.require)
     .filter(r => !r.if && !r.anyOf && (r.present || r.minItems !== undefined));
   const own = Array.isArray(schema?.required) ? (schema.required as unknown[]).filter((f): f is string => typeof f === 'string') : [];

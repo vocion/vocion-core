@@ -96,7 +96,8 @@ recordPage:
         Draft the announcement for this release, following write-release-notes:
         one or two sentences on what people can now do, written only from the
         verified changes on the release page, never from internal or reverted
-        commits. Write it to the release's `announcement` with
+        commits, and never mentioning QA, criteria, proof counts, pull request
+        numbers or plan risks (the page shows those beside it). Write it to the release's `announcement` with
         `notesSource: agent` and `announcementState: draft`. Do not publish it. Then show me the draft beside
         the evidence for each claim.
     review:

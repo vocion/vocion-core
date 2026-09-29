@@ -1,3 +1,4 @@
+import type { ProofArtifact } from '@/libs/workspace/criterionEvidence';
 import type { PageRow } from '@/libs/workspace/pageFields';
 import type { LinkedRecord, ReleaseLinked } from '@/libs/workspace/releaseFeed';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -33,6 +34,9 @@ const LINKED_KEYS = [
   'checkAfter',
   'howWeCheck',
   'shippedAt',
+  // The run that built a task, which is where a task with no page opens.
+  'runId',
+  'workerRunId',
 ] as const;
 
 function ids(values: unknown[]): number[] {
@@ -96,7 +100,8 @@ export async function loadReleaseLinked(orgId: string, rows: PageRow[]): Promise
   return { records, products, link: await recordLinkerForOrg(orgId) };
 }
 
-export type ReleaseArtifact = { id: number; title: string; kind: string; role: string | null };
+/** An artifact a release cites: enough to label it, draw a shot and find a named test's section. */
+export type ReleaseArtifact = ProofArtifact;
 
 /**
  * One release record, when the id names a release in this workspace.
@@ -118,7 +123,7 @@ export async function loadReleaseRow(orgId: string, id: number): Promise<PageRow
  * the page draws "QA screenshot: Uploads … · desktop · after" rather than a
  * list of numbers.
  * @param orgId - The workspace.
- * @param artifactIds - `verificationArtifactIds`.
+ * @param artifactIds - `verificationArtifactIds` and the ones the stored proof names (`evidenceArtifactIdsOf`).
  */
 export async function loadReleaseArtifacts(orgId: string, artifactIds: number[]): Promise<ReleaseArtifact[]> {
   const want = ids(artifactIds);
@@ -126,8 +131,12 @@ export async function loadReleaseArtifacts(orgId: string, artifactIds: number[])
     return [];
   }
   const rows = await db
-    .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, role: artifactSchema.recordRole })
+    .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, role: artifactSchema.recordRole, url: artifactSchema.url, spec: artifactSchema.spec })
     .from(artifactSchema)
     .where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.id, want)));
-  return rows.map(r => ({ id: r.id, title: r.title, kind: r.kind, role: r.role ?? null }));
+  return rows.map((r) => {
+    const spec = (r.spec ?? {}) as Record<string, unknown>;
+    const url = r.url ?? (typeof spec.url === 'string' ? spec.url : typeof spec.href === 'string' ? spec.href : null);
+    return { id: r.id, title: r.title, kind: r.kind, role: r.role ?? null, url, md: typeof spec.md === 'string' ? spec.md : null };
+  });
 }

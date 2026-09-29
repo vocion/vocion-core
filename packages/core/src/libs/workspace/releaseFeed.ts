@@ -249,6 +249,34 @@ export function announcementText(raw: unknown): string | null {
   return text.replace(/\s+/g, ' ') === ANNOUNCEMENT_PLACEHOLDER ? null : text;
 }
 
+/**
+ * Words that belong on the release page and never in its announcement: QA's
+ * counts, the criteria, pull request numbers, the plan's risks. The release
+ * type's `announcement-in-plain-words` gate refuses an agent's draft that
+ * matches (`objects/release/type.yaml`, the same pattern — a test holds them
+ * equal), so the product manager rewrites it.
+ */
+export const ANNOUNCEMENT_INTERNAL = /QA|criteria|proven|PR #|\bplan risk/i;
+
+/**
+ * An announcement with its internal sentences taken out — for a draft written
+ * before the gate refused them. Returns the sentences it dropped, so whoever
+ * runs it can say what changed.
+ * @param text - The drafted announcement.
+ */
+export function plainAnnouncement(text: string): { text: string; dropped: string[] } {
+  const sentences = text.replace(/\s+/g, ' ').trim().match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) ?? [];
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const raw of sentences) {
+    const sentence = raw.trim();
+    if (sentence) {
+      (ANNOUNCEMENT_INTERNAL.test(sentence) ? dropped : kept).push(sentence);
+    }
+  }
+  return { text: kept.join(' '), dropped };
+}
+
 // ---------------------------------------------------------------------------
 // Commits
 // ---------------------------------------------------------------------------
@@ -528,6 +556,62 @@ export function announcementOf(meta: Record<string, unknown>, userFacing: boolea
     return { ...base, state: 'not-needed', label: 'Not needed', reason: notNeededReason };
   }
   return { ...base, state: 'not-prepared', label: 'Not prepared' };
+}
+
+// ---------------------------------------------------------------------------
+// Release notes
+// ---------------------------------------------------------------------------
+
+/**
+ * The release's written notes as lines, or null when there are none a person
+ * would read as notes: empty, or the deploy's own commit log. The deploy
+ * writes its commit subjects into `notes` ("- schema: Download CSV… (#114)"),
+ * and a later draft of the announcement set `notesSource: agent` beside them
+ * without touching them — so who last wrote the field is not evidence that
+ * notes were written. The words are.
+ * @param meta - The release's metadata.
+ */
+export function writtenNotes(meta: Record<string, unknown>): string[] | null {
+  const raw = str(meta.notes);
+  if (raw === null) {
+    return null;
+  }
+  const lines = raw.split('\n').map(l => l.trim().replace(/^[-*]\s+/, '').trim()).filter(Boolean);
+  const subjects = new Set((Array.isArray(meta.commits) ? meta.commits.map(String) : []).map(c => parseCommit(c).subject));
+  const isLog = (line: string) => {
+    const c = parseCommit(line);
+    return subjects.has(c.subject) || c.sha !== null || (c.type !== null && c.type !== 'internal') || c.pr !== null || /^Deploy of [0-9a-f]+/i.test(line);
+  };
+  return lines.length === 0 || lines.every(isLog) ? null : lines;
+}
+
+export type ReleaseNotes = {
+  /** `agent` or `human` when the notes were written; `features` when they are read from what shipped. */
+  source: 'agent' | 'human' | 'features';
+  lines: string[];
+};
+
+/**
+ * THE NOTES A PERSON READS: the written ones when someone wrote them, and
+ * until then one line per change from what shipped — each feature by its own
+ * title, each product change with no feature by its plain subject, each
+ * internal change as "Internal: …". Never a commit subject.
+ * @param meta - The release's metadata.
+ * @param reading - The release, read.
+ */
+export function releaseNotes(meta: Record<string, unknown>, reading: Pick<ReleaseReading, 'features' | 'otherChanges' | 'internal'>): ReleaseNotes {
+  const written = writtenNotes(meta);
+  if (written) {
+    return { source: meta.notesSource === 'human' ? 'human' : 'agent', lines: written };
+  }
+  return {
+    source: 'features',
+    lines: [
+      ...reading.features.map(f => f.title),
+      ...reading.otherChanges.map(c => c.plain),
+      ...reading.internal.map(c => `Internal: ${c.plain}`),
+    ],
+  };
 }
 
 // ---------------------------------------------------------------------------

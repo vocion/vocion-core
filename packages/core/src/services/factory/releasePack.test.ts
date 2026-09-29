@@ -17,7 +17,7 @@ const draftFilter = (parse(readFileSync(fromRepoRoot('packages/core/templates/pl
 async function linkedEvents(orgId: string) {
   return db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, orgId), eq(eventLogSchema.type, 'release.linked')));
 }
-const { linkRelease, shippedPrs } = await import('./releasePack');
+const { linkRelease, relinkRelease, shippedPrs } = await import('./releasePack');
 
 const ORG = 'org_release_pack';
 const PR = 'https://github.com/acme/app/pull';
@@ -48,7 +48,18 @@ describe('linkRelease', () => {
     const pack = await linkRelease(ORG, release!.id);
 
     expect(pack).toMatchObject({ requestIds: [request!.id], taskIds: [task!.id], reverted: [`${PR}/66`] });
-    expect(pack?.evidence).toEqual([{ taskId: task!.id, requestId: request!.id, prUrl: `${PR}/70`, verdict: 'approve, 1 of 2 proven', title: 'Request a file' }]);
+    expect(pack?.evidence).toEqual([{
+      taskId: task!.id,
+      requestId: request!.id,
+      prUrl: `${PR}/70`,
+      verdict: 'approve, 1 of 2 proven',
+      title: 'Request a file',
+      // Each line, with what proves it: QA's words name no stored artifact here.
+      criteria: [
+        { criterion: 'Send someone a link to upload a file.', group: 'acceptance', status: 'passed', kind: null, artifactId: null },
+        { criterion: 'It arrives in your library.', group: 'acceptance', status: 'failed', kind: null, artifactId: null },
+      ],
+    }]);
 
     const [rel] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, release!.id));
 
@@ -94,5 +105,93 @@ describe('linkRelease', () => {
 
     expect(event!.payload).toMatchObject({ userFacing: false, features: 0, internal: 2, announcementState: 'not-needed' });
     expect(matchesFilter(event!.payload, draftFilter)).toBe(false);
+  });
+});
+
+describe('linkRelease — the proof, per criterion', () => {
+  const SHOT = 'https://files.example/qa/relay/viewers-button-desktop-after.png';
+  const CONTRACT = [
+    'A Download CSV button sits beside the viewers heading for paid owners.',
+    'The file has one row per viewer with their first and last open.',
+    'The plan\'s risk is handled: A free account could call the export directly. Mitigation: the server refuses it.',
+  ];
+
+  async function seed(org: string) {
+    const [reqType] = await createObjectType({ slug: 'request', label: 'Request' }, org);
+    const [taskType] = await createObjectType({ slug: 'engineering_task', label: 'Task' }, org);
+    const [relType] = await createObjectType({ slug: 'release', label: 'Release' }, org);
+    const [request] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: reqType!.id, title: 'Export the viewers', status: 'active', metadata: { state: 'building', acceptance: [{ statement: CONTRACT[0] }, { statement: CONTRACT[1] }] } }).returning();
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: taskType!.id, title: 'Export the viewers', status: 'accepted', metadata: { requestId: request!.id, prUrl: `${PR}/114`, acceptanceContract: CONTRACT } }).returning();
+    const shot = (title: string, url: string | null) => ({ orgId: org, kind: url ? 'link' : 'markdown', title, url, spec: url ? { href: url } : { md: 'New surface, nothing to compare' }, recordType: 'object', recordId: String(task!.id), recordRole: 'qa-screenshot' });
+    const [before, after, dup] = await db.insert(artifactSchema).values([
+      shot('Viewers button · desktop · before', null),
+      shot('Viewers button · desktop · after', `${SHOT}?sig=1`),
+      shot('Viewers button · desktop · after', `${SHOT}?sig=2`),
+    ]).returning();
+    const [run] = await db.insert(artifactSchema).values({ orgId: org, kind: 'markdown', title: 'Named tests, run 408', spec: { md: `# Named tests, run 408\n\n## Passed: ${CONTRACT[1]}\n\n\`-t "csv: one row per viewer"\`\n\n## Passed: The plan's risk is handled: A free account could call the export directly\n\n\`-t "gate: a free owner is refused"\`\n` }, recordType: 'object', recordId: String(task!.id), recordRole: 'qa-test-run' }).returning();
+    await db.update(businessObjectSchema).set({ metadata: { requestId: request!.id, prUrl: `${PR}/114`, acceptanceContract: CONTRACT, verdict: { value: 'approve', criteria: [
+      { criterion: CONTRACT[0], status: 'proven', evidence: `Screenshot viewers-button-desktop-after.png shows the button. ${SHOT}` },
+      { criterion: CONTRACT[1], status: 'proven', evidence: `Named test 'csv: one row per viewer' passed in run 408. https://app.example/dashboard/artifacts/${run!.id}` },
+      { criterion: CONTRACT[2], status: 'proven', evidence: `Named test 'gate: a free owner is refused' passed in run 408. https://app.example/dashboard/artifacts/${run!.id}` },
+    ] } } }).where(eq(businessObjectSchema.id, task!.id));
+    const [release] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: relType!.id, title: 'relay 8d8bab9', status: 'active', metadata: {
+      product: 'relay',
+      releasedAt: '2026-09-29T01:51:00Z',
+      prUrls: [`${PR}/114`],
+      commits: ['8d8bab9 schema: Export the viewers (#114)'],
+      notesSource: 'agent',
+      announcementState: 'draft',
+      announcement: 'You can now download everyone who opened a document as a spreadsheet. The free plan is unchanged. QA proved 2 of 2 criteria.',
+    } }).returning();
+    return { task: task!, before: before!, after: after!, dup: dup!, run: run!, release: release! };
+  }
+
+  it('stores each criterion with its kind and artifact, and the test run beside the shots', async () => {
+    const org = 'org_release_pack_proof';
+    const { task, before, after, dup, run, release } = await seed(org);
+
+    const pack = await linkRelease(org, release.id);
+
+    expect(pack!.evidence[0]!.criteria).toEqual([
+      { criterion: CONTRACT[0], group: 'acceptance', status: 'passed', kind: 'screenshot', artifactId: after.id, beforeArtifactId: before.id },
+      { criterion: CONTRACT[1], group: 'acceptance', status: 'passed', kind: 'test', artifactId: run.id, testName: 'csv: one row per viewer', anchor: 'passed-the-file-has-one-row-per-viewer-with-their-first-and-last-open' },
+      { criterion: CONTRACT[2], group: 'risk', status: 'passed', kind: 'test', artifactId: run.id, testName: 'gate: a free owner is refused', anchor: 'passed-the-plans-risk-is-handled-a-free-account-could-call-the-export-directly' },
+    ]);
+
+    const [rel] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, release.id));
+
+    // Every shot and the named-test run: the release can open what proved it.
+    expect((rel!.metadata as { verificationArtifactIds: number[] }).verificationArtifactIds).toEqual([before.id, after.id, dup.id, run.id]);
+    expect(task.id).toBeGreaterThan(0);
+  });
+
+  it('re-links through the same path: a dry run writes nothing, and apply is idempotent', async () => {
+    const org = 'org_release_pack_relink';
+    const { run, release: seeded } = await seed(org);
+    const metaOf = async () => (await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, seeded.id)))[0]!.metadata as Record<string, unknown>;
+    const untouched = JSON.stringify(await metaOf());
+
+    const dry = await relinkRelease(org, seeded.id);
+
+    expect(dry).toMatchObject({ mode: 'dry-run', releaseId: seeded.id, linked: true });
+    expect(dry.features[0]!.criteria.map(c => c.kind)).toEqual(['screenshot', 'test', 'test']);
+    expect(dry.announcement).toEqual({
+      before: 'You can now download everyone who opened a document as a spreadsheet. The free plan is unchanged. QA proved 2 of 2 criteria.',
+      after: 'You can now download everyone who opened a document as a spreadsheet. The free plan is unchanged.',
+      dropped: ['QA proved 2 of 2 criteria.'],
+    });
+    expect(dry.verificationArtifactIds).toContain(run.id);
+    // Nothing was written.
+    expect(JSON.stringify(await metaOf())).toBe(untouched);
+
+    // Applied, twice: the same pack, the plain announcement, one release.linked.
+    await relinkRelease(org, seeded.id, { apply: true });
+    const once = await metaOf();
+    await relinkRelease(org, seeded.id, { apply: true });
+
+    expect(await metaOf()).toEqual(once);
+    expect(once.announcement).toBe('You can now download everyone who opened a document as a spreadsheet. The free plan is unchanged.');
+    expect((once.evidence as Array<{ criteria: unknown[] }>)[0]!.criteria).toHaveLength(3);
+    expect(await linkedEvents(org)).toHaveLength(1);
   });
 });

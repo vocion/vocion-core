@@ -2,7 +2,7 @@ import type { DotTone } from '@/components/patterns';
 import type { PagePrompt } from '@/features/dashboard/pages/PagePrompts';
 import type { PageRecordPage } from '@/libs/workspace/pageFields';
 import type { Tone } from '@/libs/workspace/releaseFeed';
-import type { ReleaseCheck, ReleaseLink, ReleaseReport } from '@/services/factory/releaseReport';
+import type { ReleaseCheck, ReleaseLink, ReleaseProofGroup, ReleaseProofRow, ReleaseReport } from '@/services/factory/releaseReport';
 import { DetailMeta, DetailPage, FactList, Section, StatusDot } from '@/components/patterns';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
@@ -44,6 +44,55 @@ function Checks({ heading, checks }: { heading: string; checks: ReleaseCheck[] }
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+const STATE_WORD = { passed: 'Passed', failed: 'Failed', unverified: 'Unverified' } as const;
+
+/**
+ * One criterion and its proof: the after shot as a thumbnail that opens the
+ * artifact, the before shot one click away; a named test by name, linking the
+ * stored run at its section.
+ * @param props
+ * @param props.row - The criterion.
+ */
+function ProofRow({ row }: { row: ReleaseProofRow }) {
+  return (
+    <li className="flex items-start gap-3 py-2" data-testid="release-proof-row" data-state={row.state} data-kind={row.kind ?? 'none'}>
+      <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
+        <StatusDot tone={DOT[row.tone]} label={<span className={row.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{STATE_WORD[row.state]}</span>} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] leading-relaxed break-words text-foreground">{row.statement}</p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-muted-foreground">
+          <span className="break-words"><Line href={row.href}>{row.line}</Line></span>
+          {row.before && <Line href={row.before.href}>{row.before.label}</Line>}
+        </p>
+      </div>
+      {row.imageUrl && row.href && (
+        <Line href={row.href}>
+          <img src={row.imageUrl} alt={`After: ${row.statement}`} loading="lazy" className="block h-14 w-24 shrink-0 rounded-md border border-border object-cover object-top" />
+        </Line>
+      )}
+    </li>
+  );
+}
+
+function Proof({ group }: { group: ReleaseProofGroup }) {
+  return (
+    <div className="mt-1" data-testid="release-proof">
+      <ul className="divide-y divide-rule">
+        {group.acceptance.map(r => <ProofRow key={r.key} row={r} />)}
+      </ul>
+      {group.risks.length > 0 && (
+        <>
+          <h5 className="mt-3 text-[12px] text-muted-foreground">Plan risks</h5>
+          <ul className="divide-y divide-rule" data-testid="release-proof-risks">
+            {group.risks.map(r => <ProofRow key={r.key} row={r} />)}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
@@ -107,27 +156,47 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
       </Section>
 
       <Section eyebrow="What changed">
-        {report.changes.length === 0
-          ? <p className="text-muted-foreground">The deploy recorded no changes.</p>
-          : (
-              <ul className="divide-y divide-rule">
-                {report.changes.map(c => (
-                  <li key={c.key} className="py-2.5">
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{c.label}</span>
-                      <span className={c.label === 'Internal' || c.label === 'Reverted' ? 'text-muted-foreground' : 'font-medium'}>
-                        <Line href={c.href}>{c.title}</Line>
-                      </span>
-                    </div>
-                    {c.detail && <p className="mt-0.5 text-[13px] text-muted-foreground">{c.detail}</p>}
-                  </li>
-                ))}
-              </ul>
-            )}
+        {report.notes.source !== 'features'
+          ? (
+              <div data-testid="release-notes" data-source={report.notes.source}>
+                <ul className="list-disc space-y-1 pl-5 text-[15px]">
+                  {report.notes.lines.map(line => <li key={line} className={line.startsWith('Internal:') ? 'text-muted-foreground' : undefined}>{line}</li>)}
+                </ul>
+                <p className="mt-2 text-[12px] text-muted-foreground">{report.notes.source === 'human' ? 'Release notes, written by a person.' : 'Release notes, drafted by the product manager.'}</p>
+              </div>
+            )
+          : report.changes.length === 0
+            ? <p className="text-muted-foreground">The deploy recorded no changes.</p>
+            : (
+                <ul className="divide-y divide-rule">
+                  {report.changes.map(c => (
+                    <li key={c.key} className="py-2.5">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{c.label}</span>
+                        <span className={c.label === 'Internal' || c.label === 'Reverted' ? 'text-muted-foreground' : 'font-medium'}>
+                          <Line href={c.href}>{c.title}</Line>
+                        </span>
+                      </div>
+                      {c.detail && <p className="mt-0.5 text-[13px] text-muted-foreground">{c.detail}</p>}
+                    </li>
+                  ))}
+                </ul>
+              )}
       </Section>
 
       <Section eyebrow="Verification">
-        {report.verification.acceptance.length > 0 && <Checks heading="Feature acceptance" checks={report.verification.acceptance} />}
+        {report.verification.acceptance.length > 0 && (
+          <div className="py-2" data-testid="release-check-feature-acceptance">
+            <h4 className="text-[13px] font-medium text-foreground">Feature acceptance</h4>
+            {report.verification.acceptance.map(c => (
+              <div key={c.key} className="mt-1.5">
+                <div className="text-sm"><StatusDot tone={DOT[c.tone]} label={<Line href={c.href}>{c.line}</Line>} /></div>
+                <div className="ml-3 text-[12px] text-muted-foreground">{[c.title, c.at].filter(Boolean).join(' · ')}</div>
+                {c.proof && <Proof group={c.proof} />}
+              </div>
+            ))}
+          </div>
+        )}
         <Checks heading="Post-deploy check" checks={[report.verification.deployCheck]} />
         <Checks heading="Product impact" checks={report.verification.impact} />
       </Section>

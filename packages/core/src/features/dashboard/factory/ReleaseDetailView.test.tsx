@@ -55,7 +55,7 @@ const DETAIL = { kind: 'release' as const, actions: { draft: { label: 'Draft ann
 
 describe('the release page, drawn', () => {
   it('reads in the order a product owner asks, with the technical record folded last', async () => {
-    const report = assembleReleaseReport(ROW, { linked: LINKED, artifacts: [{ id: 1254, title: 'Uploads · desktop · after', kind: 'link', role: 'qa-screenshot' }], now: NOW, timeZone: 'UTC' });
+    const report = assembleReleaseReport(ROW, { linked: LINKED, artifacts: [{ id: 1254, title: 'Uploads · desktop · after', kind: 'link', role: 'qa-screenshot', url: 'https://files.example/qa/uploads-after.png', md: null }], now: NOW, timeZone: 'UTC' });
     const screen = await render(<ReleaseDetailView report={report} recordPage={DETAIL} backHref="/dashboard/p/releases" />);
     const root = screen.container;
 
@@ -78,6 +78,53 @@ describe('the release page, drawn', () => {
     // Evidence is a labelled link, and it is one click away rather than open.
     expect((root.querySelector('[data-testid="release-technical"]') as HTMLDetailsElement).open).toBe(false);
     expect(root.querySelector('a[href="/dashboard/artifacts/1254"]')?.textContent).toBe('QA screenshot: Uploads · desktop · after');
+  });
+
+  it('shows each criterion with its proof under the summary line, and notes written for a person', async () => {
+    const shot = 'https://files.example/qa/relay/resume-banner-desktop-after.png';
+    const contract = ['A banner reads "Resuming upload" while it picks up.', 'A dropped upload resumes from the last acknowledged chunk.'];
+    const linked: ReleaseLinked = {
+      records: new Map([
+        [41, { id: 41, type: 'request', title: 'Uploads that survive a bad connection', meta: { acceptance: contract.map(statement => ({ statement })) } }],
+        [52, { id: 52, type: 'engineering_task', title: 'Resumable uploads', meta: { requestId: 41, prUrl: 'https://github.example/northwind/relay/pull/96', acceptanceContract: contract, verdict: { value: 'approve', criteria: [
+          { criterion: contract[0], status: 'proven', evidence: `Screenshot shows the banner. ${shot}` },
+          { criterion: contract[1], status: 'proven', evidence: 'Named test \'resume: acknowledged chunk\' passed. https://app.example/dashboard/artifacts/1302' },
+        ] } } }],
+      ]),
+      products: new Map([['relay', 'Relay']]),
+    };
+    const artifacts = [
+      { id: 1298, title: 'Resume banner · desktop · before', kind: 'markdown', role: 'qa-screenshot', url: null, md: 'Nothing to compare' },
+      { id: 1299, title: 'Resume banner · desktop · after', kind: 'link', role: 'qa-screenshot', url: `${shot}?sig=a`, md: null },
+      { id: 1302, title: 'Named tests, run 77', kind: 'markdown', role: 'qa-test-run', url: null, md: `# Named tests\n\n## Passed: ${contract[1]}\n\n\`-t "resume: acknowledged chunk"\`\n` },
+    ];
+    const row = { ...ROW, meta: { ...ROW.meta, verificationArtifactIds: [1298, 1299, 1302], notes: '- Upload a large file on a phone and have it resume.\n- Internal: the worker reports skipped tests as skipped.', notesSource: 'agent' } };
+    const report = assembleReleaseReport(row, { linked, artifacts, now: NOW, timeZone: 'UTC' });
+    const screen = await render(<ReleaseDetailView report={report} recordPage={DETAIL} backHref="/dashboard/p/releases" />);
+    const root = screen.container;
+    const verification = root.querySelector('[data-testid="release-check-feature-acceptance"]')!;
+
+    expect(verification.textContent).toContain('QA approved, 2 of 2 acceptance criteria proven');
+
+    const rows = [...verification.querySelectorAll('[data-testid="release-proof-row"]')];
+
+    expect(rows.map(r => [r.getAttribute('data-state'), r.getAttribute('data-kind')])).toEqual([['passed', 'screenshot'], ['passed', 'test']]);
+    // The after shot, drawn, opening its artifact; the before one click away.
+    expect(rows[0]!.querySelector('img')?.getAttribute('src')).toBe(`${shot}?sig=a`);
+    expect(rows[0]!.querySelector('img')?.closest('a')?.getAttribute('href')).toBe('/dashboard/artifacts/1299');
+    expect(rows[0]!.querySelector('a[href="/dashboard/artifacts/1298"]')?.textContent).toBe('Before: not captured');
+    // The named test by name, opening the stored run at its section.
+    expect(rows[1]!.querySelector('a')?.textContent).toBe('Named test “resume: acknowledged chunk” passed');
+    expect(rows[1]!.querySelector('a')?.getAttribute('href')).toBe('/dashboard/artifacts/1302#passed-a-dropped-upload-resumes-from-the-last-acknowledged-chunk');
+
+    // Notes for a person, not commit subjects.
+    const notes = root.querySelector('[data-testid="release-notes"]')!;
+
+    expect(notes.getAttribute('data-source')).toBe('agent');
+    expect(notes.textContent).toContain('Upload a large file on a phone and have it resume.');
+    expect(notes.textContent).not.toMatch(/logic:|\(#96\)/);
+    // No native tooltips (the Tooltip component, never `title=`).
+    expect(root.querySelector('[data-testid="release-proof"] [title]')).toBeNull();
   });
 
   it('holds on a phone without a sideways scroll', async () => {

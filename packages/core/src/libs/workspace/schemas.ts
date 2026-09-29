@@ -1362,6 +1362,8 @@ export type GateRequirementManifest = {
   allItems?: { field: string; equals: string | number | boolean; label?: string };
   anyOf?: GateRequirementManifest[];
   if?: { field: string; oneOf: string[] };
+  unless?: { field: string; oneOf: string[] };
+  notMatches?: { pattern: string; flags?: string };
   valueMessages?: Record<string, string>;
   missingMessage?: string;
   message?: string;
@@ -1375,10 +1377,23 @@ const GateRequirementSchema: z.ZodType<GateRequirementManifest> = z.lazy(() => z
   allItems: z.object({ field: z.string().min(1), equals: z.union([z.string(), z.number(), z.boolean()]), label: z.string().min(1).optional() }).optional(),
   anyOf: z.array(GateRequirementSchema).min(2).optional(),
   if: z.object({ field: z.string().min(1), oneOf: z.array(z.string()).min(1) }).optional(),
+  unless: z.object({ field: z.string().min(1), oneOf: z.array(z.string()).min(1) }).optional(),
+  /** A text value must not match: the words that do not belong in a field, as one pattern a test can hold. */
+  notMatches: z.object({
+    pattern: z.string().min(1).refine((p) => {
+      try {
+        void new RegExp(p);
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'not a valid regular expression'),
+    flags: z.string().regex(/^[imsu]*$/, 'flags may be i, m, s, u').optional(),
+  }).optional(),
   valueMessages: z.record(z.string(), z.string()).optional(),
   missingMessage: z.string().optional(),
   message: z.string().optional(),
-}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems or anyOf' }));
+}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf || r.notMatches, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems, anyOf or notMatches' }));
 
 /**
  * The judgement half of a gate: after the deterministic checks pass, one
@@ -1399,7 +1414,9 @@ export const GateJudgeSchema = z.object({
 
 export const HandoffGateSchema = z.object({
   name: z.string().min(1),
-  when: z.object({ field: z.string().min(1), becomes: z.array(z.string().min(1)).min(1) }),
+  /** A transition (`becomes`), or every write that sets the field (`written: true`). */
+  when: z.object({ field: z.string().min(1), becomes: z.array(z.string().min(1)).min(1).optional(), written: z.literal(true).optional() })
+    .refine(w => (w.becomes !== undefined) !== (w.written === true), { message: 'a gate runs on a transition (becomes) or on every write of the field (written: true), one of the two' }),
   producedBy: z.string().min(1).describe('the agent slug whose work this is — where a failure is returned'),
   require: z.array(GateRequirementSchema).min(1),
   judge: GateJudgeSchema.optional(),
