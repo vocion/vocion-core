@@ -27,7 +27,7 @@ import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { announcedAction, asksForAction, DECIDE_TOOLS, decidedInTurn, decideOwed, decisionNamed, describeOpenDecisions, mergeDecisions, openDecisionsOn, pendingCards, personWords } from './agents/owedDecision';
-import { answerNamesFiled, asksToChange, asksToFile, changedInTurn, changeOwedRecord, fileOwedWrite, owedChangeTarget, owedWriteTool } from './agents/owedWriteBackstop';
+import { answerNamesFiled, asksToChange, asksToFile, attemptedChange, changedInTurn, changeOwedRecord, fileOwedWrite, owedChangeTarget, owedWriteTool } from './agents/owedWriteBackstop';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
@@ -1123,6 +1123,9 @@ export async function runAgentDeep(opts: {
             failedDelegations.push({ name: tracer.delegateName(toolNodeId(nsFor(ev))) ?? 'the specialist', message });
           }
           emit({ type: 'tool_error', tool, message });
+          // On the turn's log as a failed call, so the owed-change pass sees
+          // the attempt and no write check counts it as one that landed.
+          toolCallLog.push({ tool, input: parseJsonArgs(ev.data?.input), output: `Error: ${message}` });
           break;
         }
         default:
@@ -1165,6 +1168,11 @@ export async function runAgentDeep(opts: {
       // (reference run 4, cases 1, 8 and 13: an empty completion the loop
       // accepted). An empty turn is not an answer either.
       const empty = soFar.length === 0 && toolCallLog.length === 0;
+      // A FRAGMENT IS NOT AN ANSWER. Conversation 382 (2026-09-29): after a
+      // full reasoning pass the model's whole reply was "Pic" — three
+      // characters, no sentence — and the turn was saved complete. A few
+      // characters with no sentence end is continued like an empty turn.
+      const fragment = soFar.length > 0 && soFar.length < 16 && !/[.!?)\]*`]$/.test(soFar);
       const callsBeforeContinuation = toolCallLog.length;
       // THE EIGHTH SHAPE: an answer that explains, then ENDS on the move it
       // announces — "Let me write the plan now." — after the person said
@@ -1173,21 +1181,24 @@ export async function runAgentDeep(opts: {
       // the last one is, and the person asked for the act, not the plan of
       // it. A call the model wrote out as text is the act, and runs below.
       const announced = !empty && !narrated && !preambleOnly(soFar) && textCalls.length === 0 && asksForAction(opts.message) ? announcedAction(soFar) : null;
-      const continued = empty || (soFar.length > 0 && (preambleOnly(soFar) || narrated || announced !== null));
+      const continued = empty || fragment || (soFar.length > 0 && (preambleOnly(soFar) || narrated || announced !== null));
       if (continued) {
         const narratedName = narrated ? (narrated[1] ?? narrated[2] ?? narrated[3] ?? 'a tool') : null;
-        const why = empty ? 'returned nothing' : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : announced ? 'announced an action it did not take' : 'ended on a promise';
+        const why = empty ? 'returned nothing' : fragment ? `returned a fragment ("${soFar}")` : narratedName ? `wrote the tool's name "${narratedName}" instead of calling it` : announced ? 'announced an action it did not take' : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80) });
         emit({ type: 'status', label: narrated ? `Making the ${narratedName} call it described` : toolCallLog.length > 0 ? `Reading what ${toolCallLog.length} step${toolCallLog.length === 1 ? '' : 's'} found` : 'Looking up what it needs' });
         if (narrated) {
           narratedNudged = true;
           finalText = finalText.replace(NARRATED_TOOL_TAIL, '');
         }
+        if (fragment) {
+          finalText = '';
+        }
         finalText += '\n\n';
         emit({ type: 'response_delta', delta: '\n\n' });
         // What is waiting on the person, so "approve" meets the call that decides it.
         const waiting = announced ? await turnDecisions() : [];
-        const nudge = empty
+        const nudge = empty || fragment
           ? 'You returned nothing — no words and no tool call. Answer the person now: run the lookups you need and reply in one screen.'
           : announced
             ? `You ended your turn on "${announced}" — an announcement, not the action — and the person told you what to do: "${personWords(opts.message).slice(0, 300)}". Do it now, with your tools: make the calls it takes${waiting.length > 0 ? `; what is waiting on them, and the call that decides each:\n${describeOpenDecisions(waiting)}\n` : '. '}Then say in one screen what you did and what it started. Do not repeat that sentence, and never write a tool call as text.`
@@ -1198,7 +1209,7 @@ export async function runAgentDeep(opts: {
           ...input,
           messages: [
             ...input.messages,
-            ...(empty ? [] : [{ role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar }]),
+            ...(empty || fragment ? [] : [{ role: 'assistant', content: narrated ? soFar.replace(NARRATED_TOOL_TAIL, '').trim() : soFar }]),
             { role: 'user', content: withResults(nudge) },
           ],
         } as typeof input);
@@ -1507,7 +1518,7 @@ export async function runAgentDeep(opts: {
   // Asked for in the person's words, or claimed in the answer: "two edits
   // written to the record" with no write behind it (conversation 362) is
   // the same owed change, whoever answered on the page.
-  if (pageRecordId !== null && (asksToChange(opts.message) || (writeClaim(finalText) !== null && !wroteInTurn(toolCallLog))) && !changedInTurn(toolCallLog, pageRecordId)) {
+  if (pageRecordId !== null && (asksToChange(opts.message) || attemptedChange(toolCallLog, pageRecordId) || (writeClaim(finalText) !== null && !wroteInTurn(toolCallLog))) && !changedInTurn(toolCallLog, pageRecordId)) {
     try {
       const { buildDomainTools } = await import('./agents/tools/registry');
       const updateTool = buildDomainTools(boundCtx).find(t => t.name === 'update_object');

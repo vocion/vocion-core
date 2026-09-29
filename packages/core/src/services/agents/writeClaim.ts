@@ -42,12 +42,22 @@ export function isWriteTool(tool: string): boolean {
  * Did the call fail or get refused, by the shapes tools return?
  * @param output - The tool output.
  */
+/**
+ * A write tool's answer that says it did not write. Conversation 382
+ * (2026-09-29): "Proposal #5232 is not yours to withdraw.", a card "not put
+ * up: … declares no field "scope"", and "Received tool input did not match
+ * expected schema" all counted as writes, so the claim check stayed quiet
+ * over "Expanded #201" when nothing had been written. An empty answer is not
+ * a receipt either.
+ */
+const DID_NOT_WRITE = /^(?:error|failed|refused|not (?:put up|proposed|recorded|written|filed|saved)|update (?:refused|failed)|proposal (?:failed|refused)|received tool input did not match|could not|couldn'?t|cannot|can'?t)\b|\bis not yours to\b|\bdid not land\b/i;
+
 function failed(output: string | undefined): boolean {
-  if (!output) {
-    return false;
+  const head = (output ?? '').trimStart().slice(0, 200);
+  if (!head) {
+    return true;
   }
-  const head = output.trimStart().slice(0, 200);
-  return /"ok"\s*:\s*false/.test(head) || /^(?:error|failed|refused)\b/i.test(head);
+  return /"ok"\s*:\s*false/.test(head) || DID_NOT_WRITE.test(head);
 }
 
 /**

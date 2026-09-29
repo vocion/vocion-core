@@ -109,6 +109,9 @@ export async function fileRecommendation(opts: {
     principal: { kind: 'agent', id: agentId, scope: { orgId: opts.orgId }, grants: ['*'], autonomy: 2 },
     invokedBy: opts.userId ?? agentId,
     proposal: {
+      // Who recommended it, so that agent may withdraw it when the person's
+      // turn invoked it (conversation 382: "not yours to withdraw").
+      ...(opts.rec.agentSlug ? { agentSlug: opts.rec.agentSlug } : {}),
       confidence: opts.rec.confidence,
       rationale: opts.rec.rationale,
       ...recommendedActionAdvice(opts.rec),

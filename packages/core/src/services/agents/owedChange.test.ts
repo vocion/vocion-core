@@ -7,7 +7,7 @@
 import type { RuntimeContext } from './types';
 import { AIMessage } from '@langchain/core/messages';
 import { describe, expect, it, vi } from 'vitest';
-import { answerNamesFiled, asksToChange, changedInTurn, changeLine, changeOwedRecord, owedChangeTarget } from './owedWriteBackstop';
+import { answerNamesFiled, asksToChange, attemptedChange, changedInTurn, changeLine, changeOwedRecord, owedChangeTarget } from './owedWriteBackstop';
 
 const proposed: Array<Record<string, unknown>> = [];
 let nextStatus: 'done' | 'pending' = 'done';
@@ -195,5 +195,28 @@ describe('a change asked on /p/feature/N updates request N (conversation 355, 20
     expect(owedChangeTarget(null)).toBeNull();
     expect(owedChangeTarget({ type: 'worker_run', id: '397' })).toBeNull();
     expect(owedChangeTarget({ type: 'object', id: 'contacts:9' })).toBeNull();
+  });
+});
+
+describe('a change asked in other words, or tried and refused (conversation 382)', () => {
+  it('reads "expand the scope" and "get it into the spec" as a change', () => {
+    expect(asksToChange('can you expand the scope of this request? and send the work back to get completed and tested?')).toBe(true);
+    expect(asksToChange('skip design for this, just get it into the spec on this ticket and send back to engineering')).toBe(true);
+    expect(asksToChange('what would it take to expand the scope?')).toBe(false);
+  });
+
+  it('counts a refused card or a cut-off update as tried, not changed', () => {
+    const calls = [
+      { tool: 'recommend_action', input: { action_id: 'objects.update_meta', action_input: { id: 201, set: { scope: 'both halves' } } }, output: 'not put up: Object type "request" declares no field "scope".' },
+      { tool: 'update_object', input: { id: 201, object_type: 'request', reason: 'expand' }, output: 'Received tool input did not match expected schema' },
+    ];
+
+    expect(attemptedChange(calls, 201)).toBe(true);
+    expect(changedInTurn(calls, 201)).toBe(false);
+    expect(attemptedChange(calls, 202)).toBe(false);
+  });
+
+  it('a card with no output changed nothing', () => {
+    expect(changedInTurn([{ tool: 'recommend_action', input: { action_id: 'objects.update_meta', action_input: { id: 201 } }, output: '' }], 201)).toBe(false);
   });
 });

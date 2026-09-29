@@ -216,7 +216,14 @@ export function answerNamesFiled(text: string, output: string): boolean {
  */
 
 /** "change this request", "update the acceptance", "add … to it", "rename it". */
-const CHANGE_VERB = '(?:change|update|edit|amend|revise|modify|add|append|remove|drop|delete|rename|retitle|rewrite|reword|replace|include|mark|make|set|swap|switch|cut|shorten|tighten)';
+const CHANGE_VERB = '(?:change|update|edit|amend|revise|modify|add|append|remove|drop|delete|rename|retitle|rewrite|reword|replace|include|mark|make|set|swap|switch|cut|shorten|tighten|expand|widen|broaden|extend|narrow|rescope|fold)';
+
+/**
+ * The change said as a destination: "get it into the spec on this ticket",
+ * "put that in the acceptance", "work it into this request" (conversation
+ * 382, 2026-09-29 — no verb above, and the turn wrote nothing).
+ */
+const INTO_THE_RECORD = /\b(?:get|put|work|fold|write|bake|roll)\s+(?:it|this|that|them|these)\s+(?:in|into|to)\s+(?:the|this|that|its)\s+(?:spec|request|ticket|record|acceptance|outcome|story|scope|contract|feature)\b/i;
 
 /** The message opens on the change: "Change this request: …", "Please also add …". */
 const OPENS_ON_CHANGE = new RegExp(`^\\s*(?:(?:please|ok(?:ay)?|and|also|now|then)[,\\s]+)*${CHANGE_VERB}\\b`, 'im');
@@ -253,6 +260,7 @@ export function asksToChange(request: string): boolean {
   }
   return OPENS_ON_CHANGE.test(text)
     || NAMES_THE_RECORD.test(text)
+    || INTO_THE_RECORD.test(text)
     || ANNOUNCES_CHANGES.test(text)
     || text.split(CLAUSE_BREAK).some(clause => OPENS_ON_CHANGE.test(clause.trim()));
 }
@@ -266,7 +274,8 @@ export function changedInTurn(toolCalls: ReadonlyArray<{ tool: string; input?: R
   return toolCalls.some((c) => {
     if (c.tool === 'update_object') {
       return Number(c.input?.id) === id
-        && !/^\s*(?:update refused|refused|update failed|not written|update to \S+ #\d+ did not land)/i.test(c.output ?? '');
+        && (c.output ?? '').trim() !== ''
+        && !/^\s*(?:update refused|refused|update failed|not written|update to \S+ #\d+ did not land|received tool input did not match)/i.test(c.output ?? '');
     }
     // The artifact path to the same record (backlog 035): update_artifact on
     // its body answers "<type> #<id> … changed" or "The change to <type> #<id>
@@ -281,7 +290,35 @@ export function changedInTurn(toolCalls: ReadonlyArray<{ tool: string; input?: R
     return (c.tool === 'recommend_action' || c.tool === 'propose_action')
       && c.input?.action_id === 'objects.update_meta'
       && Number(input?.id) === id
-      && !/^\s*(?:\{"ok":false|proposal (?:failed|refused)|not proposed)/i.test(c.output ?? '');
+      // A card that was not put up changed nothing: its output is the
+      // refusal ("not put up: … declares no field "scope""), or empty.
+      && (c.output ?? '').trim() !== ''
+      && !/^\s*(?:\{"ok":false|proposal (?:failed|refused)|not proposed|not put up)/i.test(c.output ?? '');
+  });
+}
+
+/**
+ * Did the turn TRY to change this record — an update_object call on it, or a
+ * card or proposal of `objects.update_meta` for it — whatever came of it?
+ * The attempt is the intent, whatever words the person used. Conversation
+ * 382 (2026-09-29): two cards for request #201 refused for invented field
+ * names ("scope", "acceptanceCriteria") and an update_object cut off with no
+ * `set`; the person's "can you expand the scope of this request?" matched no
+ * change verb, so nothing wrote the change. With {@link changedInTurn} false,
+ * an attempt sends the turn to the change pass, which is handed the record's
+ * real fields.
+ * @param toolCalls - The turn's tool calls.
+ * @param id - The record.
+ */
+export function attemptedChange(toolCalls: ReadonlyArray<{ tool: string; input?: Record<string, unknown> }>, id: number): boolean {
+  return toolCalls.some((c) => {
+    if (c.tool === 'update_object') {
+      return Number(c.input?.id) === id;
+    }
+    const input = c.input?.action_input as Record<string, unknown> | undefined;
+    return (c.tool === 'recommend_action' || c.tool === 'propose_action')
+      && c.input?.action_id === 'objects.update_meta'
+      && Number(input?.id) === id;
   });
 }
 

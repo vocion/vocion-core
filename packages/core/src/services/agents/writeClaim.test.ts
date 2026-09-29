@@ -78,3 +78,13 @@ describe('conversation 349, the second turn (2026-09-28)', () => {
     expect(cardClaim('Tap the card to file it.')).toBeNull();
   });
 });
+
+describe('a write that said it did not write (conversation 382)', () => {
+  it('is not counted as a write', () => {
+    expect(wroteInTurn([{ tool: 'withdraw_proposal', output: 'Proposal #5232 is not yours to withdraw.' }])).toBe(false);
+    expect(wroteInTurn([{ tool: 'recommend_action', output: 'not put up: Object type "request" declares no field "scope".' }])).toBe(false);
+    expect(wroteInTurn([{ tool: 'update_object', output: 'Received tool input did not match expected schema' }])).toBe(false);
+    expect(wroteInTurn([{ tool: 'update_object', output: '' }])).toBe(false);
+    expect(wroteInTurn([{ tool: 'withdraw_proposal', output: 'Withdrew proposal #5232.' }])).toBe(true);
+  });
+});
