@@ -119,6 +119,17 @@ name a new one. A turn longer than `VOCION_CHAT_TURN_LIMIT_MS` (120s) returns wh
 with `truncated: true`; the rest lands in the conversation when the turn finishes. `list_agents` is
 the roster the router chooses from — slug, name, `handles`, `initiative`, suggestions, `lead`.
 
+### Deciding what waits on a person
+
+The Review queue is decided the same way on every surface: the Review page, chat (`decide_proposal`,
+`decide_ask`), the API and MCP. Over MCP, `review_list` and `review_get` read the queue
+(`GET /api/v1/reviews`, `/api/v1/reviews/:kind/:id`). `review_decide` approves, rejects or closes a
+hand-off (`POST /api/v1/reviews/decide`), and `ask_decide` answers an ask with one of its options
+(`POST /api/v1/asks/:id/decide`). They run as the **token**, not an agent: each calls the same
+function its API route calls, needs the same `approve` capability, and records the token as the
+decider. `review-tools.test.ts` holds the parity table; a review verb added to one surface and not
+the others fails it.
+
 ## Related
 
 [Trust rules](../entities/trust.md) · [Earned autonomy](./earned-autonomy.md) ·
