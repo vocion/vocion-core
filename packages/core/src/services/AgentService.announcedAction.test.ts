@@ -14,6 +14,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
+// What the person wants and how each pass ended are a model's reading
+// (`agents/turnJudge.ts`); each test says what that reading is.
+const judge = vi.hoisted(() => ({ intent: {} as Record<string, unknown>, readings: [] as Array<Record<string, unknown>> }));
+vi.mock('@/services/agents/turnJudge', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/services/agents/turnJudge')>();
+  return {
+    ...real,
+    readIntent: vi.fn(async () => ({ ...real.NO_INTENT, ...judge.intent })),
+    judgeAnswer: vi.fn(async () => ({ ...real.NO_JUDGEMENT, ...(judge.readings.shift() ?? {}) })),
+  };
+});
+
 const streamEvents = vi.fn();
 
 vi.mock('@/services/agents/harness', () => ({
@@ -69,6 +81,8 @@ async function run(message: string, pageContext?: unknown) {
 }
 
 beforeEach(async () => {
+  judge.intent = {};
+  judge.readings = [];
   await db.delete(agentSchema);
   await db.insert(agentSchema).values({ orgId: ORG, slug: 'product-manager', name: 'Product manager', systemPrompt: 'Be useful.', harnessConfig: {} } as never);
 });
@@ -76,6 +90,8 @@ beforeEach(async () => {
 describe('a turn that ends on the move it announced', () => {
   it('continues once, with its tools, when the person asked for the act', async () => {
     const inputs = passes([say(`${EXPLAINED}\n\nLet me write the plan now.`)], [say('Approved proposal #5201; the build of #203 is running on plan #215.')]);
+    judge.intent = { wants_action: true, decides: true };
+    judge.readings = [{ ends_on_promise: true, promise: 'Let me write the plan now.' }];
 
     const { result } = await run('approve, fix and run');
 
@@ -99,6 +115,8 @@ describe('a turn that ends on the move it announced', () => {
 
   it('never loops: a continuation that announces again is not continued a second time', async () => {
     const inputs = passes([say(`${EXPLAINED}\n\nLet me write the plan now.`)], [say(`${EXPLAINED}\n\nI'll put the card up now.`)]);
+    judge.intent = { wants_action: true };
+    judge.readings = [{ ends_on_promise: true, promise: 'Let me write the plan now.' }, { ends_on_promise: true, promise: 'I\'ll put the card up now.' }];
 
     await run('write it');
 
@@ -141,6 +159,7 @@ describe('a re-entry continues the real conversation (conversation 384)', () => 
       [toolEnd('lookup_objects', '[{"id":120,"title":"Northwind Share"}]'), say('Let me read the capabilities page and open requests before filing.'), { event: 'on_chain_end', name: 'LangGraph', parent_ids: [], data: { output: { messages: state } } }],
       [say('Branded share links are not built yet; request #88 asks for them. Build it when you are ready.')],
     );
+    judge.readings = [{ answered: false, ends_on_promise: true, promise: 'Let me read the capabilities page and open requests before filing.' }];
 
     await run('Add branded share links to Northwind');
 

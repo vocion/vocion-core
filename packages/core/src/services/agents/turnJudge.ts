@@ -1,0 +1,128 @@
+/**
+ * WHAT THE PERSON MEANT, AND HOW THE TURN ENDED — read by a model, never by
+ * matching words (Chris, 2026-09-29: "we should be using LLM to determine or
+ * route based on intent. NEVER HARD CODE WORD MATCHES … ANYWHERE.").
+ *
+ * The turn loop used to decide from regexes whether a message asked for a
+ * change ("expand the scope" matched no verb, conversation 382), whether a
+ * reply was only a promise, claimed a write, or wrote a tool call as text.
+ * Each of those is a question about meaning. Here each is asked of a small
+ * model once, bound to one tool whose schema is the typed answer, and the
+ * loop routes on the fields:
+ *
+ *   - `readIntent` — at the start of the turn, in parallel with it: does the
+ *     person want the record on their page changed, a new record filed, a
+ *     decision taken on something waiting, an act rather than an answer?
+ *   - `judgeAnswer` — when a pass ends: did it answer, or end on a promise;
+ *     does it say it did something the tool log does not show; did it write
+ *     a call out as text; did it stop mid-thought?
+ *
+ * A reader that fails returns "no signal" (every flag false), so the turn is
+ * never held up by its own judge; the log says it failed.
+ */
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { z } from 'zod';
+
+export const TurnIntentSchema = z.object({
+  changes_page_record: z.boolean().describe('The person wants the record on the page they are on changed: its fields, scope, acceptance, outcome, story, title — however they phrase it ("expand the scope", "get it into the spec", "add X to it").'),
+  files_new_record: z.boolean().describe('The person wants a new record filed or created (a request, a bug, a task, a ticket).'),
+  decides: z.boolean().describe('The person says what to do with something waiting on them — approve, reject, dismiss, build, merge, defer, send it back — in this message, or this message confirms one they named just before ("do it", "write it").'),
+  wants_action: z.boolean().describe('The person wants something done rather than an answer to a question.'),
+  summary: z.string().max(200).describe('What they want, in one short line.'),
+});
+export type TurnIntent = z.infer<typeof TurnIntentSchema>;
+
+export const NO_INTENT: TurnIntent = { changes_page_record: false, files_new_record: false, decides: false, wants_action: false, summary: '' };
+
+export const AnswerJudgementSchema = z.object({
+  answered: z.boolean().describe('The reply gives the person an actual answer or result — not only a promise, a fragment or nothing.'),
+  ends_on_promise: z.boolean().describe('The reply ends by saying it will do or look at something it has not done yet in this turn.'),
+  promise: z.string().max(300).nullable().describe('That closing promise, quoted exactly; null when there is none.'),
+  claims_unrecorded_work: z.boolean().describe('The reply says something was filed, changed, withdrawn, sent, dispatched or put up as a card that the list of steps does not show as done.'),
+  claim: z.string().max(300).nullable().describe('That claim, quoted exactly; null when there is none.'),
+  wrote_call_as_text: z.string().max(80).nullable().describe('The name of a tool the reply wrote out as text (its name, or a block of its arguments) instead of calling; null when none.'),
+  cut_off: z.boolean().describe('The reply stops mid-sentence or mid-thought.'),
+});
+export type AnswerJudgement = z.infer<typeof AnswerJudgementSchema>;
+
+export const NO_JUDGEMENT: AnswerJudgement = { answered: true, ends_on_promise: false, promise: null, claims_unrecorded_work: false, claim: null, wrote_call_as_text: null, cut_off: false };
+
+type Model = Pick<BaseChatModel, 'bindTools'>;
+
+async function ask<T>(model: Model, schema: z.ZodType<T>, name: string, description: string, system: string, human: string): Promise<T | null> {
+  const { tool } = await import('@langchain/core/tools');
+  const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+  const report = tool(async () => 'recorded', { name, description, schema: schema as never });
+  const bound = model.bindTools!([report], { tool_choice: name } as never);
+  const res = await bound.invoke([new SystemMessage(system), new HumanMessage(human)]) as { tool_calls?: Array<{ name: string; args: unknown }> };
+  const call = (res.tool_calls ?? []).find(c => c.name === name);
+  const parsed = call ? schema.safeParse(call.args) : null;
+  return parsed?.success ? parsed.data : null;
+}
+
+async function classifier(orgId: string): Promise<Model> {
+  const { buildChatModelForOrg } = await import('@/libs/llm');
+  return buildChatModelForOrg('classifier', orgId, { temperature: 0, streaming: false, maxTokens: 500 }) as Promise<Model>;
+}
+
+/**
+ * What the person wants from this turn.
+ * @param input - The turn.
+ * @param input.orgId - The workspace.
+ * @param input.message - The person's message.
+ * @param input.previous - The exchange just before it, when there is one.
+ * @param input.previous.person - What the person said last.
+ * @param input.previous.agent - What the agent answered.
+ * @param input.page - The record the person is on, as they know it ("request #201"), when there is one.
+ * @param input.waiting - What is waiting on them here, one line each.
+ * @param model - Injected in tests.
+ */
+export async function readIntent(input: { orgId: string; message: string; previous?: { person?: string; agent?: string }; page?: string | null; waiting?: string }, model?: Model): Promise<TurnIntent> {
+  try {
+    const out = await ask(model ?? await classifier(input.orgId), TurnIntentSchema, 'report_intent', 'Report what the person wants from this turn.', 'You read one message a person sent to an agent in a work app and report, as typed fields, what they want. Judge the meaning, not the wording. Answer only through the tool.', [
+      input.page ? `The person is on the page of ${input.page}.` : 'The person is not on a record\'s page.',
+      input.waiting ? `Waiting on them here:\n${input.waiting}` : '',
+      input.previous?.person ? `They said just before: ${input.previous.person.slice(0, 1_500)}` : '',
+      input.previous?.agent ? `The agent answered: ${input.previous.agent.slice(-1_500)}` : '',
+      `Their message now: ${input.message.slice(0, 4_000)}`,
+    ].filter(Boolean).join('\n\n'));
+    return out ?? NO_INTENT;
+  } catch (err) {
+    console.warn('turn judge: intent read failed', { orgId: input.orgId, message: (err as Error).message });
+    return NO_INTENT;
+  }
+}
+
+/**
+ * How a pass of the turn ended.
+ * @param input - The pass.
+ * @param input.orgId - The workspace.
+ * @param input.message - The person's message.
+ * @param input.reply - What the agent has written so far.
+ * @param input.steps - What the turn did, one line per tool call with its outcome.
+ * @param input.cards - How many cards were put up.
+ * @param model - Injected in tests.
+ */
+export async function judgeAnswer(input: { orgId: string; message: string; reply: string; steps: string[]; cards: number }, model?: Model): Promise<AnswerJudgement> {
+  try {
+    const out = await ask(model ?? await classifier(input.orgId), AnswerJudgementSchema, 'report_reply', 'Report how the agent\'s reply ends and whether it matches what was done.', 'You check an agent\'s reply against the steps it actually took in this turn, and report as typed fields. Judge the meaning, not the wording. Quote the reply exactly where a field asks for a quote. Answer only through the tool.', [
+      `The person said: ${input.message.slice(0, 2_000)}`,
+      `Steps taken this turn (tool, outcome):\n${input.steps.length > 0 ? input.steps.slice(-30).join('\n') : '(none)'}`,
+      `Cards put up for the person: ${input.cards}`,
+      `The reply so far:\n${input.reply.slice(-6_000) || '(empty)'}`,
+    ].join('\n\n'));
+    return out ?? NO_JUDGEMENT;
+  } catch (err) {
+    console.warn('turn judge: reply judgement failed', { orgId: input.orgId, message: (err as Error).message });
+    return NO_JUDGEMENT;
+  }
+}
+
+/**
+ * One line per step for the judge: the tool and what it answered. Whether a
+ * step landed is the judge's reading of that answer, not a string check.
+ * @param calls - The turn's tool calls.
+ */
+export function stepLines(calls: ReadonlyArray<{ tool: string; output?: string }>): string[] {
+  return calls.map(c => `${c.tool} → ${(c.output ?? '(no output)').replace(/\s+/g, ' ').slice(0, 200)}`);
+}
