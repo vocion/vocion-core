@@ -651,6 +651,7 @@ describe('the contract changed after QA (#201)', () => {
     const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.engineering_task!, title: 'Scope rooms', status: 'accepted', metadata: { requestId: r.id, status: 'accepted', prUrl: 'https://github.com/acme/northwind/pull/12', verdict: { value: 'approve', proven: 6, total: 6 }, branch: 'factory/t12' } }).returning();
     const [merge] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'pending', input: { taskId: task!.id, riskClass: 'logic', title: 'Merge', summary: 'x', recipe: 'merge', commitSha: 'a1b2c3d', rollback: 'revert the merge' } } as never).returning();
 
+    const since = new Date(Date.now() - 1_000);
     const out = await carry.reopenForContractChange(ORG, { objectId: r.id, objectType: 'request', fields: 'acceptance,outcome', actor: 'usr-chris' });
 
     expect(out.did).toBe('reopen');
@@ -662,6 +663,8 @@ describe('the contract changed after QA (#201)', () => {
       .filter(a => Number((a.input as { requestId?: unknown }).requestId) === r.id);
 
     expect((next!.input as { recoveryClass?: string }).recoveryClass).toBe('contract_changed');
+    // The write that changed the contract is told what it started, so the answer does not offer to dispatch.
+    expect(await carry.contractChangeReceipt(ORG, r.id, since, 100)).toMatch(new RegExp(`merge #${merge!.id} is held and the next attempt is (started|filed)`));
   });
 
   it('does nothing when no contract field changed, or no merge is waiting', async () => {
@@ -669,5 +672,6 @@ describe('the contract changed after QA (#201)', () => {
 
     expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: 'priority' })).did).toBe('no contract field changed');
     expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: 'acceptance' })).did).toBe('no task to reopen');
+    expect(await carry.contractChangeReceipt(ORG, r.id, new Date(), 100)).toBeNull();
   });
 });

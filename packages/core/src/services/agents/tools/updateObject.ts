@@ -62,6 +62,7 @@ export function updateObjectTool(ctx: RuntimeContext) {
         return notWritableMessage(ctx, object_type, id);
       }
       try {
+        const writtenAt = new Date(Date.now() - 1_000);
         const res = await writeRecordAsAgent(ctx, { objectType: object_type, id, set, reason, confidence });
         ctx.emit({ type: 'tool_progress', tool: 'update_object', meta: { runId: res.runId, status: res.status, outcome: res.outcome } } as never);
         const fields = Object.keys(set).join(', ');
@@ -78,7 +79,13 @@ export function updateObjectTool(ctx: RuntimeContext) {
           return `Update to ${object_type} #${id} did not land (run #${res.runId} is ${res.status}${res.error ? `: ${res.error}` : ''}).`;
         }
         const r = (res.result ?? {}) as { title?: string; previous?: Record<string, unknown> };
-        return `${object_type} #${id}${r.title ? ` "${r.title}"` : ''} updated — ${fields} written (run #${res.runId}, confidence ${confidence})${res.version ? `, now version ${res.version.to} of its history` : ''}. Done for you; the previous values are on the run and a person can undo it from Review › Decided.`;
+        // A request's contract changed: say what the factory started from it,
+        // so the answer does not offer to do what already happened.
+        const { CONTRACT_FIELDS, contractChangeReceipt } = await import('@/services/factory/carry');
+        const started = object_type === 'request' && Object.keys(set).some(f => (CONTRACT_FIELDS as readonly string[]).includes(f))
+          ? await contractChangeReceipt(ctx.orgId, id, writtenAt).catch(() => null)
+          : null;
+        return `${object_type} #${id}${r.title ? ` "${r.title}"` : ''} updated — ${fields} written (run #${res.runId}, confidence ${confidence})${res.version ? `, now version ${res.version.to} of its history` : ''}. Done for you; the previous values are on the run and a person can undo it from Review › Decided.${started ? `\n\n${started}` : ''}`;
       } catch (err) {
         if (err instanceof ActionError) {
           return `Update refused (${err.code}): ${err.message}`;

@@ -1159,3 +1159,55 @@ export async function reopenForContractChange(orgId: string, payload: Record<str
   await updateRecovery(orgId, requestId, s => logLine(s, line, new Date().toISOString()));
   return { requestId, did: 'reopen', line };
 }
+
+/**
+ * WHAT A CONTRACT CHANGE STARTED, for the write that made it. Conversation
+ * 382's replay (2026-09-29): update_object widened request #201, the job
+ * above held the merge and started the next attempt three seconds later —
+ * and the agent, which never heard, answered "Ready to dispatch as soon as
+ * you confirm." The tool now waits briefly for the job's receipt and says it,
+ * so the answer describes what happened rather than offering to do it.
+ *
+ * Null at once when no merge was waiting (nothing to reopen), and null when
+ * the job has not landed within `waitMs` — the write's own receipt stands.
+ * @param orgId - The workspace.
+ * @param requestId - The request whose contract changed.
+ * @param since - When the write ran.
+ * @param waitMs - How long to wait for the job.
+ */
+export async function contractChangeReceipt(orgId: string, requestId: number, since: Date, waitMs = 8_000): Promise<string | null> {
+  const { and, eq, gte, inArray, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const work = await workFor(orgId, requestId);
+  const taskIds = work.tasks.map(t => t.id);
+  if (taskIds.length === 0) {
+    return null;
+  }
+  const merges = async () => (await db.select({ id: actionRunSchema.id, status: actionRunSchema.status, input: actionRunSchema.input, decidedAt: actionRunSchema.decidedAt }).from(actionRunSchema).where(and(
+    eq(actionRunSchema.orgId, orgId),
+    eq(actionRunSchema.actionId, 'git.merge'),
+    inArray(actionRunSchema.status, ['pending', 'awaiting_execution', 'rejected']),
+  ))).filter(r => taskIds.includes(Number((r.input as { taskId?: unknown } | null)?.taskId))
+    && (r.status !== 'rejected' || (r.decidedAt !== null && r.decidedAt >= since)));
+  if ((await merges()).length === 0) {
+    return null;
+  }
+  const deadline = Date.now() + waitMs;
+  while (Date.now() < deadline) {
+    const [dispatch] = await db.select({ id: actionRunSchema.id, status: actionRunSchema.status }).from(actionRunSchema).where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.actionId, 'factory.dispatch_task'),
+      gte(actionRunSchema.createdAt, since),
+      sql`${actionRunSchema.input}->>'recoveryClass' = 'contract_changed'`,
+      sql`(${actionRunSchema.input}->>'requestId')::int = ${requestId}`,
+    )).limit(1);
+    if (dispatch) {
+      const held = (await merges()).filter(r => r.status === 'rejected').map(r => `#${r.id}`);
+      const started = dispatch.status === 'done' ? 'started' : `filed (run #${dispatch.id} is ${dispatch.status})`;
+      return `Because the contract changed while its merge waited, the factory already acted: ${held.length > 0 ? `merge ${held.join(', ')} is held and ` : ''}the next attempt is ${started} (run #${dispatch.id}) — plan again, build, then QA against the new acceptance. Nothing is left to dispatch or confirm; say that this is under way.`;
+    }
+    await new Promise(r => setTimeout(r, 1_000));
+  }
+  return null;
+}
