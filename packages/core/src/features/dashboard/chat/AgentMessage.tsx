@@ -73,9 +73,9 @@ export type AgentMessageProps = {
   /** Display name for the speaker label above the message body. Passed through from ChatShell's active agent. */
   agentName: string;
   onDocumentClick?: (doc: IndexedDocument, num: string) => void;
-  onCitationClick?: (n: number) => void;
+  onCitationClick?: (n: number, messageId?: number) => void;
   /** Optional handler when the "Sources · N" pill is clicked. Opens the SourcesPanel. */
-  onShowSources?: () => void;
+  onShowSources?: (messageId?: number) => void;
   /** True while this message is still streaming — the work timeline stays expanded + live. */
   streaming?: boolean;
   /** Live status line while streaming (rendered inside the work timeline). */
@@ -266,7 +266,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {sourceCount > 0 && (
             <button
               type="button"
-              onClick={onShowSources}
+              onClick={() => onShowSources?.(message.id)}
+              data-testid="sources-chip"
               className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] tracking-normal text-foreground/80 normal-case transition hover:border-primary/30 hover:text-foreground"
             >
               <FileText className="size-2.5" aria-hidden />
@@ -389,7 +390,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                               return (
                                 <button
                                   type="button"
-                                  onClick={() => onCitationClick?.(n)}
+                                  onClick={() => onCitationClick?.(n, message.id)}
                                   className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
                                   aria-label={`Open source ${n}`}
                                 >

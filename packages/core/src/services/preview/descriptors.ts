@@ -1,10 +1,12 @@
 import type { DocumentVerification } from '@/libs/cards/specs';
+import type { TurnSource } from '@/libs/preview/sourcesRef';
 import type { PreviewDoc, PreviewFact } from '@/libs/preview/types';
 import type { RecordRef } from '@/services/chat/pageContext';
 import type { KnowledgeDocumentDetail } from '@/services/SourceSyncService';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
+import { parseSourcesRefId, sourcesMarkdown } from '@/libs/preview/sourcesRef';
 import { canOpenArtifact } from '@/libs/share/audience';
 import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
@@ -357,8 +359,13 @@ registerPreview('briefing', {
 
 registerPreview('conversation', {
   sourceLabel: 'Conversation',
-  href: ref => `/dashboard/chat?c=${encodeURIComponent(ref.id)}`,
+  href: ref => `/dashboard/chat?c=${encodeURIComponent(String(parseSourcesRefId(ref.id)?.conversationId ?? ref.id))}`,
   resolve: async (ref, ctx) => {
+    // A turn's sources — the rail's "Sources · N" chip (`libs/preview/sourcesRef`).
+    const sources = parseSourcesRefId(ref.id);
+    if (sources) {
+      return resolveSources(ref, ctx, sources);
+    }
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id)) {
       return null;
@@ -409,6 +416,44 @@ registerPreview('conversation', {
     };
   },
 });
+
+/**
+ * The sources a conversation's answers drew on — one turn's when the chip
+ * named it — from what each turn persisted (`documents_json`), so the pane
+ * lists exactly what the chip counted.
+ * @param ref - The preview ref.
+ * @param ctx - The caller.
+ * @param ctx.orgId - Their org; a conversation in another org resolves to nothing.
+ * @param which - From `parseSourcesRefId`.
+ * @param which.conversationId - The conversation.
+ * @param which.messageId - The one turn, or null for every turn.
+ */
+async function resolveSources(ref: RecordRef, ctx: { orgId: string }, which: { conversationId: number; messageId: number | null }): Promise<PreviewDoc | null> {
+  const [convo] = await db
+    .select({ id: conversationSchema.id, title: conversationSchema.title })
+    .from(conversationSchema)
+    .where(and(eq(conversationSchema.orgId, ctx.orgId), eq(conversationSchema.id, which.conversationId)))
+    .limit(1);
+  if (!convo) {
+    return null;
+  }
+  const rows = await db
+    .select({ id: conversationMessageSchema.id, documents: conversationMessageSchema.documentsJson })
+    .from(conversationMessageSchema)
+    .where(which.messageId !== null
+      ? and(eq(conversationMessageSchema.conversationId, convo.id), eq(conversationMessageSchema.id, which.messageId))
+      : eq(conversationMessageSchema.conversationId, convo.id))
+    .orderBy(asc(conversationMessageSchema.id))
+    .limit(200);
+  const docs: TurnSource[] = rows.flatMap(r => (Array.isArray(r.documents) ? r.documents : []));
+  return {
+    ref,
+    title: `Sources · ${docs.length}`,
+    sourceLabel: 'Sources',
+    facts: facts({ label: 'Conversation', value: convo.title ?? `#${convo.id}` }, which.messageId !== null && { label: 'Answer', value: `#${which.messageId}` }),
+    ...(docs.length > 0 ? body(sourcesMarkdown(docs), LOG_LIMIT) : { body: 'No sources were kept for this answer.' }),
+  };
+}
 
 registerPreview('worker_run', {
   sourceLabel: 'Engineering run',

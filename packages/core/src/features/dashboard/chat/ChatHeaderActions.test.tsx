@@ -31,3 +31,25 @@ describe('the rail opens its thread on the full chat page', () => {
     expect(screen.container.querySelector('[data-testid="open-full-chat"]')).toBeNull();
   });
 });
+
+describe('New chat focuses the box of the surface it sits in (Chris, 2026-09-29)', () => {
+  it('lands the caret in its own surface\'s composer, not another on the page', async () => {
+    const onNewChat = vi.fn();
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <div>
+          <textarea data-agent-composer aria-label="other surface" />
+        </div>
+        <div>
+          <ChatHeaderActions onNewChat={onNewChat} history={null} />
+          <textarea data-agent-composer aria-label="this surface" />
+        </div>
+      </NextIntlClientProvider>,
+    );
+
+    await page.getByRole('button', { name: 'New chat' }).click();
+
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+    await expect.element(page.getByRole('textbox', { name: 'this surface' })).toHaveFocus();
+  });
+});

@@ -41,9 +41,9 @@ export type MessageListProps = {
   /** Live status line while streaming — rendered in the last agent message's work timeline. */
   activity?: string | null;
   /** Opens the Sources drawer when a message's "Sources · N" pill is clicked. */
-  onShowSources?: () => void;
+  onShowSources?: (messageId?: number) => void;
   /** Opens the Sources drawer focused on citation `[n]` when an inline marker is tapped. */
-  onCitationClick?: (n: number) => void;
+  onCitationClick?: (n: number, messageId?: number) => void;
   /**
    * Non-message content that lives in the transcript at a position (058):
    * the dock's guided review cards. `afterIndex` is the message the block

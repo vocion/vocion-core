@@ -213,3 +213,19 @@ export function focusAgentComposer(container: HTMLElement | null): void {
   };
   requestAnimationFrame(tryFocus);
 }
+
+/**
+ * The surface a control sits in: its nearest ancestor that holds an agent
+ * composer, or null when none does. A header control (New chat) finds its
+ * own box this way — the rail's in the rail, the page's on the page —
+ * without every surface threading a ref down to it.
+ * @param from - The control.
+ */
+export function composerSurfaceOf(from: Element | null): HTMLElement | null {
+  for (let el = from?.parentElement ?? null; el; el = el.parentElement) {
+    if (el.querySelector('[data-agent-composer]')) {
+      return el;
+    }
+  }
+  return null;
+}

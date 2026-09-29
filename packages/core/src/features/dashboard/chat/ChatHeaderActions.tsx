@@ -5,6 +5,7 @@ import { Maximize2, SquarePen } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
+import { composerSurfaceOf, focusAgentComposer } from './agentSurface';
 import { chatHotkeyLabel } from './chatHotkeys';
 import { ChatMenu } from './ChatMenu';
 import { HistoryPopover } from './HistoryPopover';
@@ -43,7 +44,14 @@ export function ChatHeaderActions({ onNewChat, onCopy, history, compact, fullPag
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={onNewChat}
+            // Starting over lands the caret in THIS surface's box, whichever
+            // surface it is (Chris, 2026-09-29: "clicking new chat button
+            // should auto focus the compose bar").
+            onClick={(e) => {
+              const surface = composerSurfaceOf(e.currentTarget);
+              onNewChat();
+              focusAgentComposer(surface);
+            }}
             aria-label={t('new_chat')}
             data-testid="new-chat"
             className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"

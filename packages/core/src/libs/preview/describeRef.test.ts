@@ -33,6 +33,10 @@ describe('a reference, in words', () => {
     expect(describeRef({ type: 'mission_run', id: '5974', label: 'Triage the export', href: '/dashboard/somewhere' })).toEqual({ label: 'Triage the export', href: '/dashboard/somewhere' });
   });
 
+  it('names a turn\'s sources and opens their conversation', () => {
+    expect(describeRef({ type: 'conversation', id: '41.sources.9051' })).toEqual({ label: 'Sources', href: '/dashboard/chat?c=41' });
+  });
+
   it('reads a citation the way the evidence list does', () => {
     expect(describeRef({ type: 'document', id: 'docuseal:7c9a11' }).href).toBeNull();
   });

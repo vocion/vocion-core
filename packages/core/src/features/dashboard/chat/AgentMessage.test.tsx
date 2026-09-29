@@ -32,7 +32,30 @@ describe('AgentMessage inline citations', () => {
 
     await userEvent.click(cite);
 
-    expect(onCitationClick).toHaveBeenCalledWith(1);
+    expect(onCitationClick).toHaveBeenCalledWith(1, undefined);
+  });
+});
+
+describe('AgentMessage Sources chip', () => {
+  it('says which turn was pressed, so a surface can open that turn\'s sources (Chris, 2026-09-29)', async () => {
+    const onShowSources = vi.fn();
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        onShowSources={onShowSources}
+        message={{
+          id: 9051,
+          role: 'assistant',
+          content: 'Ships Friday.',
+          runs: [{ type: 'text', text: 'Ships Friday.' }],
+          documents: [{ document_id: 'd1', semantic_identifier: 'Kestrel kickoff notes', link: 'https://notes.example/k1', source_type: 'web', blurb: '' }],
+        }}
+      />,
+    );
+
+    await userEvent.click(page.getByTestId('sources-chip'));
+
+    expect(onShowSources).toHaveBeenCalledWith(9051);
   });
 });
 

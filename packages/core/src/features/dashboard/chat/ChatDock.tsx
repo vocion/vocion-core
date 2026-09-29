@@ -20,8 +20,9 @@ import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
-import { closePreview, useOpenPreviewRef } from '@/features/preview/previewState';
+import { closePreview, openPreview, useOpenPreviewRef } from '@/features/preview/previewState';
 import { client } from '@/libs/Orpc';
+import { sourcesPreviewRef } from '@/libs/preview/sourcesRef';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
@@ -293,7 +294,18 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     });
   }, [session.conversationId]);
   const queueProps = useComposerQueueProps(session);
-  const onCommand = useChatCommands(session.handleNewChat);
+  const asideRef = useRef<HTMLElement | null>(null);
+  const openSources = useCallback((messageId?: number) => {
+    if (session.conversationId !== null) {
+      openPreview(sourcesPreviewRef(session.conversationId, messageId), document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    }
+  }, [session.conversationId]);
+  // `/new` lands the caret in the rail's box, as the header's New chat does.
+  const startNewChat = useCallback(() => {
+    session.handleNewChat();
+    focusAgentComposer(asideRef.current);
+  }, [session]);
+  const onCommand = useChatCommands(startNewChat);
   // The rail IS on a page, so `(+)` offers `@page` and the record in view
   // beside `@artifact` — the same list `@` resolves against. `@change` joins
   // it only where a sequence draft is in view, which is exactly where the
@@ -305,7 +317,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   useEffect(() => {
     sessionRef.current = session;
   });
-  const asideRef = useRef<HTMLElement | null>(null);
   const narrow = useNarrowViewport();
   // `document` exists only on the client; the rail paints nothing on the
   // server, which is already true of everything it depends on (localStorage,
@@ -710,6 +721,11 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                     agentName={session.workspaceName}
                     streaming={session.isStreaming}
                     activity={session.activity}
+                    // The rail's second pane is the preview pane: a turn's
+                    // sources open there, beside the thread (Chris,
+                    // 2026-09-29: "clicking source … doesn't do anything").
+                    onShowSources={openSources}
+                    onCitationClick={(_n, messageId) => openSources(messageId)}
                     blocks={blocks}
                     onFeedback={session.handleFeedback}
                     autonomy={session.autonomy}
