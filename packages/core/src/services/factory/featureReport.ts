@@ -2543,7 +2543,13 @@ function todaySection(request: ReportObject, artifacts: ReportArtifact[]): Repor
   const s = blank('today', 'How it works today');
   const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
   const surfaceUrl = str(visuals, 'surfaceUrl');
-  const shots = artifacts.filter(a => a.recordRole === 'before-shot');
+  // The screen as it is: a before-shot filed on the request, and the
+  // screenshot a mockup was drawn on (`beforeArtifactIds` beside
+  // `mockupArtifactIds`) — one picture of today, however it arrived.
+  const drawnOn = Array.isArray(visuals.mockupArtifactIds) && visuals.mockupArtifactIds.length > 0 && Array.isArray(visuals.beforeArtifactIds)
+    ? new Set(visuals.beforeArtifactIds.map(String))
+    : new Set<string>();
+  const shots = artifacts.filter(a => a.recordRole === 'before-shot' || drawnOn.has(String(a.id)));
   s.facts = surfaceUrl === null
     ? []
     : [{ label: 'See it live', value: surfaceUrl, href: surfaceUrl }];
@@ -2626,7 +2632,14 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): Rep
     const raw = visuals[key];
     return new Set(Array.isArray(raw) ? raw.map(String) : []);
   };
-  const before = ids('beforeArtifactIds');
+  // THE PROPOSED DESIGN is `mockupArtifactIds`: the real screen with the
+  // change drawn in (`draw_mockup`). Where a record has it, `beforeArtifactIds`
+  // is the screenshot that mockup was drawn on — the screen today — and is
+  // shown under How it works today. A record written before the split kept
+  // its mockups on `beforeArtifactIds`, so without mockups that list is still
+  // read as the proposal.
+  const mockups = ids('mockupArtifactIds');
+  const before = mockups.size > 0 ? mockups : ids('beforeArtifactIds');
   const after = ids('afterArtifactIds');
   // An artifact filed against the REQUEST is about the outcome; one filed
   // against a task is about the change and belongs to QA.

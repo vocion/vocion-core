@@ -414,8 +414,11 @@ describe('loadWorkspace with the software factory', () => {
 
     expect(designer?.skills).toEqual(['design-the-change', 'rubric-designer']);
     expect(designer?.objectTypes).toEqual(['request', 'product']);
-    expect(designer?.resolvedSystemPrompt).toContain('visuals.beforeArtifactIds');
+    expect(designer?.resolvedSystemPrompt).toContain('draw_mockup');
     expect(designer?.resolvedSystemPrompt).toContain('visuals.afterArtifactIds');
+    // A mockup is the real screen with the change drawn in, never a document
+    // or a generated picture (request #224, 2026-09-29).
+    expect(designer?.harness?.excludeTools).toEqual(expect.arrayContaining(['render_document', 'generate_image']));
     expect(ws.skills.find(s => s.slug === 'design-the-change')?.playbooks).toEqual(['designing-a-surface', 'house-voice']);
 
     // Every way the PM acts is an automation on one of its two missions —

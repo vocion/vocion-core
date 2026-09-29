@@ -791,7 +791,11 @@ function visualsOf(row: PageRow): { before: number; after: number; reason: strin
   const v = raw !== null && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   const count = (k: string) => (Array.isArray(v[k]) ? (v[k] as unknown[]).length : 0);
   const note = typeof v.noVisualReason === 'string' && v.noVisualReason.trim() !== '' ? v.noVisualReason.trim() : null;
-  return { before: count('beforeArtifactIds'), after: count('afterArtifactIds'), reason: note };
+  // The mock is `mockupArtifactIds` (draw_mockup); a record from before the
+  // split kept it on `beforeArtifactIds`, which now holds the screenshot the
+  // mockup was drawn on — a picture of today, not a proposal.
+  const mocks = count('mockupArtifactIds');
+  return { before: mocks > 0 ? mocks : count('beforeArtifactIds'), after: count('afterArtifactIds'), reason: note };
 }
 
 /** What a row's acceptance count reads beside the request: its attempts, and which of them shipped. */
@@ -943,7 +947,7 @@ export function visualArtifactId(row: PageRow, lane: WorkLane): number | null {
   // The row's picture is a REAL one — a mockup somebody filed, or the
   // after-shot once it shipped. The platform's drawing is the feature page's
   // fallback, not a list thumbnail (Chris, 2026-09-25).
-  const proposed = first('beforeArtifactIds');
+  const proposed = first('mockupArtifactIds') ?? first('beforeArtifactIds');
   return lane === 'done' ? first('afterArtifactIds') ?? proposed : proposed;
 }
 

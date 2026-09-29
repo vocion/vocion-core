@@ -54,6 +54,8 @@ export const FEATURES = {
   DISCOVERY_CLASSIFY: 'discovery.classify',
   /** The `generate_image` agent tool — the priciest single call an agent makes. */
   TOOL_IMAGE: 'tool.image',
+  /** The `draw_mockup` survey — a vision read of the real screen a mockup is drawn on. */
+  TOOL_MOCKUP: 'tool.mockup',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

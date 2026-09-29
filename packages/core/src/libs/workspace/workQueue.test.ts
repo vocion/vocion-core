@@ -563,6 +563,13 @@ describe('which picture the card shows', () => {
     expect(visualArtifactId(row(4, 'd', { visuals: { beforeArtifactIds: [11] } }), 'done')).toBe(11);
   });
 
+  it('shows the drawn mockup, never the screenshot it was drawn on', () => {
+    const meta = { surface: 'ui', state: 'new', visuals: { beforeArtifactIds: [11], mockupArtifactIds: [31, 32] } };
+
+    expect(visualArtifactId(row(7, 'g', meta), 'proposed')).toBe(31);
+    expect(visualGap(row(7, 'g', meta), 'proposed')).toBeNull();
+  });
+
   it('has no picture for a row that names none', () => {
     expect(visualArtifactId(row(5, 'e', {}), 'proposed')).toBeNull();
     expect(visualArtifactId(row(6, 'f', { visuals: { beforeArtifactIds: [] } }), 'proposed')).toBeNull();

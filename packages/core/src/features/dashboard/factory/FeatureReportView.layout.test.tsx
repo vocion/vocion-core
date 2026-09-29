@@ -351,6 +351,29 @@ describe('the pieces that carried over', () => {
     await expect.element(page.getByTestId('report-preview-pending')).toBeInTheDocument();
   });
 
+  it('shows the drawn mockups, not "Preview pending", once draw_mockup has written them (request #224)', async () => {
+    await page.viewport(390, 844);
+    const png = (id: number) => `/api/artifacts/o-${id}/o-${id}.png`;
+    await draw(fixture({
+      request: { id: 41, title: 'Copy a file\'s link from the list', status: 'new', createdAt: T('2026-09-20T09:00:00Z'), meta: { surface: 'ui', state: 'in_scope', product: 'northwind-portal', visuals: { beforeArtifactIds: [81], mockupArtifactIds: [92, 93] } } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [
+        { id: 81, kind: 'link', title: 'Files · desktop · before', recordType: 'object', recordId: '77', recordRole: 'qa-screenshot', spec: {}, url: png(81), createdAt: T('2026-09-19T09:00:00Z') },
+        { id: 92, kind: 'file', title: 'Copy a file\'s link · Default', recordType: 'object', recordId: '41', recordRole: 'mockup:default', spec: { contentType: 'image/png' }, url: png(92), createdAt: T('2026-09-20T09:00:00Z') },
+        { id: 93, kind: 'file', title: 'Copy a file\'s link · Link copied', recordType: 'object', recordId: '41', recordRole: 'mockup:link-copied', spec: { contentType: 'image/png' }, url: png(93), createdAt: T('2026-09-20T09:00:01Z') },
+      ],
+    }));
+
+    expect(document.querySelector('[data-testid="report-preview-pending"]')).toBeNull();
+
+    const srcs = [...document.querySelectorAll<HTMLImageElement>('[data-testid="report-slide"] img')].map(i => i.getAttribute('src'));
+
+    // Every drawn state, in order, beside the real screen it was drawn on.
+    expect([...srcs].sort()).toEqual([png(81), png(92), png(93)]);
+    expect(srcs.indexOf(png(92))).toBeLessThan(srcs.indexOf(png(93)));
+  });
+
   it('says a missing plan in plain words', () => {
     expect(plainWarning('The plan rule required a plan for this work and none is on the record. 1 worker run ran anyway.')).toBe('This feature was built without the required plan.');
     expect(plainWarning('Two releases claim this request. The second has no commit.')).toBe('Two releases claim this request.');

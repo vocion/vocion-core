@@ -964,6 +964,18 @@ describe('what it looks like', () => {
     expect(visuals(req({ surface: 'ui', state: 'shipped', visuals: { noVisualReason: 'Text-only change.' } })).absence).toMatch(/on purpose: Text-only change/);
   });
 
+  it('reads the proposal off mockupArtifactIds, and the screenshot it was drawn on as the screen today', () => {
+    const shot = { id: 81, kind: 'link', title: 'Files · desktop · before', recordType: 'object', recordId: '12', recordRole: 'qa-screenshot', spec: {}, url: '/api/artifacts/o-a/o-a.png', createdAt: new Date('2026-09-21T10:00:00Z') } as never;
+    const mock = (id: number, title: string) => ({ id, kind: 'file', title, recordType: 'object', recordId: '7', recordRole: `mockup:${id}`, spec: { contentType: 'image/png' }, url: `/api/artifacts/o-${id}/o-${id}.png`, createdAt: new Date('2026-09-22T10:00:00Z') }) as never;
+    const r = { ...req({ surface: 'ui', visuals: { beforeArtifactIds: [81], mockupArtifactIds: [92, 93] } }), artifacts: [shot, mock(92, 'Files · Default'), mock(93, 'Files · Link copied')] } as never;
+    const report = assembleFeatureReport(r);
+    const preview = report.sections.find(x => x.key === 'visuals')!;
+    const today = report.sections.find(x => x.key === 'today')!;
+
+    expect(preview.evidence.map(e => [e.id, e.role, e.imageUrl])).toEqual([[92, 'proposed', '/api/artifacts/o-92/o-92.png'], [93, 'proposed', '/api/artifacts/o-93/o-93.png']]);
+    expect(today.evidence.map(e => [e.id, e.role])).toEqual([[81, 'today']]);
+  });
+
   it('flags work that was proposed with a visual and closed without one', () => {
     const s = visuals({ ...req({ surface: 'ui', state: 'shipped', visuals: { beforeArtifactIds: [91] } }), artifacts: [art(91, 'Proposed flow')] } as never);
 

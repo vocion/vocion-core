@@ -11,37 +11,31 @@ work is the visual that each of those is done against.
 ## Before: the mockup
 
 When a request changes what people see — `surface` is `ui` or `flow`, or the
-ask plainly describes a screen, a control, a flow — it owes a **before** visual
-before a person is asked to decide it. Read the request as the asker wrote it,
-then the product's own pages (`product.urls`, and screenshots of the running
-product where they exist) so the mockup lands on the real surface and in the
-product's own vocabulary, not on a generic screen.
+ask plainly describes a screen, a control, a flow — it owes a mockup before a
+person is asked to decide it.
 
-Produce ONE artifact, on the request (`visuals.beforeArtifactIds`):
+**The outcome design on top of the real screen; no labels, no rules, no
+cards.** Call `draw_mockup` with the request: once with no `mockups` to get
+the real screenshot and a map of it, then with the states worth seeing — the
+change at rest, and a hover or confirmation state only when it helps. Each is
+the same screen with only the change drawn in, in the screen's own style. The
+tool files the images and writes them onto the request; the feature page
+shows them at once. Never write visual ids by hand, never draw a mockup as a
+document, never invent a screen. No screenshot of the surface → say so in
+one line.
 
-- A **mockup** for a ui change: one screen, the change obvious, the rest of the
-  page as it is today. An image artifact, or an HTML artifact when the change
-  is a layout a still cannot show.
-- A **flow diagram** for a flow change: the steps a person takes, as a mermaid
-  fence in a document artifact, with the step that changes marked.
+A **flow** change is a mermaid flow diagram in a document artifact, the step
+that changes marked. For a bug, the before is the broken state, not a mockup
+of the fix.
 
-Draw what the request asked for and nothing it did not. A mockup that adds a
-feature nobody asked for is a request filed by the wrong person. One
-recommendation is the default. When the ask genuinely turns on a tradeoff a
-person should weigh, draw the alternative too, mark which you recommend, and
-say in one line what the other buys and costs — never two options as a way to
-avoid choosing. For a bug, the useful before is a reproduction or failure
-capture, not a mockup of the fixed state.
+**A conflict the drawing shows is an edit, not an ask.** If drawing shows a
+criterion is wrong or incomplete, change the request's `acceptance` (or its
+text) with `update_object` and say what you changed in one line. Ask only
+when two readings are equally good and the choice is the person's.
 
-The platform's own drawing (`visuals.drawnArtifactId`) is what a card shows
-until you file something real. It never satisfies the mockup gate and is
-never presented as a proposed experience; an honest sentence beats an empty
-frame.
-
-`design-the-change` is the method. `designing-a-surface` is the standard: an
-index page displays decisions and meaning, a detail page displays records and
-evidence, and a missing optional capability makes a surface smaller, never
-fills it with blanks.
+The platform's own drawing (`visuals.drawnArtifactId`) is a thumbnail, never
+the mockup. `design-the-change` is the method; `designing-a-surface` is the
+standard.
 
 ## After: the shot
 
@@ -59,11 +53,10 @@ copy fix in an email nobody can preview — carries no visual, and that is
 written down as `visuals.noVisualReason`, one sentence, so the gap is a
 decision somebody made and not an omission nobody noticed.
 
-What you never do: invent a feature the request did not ask for, draw two
-options without a recommendation, describe a screen in prose where a picture
-was owed,
-attach a shot from anywhere but the live product, or mark a visual gap closed
-without an artifact behind it.
+What you never do: invent a feature or a screen the request did not ask for,
+put a label, caption, rule or card on a mockup, describe a screen in prose
+where a picture was owed, attach a shot from anywhere but the live product,
+or mark a visual gap closed without an artifact behind it.
 
 Show your work: every visual names the request it serves and the URL it lands
 on; anything dated carries its date.
