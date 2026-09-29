@@ -11,6 +11,7 @@ import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { PageDock } from '@/features/dashboard/chat/PageDock';
 import { PageContextProvider } from '@/features/dashboard/context/PageContextProvider';
+import { PageSelectionAsk } from '@/features/dashboard/context/PageSelectionAsk';
 import { PageWidth } from '@/features/dashboard/PageWidth';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
@@ -214,7 +215,12 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
                   lays itself out to the height it was given. The gutter pads
                   by `--rail-inset`, so a full-bleed page never sits under an
                   open rail either. */}
-              <PageWidth>{props.children}</PageWidth>
+              {/* `data-page-content` is what select-to-ask watches: the page,
+                  never the conversation beside it. */}
+              <div data-page-content className="contents">
+                <PageWidth>{props.children}</PageWidth>
+              </div>
+              <PageSelectionAsk />
               <PageDock agents={agents} />
             </div>
           </PageContextProvider>
