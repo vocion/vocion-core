@@ -124,6 +124,25 @@ describe('execute', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok-fixture');
   });
 
+  it('records only the leaves response.select names, so a run does not keep what the API served beside them', async () => {
+    await db.delete(knowledgeSourceSchema);
+    await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'acme-delivery',
+      kind: 'plugin',
+      configJson: {
+        _connector: 'rest',
+        _name: 'Acme Delivery API',
+        actions: [{ name: 'update_milestone', method: 'PUT', path: '/api/milestones/{documentId}', input: { type: 'object', properties: { documentId: { type: 'string' } }, required: ['documentId'] }, response: { pick: 'data', select: ['documentId', 'name'] } }],
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => res(200, { data: { documentId: 'm-12', name: 'Kickoff', brief: { blocks: [1, 2, 3] } }, meta: { audit: 'x' } })));
+
+    const out = await restRequestAction.execute(CTX, parse({ sourceSlug: 'acme-delivery', action: 'update_milestone', input: { documentId: 'm-12' }, summary: 'Rename.' }));
+
+    expect(out).toMatchObject({ status: 200, body: { documentId: 'm-12', name: 'Kickoff' } });
+  });
+
   it('drops body keys whose argument was not supplied, and still sends {} when every key dropped', async () => {
     const f = vi.fn(async () => res(200, {}));
     vi.stubGlobal('fetch', f);

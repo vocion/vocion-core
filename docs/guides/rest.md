@@ -49,6 +49,7 @@ config:
         'pagination[pageSize]': '100'
       response:
         pick: data # optional dotted path into the JSON to return
+        select: ['[].documentId', '[].name', '[].status'] # optional: only these leaves, after pick
         maxChars: 40000 # default 40000; past it the text is cut and says how long it was
     - name: get_project
       method: GET
@@ -100,6 +101,7 @@ Every tool or action:
 | `input` | no | The arguments, as JSON Schema — see the subset below. Default: no arguments. |
 | `query` | no | Parameter name → template, on a tool or an action alike. A parameter whose template resolves to nothing is not sent. |
 | `response.pick` | no | Dotted path into the JSON to return, e.g. `data.items`. A missing path is reported, not papered over. |
+| `response.select` | no | The leaves to keep, applied after `pick` — see [Selecting fields](#selecting-fields). Anything not named is dropped. |
 | `response.maxChars` | 40000 | Longest text handed back. Past it the text is cut and ends with a notice giving the total length. |
 
 An action also takes:
@@ -110,6 +112,46 @@ An action also takes:
 | `reversible` | `false` | Whether a person could put the write back by hand. `false` badges the card Irreversible. |
 | `review.title` | `<description> — <source name>` | The card's title, templated. |
 | `review.fields[]` | `[]` | `{ label, value }` rows, templated. A row whose value resolves to nothing is left off. |
+
+### Selecting fields
+
+An API serves what it serves. A custom Strapi route ignores `fields[]`, so a
+list of projects comes back with every row's brief, its notes and its history
+inline — a page of JSON per row that the model never asked for and that hits
+`maxChars` after three rows. `response.select` names the leaves the contract
+wants, and nothing else reaches the model:
+
+```yaml
+- name: list_projects
+  method: GET
+  path: /api/projects
+  response:
+    pick: data
+    select: ['[].documentId', '[].name', '[].status', '[].company.name']
+```
+
+For a page shaped `{ data: [ { documentId, name, status, company: { name, notes: {…} }, brief: {…} }, … ], meta: {…} }`
+the tool returns `[ { documentId, name, status, company: { name } }, … ]`.
+
+The rules:
+
+- A path is dotted: `name`, `company.name`. `[]` after a key means every
+  element of that array: `data[].documentId`, `data[].company.name`. A segment
+  that is only `[]` means every element of the value itself, for an endpoint
+  whose `pick` already lands on an array, as above.
+- The output keeps the original nesting of the selected leaves. Selecting
+  `data[].documentId` and `data[].name` yields `{ data: [ { documentId, name }, … ] }`;
+  `meta`, or any other key, is kept only if a path names it (`meta.pagination.total`).
+- A path that resolves to nothing is simply absent: no error, no `null`. A row
+  none of whose selected fields exist stays as `{}`, so the row count is still
+  the API's.
+- A path that ends on an object or an array keeps that whole subtree.
+- No `*`: the contract names its fields. A path may use letters, digits, `_`,
+  `-`, `.` and `[]`; anything else, an index like `[0]`, or an entry that is not
+  a string is refused at apply with the entry named.
+
+It applies after `pick` and before `maxChars`, on a read tool and on the
+result `rest.request` records alike.
 
 ### Templates
 

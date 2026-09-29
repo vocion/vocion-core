@@ -20,6 +20,7 @@
 import type { InputSchema } from './jsonSchema';
 import { z } from 'zod';
 import { EMPTY_INPUT_SCHEMA, inputPropertyNames, inputSchemaProblems } from './jsonSchema';
+import { selectPathProblem } from './select';
 import { builtinPlaceholderProblems, placeholdersIn, placeholdersInTemplate } from './template';
 
 /** The HTTP methods an endpoint may declare. */
@@ -48,9 +49,23 @@ const InputSchemaSchema = z.custom<InputSchema>(() => true).superRefine((value, 
   }
 });
 
+/** One `response.select` entry, refused at apply with the path named (`libs/rest/select.ts`). */
+const SelectPathSchema = z.string().superRefine((value, ctx) => {
+  const problem = selectPathProblem(value);
+  if (problem) {
+    ctx.addIssue({ code: 'custom', message: problem });
+  }
+});
+
 const ResponseSchema = z.object({
   /** Dotted path into the JSON to return instead of the whole document, e.g. `data` or `data.items`. */
   pick: z.string().regex(/^[a-z_$][\w$]*(?:\.[a-z_$][\w$]*)*$/i, 'must be a dotted path of property names, e.g. data.items').optional(),
+  /**
+   * The leaves to keep, applied after `pick`: dotted paths, `[]` for every
+   * element of an array (`data[].documentId`). Nesting is kept; anything not
+   * named is dropped; a path that resolves to nothing is absent.
+   */
+  select: z.array(SelectPathSchema).optional(),
   /** Longest text handed back; past it the text is truncated and says so. */
   maxChars: z.number().int().positive().default(REST_DEFAULT_MAX_CHARS),
 }).strict();

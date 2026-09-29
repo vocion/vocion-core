@@ -31,6 +31,7 @@ import type { TemplateClock } from '@/libs/rest/template';
 import { z } from 'zod';
 import { buildUrl, capJson, pickPath, restCall, restCredentialsOf } from '@/libs/rest/client';
 import { zodFromInputSchema } from '@/libs/rest/jsonSchema';
+import { selectPaths } from '@/libs/rest/select';
 import { restSourceForOrg } from '@/libs/rest/sources';
 import { endpointDescription } from '@/libs/rest/spec';
 import { renderPath, renderQuery, renderString, renderTemplate } from '@/libs/rest/template';
@@ -236,7 +237,8 @@ export const restRequestAction: Action<typeof restRequestInput> = {
       // Actions run through the review queue, whose contract is throw-on-failure.
       throw new Error(`${endpoint.name} failed: ${result.message}`);
     }
-    const picked = pickPath(result.data, endpoint.response.pick);
+    // Picked, then the contract's leaves only, then capped — as the reads are.
+    const picked = selectPaths(pickPath(result.data, endpoint.response.pick), endpoint.response.select);
     const text = capJson(picked, endpoint.response.maxChars);
     return {
       sourceSlug: input.sourceSlug,

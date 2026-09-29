@@ -220,6 +220,40 @@ describe('a declared read, executed', () => {
     expect(out.message).toContain('results');
   });
 
+  it('returns only the leaves response.select names, after pick and before the cap, whatever else the API served', async () => {
+    await db.delete(knowledgeSourceSchema);
+    await seedSource(ORG, 'acme-delivery', {
+      toolPrefix: 'delivery',
+      tools: [
+        { name: 'list_projects', method: 'GET', path: '/api/projects', response: { pick: 'data', select: ['[].documentId', '[].name', '[].company.name'], maxChars: 300 } },
+        { name: 'page', method: 'GET', path: '/api/page', response: { select: ['data[].documentId', 'meta.pagination.total'] } },
+      ],
+    });
+    const heavy = { blocks: Array.from({ length: 40 }, (_, i) => ({ i, text: 'a long paragraph of body copy' })) };
+    const body = {
+      data: [
+        { documentId: 'p1', name: 'Kestrel rollout', company: { name: 'Kestrel Capital', notes: heavy }, brief: heavy },
+        { documentId: 'p2', name: 'Bellwater refit', brief: heavy },
+      ],
+      meta: { pagination: { page: 1, total: 2 } },
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => res(200, body)));
+    const tools = await toolsByName();
+
+    // Selected after pick — the rows only, each row down to its named leaves —
+    // so 300 characters is room enough for what used to be thousands.
+    const list = await tools.get('delivery_list_projects')!.invoke({});
+
+    expect(list).not.toContain('truncated');
+    expect(JSON.parse(list)).toEqual([
+      { documentId: 'p1', name: 'Kestrel rollout', company: { name: 'Kestrel Capital' } },
+      { documentId: 'p2', name: 'Bellwater refit' },
+    ]);
+
+    // Without pick, the nesting is kept and meta survives only where named.
+    expect(JSON.parse(await tools.get('delivery_page')!.invoke({}))).toEqual({ data: [{ documentId: 'p1' }, { documentId: 'p2' }], meta: { pagination: { total: 2 } } });
+  });
+
   it('caps a long response at the declared maxChars and says how long it was', async () => {
     await db.delete(knowledgeSourceSchema);
     await seedSource(ORG, 'acme-delivery', { toolPrefix: 'delivery', tools: [{ name: 'dump', method: 'GET', path: '/dump', response: { maxChars: 300 } }] });

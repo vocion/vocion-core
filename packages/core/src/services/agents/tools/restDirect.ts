@@ -28,6 +28,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { capJson, noRestCredentials, pickPath, restCall, restCredentialsOf } from '@/libs/rest/client';
 import { zodFromInputSchema } from '@/libs/rest/jsonSchema';
+import { selectPaths } from '@/libs/rest/select';
 import { endpointDescription, REST_LIST_ACTIONS_TOOL, restToolName, toolPrefixFor } from '@/libs/rest/spec';
 import { renderPath, renderQuery } from '@/libs/rest/template';
 import { resolveTimeZone } from '@/libs/time/zone';
@@ -89,7 +90,8 @@ function restReadTool(ctx: RuntimeContext, spec: RestSourceSpec, prefix: string,
       if (picked === undefined && endpoint.response.pick) {
         return asJson({ ok: false, error: 'pick_missing', status: result.status, message: `The API answered ${result.status} but the response has no "${endpoint.response.pick}" — the endpoint's response.pick may be wrong for this call. Top-level keys: ${Object.keys((result.data as Record<string, unknown> | null) ?? {}).join(', ') || 'none'}.` });
       }
-      return capJson(picked, endpoint.response.maxChars);
+      // The contract's leaves only, in their nesting, then the cap.
+      return capJson(selectPaths(picked, endpoint.response.select), endpoint.response.maxChars);
     },
     {
       name: restToolName(prefix, endpoint.name),

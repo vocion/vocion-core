@@ -137,6 +137,14 @@ describe('restConfigSchema', () => {
     expect(problemsOf({ tools: [{ name: 'List Projects', method: 'GET', path: '/a' }] })).toEqual([expect.stringContaining('snake_case')]);
   });
 
+  it('refuses a response.select entry that is not a string, or steps outside letters, digits, _, -, . and []', () => {
+    expect(problemsOf({ tools: [{ name: 'a', method: 'GET', path: '/a', response: { select: [42] } }] })).toEqual([expect.stringContaining('tools.0.response.select.0: Invalid input: expected string, received number')]);
+    expect(problemsOf({ tools: [{ name: 'a', method: 'GET', path: '/a', response: { select: ['data[].*'] } }] })).toEqual([expect.stringContaining('may only use letters, digits, _, -, . and []')]);
+    expect(problemsOf({ tools: [{ name: 'a', method: 'GET', path: '/a', response: { select: ['data[0].id'] } }] })).toEqual([expect.stringContaining('not a key optionally followed by []')]);
+    expect(problemsOf({ tools: [{ name: 'a', method: 'GET', path: '/a', response: { select: 'data[].id' } }] })).toHaveLength(1);
+    expect(problemsOf({ actions: [{ name: 'a', method: 'POST', path: '/a', response: { select: ['data.id', 'meta.total'] } }] })).toEqual([]);
+  });
+
   it('prints as one line per fault through z.prettifyError, which is what the apply reports', () => {
     const parsed = restConfigSchema.safeParse({ tools: [{ name: 'a', method: 'GET', path: 'a', query: { q: '{x}' } }] });
 
