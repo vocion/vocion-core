@@ -175,9 +175,10 @@ export async function resolveProjectForUser(
  * the caller reads as "leave the URL alone".
  * @param userId - Auth.js user id.
  * @param preferredProjectId - `project.id` from the cookie, if any.
+ * @param preferredAccountId - With no usable cookie, look in this account first.
  */
-export async function activeWorkspaceForUser(userId: string, preferredProjectId?: string | null): Promise<{ id: string; accountId: string; slug: string } | null> {
-  const active = await resolveActiveWorkspace(userId, preferredProjectId);
+export async function activeWorkspaceForUser(userId: string, preferredProjectId?: string | null, preferredAccountId?: string | null): Promise<{ id: string; accountId: string; slug: string } | null> {
+  const active = await resolveActiveWorkspace(userId, preferredProjectId, preferredAccountId);
   if (!active?.projectId) {
     return null;
   }

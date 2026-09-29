@@ -12,11 +12,21 @@ type Props = {
   inviteToken: string | null;
 };
 
+/**
+ * Sign-in that comes back to this invite, where a signed-in person is offered
+ * to join the account on the login they have (vocion-core#128).
+ * @param inviteToken - The invite token from the link.
+ */
+function signInToAccept(inviteToken: string): string {
+  return `/sign-in?callbackUrl=${encodeURIComponent(`/sign-up?invite=${encodeURIComponent(inviteToken)}`)}`;
+}
+
 export function SignUpForm({ inviteToken }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [hasLogin, setHasLogin] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   if (!inviteToken) {
@@ -38,6 +48,7 @@ export function SignUpForm({ inviteToken }: Props) {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setHasLogin(false);
     setSubmitting(true);
 
     const res = await fetch('/api/signup', {
@@ -46,8 +57,9 @@ export function SignUpForm({ inviteToken }: Props) {
       body: JSON.stringify({ name, email, password, inviteToken }),
     });
     if (!res.ok) {
-      const { error: msg } = await res.json().catch(() => ({ error: 'Sign-up failed.' }));
+      const { error: msg, code } = await res.json().catch(() => ({ error: 'Sign-up failed.' }));
       setError(msg ?? 'Sign-up failed.');
+      setHasLogin(code === 'EXISTING_USER');
       setSubmitting(false);
       return;
     }
@@ -88,14 +100,24 @@ export function SignUpForm({ inviteToken }: Props) {
           <Label htmlFor="password">Password</Label>
           <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="new-password" minLength={8} />
         </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <p className="text-sm text-destructive">
+            {error}
+            {hasLogin && (
+              <>
+                {' '}
+                <Link className="underline" href={signInToAccept(inviteToken)}>Sign in</Link>
+              </>
+            )}
+          </p>
+        )}
         <Button type="submit" className="w-full" disabled={submitting}>
           {submitting ? 'Creating account…' : 'Accept invite + sign in'}
         </Button>
         <p className="text-center text-sm">
           Already have an account?
           {' '}
-          <Link className="underline" href="/sign-in">Sign in</Link>
+          <Link className="underline" href={signInToAccept(inviteToken)}>Sign in</Link>
         </p>
       </form>
     </div>

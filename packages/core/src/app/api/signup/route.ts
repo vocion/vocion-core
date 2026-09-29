@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
+import { inviteProblem } from '@/services/inviteRules';
 
 /**
  * Registration endpoint. Accepting an invite is the ONLY way to create an
@@ -25,6 +26,11 @@ import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Sche
  *
  * That script prints a generated password when none is passed. Everyone
  * after the first joins by invite from inside the dashboard.
+ *
+ * This creates a NEW user. Someone who already has a login accepts an invite
+ * into another account by signing in and joining on that login
+ * (`/api/invites/accept`), so one person stays one user with a membership per
+ * account; the 409 below says so, with `code: 'EXISTING_USER'` for the form.
  */
 
 const bodySchema = z.object({
@@ -43,24 +49,20 @@ export async function POST(req: Request) {
   const { name, email, password, inviteToken } = parsed.data;
   const lowerEmail = email.toLowerCase();
 
-  // Reject duplicate emails
+  // An existing login joins by signing in, never by making a second user.
   const [existingUser] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, lowerEmail)).limit(1);
   if (existingUser) {
-    return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 });
+    return NextResponse.json(
+      { error: 'You already have a login with this email. Sign in to accept the invite.', code: 'EXISTING_USER' },
+      { status: 409 },
+    );
   }
 
   const [invite] = await db.select().from(inviteSchema).where(eq(inviteSchema.token, inviteToken)).limit(1);
-  if (!invite) {
-    return NextResponse.json({ error: 'Invalid invite token.' }, { status: 404 });
-  }
-  if (invite.acceptedAt) {
-    return NextResponse.json({ error: 'This invite has already been used.' }, { status: 410 });
-  }
-  if (invite.expiresAt < new Date()) {
-    return NextResponse.json({ error: 'This invite has expired.' }, { status: 410 });
-  }
-  if (invite.email.toLowerCase() !== lowerEmail) {
-    return NextResponse.json({ error: 'This invite was issued for a different email.' }, { status: 403 });
+  const problem = inviteProblem(invite, lowerEmail, new Date());
+  if (problem || !invite) {
+    const refusal = problem ?? { status: 404, error: 'Invalid invite token.' };
+    return NextResponse.json({ error: refusal.error }, { status: refusal.status });
   }
 
   const userId = `usr-${randomUUID()}`;

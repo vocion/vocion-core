@@ -238,6 +238,11 @@ describe('workspace access', () => {
       expect(await resolveActiveWorkspace(ALEX)).toEqual({ accountId: OTHER_ACCOUNT, accountRole: 'admin', projectId: KESTREL_DEALS, workspaceRole: 'admin' });
     });
 
+    it('looks in a preferred account first when nothing is picked (a just-accepted invite), and ignores one they are not in', async () => {
+      expect((await resolveActiveWorkspace(ALEX, null, ACCOUNT))?.accountId).toBe(ACCOUNT);
+      expect((await resolveActiveWorkspace(ALEX, null, 'acct-not-theirs'))?.accountId).toBe(OTHER_ACCOUNT);
+    });
+
     it('skips an oldest account with no workspace, so the person is not stranded with no switcher', async () => {
       await db.delete(projectSchema).where(eq(projectSchema.id, KESTREL_DEALS));
 

@@ -14,6 +14,9 @@ import { expect, test } from '@playwright/test';
  * shows the active workspace's name over its account's name, and the Members
  * page lists the session account's people; all three come from the session's
  * tenancy, so they are what this spec reads.
+ *
+ * A third account, "E2E Switch Invited", has an open invite for the person:
+ * the second test joins it on the login they already have.
  */
 
 const SEED_SCRIPT = 'e2e/account-switch/support/seed-account-switch-fixtures.ts';
@@ -22,6 +25,8 @@ const SEED_SCRIPT = 'e2e/account-switch/support/seed-account-switch-fixtures.ts'
 const PERSON = { email: 'switch-person@e2e.test', password: 'account-switch-e2e-pass-1' };
 const FIRST_ACCOUNT = 'E2E Switch First';
 const SECOND_ACCOUNT = 'E2E Switch Second';
+const INVITED_ACCOUNT = 'E2E Switch Invited';
+const INVITE_LINK = '/sign-up?invite=e2e-switch-invite-token';
 const FIRST_COLLEAGUE = 'First Colleague';
 const SECOND_COLLEAGUE = 'Second Colleague';
 
@@ -59,13 +64,21 @@ async function switchTo(page: Page, account: string, workspace: string): Promise
   await page.getByRole('group', { name: account }).getByRole('option', { name: new RegExp(workspace) }).click();
 }
 
+/**
+ * Fill in and submit the sign-in form the page is on.
+ * @param page - A page showing the sign-in form.
+ */
+async function signIn(page: Page): Promise<void> {
+  await page.getByLabel('Email').fill(PERSON.email);
+  await page.getByLabel('Password', { exact: true }).fill(PERSON.password);
+  await page.getByRole('button', { name: /sign in/i }).click();
+}
+
 test('switching to a workspace on another account moves the whole session there, and it survives a bare /dashboard link', async ({ page }) => {
   seedFixtures();
 
   await page.goto('/sign-in');
-  await page.getByLabel('Email').fill(PERSON.email);
-  await page.getByLabel('Password', { exact: true }).fill(PERSON.password);
-  await page.getByRole('button', { name: /sign in/i }).click();
+  await signIn(page);
 
   // Nothing has picked a workspace in this browser yet: the account joined
   // first, and its oldest workspace.
@@ -111,4 +124,42 @@ test('switching to a workspace on another account moves the whole session there,
   // The switch kept the Members page, now listing First's people.
   await expect(page.getByText(FIRST_COLLEAGUE)).toBeVisible();
   await expect(page.getByText(SECOND_COLLEAGUE)).toHaveCount(0);
+});
+
+test('an invite into another account is accepted on the login they already have, and every account stays one switch away', async ({ page }) => {
+  seedFixtures();
+
+  // Signed out, the invite link is the sign-up form. They already have a
+  // login, so they take its "Sign in" link, which must bring them back here.
+  await page.goto(INVITE_LINK);
+  await page.getByRole('link', { name: 'Sign in' }).click();
+  // Both forms have Email and Password fields, and the sign-up button also
+  // says "sign in", so wait for the sign-in page before filling anything.
+  await page.waitForURL(/\/sign-in\?callbackUrl=/);
+  await signIn(page);
+  await page.waitForURL(/\/sign-up\?invite=e2e-switch-invite-token/);
+
+  await expect(page.getByRole('heading', { name: `Join ${INVITED_ACCOUNT}` })).toBeVisible();
+  await expect(page.getByText('invited as a member')).toBeVisible();
+
+  await page.getByRole('button', { name: `Join ${INVITED_ACCOUNT}` }).click();
+
+  // Invited's workspace shares its slug with First's and Second's. The landing
+  // URL names the account; the dashboard then redirects to its first page
+  // without the name, and "last active" must keep them in Invited.
+  await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard/);
+
+  await expect(switcher(page)).toContainText('Shared In Invited');
+  await expect(switcher(page)).toContainText(INVITED_ACCOUNT);
+
+  // Same login, so the accounts they already had are still in the switcher.
+  await switchTo(page, FIRST_ACCOUNT, 'Switch Home');
+  await page.waitForURL(/\/w\/e2e-switch-home\/dashboard/);
+
+  await expect(switcher(page)).toContainText(FIRST_ACCOUNT);
+
+  // The link again: nothing left to accept, and a way into the account.
+  await page.goto(INVITE_LINK);
+
+  await expect(page.getByRole('heading', { name: `You're already in ${INVITED_ACCOUNT}` })).toBeVisible();
 });

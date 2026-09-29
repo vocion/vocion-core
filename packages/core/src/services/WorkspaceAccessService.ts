@@ -184,9 +184,11 @@ export type ActiveWorkspace = {
  * because `memberWorkspace` finds nothing otherwise.
  * @param userId - The signed-in person.
  * @param pickedProjectId - The workspace the request names, unchecked.
+ * @param preferredAccountId - With no usable pick, look in this account first
+ *  (a just-accepted invite's). Ignored when it is not one of theirs.
  * @returns Where they are, or null for a person in no account.
  */
-export async function resolveActiveWorkspace(userId: string, pickedProjectId?: string | null): Promise<ActiveWorkspace | null> {
+export async function resolveActiveWorkspace(userId: string, pickedProjectId?: string | null, preferredAccountId?: string | null): Promise<ActiveWorkspace | null> {
   const pickedId = pickedProjectId?.trim();
   const picked = pickedId ? await memberWorkspace(userId, pickedId) : null;
   const enforced = enforcementEnabled();
@@ -201,8 +203,9 @@ export async function resolveActiveWorkspace(userId: string, pickedProjectId?: s
   if (memberships.length === 0) {
     return null;
   }
-  const searchOrder = picked
-    ? [...memberships.filter(m => m.accountId === picked.accountId), ...memberships.filter(m => m.accountId !== picked.accountId)]
+  const firstAccountId = picked?.accountId ?? preferredAccountId;
+  const searchOrder = firstAccountId
+    ? [...memberships.filter(m => m.accountId === firstAccountId), ...memberships.filter(m => m.accountId !== firstAccountId)]
     : memberships;
   const landing = enforced
     ? await firstHeldWorkspace(userId, searchOrder)

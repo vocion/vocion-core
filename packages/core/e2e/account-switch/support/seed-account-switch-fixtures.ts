@@ -13,6 +13,9 @@
  *   - one agent per workspace, because the switcher hides empty workspaces
  *   - one colleague per account, so the Members page shows whose account
  *     the session is in
+ *   - a third account, "E2E Switch Invited", that the person is NOT in yet,
+ *     with its own `e2e-switch-shared` workspace and an open invite for the
+ *     person's email, so the spec can join it on the login they already have
  *
  * Idempotent: a rerun deletes this script's own rows first (matched by the
  * fixed slugs and email below), so the project stays repeatable.
@@ -23,11 +26,13 @@ import process from 'node:process';
 import { inArray } from 'drizzle-orm';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { accountMembershipSchema, agentSchema, projectSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
+import { accountMembershipSchema, agentSchema, inviteSchema, projectSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
 import 'dotenv/config';
 
 const FIRST_ACCOUNT = { slug: 'e2e-switch-first', name: 'E2E Switch First' };
 const SECOND_ACCOUNT = { slug: 'e2e-switch-second', name: 'E2E Switch Second' };
+const INVITED_ACCOUNT = { slug: 'e2e-switch-invited', name: 'E2E Switch Invited' };
+const INVITE_TOKEN = 'e2e-switch-invite-token';
 const PERSON = { email: 'switch-person@e2e.test', name: 'Switch Person', password: 'account-switch-e2e-pass-1' };
 const FIRST_COLLEAGUE = { email: 'switch-first-colleague@e2e.test', name: 'First Colleague' };
 const SECOND_COLLEAGUE = { email: 'switch-second-colleague@e2e.test', name: 'Second Colleague' };
@@ -50,7 +55,7 @@ async function resetFixtures(): Promise<void> {
   const accounts = await db
     .select({ id: tenantAccountSchema.id })
     .from(tenantAccountSchema)
-    .where(inArray(tenantAccountSchema.slug, [FIRST_ACCOUNT.slug, SECOND_ACCOUNT.slug]));
+    .where(inArray(tenantAccountSchema.slug, [FIRST_ACCOUNT.slug, SECOND_ACCOUNT.slug, INVITED_ACCOUNT.slug]));
   const accountIds = accounts.map(account => account.id);
   if (accountIds.length === 0) {
     return;
@@ -62,6 +67,7 @@ async function resetFixtures(): Promise<void> {
     await db.delete(projectSchema).where(inArray(projectSchema.id, projectIds));
   }
   await db.delete(accountMembershipSchema).where(inArray(accountMembershipSchema.accountId, accountIds));
+  await db.delete(inviteSchema).where(inArray(inviteSchema.accountId, accountIds));
   await db.delete(tenantAccountSchema).where(inArray(tenantAccountSchema.id, accountIds));
 }
 
@@ -71,6 +77,7 @@ async function main(): Promise<void> {
   const runTag = Date.now().toString(36);
   const firstId = `acct-e2e-switch-first-${runTag}`;
   const secondId = `acct-e2e-switch-second-${runTag}`;
+  const invitedId = `acct-e2e-switch-invited-${runTag}`;
   const userId = `usr-e2e-switch-${runTag}`;
   const passwordHash = await hashPassword(PERSON.password);
 
@@ -78,6 +85,7 @@ async function main(): Promise<void> {
     await tx.insert(tenantAccountSchema).values([
       { id: firstId, name: FIRST_ACCOUNT.name, slug: FIRST_ACCOUNT.slug },
       { id: secondId, name: SECOND_ACCOUNT.name, slug: SECOND_ACCOUNT.slug },
+      { id: invitedId, name: INVITED_ACCOUNT.name, slug: INVITED_ACCOUNT.slug },
     ]);
     await tx.insert(userSchema).values([
       { id: userId, name: PERSON.name, email: PERSON.email, passwordHash },
@@ -96,12 +104,22 @@ async function main(): Promise<void> {
       { id: `proj-e2e-switch-home-${runTag}`, accountId: firstId, slug: 'e2e-switch-home', name: 'Switch Home', createdAt: new Date('2025-01-01T00:00:00Z') },
       { id: `proj-e2e-switch-shared-first-${runTag}`, accountId: firstId, slug: 'e2e-switch-shared', name: 'Shared In First' },
       { id: `proj-e2e-switch-shared-second-${runTag}`, accountId: secondId, slug: 'e2e-switch-shared', name: 'Shared In Second' },
+      { id: `proj-e2e-switch-shared-invited-${runTag}`, accountId: invitedId, slug: 'e2e-switch-shared', name: 'Shared In Invited' },
     ]);
     await tx.insert(agentSchema).values([
       { orgId: `proj-e2e-switch-home-${runTag}`, slug: 'e2e-switch-agent', name: 'E2E Switch Agent', systemPrompt: 'e2e account-switch fixture' },
       { orgId: `proj-e2e-switch-shared-first-${runTag}`, slug: 'e2e-switch-agent', name: 'E2E Switch Agent', systemPrompt: 'e2e account-switch fixture' },
       { orgId: `proj-e2e-switch-shared-second-${runTag}`, slug: 'e2e-switch-agent', name: 'E2E Switch Agent', systemPrompt: 'e2e account-switch fixture' },
+      { orgId: `proj-e2e-switch-shared-invited-${runTag}`, slug: 'e2e-switch-agent', name: 'E2E Switch Agent', systemPrompt: 'e2e account-switch fixture' },
     ]);
+    await tx.insert(inviteSchema).values({
+      id: `inv-e2e-switch-${runTag}`,
+      accountId: invitedId,
+      email: PERSON.email,
+      role: 'member',
+      token: INVITE_TOKEN,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    });
   });
   console.error(`[seed-account-switch-fixtures] person: ${userId}`);
 }

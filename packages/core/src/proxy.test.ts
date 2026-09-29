@@ -274,6 +274,44 @@ describe('the chain a signed-in reader actually walks', () => {
   });
 });
 
+describe('sign-in and sign-up pages for a signed-in person', () => {
+  it('sends them to the dashboard, since they have nothing to sign in to', async () => {
+    const res = await proxy(request('/sign-up'));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('https://agents.example.com/dashboard');
+  });
+
+  it('lets an invite link through, so they can join another account on the login they have (#128)', async () => {
+    const res = await proxy(request('/sign-up?invite=tok-contoso'));
+
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.headers.get('x-i18n')).toBe('handled');
+  });
+
+  it('lets a locale-prefixed invite link through too', async () => {
+    const res = await proxy(request('/fr/sign-up?invite=tok-contoso'));
+
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('lets an invite link through in the demo sandbox, where the user is known only by cookie', async () => {
+    process.env.VOCION_DEMO_SEED_DIR = '/tmp/seed';
+    const req = new NextRequest(`${SERVER_ORIGIN}/sign-up?invite=tok-contoso`, { headers: { cookie: 'authjs.session-token=x' } });
+
+    const res = await proxy(req);
+
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('still bounces sign-in with a stray invite param — only the sign-up page accepts invites', async () => {
+    const res = await proxy(request('/sign-in?invite=tok-contoso'));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('https://agents.example.com/dashboard');
+  });
+});
+
 describe('the demo sandbox', () => {
   it('gates on the session cookie and resolves no workspace — PGlite cannot run in this bundle', async () => {
     process.env.VOCION_DEMO_SEED_DIR = '/tmp/seed';

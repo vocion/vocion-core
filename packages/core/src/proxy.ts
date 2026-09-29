@@ -82,8 +82,11 @@ export default async function proxy(request: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
-  // Sign-in / sign-up pages: if already signed in, redirect to dashboard
-  if (AUTH_PATH.test(path) && !path.includes('/setup') && !path.includes('/invite')) {
+  // Sign-in / sign-up pages: if already signed in, redirect to dashboard.
+  // Except an invite link (`/sign-up?invite=…`): a signed-in person opens it to
+  // join another account on the login they have (vocion-core#128).
+  const isInviteLink = path.includes('/sign-up') && request.nextUrl.searchParams.has('invite');
+  if (AUTH_PATH.test(path) && !path.includes('/setup') && !path.includes('/invite') && !isInviteLink) {
     if (user.signedIn) {
       const locale = localeOf(path);
       return NextResponse.redirect(new URL(`/${locale ? `${locale}/` : ''}dashboard`, origin));
