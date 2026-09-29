@@ -46,7 +46,8 @@ export async function POST(req: Request) {
   if (typeof slug !== 'string' || slug.trim() === '') {
     return jsonError('BAD_REQUEST', 'Name the workspace to share to (`workspace`)', 400);
   }
-  const project = await resolveProjectForUser(userId, { slug: slug.trim() });
+  // On the account the session is in first — the one the workspace list offered.
+  const project = await resolveProjectForUser(userId, { slug: slug.trim() }, { lastActiveProjectId: session.user?.projectId });
   if (!project) {
     return jsonError('NOT_FOUND', 'No such workspace', 404);
   }

@@ -5,7 +5,7 @@ import { SURFACE_PATH_SEGMENTS } from './features/navigation/surfaces';
 import { ACTIVE_PROJECT_COOKIE, ACTIVE_PROJECT_COOKIE_OPTIONS } from './libs/activeProject';
 import { publicOrigin } from './libs/http/publicOrigin';
 import { routing } from './libs/I18nRouting';
-import { isWorkspacePath, parseWorkspacePath, WORKSPACE_ENTRY_SEGMENT, WORKSPACE_HEADER, workspaceUrl } from './libs/links';
+import { isWorkspacePath, parseWorkspacePath, WORKSPACE_ACCOUNT_PARAM, WORKSPACE_ENTRY_SEGMENT, WORKSPACE_HEADER, workspaceUrl } from './libs/links';
 
 const handleI18nRouting = createMiddleware(routing);
 
@@ -122,7 +122,13 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
   const { activeWorkspaceForUser, resolveProjectForUser } = await import('./services/ProjectService');
 
   if (canonical) {
-    const project = await resolveProjectForUser(ctx.userId, { slug: canonical.slug });
+    // A slug can exist on more than one of this person's accounts: a link that
+    // names an account resolves there only, else on the account they are
+    // already in (the cookie).
+    const project = await resolveProjectForUser(ctx.userId, { slug: canonical.slug }, {
+      accountSlug: request.nextUrl.searchParams.get(WORKSPACE_ACCOUNT_PARAM),
+      lastActiveProjectId: request.cookies.get(ACTIVE_PROJECT_COOKIE)?.value,
+    });
     // Unknown slug and a slug on someone else's account are the same 404 on
     // purpose: the reader learns nothing about other tenants' workspaces.
     if (!project) {

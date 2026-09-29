@@ -89,26 +89,84 @@ export function enforcementEnabled(): boolean {
 type Membership = { accountId: string; role: 'admin' | 'member' };
 
 /**
- * The account membership every request for this person resolves against.
- *
- * Self-hosted, a person belongs to one account and this is simply that one.
- * A person with two used to get whichever row Postgres returned first, which
- * could change between requests and move them between tenants mid-session
- * (vocion-core#128). The oldest membership wins, with the account id as the
- * tie-break, so the answer is the same on every read. Tenancy resolution
- * (`libs/tenancy.ts`) and the workspace-access checks here share this one
- * lookup, so they can never disagree about which account a person is in.
- * @param userId - The signed-in person.
- * @returns Their membership, or null for a person in no account.
+ * Narrow a membership row's free-text role to the two roles that exist.
+ * @param row - A row read from `account_membership`.
+ * @param row.accountId - The account the membership is in.
+ * @param row.role - `'admin'` or `'member'`, stored as text.
  */
-export async function membershipFor(userId: string): Promise<Membership | null> {
+function toMembership(row: { accountId: string; role: string }): Membership {
+  return { accountId: row.accountId, role: row.role as 'admin' | 'member' };
+}
+
+/**
+ * Every account this person belongs to, oldest membership first.
+ *
+ * Self-hosted this is one row. On cloud a person can belong to several — a
+ * consultant in two clients' accounts — and the workspace they pick decides
+ * which one a request runs in (`libs/tenancy.ts`, vocion-core#128). The order
+ * is fixed (oldest first, account id as the tie-break) so every list built from
+ * it, and the default below, reads the same on every request.
+ * @param userId - The signed-in person.
+ */
+export async function membershipsFor(userId: string): Promise<Membership[]> {
+  const rows = await db
+    .select({ accountId: accountMembershipSchema.accountId, role: accountMembershipSchema.role })
+    .from(accountMembershipSchema)
+    .where(eq(accountMembershipSchema.userId, userId))
+    .orderBy(asc(accountMembershipSchema.createdAt), asc(accountMembershipSchema.accountId));
+  return rows.map(toMembership);
+}
+
+/**
+ * The account a person lands in when nothing has picked one: a first sign-in
+ * in a fresh browser, a stale cookie naming a workspace they have left, a
+ * script or the worker with no request at all.
+ *
+ * It used to be the only answer, read with a bare `LIMIT 1`, so a person in two
+ * accounts got whichever row Postgres returned first and could move between
+ * tenants mid-session (vocion-core#128). Now the picked workspace decides the
+ * account, and this is only the fallback: the oldest membership, the same one
+ * on every read.
+ * @param userId - The signed-in person.
+ * @returns Their oldest membership, or null for a person in no account.
+ */
+export async function defaultMembershipFor(userId: string): Promise<Membership | null> {
   const [row] = await db
     .select({ accountId: accountMembershipSchema.accountId, role: accountMembershipSchema.role })
     .from(accountMembershipSchema)
     .where(eq(accountMembershipSchema.userId, userId))
     .orderBy(asc(accountMembershipSchema.createdAt), asc(accountMembershipSchema.accountId))
     .limit(1);
-  return row ? { accountId: row.accountId, role: row.role as 'admin' | 'member' } : null;
+  return row ? toMembership(row) : null;
+}
+
+/** A workspace together with the membership that lets this person into its account. */
+export type MemberWorkspace = { projectId: string; slug: string; accountId: string; accountRole: 'admin' | 'member' };
+
+/**
+ * A workspace, when it sits in an account this person belongs to; otherwise
+ * null.
+ *
+ * This is the gate a picked workspace goes through before it may choose the
+ * account. A workspace id arrives from the URL, the last-active cookie or, on
+ * `/api/` routes, a header the caller controls, so "the account that owns this
+ * workspace" is only trusted when the person is actually a member of that
+ * account. One query: the project joined to this person's membership in the
+ * project's own account.
+ * @param userId - The signed-in person.
+ * @param projectId - The workspace they picked.
+ */
+export async function memberWorkspace(userId: string, projectId: string): Promise<MemberWorkspace | null> {
+  const [row] = await db
+    .select({ projectId: projectSchema.id, slug: projectSchema.slug, accountId: projectSchema.accountId, accountRole: accountMembershipSchema.role })
+    .from(projectSchema)
+    .innerJoin(accountMembershipSchema, and(
+      eq(accountMembershipSchema.accountId, projectSchema.accountId),
+      eq(accountMembershipSchema.userId, userId),
+    ))
+    .where(eq(projectSchema.id, projectId))
+    .limit(1);
+  return row ? { ...row, accountRole: row.accountRole as 'admin' | 'member' } : null;
 }
 
 /** A project, reduced to the two columns access depends on. */
@@ -188,26 +246,34 @@ function resolveAccess(userId: string, projects: readonly AccessProject[], grant
 }
 
 /**
- * Every workspace this person reaches, strongest role first per workspace.
+ * Every workspace this person reaches, strongest role first per workspace,
+ * across every account they belong to, or inside one account when it is named.
+ *
+ * Each account is resolved with the role held in THAT account: an admin of one
+ * client and a member of another runs the first one's shared workspaces and
+ * only the second one's granted ones (vocion-core#128).
  *
  * Four indexed lookups rather than one union, because each answers a different
  * question and the union's plan is not obviously better at the sizes involved:
  * a deployment has tens of workspaces, and a person belongs to a handful of
- * groups.
+ * groups and accounts.
  * @param userId - The person asking.
+ * @param onlyAccountId - Answer for this one account only (the one a request
+ *  runs in). Omit it for every account the person belongs to.
  */
-export async function accessibleProjects(userId: string): Promise<WorkspaceAccess[]> {
-  const membership = await membershipFor(userId);
-  if (!membership) {
+export async function accessibleProjects(userId: string, onlyAccountId?: string): Promise<WorkspaceAccess[]> {
+  const memberships = (await membershipsFor(userId)).filter(m => !onlyAccountId || m.accountId === onlyAccountId);
+  if (memberships.length === 0) {
     return [];
   }
 
-  // Every project on the account, with the two columns access depends on. The
-  // account filter is what keeps all of the below inside one tenant.
+  // Every project on those accounts, with the columns access depends on. The
+  // account filter is what keeps all of the below inside the person's own
+  // tenants: a grant row naming another tenant's project finds nothing here.
   const projects = await db
-    .select({ id: projectSchema.id, kind: projectSchema.kind, ownerUserId: projectSchema.ownerUserId })
+    .select({ id: projectSchema.id, accountId: projectSchema.accountId, kind: projectSchema.kind, ownerUserId: projectSchema.ownerUserId })
     .from(projectSchema)
-    .where(eq(projectSchema.accountId, membership.accountId));
+    .where(inArray(projectSchema.accountId, memberships.map(m => m.accountId)));
 
   const group = await db
     .select({ projectId: groupProjectGrantSchema.projectId, role: groupProjectGrantSchema.role })
@@ -220,7 +286,15 @@ export async function accessibleProjects(userId: string): Promise<WorkspaceAcces
     .from(projectMemberSchema)
     .where(eq(projectMemberSchema.userId, userId));
 
-  return resolveAccess(userId, projects, { accountRole: membership.role, group, direct });
+  // One account at a time, because the account role that feeds rule 4 differs
+  // per account. `resolveAccess` drops grants naming a project outside the
+  // projects it is handed, so passing every grant each time is safe.
+  const access: WorkspaceAccess[] = [];
+  for (const membership of memberships) {
+    const onAccount = projects.filter(p => p.accountId === membership.accountId);
+    access.push(...resolveAccess(userId, onAccount, { accountRole: membership.role, group, direct }));
+  }
+  return access;
 }
 
 /**
@@ -313,15 +387,22 @@ export async function reachForAccount(accountId: string, userIds: readonly strin
  * @param projectId - The workspace they are asking about.
  */
 export async function effectiveRole(userId: string, projectId: string): Promise<WorkspaceRole | null> {
-  const membership = await membershipFor(userId);
-  if (!membership) {
-    return null;
-  }
-
+  // The membership that counts is the one in the workspace's OWN account, so a
+  // person in two accounts gets each account's role in its own workspaces, and
+  // a workspace in an account they are not in is simply not found.
   const [project] = await db
-    .select({ id: projectSchema.id, kind: projectSchema.kind, ownerUserId: projectSchema.ownerUserId })
+    .select({
+      id: projectSchema.id,
+      kind: projectSchema.kind,
+      ownerUserId: projectSchema.ownerUserId,
+      accountRole: accountMembershipSchema.role,
+    })
     .from(projectSchema)
-    .where(and(eq(projectSchema.id, projectId), eq(projectSchema.accountId, membership.accountId)))
+    .innerJoin(accountMembershipSchema, and(
+      eq(accountMembershipSchema.accountId, projectSchema.accountId),
+      eq(accountMembershipSchema.userId, userId),
+    ))
+    .where(eq(projectSchema.id, projectId))
     .limit(1);
   if (!project) {
     return null;
@@ -332,7 +413,7 @@ export async function effectiveRole(userId: string, projectId: string): Promise<
     return project.ownerUserId === userId ? 'admin' : null;
   }
 
-  if (membership.role === 'admin') {
+  if (project.accountRole === 'admin') {
     return 'admin';
   }
 

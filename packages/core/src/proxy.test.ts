@@ -21,7 +21,7 @@ const mockAuth = vi.mocked(auth);
 const mockResolve = vi.mocked(resolveProjectForUser);
 const mockActive = vi.mocked(activeWorkspaceForUser);
 
-const WORKFORCE = { id: 'proj-workforce', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 };
+const WORKFORCE = { id: 'proj-workforce', accountId: 'acct-metacto', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 };
 
 /** The origin the Next server itself answers on, behind the public one. */
 const SERVER_ORIGIN = 'http://0.0.0.0:3000';
@@ -86,6 +86,38 @@ describe('a canonical /w/<slug>/… URL', () => {
     await expect(proxy(request('/fr/w/vocion-workforce/inbox')).then(r => r.headers.get('x-middleware-rewrite')))
       .resolves
       .toBe(`${SERVER_ORIGIN}/fr/dashboard/inbox`);
+  });
+
+  // vocion-core#128: a person in two accounts can hold the same slug in both.
+  describe('when the slug is on two of the person\'s accounts', () => {
+    const CONTOSO_WORKFORCE = { ...WORKFORCE, id: 'proj-contoso-workforce', accountId: 'acct-contoso' };
+
+    beforeEach(() => {
+      // Stands in for the resolver's rule: only the account the link names,
+      // else the account of the last-active workspace, else the default (Metacto).
+      mockResolve.mockImplementation(async (_userId, selector, preference) => {
+        if (!('slug' in selector) || selector.slug !== 'vocion-workforce') {
+          return null;
+        }
+        if (preference?.accountSlug) {
+          return { contoso: CONTOSO_WORKFORCE, metacto: WORKFORCE }[preference.accountSlug] ?? null;
+        }
+        return preference?.lastActiveProjectId === 'proj-contoso-revenue' ? CONTOSO_WORKFORCE : WORKFORCE;
+      });
+    });
+
+    it('opens the one on the account a cross-account switch named, and makes it last active', async () => {
+      const res = await proxy(request('/w/vocion-workforce/dashboard?account=contoso', { cookie: 'proj-revenue' }));
+
+      expect(res.headers.get('x-middleware-request-x-vocion-project-id')).toBe('proj-contoso-workforce');
+      expect(res.cookies.get('vocion_active_project')?.value).toBe('proj-contoso-workforce');
+    });
+
+    it('stays on the account the person is already in when the link names none', async () => {
+      const res = await proxy(request('/w/vocion-workforce/dashboard', { cookie: 'proj-contoso-revenue' }));
+
+      expect(res.headers.get('x-middleware-request-x-vocion-project-id')).toBe('proj-contoso-workforce');
+    });
   });
 
   it('404s an unknown slug and one on another account alike — the reader learns nothing either way', async () => {

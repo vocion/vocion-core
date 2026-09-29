@@ -31,14 +31,21 @@ about. Everything else is a spelling of it:
    route tree under `app/[locale]/` holds. Rewriting is the whole point: the
    address bar keeps the workspace, so a refresh, a second tab and a mailed
    link all resolve the same one.
-2. The proxy resolves the slug **within the signed-in user's account** and
+2. The proxy resolves the slug **on the signed-in user's accounts** and
    sets the resolved project on the rewritten request as
    `x-vocion-project-id` (`WORKSPACE_HEADER`), plus the slug for the layout.
-3. **Tenancy** (`resolveTenancyForUser`, `libs/Auth.ts`) reads that header
-   first, the `vocion_active_project` cookie second, and the account's first
-   project last. Each candidate is accepted only when the project belongs to
-   this user's account — so a forged header buys nothing that an edited cookie
-   did not already buy.
+   A slug is only unique inside an account, so for a person in two accounts
+   `?account=<account-slug>` (set by a switch that crosses accounts) names
+   the one meant; without it the slug resolves on the account of the
+   last-active workspace, then on the account they joined first.
+3. **Tenancy** (`resolveTenancyForUser`, `libs/tenancy.ts`) reads that header
+   first and the `vocion_active_project` cookie second. **The account follows
+   the workspace** (vocion-core#128): a candidate is accepted only when the
+   user is a member of the account that owns it, and then that account is the
+   one the request runs in. With no acceptable candidate it falls back to the
+   user's oldest account and its first project. So switching workspace is how
+   a person in two accounts switches account, and a forged header buys
+   nothing that an edited cookie did not already buy.
 4. **The layout** (`app/[locale]/(auth)/layout.tsx`) reads the slug header and
    publishes it to the client (`libs/workspaceSlug.ts`).
 5. **Links** go through `libs/I18nNavigation.ts`, which prefixes every `Link`

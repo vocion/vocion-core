@@ -9,10 +9,10 @@
  */
 
 import type { WorkspaceRole } from '@/services/authz';
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { cookies, headers } from 'next/headers';
 import { projectSchema } from '@/models/Schema';
-import { accessibleProjects, effectiveRole, enforcementEnabled, membershipFor } from '@/services/WorkspaceAccessService';
+import { accessibleProjects, defaultMembershipFor, effectiveRole, enforcementEnabled, memberWorkspace } from '@/services/WorkspaceAccessService';
 import { ACTIVE_PROJECT_COOKIE } from './activeProject';
 import { db } from './DB';
 import { WORKSPACE_HEADER } from './links';
@@ -25,9 +25,42 @@ export type Tenancy = {
 };
 
 /**
- * Find the user's current tenant + active project. Self-hosted: each user
- * belongs to exactly one tenant_account (one in several resolves to the oldest
- * membership, `membershipFor`); the active project is, in order:
+ * The workspace this request names, before anything checks it: the URL's
+ * (`/w/<slug>/…`, resolved by the proxy and forwarded as
+ * `WORKSPACE_HEADER.projectId`), else the `vocion_active_project` cookie.
+ *
+ * `headers()` and `cookies()` are available in Route Handlers, Server Actions
+ * and Server Components — the JWT and session callbacks run in one of those
+ * contexts; both throw outside a request scope (a script, the worker), where
+ * there is nothing picked and the caller falls back to the default.
+ */
+async function requestedWorkspaceId(): Promise<string | undefined> {
+  try {
+    const fromUrl = (await headers()).get(WORKSPACE_HEADER.projectId)?.trim();
+    if (fromUrl) {
+      return fromUrl;
+    }
+  } catch {
+    // Not in a request scope — there is no URL to read.
+  }
+  try {
+    return (await cookies()).get(ACTIVE_PROJECT_COOKIE)?.value || undefined;
+  } catch {
+    // Not in a request scope — there is no cookie to read either.
+    return undefined;
+  }
+}
+
+/**
+ * Find the user's current tenant + active project.
+ *
+ * **The account follows the workspace** (vocion-core#128). Every workspace
+ * belongs to exactly one account, so the workspace a person picked settles
+ * which of their accounts this request runs in. Switching workspace in the
+ * sidebar is therefore also how a person in two accounts switches account:
+ * the switch lands on `/w/<slug>/…`, and the proxy moves the cookie with it.
+ *
+ * The picked workspace is, in order:
  *
  * 1. the one the **URL** names — `/w/<slug>/…`, resolved by the proxy and
  *    forwarded as `WORKSPACE_HEADER.projectId` (`src/proxy.ts`). The URL wins
@@ -35,13 +68,16 @@ export type Tenancy = {
  *    resolve a record against whichever workspace was switched to last.
  * 2. the one the `vocion_active_project` cookie names — "last active", which
  *    is all a bare `/dashboard/…` URL has to go on.
- * 3. the first project on the account.
  *
- * Both 1 and 2 are CANDIDATES only. Unenforced, each is accepted when the
- * project belongs to this user's account, which stops a forged header reaching
- * another tenant. Enforced, that is not enough: workspaces inside one account
- * stop being interchangeable, so each candidate must be one this person
- * actually holds.
+ * Both are CANDIDATES only. A candidate picks the account only when the person
+ * is a member of the account that owns it, which stops a forged header or
+ * cookie reaching another tenant. Enforced, that is not enough: workspaces
+ * inside one account stop being interchangeable, so the candidate must also be
+ * one this person actually holds.
+ *
+ * With no acceptable candidate — a fresh browser, a stale cookie, a script —
+ * the person lands in their oldest account (`defaultMembershipFor`) and its
+ * first workspace, the same one on every read.
  *
  * Exported for its test. This function decides what a request may touch, and
  * the header it reads is attacker-suppliable on every `/api/` route (the proxy
@@ -50,36 +86,19 @@ export type Tenancy = {
  * @param userId
  */
 export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
-  // Ordered and shared with the access checks, so a person in two accounts
-  // lands in the same one on every request (vocion-core#128).
-  const membership = await membershipFor(userId);
+  const requestedId = await requestedWorkspaceId();
+  const requested = requestedId ? await memberWorkspace(userId, requestedId) : null;
 
+  // The picked workspace's account when the person is in it; otherwise the
+  // default. A picked workspace they may not open (enforced, below) still keeps
+  // them in its account: they chose that client, just not a room they hold.
+  const membership = requested
+    ? { accountId: requested.accountId, role: requested.accountRole }
+    : await defaultMembershipFor(userId);
   if (!membership) {
     return { accountId: null, projectId: null, role: null, workspaceRole: null };
   }
   const accountRole = membership.role;
-
-  // The URL first, then "last active". `headers()` and `cookies()` are
-  // available in Route Handlers, Server Actions and Server Components — the
-  // JWT and session callbacks run in one of those contexts; both throw
-  // outside a request scope (a script, the worker), where the first project
-  // is the only sensible answer.
-  let requestedId: string | undefined;
-  try {
-    const hdrs = await headers();
-    requestedId = hdrs.get(WORKSPACE_HEADER.projectId)?.trim() || undefined;
-  } catch {
-    // Not in a request scope — fall through.
-  }
-  if (!requestedId) {
-    try {
-      const jar = await cookies();
-      requestedId = jar.get(ACTIVE_PROJECT_COOKIE)?.value;
-    } catch {
-      // cookies() throws when called outside a request scope; fall through
-      // to the default first-project selection.
-    }
-  }
 
   // ENFORCED: a candidate is accepted only when this person actually holds the
   // workspace. The header this reads is set by the proxy on a `/w/<slug>/…`
@@ -90,15 +109,16 @@ export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
   // one header would name any workspace on the account, including someone's
   // personal one. This is the line that has to hold, not `ProjectService`.
   if (enforcementEnabled()) {
-    if (requestedId) {
-      const role = await effectiveRole(userId, requestedId);
+    if (requested) {
+      const role = await effectiveRole(userId, requested.projectId);
       if (role) {
-        return { accountId: membership.accountId, projectId: requestedId, role: accountRole, workspaceRole: role };
+        return { accountId: membership.accountId, projectId: requested.projectId, role: accountRole, workspaceRole: role };
       }
-      // Not theirs. Fall through to what IS theirs rather than erroring, so a
-      // stale cookie or a bad link lands them somewhere they belong.
+      // Not theirs. Fall through to what IS theirs in the same account rather
+      // than erroring, so a stale cookie or a bad link lands them somewhere
+      // they belong.
     }
-    const reachable = await accessibleProjects(userId);
+    const reachable = await accessibleProjects(userId, membership.accountId);
     const first = [...reachable].sort((a, b) => a.projectId.localeCompare(b.projectId))[0];
     return {
       accountId: membership.accountId,
@@ -111,19 +131,12 @@ export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
     };
   }
 
-  // UNENFORCED: unchanged. Every member of the account reaches every project,
-  // and the workspace role IS the account role. There is no longer a mapping to
+  // UNENFORCED: every member of an account reaches every project on it, and
+  // the workspace role IS the account role. There is no longer a mapping to
   // state: a workspace role and an account role are the same two names.
 
-  if (requestedId) {
-    const [chosen] = await db
-      .select({ id: projectSchema.id })
-      .from(projectSchema)
-      .where(and(eq(projectSchema.id, requestedId), eq(projectSchema.accountId, membership.accountId)))
-      .limit(1);
-    if (chosen) {
-      return { accountId: membership.accountId, projectId: chosen.id, role: accountRole, workspaceRole: accountRole };
-    }
+  if (requested) {
+    return { accountId: membership.accountId, projectId: requested.projectId, role: accountRole, workspaceRole: accountRole };
   }
 
   // Ordered, because "the first project" with no ORDER BY is whatever Postgres

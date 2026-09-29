@@ -180,21 +180,30 @@ describe('tenancy resolution', () => {
     });
   });
 
-  // vocion-core#128. The membership used to be read with a bare LIMIT 1, so a
-  // person in two accounts got whichever row Postgres returned first. The
-  // older membership is inserted SECOND here, after seed() put Alex in
-  // Northwind, so reading rows in the order they were written picks the wrong one.
+  // vocion-core#128. The account follows the workspace the person picked, and
+  // their oldest membership is only the default when nothing picked one. Alex
+  // is a member of Northwind (seed) and an admin of Contoso, the OLDER
+  // membership, inserted second so reading rows in the order they were written
+  // picks the wrong one.
   describe('for a person in more than one account', () => {
     const CONTOSO = 'acct-contoso';
     const CONTOSO_PROJECT = 'proj-contoso';
+    const FABRIKAM_PROJECT = 'proj-fabrikam';
 
     beforeEach(async () => {
-      await db.insert(tenantAccountSchema).values({ id: CONTOSO, name: 'Contoso', slug: 'contoso' });
+      await db.insert(tenantAccountSchema).values([
+        { id: CONTOSO, name: 'Contoso', slug: 'contoso' },
+        { id: 'acct-fabrikam', name: 'Fabrikam', slug: 'fabrikam' },
+      ]);
       await db.insert(accountMembershipSchema).values({ accountId: CONTOSO, userId: ALEX, role: 'admin', createdAt: new Date('2020-01-01T00:00:00Z') });
-      await db.insert(projectSchema).values({ id: CONTOSO_PROJECT, accountId: CONTOSO, slug: 'contoso-main', name: 'Contoso' });
+      await db.insert(projectSchema).values([
+        { id: CONTOSO_PROJECT, accountId: CONTOSO, slug: 'contoso-main', name: 'Contoso' },
+        // An account Alex is NOT in.
+        { id: FABRIKAM_PROJECT, accountId: 'acct-fabrikam', slug: 'fabrikam-main', name: 'Fabrikam' },
+      ]);
     });
 
-    it('resolves to the account they joined first, on every read', async () => {
+    it('lands in the account they joined first when nothing picked a workspace, on every read', async () => {
       const first = await resolveTenancyForUser(ALEX);
       const second = await resolveTenancyForUser(ALEX);
 
@@ -204,8 +213,25 @@ describe('tenancy resolution', () => {
       expect(second).toEqual(first);
     });
 
-    it('does not follow a header into the other account', async () => {
-      headerBag.projectId = REVENUE;
+    it('follows the URL into their other account, with the role they hold there', async () => {
+      headerBag.projectId = DELIVERY;
+
+      const t = await resolveTenancyForUser(ALEX);
+
+      expect(t).toEqual({ accountId: ACCOUNT, projectId: DELIVERY, role: 'member', workspaceRole: 'member' });
+    });
+
+    it('follows the last-active cookie into their other account — a switch survives a reload', async () => {
+      headerBag.cookie = REVENUE;
+
+      const t = await resolveTenancyForUser(ALEX);
+
+      expect(t.accountId).toBe(ACCOUNT);
+      expect(t.projectId).toBe(REVENUE);
+    });
+
+    it('refuses a header naming a workspace on an account they are not in, and lands them in their default', async () => {
+      headerBag.projectId = FABRIKAM_PROJECT;
 
       const t = await resolveTenancyForUser(ALEX);
 
@@ -213,16 +239,39 @@ describe('tenancy resolution', () => {
       expect(t.projectId).toBe(CONTOSO_PROJECT);
     });
 
-    it('agrees with the workspace-access checks when access is enforced', async () => {
-      process.env.VOCION_ENFORCE_WORKSPACE_ACCESS = '1';
-      headerBag.projectId = CONTOSO_PROJECT;
+    it('refuses a cookie naming a workspace on an account they are not in', async () => {
+      headerBag.cookie = FABRIKAM_PROJECT;
 
       const t = await resolveTenancyForUser(ALEX);
 
-      // The project the access checks accepted belongs to the account tenancy chose.
       expect(t.accountId).toBe(CONTOSO);
-      expect(t.projectId).toBe(CONTOSO_PROJECT);
-      expect(t.workspaceRole).toBe('admin');
+    });
+
+    describe('with enforcement ON', () => {
+      beforeEach(() => {
+        process.env.VOCION_ENFORCE_WORKSPACE_ACCESS = '1';
+      });
+
+      it('takes the workspace role from the picked workspace\'s own account', async () => {
+        headerBag.projectId = CONTOSO_PROJECT;
+        const inContoso = await resolveTenancyForUser(ALEX);
+        headerBag.projectId = REVENUE;
+        const inNorthwind = await resolveTenancyForUser(ALEX);
+
+        // Contoso admin: runs every shared Contoso workspace.
+        expect(inContoso).toEqual({ accountId: CONTOSO, projectId: CONTOSO_PROJECT, role: 'admin', workspaceRole: 'admin' });
+        // Northwind member, admin of revenue only through the group grant.
+        expect(inNorthwind).toEqual({ accountId: ACCOUNT, projectId: REVENUE, role: 'member', workspaceRole: 'admin' });
+      });
+
+      it('keeps them in the picked account when they cannot open that workspace, landing on one they hold there', async () => {
+        headerBag.projectId = DELIVERY;
+
+        const t = await resolveTenancyForUser(ALEX);
+
+        expect(t.accountId).toBe(ACCOUNT);
+        expect(t.projectId).toBe(REVENUE);
+      });
     });
   });
 });

@@ -6,7 +6,8 @@
  * which is the whole point (`docs/routing.md`). It still runs where the proxy
  * cannot resolve a workspace — the demo sandbox, where PGlite cannot run in
  * the middleware bundle — and there it does the older, weaker thing: resolve
- * `[workspace]` within the signed-in user's account, make it active by setting
+ * `[workspace]` on the signed-in user's accounts (the one `?account=` names,
+ * then the one they are in), make it active by setting
  * `vocion_active_project`, and 302 to the bare page. Keep it: it is the reason
  * a mailed link still opens the right workspace if the rewrite is ever off.
  *
@@ -28,7 +29,7 @@ import { ACTIVE_PROJECT_COOKIE, ACTIVE_PROJECT_COOKIE_OPTIONS } from '@/libs/act
 import { auth } from '@/libs/Auth';
 import { publicOrigin } from '@/libs/http/publicOrigin';
 import { routing } from '@/libs/I18nRouting';
-import { workspaceRedirectPath } from '@/libs/links';
+import { WORKSPACE_ACCOUNT_PARAM, workspaceRedirectPath } from '@/libs/links';
 import { resolveProjectForUser } from '@/services/ProjectService';
 
 type Params = { params: Promise<{ locale: string; workspace: string; path?: string[] }> };
@@ -45,7 +46,10 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
     return NextResponse.redirect(signIn, 302);
   }
 
-  const project = await resolveProjectForUser(session.user.id, { slug: workspace });
+  const project = await resolveProjectForUser(session.user.id, { slug: workspace }, {
+    accountSlug: request.nextUrl.searchParams.get(WORKSPACE_ACCOUNT_PARAM),
+    lastActiveProjectId: request.cookies.get(ACTIVE_PROJECT_COOKIE)?.value,
+  });
   if (!project) {
     return new NextResponse('No such workspace', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   }

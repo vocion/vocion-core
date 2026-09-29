@@ -46,6 +46,19 @@ export const WORKSPACE_HEADER = {
 } as const;
 
 /**
+ * Query parameter naming the account a `/w/<slug>/…` link means, by
+ * `tenant_account.slug`.
+ *
+ * Workspace slugs are only unique inside an account, so for a person in two
+ * accounts `/w/sales` can be two workspaces. The switcher adds
+ * `?account=<slug>` when a switch crosses accounts, and the proxy resolves the
+ * slug on that account only (vocion-core#128). Without it the slug resolves
+ * on the account the person is already in, which is right for every link
+ * rendered inside a workspace.
+ */
+export const WORKSPACE_ACCOUNT_PARAM = 'account';
+
+/**
  * First path segments a workspace slug may never take, so a slug can never
  * shadow a real route (`/w/api/…` must not be resolvable as a workspace, and
  * a project called `dashboard` must never exist).

@@ -27,7 +27,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: 'user-chris' } } as never);
   mockResolve.mockImplementation(async (_userId, selector) =>
     'slug' in selector && selector.slug.toLowerCase() === 'vocion-workforce'
-      ? { id: 'proj-workforce', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 }
+      ? { id: 'proj-workforce', accountId: 'acct-metacto', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 }
       : null,
   );
 });
@@ -39,7 +39,7 @@ describe('GET /w/[workspace]/[[...path]]', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('https://agents.example.com/dashboard/inbox?status=open&x=1');
     expect(res.cookies.get('vocion_active_project')).toMatchObject({ value: 'proj-workforce', path: '/', sameSite: 'lax', maxAge: 60 * 60 * 24 * 365 });
-    expect(mockResolve).toHaveBeenCalledWith('user-chris', { slug: 'vocion-workforce' });
+    expect(mockResolve).toHaveBeenCalledWith('user-chris', { slug: 'vocion-workforce' }, { accountSlug: null, lastActiveProjectId: undefined });
   });
 
   it('lands on the dashboard home with no path, and accepts a bare page name', async () => {

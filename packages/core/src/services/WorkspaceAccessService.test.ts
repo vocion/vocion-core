@@ -23,7 +23,7 @@ const {
   userGroupSchema,
   userSchema,
 } = await import('@/models/Schema');
-const { accessibleProjects, effectiveRole, reachForAccount, strongerRole } = await import('@/services/WorkspaceAccessService');
+const { accessibleProjects, defaultMembershipFor, effectiveRole, memberWorkspace, reachForAccount, strongerRole } = await import('@/services/WorkspaceAccessService');
 
 const ACCOUNT = 'acct-northwind';
 const OTHER_ACCOUNT = 'acct-kestrel';
@@ -201,6 +201,40 @@ describe('workspace access', () => {
     it('gives a person with no membership nothing', async () => {
       expect(await accessibleProjects('usr-nobody')).toEqual([]);
       expect(await effectiveRole('usr-nobody', REVENUE)).toBeNull();
+    });
+  });
+
+  // vocion-core#128. Alex is a MEMBER of Northwind (joined now) and an ADMIN
+  // of Kestrel (joined in 2020), inserted second so row order alone is wrong.
+  describe('a person in two accounts', () => {
+    const KESTREL_DEALS = 'proj-kestrel-deals';
+
+    beforeEach(async () => {
+      await db.insert(accountMembershipSchema).values({ accountId: OTHER_ACCOUNT, userId: ALEX, role: 'admin', createdAt: new Date('2020-01-01T00:00:00Z') });
+      await db.insert(projectSchema).values({ id: KESTREL_DEALS, accountId: OTHER_ACCOUNT, slug: 'deals', name: 'Deals' });
+    });
+
+    it('takes the role from each workspace\'s own account', async () => {
+      // Admin of Kestrel, so every shared Kestrel workspace.
+      expect(await effectiveRole(ALEX, KESTREL_DEALS)).toBe('admin');
+      // Still only a member of Northwind: no grant on delivery, no access.
+      expect(await effectiveRole(ALEX, DELIVERY)).toBeNull();
+      // And the Northwind group grant still counts, at the role it grants.
+      expect(await effectiveRole(ALEX, REVENUE)).toBe('member');
+    });
+
+    it('reaches workspaces on both accounts, or on one when it is named', async () => {
+      expect(await idsFor(ALEX)).toEqual(expect.arrayContaining([REVENUE, KESTREL_DEALS]));
+      expect((await accessibleProjects(ALEX, OTHER_ACCOUNT)).map(a => a.projectId)).toEqual([KESTREL_DEALS]);
+    });
+
+    it('lets a workspace choose the account only for someone who is a member of it', async () => {
+      expect(await memberWorkspace(ALEX, KESTREL_DEALS)).toEqual({ projectId: KESTREL_DEALS, slug: 'deals', accountId: OTHER_ACCOUNT, accountRole: 'admin' });
+      expect(await memberWorkspace(BRIT, KESTREL_DEALS)).toBeNull();
+    });
+
+    it('defaults to the oldest membership, not the first row written', async () => {
+      expect(await defaultMembershipFor(ALEX)).toEqual({ accountId: OTHER_ACCOUNT, role: 'admin' });
     });
   });
 

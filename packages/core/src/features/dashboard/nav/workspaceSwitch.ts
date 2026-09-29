@@ -4,31 +4,84 @@
  * are unit-testable.
  */
 
-import { workspaceUrl } from '@/libs/links';
+import { WORKSPACE_ACCOUNT_PARAM, workspaceUrl } from '@/libs/links';
 
 export type SwitcherProject = {
   id: string;
+  /** The account that owns it. Absent in stories that only show one account. */
+  accountId?: string;
   slug: string;
   name: string;
   description?: string | null;
   agentCount?: number;
 };
 
+/** An account the person belongs to, as the switcher labels it. */
+export type SwitcherAccount = { id: string; name: string; slug: string };
+
+/** One heading's worth of the switcher list. */
+export type AccountGroup<T extends SwitcherProject> = { account: SwitcherAccount; projects: T[] };
+
 /**
  * Where a switch navigates: the workspace entry route for the SAME page
  * (`/w/<slug>/dashboard/inbox?x=1`), prefixed with the locale when it is not
  * the default — exactly what `WorkspaceMenu.switchTo` did, in one place.
+ *
+ * A switch into another account carries `?account=<slug>`, because a
+ * workspace slug is only unique inside an account and the proxy would
+ * otherwise resolve it on the account the person is leaving. Any `account`
+ * already in the current query string is dropped first, so a hint from an
+ * earlier switch never points the next one at the wrong account.
  * @param input.slug - Target project slug.
  * @param input.pathname - Locale-stripped current path.
  * @param input.search - Current query string (with or without `?`).
  * @param input.locale - Active locale.
  * @param input.defaultLocale - The routing default (no prefix).
+ * @param input.accountSlug - The target's account slug, only when the switch crosses accounts.
  * @param input
  */
-export function workspaceSwitchHref(input: { slug: string; pathname: string; search?: string; locale: string; defaultLocale: string }): string {
+export function workspaceSwitchHref(input: { slug: string; pathname: string; search?: string; locale: string; defaultLocale: string; accountSlug?: string | null }): string {
   const prefix = input.locale !== input.defaultLocale ? `/${input.locale}` : '';
-  const search = input.search ? (input.search.startsWith('?') ? input.search : `?${input.search}`) : '';
-  return `${prefix}${workspaceUrl(input.slug, `${input.pathname}${search}`)}`;
+  const params = new URLSearchParams(input.search ?? '');
+  params.delete(WORKSPACE_ACCOUNT_PARAM);
+  if (input.accountSlug) {
+    params.set(WORKSPACE_ACCOUNT_PARAM, input.accountSlug);
+  }
+  const query = params.toString();
+  return `${prefix}${workspaceUrl(input.slug, `${input.pathname}${query ? `?${query}` : ''}`)}`;
+}
+
+/**
+ * The account slug a switch to `target` must carry, or null when it stays in
+ * the account the person is already in (or the account is unknown, as in a
+ * single-account story).
+ * @param target - The workspace being switched to.
+ * @param activeAccountId - The account this session is in.
+ * @param accounts - Every account the person belongs to.
+ */
+export function crossAccountSlug(target: SwitcherProject, activeAccountId: string | null | undefined, accounts: readonly SwitcherAccount[]): string | null {
+  if (!target.accountId || target.accountId === activeAccountId) {
+    return null;
+  }
+  return accounts.find(a => a.id === target.accountId)?.slug ?? null;
+}
+
+/**
+ * The switcher list split under one heading per account, in the order the
+ * accounts arrive (oldest membership first). Accounts with no visible
+ * workspace are left out, so a search never shows an empty heading.
+ * @param projects - The already-filtered workspaces.
+ * @param accounts - Every account the person belongs to.
+ */
+export function groupByAccount<T extends SwitcherProject>(projects: readonly T[], accounts: readonly SwitcherAccount[]): AccountGroup<T>[] {
+  const groups: AccountGroup<T>[] = [];
+  for (const account of accounts) {
+    const inAccount = projects.filter(p => p.accountId === account.id);
+    if (inAccount.length > 0) {
+      groups.push({ account, projects: inAccount });
+    }
+  }
+  return groups;
 }
 
 /**

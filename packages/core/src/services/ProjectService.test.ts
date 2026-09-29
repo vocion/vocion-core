@@ -5,7 +5,7 @@ vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
 const { eq } = await import('drizzle-orm');
 const { accountMembershipSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
-const { listProjectsForUser, projectSlugById, resolveProjectForUser } = await import('./ProjectService');
+const { accountsForUser, activeWorkspaceForUser, listProjectsForUser, projectSlugById, resolveProjectForUser } = await import('./ProjectService');
 
 beforeEach(async () => {
   await db.delete(accountMembershipSchema);
@@ -71,19 +71,65 @@ async function chrisInBothAccounts() {
   ]);
 }
 
+// vocion-core#128: the workspace a person picks decides the account. Both
+// accounts own a `vocion-workforce`, so a slug alone is ambiguous here.
 describe('for a person in more than one account', () => {
-  it('resolves a slug both accounts have on the account tenancy picks, the one joined first', async () => {
+  beforeEach(async () => {
     await chrisInBothAccounts();
+  });
 
+  it('lists the workspaces of every account they belong to, each tagged with its account', async () => {
+    const projects = await listProjectsForUser('user-chris');
+
+    expect(projects.map(p => [p.id, p.accountId]).sort()).toEqual([
+      ['proj-foreign', 'acct-other'],
+      ['proj-revenue', 'acct-metacto'],
+      ['proj-workforce', 'acct-metacto'],
+    ]);
+  });
+
+  it('lists their accounts oldest membership first, which is the order the switcher groups them in', async () => {
+    expect((await accountsForUser('user-chris')).map(a => a.slug)).toEqual(['metacto', 'other-co']);
+  });
+
+  it('resolves a shared slug on the account they joined first when nothing else says otherwise', async () => {
     expect(await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' })).toMatchObject({ id: 'proj-workforce' });
   });
 
-  it('lists the projects of that same account', async () => {
-    await chrisInBothAccounts();
+  it('resolves a shared slug on the account of the workspace they were last in', async () => {
+    const project = await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' }, { lastActiveProjectId: 'proj-foreign' });
 
-    const projects = await listProjectsForUser('user-chris');
+    expect(project).toMatchObject({ id: 'proj-foreign', accountId: 'acct-other' });
+  });
 
-    expect(projects.map(p => p.id).sort()).toEqual(['proj-revenue', 'proj-workforce']);
+  it('resolves a shared slug on the account a cross-account switch names, even against the last-active one', async () => {
+    const project = await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' }, { accountSlug: 'other-co', lastActiveProjectId: 'proj-revenue' });
+
+    expect(project).toMatchObject({ id: 'proj-foreign' });
+  });
+
+  it('refuses a link naming an account they are not in, rather than opening their own same-named workspace', async () => {
+    await db.insert(tenantAccountSchema).values({ id: 'acct-third', name: 'Third Co', slug: 'third-co' });
+    await db.insert(projectSchema).values({ id: 'proj-third', accountId: 'acct-third', slug: 'vocion-workforce', name: 'Not theirs' });
+
+    expect(await resolveProjectForUser('user-chris', { slug: 'vocion-workforce' }, { accountSlug: 'third-co' })).toBeNull();
+  });
+
+  it('finds a workspace by id on either account', async () => {
+    expect(await resolveProjectForUser('user-chris', { id: 'proj-foreign' })).toMatchObject({ id: 'proj-foreign', accountId: 'acct-other' });
+  });
+
+  it('sends a bare /dashboard to the last-active workspace even when it is on their second account', async () => {
+    expect(await activeWorkspaceForUser('user-chris', 'proj-foreign')).toEqual({ id: 'proj-foreign', accountId: 'acct-other', slug: 'vocion-workforce' });
+  });
+
+  it('ignores a last-active cookie naming another tenant\'s workspace and uses the account they joined first', async () => {
+    await db.insert(tenantAccountSchema).values({ id: 'acct-third', name: 'Third Co', slug: 'third-co' });
+    await db.insert(projectSchema).values({ id: 'proj-third', accountId: 'acct-third', slug: 'third', name: 'Not theirs' });
+
+    const landing = await activeWorkspaceForUser('user-chris', 'proj-third');
+
+    expect(landing?.accountId).toBe('acct-metacto');
   });
 });
 
