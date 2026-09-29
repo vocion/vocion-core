@@ -441,6 +441,8 @@ export function useChatSession({
    * changes, so both readers agree.
    */
   const streamingRef = useRef(false);
+  // True while waiting for a reply with no stream to attach to (`waitForReply`); Stop ends it.
+  const waitingRef = useRef(false);
   /**
    * How the last turn ENDED — what the send queue flushes on. Only
    * `completed` releases queued messages; `stopped` and `error` hold them and
@@ -1192,10 +1194,11 @@ export function useChatSession({
    * @param seen - How many messages are already shown.
    */
   const waitForReply = useCallback(async (id: number, seen: number) => {
+    waitingRef.current = true;
     setPhase('thinking');
     setActivity('Still answering…');
     const deadline = Date.now() + 10 * 60_000;
-    while (Date.now() < deadline && conversationIdRef.current === id) {
+    while (Date.now() < deadline && conversationIdRef.current === id && waitingRef.current) {
       await new Promise(r => setTimeout(r, 3000));
       const conv = await client.conversations.get({ id }).catch(() => null);
       if (!conv || conversationIdRef.current !== id) {
@@ -1215,6 +1218,7 @@ export function useChatSession({
         break;
       }
     }
+    waitingRef.current = false;
     setPhase('idle');
     setActivity(null);
   }, [nameOfAgent]);
@@ -1606,6 +1610,15 @@ export function useChatSession({
   // which the catch above treats as a clean finalize (no error breadcrumb).
   const handleStop = useCallback(async () => {
     if (!streamingRef.current) {
+      // Waiting for a reply with no stream to it (after a reload): Stop ends
+      // the wait and hands the composer back (Chris, 2026-09-29: "Tapping
+      // stop does not unstuck the chat").
+      if (waitingRef.current) {
+        waitingRef.current = false;
+        setPhase('idle');
+        setActivity(null);
+        setTurnOutcome('stopped');
+      }
       return;
     }
     streamingRef.current = false;
