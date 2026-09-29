@@ -606,3 +606,56 @@ describe('AgentMessage and the card pass\'s refusals (2026-09-29)', () => {
     expect(document.body.textContent).not.toContain('not a card');
   });
 });
+
+describe('AgentMessage folds a long answer behind its lead (Chris, 2026-09-29: "too long to be useful and respondable")', () => {
+  const lead = 'Request #41 is waiting on you: plan 32 is written, correct and in review. Approve it and the contract is written today; leave it and the Friday date goes.';
+  const rest = Array.from({ length: 6 }, (_, n) => `Paragraph ${n + 2} of the detail: what the plan commits to, why it has not moved on its own, the risk and how it is handled, the alternative that was rejected, and the date it has to land by.`);
+  const text = [lead, ...rest].join('\n\n');
+  const docs = [{ document_id: 'd1', semantic_identifier: 'plan-32', link: 'https://example.com/1', source_type: 'web', blurb: '', citationIndex: 1 }];
+
+  it('shows the lead, folds the rest behind Show more in the same message, and keeps the Sources chip', async () => {
+    await render(
+      <AgentMessage
+        agentName="Product"
+        message={{
+          role: 'assistant',
+          content: text,
+          runs: [{ type: 'text', text: 'I will read the record.' }, { type: 'tool', name: 'lookup_objects', state: 'done', input: {}, output: '[]' }, { type: 'text', text }],
+          documents: docs,
+        }}
+      />,
+    );
+
+    await expect.element(page.getByText(/Request #41 is waiting on you/)).toBeInTheDocument();
+    await expect.element(page.getByText('I will read the record.')).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: /Sources/ })).toBeInTheDocument();
+
+    expect(document.body.textContent).not.toContain('Paragraph 4 of the detail');
+
+    const more = page.getByTestId('reply-more');
+
+    await expect.element(more).toHaveTextContent(/^Show more · \d+ words$/);
+
+    await userEvent.click(more);
+
+    await expect.element(page.getByText(/Paragraph 4 of the detail/)).toBeInTheDocument();
+    await expect.element(more).toHaveTextContent('Show less');
+    await expect.element(more).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('never folds a reply while it is still streaming, or a short one', async () => {
+    await render(<AgentMessage agentName="Product" streaming message={{ role: 'assistant', content: text, runs: [{ type: 'text', text }] }} />);
+
+    await expect.element(page.getByText(/Paragraph 7 of the detail/)).toBeInTheDocument();
+
+    expect(document.querySelector('[data-testid="reply-more"]')).toBeNull();
+  });
+
+  it('shows a short reply whole', async () => {
+    await render(<AgentMessage agentName="Product" message={{ role: 'assistant', content: lead, runs: [{ type: 'text', text: lead }] }} />);
+
+    await expect.element(page.getByText(/Request #41 is waiting on you/)).toBeInTheDocument();
+
+    expect(document.querySelector('[data-testid="reply-more"]')).toBeNull();
+  });
+});

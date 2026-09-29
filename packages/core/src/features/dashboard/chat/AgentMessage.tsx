@@ -1,6 +1,7 @@
 'use client';
 
 import type { DashboardLinkKind } from './links';
+import type { ReplyFold } from './replyFold';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
 import { memo, useState } from 'react';
@@ -19,6 +20,7 @@ import { liveWorkIndex, segmentTurn } from './interleave';
 import { classifyDashboardLink, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
+import { foldReply } from './replyFold';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
 import { turnFailure } from './turnFailure';
@@ -173,6 +175,31 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
+/**
+ * A long reply's lead, with the rest one tap away in the same message.
+ * @param props - The fold and the prose renderer.
+ * @param props.fold - Where the reply folds.
+ * @param props.render - Renders one passage of prose.
+ */
+function FoldedReply({ fold, render }: { fold: ReplyFold; render: (text: string, key: string) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div data-testid="reply-fold" data-open={open}>
+      {render(fold.lead, 'lead')}
+      {open && render(fold.rest, 'rest')}
+      <button
+        type="button"
+        data-testid="reply-more"
+        aria-expanded={open}
+        onClick={() => setOpen(v => !v)}
+        className="mt-1 text-[12px] font-medium text-muted-foreground underline-offset-2 transition hover:text-foreground hover:underline"
+      >
+        {open ? 'Show less' : `Show more · ${fold.restWords} words`}
+      </button>
+    </div>
+  );
+}
+
 export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
@@ -239,6 +266,93 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // Only the trailing group is still running; a group the agent has written
   // past is finished, and folds to its one line like Claude Code's tool blocks.
   const liveIndex = streaming ? liveWorkIndex(segments) : null;
+
+  // One renderer for every passage of prose, so a folded reply's lead and
+  // its rest read exactly as an unfolded one does.
+  const prose = (text: string, key: string) => (
+    // `break-words`: agent prose carries URLs, ids and inline
+    // code that are single unbreakable words — a 527px
+    // identifier was cut off both edges of a 390px phone
+    // (the owner's screenshot, 2026-09-19). Wrapping is the
+    // answer for prose; a genuinely wide block gets its own
+    // scroller instead (the `table` renderer below).
+    <div key={key} className="prose prose-sm max-w-none min-w-0 break-words wrap-anywhere dark:prose-invert">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        // Keep our private citation scheme; react-markdown's default
+        // sanitizer would strip `vocion-cite:` and drop the link.
+        urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
+        components={{
+          // A table is the one thing in a turn that cannot
+          // wrap: its width is the sum of its columns, and a
+          // column holding an identifier has a min-content of
+          // its own. So it scrolls INSIDE its own box rather
+          // than pushing the transcript — the same rule the
+          // typography plugin already gives `pre`.
+          table({ children, ...props }) {
+            return (
+              <div className="max-w-full overflow-x-auto">
+                <table {...props}>{children}</table>
+              </div>
+            );
+          },
+          a({ href, children, ...props }) {
+            const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
+            if (m !== null) {
+              const n = Number(m);
+              return (
+                <button
+                  type="button"
+                  onClick={() => onCitationClick?.(n)}
+                  className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
+                  aria-label={`Open source ${n}`}
+                >
+                  {n}
+                </button>
+              );
+            }
+            // A same-origin dashboard route becomes a chip that
+            // navigates in place (§9); anything else stays an
+            // ordinary external link in a new tab.
+            const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
+            if (inApp) {
+              const Icon = LINK_ICON[inApp.kind];
+              return (
+                <Link
+                  href={inApp.href}
+                  data-link-kind={inApp.kind}
+                  // A room peeks on a plain click and navigates on ⌘-click,
+                  // the same rule as a list row (`usePreviewList`).
+                  onClick={(e) => {
+                    const peek = previewRefFor(inApp);
+                    if (peek && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                      e.preventDefault();
+                      openPreview(peek, e.currentTarget);
+                    }
+                  }}
+                  className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
+                >
+                  <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="truncate">{children}</span>
+                </Link>
+              );
+            }
+            return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
+          },
+        }}
+      >
+        {citeLinkify(normalizeAnswerHtml(stripCardNotes(text)))}
+      </Markdown>
+    </div>
+  );
+  // THE ANSWER LEADS, THE REST FOLDS (Chris, 2026-09-29: "too long to be
+  // useful and respondable"). Only the turn's last passage — the answer, not
+  // a preamble before a tool call — and only once the turn has finished, so
+  // the fold never moves while the text is still arriving (`replyFold.ts`).
+  const answerSeg = streaming ? undefined : segments.filter(seg => seg.kind === 'text').at(-1);
+  const answerIndex = answerSeg?.index ?? -1;
+  const answerPiece = answerSeg?.kind === 'text' ? splitScratch(answerSeg.text).at(-1) : undefined;
+  const answerFold = answerPiece?.kind === 'answer' ? foldReply(stripCardNotes(answerPiece.text)) : null;
 
   // A small brand mark carries the speaker (2026-09-18) — the uppercase name
   // on every turn was the same two words a hundred times; the surface's
@@ -353,84 +467,11 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             // thinking, folded (`ScratchFold`); the prose around it renders
             // as it always did. The live turn never carries one — the streamer
             // set it aside — so this is the reload path and the audit trail.
-            : splitScratch(seg.text).map((piece, i) => (piece.kind === 'scratch'
+            : splitScratch(seg.text).map((piece, i, pieces) => (piece.kind === 'scratch'
                 ? <ScratchFold key={`text-${seg.index}-${i}`} text={piece.text} />
-                : (
-                    // `break-words`: agent prose carries URLs, ids and inline
-                    // code that are single unbreakable words — a 527px
-                    // identifier was cut off both edges of a 390px phone
-                    // (the owner's screenshot, 2026-09-19). Wrapping is the
-                    // answer for prose; a genuinely wide block gets its own
-                    // scroller instead (the `table` renderer below).
-                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none min-w-0 break-words wrap-anywhere dark:prose-invert">
-                      <Markdown
-                        remarkPlugins={[remarkGfm]}
-                        // Keep our private citation scheme; react-markdown's default
-                        // sanitizer would strip `vocion-cite:` and drop the link.
-                        urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
-                        components={{
-                          // A table is the one thing in a turn that cannot
-                          // wrap: its width is the sum of its columns, and a
-                          // column holding an identifier has a min-content of
-                          // its own. So it scrolls INSIDE its own box rather
-                          // than pushing the transcript — the same rule the
-                          // typography plugin already gives `pre`.
-                          table({ children, ...props }) {
-                            return (
-                              <div className="max-w-full overflow-x-auto">
-                                <table {...props}>{children}</table>
-                              </div>
-                            );
-                          },
-                          a({ href, children, ...props }) {
-                            const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
-                            if (m !== null) {
-                              const n = Number(m);
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={() => onCitationClick?.(n)}
-                                  className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
-                                  aria-label={`Open source ${n}`}
-                                >
-                                  {n}
-                                </button>
-                              );
-                            }
-                            // A same-origin dashboard route becomes a chip that
-                            // navigates in place (§9); anything else stays an
-                            // ordinary external link in a new tab.
-                            const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
-                            if (inApp) {
-                              const Icon = LINK_ICON[inApp.kind];
-                              return (
-                                <Link
-                                  href={inApp.href}
-                                  data-link-kind={inApp.kind}
-                                  // A room peeks on a plain click and navigates on ⌘-click,
-                                  // the same rule as a list row (`usePreviewList`).
-                                  onClick={(e) => {
-                                    const peek = previewRefFor(inApp);
-                                    if (peek && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-                                      e.preventDefault();
-                                      openPreview(peek, e.currentTarget);
-                                    }
-                                  }}
-                                  className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
-                                >
-                                  <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-                                  <span className="truncate">{children}</span>
-                                </Link>
-                              );
-                            }
-                            return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
-                          },
-                        }}
-                      >
-                        {citeLinkify(normalizeAnswerHtml(stripCardNotes(piece.text)))}
-                      </Markdown>
-                    </div>
-                  )))))}
+                : answerFold && seg.index === answerIndex && i === pieces.length - 1
+                  ? <FoldedReply key={`text-${seg.index}-${i}`} fold={answerFold} render={prose} />
+                  : prose(piece.text, `text-${seg.index}-${i}`)))))}
           {/*
             The live indicator sits right under the prose while the turn runs
             — the shape OpenClaw and Claude Code both use. It used to be the
