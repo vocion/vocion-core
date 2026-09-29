@@ -201,13 +201,20 @@ export type ScriptedChatModelParams = BaseChatModelParams & {
    * the same tools. That is what lets a demo keep its performed walkthroughs
    * deterministic and still take any question a visitor asks.
    */
-  live?: BaseChatModel;
+  live?: LiveModel;
 };
+
+/**
+ * What the live stand-in has to do: answer a conversation, whole or
+ * streamed. A chat model and a chat model bound to tools (a Runnable, not a
+ * model) both do, through their public interface.
+ */
+type LiveModel = Pick<BaseChatModel, 'invoke' | 'stream'>;
 
 export class ScriptedChatModel extends BaseChatModel {
   private readonly script: Script;
   private readonly baseDir: string;
-  private readonly live?: BaseChatModel;
+  private readonly live?: LiveModel;
   private boundTools: StructuredToolInterface[] = [];
 
   constructor(params: ScriptedChatModelParams) {
@@ -236,9 +243,8 @@ export class ScriptedChatModel extends BaseChatModel {
    * @param tools
    */
   override bindTools(tools: StructuredToolInterface[]): this {
-    const live = this.live && typeof this.live.bindTools === 'function'
-      ? this.live.bindTools(tools) as unknown as BaseChatModel
-      : this.live;
+    const bindable = this.live as unknown as { bindTools?: (t: StructuredToolInterface[]) => LiveModel } | undefined;
+    const live = bindable?.bindTools ? bindable.bindTools(tools) : this.live;
     const next = new ScriptedChatModel({ script: this.script, baseDir: this.baseDir, live }) as this;
     next.boundTools = tools;
     return next;
@@ -254,7 +260,13 @@ export class ScriptedChatModel extends BaseChatModel {
    */
   override async* _streamResponseChunks(messages: BaseMessage[], _options: this['ParsedCallOptions'], runManager?: CallbackManagerForLLMRun): AsyncGenerator<ChatGenerationChunk> {
     if (this.unscripted(messages)) {
-      yield* (this.live as unknown as { _streamResponseChunks: ScriptedChatModel['_streamResponseChunks'] })._streamResponseChunks(messages, _options, runManager);
+      for await (const chunk of await this.live!.stream(messages)) {
+        const text = typeof chunk.content === 'string' ? chunk.content : '';
+        yield new ChatGenerationChunk({ text, message: chunk });
+        if (text) {
+          await runManager?.handleLLMNewToken(text);
+        }
+      }
       return;
     }
     const failure = this.failureFor(messages);
@@ -328,9 +340,10 @@ export class ScriptedChatModel extends BaseChatModel {
     return turn.fails;
   }
 
-  async _generate(messages: BaseMessage[], options?: this['ParsedCallOptions'], runManager?: CallbackManagerForLLMRun): Promise<ChatResult> {
+  async _generate(messages: BaseMessage[], options?: this['ParsedCallOptions'], _runManager?: CallbackManagerForLLMRun): Promise<ChatResult> {
     if (this.unscripted(messages)) {
-      return (this.live as unknown as { _generate: ScriptedChatModel['_generate'] })._generate(messages, options, runManager);
+      const message = await this.live!.invoke(messages, options);
+      return { generations: [{ text: typeof message.content === 'string' ? message.content : '', message }] };
     }
     const { human, toolResults } = positionInTurn(messages);
     const turn = matchTurn(this.script, human);
@@ -379,7 +392,7 @@ function reply(text: string): ChatResult {
  * chatbot that says the same sentence to every customer.
  * @param live
  */
-export function buildScriptedChatModel(live?: () => BaseChatModel): ScriptedChatModel {
+export function buildScriptedChatModel(live?: () => LiveModel): ScriptedChatModel {
   if (process.env.NODE_ENV === 'production' && process.env.VOCION_ALLOW_SCRIPTED_MODEL !== '1') {
     throw new Error('VOCION_LLM_PROVIDER=scripted is refused in production');
   }

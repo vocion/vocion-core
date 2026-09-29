@@ -212,7 +212,7 @@ export function Toaster() {
           </ToastPrimitive.Root>
         );
       })}
-      <ToastPrimitive.Viewport className="fixed right-4 bottom-4 z-100 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2 outline-none" />
+      <ToastPrimitive.Viewport data-toast-viewport className="fixed right-4 bottom-4 z-100 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2 outline-none" />
     </ToastPrimitive.Provider>
   );
 }

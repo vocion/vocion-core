@@ -251,12 +251,38 @@ function specSummary(kind: string, spec: Record<string, unknown>): string | null
     ].filter(Boolean).join('\n\n');
   }
   if (kind === 'table' && Array.isArray(spec.columns)) {
+    // The rows themselves, as a markdown table: a count of rows is not a
+    // preview of a table. Long tables stop at 40 rows and say so.
     const caption = typeof spec.caption === 'string' ? `**${spec.caption}**\n\n` : '';
-    const cols = (spec.columns as Array<{ label?: string } | string>)
-      .map(c => (typeof c === 'string' ? c : c.label ?? ''))
-      .filter(Boolean);
-    const rows = Array.isArray(spec.rows) ? spec.rows.length : 0;
-    return `${caption}${cols.join(' · ')}\n\n${rows} ${rows === 1 ? 'row' : 'rows'}`;
+    const cols = (spec.columns as Array<{ key?: string; label?: string } | string>)
+      .map(c => (typeof c === 'string' ? { key: c, label: c } : { key: c.key ?? c.label ?? '', label: c.label ?? c.key ?? '' }))
+      .filter(c => c.key);
+    const rows = Array.isArray(spec.rows) ? spec.rows as Array<Record<string, unknown>> : [];
+    const cell = (v: unknown): string => (v === null || v === undefined || v === '' ? '—' : String(v).replace(/\|/g, '/').replace(/\n/g, ' '));
+    const shown = rows.slice(0, 40);
+    return [
+      `${caption}| ${cols.map(c => c.label).join(' | ')} |`,
+      `|${cols.map(() => '---').join('|')}|`,
+      ...shown.map(r => `| ${cols.map(c => cell(r[c.key])).join(' | ')} |`),
+      rows.length > shown.length ? `\n*${rows.length - shown.length} more rows on the full page.*` : '',
+    ].join('\n');
+  }
+  if (kind === 'chart' && Array.isArray(spec.x) && Array.isArray(spec.series)) {
+    // A chart as its data, one row per label, with a bar drawn in text for
+    // the first series: the shape reads at a glance, the numbers are exact,
+    // and the full page still draws the real chart.
+    const x = spec.x as string[];
+    const series = spec.series as Array<{ name: string; values: Array<number | null> }>;
+    const unit = typeof spec.unit === 'string' ? ` ${spec.unit}` : '';
+    const first = series[0]?.values ?? [];
+    const max = Math.max(0, ...first.filter((v): v is number => typeof v === 'number'));
+    const bar = (v: number | null): string => (typeof v === 'number' && max > 0 ? '█'.repeat(Math.max(1, Math.round((v / max) * 20))) : '');
+    const fmt = (v: number | null | undefined): string => (typeof v === 'number' ? `${Number.isInteger(v) ? v : v.toFixed(1)}${unit}` : '—');
+    return [
+      `| | ${series.map(se => se.name).join(' | ')} | |`,
+      `|---|${series.map(() => '---:').join('|')}|---|`,
+      ...x.map((label, i) => `| ${label} | ${series.map(se => fmt(se.values[i])).join(' | ')} | ${bar(first[i] ?? null)} |`),
+    ].join('\n');
   }
   return null;
 }

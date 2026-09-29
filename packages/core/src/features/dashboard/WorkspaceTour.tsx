@@ -52,7 +52,10 @@ function writeStorage(key: string, value: string | null) {
   } catch { /* private mode */ }
 }
 
-/** The path part of a step route — a route may carry a query string. */
+/**
+ * The path part of a step route — a route may carry a query string.
+ * @param route
+ */
 function routePath(route: string): string {
   return route.split('?')[0]!.replace(/\/$/, '') || '/';
 }
@@ -95,7 +98,10 @@ function tapElement(el: HTMLElement) {
   el.click();
 }
 
-/** How long autoplay holds a step: long enough to read it. */
+/**
+ * How long autoplay holds a step: long enough to read it.
+ * @param step
+ */
 function dwellFor(step: TourStep): number {
   if (step.dwellMs) {
     return step.dwellMs;
@@ -308,7 +314,8 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
     }
     const onClick = (e: MouseEvent) => {
       const t = e.target as Node | null;
-      if (!t || popRef.current?.contains(t) || (t as HTMLElement).closest?.('[data-tour-chrome]')) {
+      // Toasts are the product talking back; they stay closable mid-tour.
+      if (!t || popRef.current?.contains(t) || (t as HTMLElement).closest?.('[data-tour-chrome], [data-toast-viewport]')) {
         return;
       }
       const el = targetRef.current ?? findTarget(step.selector!, step.selectorText);
@@ -454,6 +461,9 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
     >
       <style>
         {`
+        /* Toasts leave the bottom-right, where tour cards and decision
+           buttons sit, for the top-left, and stay above the mask. */
+        [data-toast-viewport] { top: 72px !important; bottom: auto !important; right: auto !important; left: 16px !important; z-index: 60 !important; pointer-events: auto; }
         @keyframes wsx-tour-in { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
         @keyframes wsx-tour-pulse { 0% { box-shadow: 0 0 0 0 rgba(245,158,11,.55); } 70% { box-shadow: 0 0 0 14px rgba(245,158,11,0); } 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); } }
         @keyframes wsx-tour-work { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
