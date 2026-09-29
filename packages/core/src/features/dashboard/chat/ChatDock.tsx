@@ -22,7 +22,8 @@ import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel'
 import { SequencePointer } from '@/features/personalization/SequencePointer';
 import { closePreview, openPreview, useOpenPreviewRef } from '@/features/preview/previewState';
 import { client } from '@/libs/Orpc';
-import { sourcesPreviewRef } from '@/libs/preview/sourcesRef';
+import { setLiveSources } from '@/libs/preview/liveSources';
+import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
@@ -349,7 +350,27 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   const cardsScrolledAway = cardAnchor < lastMessageIndex;
   const recallCards = () => setCardAnchor(lastMessageIndex);
 
-  const previewOpen = useOpenPreviewRef() !== null;
+  const openRef = useOpenPreviewRef();
+  const previewOpen = openRef !== null;
+  // A STREAMING ANSWER'S SOURCES REACH THE PANE (`liveSources.ts`): published
+  // while the turn runs; once the answer is stored, a sources pane opened
+  // mid-turn is pointed at that answer, which the server now has.
+  const latest = session.messages[session.messages.length - 1];
+  const latestDocs = latest?.role === 'assistant' ? latest.documents : undefined;
+  useEffect(() => {
+    if (session.conversationId === null) {
+      return;
+    }
+    if (session.isStreaming) {
+      setLiveSources(session.conversationId, latestDocs ?? null);
+      return;
+    }
+    setLiveSources(session.conversationId, null);
+    const open = openRef?.type === 'conversation' ? parseSourcesRefId(openRef.id) : null;
+    if (open && open.conversationId === session.conversationId && open.messageId === null && latest?.id) {
+      openPreview(sourcesPreviewRef(session.conversationId, latest.id), null);
+    }
+  }, [session.conversationId, session.isStreaming, latestDocs, latest?.id, openRef]);
   const setCollapsedPersisted = useCallback((next: boolean) => {
     setCollapsed(next);
     writeCollapsed(next);

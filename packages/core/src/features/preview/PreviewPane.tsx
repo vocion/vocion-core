@@ -5,7 +5,7 @@ import type { PreviewDoc } from '@/libs/preview/types';
 import type { RunStep } from '@/libs/worker/runLog';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
 import { ArrowLeft, Bot, ExternalLink, FileText, History, Inbox, ListTree, MessageSquareText, Newspaper, Play, Rocket, RotateCw, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Accordion } from '@/components/patterns';
@@ -19,6 +19,8 @@ import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { describeRef } from '@/libs/preview/describeRef';
+import { useLiveSources } from '@/libs/preview/liveSources';
+import { parseSourcesRefId, sourcesMarkdown } from '@/libs/preview/sourcesRef';
 import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
 import { parseHistoryRefId } from '@/libs/versions/versionRef';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
@@ -288,7 +290,14 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
   const [round, setRound] = useState(0);
   // A caller that already holds the content wins outright: there is nothing to
   // fetch and nothing to wait for.
-  const given = props.doc;
+  // A turn still streaming has no stored sources yet: the rail's live ones
+  // stand in, until the answer is saved and the ref names it (`liveSources.ts`).
+  const sourcesId = recordRef.type === 'conversation' ? parseSourcesRefId(recordRef.id) : null;
+  const liveSources = useLiveSources(sourcesId && sourcesId.messageId === null ? sourcesId.conversationId : null);
+  const liveDoc = useMemo<PreviewDoc | undefined>(() => (liveSources && liveSources.length > 0
+    ? { ref: recordRef as RecordRef, title: `Sources · ${liveSources.length}`, sourceLabel: 'Sources', subtitle: 'This answer is still being written; its sources so far.', body: sourcesMarkdown(liveSources) }
+    : undefined), [liveSources, recordRef]);
+  const given = props.doc ?? liveDoc;
   const doc = given ?? fetched;
   const named = describeRef(recordRef);
 

@@ -137,3 +137,20 @@ describe('an agent run', () => {
     expect(text).not.toContain('Your charter');
   });
 });
+
+describe('the sources of an answer still being written', () => {
+  it('show from the rail\'s live copy, never "no sources", until the answer is stored', async () => {
+    const { setLiveSources } = await import('@/libs/preview/liveSources');
+    get.mockReset();
+    get.mockResolvedValue({ ref: { type: 'conversation', id: '381.sources' }, title: 'Sources · 0', sourceLabel: 'Sources', body: 'No sources were kept for this answer.' });
+    setLiveSources(381, [{ document_id: 'req-201', semantic_identifier: 'Request #201 — Document detail page scope', link: '/dashboard/p/feature/201', source_type: 'record', blurb: 'The request as it stands.' }]);
+
+    await render(<PreviewPane recordRef={{ type: 'conversation', id: '381.sources' }} />);
+
+    await expect.element(page.getByText('Request #201 — Document detail page scope')).toBeVisible();
+
+    expect(page.getByText('No sources were kept for this answer.').elements()).toHaveLength(0);
+
+    setLiveSources(381, null);
+  });
+});
