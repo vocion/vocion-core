@@ -42,6 +42,7 @@ export async function missionRunReport(orgId: string, missionRunId: number): Pro
  * @param opts.missionRunId - The run the call is recorded against.
  * @param opts.report - The run's written report.
  * @param opts.context - What the fire was about (the event payload), as JSON.
+ * @param opts.invokedBy - Who the run acts for (`mission_run.created_by`); the pass acts for the same.
  * @returns Whether an accepted call landed, and the tool's last answer.
  */
 export async function forceRequiredTool(opts: {
@@ -51,6 +52,7 @@ export async function forceRequiredTool(opts: {
   missionRunId: number;
   report: string;
   context?: Record<string, unknown>;
+  invokedBy?: string;
 }): Promise<{ called: boolean; answer: string }> {
   // `tool` or `tool:action`: the pass binds the tool and, for an action,
   // says which one; only an accepted call for that action counts.
@@ -73,6 +75,12 @@ export async function forceRequiredTool(opts: {
     searchConfig: (agent.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: agent.harnessConfig ?? {},
     missionRunId: opts.missionRunId,
+    // THE PASS ACTS FOR WHOEVER THE RUN ACTED FOR (prod 2026-09-29: the
+    // planner's plans for #130 and #224 were refused "13 of 10" five times
+    // over). Without the run's actor the pass read as the agent's own
+    // initiative, so a factory step (`isFactoryStep`) was charged the weekly
+    // idea cap the run itself is exempt from.
+    ...(opts.invokedBy ? { userId: opts.invokedBy } : {}),
     emit: () => {},
   } as RuntimeContext;
   // THE TYPED FILING TOOLS TOO. A requirement of `file_<type>` (the planner's

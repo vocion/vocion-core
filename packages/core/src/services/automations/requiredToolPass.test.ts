@@ -25,7 +25,12 @@ const verdictTool = {
       : 'Verdict recorded on task #177: changes, 1 of 2 criteria proven.';
   }),
 };
-vi.mock('@/services/agents/tools/registry', () => ({ buildDomainTools: () => [verdictTool] }));
+// The context each pass built its belt from.
+const ctxs: Array<{ userId?: string }> = [];
+vi.mock('@/services/agents/tools/registry', () => ({ buildDomainTools: (ctx: { userId?: string }) => {
+  ctxs.push(ctx);
+  return [verdictTool];
+} }));
 vi.mock('@/services/agents/tools/fetchImage', () => ({ artifactImageUrl: async (_org: string, link: string) => `https://store.example/${link.split('/').pop()}.png` }));
 vi.mock('@/libs/tools/image/remote', () => ({ fetchImage: async () => ({ dataUri: 'data:image/png;base64,AAAA', contentType: 'image/png', width: 10, height: 10 }) }));
 vi.mock('@/services/agents/toolCallRecord', () => ({ persistToolCall: async () => {} }));
@@ -102,5 +107,21 @@ describe('forceRequiredTool', () => {
 
     expect(res.called).toBe(true);
     expect(invoked).toHaveLength(3);
+  });
+
+  it('acts for whoever the run acted for, so a factory step is not charged the weekly idea cap (#130, #224)', async () => {
+    invoked.length = 0;
+    ctxs.length = 0;
+    const { isFactoryStep } = await import('@/services/proposals/ProposalBudgetService');
+    await forceRequiredTool({ orgId: 'org_pass', agentSlug: 'change-reviewer', toolName: 'record_verdict', missionRunId: 999_004, report: 'changes.', invokedBy: 'factory:product-manager' });
+
+    expect(ctxs[0]?.userId).toBe('factory:product-manager');
+    expect(isFactoryStep(ctxs[0]!)).toBe(true);
+
+    ctxs.length = 0;
+    invoked.length = 0;
+    await forceRequiredTool({ orgId: 'org_pass', agentSlug: 'change-reviewer', toolName: 'record_verdict', missionRunId: 999_005, report: 'changes.' });
+
+    expect(ctxs[0]?.userId).toBeUndefined();
   });
 });
