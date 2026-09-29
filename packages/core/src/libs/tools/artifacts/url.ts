@@ -87,3 +87,19 @@ export function contentTypeForExt(ext: string): string {
 export function isInlineType(contentType: string): boolean {
   return /^(?:image\/|text\/plain|text\/markdown|text\/csv|application\/pdf|application\/json)/.test(contentType);
 }
+
+/**
+ * An absolute http(s) URL — something outside Vocion's own store.
+ * @param url
+ */
+export function isExternalHttpUrl(url: string | null | undefined): url is string {
+  return typeof url === 'string' && /^https?:\/\//i.test(url.trim());
+}
+
+/**
+ * A URL the built-in route serves from the artifact store.
+ * @param url
+ */
+export function isStoredArtifactUrl(url: string | null | undefined): url is string {
+  return typeof url === 'string' && url.startsWith(`${API_ARTIFACTS_BASE}/`);
+}

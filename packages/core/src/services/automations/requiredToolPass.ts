@@ -186,7 +186,7 @@ async function openShots(ctx: RuntimeContext, listed: Array<{ title: string; lin
     return [];
   }
   const { artifactImageUrl } = await import('@/services/agents/tools/fetchImage');
-  const { fetchImage } = await import('@/libs/tools/image/remote');
+  const { openImage } = await import('@/libs/tools/artifacts/ingest');
   const { persistToolCall } = await import('@/services/agents/toolCallRecord');
   const out: Array<{ title: string; link: string; dataUri: string }> = [];
   for (const { title, link } of listed) {
@@ -195,7 +195,8 @@ async function openShots(ctx: RuntimeContext, listed: Array<{ title: string; lin
       continue;
     }
     const started = Date.now();
-    const got = await fetchImage(stored, { maxEdge: 800 }).catch(() => null);
+    // Vocion's stored copy is read from the store; a link out is fetched.
+    const got = await openImage(ctx.orgId, stored, { maxEdge: 800 }).catch(() => null);
     if (!got) {
       continue;
     }

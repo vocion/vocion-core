@@ -4,6 +4,7 @@
  * re-exported here so it lands in the deterministic sandbox bundle.
  */
 
+export * from './artifactImageSweep';
 export * from './automationFire';
 export * from './bulkBriefRegenerate';
 export * from './evalRefresh';

@@ -20,4 +20,11 @@ describe('artifactImageUrl', () => {
     expect(await artifactImageUrl('org_a', `https://agents.example/dashboard/artifacts/${theirs!.id}`)).toBeNull();
     expect(await artifactImageUrl('org_a', 'https://files.example/qa/after.png')).toBeNull();
   });
+
+  it('hands over Vocion\'s stored copy once the image was kept, so the reviewer reads the copy and not an expired link', async () => {
+    const stored = '/api/artifacts/org_a-0123456789abcdef/org_a-0123456789abcdef.png';
+    const [kept] = await db.insert(artifactSchema).values({ orgId: 'org_a', kind: 'link', title: 'after', url: stored, sourceUrl: 'https://files.example/qa/after.png?X-Amz-Expires=604800', spec: { href: stored, title: 'after' } } as never).returning({ id: artifactSchema.id });
+
+    expect(await artifactImageUrl('org_a', `https://agents.example/dashboard/artifacts/${kept!.id}`)).toBe(stored);
+  });
 });

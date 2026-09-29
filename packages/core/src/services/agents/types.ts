@@ -110,6 +110,11 @@ export type ArtifactPayload = {
   spec: Record<string, unknown>;
   url?: string | null;
   /**
+   * The external link an image arrived with, when Vocion copied its bytes
+   * and `url` now serves the copy (0151). Absent on payloads built before.
+   */
+  sourceUrl?: string | null;
+  /**
    * The RECORD this artifact belongs to (0112), when it belongs to one rather
    * than only to a conversation — `{ type, id }` of a `RecordRef`, plus what
    * the artifact IS to that record (`brief` | `recommendation` | `sequence`).

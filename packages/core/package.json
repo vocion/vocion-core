@@ -75,6 +75,7 @@
     "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts",
     "consolidate:run": "dotenv -c -- tsx src/scripts/run-consolidation.ts",
     "artifacts:sweep": "dotenv -c -- tsx src/scripts/sweep-artifacts.ts",
+    "artifacts:keep-images": "dotenv -c -- tsx src/scripts/keep-artifact-images.ts",
     "version:write": "node scripts/write-version.mjs",
     "people:apply": "tsx src/scripts/apply-people.ts"
   },

@@ -247,3 +247,5 @@ export * from './runEvalDataset';
 export * from './sourceSync';
 export * from './startMissionRun';
 export * from './startWorkflowRun';
+/* Hourly retry of image artifacts whose copy into the store failed. */
+export * from './sweepArtifactImages';

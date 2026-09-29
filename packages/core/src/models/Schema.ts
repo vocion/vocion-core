@@ -4472,6 +4472,18 @@ export const artifactSchema = pgTable(
     title: text('title').notNull(),
     spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
     url: text('url'),
+    /**
+     * The external link an image arrived with (0151), once its bytes were
+     * copied into the artifact store and `url` points at Vocion's copy — or
+     * while a copy is still being tried. Null for everything else.
+     */
+    sourceUrl: text('source_url'),
+    /**
+     * What happened when Vocion tried to keep that copy (0151):
+     * `libs/tools/artifacts/ingest.ts` `ArtifactIngest`. A `failed` one is
+     * retried by the sweep while the source link is still valid.
+     */
+    ingest: jsonb('ingest').$type<import('@/libs/tools/artifacts/ingest').ArtifactIngest>(),
     tile: jsonb('tile').$type<{ slot: number; span: 1 | 2 | 3 }>(),
     pinned: boolean('pinned').default(true).notNull(),
     /** Head version number (0101). Starts at 1; every edit increments it. */

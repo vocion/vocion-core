@@ -155,6 +155,14 @@ export const MISSION_RUN_REAPER_WORKFLOW = 'missionRunReaperWorkflow';
 export const MISSION_RUN_REAPER_SCHEDULE_ID = 'mission-run-reaper';
 
 /**
+ * Retries image artifacts whose copy into the artifact store failed, while
+ * their source links are still valid (`services/artifacts/imageIngest.ts`).
+ * One schedule per deployment, hourly.
+ */
+export const ARTIFACT_IMAGE_SWEEP_WORKFLOW = 'artifactImageSweepWorkflow';
+export const ARTIFACT_IMAGE_SWEEP_SCHEDULE_ID = 'artifact-image-sweep';
+
+/**
  * Workflow ID for the one-time replay of an event automation whose run the
  * mission-run reaper just reaped — `automation-refire-<orgId>-<automationRunId>-<missionRunId>`.
  * Keyed on both ids so a retried reap sweep that reaches the same stranded

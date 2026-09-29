@@ -20,10 +20,12 @@
  */
 
 import type { ArtifactKind } from '@/libs/cards/specs';
+import type { ArtifactIngest, IngestDeps, KeptImage } from '@/libs/tools/artifacts/ingest';
 import type { ArtifactPayload } from '@/services/agents/types';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { ARTIFACT_KINDS, SPEC_SCHEMA_FOR_KIND } from '@/libs/cards/specs';
 import { db } from '@/libs/DB';
+import { isExternalHttpUrl } from '@/libs/tools/artifacts/url';
 import { artifactSchema, artifactVersionSchema, conversationSchema } from '@/models/Schema';
 
 export type ArtifactRow = typeof artifactSchema.$inferSelect;
@@ -95,6 +97,7 @@ export function toPayload(row: ArtifactRow): ArtifactPayload {
     title: row.title,
     spec: row.spec,
     url: row.url,
+    sourceUrl: row.sourceUrl ?? null,
     messageId: row.messageId ?? null,
     folder: row.folder ?? null,
     recordType: row.recordType ?? null,
@@ -138,6 +141,25 @@ export type ArtifactVersionPayload = {
 
 function authorId(author: Author): string | null {
   return author.id ?? null;
+}
+
+/**
+ * `libs/tools/artifacts/ingest.ts` `keepImageInVocion`, loaded only when there
+ * is an external link to copy — it pulls in the image decoder, which nothing
+ * else on this module's many import paths needs.
+ * @param input - The write.
+ * @param input.orgId - The workspace.
+ * @param input.url - The artifact's `url`.
+ * @param input.spec - The validated spec.
+ * @param input.previous - The `ingest` column as it was, on a retry.
+ * @param deps - Seams for tests.
+ */
+async function keepImageInVocion(input: { orgId: string; url: string | null | undefined; spec: Record<string, unknown>; previous?: ArtifactIngest | null }, deps?: IngestDeps): Promise<KeptImage | null> {
+  if (!isExternalHttpUrl(input.url)) {
+    return null;
+  }
+  const ingest = await import('@/libs/tools/artifacts/ingest');
+  return ingest.keepImageInVocion(input, deps);
 }
 
 /* ------------------------------------------------------------------ */
@@ -192,7 +214,12 @@ export type ArtifactRecordScope = {
  * @param input
  */
 export async function createArtifact(input: CreateArtifactInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow }> {
-  const { kind, spec } = validateSpec(input.kind, input.spec);
+  const validated = validateSpec(input.kind, input.spec);
+  const kind = validated.kind;
+  // An image that arrives as someone else's link is copied into the store
+  // before the row is written, so v1 already points at Vocion's copy.
+  const kept = await keepImageInVocion({ orgId: input.orgId, url: input.url, spec: validated.spec });
+  const spec = kept?.spec ?? validated.spec;
   const title = input.title.trim() || kind;
   const [row] = await db
     .insert(artifactSchema)
@@ -204,7 +231,9 @@ export async function createArtifact(input: CreateArtifactInput): Promise<{ arti
       kind,
       title,
       spec,
-      url: input.url ?? null,
+      url: kept?.url ?? input.url ?? null,
+      sourceUrl: kept?.sourceUrl ?? null,
+      ingest: kept?.ingest ?? null,
       folder: normaliseFolder(input.folder),
       recordType: input.record?.type ?? null,
       recordId: input.record?.id ?? null,
@@ -333,7 +362,9 @@ export async function updateArtifact(input: UpdateArtifactInput): Promise<{ arti
     : typeof input.contentMarkdown === 'string'
       ? { ...existing.spec, md: input.contentMarkdown }
       : existing.spec;
-  const { spec } = validateSpec(existing.kind, nextSpecRaw);
+  const validated = validateSpec(existing.kind, nextSpecRaw);
+  const kept = await keepImageOnUpdate(existing, validated.spec);
+  const spec = kept?.spec ?? validated.spec;
   const title = (input.title ?? '').trim() || existing.title;
   const folder = input.folder === undefined ? existing.folder : normaliseFolder(input.folder);
   const summary = input.changeSummary?.trim() || null;
@@ -377,6 +408,7 @@ export async function updateArtifact(input: UpdateArtifactInput): Promise<{ arti
       title,
       spec,
       folder,
+      ...(kept ? { url: kept.url, sourceUrl: kept.sourceUrl, ingest: kept.ingest } : {}),
       currentVersion: version.version,
       headVersionId: version.id,
       lastAuthorKind: input.author.kind,
@@ -387,6 +419,80 @@ export async function updateArtifact(input: UpdateArtifactInput): Promise<{ arti
     .returning();
   announceSaved(artifact!, 'revised', input.author);
   return { artifact: artifact!, version, collapsed };
+}
+
+/**
+ * The image half of an update. Only an artifact that already carries a
+ * picture (`url` set) is considered, and only when the new spec names a
+ * different external link than the one it has — a link card edited to point
+ * at a web page is not an image to copy.
+ *
+ * A spec that names the link the copy was made FROM (restoring a version
+ * written before the copy) is pointed back at the copy without a fetch: the
+ * source may well have expired by then, and the bytes are already here.
+ * @param existing - The row before the write.
+ * @param spec - The validated new spec.
+ */
+async function keepImageOnUpdate(existing: ArtifactRow, spec: Record<string, unknown>): Promise<{ url: string; spec: Record<string, unknown>; sourceUrl: string | null; ingest: ArtifactRow['ingest'] } | null> {
+  if (!existing.url) {
+    return null;
+  }
+  const link = typeof spec.href === 'string' ? spec.href : typeof spec.url === 'string' ? spec.url : null;
+  if (!isExternalHttpUrl(link) || link === existing.url) {
+    return null;
+  }
+  if (link === existing.sourceUrl) {
+    const pointed = Object.fromEntries(Object.entries(spec).map(([k, v]) => [k, v === link ? existing.url : v]));
+    return { url: existing.url, spec: pointed, sourceUrl: existing.sourceUrl, ingest: existing.ingest };
+  }
+  return keepImageInVocion({ orgId: existing.orgId, url: link, spec });
+}
+
+/**
+ * Try again to keep an image artifact's bytes in Vocion — the sweep's and the
+ * backfill's one write. Reads the link from `source_url` (a failed copy) or
+ * `url` (a row written before copies were kept). A kept copy is a new version
+ * by `system`, "Kept a copy in Vocion", so the history shows the link moving;
+ * a failure only updates the record of why.
+ * @param opts - The artifact.
+ * @param opts.orgId - The workspace.
+ * @param opts.id - The artifact.
+ * @param opts.deps - Seams for tests.
+ */
+export async function retryArtifactImageIngest(opts: { orgId: string; id: number; deps?: IngestDeps }): Promise<{ status: 'stored' | 'failed' | 'refused' | 'expired' | 'skipped'; reason?: string }> {
+  const row = await getArtifact({ orgId: opts.orgId, id: opts.id });
+  const link = row ? (isExternalHttpUrl(row.url) ? row.url : row.sourceUrl) : null;
+  if (!row || !isExternalHttpUrl(link) || (row.url && !isExternalHttpUrl(row.url))) {
+    // Nothing external left to copy: already in the store, or not an image link.
+    return { status: 'skipped' };
+  }
+  const kept = await keepImageInVocion({ orgId: row.orgId, url: link, spec: row.spec, previous: row.ingest }, opts.deps);
+  if (!kept) {
+    return { status: 'skipped' };
+  }
+  if (kept.ingest.status !== 'stored') {
+    await db
+      .update(artifactSchema)
+      .set({ sourceUrl: kept.sourceUrl, ingest: kept.ingest })
+      .where(and(eq(artifactSchema.orgId, row.orgId), eq(artifactSchema.id, row.id)));
+    return { status: kept.ingest.status, reason: kept.ingest.reason };
+  }
+  const specChanged = stableJson(kept.spec) !== stableJson(row.spec);
+  if (specChanged) {
+    await updateArtifact({
+      orgId: row.orgId,
+      id: row.id,
+      spec: kept.spec,
+      author: { kind: 'system', id: 'artifact-ingest' },
+      changeSummary: 'Kept a copy in Vocion',
+      noCollapse: true,
+    });
+  }
+  await db
+    .update(artifactSchema)
+    .set({ url: kept.url, sourceUrl: kept.sourceUrl, ingest: kept.ingest })
+    .where(and(eq(artifactSchema.orgId, row.orgId), eq(artifactSchema.id, row.id)));
+  return { status: 'stored' };
 }
 
 /**

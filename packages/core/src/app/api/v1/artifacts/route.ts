@@ -15,9 +15,13 @@ import { authApi, isErrorResponse, jsonError, readJsonBody } from '../_shared';
  *
  * Body: `{ recordType: 'object', recordId, recordRole?, kind, title, spec }`.
  * The record must be this workspace's. An image travels as `spec.url` (or
- * `spec.href`) with an `image/*` `spec.contentType` — an https URL or an
+ * `spec.href`) with an `image/*` `spec.contentType` — an http(s) URL or an
  * inline `data:` URL — and is stored on the artifact's own `url`, which is
- * what every gallery draws.
+ * what every gallery draws. An http(s) image is copied into Vocion's own
+ * artifact store as it is attached (`libs/tools/artifacts/ingest.ts`) and
+ * served from there: a presigned link lasts seven days, evidence has to last
+ * as long as the release. The link it came with is kept as `sourceUrl`; a
+ * copy that fails keeps the link and says why on the artifact's `ingest`.
  *
  * Auth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a
  * signed-in dashboard session.
@@ -52,7 +56,7 @@ export async function POST(req: Request) {
   const spec = b.spec && typeof b.spec === 'object' ? b.spec : {};
   const contentType = typeof spec.contentType === 'string' ? spec.contentType : '';
   const src = typeof spec.url === 'string' ? spec.url : typeof spec.href === 'string' ? spec.href : null;
-  const imageUrl = src && /^(?:image|video)\//.test(contentType) && /^(?:https:\/\/|data:(?:image|video)\/)/.test(src) ? src : null;
+  const imageUrl = src && /^(?:image|video)\//.test(contentType) && /^(?:https?:\/\/|data:(?:image|video)\/)/.test(src) ? src : null;
   try {
     const { artifact } = await createArtifact({
       orgId: caller.orgId,
@@ -64,7 +68,9 @@ export async function POST(req: Request) {
       author: { kind: 'agent', id: caller.actorId ?? 'api' },
       changeSummary: 'Attached over the API',
     } as never);
-    return NextResponse.json({ artifact: { id: artifact.id, kind: artifact.kind, title: artifact.title } }, { status: 201 });
+    // `url` is where the picture is served from now; `ingest` says whether
+    // Vocion kept a copy, so the worker can log a refusal instead of guessing.
+    return NextResponse.json({ artifact: { id: artifact.id, kind: artifact.kind, title: artifact.title, url: artifact.url, sourceUrl: artifact.sourceUrl, ingest: artifact.ingest } }, { status: 201 });
   } catch (e) {
     return jsonError('VALIDATION_FAILED', (e as Error).message.slice(0, 300), 400);
   }

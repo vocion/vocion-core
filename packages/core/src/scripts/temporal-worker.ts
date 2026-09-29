@@ -16,6 +16,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { temporalAddress, temporalNamespace, VOCION_WORKFLOWS_TASK_QUEUE } from '../libs/temporal/client';
+import { applyArtifactImageSweepSchedule } from '../services/ArtifactImageSweepScheduleService';
 import { applyLangfuseRetentionSchedule } from '../services/LangfuseRetentionScheduleService';
 import { applyMissionRunReaperSchedule } from '../services/MissionRunReaperScheduleService';
 import * as activities from '../services/temporal/activities';
@@ -79,6 +80,11 @@ async function main(): Promise<void> {
     await applyMissionRunReaperSchedule();
   } catch (error) {
     console.error('[temporal:worker] could not apply the mission-run reaper schedule', error);
+  }
+  try {
+    await applyArtifactImageSweepSchedule();
+  } catch (error) {
+    console.error('[temporal:worker] could not apply the artifact image sweep schedule', error);
   }
 
   // A fire whose worker died mid-flight leaves its `automation_run` row

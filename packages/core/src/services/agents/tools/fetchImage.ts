@@ -31,7 +31,9 @@ import type { RuntimeContext } from '../types';
 import type { RoomImage } from '@/services/DataRoomService';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { openImage } from '@/libs/tools/artifacts/ingest';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
+import { isStoredArtifactUrl } from '@/libs/tools/artifacts/url';
 import { DEFAULT_MAX_EDGE, fetchImage, ImageFetchError } from '@/libs/tools/image/remote';
 import { getDataRoom, updateDataRoom } from '@/services/DataRoomService';
 
@@ -66,8 +68,11 @@ export async function artifactImageUrl(orgId: string, url: string): Promise<stri
   if (!row) {
     return null;
   }
+  // Vocion's own copy (`/api/artifacts/…`, kept since 0151 because a
+  // presigned link dies in seven days) or, for a row whose copy was never
+  // made, the link it arrived with. `openImage` reads either.
   const stored = row.url ?? (typeof row.spec?.url === 'string' ? row.spec.url : null);
-  return stored && /^https:\/\//.test(stored) ? stored : null;
+  return stored && (/^https:\/\//.test(stored) || isStoredArtifactUrl(stored)) ? stored : null;
 }
 
 /** `data:image/png;base64,…` → the extension to store it under. */
@@ -91,7 +96,9 @@ export function fetchImageTool(ctx: RuntimeContext) {
       let got: Awaited<ReturnType<typeof fetchImage>>;
       try {
         const own = await artifactImageUrl(ctx.orgId, args.url);
-        got = await fetchImage(own ?? args.url, { maxEdge: args.max_width ?? DEFAULT_MAX_EDGE });
+        got = own
+          ? await openImage(ctx.orgId, own, { maxEdge: args.max_width ?? DEFAULT_MAX_EDGE })
+          : await fetchImage(args.url, { maxEdge: args.max_width ?? DEFAULT_MAX_EDGE });
       } catch (err) {
         if (err instanceof ImageFetchError) {
           return `Did not fetch that image: ${err.message} Say the logo could not be retrieved — never draw a company's mark as styled text and present it as their logo.`;
