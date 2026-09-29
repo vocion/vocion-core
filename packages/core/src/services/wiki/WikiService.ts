@@ -74,6 +74,18 @@ export function wikiHref(id: number): string {
 }
 
 /**
+ * A page as `read_wiki_page` states it: title, slug, version, last update and
+ * link, then the body — the one shape a read of a page renders in, whether
+ * the model called the tool or `file_request` read it on the model's behalf
+ * (`libs/actions/objects-propose-candidate.ts`'s `resolveIncludeTarget`,
+ * consumed by `services/agents/tools/fileRecord.ts`).
+ * @param page - The page.
+ */
+export function renderWikiPageBody(page: WikiPage): string {
+  return `# ${page.title}\n(slug ${page.slug} · v${page.version} · updated ${page.updatedAt.toISOString().slice(0, 10)} by ${page.lastAuthorKind} · ${page.href})\n\n${page.md}`;
+}
+
+/**
  * The first paragraph of a page, for the index. Headings and blank lines are
  * skipped; the result is one line, capped.
  * @param md - The page body.

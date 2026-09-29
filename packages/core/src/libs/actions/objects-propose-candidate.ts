@@ -80,10 +80,52 @@ export async function candidateGateRefusal(orgId: string, objectType: ObjectType
 }
 
 /**
- * Each `readThisTurn.includes` path resolved to the page it names: the linked
- * record's field (`product.capabilitiesPage` → the product whose slug the
- * record names → its `capabilitiesPage`), as a wiki page with its artifact id.
- * A path whose record or field is missing resolves to null and asks nothing.
+ * A `readThisTurn.includes` path (`product.capabilitiesPage`) resolved
+ * through the linked record it names: the record `record[linkField]` points
+ * at by slug (`x-display.to` says which type), and the wiki page named by
+ * that record's `pageField`. Null when the record names no linked slug, the
+ * type has no such link, the linked record has no such field, or no wiki
+ * page exists at that slug — the one lookup `resolveIncludes` (the gate's
+ * own check) and `fileRecord.ts` (the filing tool's own pre-read) both use,
+ * so a page is resolved the same way whichever caller asks.
+ * @param orgId - The workspace.
+ * @param schema - The type's schema (its `x-display.to` says what a field links to).
+ * @param path - `<linkField>.<pageField>`, e.g. `product.capabilitiesPage`.
+ * @param record - The record as it would be.
+ */
+export async function resolveIncludeTarget(orgId: string, schema: Record<string, unknown> | null, path: string, record: Record<string, unknown>): Promise<{ recordTitle: string; wiki: import('@/services/wiki/WikiService').WikiPage } | null> {
+  const [linkField, pageField] = path.split('.', 2) as [string, string];
+  const slug = record[linkField];
+  const props = (schema?.properties ?? {}) as Record<string, { 'x-display'?: { to?: string } }>;
+  const linkedType = props[linkField]?.['x-display']?.to;
+  if (typeof slug !== 'string' || !slug.trim() || !linkedType) {
+    return null;
+  }
+  try {
+    const { and, eq, sql } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+    const [linked] = await db
+      .select({ title: businessObjectSchema.title, page: sql<string | null>`${businessObjectSchema.metadata}->>${pageField}` })
+      .from(businessObjectSchema)
+      .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, linkedType), sql`${businessObjectSchema.metadata}->>'slug' = ${slug.trim()}`))
+      .limit(1);
+    const page = linked?.page?.trim();
+    if (!page) {
+      return null;
+    }
+    const { getWikiPage } = await import('@/services/wiki/WikiService');
+    const wiki = await getWikiPage(orgId, page).catch(() => null);
+    return wiki ? { recordTitle: linked?.title ?? slug.trim(), wiki } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every `readThisTurn.includes` path a type's gates name, resolved to the
+ * page it names, for `evaluateGates`'s `GateTurn.resolved`.
  * @param orgId - The workspace.
  * @param schema - The type's schema (its `x-display.to` says what a field links to).
  * @param gates - The type's gates.
@@ -93,35 +135,8 @@ async function resolveIncludes(orgId: string, schema: Record<string, unknown> | 
   const paths = [...new Set(gates.flatMap(g => g.require.map(r => r.readThisTurn?.includes).filter((p): p is string => typeof p === 'string' && p.includes('.'))))];
   const out: Record<string, { name: string; keys: string[] } | null> = {};
   for (const path of paths) {
-    const [linkField, pageField] = path.split('.', 2) as [string, string];
-    const slug = record[linkField];
-    const props = (schema?.properties ?? {}) as Record<string, { 'x-display'?: { to?: string } }>;
-    const linkedType = props[linkField]?.['x-display']?.to;
-    if (typeof slug !== 'string' || !slug.trim() || !linkedType) {
-      out[path] = null;
-      continue;
-    }
-    try {
-      const { and, eq, sql } = await import('drizzle-orm');
-      const { db } = await import('@/libs/DB');
-      const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
-      const [linked] = await db
-        .select({ page: sql<string | null>`${businessObjectSchema.metadata}->>${pageField}` })
-        .from(businessObjectSchema)
-        .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-        .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, linkedType), sql`${businessObjectSchema.metadata}->>'slug' = ${slug.trim()}`))
-        .limit(1);
-      const page = linked?.page?.trim();
-      if (!page) {
-        out[path] = null;
-        continue;
-      }
-      const { getWikiPage } = await import('@/services/wiki/WikiService');
-      const wiki = await getWikiPage(orgId, page).catch(() => null);
-      out[path] = { name: `the wiki page "${wiki?.slug ?? page}"`, keys: [`wiki:${wiki?.slug ?? page}`, ...(wiki ? [`artifact:${wiki.id}`] : [])] };
-    } catch {
-      out[path] = null;
-    }
+    const target = await resolveIncludeTarget(orgId, schema, path, record);
+    out[path] = target ? { name: `the wiki page "${target.wiki.slug}"`, keys: [`wiki:${target.wiki.slug}`, `artifact:${target.wiki.id}`] } : null;
   }
   return out;
 }

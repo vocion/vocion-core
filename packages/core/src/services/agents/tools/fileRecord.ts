@@ -29,14 +29,38 @@
  * `objects.propose_candidate.<type>`, the same gates and the same DONE answer
  * with the record's link). The tool schema is plain zod — no transforms — so
  * it converts to JSON Schema for every provider (registry.schema.test.ts).
+ *
+ * A GAP OR AN IDEA CHECKS WHAT ALREADY SHIPS, WITHOUT A ROUND TRIP THE MODEL
+ * HAS TO REMEMBER TO ASK FOR. #873 gave `request`'s proposal-ready gate a
+ * `readThisTurn` requirement: a gap or an idea names the product's
+ * capabilities page (`gapCheck.sources`) AND the turn must have opened it
+ * with `read_wiki_page`. A conversation on 2026-09-29 showed the gap in that
+ * design: `ask_workspace`'s product-manager called `file_request` twice, was
+ * refused both times with the same "opened with read_wiki_page in this turn"
+ * message, and never once called `read_wiki_page` — a gate that only a
+ * second tool call satisfies is a prompt lever wearing a gate's clothes. So
+ * `capabilitiesGapCheck` below reads the page itself, server-side, the
+ * moment a gap or an idea needs it and the turn has not read it — recorded
+ * exactly as `read_wiki_page` would be (`recordCapabilitiesRead`, the same
+ * `tool_call` shape `services/gates/turnReads.ts` already checks) — and,
+ * while the filing's own `gapCheck.sources` still does not cite that page,
+ * answers with the page's own words instead of filing: what the product
+ * already ships, and what to call again with. Citing the page is still the
+ * model's decision (finding: add, modify or none) — this only removes the
+ * tool call the model kept forgetting to make.
  */
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import type { GateRequirement } from '@/libs/gates/handoffGate';
+import type { WikiPage } from '@/services/wiki/WikiService';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { gatesOf } from '@/libs/gates/handoffGate';
+import { resolveIncludeTarget } from '@/libs/actions/objects-propose-candidate';
+import { gatesOf, sourceKey } from '@/libs/gates/handoffGate';
+import { noteTurnRead, readsThisTurn } from '@/services/gates/turnReads';
+import { renderWikiPageBody } from '@/services/wiki/WikiService';
+import { persistToolCall } from '../toolCallRecord';
 import { runProposal } from './proposeAction';
 
 type JsonSchema = Record<string, unknown>;
@@ -68,6 +92,13 @@ export type FilingType = {
   titleIsField: boolean;
   /** The type's own words for its title, when it has a title field. */
   titleDescription?: string;
+  /**
+   * The type's raw stored schema (gates inside, as `x-gates`) — kept for
+   * `capabilitiesGapCheck`, which needs the full schema (`x-display.to`, the
+   * candidate-ready gate's `readThisTurn` requirement) that the tool's own
+   * narrowed `properties` above deliberately strips.
+   */
+  schema: JsonSchema | null;
 };
 
 /** Keywords of a property that survive into the tool's schema. Everything else (x-display, format…) stays in the type. */
@@ -288,6 +319,7 @@ export function filingTypeOf(
     dedupOn: dedupOn.length > 0 ? dedupOn : ['title'],
     titleIsField,
     titleDescription: typeof declared.title?.description === 'string' ? declared.title.description : undefined,
+    schema: type.schema ?? null,
   };
 }
 
@@ -386,6 +418,103 @@ export function filingInputOf(spec: FilingType, args: Record<string, unknown>): 
 }
 
 /**
+ * The one `readThisTurn` requirement a type's candidate-ready gate declares
+ * (`gapCheck.sources`, naming the product's capabilities page), or undefined
+ * for a type with none.
+ * @param schema - The type's stored schema.
+ */
+function capabilitiesRequirement(schema: JsonSchema | null): GateRequirement | undefined {
+  const gates = gatesOf(schema).filter(g => g.when.field === 'status' && (g.when.becomes ?? []).includes('candidate'));
+  for (const gate of gates) {
+    const found = gate.require.find(r => typeof r.readThisTurn?.includes === 'string');
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A dotted path off a plain record (`gapCheck.sources`, `kind`) — the same
+ * walk `libs/gates/handoffGate.ts`'s own (unexported) `get` does, needed here
+ * to read a requirement's `if` condition and its own field before the gate
+ * itself runs.
+ * @param record - The record.
+ * @param path - A dotted path.
+ */
+function pathValue(record: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined), record);
+}
+
+/**
+ * Read a wiki page on the model's behalf and record it exactly as
+ * `read_wiki_page` would: on `ctx.turnReads` for the rest of this in-process
+ * turn, and as a `tool_call` row so a later, separate call (a different
+ * turn, the same conversation) still finds it — the same two readers
+ * `services/gates/turnReads.ts#readsThisTurn` already checks.
+ * @param ctx - The turn.
+ * @param page - The page read.
+ */
+async function recordCapabilitiesRead(ctx: RuntimeContext, page: WikiPage): Promise<void> {
+  const output = renderWikiPageBody(page);
+  noteTurnRead(ctx, 'read_wiki_page', { slug: page.slug }, output);
+  await persistToolCall({
+    ctx,
+    tool: 'read_wiki_page',
+    // `via` marks the row as file_request's own read, not the model's — it
+    // is not part of the read's identity (readKeyOf reads `output`/`slug`
+    // alone), only a trail for anyone reading the tool_call log later.
+    input: { slug: page.slug, via: 'file_request' },
+    output,
+    durationMs: 0,
+    ns: '',
+  });
+}
+
+/**
+ * Whether a gap or an idea (or whatever a type's own `readThisTurn`
+ * requirement gates on) has already named the target page among its
+ * sources, checking it against the type's OWN sources field. `undefined`
+ * files as normal — no such requirement, this filing's kind does not trigger
+ * it, or the target already resolves and is already cited. A non-undefined
+ * return is the answer to send instead of filing: what the product already
+ * ships, in the page's own words, and what to call again with.
+ * @param ctx - The turn.
+ * @param spec - The filing type.
+ * @param fields - The fields as they will be filed.
+ */
+async function capabilitiesGapCheck(ctx: RuntimeContext, spec: FilingType, fields: Record<string, unknown>): Promise<string | undefined> {
+  const req = capabilitiesRequirement(spec.schema);
+  const includes = req?.readThisTurn?.includes;
+  if (!req || !includes) {
+    return undefined;
+  }
+  const merged = { ...fields, status: 'candidate' };
+  if (req.if) {
+    const v = pathValue(merged, req.if.field);
+    if (!(typeof v === 'string' && req.if.oneOf.includes(v))) {
+      return undefined; // this filing's kind does not ask the question
+    }
+  }
+  const target = await resolveIncludeTarget(ctx.orgId, spec.schema, includes, merged);
+  if (!target) {
+    return undefined; // no product, or it names no capabilities page — the ordinary gate asks only for sources
+  }
+  const pageRef = `wiki:${target.wiki.slug}`;
+  const pageKeys = [pageRef, `artifact:${target.wiki.id}`];
+  if (!(await readsThisTurn(ctx)).some(k => pageKeys.includes(k))) {
+    await recordCapabilitiesRead(ctx, target.wiki);
+  }
+  const sourcesVal = pathValue(merged, req.field);
+  const sources = Array.isArray(sourcesVal) ? sourcesVal.filter((s): s is string => typeof s === 'string') : [];
+  if (sources.some(s => pageKeys.includes(sourceKey(s)))) {
+    return undefined; // already names the page — let the gate's own re-check pass it through
+  }
+  const excerpt = target.wiki.md.trim().slice(0, 4000);
+  return `Not filed yet: here is what ${target.recordTitle} already ships (from ${pageRef}): ${excerpt}\n\nDecide gapCheck.finding (add | modify | none) against it and call ${spec.toolName} again with gapCheck.sources ["${pageRef}"].`;
+}
+
+/**
  * The typed filing tool for one type.
  * @param ctx - The turn.
  * @param spec - The filing type.
@@ -397,6 +526,10 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
     async (raw) => {
       const args = raw as Record<string, unknown>;
       const { title, fields } = filingInputOf(spec, args);
+      const notYetFiled = await capabilitiesGapCheck(ctx, spec, fields);
+      if (notYetFiled) {
+        return notYetFiled;
+      }
       const c = ENVELOPE[0] in spec.properties ? undefined : args.confidence;
       const confidence = typeof c === 'number' && c >= 0 && c <= 1 ? c : 0.8;
       const r = ENVELOPE[1] in spec.properties ? undefined : args.rationale;

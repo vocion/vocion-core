@@ -237,3 +237,100 @@ describe('the generic propose_action path beside it', () => {
     expect(filed).toMatch(/^objects\.propose_candidate is DONE: filed as request #\d+/);
   });
 });
+
+describe('file_request reads the product\'s capabilities page itself, structurally (2026-09-29: ask_workspace\'s PM called file_request twice, never called read_wiki_page, and nothing was filed)', () => {
+  const PRODUCT = 'beacon';
+  const PAGE_SLUG = 'beacon-capabilities';
+  const PAGE_MD = '- A shared link expires after 7 days.\n- A sender can revoke a link at any time (Kill).';
+
+  const BASE = {
+    product: PRODUCT,
+    kind: 'gap',
+    outcome: 'A sender can revoke access to a shared file without deleting it.',
+    story: 'As a sender who shared a link, I want to revoke it, so a mistaken share stops working.',
+    acceptance: [{ statement: 'a' }, { statement: 'b' }, { statement: 'c' }],
+    mainRisk: 'Revoking mid-download confuses the recipient.',
+    visuals: { surfaceUrl: 'https://beacon.example/files/1' },
+    whyNote: 'Checked the file detail page on beacon.example: no revoke control is shown.',
+    why: ['user_request'],
+    sizeClass: 'minor',
+    confidence: 0.9,
+    rationale: 'Asked for in chat.',
+  };
+
+  /** Seeds Beacon with a capabilities page, once. */
+  async function seed(): Promise<FilingType[]> {
+    const [existing] = await db.select().from(businessObjectTypeSchema).where(and(eq(businessObjectTypeSchema.orgId, ORG), eq(businessObjectTypeSchema.slug, 'product')));
+    const productType = existing ?? (await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'product', label: 'Product', schema: { type: 'object' } }).returning())[0];
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: productType!.id, title: 'Beacon', status: 'active', metadata: { slug: PRODUCT, capabilitiesPage: PAGE_SLUG } });
+    const { writeWikiPage } = await import('@/services/wiki/WikiService');
+    await writeWikiPage(ORG, { slug: PAGE_SLUG, title: 'What Beacon already does', md: PAGE_MD, author: { kind: 'human', id: 'usr_owner' }, reason: 'seed' });
+    return loadFilingTypes(ORG, ['request']);
+  }
+
+  function ctxFor(filingTypes: FilingType[], conversationId: number): RuntimeContext {
+    return {
+      orgId: ORG,
+      userId: 'user_owner',
+      agentSlug: 'product-manager',
+      conversationId,
+      connectorSources: [],
+      objectTypeSlugs: ['request'],
+      filingTypes,
+      enabledPlugins: ['software-factory'],
+      searchConfig: {},
+      harnessConfig: {},
+      citationSeq: { current: 0 },
+      delegations: new Map(),
+      emit: () => {},
+    } as unknown as RuntimeContext;
+  }
+
+  it('a first call with no gapCheck is not filed — the refusal carries the page\'s own words, and the read is recorded durably', async () => {
+    const filingTypes = await seed();
+    const ctx1 = ctxFor(filingTypes, 910);
+    const fileRequest1 = buildDomainTools(ctx1).find(t => t.name === 'file_request')!;
+
+    const answer = String(await fileRequest1.invoke({ ...BASE, title: 'Let a sender revoke a shared link' }));
+
+    expect(answer).toMatch(/^Not filed yet: here is what Beacon already ships \(from wiki:beacon-capabilities\):/);
+    expect(answer).toContain('revoke a link at any time (Kill)');
+    expect(answer).toContain('call file_request again with gapCheck.sources ["wiki:beacon-capabilities"]');
+
+    // A brand-new context on the SAME conversation — proving the read landed
+    // as a tool_call row, not only on ctx1's own in-memory turnReads.
+    const { readsThisTurn } = await import('@/services/gates/turnReads');
+    const ctx2 = ctxFor(filingTypes, 910);
+
+    expect(await readsThisTurn(ctx2)).toContain('wiki:beacon-capabilities');
+  });
+
+  it('a second call, citing the page with a real gap, files it', async () => {
+    const filingTypes = await loadFilingTypes(ORG, ['request']);
+    const ctx = ctxFor(filingTypes, 910);
+    const fileRequest = buildDomainTools(ctx).find(t => t.name === 'file_request')!;
+
+    const answer = String(await fileRequest.invoke({
+      ...BASE,
+      title: 'Let a sender revoke a shared link (cites the page)',
+      gapCheck: { finding: 'add', how: 'Read the capabilities page: it lists expiry, not revoke.', checkedAt: '2026-09-29T04:00:00Z', sources: ['wiki:beacon-capabilities'] },
+    }));
+
+    expect(answer).toMatch(/is DONE: filed as request #\d+/);
+  });
+
+  it('citing the page with a finding of none is refused with what already ships, not our new message', async () => {
+    const filingTypes = await loadFilingTypes(ORG, ['request']);
+    const ctx = ctxFor(filingTypes, 910);
+    const fileRequest = buildDomainTools(ctx).find(t => t.name === 'file_request')!;
+
+    const answer = String(await fileRequest.invoke({
+      ...BASE,
+      title: 'Let a sender revoke a shared link (already ships)',
+      gapCheck: { finding: 'none', how: 'Revoke exists today as Kill.', checkedAt: '2026-09-29T04:00:00Z', sources: ['wiki:beacon-capabilities'] },
+    }));
+
+    expect(answer).not.toMatch(/^Not filed yet: here is what/);
+    expect(answer).toMatch(/already ships: Revoke exists today as Kill\.+ Nothing was filed/);
+  });
+});
