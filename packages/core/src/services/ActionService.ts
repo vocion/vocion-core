@@ -162,6 +162,26 @@ export type ActionOrigin = { conversationId?: number | null; userId?: string | n
  * @param proposal - The envelope as `proposalForStorage` shaped it.
  * @param origin - Where it was made.
  */
+/**
+ * The source whose vault credentials a run of `action` with `input` needs:
+ * the action's per-input answer (`sourceSlugFor`) when it gives one, else its
+ * fixed `sourceSlug`, else null. The one reader, so the run row, execute and
+ * undo agree on which credential a run spends.
+ * @param action - The registered action.
+ * @param input - The run's input, as parsed or as stored.
+ */
+function sourceSlugOf(action: Action, input: Record<string, unknown> | null | undefined): string | null {
+  try {
+    const perInput = action.sourceSlugFor?.(input ?? {});
+    if (typeof perInput === 'string' && perInput.trim()) {
+      return perInput;
+    }
+  } catch {
+    // A hook that throws on an input it did not expect falls back to the fixed slug.
+  }
+  return action.sourceSlug ?? null;
+}
+
 function withOrigin<T extends Record<string, unknown>>(proposal: T | null, origin: ActionOrigin | undefined): (T & { origin?: ActionOrigin }) | null {
   if (!origin || (!origin.conversationId && !origin.userId)) {
     return proposal;
@@ -506,7 +526,7 @@ export async function proposeAction(input: {
       input: parsed as Record<string, unknown>,
       status: gated ? 'pending' : 'approved',
       invokedBy: input.invokedBy ?? input.principal.id,
-      sourceSlug: action.sourceSlug ?? null,
+      sourceSlug: sourceSlugOf(action, parsed as Record<string, unknown>),
       proposal: storedProposal as never,
       dedupKey: dedupKey ?? null,
       expiresAt: input.expiresAt ?? null,
@@ -775,7 +795,8 @@ export async function executeAction(
     .update(actionRunSchema)
     .set({ status: 'executing', ...decision })
     .where(eq(actionRunSchema.id, runId));
-  const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
+  const credentialSource = sourceSlugOf(action, run.input);
+  const credentials = credentialSource ? await getCredentialsForSource(orgId, credentialSource) : undefined;
 
   try {
     const result = await action.execute({
@@ -975,7 +996,8 @@ export async function undoAction(runId: number, orgId: string, opts: { by: strin
   if (run.status !== 'done') {
     throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — only a done run can be undone`);
   }
-  const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
+  const undoSource = sourceSlugOf(action, run.input);
+  const credentials = undoSource ? await getCredentialsForSource(orgId, undoSource) : undefined;
   const wasAuto = run.approvedByAgent === true;
   const confidence = typeof run.proposal?.confidence === 'number' ? run.proposal.confidence : null;
   let undoResult: Record<string, unknown> | void;

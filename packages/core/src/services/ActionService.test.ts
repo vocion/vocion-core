@@ -49,6 +49,19 @@ registerAction({
   execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
 });
 
+// An action that serves ANY source: which vault entry a run spends is read
+// off the input (`sourceSlugFor`), the way `rest.request` names its source.
+registerAction({
+  id: 'test.per-source-write',
+  name: 'Test write to a named source',
+  description: 'test',
+  inputSchema: z.object({ sourceSlug: z.string(), value: z.string() }),
+  grant: 'test_write',
+  external: true,
+  sourceSlugFor: input => (input as { sourceSlug: string }).sourceSlug,
+  execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
+});
+
 const ORG = 'org_act';
 function agent(autonomy: 1 | 2 | 3 | 4 | 5): Principal {
   return { kind: 'agent', id: 'agent:follow-up', grants: ['test_write'], autonomy, scope: { orgId: ORG } };
@@ -73,6 +86,19 @@ describe('ActionService gating', () => {
     const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
 
     expect(row!.status).toBe('pending');
+  });
+
+  it('records the source the INPUT names on the run when the action resolves its source per input', async () => {
+    const out = await proposeAction({ orgId: ORG, actionId: 'test.per-source-write', input: { sourceSlug: 'billing-api', value: 'x' }, principal: agent(2) });
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
+
+    expect(row!.sourceSlug).toBe('billing-api');
+
+    // Approval resolves that source's credentials (none stored here) and runs.
+    const done = await executeAction(out.runId, ORG);
+
+    expect(done.status).toBe('done');
+    expect(done.result).toMatchObject({ echoed: 'x' });
   });
 
   it('executes immediately for a high-autonomy agent', async () => {

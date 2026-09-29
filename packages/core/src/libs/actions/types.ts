@@ -251,6 +251,15 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   /** Which source's vault credentials this action needs (e.g. `gmail`). */
   sourceSlug?: string;
   /**
+   * Which source's vault credentials THIS input needs, for an action that
+   * serves any source rather than one — `rest.request` names its source in
+   * the input, and there may be several REST sources in a workspace. Read
+   * wherever `sourceSlug` is (the run row, execute, undo) and wins over it
+   * when it returns a slug; `undefined` falls back to `sourceSlug`.
+   * `ActionService.sourceSlugOf` is the one reader.
+   */
+  sourceSlugFor?: (input: z.infer<S>) => string | undefined;
+  /**
    * A HAND-OFF: the execution is performed by a person or an external system
    * after approval, never in this process. Approving one does not call
    * `execute`; the run moves to `awaiting_execution` and stays on the queue
