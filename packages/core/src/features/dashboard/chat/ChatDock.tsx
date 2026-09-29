@@ -812,7 +812,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           onStop={session.handleStop}
           placeholder={session.composerPlaceholder}
           commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
-          armed={(comments?.open.length ?? 0) > 0}
+          // A highlighted passage is something to send on its own.
+          armed={(comments?.open.length ?? 0) > 0 || Boolean(effectiveContext?.selection?.text)}
           pastedText={session.pastedText}
           onPasteText={session.setPastedText}
           onClearPasted={() => session.setPastedText(null)}

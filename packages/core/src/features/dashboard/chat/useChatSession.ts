@@ -1265,7 +1265,13 @@ export function useChatSession({
   const sendMessage = useCallback(async (raw: string) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
     // sendMessage in the same handler, before React has re-rendered.
-    if ((!raw.trim() && !pastedText && attachments.length === 0) || streamingRef.current || uploading > 0) {
+    // THE HIGHLIGHTED PASSAGE IS PART OF WHAT WAS SAID (Chris, 2026-09-29: "I
+    // don't think the highlighted text got pulled in as the anchor … I should
+    // be able to submit with just that context"). It rode only as page
+    // context: the transcript showed "tell me?" with no quote, history lost
+    // it, and an empty box could not send. It is now the turn's opening quote.
+    const quoted = pageContextRef.current?.selection?.text?.trim() ?? '';
+    if ((!raw.trim() && !quoted && !pastedText && attachments.length === 0) || streamingRef.current || uploading > 0) {
       return;
     }
     // `/search <query>` is the retrieval-only path (§9.10) — the virtual
@@ -1292,7 +1298,8 @@ export function useChatSession({
     // receives the full text.
     // A message that is only files still has to say something the server can
     // store and the transcript can show.
-    const typed = command.text.trim() || (attachments.length > 0 ? `(Attached: ${attachments.map(a => a.title).join(', ')})` : command.text);
+    const asked = command.text.trim() || (attachments.length > 0 ? `(Attached: ${attachments.map(a => a.title).join(', ')})` : command.text);
+    const typed = quoted ? quoteThenAsk(quoted, asked) : asked;
     const text = pastedText
       ? `${typed}\n\n--- pasted ---\n${pastedText}`.trim()
       : typed;
@@ -2021,4 +2028,15 @@ function readThreadMeta(conv: unknown): { id: number; title: string; titleSource
 function readAutonomy(conv: unknown): ConversationAutonomy {
   const a = (conv as { autonomy?: unknown } | null)?.autonomy;
   return a === 'ask' || a === 'act-within-bounds' ? a : DEFAULT_AUTONOMY;
+}
+
+/**
+ * The turn a highlighted passage opens: the passage as a quote, then what the
+ * person typed (or nothing — the quote is the question).
+ * @param passage - The highlighted text.
+ * @param asked - What they typed.
+ */
+export function quoteThenAsk(passage: string, asked: string): string {
+  const quote = passage.split('\n').map(line => `> ${line}`).join('\n');
+  return asked.trim() ? `${quote}\n\n${asked.trim()}` : quote;
 }
