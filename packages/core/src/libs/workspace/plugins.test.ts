@@ -419,6 +419,16 @@ describe('loadWorkspace with the software factory', () => {
     // A mockup is the real screen with the change drawn in, never a document
     // or a generated picture (request #224, 2026-09-29).
     expect(designer?.harness?.excludeTools).toEqual(expect.arrayContaining(['render_document', 'generate_image']));
+
+    // An instance that pins the designer's model keeps those exclusions: the
+    // squatch-factory override (harness: modelProvider + model) used to
+    // replace the whole harness, and prod's designer had excludeTools: [].
+    const pinned = loadWorkspace(makeWorkspace('plugins: [software-factory]\n', {
+      'agents/designer.yaml': 'extends: core\nslug: designer\nharness:\n  modelProvider: anthropic\n  model: claude-opus-5\n',
+    })).agents.find(a => a.slug === 'designer');
+
+    expect(pinned?.harness).toMatchObject({ modelProvider: 'anthropic', model: 'claude-opus-5' });
+    expect(pinned?.harness?.excludeTools).toEqual(expect.arrayContaining(['render_document', 'generate_image']));
     expect(ws.skills.find(s => s.slug === 'design-the-change')?.playbooks).toEqual(['designing-a-surface', 'house-voice']);
 
     // Every way the PM acts is an automation on one of its two missions —
