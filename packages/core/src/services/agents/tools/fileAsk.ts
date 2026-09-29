@@ -89,6 +89,12 @@ export function fileAskTool(ctx: RuntimeContext) {
           ? { missionRunId: ctx.missionRunId, conversationId: ctx.conversationId }
           : undefined,
       };
+      // A ruling or recommendation is checked against the wiki first (`wikiDecision.ts`).
+      const { wikiDecisionCheck } = await import('../wikiDecision');
+      const unchecked = await wikiDecisionCheck(ctx, 'ask.file', input as Record<string, unknown>);
+      if (unchecked) {
+        return unchecked;
+      }
       try {
         const res = await proposeAction({
           orgId: ctx.orgId,

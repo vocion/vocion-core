@@ -222,6 +222,13 @@ export async function writeWikiPage(orgId: string, input: WriteWikiPageInput): P
     changeSummary: input.reason,
     noCollapse: true,
   });
+  // Searchable the moment it is written (`wikiIndex.ts`): a product decision
+  // finds this page by what it says, not by its name.
+  if (!res.unchanged) {
+    void import('./wikiIndex').then(m => m.indexWikiPage(orgId, { slug, title: spec.title, md, summary: spec.summary ?? null, artifactId: res.artifact.id })).catch((err: Error) => {
+      console.warn('wiki index: the page was written but not indexed', { orgId, slug, message: err.message });
+    });
+  }
   return {
     page: toPage(res.artifact),
     created: res.created,

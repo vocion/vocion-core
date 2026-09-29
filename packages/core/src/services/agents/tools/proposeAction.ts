@@ -99,6 +99,14 @@ export async function runProposal(
       return refusal;
     }
   }
+  // A product decision is checked against the wiki first (`wikiDecision.ts`).
+  {
+    const { wikiDecisionCheck } = await import('../wikiDecision');
+    const unchecked = await wikiDecisionCheck(ctx, action_id, action_input as Record<string, unknown>);
+    if (unchecked) {
+      return unchecked;
+    }
+  }
   // What this turn has read, for a gate that asks for a source read in it
   // (`readThisTurn`: a feature request names the product's capabilities page).
   const turn = action_id === 'objects.propose_candidate' ? { reads: await readsThisTurn(ctx) } : undefined;
