@@ -16,7 +16,7 @@ vi.mock('@/services/ActionService', async importOriginal => ({
     runId: 7,
     status: 'done',
     outcome: 'created',
-    result: { mode: 'recorded', objectId: 131, objectType: 'request', title: 'Export the viewer list as a CSV', status: 'approved' },
+    result: { mode: 'recorded', created: true, objectId: 131, objectType: 'request', title: 'Export the viewer list as a CSV', status: 'approved' },
   })),
 }));
 
@@ -49,7 +49,9 @@ describe('a DONE proposal that made a record', () => {
   });
 
   it('reads a created record only off a result that names one', () => {
-    expect(createdRecordOf({ objectId: 5, objectType: 'request', title: 'T' })).toEqual({ id: 5, objectType: 'request', title: 'T' });
+    expect(createdRecordOf({ created: true, objectId: 5, objectType: 'request', title: 'T' })).toEqual({ id: 5, objectType: 'request', title: 'T' });
+    // A write names the record it changed the same way; it made nothing (conversation 400: a rename read "filed").
+    expect(createdRecordOf({ objectId: 25, objectType: 'product', title: 'Fabrikam Share', previousTitle: 'Share' })).toBeNull();
     expect(createdRecordOf({ ok: true })).toBeNull();
     expect(createdRecordOf(undefined)).toBeNull();
   });

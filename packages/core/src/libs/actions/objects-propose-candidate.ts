@@ -1194,6 +1194,9 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
 
     return {
       mode: 'recorded',
+      // The record exists because of this run — what a caller reads to say
+      // "filed" and open it, never a write that merely names one.
+      created: true,
       objectId,
       objectType: input.objectType,
       title: input.title,

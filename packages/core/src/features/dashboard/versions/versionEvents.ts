@@ -173,7 +173,23 @@ const BLOCK_SELECTOR = 'p,li,h1,h2,h3,h4,dd,td,blockquote,pre';
 /** What a surface said before a refetch. */
 export type SectionSnapshot = { sections: Map<string, string>; blocks: Set<string> };
 
-const words = (el: Element) => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+/**
+ * What a region SAYS, for telling a change from a tick: its text, less every
+ * clock inside it. A clock — an elapsed time, an "ago" — declares itself with
+ * `data-clock` and changes every re-read without anything having happened; it
+ * marked the whole gallery and the activity list on #269 every few seconds.
+ * @param el - The region.
+ */
+function words(el: Element): string {
+  let text = el.textContent ?? '';
+  el.querySelectorAll('[data-clock]').forEach((clock) => {
+    const tick = clock.textContent ?? '';
+    if (tick) {
+      text = text.replace(tick, ' ');
+    }
+  });
+  return text.replace(/\s+/g, ' ').trim();
+}
 
 /**
  * What each region says now — the "before" of a refetch. A surface with no

@@ -91,8 +91,17 @@ export default async function WorkspaceReportPage(props: {
     const overview = await loadProductOverview(orgId, id, now);
     const related = overview ? await relatedOf(orgId, Number(id)).catch(() => []) : [];
     const writes = overview ? await relatedWrites(orgId, Number(id)).catch(() => []) : [];
+    // EVERY RECORD PAGE FOLLOWS ITS RECORD, the feature page's way (Chris,
+    // 2026-09-30, product #25: renamed from the docked chat, the header kept
+    // the old name until a hard refresh). A change to the product — its title
+    // included — re-reads the page in place.
     return overview
-      ? <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} related={related} writes={writes} />
+      ? (
+          <>
+            <VersionWatch refs={[{ type: 'object', id: String(Number(id)) }]} />
+            <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} related={related} writes={writes} />
+          </>
+        )
       : notFound();
   }
   // A release's own page (the Releases feed's row link): what changed for
@@ -117,7 +126,12 @@ export default async function WorkspaceReportPage(props: {
     const [linked, artifacts, timeZone, mode] = await Promise.all([loadReleaseLinked(orgId, [row]), loadReleaseArtifacts(orgId, ids), workspaceTimeZone(orgId), announceMode(orgId)]);
     const report = assembleReleaseReport(row, { linked, artifacts, timeZone, now: new Date(), announceMode: mode });
     const related = await relatedOf(orgId, releaseId).catch(() => []);
-    return <ReleaseDetailView report={report} recordPage={manifest.recordPage} backHref={`/dashboard/p/${manifest.slug}`} related={related} />;
+    return (
+      <>
+        <VersionWatch refs={[{ type: 'object', id: String(releaseId) }]} />
+        <ReleaseDetailView report={report} recordPage={manifest.recordPage} backHref={`/dashboard/p/${manifest.slug}`} related={related} />
+      </>
+    );
   }
   if (!manifest || manifest.archetype !== 'report' || !manifest.report) {
     return notFound();

@@ -103,6 +103,17 @@ describe('marking what changed', () => {
     expect(changedSections(document.getElementById('root'), before).map(el => el.dataset.recordField)).toEqual(['acceptance']);
   });
 
+  it('a clock ticking is not a change: a region whose only difference is a data-clock is not marked (#269)', () => {
+    const view = (ago: string, status: string) => {
+      document.body.innerHTML = `<div id="root"><section id="report-activity"><p>Engineering run <span data-clock>${ago}</span></p></section><section id="report-state"><p>${status}</p></section></div>`;
+      return document.getElementById('root')!;
+    };
+    const before = snapshotSections(view('3m ago', 'Merged'));
+    const root = view('4m ago', 'Deploying');
+
+    expect(changedSections(root, before).map(el => el.id)).toEqual(['report-state']);
+  });
+
   it('fades the mark and removes it after two seconds', () => {
     vi.useFakeTimers();
     const el = document.createElement('div');

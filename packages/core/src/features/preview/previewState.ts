@@ -4,7 +4,7 @@ import type { RecordRef, RecordType } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { dismissSelectionControl } from '@/features/comments/AnchoredComments';
 import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
-import { RECORD_TYPES } from '@/services/chat/pageContext';
+import { RECORD_TYPES, recordFromPath } from '@/services/chat/pageContext';
 
 /**
  * Which preview is open, and who is showing it.
@@ -89,9 +89,35 @@ export function useOpenPreviewRef(): Pick<RecordRef, 'type' | 'id'> | null {
  * @param from - The element the person activated.
  */
 export function openPreview(ref: Pick<RecordRef, 'type' | 'id'>, from: HTMLElement | null): void {
+  // THE PAGE'S OWN RECORD IS NEVER PEEKED BESIDE ITSELF (Chris, 2026-09-30,
+  // product #25: a rename from the docked chat opened a "StampSend" pane next
+  // to the StampSend page). The page is already showing it and re-reads
+  // itself in place when it changes (`VersionWatch`); a pane would be the
+  // same record twice. So a chat link, a turn's new-record event or a row
+  // that names the record on the page opens nothing.
+  if (typeof window !== 'undefined' && isPageRecord(ref, window.location.pathname)) {
+    return;
+  }
   opener = from;
   dismissSelectionControl();
   writeParam(previewKey(ref));
+}
+
+/** Ref types that name one `business_object` by id — one record, two spellings. */
+const RECORD_REF_TYPES: ReadonlySet<string> = new Set(['object', 'request']);
+
+/**
+ * Whether a ref is the record the page at this path is about
+ * (`recordFromPath`) — a record by either spelling, or the run on a run's page.
+ * @param ref - What would open.
+ * @param path - The page's path.
+ */
+export function isPageRecord(ref: Pick<RecordRef, 'type' | 'id'>, path: string): boolean {
+  const here = recordFromPath(path);
+  if (!here || String(here.id) !== String(ref.id)) {
+    return false;
+  }
+  return here.type === ref.type || (RECORD_REF_TYPES.has(here.type) && RECORD_REF_TYPES.has(ref.type));
 }
 
 /** Close the open preview and hand focus back to whatever opened it. */

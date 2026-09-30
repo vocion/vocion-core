@@ -156,7 +156,7 @@ function NowLine({ live, now }: { live: LiveRun | null; now: number }) {
     <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5" data-testid="work-status-now" data-live-kind={live.kind}>
       <StatusDot tone="amber" pulse label={<span className="font-medium text-foreground">{live.label}</span>} />
       {live.step && <span className="text-muted-foreground">{`· ${live.step}`}</span>}
-      <span className="text-muted-foreground tabular-nums">{`· ${liveClock(live, now)}`}</span>
+      <span data-clock className="text-muted-foreground tabular-nums">{`· ${liveClock(live, now)}`}</span>
       <span aria-hidden className="text-muted-foreground/50">·</span>
       <PreviewOpen recordRef={live.runRef} testId="work-status-run">{live.runLabel}</PreviewOpen>
     </span>

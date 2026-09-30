@@ -571,7 +571,7 @@ function ActivityBlock({ report }: { report: FeatureReport }) {
             <ol className="space-y-1.5">
               {report.activityPreview.map(e => (
                 <li key={e.key} data-timeline-entry={e.key} className="flex min-w-0 items-baseline gap-3 text-[13px]">
-                  <span className="w-24 shrink-0 whitespace-nowrap text-muted-foreground tabular-nums">{e.ago}</span>
+                  <span data-clock className="w-24 shrink-0 whitespace-nowrap text-muted-foreground tabular-nums">{e.ago}</span>
                   <span className="min-w-0 flex-1 truncate text-foreground/90">{e.title}</span>
                 </li>
               ))}

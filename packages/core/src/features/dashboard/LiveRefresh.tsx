@@ -3,11 +3,9 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { onPageReread, requestPageReread } from '@/features/dashboard/versions/pageReread';
 import { useLive } from '@/hooks/useLive';
 import { relativeLabel } from '@/libs/timeAgo';
-
-/** The soonest a followed page re-reads again after it just did: a busy build is a re-read every 1.5s, not one per heartbeat. */
-const FOLLOW_MIN_GAP_MS = 1_500;
 
 /** How a live page re-reads itself: the fallback interval, what it follows, whether it polls when the stream is down. */
 export type LiveRefreshOptions = { everyMs: number; follow?: readonly string[]; poll?: boolean };
@@ -49,32 +47,24 @@ export function useLiveRefresh(opts: LiveRefreshOptions | null): LiveRefreshStat
   // The last read, for working out when the next one is due after a return.
   const lastRead = useRef(updatedAt);
 
-  const refresh = useCallback(() => {
-    router.refresh();
-    const t = Date.now();
+  // Every re-read of the page — this one's, or the route's own VersionWatch's
+  // — moves the label, whoever ran it (`pageReread.ts`).
+  useEffect(() => onPageReread((t) => {
     lastRead.current = t;
     setUpdatedAt(t);
     setNow(t);
-  }, [router]);
+  }), []);
+  // The page's ONE re-read: asked here, gathered with every other follower's
+  // ask into one re-read per burst, run in the page owner's transition. In
+  // place — the server component renders again and the client keeps its
+  // state, its scroll and its open pane.
+  // A tap, a return to the tab and the fallback poll read at once; a pushed
+  // notice is gathered with the rest of its burst.
+  const refresh = useCallback(() => requestPageReread(() => router.refresh(), { now: true }), [router]);
+  const pushedRefresh = useCallback(() => requestPageReread(() => router.refresh()), [router]);
 
-  // Pushed: a change to anything the page is made of re-reads it, a burst
-  // gathered into one re-read a second.
-  const burst = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { live } = useLive(on ? follow ?? [] : [], () => {
-    if (burst.current) {
-      return;
-    }
-    const wait = Math.max(0, FOLLOW_MIN_GAP_MS - (Date.now() - lastRead.current));
-    burst.current = setTimeout(() => {
-      burst.current = null;
-      refresh();
-    }, wait);
-  });
-  useEffect(() => () => {
-    if (burst.current) {
-      clearTimeout(burst.current);
-    }
-  }, []);
+  // Pushed: a change to anything the page is made of re-reads it.
+  const { live } = useLive(on ? follow ?? [] : [], pushedRefresh);
   const pushed = follow !== undefined && follow.length > 0 && live;
   const polling = on && !pushed && (follow === undefined || follow.length === 0 || poll);
 

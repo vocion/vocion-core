@@ -2,8 +2,9 @@
 
 import type { SectionSnapshot, VersionWritten } from './versionEvents';
 import type { RecordRef } from '@/services/chat/pageContext';
-import { useEffect, useLayoutEffect, useRef, useTransition } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useTransition } from 'react';
 import { useRouter } from '@/libs/I18nNavigation';
+import { claimPageReread, requestPageReread } from './pageReread';
 import { changedSections, markChanged, snapshotSections, useVersionWritten } from './versionEvents';
 
 /**
@@ -65,7 +66,9 @@ export function useVersionRefresh(opts: {
 /**
  * A server-rendered page that shows a record or an artifact: on a version of
  * it, `router.refresh()` in a transition (the server component re-renders in
- * place, scroll kept), then the changed regions are marked.
+ * place, scroll kept), then the changed regions are marked. It owns the
+ * page's re-read (`pageReread.ts`), so the page's other followers ride the
+ * same one instead of each re-reading it.
  * @param props - Component props.
  * @param props.refs - What the page shows.
  * @param props.root - CSS selector for the page's content (default: the whole document).
@@ -73,10 +76,15 @@ export function useVersionRefresh(opts: {
 export function VersionWatch({ refs, root }: { refs: ReadonlyArray<Pick<RecordRef, 'type' | 'id'>>; root?: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  // The page's one re-read (`pageReread.ts`): every follower on the page —
+  // this, the version chip's live refresh — asks, and a burst is one
+  // re-read, in this transition, so what changed is marked once.
+  const reread = useCallback(() => startTransition(() => router.refresh()), [router]);
+  useEffect(() => claimPageReread({ reread }), [reread]);
   useVersionRefresh({
     refs,
     root: () => (typeof document === 'undefined' ? null : root ? document.querySelector(root) : document),
-    refetch: () => startTransition(() => router.refresh()),
+    refetch: () => requestPageReread(reread),
     settled: isPending,
     ready: !isPending,
   });

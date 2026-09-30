@@ -33,8 +33,12 @@ import { withArgumentRepair } from '../toolCallRecord';
  * @param result - The action's result.
  */
 export function createdRecordOf(result: unknown): { id: number | string; objectType: string; title?: string } | null {
-  const r = result as { objectId?: unknown; objectType?: unknown; title?: unknown } | null | undefined;
-  if (!r || (typeof r.objectId !== 'number' && typeof r.objectId !== 'string') || typeof r.objectType !== 'string') {
+  const r = result as { objectId?: unknown; objectType?: unknown; title?: unknown; created?: unknown } | null | undefined;
+  // A write NAMES the record it changed the same way (`objects.rename`,
+  // `objects.update_meta` return `objectId`); only an action that made one
+  // says `created`. Conversation 400 (2026-09-30): a rename of product #25
+  // read "filed as product #25" and opened it in a pane beside itself.
+  if (!r || r.created !== true || (typeof r.objectId !== 'number' && typeof r.objectId !== 'string') || typeof r.objectType !== 'string') {
     return null;
   }
   return { id: r.objectId, objectType: r.objectType, title: typeof r.title === 'string' ? r.title : undefined };

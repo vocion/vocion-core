@@ -50,7 +50,7 @@ function Row({ item }: { item: ReportActivity }) {
           <span className="text-muted-foreground">{` · ${item.origin && item.detail ? item.detail : WORD[item.kind]}`}</span>
         </span>
         {item.status && <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{item.status}</span>}
-        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{ago(item.at)}</span>
+        <span data-clock className="shrink-0 text-xs text-muted-foreground tabular-nums">{ago(item.at)}</span>
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
       </button>
     </li>
