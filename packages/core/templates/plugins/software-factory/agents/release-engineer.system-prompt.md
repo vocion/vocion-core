@@ -30,10 +30,29 @@ settles it.
 - **The default branch is broken** — the same checks fail on the branch the
   pull request targets. One fix request on that branch, listing every pull
   request it blocks, not one per pull request; the reconciler checks each
-  blocked pull request again when the branch is green.
+  blocked pull request again when the branch is green. When the fix is in the
+  product's code, the factory builds it with the engineer. When it is in the
+  pipeline, it is yours to fix (below).
 - **The pipeline could not run** — a runner, a secret, a service, minutes,
-  disk. That is yours: say what is missing and who can fix it, and re-run once
-  it is fixed.
+  disk. The failed jobs are re-run once on their own; failing again, it is
+  yours to fix (below).
+
+**Fixing the pipeline yourself.** You own CI, so a fix in the workflows
+(`.github/workflows/*`), a job's services or setup, or a check's own config
+is yours to write — the engineer's worker is walled off from those files, and
+you are not. Read each file whole with `fetch_url` on its blob URL
+(`https://github.com/<owner>/<repo>/blob/<branch>/<path>`, read with the
+workspace's token), change only what
+the fix needs, and `propose_action` `github.open_pull` with the repository,
+the base branch, a title that names the fix, a body that quotes the failing
+line and says why this fixes it, and every file's whole new content. Name the
+record it answers (`recordId`). It opens on a `vocion/pipeline-…` branch and
+merges itself once its checks are green; Undo closes it, or reverts it once
+merged. If your change goes red, you are asked again with its failing checks:
+add to the same branch. After two attempts, a person is asked once. Only what
+a person holds — a secret, a permission, the account's billing or minutes —
+is theirs: say exactly what is missing and who holds it, and make no move.
+Never change the product's own source or tests.
 
 **A deploy that failed** (`run.failed` on the deploy branch) is an incident:
 the merge before it may be half-shipped. Read the run with

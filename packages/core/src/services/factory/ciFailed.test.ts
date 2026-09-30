@@ -15,7 +15,7 @@ vi.mock('./githubChecks', async importOriginal => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, askSchema, businessObjectSchema, trustRuleSchema, workerRunSchema } = await import('@/models/Schema');
+const { agentSchema, businessObjectSchema, eventLogSchema, trustRuleSchema, workerRunSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
 const carry = await import('./carry');
@@ -75,11 +75,11 @@ const LOGS = (prUrl: string): CheckLogs => ({
   changedFiles: ['apps/web/src/rooms.ts'],
 });
 
-function deps(cause: CiCause | null, opts: { baseFailing?: string[] } = {}) {
+function deps(cause: CiCause | null, opts: { baseFailing?: string[]; fixIn?: 'code' | 'pipeline' } = {}) {
   return {
     readLogs: async (_o: string, url: string) => LOGS(url),
     baseChecks: async () => ({ sha: 'a1a1a1a1a1a1', complete: true, failing: opts.baseFailing ?? [] }),
-    diagnose: vi.fn(async () => (cause ? { cause, why: `It reads as ${cause}.`, failing: 'rooms.test.ts > opens an invited room' } : null)),
+    diagnose: vi.fn(async () => (cause ? { cause, why: `It reads as ${cause}.`, failing: 'rooms.test.ts > opens an invited room', ...(opts.fixIn ? { fixIn: opts.fixIn } : {}) } : null)),
     liveHead: async () => 'bc9f315a148d3d8d',
   };
 }
@@ -160,19 +160,57 @@ describe('a red CI goes where its cause says (backlog 049)', () => {
     expect(out.did).toBe('ci failed: built again');
   });
 
-  it('the pipeline could not run: one ask to its owner, a re-run as the recommended answer', async () => {
+  it('main is red in its pipeline: one fix its owner writes, no engineer build, and the owner is asked', async () => {
+    const a = await waitingOnQa('Rooms list their archived guests');
+
+    const out = await ciFailed(ORG, event(a.prUrl, 'k-mainpipe-a'), deps('main_broken', { baseFailing: ['e2e'], fixIn: 'pipeline' }));
+
+    expect(out.did).toBe('ci main broken: owner fixing');
+    expect(out.line).toContain('Its pipeline is being fixed by its owner');
+
+    const fix = (await db.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, ORG), eq(businessObjectSchema.typeId, types.request!))))
+      .find(r => ((r.metadata as Record<string, any>).pipelineFix?.blocks ?? []).some((b: { url: string }) => b.url === a.prUrl))!;
+
+    expect(fix.metadata).toMatchObject({ pipelineFix: { fixIn: 'pipeline', cause: 'main_broken' }, pipelineWork: { attempt: 1, cause: 'main_broken', owner: 'release-engineer', requestId: fix.id } });
+    // Nothing is built for it: the fix is in the pipeline, and its owner writes it.
+    expect(intakeDecision({ meta: fix.metadata as Record<string, unknown>, origin: { conversationId: null, byPerson: false } })).toMatchObject({ do: 'skip' });
+
+    const [raised] = await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.dedupeKey, `pipeline.needs_fix:${fix.id}:1`)));
+
+    expect(raised).toMatchObject({ type: 'pipeline.needs_fix' });
+    expect(raised!.payload).toMatchObject({ recordId: fix.id, repo: REPO, branch: 'main', cause: 'main_broken', attempt: 1, attempts: 2, url: a.prUrl });
+  });
+
+  it('the pipeline could not run: re-run once, done for you; again, its owner fixes the pipeline', async () => {
+    // Every earlier fix on this branch has landed.
+    for (const r of await db.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, ORG), eq(businessObjectSchema.typeId, types.request!)))) {
+      const m = r.metadata as Record<string, any>;
+      if (m.pipelineFix) {
+        await db.update(businessObjectSchema).set({ metadata: { ...m, pipelineFix: { ...m.pipelineFix, recheckedAt: '2026-09-30T00:00:00Z' } } }).where(eq(businessObjectSchema.id, r.id));
+      }
+    }
     const { request, task, prUrl } = await waitingOnQa('Rooms remember the last visit');
 
-    const out = await ciFailed(ORG, event(prUrl, 'k-infra-1'), deps('infra'));
+    const first = await ciFailed(ORG, event(prUrl, 'k-infra-1'), deps('infra'));
 
-    expect(out.did).toBe('ci infra: asked');
+    expect(first.did).toBe('ci infra: re-ran');
+    expect(first.line).toContain('The failed jobs were re-run once (action #');
+    expect((await read(task.id)).metadata).toMatchObject({ ciRerun: { count: 1 } });
 
-    const [ask] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, ORG), eq(askSchema.status, 'open')));
+    const again = await ciFailed(ORG, event(prUrl, 'k-infra-2'), deps('infra'));
 
-    expect(ask).toMatchObject({ agentSlug: 'release-engineer', kind: 'approval' });
-    expect(ask!.options?.find(o => o.recommended)?.action).toMatchObject({ id: 'github.rerun_failed_jobs', input: { url: prUrl, taskId: task.id } });
-    expect(out.line).toContain(`Ask #${ask!.id} is with the pipeline's owner`);
-    expect(log((await read(request.id)).metadata).some(l => l.startsWith('CI could not run'))).toBe(true);
+    expect(again.did).toBe('ci infra: owner fixing');
+    expect(again.line).toContain('CI could not run again after a re-run');
+    // The pull request waits on the fix, not on its engineer.
+    expect((await read(task.id)).status).toBe('awaiting_review');
+
+    const blocked = (await read(task.id)).metadata as Record<string, any>;
+    const fix = await read(blocked.mainBlocked.requestId);
+
+    expect(fix.title).toBe(`The pipeline could not run on ${REPO}: test`);
+    expect(fix.metadata).toMatchObject({ pipelineFix: { cause: 'infra', fixIn: 'pipeline' }, pipelineWork: { attempt: 1, cause: 'infra' } });
+    expect(log((await read(request.id)).metadata).some(l => l.startsWith('CI could not run again'))).toBe(true);
+    expect(log(fix.metadata).some(l => l.includes('is fixing the pipeline (attempt 1 of 2)'))).toBe(true);
   });
 
   it('a diagnosis that could not be made sends it back to the engineer and says so', async () => {

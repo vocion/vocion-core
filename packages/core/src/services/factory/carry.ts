@@ -221,6 +221,21 @@ export async function settleOnMerge(orgId: string, requestId: number, line: stri
 }
 
 /**
+ * A step outside this file stopped on a request and put its one ask in front
+ * of a person (the pipeline's owner, `pipelineChange.ts`): the request reads
+ * Stopped with that ask, the way `escalate` leaves it, so the feature page's
+ * You line says "Needs you" and a person's answer clears it.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param line - Why, and what would unblock it.
+ * @param askId - The ask that is with a person.
+ */
+export async function stopOnRequest(orgId: string, requestId: number, line: string, askId: number): Promise<void> {
+  const at = new Date().toISOString();
+  await updateRecovery(orgId, requestId, s => logLine({ ...s, stage: 'stopped', line, askId }, line, at));
+}
+
+/**
  * A BLOCKER WHOSE MOVE WAS MADE IS CLEARED (#130, 2026-09-29): "approve plan
  * 136" stayed on the request as Blocked after plan 136 was approved, because
  * nothing read the blocker back when the state it named moved. The records it

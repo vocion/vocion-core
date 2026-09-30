@@ -23,6 +23,7 @@ successCriteria:
   - Every cause is quoted from GitHub's evidence (an annotation, a log line, the base branch's checks), never inferred from a check's name
   - A flaky failure is re-run at most once per head; a second failure on the same head is sent back to the engineer
   - A red default branch has one fix request listing every pull request it blocks, not one per pull request
+  - A fix that lives in the pipeline (a workflow, a job's setup, a check's config) is written by this seat as a pull request of its own with github.open_pull, quoting the failing line, and merges on green; only what a person holds (a secret, a permission, billing) is asked of a person
   - A rollback is proposed as an ask naming the merge's Undo and a recommendation, never taken by the seat
   - The request's Activity carries one line per pipeline failure saying what failed, why, and who moves next
 desiredArtifacts:

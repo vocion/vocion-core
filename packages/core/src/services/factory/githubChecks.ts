@@ -32,7 +32,7 @@ const RERUNNABLE = new Set(['failure', 'timed_out', 'startup_failure', 'cancelle
 const LOG_LINES = 60;
 const LOG_CHARS = 6_000;
 
-type Gh = { owner: string; repo: string; token: string };
+export type Gh = { owner: string; repo: string; token: string };
 
 type CheckRunFull = GithubCheckRun & {
   html_url?: string;
@@ -70,7 +70,13 @@ export type CheckLogs = {
 
 const headers = (token: string) => ({ 'authorization': `Bearer ${token}`, 'x-github-api-version': '2022-11-28', 'user-agent': 'vocion', 'accept': 'application/vnd.github+json' });
 
-async function ghFor(orgId: string, fullName: string): Promise<Gh> {
+/**
+ * A repository and the workspace token for it (`tokenForRepo`, the one entry
+ * point every GitHub call goes through).
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ */
+export async function ghFor(orgId: string, fullName: string): Promise<Gh> {
   const [owner, repo] = fullName.split('/');
   if (!owner || !repo) {
     throw new Error(`${fullName} is not a repository: write it owner/name`);
@@ -82,7 +88,15 @@ async function ghFor(orgId: string, fullName: string): Promise<Gh> {
   return { owner, repo, token };
 }
 
-async function call<T>(gh: Gh, path: string, init: { method?: string; body?: unknown } = {}): Promise<{ ok: true; status: number; data: T } | { ok: false; status: number; message: string }> {
+/**
+ * One call to the repository's REST API; a failure is a value with GitHub's own message.
+ * @param gh - The repository and its token.
+ * @param path - The path under `/repos/<owner>/<name>`.
+ * @param init - Method and JSON body.
+ * @param init.method - The HTTP method.
+ * @param init.body - The JSON body.
+ */
+export async function call<T>(gh: Gh, path: string, init: { method?: string; body?: unknown } = {}): Promise<{ ok: true; status: number; data: T } | { ok: false; status: number; message: string }> {
   const res = await fetch(`https://api.github.com/repos/${gh.owner}/${gh.repo}${path}`, {
     method: init.method ?? 'GET',
     headers: { ...headers(gh.token), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },

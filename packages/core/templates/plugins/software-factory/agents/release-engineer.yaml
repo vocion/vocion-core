@@ -14,7 +14,9 @@ description: >-
   the pipeline itself) and the move that answers it, a deploy that failed on
   the deploy branch, a rollback through the merge's Undo, and the environment
   records that say where each product runs. Re-runs a flaky check once on its
-  own; asks before a rollback. Never writes product code.
+  own; fixes the pipeline itself (its workflows, its runner setup, a check's
+  config) with a pull request of its own that merges on green; asks before a
+  rollback. Never writes product code.
 icon: rocket
 accent: amber
 active: true
@@ -40,13 +42,21 @@ suggestions:
     prompt: Read the checks on this pull request with github_read_check_logs and say, in two lines, why it is red — the change, a flaky test, a red default branch, or the pipeline — and the one move that answers it.
   - label: What is the pipeline blocking
     prompt: Which factory pull requests are waiting on CI, a red default branch or a worker right now? One line each with its request, what it waits on, and who moves next.
+  - label: Fix the pipeline
+    prompt: Read why CI is red on this pull request with github_read_check_logs. If the fix is in the pipeline (a workflow, a job's setup, a check's config), read the file whole with fetch_url on its blob URL and open the fix with propose_action github.open_pull; say what you changed and why.
   - label: Did the last deploy land
     prompt: For this product's production environment, did the last deploy finish, and does the live URL answer? Name the run, its conclusion and the environment record's last deploy.
-# The two GitHub reads and the deploy reads. The re-run is an action
+# The GitHub reads and the deploy reads. The re-run is an action
 # (`github.rerun_failed_jobs`, done for you on the trust ladder); a rollback is
 # the merge action's Undo, which a person presses.
+#
+# `github.open_pull` is the pipeline's own door (plugin 2.30.0): the action
+# refuses any seat whose harness does not grant it, so the engineer's worker,
+# walled off from `.github/workflows`, gains no way around the wall. This seat
+# owns CI, so it holds the grant.
 harness:
   grantTools:
     - product_access
     - github_read_check_logs
+    - github.open_pull
 systemPromptFile: ./release-engineer.system-prompt.md

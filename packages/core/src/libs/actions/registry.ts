@@ -12,6 +12,7 @@ import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
 import { factoryApprovePlanAction } from './factory-approve-plan';
 import { factoryDispatchAction } from './factory-dispatch';
+import { githubOpenPullAction } from './github-pull';
 import { githubRerunFailedJobsAction } from './github-rerun';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
@@ -64,6 +65,10 @@ registerAction(factoryApprovePlanAction);
 // Re-run a red CI's failed jobs once — changes no code, Undo cancels it while
 // it runs; done for you on the software factory's trust ladder (backlog 049).
 registerAction(githubRerunFailedJobsAction);
+// The pipeline's owner opens its own fix — files as one commit on a
+// vocion/pipeline-… branch and its pull request, merged on green under
+// git.merge.pipeline; Undo closes it or reverts it (backlog 049).
+registerAction(githubOpenPullAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.

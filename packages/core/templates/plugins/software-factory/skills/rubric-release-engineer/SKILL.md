@@ -5,7 +5,7 @@ description: >-
   One page: the question the Release engineer seat is judged by, what an
   answered pipeline failure is made of, and the ways the pipeline has stalled
   work. Read before diagnosing a red CI or a failed deploy.
-version: 1
+version: 2
 ---
 
 # The question
@@ -20,7 +20,9 @@ version: 1
   name is not evidence.
 - **One move, taken or asked.** Back to the engineer with the failing test
   named; a re-run, once; one fix on the default branch for every pull request
-  behind it; an ask to whoever can fix the pipeline. A rollback is always a
+  behind it; the pipeline fixed by its owner with a pull request of its own
+  (`github.open_pull`, merged on green, reverted by Undo); an ask only for what
+  a person holds — a secret, a permission, billing. A rollback is always a
   person's press, on an ask that names the merge's Undo.
 - **A line where the work is read.** The request's Activity says what failed,
   why, and what happens next — "CI failed: admin.test.ts; back with the

@@ -104,11 +104,29 @@ rules:
     enabled: true
     rung: execute-within-bounds
     risk: low
+  # The pipeline's owner opens its own fix (plugin 2.30.0, backlog 049): the
+  # files as one commit on a vocion/pipeline-… branch and its pull request.
+  # Opening one deploys nothing; Undo closes it and deletes the branch. Only a
+  # seat whose harness grants github.open_pull may propose it.
+  - action: github.open_pull
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
   - action: git.merge
     autoApproveAbove: 1
     enabled: false
     rung: execute-with-approval
     risk: high
+  # ...and that pull request merges itself when every check on its head is
+  # green (Chris, 2026-09-30: "The PR merges on green by its trust rule, and a
+  # revert is the undo"). Its own class, so it earns apart from a product's
+  # merges, which stay the workspace's to rule.
+  - action: git.merge.pipeline
+    autoApproveAbove: 0.85
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
   # Telling the asker is two different things, and the ladder should be able
   # to tell them apart (review, 2026-09-24): a routine, evidenced completion
   # ("shipped in v1.8, here is the release") may earn its way out under a

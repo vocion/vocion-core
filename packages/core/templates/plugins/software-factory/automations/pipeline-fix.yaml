@@ -1,0 +1,57 @@
+# THE PIPELINE'S OWNER FIXES THE PIPELINE ITSELF (backlog 049; Chris,
+# 2026-09-30: "When it is main_broken or infra, the Release engineer fixes it
+# itself. That includes changing workflow files"). Core raises
+# `pipeline.needs_fix` when the fix is in the pipeline, not in the product's
+# code: a default branch red in its workflows, a CI that could not run even
+# after one re-run, or a pipeline change of the seat's own that went red. The
+# engineer's worker is walled off from `.github/workflows`; this seat is not —
+# `github.open_pull` writes the files on a `vocion/pipeline-…` branch and the
+# pull request merges itself on green (`git.merge.pipeline`), with a revert as
+# the undo. What the run did is read back when it ends
+# (`pipeline-fix-ended`), never taken on its word.
+slug: pipeline-fix
+name: The pipeline's owner fixes the pipeline
+description: >-
+  When the fix for a red CI or a pipeline that could not run lives in the
+  pipeline itself, the Release engineer reads the evidence, writes the fix as a
+  pull request of its own, or re-runs what a transient failure stopped; the
+  change merges itself when its checks are green.
+status: active
+agent: release-engineer
+when:
+  event: pipeline.needs_fix
+  maxFiresPer10m: 6
+do:
+  checkMission: keep-the-pipeline-answered
+  prompt: >-
+    The pipeline needs fixing, and it is yours (attempt {{attempt}} of {{attempts}}):
+    record #{{recordId}} "{{title}}" on {{repo}}, branch {{branch}}. Cause: {{cause}}.
+    What was read: {{why}} Failing: {{failing}}. Evidence: {{url}}.
+    An open change of yours for it, when there is one: {{changeUrl}} (branch {{changeBranch}}).
+
+    1. Read the evidence with github_read_check_logs ({{url}}, or the change's URL),
+    and quote the log line or annotation that settles what is wrong.
+
+    2. Decide the one move, and make it:
+    - The fix is in the pipeline (a workflow under .github/workflows, a job's
+    services or setup, a check's own config, a script the pipeline runs): read each
+    file whole with fetch_url on its blob URL
+    (https://github.com/{{repo}}/blob/{{branch}}/<path>), change only what the fix needs, and
+    propose_action github.open_pull with repo {{repo}}, base {{branch}}, a title
+    that names the fix, a body that quotes the failing line and says why this fixes
+    it and that Undo reverts it, files (each with its whole new content), recordId
+    {{recordId}}, and branch {{changeBranch}} when that is set (so the commit adds
+    to your open change). Confidence 0.9 when the log line settles it. It merges
+    itself when its checks are green.
+    - The failure was transient (a runner lost, a registry or network blip) and
+    nothing in the repository needs changing: propose_action
+    github.rerun_failed_jobs with the evidence URL.
+    - Only a person can fix it (a missing or expired secret, a permission, billing
+    or minutes on the account): make no move, and say exactly what is missing and
+    who holds it. The factory asks that person once, with your words, when this
+    run ends.
+
+    Never change the product's own source or tests here: if the evidence says the
+    fix is in the product's code, say so in one line, with the file, and make no
+    move. Report in two lines: what was wrong (with the line that says so) and what
+    you did.

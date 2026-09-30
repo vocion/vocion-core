@@ -210,6 +210,42 @@ export type FactoryStoppedPayload = {
   failure: string | null;
 };
 
+/**
+ * The pipeline itself needs fixing, and the seat that owns it is asked to fix
+ * it (backlog 049): a default branch red in its pipeline, a CI that could not
+ * run after one re-run, a pipeline change of its own that went red, or an
+ * environment its recovery could not bring back. Raised in code
+ * (`services/factory/pipelineChange.ts`), deduped on the record and the
+ * attempt; the software-factory plugin's `pipeline-fix` answers it with the
+ * Release engineer, and what that run did is read back when it ends.
+ */
+export const PIPELINE_NEEDS_FIX = 'pipeline.needs_fix';
+
+/** Payload of `pipeline.needs_fix`. Scalars, which `when.filter` compares with `===`. */
+export type PipelineNeedsFixPayload = {
+  /** The record the fix answers — a fix request, or an environment. */
+  recordId: number;
+  title: string;
+  /** `owner/name`. */
+  repo: string;
+  /** The branch the fix lands on. */
+  branch: string;
+  /** `main_broken`, `infra`, `change_failed` (its own change went red) or `unhealthy`. */
+  cause: string;
+  /** One line: what failed and why, as the diagnosis read it. */
+  why: string;
+  /** The failing checks or steps, as GitHub names them. */
+  failing: string;
+  /** The evidence to read first: a pull request, an Actions run, or a health URL. */
+  url: string;
+  /** This attempt, counting from 1, and the most the seat is given before a person is asked. */
+  attempt: number;
+  attempts: number;
+  /** The pipeline change already open for this record, when there is one: add to its branch. */
+  changeUrl: string;
+  changeBranch: string;
+};
+
 /** Payload of `artifact.saved`. Scalars only — `when.filter` compares with `===`. */
 export type ArtifactSavedPayload = {
   artifactId: number;

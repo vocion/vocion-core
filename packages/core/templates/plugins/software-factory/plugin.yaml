@@ -181,7 +181,18 @@ name: Software factory
 #   retried into the same wall: its reason goes once to the operator
 #   (`design-mockup-ended` input.operator), a person reads only that it could
 #   not be drawn, and the hourly sweep draws it once the installation can.
-version: 2.32.0
+# 2.33.0 — the pipeline's owner fixes the pipeline itself (backlog 049; Chris,
+#   2026-09-30: "When it is main_broken or infra, the Release engineer fixes it
+#   itself. That includes changing workflow files"). The diagnosis says where
+#   a red CI's fix lives (`fixIn: code | pipeline`); a pipeline fix raises
+#   `pipeline.needs_fix` and `pipeline-fix` has the Release engineer write it:
+#   the file read whole (`fetch_url` on its blob URL), then `github.open_pull` (the files as one commit on a
+#   `vocion/pipeline-…` branch and its pull request, done for you; only a seat
+#   whose harness grants it may open one). The reconciler merges it on green
+#   under `git.merge.pipeline` (Undo opens the revert) or sends it back red;
+#   `pipeline-fix-ended` reads the run back and asks a person once when no
+#   move was made. A CI that could not run is re-run once before any of this.
+version: 2.33.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

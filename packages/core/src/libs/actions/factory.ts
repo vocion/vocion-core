@@ -26,7 +26,12 @@ import { MERGE_ACTION_ID } from './mergeAction';
  * `git.merge.<riskClass>` (`policyKeyFor`), so docs can earn its way to
  * running within bounds while schema never does.
  */
-export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise'] as const;
+/**
+ * `pipeline` is a change the seat that owns CI opened itself
+ * (`github.open_pull`): its workflows, its runner setup, its checks' config,
+ * merged on green with a revert as the undo (backlog 049).
+ */
+export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise', 'pipeline'] as const;
 export type MergeRiskClass = typeof MERGE_RISK_CLASSES[number];
 
 export const gitPushBranchAction = manualAction({
@@ -41,7 +46,7 @@ export const gitPushBranchAction = manualAction({
 const gitMergeHandoff = manualAction({
   id: MERGE_ACTION_ID,
   name: 'Merge a branch',
-  description: 'Merge a reviewed pull request into the mainline (squash), only onto the commit QA judged and only with its checks green. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Undo opens the revert pull request.',
+  description: 'Merge a reviewed pull request into the mainline (squash), only onto the commit QA judged and only with its checks green. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise, pipeline) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Undo opens the revert pull request.',
   system: 'Git',
   grant: 'factory_write',
   extend: {

@@ -24,6 +24,10 @@ import { z } from 'zod';
 export const CI_CAUSES = ['change_broke_it', 'flaky', 'main_broken', 'infra'] as const;
 export type CiCause = typeof CI_CAUSES[number];
 
+/** Where a red CI's fix lives: the product's code (the engineer's) or the pipeline (its owner's). */
+export const CI_FIX_PLACES = ['code', 'pipeline'] as const;
+export type CiFixPlace = typeof CI_FIX_PLACES[number];
+
 export const CiDiagnosisSchema = z.object({
   cause: z.enum(CI_CAUSES).describe([
     'change_broke_it: the pull request\'s own change makes a check fail (a test, type, lint or build error in or caused by the files it changes).',
@@ -33,6 +37,12 @@ export const CiDiagnosisSchema = z.object({
   ].join(' ')),
   why: z.string().max(240).describe('One line a person reads on the feature page: what failed and why you chose this cause.'),
   failing: z.string().max(200).nullable().describe('The failing test, file or step, named as the evidence names it (e.g. "admin.test.ts > saves the role"); null when no single one is named.'),
+  fixIn: z.enum(CI_FIX_PLACES).nullable().optional().describe([
+    'Where the fix lives.',
+    'code: the product\'s own source, tests or dependencies — an engineer\'s change.',
+    'pipeline: the CI or deploy workflow files (.github/workflows), the runner or service-container setup, a check\'s own configuration, a secret or permission the pipeline reads — the release engineer\'s change.',
+    'infra is always pipeline; change_broke_it and flaky are always code.',
+  ].join(' ')),
 });
 export type CiDiagnosis = z.infer<typeof CiDiagnosisSchema>;
 
@@ -89,7 +99,7 @@ export async function diagnoseCi(e: CiEvidence, model?: Model): Promise<CiDiagno
     const report = tool(async () => 'recorded', { name: 'report_ci_cause', description: 'Report why this pull request\'s CI failed.', schema: CiDiagnosisSchema as never });
     const bound = m.bindTools!([report], { tool_choice: 'report_ci_cause' } as never);
     const res = await bound.invoke([
-      new SystemMessage('You are a release engineer. You read why a pull request\'s CI failed, from GitHub\'s own evidence, and report the cause as typed fields. Judge from the evidence, not from the names of the checks. When the evidence does not separate the change from the rest, choose change_broke_it. Answer only through the tool.'),
+      new SystemMessage('You are a release engineer. You read why a pull request\'s CI failed, from GitHub\'s own evidence, and report the cause and where its fix lives as typed fields. Judge from the evidence, not from the names of the checks. When the evidence does not separate the change from the rest, choose change_broke_it. Answer only through the tool.'),
       new HumanMessage(evidenceText(e)),
     ]) as { tool_calls?: Array<{ name: string; args: unknown }> };
     if (!model) {

@@ -18,6 +18,7 @@ export const FACTORY_CONTRACT_CHANGED_JOB = 'factory-contract-changed';
 export const FACTORY_PLANNING_ENDED_JOB = 'factory-planning-ended';
 export const FACTORY_CI_FAILED_JOB = 'factory-ci-failed';
 export const FACTORY_RECONCILE_JOB = 'factory-reconcile';
+export const FACTORY_PIPELINE_FIX_ENDED_JOB = 'factory-pipeline-fix-ended';
 
 type Job = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -34,6 +35,12 @@ export const factoryCarryJobs: Record<string, Job> = {
    * @param input
    */
   [FACTORY_RECONCILE_JOB]: async (orgId, input) => (await import('@/services/factory/reconcile')).reconcilePipeline(orgId, input),
+  /**
+   * `automation_run.completed` (the pipeline owner's fix run): a move it made is on the action rail, or the stop goes to a person once, with the reason.
+   * @param orgId
+   * @param input
+   */
+  [FACTORY_PIPELINE_FIX_ENDED_JOB]: async (orgId, input) => (await import('@/services/factory/pipelineChange')).pipelineFixEnded(orgId, input),
   /**
    * `object.created` (request): start the fix a person asked for, or file the Build card.
    * @param orgId

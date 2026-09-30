@@ -550,6 +550,12 @@ export function intakeDecision(input: { meta: Record<string, unknown>; origin: {
   // the build only lengthens the wait. The build still goes through QA and the
   // merge's own trust rule, and Undo cancels it until a worker claims it.
   const pipelineFix = m.pipelineFix && typeof m.pipelineFix === 'object' && !Array.isArray(m.pipelineFix) ? m.pipelineFix as Record<string, unknown> : null;
+  // A fix that lives in the pipeline — its workflows, its runner, a check's
+  // config — is its owner's to write, not an engineer's build (backlog 049,
+  // `pipelineChange.raisePipelineFix`): nothing is started for it here.
+  if (pipelineFix && str(pipelineFix.fixIn) === 'pipeline') {
+    return { do: 'skip', why: 'the fix is in the pipeline, and its owner is fixing it' };
+  }
   if (fix && pipelineFix && str(pipelineFix.repo)) {
     const blocks = Array.isArray(pipelineFix.blocks) ? pipelineFix.blocks.length : 0;
     return { do: 'start', why: `${str(pipelineFix.branch) ?? 'the default branch'} of ${str(pipelineFix.repo)} is red, and ${blocks} pull request${blocks === 1 ? ' waits' : 's wait'} on it` };

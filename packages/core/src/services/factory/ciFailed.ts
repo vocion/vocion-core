@@ -19,9 +19,14 @@
  *                     same head is treated as the change's.
  *   main_broken     → one fix request on the default branch, listing every
  *                     pull request it blocks; the reconciler checks each one
- *                     again when the branch is green (`reconcile.ts`).
- *   infra           → one ask to the pipeline's owner with the evidence, and
- *                     a re-run as its recommended answer.
+ *                     again when the branch is green (`reconcile.ts`). Where
+ *                     the fix lives is the diagnosis's typed `fixIn`: in the
+ *                     product's code the factory builds it with the engineer;
+ *                     in the pipeline its owner fixes it itself
+ *                     (`pipelineChange.raisePipelineFix`).
+ *   infra           → the failed jobs are re-run once, done for you; failing
+ *                     again, the pipeline's owner fixes the pipeline itself,
+ *                     and a person is asked once only when that runs out.
  *
  * Every route writes one line on the request's own account, where the
  * feature page reads it, and the diagnosis on the task. The handler is
@@ -33,7 +38,7 @@
  * ran → the event is raised again so the review starts. Nothing waits unwatched.
  */
 
-import type { CiCause, CiDiagnosis, CiEvidence } from './ciDiagnose';
+import type { CiCause, CiDiagnosis, CiEvidence, CiFixPlace } from './ciDiagnose';
 import type { CheckLogs } from './githubChecks';
 
 type Meta = Record<string, unknown>;
@@ -181,18 +186,35 @@ export async function ciFailed(orgId: string, payload: Meta, deps?: CiFailedDeps
   }
 
   if (cause === 'main_broken' && logs && baseBranch) {
-    const fix = await fileMainFix(orgId, { repo: logs.repo, branch: baseBranch, baseSha: base?.sha ?? null, failing: base?.failing.length ? base.failing : logs.failing.map(f => f.name), why: diagnosis!.why, blocked: { url, taskId: task.id, requestId }, product: requestId ? await productOf(orgId, requestId) : null, owner, detail });
+    const fixIn = diagnosis?.fixIn === 'pipeline' ? 'pipeline' : 'code';
+    const fix = await fileMainFix(orgId, { repo: logs.repo, branch: baseBranch, baseSha: base?.sha ?? null, failing: base?.failing.length ? base.failing : logs.failing.map(f => f.name), why: diagnosis!.why, blocked: { url, taskId: task.id, requestId }, product: requestId ? await productOf(orgId, requestId) : null, owner, detail, cause: 'main_broken', fixIn });
     await writeTask(orgId, task.id, { mainBlocked: { requestId: fix.id, repo: logs.repo, branch: baseBranch, at } });
-    const line = `CI failed because ${baseBranch} is red (${failing}): ${diagnosis!.why} ${fix.created ? `Fix #${fix.id} was filed on ${baseBranch}` : `Fix #${fix.id} on ${baseBranch} already covers it`}; this pull request is checked again when ${baseBranch} is green.`;
+    const who = fixIn === 'pipeline' ? ` ${fix.created ? 'Its pipeline is being fixed by its owner' : 'Its owner is on it'}` : '';
+    const line = `CI failed because ${baseBranch} is red (${failing}): ${diagnosis!.why} ${fix.created ? `Fix #${fix.id} was filed on ${baseBranch}` : `Fix #${fix.id} on ${baseBranch} already covers it`};${who ? `${who};` : ''} this pull request is checked again when ${baseBranch} is green.`;
     await note(orgId, requestId, line);
-    return { requestId, did: 'ci main broken: fix filed', line };
+    return { requestId, did: fixIn === 'pipeline' ? 'ci main broken: owner fixing' : 'ci main broken: fix filed', line };
   }
 
   if (cause === 'infra' && logs) {
-    const askId = await askPipelineOwner(orgId, { url, headSha: headSha ?? taskSha, taskId: task.id, requestId, why: diagnosis!.why, failing, detail, owner, repo: logs.repo });
-    const line = `CI could not run (${failing}): ${diagnosis!.why} Ask #${askId} is with the pipeline's owner, recommending a re-run once it is fixed.`;
+    // A pipeline that could not run is re-run once first, done for you: most
+    // of what stops a runner (a lost machine, a registry blip) is gone by then.
+    if (rerunsHere < FLAKY_RERUNS) {
+      const res = await rerunFailed(orgId, { url, headSha: headSha ?? taskSha, taskId: task.id, why: diagnosis!.why, owner });
+      if (res.ok) {
+        await writeTask(orgId, task.id, { ciRerun: { headSha: headSha ?? taskSha, count: rerunsHere + 1, at, actionRunId: res.runId } });
+        const how = res.pending ? `A re-run of the failed jobs is on a card for a person (action #${res.runId})` : `The failed jobs were re-run once (action #${res.runId})`;
+        const line = `CI could not run (${failing}): ${diagnosis!.why} ${how}; if the pipeline fails again, its owner fixes it.`;
+        await note(orgId, requestId, line);
+        return { requestId, did: 'ci infra: re-ran', line };
+      }
+    }
+    // Again, or the re-run could not start: the pipeline's owner fixes the pipeline itself.
+    const branch = baseBranch ?? 'main';
+    const fix = await fileMainFix(orgId, { repo: logs.repo, branch, baseSha: base?.sha ?? null, failing: logs.failing.map(f => f.name), why: diagnosis!.why, blocked: { url, taskId: task.id, requestId }, product: requestId ? await productOf(orgId, requestId) : null, owner, detail, cause: 'infra', fixIn: 'pipeline' });
+    await writeTask(orgId, task.id, { mainBlocked: { requestId: fix.id, repo: logs.repo, branch, at } });
+    const line = `CI could not run${rerunsHere > 0 ? ' again after a re-run' : ''} (${failing}): ${diagnosis!.why} ${fix.created ? `The pipeline's owner is fixing it on fix #${fix.id}` : `Fix #${fix.id} already covers it`}; this pull request is checked again when it lands.`;
     await note(orgId, requestId, line);
-    return { requestId, did: 'ci infra: asked', line };
+    return { requestId, did: 'ci infra: owner fixing', line };
   }
 
   const why = diagnosis
@@ -278,15 +300,20 @@ export async function rerunFailed(orgId: string, o: { url: string; headSha: stri
  * @param o.product - The product the blocked work is for.
  * @param o.owner - The seat filing it.
  * @param o.detail - What failed, for the fix's evidence.
+ * @param o.cause
+ * @param o.fixIn
  */
-export async function fileMainFix(orgId: string, o: { repo: string; branch: string; baseSha: string | null; failing: string[]; why: string; blocked: { url: string; taskId: number; requestId: number | null }; product: string | null; owner: string | null; detail: string }): Promise<{ id: number; created: boolean }> {
+export async function fileMainFix(orgId: string, o: { repo: string; branch: string; baseSha: string | null; failing: string[]; why: string; blocked: { url: string; taskId: number; requestId: number | null }; product: string | null; owner: string | null; detail: string; cause?: 'main_broken' | 'infra'; fixIn?: CiFixPlace }): Promise<{ id: number; created: boolean }> {
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
   const { writeMeta } = await import('@/libs/actions/factory-dispatch');
   const { CLOSED_REQUEST_STATES } = await import('@/libs/factory/requestStates');
+  const infra = o.cause === 'infra';
+  const fixIn: CiFixPlace = infra ? 'pipeline' : o.fixIn ?? 'code';
   const open = ((await listBusinessObjects(orgId, 'request').catch(() => [])) as Array<{ id: number; metadata: unknown }>).find((r) => {
     const m = (r.metadata ?? {}) as Meta;
     const fix = (m.pipelineFix ?? null) as Meta | null;
-    return fix && str(fix.repo) === o.repo && str(fix.branch) === o.branch && !fix.recheckedAt && !CLOSED_REQUEST_STATES.has(str(m.state) ?? 'new');
+    // The same place, and the same kind of fix: a pipeline fix its owner writes is not an engineer's build.
+    return fix && str(fix.repo) === o.repo && str(fix.branch) === o.branch && (str(fix.fixIn) ?? 'code') === fixIn && !fix.recheckedAt && !CLOSED_REQUEST_STATES.has(str(m.state) ?? 'new');
   });
   const blocked = { url: o.blocked.url, taskId: o.blocked.taskId, requestId: o.blocked.requestId };
   if (open) {
@@ -303,69 +330,33 @@ export async function fileMainFix(orgId: string, o: { repo: string; branch: stri
   const checks = o.failing.slice(0, 5).join(', ') || 'its checks';
   const row = await createBusinessObject({
     typeSlug: 'request',
-    title: `${o.branch} is red on ${o.repo}: ${checks}`.slice(0, 140),
+    title: (infra ? `The pipeline could not run on ${o.repo}: ${checks}` : `${o.branch} is red on ${o.repo}: ${checks}`).slice(0, 140),
     metadata: {
       kind: 'incident',
       severity: 'p2',
       channel: 'github',
       state: 'new',
       ...(o.product ? { product: o.product } : {}),
-      outcome: `${o.branch} of ${o.repo} passes its checks again, and every pull request it blocked is checked again against it.`,
-      story: `CI on the factory's pull requests is red because ${o.branch} itself is: ${o.why}`,
+      outcome: infra
+        ? `The pipeline on ${o.repo} runs its checks again, and every pull request it blocked is checked again.`
+        : `${o.branch} of ${o.repo} passes its checks again, and every pull request it blocked is checked again against it.`,
+      story: infra ? `CI on the factory's pull requests could not run: ${o.why}` : `CI on the factory's pull requests is red because ${o.branch} itself is: ${o.why}`,
       body: `What failed (read from GitHub by the pipeline's owner):\n${o.detail || checks}`.slice(0, 4000),
       acceptance: [
-        { statement: `${checks} pass on ${o.branch} of ${o.repo}.` },
+        { statement: infra ? `${checks} run to completion on ${o.repo}.` : `${checks} pass on ${o.branch} of ${o.repo}.` },
         { statement: 'Every pull request listed as blocked on this request is checked again against the fixed branch.' },
       ],
       evidence: [{ label: `The checks on ${o.blocked.url}`, url: `${o.blocked.url}/checks` }],
-      pipelineFix: { repo: o.repo, branch: o.branch, sha: o.baseSha, failing: o.failing, at: new Date().toISOString(), owner: o.owner, blocks: [blocked] },
+      pipelineFix: { repo: o.repo, branch: o.branch, sha: o.baseSha, failing: o.failing, at: new Date().toISOString(), owner: o.owner, cause: o.cause ?? 'main_broken', fixIn, blocks: [blocked] },
     },
   }, orgId, `agent:${o.owner ?? 'system'}`, { source: 'service', actor: `agent:${o.owner ?? 'system'}` });
+  // THE PIPELINE'S OWNER FIXES THE PIPELINE ITSELF (backlog 049): a fix in
+  // the workflows, the runner or a check's config is not an engineer's build.
+  if (fixIn === 'pipeline') {
+    const { raisePipelineFix } = await import('./pipelineChange');
+    await raisePipelineFix(orgId, { recordId: row!.id, title: String(row!.title ?? ''), repo: o.repo, branch: o.branch, cause: o.cause ?? 'main_broken', why: o.why, failing: checks, url: o.blocked.url, owner: o.owner });
+  }
   return { id: row!.id, created: true };
-}
-
-/**
- * A pipeline that could not run the checks is its owner's to fix: one ask
- * per head, with the evidence and a re-run as the recommended answer.
- * @param orgId - The workspace.
- * @param o - The failure.
- * @param o.url - The pull request.
- * @param o.headSha - Its head.
- * @param o.taskId - Its task.
- * @param o.requestId - Its request.
- * @param o.why - The diagnosis.
- * @param o.failing - What failed.
- * @param o.detail - The evidence.
- * @param o.owner - The seat that owns the pipeline.
- * @param o.repo - `owner/name`.
- */
-export async function askPipelineOwner(orgId: string, o: { url: string; headSha: string | null; taskId: number; requestId: number | null; why: string; failing: string; detail: string; owner: string | null; repo: string }): Promise<number> {
-  const { upsertAsk } = await import('@/services/AskService');
-  const { ask } = await upsertAsk({
-    orgId,
-    createdBy: `agent:${o.owner ?? 'system'}`,
-    ask: {
-      kind: 'approval',
-      title: `CI could not run on ${o.url.replace(/^https:\/\/github\.com\//, '')}`.slice(0, 140),
-      body: [
-        `${o.why}`,
-        `**What failed:** ${o.failing}`,
-        'Fix what stopped the pipeline (the runner, a secret, a service it needs), then re-run: approve re-runs the failed jobs.',
-      ].join('\n\n'),
-      contextMd: o.detail.slice(0, 4000) || null,
-      sourceRef: `pipeline-infra:${o.repo}:${o.url}:${(o.headSha ?? '').slice(0, 12)}`,
-      agentSlug: o.owner,
-      risk: 'medium',
-      options: [
-        { id: 'approve', label: 'Re-run the failed jobs', description: 'The pipeline is fixed; run the failed checks again.', recommended: true, action: { id: 'github.rerun_failed_jobs', input: { url: o.url, ...(o.headSha ? { headSha: o.headSha } : {}), taskId: o.taskId, reason: `After the pipeline was fixed: ${o.why}`.slice(0, 500) } } },
-        { id: 'reject', label: 'Leave it', description: 'Nothing re-runs; the pull request stays as it is.' },
-      ],
-      objectRefs: [{ type: 'engineering_task', id: String(o.taskId) }, ...(o.requestId ? [{ type: 'request', id: String(o.requestId) }] : [])],
-      decisionCost: 5,
-      contextUrl: o.requestId ? `/dashboard/p/feature/${o.requestId}` : o.url,
-    },
-  });
-  return ask.id;
 }
 
 /**

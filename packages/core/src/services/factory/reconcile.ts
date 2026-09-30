@@ -19,6 +19,10 @@
  *   - RUNS QUEUED PAST PICKUP: an engineering run no worker claimed is an
  *     infrastructure failure only the pipeline's owner can fix; one ask, with
  *     the evidence, closed by itself once a worker claims the run.
+ *   - PIPELINE CHANGES: each pull request the pipeline's owner opened is read
+ *     back; green merges it on its trust rule, red goes back to its owner
+ *     (`pipelineChange.reconcileChanges`). A fix asked of the owner that
+ *     nothing answered is a stop, with its reason (`watchUnanswered`).
  *
  * The heavier sweep (`carry.sweepStuckRequests`) stays hourly.
  */
@@ -309,5 +313,7 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   // delivery is written from its recorded event, and the runs the merge
   // started are read again until they finish (`delivery.ts`).
   await step('the merge read-back', async () => (await (await import('./delivery')).refreshDeliveries(orgId, now, d.deliveries)).map(r => ({ requestId: r.requestId, did: r.did, line: null })));
+  await step('the pipeline changes', async () => (await import('./pipelineChange')).reconcileChanges(orgId, now, owner));
+  await step('the unanswered pipeline fixes', async () => (await import('./pipelineChange')).watchUnanswered(orgId, now, owner));
   return { acted };
 }
