@@ -200,3 +200,59 @@ describe('where a record came from, kept on it', () => {
     expect(obj!.metadata).toMatchObject({ origin: { conversationId: 77, userId: 'user_dana' } });
   });
 });
+
+describe('a product\'s environments and repositories are the one source (Chris, 2026-09-30)', () => {
+  it('lists them as the product type declares, derives its urls and repos from them, and says where the stored ones drift', async () => {
+    const { parse } = await import('yaml');
+    const { readFileSync } = await import('node:fs');
+    // The software factory's own declaration, as applied.
+    const productSchema = (parse(readFileSync('templates/plugins/software-factory/objects/product/type.yaml', 'utf8')) as { schema: Record<string, unknown> }).schema;
+    const t = await types({ product: productSchema, environment: null, repo: null } as never);
+    await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'environment', label: 'environment' }).onConflictDoNothing();
+    const [env] = await db.select().from(businessObjectTypeSchema).where((await import('drizzle-orm')).and((await import('drizzle-orm')).eq(businessObjectTypeSchema.orgId, ORG), (await import('drizzle-orm')).eq(businessObjectTypeSchema.slug, 'environment')));
+    const deployed = new Date(Date.now() - 3 * 3_600_000).toISOString();
+    await db.insert(businessObjectSchema).values([
+      { id: 350, orgId: ORG, typeId: t.product!, title: 'Northwind Portal', metadata: { slug: 'portal', urls: { app: 'https://portal-guess.example', api: 'https://api.portal.northwind.example' }, repos: ['portal-old'] } },
+      { id: 351, orgId: ORG, typeId: env!.id, title: 'portal-web-production', metadata: { product: 'portal', surface: 'web', stage: 'production', url: 'https://portal.northwind.example', lastDeployedSha: '4f1c2d9a8b7e', lastDeployedAt: deployed, lastHealth: 'ok', qaLoginCredentialId: 'cred_12' } },
+      { id: 352, orgId: ORG, typeId: env!.id, title: 'portal-api-production', metadata: { product: 'portal', surface: 'api', stage: 'production', url: 'https://api.portal.northwind.example' } },
+      { id: 353, orgId: ORG, typeId: env!.id, title: 'portal-web-staging', metadata: { product: 'portal', surface: 'web', stage: 'staging', url: 'https://staging.portal.northwind.example' } },
+      { id: 354, orgId: ORG, typeId: t.repo!, title: 'northwind/portal', metadata: { product: 'portal', slug: 'portal', url: 'https://github.com/example/northwind-portal', defaultBranch: 'main', checks: [{ name: 'unit' }, { name: 'typecheck' }], productPaths: { portal: ['apps/web/**', 'packages/api/**'] } } },
+    ]);
+
+    const items = await relatedOf(ORG, 350);
+    const env351 = items.find(i => i.key === 'environments:object:351')!;
+
+    expect(env351.details).toEqual(['https://portal.northwind.example', 'production', 'web', 'deployed 4f1c2d9', '3h ago', 'health ok', 'QA sign-in stored']);
+    expect(items.find(i => i.key === 'environments:object:352')!.details).toContain('no QA sign-in');
+    expect(items.find(i => i.key === 'repos:object:354')!.details).toEqual(['https://github.com/example/northwind-portal', 'branch main', '2 checks', 'paths apps/web/**, packages/api/**', 'connected']);
+    // The stored values that disagree, under the rows they are read from.
+    expect(items.filter(i => i.kind === 'drift').map(i => [i.relation, i.title])).toEqual([
+      ['environments', 'Stored urls.app is https://portal-guess.example; the record says https://portal.northwind.example.'],
+      ['repos', 'Stored repos says portal-old; the records say portal.'],
+    ]);
+
+    const { derivedFieldsOf } = await import('./related');
+    const derived = await derivedFieldsOf(ORG, 350);
+
+    // Production only, keyed as the product names them (`app: web`).
+    expect(derived.values).toEqual({ urls: { app: 'https://portal.northwind.example', api: 'https://api.portal.northwind.example' }, repos: ['portal'] });
+    expect(Object.keys(derived.drift)).toEqual(['urls', 'repos']);
+  });
+
+  it('shows the writes to them on the product\'s Activity, with who made them', async () => {
+    const t = await types({ product: { 'x-related': [{ key: 'environments', label: 'Environments', from: 'backlinks', type: 'field_note', field: 'product', match: 'slug' }] } });
+    await db.insert(businessObjectSchema).values([
+      { id: 360, orgId: ORG, typeId: t.product!, title: 'Northwind Portal', metadata: { slug: 'portal' } },
+      { id: 361, orgId: ORG, typeId: t.field_note!, title: 'portal-web-production', metadata: { product: 'portal' } },
+    ]);
+    await db.insert(actionRunSchema).values([
+      { orgId: ORG, actionId: 'objects.update_meta', status: 'done', input: { id: 361 }, result: { objectId: 361 }, invokedBy: 'agent:release-engineer' },
+      { orgId: ORG, actionId: 'objects.update_meta', status: 'done', input: { id: 999 }, result: { objectId: 999 }, invokedBy: 'agent:release-engineer' },
+    ] as never);
+    const { relatedWrites } = await import('./related');
+
+    const writes = await relatedWrites(ORG, 360);
+
+    expect(writes.map(w => [w.by, w.title, w.preview])).toEqual([['release-engineer', 'portal-web-production', { type: 'record_history', id: '361' }]]);
+  });
+});

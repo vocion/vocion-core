@@ -50,9 +50,19 @@ person's press. File one ask with the three options — roll back (the merge
 action's Undo, with its run named), re-run, fix forward — and your
 recommendation with its evidence.
 
-**Environments stay true.** When you learn where a product runs or what the
-last deploy left there, write it on the environment record (`product_access`
-reads them).
+**Environments and repositories stay true — you keep them.** A product's
+environments and repositories are their own records (`environment`, `repo`),
+each naming its product by slug; the product's "where it lives" and
+"repositories" are read from them, so a product page is only as true as they
+are. After a deploy, write what it left on the environment record — the
+commit, when, the run, the health — with `update_object`. After a rename, a
+new host or a moved repository, update the records it touches in the same
+turn: the environment's `url`, `product` and `repo`, the repository's
+`product`, `url` and its paths for that product. A place the product runs
+that has no record yet is filed as a new `environment` (or `repo`) record
+naming its product. Never write the product's own `urls` or `repos`: they are
+derived, and a stored value that disagrees shows on its page as drift. Your
+writes show on the product page's Activity, with your name on them.
 
 Answer in the same chat as every seat, in two or three lines: what is red,
 why (with the line that says so), and what happens next and who moves.

@@ -2,9 +2,10 @@ import type { ReactNode } from 'react';
 import type { DotTone } from '@/components/patterns';
 import type { ProductOverview } from '@/libs/workspace/productOverview';
 import type { RelatedItem } from '@/libs/workspace/related';
+import type { RelatedWrite } from '@/services/objects/related';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { DetailMeta, DetailPage, FactList, MetaChip, Related, Section, StatusDot } from '@/components/patterns';
+import { DetailMeta, DetailPage, FactList, MetaChip, OpenInPreview, Related, Section, StatusDot } from '@/components/patterns';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { Link } from '@/libs/I18nNavigation';
 import { relativeLabel } from '@/libs/timeAgo';
@@ -44,8 +45,9 @@ function Empty({ children }: { children: ReactNode }) {
  * @param props.page.title - Its title.
  * @param props.now - The clock, for "8h ago".
  * @param props.related
+ * @param props.writes
  */
-export function ProductOverviewView({ overview: o, page, now, related = [] }: { overview: ProductOverview; page: { slug: string; title: string }; now: number; related?: readonly RelatedItem[] }) {
+export function ProductOverviewView({ overview: o, page, now, related = [], writes = [] }: { overview: ProductOverview; page: { slug: string; title: string }; now: number; related?: readonly RelatedItem[]; writes?: readonly RelatedWrite[] }) {
   const back = `/dashboard/p/${page.slug}`;
   const ago = (d: Date | null) => (d ? relativeLabel(d, now) : null);
   const attentionCount = o.attention.decisions.length + o.attention.blocked.length;
@@ -279,8 +281,24 @@ export function ProductOverviewView({ overview: o, page, now, related = [] }: { 
         )}
       </Section>
 
-      <details className="border-b border-rule py-4" data-testid="product-activity">
-        <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">Recent activity</summary>
+      <details className="border-b border-rule py-4" data-testid="product-activity" open={writes.length > 0 ? true : undefined}>
+        <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">Activity</summary>
+        {/* What changed on what it is connected to — its environments and
+            repositories, kept true by the Release engineer (`relatedWrites`). */}
+        {writes.length > 0 && (
+          <ul className="mt-2 divide-y divide-rule" data-testid="product-writes">
+            {writes.map(w => (
+              <li key={w.runId} className="group/row flex items-center gap-2 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="text-muted-foreground">{`${w.by} updated `}</span>
+                  <Link href={w.href} className={LINK}>{w.title}</Link>
+                  <span className="text-muted-foreground">{` · ${relativeLabel(new Date(w.at), now)}`}</span>
+                </span>
+                <OpenInPreview recordRef={w.preview} label={`Open ${w.title}'s history in preview`} />
+              </li>
+            ))}
+          </ul>
+        )}
         {o.activity.length === 0
           ? <div className="mt-2"><Empty>Nothing finished in the last 14 days.</Empty></div>
           : (

@@ -11,9 +11,44 @@ icon: package
 schema:
   type: object
   # RELATED (core: libs/workspace/related.ts): what a product is connected to.
+  # Its environments and repositories are THEIR records, written by the deploy
+  # and the Release engineer; the product names none of them itself (Chris,
+  # 2026-09-30: the product's own `urls`/`repos` drifted from them — #246's
+  # live link was a guessed host).
   x-related:
-    - {key: repos, label: Repositories, from: backlinks, type: repo, field: product, match: slug}
+    - key: environments
+      label: Environments
+      from: backlinks
+      type: environment
+      field: product
+      match: slug
+      details:
+        - {field: url}
+        - {field: stage}
+        - {field: surface}
+        - {field: lastDeployedSha, format: sha, label: deployed}
+        - {field: lastDeployedAt, format: relative}
+        - {field: lastHealth, label: health}
+        - {field: qaLoginCredentialId, format: present, present: QA sign-in stored, absent: no QA sign-in}
+    - key: repos
+      label: Repositories
+      from: backlinks
+      type: repo
+      field: product
+      match: slug
+      details:
+        - {field: url}
+        - {field: defaultBranch, label: branch}
+        - {field: checks, format: count, label: checks}
+        - {field: productPaths, pick: slug, label: paths}
+        - {field: url, format: present, present: connected, absent: no repository URL}
     - {key: plans, label: Plans, from: backlinks, type: architecture_plan, field: productSlug, match: slug, limit: 5}
+  # DERIVED (core: libs/workspace/related.ts): `urls` and `repos` are read
+  # from those records at read time — the page and read_object show these —
+  # and a stored value that disagrees is shown as drift, never preferred.
+  x-derived:
+    urls: {relation: environments, value: url, keyBy: surface, where: {stage: production}, keys: {site: marketing, app: web, api: api}}
+    repos: {relation: repos, value: slug}
   properties:
     slug:
       x-display: {label: Slug, format: mono, group: Identity}
@@ -94,7 +129,10 @@ schema:
     urls:
       x-display: {label: Where it lives, role: prose, format: steps, order: 3}
       type: object
-      description: Where it is. What a verification curl hits and what a request's asker was looking at.
+      description: >-
+        Where it is. What a verification curl hits and what a request's asker
+        was looking at. DERIVED from the product's production environment
+        records (`x-derived`): write the environment, not this.
       properties:
         site: {type: string}
         app: {type: string}
@@ -112,7 +150,7 @@ schema:
     repos:
       x-display: {label: Repositories, format: link, to: repo}
       type: array
-      description: Slugs of the `repo` records that make this product.
+      description: Slugs of the `repo` records that make this product. DERIVED from the repository records that name this product (`x-derived`); write the repository, not this.
       items: {type: string}
     accountableUser:
       x-display: {label: Accountable, group: Product}

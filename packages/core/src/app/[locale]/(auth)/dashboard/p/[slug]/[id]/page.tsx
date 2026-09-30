@@ -12,7 +12,7 @@ import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
 import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordHref } from '@/services/objects/recordHref';
-import { relatedOf } from '@/services/objects/related';
+import { relatedOf, relatedWrites } from '@/services/objects/related';
 import { readPageForOrg } from '@/services/PluginService';
 
 /**
@@ -89,8 +89,9 @@ export default async function WorkspaceReportPage(props: {
     const now = new Date();
     const overview = await loadProductOverview(orgId, id, now);
     const related = overview ? await relatedOf(orgId, Number(id)).catch(() => []) : [];
+    const writes = overview ? await relatedWrites(orgId, Number(id)).catch(() => []) : [];
     return overview
-      ? <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} related={related} />
+      ? <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} related={related} writes={writes} />
       : notFound();
   }
   // A release's own page (the Releases feed's row link): what changed for

@@ -8,6 +8,11 @@ const loadRecordStatus = vi.fn(async () => ({ ok: false, reason: 'no_report' }) 
 
 vi.mock('@/services/objects/recordStatus', () => ({ loadRecordStatus: (...a: unknown[]) => (loadRecordStatus as (...x: unknown[]) => unknown)(...a) }));
 
+const derivedFieldsOf = vi.fn(async () => ({ values: {}, drift: {} }) as unknown);
+
+// A type's derived fields are read from other records (`x-derived`); none here unless a test says.
+vi.mock('@/services/objects/related', () => ({ derivedFieldsOf: (...a: unknown[]) => (derivedFieldsOf as (...x: unknown[]) => unknown)(...a) }));
+
 const { readObjectTool, readObjectTools } = await import('./readObject');
 
 const ctx = (slugs: string[]) => ({ orgId: 'org-1', objectTypeSlugs: slugs }) as never;
@@ -77,6 +82,17 @@ describe('read_object', () => {
     getBusinessObject.mockResolvedValue({ id: 5, title: 'Plain', status: 'active', metadata: { body: 'x' } });
 
     expect(JSON.parse(await readObjectTool(ctx(['request'])).invoke({ object_type: 'request', id: 5 }) as string).recoverySummary).toBeUndefined();
+  });
+
+  it('reads a derived field as its records say, with the stored value that disagrees as drift (Chris, 2026-09-30)', async () => {
+    getBusinessObject.mockResolvedValue({ id: 7, title: 'Northwind Portal', status: 'active', metadata: { slug: 'portal', urls: { app: 'https://portal-guess.example' } }, type: { slug: 'product' } });
+    derivedFieldsOf.mockResolvedValueOnce({ values: { urls: { app: 'https://portal.northwind.example' }, repos: ['portal'] }, drift: { urls: ['Stored urls.app is https://portal-guess.example; the record says https://portal.northwind.example.'] } });
+
+    const parsed = JSON.parse(await readObjectTool(ctx(['product'])).invoke({ object_type: 'product', id: 7 }) as string);
+
+    expect(parsed.urls).toEqual({ app: 'https://portal.northwind.example' });
+    expect(parsed.repos).toEqual(['portal']);
+    expect(parsed.derivedDrift.urls[0]).toContain('portal-guess.example');
   });
 
   it('says so when the id is not a record here', async () => {

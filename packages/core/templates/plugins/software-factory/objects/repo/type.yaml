@@ -11,6 +11,13 @@ description: >-
 icon: git-branch
 schema:
   type: object
+  # KEPT TRUE BY THE RELEASE ENGINEER (Chris, 2026-09-30): a repository that
+  # makes a product and has no record yet is filed through its own tool
+  # (core: services/agents/tools/fileRecord.ts). Moderated, unlike an
+  # environment: its `checks` and `deployCommand` are commands the worker
+  # runs, so a new one is a person's approval.
+  x-agent-file:
+    dedupOn: [slug]
   properties:
     slug:
       x-display: {label: Slug, format: mono, group: Repository}

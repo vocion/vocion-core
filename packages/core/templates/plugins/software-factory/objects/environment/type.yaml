@@ -14,6 +14,12 @@ description: >-
 icon: server
 schema:
   type: object
+  # KEPT TRUE BY THE RELEASE ENGINEER (Chris, 2026-09-30): a place a product
+  # runs, or a repository that makes it, that has no record yet is filed
+  # through its own tool (core: services/agents/tools/fileRecord.ts), done for
+  # you with Undo — it is the factory's own bookkeeping, published nowhere.
+  x-agent-file:
+    dedupOn: [product, surface, stage]
   # Internal registry, not a record extracted from outside: filing one from
   # chat or MCP lands at once under its own trust key
   # (objects.propose_candidate.environment), and the deploy keeps it current.

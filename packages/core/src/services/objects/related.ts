@@ -2,7 +2,8 @@ import type { RelatedItem, Relation } from '@/libs/workspace/related';
 import { and, asc, desc, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { describeRef } from '@/libs/preview/describeRef';
-import { relationsOf } from '@/libs/workspace/related';
+import { relativeLabel } from '@/libs/timeAgo';
+import { derivedOf, deriveValue, driftOf, relationsOf } from '@/libs/workspace/related';
 import { actionRunSchema, artifactSchema, businessObjectSchema, businessObjectTypeSchema, conversationSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { RECORD_BODY_ROLE } from '@/services/objects/recordBodyFormat';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
@@ -136,6 +137,57 @@ function values(v: unknown): string[] {
  * @param opts.relations - Relations to read in place of the type's own (a test, a page that names its own).
  */
 export async function relatedOf(orgId: string, objectId: number, opts: { relations?: readonly Relation[] } = {}): Promise<RelatedItem[]> {
+  const read = await readRelated(orgId, objectId, opts);
+  if (!read) {
+    return [];
+  }
+  // A derived field whose stored value disagrees with its records is said
+  // under the relation it is read from (`x-derived`), never silently preferred.
+  const items = [...read.items];
+  for (const [field, d] of Object.entries(derivedOf(read.schema))) {
+    const lines = driftOf(field, read.meta[field], deriveValue(d, (read.found.get(d.relation) ?? []).map(r => r.meta)));
+    const rel = read.relations.find(r => r.key === d.relation);
+    if (lines.length === 0 || !rel) {
+      continue;
+    }
+    const at = items.map(i => i.relation).lastIndexOf(d.relation);
+    const drift = lines.map((line, i): RelatedItem => ({ key: `${rel.key}:drift:${field}:${i}`, relation: rel.key, label: rel.label, title: line, href: null, external: false, preview: null, kind: 'drift', note: null, at: null }));
+    items.splice(at >= 0 ? at + 1 : items.length, 0, ...drift);
+  }
+  return items;
+}
+
+/**
+ * A record's derived fields (`x-derived`): the values its records say, and
+ * where the stored value disagrees. What `read_object` and the record's page
+ * show in place of the stored value.
+ * @param orgId - Tenant.
+ * @param objectId - The record.
+ */
+export async function derivedFieldsOf(orgId: string, objectId: number): Promise<{ values: Record<string, unknown>; drift: Record<string, string[]> }> {
+  const read = await readRelated(orgId, objectId, {});
+  if (!read) {
+    return { values: {}, drift: {} };
+  }
+  const values: Record<string, unknown> = {};
+  const drift: Record<string, string[]> = {};
+  for (const [field, d] of Object.entries(derivedOf(read.schema))) {
+    if (!read.relations.some(r => r.key === d.relation)) {
+      continue;
+    }
+    values[field] = deriveValue(d, (read.found.get(d.relation) ?? []).map(r => r.meta));
+    const lines = driftOf(field, read.meta[field], values[field]);
+    if (lines.length > 0) {
+      drift[field] = lines;
+    }
+  }
+  return { values, drift };
+}
+
+/** What a read of a record's relations holds. */
+type RelatedRead = { items: RelatedItem[]; found: Map<string, Row[]>; meta: Record<string, unknown>; schema: Record<string, unknown> | null; relations: readonly Relation[] };
+
+async function readRelated(orgId: string, objectId: number, opts: { relations?: readonly Relation[] }): Promise<RelatedRead | null> {
   const [self] = await db
     .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata, reviewActionRunId: businessObjectSchema.reviewActionRunId, schema: businessObjectTypeSchema.schema })
     .from(businessObjectSchema)
@@ -143,7 +195,7 @@ export async function relatedOf(orgId: string, objectId: number, opts: { relatio
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, objectId)))
     .limit(1);
   if (!self) {
-    return [];
+    return null;
   }
   const meta = obj(self.meta);
   const relations = opts.relations ?? relationsOf(self.schema as Record<string, unknown> | null);
@@ -161,6 +213,7 @@ export async function relatedOf(orgId: string, objectId: number, opts: { relatio
     kind: 'record',
     note: text(r.meta.state) ?? r.status,
     at: null,
+    ...(rel.details ? { details: detailsOf(rel, r.meta, meta) } : {}),
   });
   const sources = (rel: Relation): Array<{ id: number; meta: Record<string, unknown> }> =>
     (rel.of ? found.get(rel.of) ?? [] : [{ id: self.id, meta }]);
@@ -289,7 +342,44 @@ export async function relatedOf(orgId: string, objectId: number, opts: { relatio
       }
     }
   }
-  return items;
+  return { items, found, meta, schema: self.schema as Record<string, unknown> | null, relations };
+}
+
+/**
+ * What a related record says under its link, as its relation declares.
+ * @param rel - The relation.
+ * @param m - The related record's metadata.
+ * @param self - This record's metadata, for a `pick`.
+ */
+function detailsOf(rel: Relation, m: Record<string, unknown>, self: Record<string, unknown>): string[] {
+  return (rel.details ?? []).flatMap((d) => {
+    let v: unknown = m[d.field];
+    if (d.pick) {
+      const key = text(self[d.pick]);
+      v = key && v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>)[key] : undefined;
+    }
+    const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+    const said = (() => {
+      switch (d.format) {
+        case 'present':
+          return empty ? d.absent ?? null : d.present ?? d.label ?? d.field;
+        case 'count':
+          return Array.isArray(v) ? `${v.length} ${d.label ?? d.field}` : null;
+        case 'sha':
+          return empty ? null : String(v).slice(0, 7);
+        case 'relative': {
+          const t = typeof v === 'string' ? Date.parse(v) : Number.NaN;
+          return Number.isNaN(t) ? null : relativeLabel(new Date(t), Date.now());
+        }
+        default:
+          return empty ? null : Array.isArray(v) ? v.map(String).join(', ') : typeof v === 'object' ? null : String(v);
+      }
+    })();
+    if (said === null) {
+      return [];
+    }
+    return [d.label && d.format !== 'count' && d.format !== 'present' ? `${d.label} ${said}` : said];
+  });
 }
 
 /**
@@ -373,4 +463,52 @@ export async function recordOrigins(orgId: string, rows: ReadonlyArray<{ id: num
     }
   }
   return out;
+}
+
+/** One write to a record a record is connected to, as its Activity lists it. */
+export type RelatedWrite = { runId: number; recordId: number; title: string; by: string; at: string; href: string; preview: { type: 'record_history'; id: string } };
+
+/**
+ * WHAT CHANGED ON WHAT A RECORD IS CONNECTED TO — the writes to it and to the
+ * records its relations name (a product's environments and repositories),
+ * newest first, each with who made it: a person, or the seat that keeps
+ * them true (the Release engineer after a deploy or a rename). Read from the
+ * action runs that wrote them, so an agent's write and a person's read the
+ * same.
+ * @param orgId - Tenant.
+ * @param objectId - The record.
+ * @param limit - At most this many.
+ */
+export async function relatedWrites(orgId: string, objectId: number, limit = 10): Promise<RelatedWrite[]> {
+  const read = await readRelated(orgId, objectId, {});
+  if (!read) {
+    return [];
+  }
+  const titles = new Map<number, { title: string; type: string | null }>([[objectId, { title: 'this record', type: null }]]);
+  for (const rows of read.found.values()) {
+    for (const r of rows) {
+      titles.set(r.id, { title: r.title, type: r.type });
+    }
+  }
+  const ids = [...titles.keys()].map(String);
+  const runs = await db
+    .select({ id: actionRunSchema.id, objectId: sql<string | null>`${actionRunSchema.result} ->> 'objectId'`, by: actionRunSchema.invokedBy, at: actionRunSchema.createdAt })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'done'), inArray(sql`${actionRunSchema.result} ->> 'objectId'`, ids)))
+    .orderBy(desc(actionRunSchema.id))
+    .limit(limit);
+  const people = [...new Set(runs.map(r => r.by).filter((b): b is string => typeof b === 'string' && b !== '' && !b.includes(':')))];
+  const names = people.length > 0
+    ? new Map((await db.select({ id: userSchema.id, name: userSchema.name, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, people))).map(u => [u.id, u.name?.trim() || u.email]))
+    : new Map<string, string>();
+  const link = await recordLinkerForOrg(orgId);
+  return runs.flatMap((r) => {
+    const recordId = Number(r.objectId);
+    const named = titles.get(recordId);
+    if (!named) {
+      return [];
+    }
+    const by = r.by ? names.get(r.by) ?? r.by.replace(/^(?:agent|factory):/, '') : 'Vocion';
+    return [{ runId: r.id, recordId, title: named.title, by, at: r.at.toISOString(), href: link({ objectType: named.type ?? undefined, id: recordId }), preview: { type: 'record_history' as const, id: String(recordId) } }];
+  });
 }

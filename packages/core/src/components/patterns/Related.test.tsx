@@ -68,6 +68,23 @@ describe('the Related block', () => {
     expect(document.querySelector('[data-fact="related:pulls"] [data-testid="open-in-preview"]')).toBeNull();
   });
 
+  it('says what each record says under its link, and where a stored value drifts under its row', async () => {
+    render(
+      <Related items={[
+        item({ key: 'e1', relation: 'environments', label: 'Environments', title: '#351 portal-web-production', details: ['https://portal.northwind.example', 'production', 'deployed 4f1c2d9', '3h ago', 'health ok', 'QA sign-in stored'] }),
+        item({ key: 'e2', relation: 'environments', label: 'Environments', title: '#352 portal-api-production', details: ['https://api.portal.northwind.example', 'no QA sign-in'] }),
+        item({ key: 'd', relation: 'environments', label: 'Environments', title: 'Stored urls.app is https://portal-guess.example; the record says https://portal.northwind.example.', kind: 'drift', href: null, preview: null }),
+      ]}
+      />,
+    );
+
+    await expect.element(page.getByTestId('related-details').first()).toHaveTextContent('https://portal.northwind.example · production · deployed 4f1c2d9 · 3h ago · health ok · QA sign-in stored');
+    await expect.element(page.getByTestId('related-drift')).toHaveTextContent('Stored urls.app is https://portal-guess.example');
+
+    // The drift line is not a record: no link, no preview of its own.
+    expect(document.querySelectorAll('[data-fact="related:environments"] [data-testid="open-in-preview"]')).toHaveLength(2);
+  });
+
   it('draws nothing when a record is connected to nothing', async () => {
     render(<Related items={[]} />);
 

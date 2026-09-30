@@ -130,6 +130,25 @@ schema:
     - {key: pulls, label: Pull requests, from: url, field: prUrl, of: tasks}
 ```
 
+A relation's `details` say what each related record shows under its link, taken from its own metadata: `{field, label?, format?}`. `format` is one of:
+- `text` (the default)
+- `sha`: the first 7 characters
+- `relative`: "3h ago"
+- `count`: "2 checks"
+- `present`: `present` or `absent`
+
+With `pick`, an object field is read at this record's metadata key (a repository's `productPaths` under the product's slug).
+
+**Derived fields.** A field the records already say is declared with `x-derived` and read from them at read time, never stored beside them. The record's page and `read_object` show the derived value. A stored value that disagrees is shown as drift under the row it is read from (and as `derivedDrift` in `read_object`), not silently preferred.
+
+```yaml
+# objects/product/type.yaml
+schema:
+  x-derived:
+    urls: {relation: environments, value: url, keyBy: surface, where: {stage: production}, keys: {site: marketing, app: web, api: api}}
+    repos: {relation: repos, value: slug}
+```
+
 ## Rules
 
 - Slugs are unique across object types.

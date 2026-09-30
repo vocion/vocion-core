@@ -144,6 +144,11 @@ export function readObjectTool(ctx: RuntimeContext) {
       // record whose type has a report page, You / Now / Next. A status that
       // cannot be read is left off rather than failing the read.
       const live = await liveStatusOf(ctx.orgId, row.id);
+      // A field the type derives from other records (`x-derived`) reads as
+      // those records say, the same value its page shows; a stored value
+      // that disagrees comes back as drift, never in its place.
+      const { derivedFieldsOf } = await import('@/services/objects/related');
+      const derived = await derivedFieldsOf(ctx.orgId, row.id).catch(() => ({ values: {}, drift: {} }));
       return JSON.stringify({
         id: row.id,
         title: row.title,
@@ -151,6 +156,8 @@ export function readObjectTool(ctx: RuntimeContext) {
         ...(live ? { liveStatus: live } : {}),
         ...(summary ? { recoverySummary: summary } : {}),
         ...meta,
+        ...derived.values,
+        ...(Object.keys(derived.drift).length > 0 ? { derivedDrift: derived.drift } : {}),
       });
     },
     {

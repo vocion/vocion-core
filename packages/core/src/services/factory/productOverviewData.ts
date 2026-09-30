@@ -50,10 +50,15 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
     return null;
   }
   const products = await loadObjectRows(orgId, 'product');
-  const product = products.find(p => Number(p.id) === recordId);
-  if (!product) {
+  const found = products.find(p => Number(p.id) === recordId);
+  if (!found) {
     return null;
   }
+  // Where it lives and what makes it are read from its environment and
+  // repository records (`x-derived` on its type), not from what it stored.
+  const { derivedFieldsOf } = await import('@/services/objects/related');
+  const derived = await derivedFieldsOf(orgId, recordId).catch(() => ({ values: {}, drift: {} }));
+  const product = { ...found, meta: { ...found.meta, ...derived.values } };
   const [requests, releases, environments, work, rel] = await Promise.all([
     loadObjectRows(orgId, 'request'),
     loadObjectRows(orgId, 'release'),

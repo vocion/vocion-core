@@ -33,11 +33,36 @@ function ItemLink({ item }: { item: RelatedItem }) {
 }
 
 function Item({ item, action }: { item: RelatedItem; action: boolean }) {
-  return (
+  const line = (
     <span className="group/row inline-flex min-w-0 items-center gap-1.5" data-related-item={item.key}>
       <ItemLink item={item} />
       {item.note && <span className="text-[12px] text-muted-foreground">{item.note}</span>}
       {action && item.preview && <OpenInPreview recordRef={item.preview} label={`Open ${item.title} in preview`} />}
+    </span>
+  );
+  if (!item.details || item.details.length === 0) {
+    return line;
+  }
+  return (
+    <span className="flex min-w-0 flex-col">
+      {line}
+      <span className="text-[12px] break-words text-muted-foreground" data-testid="related-details">{item.details.join(' · ')}</span>
+    </span>
+  );
+}
+
+/**
+ * A stored value that disagrees with the records the row reads, said under the row.
+ * @param root0
+ * @param root0.items
+ */
+function Drift({ items }: { items: readonly RelatedItem[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <span className="mt-1 flex flex-col gap-0.5" data-testid="related-drift">
+      {items.map(d => <span key={d.key} className="text-[12px] break-words text-brand-borderline">{d.title}</span>)}
     </span>
   );
 }
@@ -50,18 +75,27 @@ function Item({ item, action }: { item: RelatedItem; action: boolean }) {
  */
 export function relatedFacts(items: readonly RelatedItem[]): Fact[] {
   return groupRelated(items).map((g) => {
-    const one = g.items.length === 1 ? g.items[0]! : null;
+    const shown = g.items.filter(i => i.kind !== 'drift');
+    const drift = g.items.filter(i => i.kind === 'drift');
+    const one = shown.length === 1 ? shown[0]! : null;
+    // Records that say something under their link stack; bare links wrap.
+    const stacked = shown.some(i => (i.details?.length ?? 0) > 0);
     return {
       key: `related:${g.relation}`,
       label: g.label,
       preview: one?.preview ?? null,
-      value: one
-        ? <Item item={one} action={false} />
-        : (
-            <span className="flex flex-wrap gap-x-3 gap-y-1">
-              {g.items.map(i => <Item key={i.key} item={i} action />)}
-            </span>
-          ),
+      value: (
+        <>
+          {one
+            ? <Item item={one} action={false} />
+            : (
+                <span className={stacked ? 'flex flex-col gap-1.5' : 'flex flex-wrap gap-x-3 gap-y-1'}>
+                  {shown.map(i => <Item key={i.key} item={i} action />)}
+                </span>
+              )}
+          <Drift items={drift} />
+        </>
+      ),
     };
   });
 }
