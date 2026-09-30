@@ -1093,6 +1093,13 @@
       "when": 1790900000000,
       "tag": "0155_live_notice",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1790900060000,
+      "tag": "0156_notifications",
+      "breakpoints": true
     }
   ]
 }

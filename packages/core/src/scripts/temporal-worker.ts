@@ -24,6 +24,12 @@ import { applyWorkerRunReaperSchedule } from '../services/WorkerRunReaperSchedul
 
 /** How often the worker sweeps for fires that can no longer end. */
 const RECONCILE_EVERY_MS = 15 * 60_000;
+/**
+ * How often the notification queue is drained (backlog 048): retries, mail
+ * held a minute for grouping, and anything quiet hours held. `notify()`
+ * delivers what goes now itself; this is the rest.
+ */
+const NOTIFICATIONS_EVERY_MS = 15_000;
 
 async function main(): Promise<void> {
   if ((process.env.ENABLE_TEMPORAL_WORKER ?? '0') !== '1') {
@@ -106,11 +112,33 @@ async function main(): Promise<void> {
   const reconcileTimer = setInterval(() => void reconcile(), RECONCILE_EVERY_MS);
   reconcileTimer.unref();
 
+  let delivering = false;
+  const deliverNotifications = async (): Promise<void> => {
+    if (delivering) {
+      return;
+    }
+    delivering = true;
+    try {
+      const { deliverDue } = await import('../services/notifications/delivery');
+      const out = await deliverDue();
+      if (out.claimed > 0) {
+        console.log(`[temporal:worker] notifications: ${out.sent} sent, ${out.retrying} retrying, ${out.failed} failed, ${out.skipped} skipped`);
+      }
+    } catch (error) {
+      console.error('[temporal:worker] notification delivery pass failed', error);
+    } finally {
+      delivering = false;
+    }
+  };
+  const notificationsTimer = setInterval(() => void deliverNotifications(), NOTIFICATIONS_EVERY_MS);
+  notificationsTimer.unref();
+
   console.log(`[temporal:worker] started — task queue: ${VOCION_WORKFLOWS_TASK_QUEUE}`);
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`[temporal:worker] caught ${signal}; shutting down…`);
     clearInterval(reconcileTimer);
+    clearInterval(notificationsTimer);
     worker.shutdown();
     await connection.close();
   };

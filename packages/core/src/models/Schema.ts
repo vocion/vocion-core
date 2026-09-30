@@ -4689,3 +4689,165 @@ export const personalizationBulkJobSchema = pgTable('personalization_bulk_job', 
 }, table => [
   index('personalization_bulk_job_org_idx').on(table.orgId, table.createdAt),
 ]);
+
+/* ------------------------------------------------------------------ */
+/* Notifications (backlog 048)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One declared notification kind for a workspace — a `notifications:` entry
+ * in a plugin's `plugin.yaml` or the workspace's own `workspace.yaml`, as the
+ * applier stored it (migration 0156). Nothing notifies unless a row here says
+ * so: core ships the mechanism, the plugin names the moments.
+ *
+ * `config` is the manifest entry as validated (`NotificationRuleManifest`):
+ * the event and its filter, who hears it, the title/body templates, the
+ * record it is about and the dedupe template. `source` says which layer
+ * declared it — `workspace`, or `plugin:<slug>` — so the settings page can
+ * say where a kind came from. `lastFiredAt` / `lastNote` are the rule's own
+ * account of its last match ("delivered to 1 person", or why nobody), so a
+ * rule that matched and reached no one is never silent.
+ */
+export const notificationRuleSchema = pgTable(
+  'notification_rule',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    kind: text('kind').notNull(),
+    label: text('label').notNull(),
+    description: text('description'),
+    event: text('event').notNull(),
+    status: text('status').notNull().default('active'),
+    source: text('source').notNull().default('workspace'),
+    config: jsonb('config').$type<import('@/libs/notifications/types').NotificationRuleConfig>().notNull(),
+    lastFiredAt: timestamp('last_fired_at', { mode: 'date' }),
+    lastNote: text('last_note'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('notification_rule_org_kind_uq').on(table.orgId, table.kind),
+    index('notification_rule_org_event_idx').on(table.orgId, table.event),
+  ],
+);
+
+/**
+ * One notification to one person: what happened, the record it is about and
+ * where it opens. Written by `notify()` alone, deduplicated per person on
+ * `dedupe_key` (the kind plus the rule's dedupe template, by default the
+ * record), so one stop is one notification however often its event is
+ * raised. `readAt` is the person's mark; the per-channel state lives on
+ * `notification_delivery`.
+ */
+export const notificationSchema = pgTable(
+  'notification',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    body: text('body'),
+    /** Workspace-prefixed app path (`/w/<slug>/dashboard/…`) the notification opens. */
+    link: text('link'),
+    recordType: text('record_type'),
+    recordId: text('record_id'),
+    dedupeKey: text('dedupe_key').notNull(),
+    /** The `event_log` row that raised it, when an event did. */
+    eventType: text('event_type'),
+    eventId: integer('event_id'),
+    readAt: timestamp('read_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('notification_org_user_dedupe_uq').on(table.orgId, table.userId, table.dedupeKey),
+    index('notification_user_org_created_idx').on(table.userId, table.orgId, table.createdAt),
+  ],
+);
+
+/**
+ * One channel's attempt at one notification — the queue. `pending` rows whose
+ * `nextAttemptAt` has passed are what the delivery pass picks up; a failure
+ * backs off and retries carrying its reason, and past the last attempt the
+ * row is `failed` with that reason on the notification for a person to see.
+ * `skipped` is a channel that could not be tried at all and says why (the
+ * server has no APNs key, the person has no Slack identity). Web and iOS push
+ * get one row per registered device (`subscriptionId`).
+ */
+export const notificationDeliverySchema = pgTable(
+  'notification_delivery',
+  {
+    id: serial('id').primaryKey(),
+    notificationId: integer('notification_id').notNull().references(() => notificationSchema.id, { onDelete: 'cascade' }),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    /** `in_app` | `ios` | `web` | `email` | `slack`. */
+    channel: text('channel').notNull(),
+    subscriptionId: integer('subscription_id'),
+    /** `pending` | `sent` | `failed` | `skipped`. */
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { mode: 'date' }).defaultNow().notNull(),
+    /** The last failure, or why the channel was skipped. Never a secret. */
+    detail: text('detail'),
+    sentAt: timestamp('sent_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('notification_delivery_due_idx').on(table.status, table.nextAttemptAt),
+    index('notification_delivery_notification_idx').on(table.notificationId),
+  ],
+);
+
+/**
+ * A device a person asked to be notified on. `web` is a browser's Push API
+ * subscription (`token` = the endpoint, `keys` = its p256dh/auth); `ios` is an
+ * APNs device token with the app's bundle id and the APNs environment it was
+ * issued for (`sandbox` from Xcode, `production` from TestFlight and the App
+ * Store). A person's, not a workspace's: one iPhone hears every workspace its
+ * owner is in. Removed when the push service says the subscription is gone.
+ */
+export const pushSubscriptionSchema = pgTable(
+  'push_subscription',
+  {
+    id: serial('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    /** `web` | `ios`. */
+    platform: text('platform').notNull(),
+    token: text('token').notNull(),
+    keys: jsonb('keys').$type<{ p256dh: string; auth: string }>(),
+    bundleId: text('bundle_id'),
+    /** `sandbox` | `production` — iOS only. */
+    environment: text('environment'),
+    /** What the person sees in the device list: "Chrome on macOS", "Chris's iPhone". */
+    label: text('label'),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    lastSeenAt: timestamp('last_seen_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('push_subscription_platform_token_uq').on(table.platform, table.token),
+    index('push_subscription_user_idx').on(table.userId),
+  ],
+);
+
+/**
+ * One person's notification settings in one workspace: per kind, per channel
+ * on/off (absent = the default for that channel), quiet hours, and where a
+ * Slack notification goes. No row = every default.
+ */
+export const notificationPreferenceSchema = pgTable(
+  'notification_preference',
+  {
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    orgId: text('org_id').notNull(),
+    channels: jsonb('channels').$type<import('@/libs/notifications/types').KindChannelSettings>().default({}).notNull(),
+    quietHours: jsonb('quiet_hours').$type<import('@/libs/notifications/types').QuietHours | null>(),
+    slackTarget: text('slack_target').notNull().default('dm'),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.userId, table.orgId] }),
+  ],
+);

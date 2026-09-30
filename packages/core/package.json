@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20.3"
@@ -160,6 +160,7 @@
     "stripe": "^18.5.0",
     "swagger-ui-react": "^5.33.0",
     "tailwind-merge": "^3.5.0",
+    "web-push": "^3.6.7",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
   },
@@ -186,6 +187,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/sanitize-html": "^2.16.1",
     "@types/swagger-ui-react": "^5.18.0",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^5.1.4",
     "@vitest/browser": "^4.0.18",
     "@vitest/browser-playwright": "^4.0.18",
