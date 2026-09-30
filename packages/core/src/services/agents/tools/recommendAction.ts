@@ -14,11 +14,13 @@ import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
+import { MERGE_ACTION_ID } from '@/libs/actions/factory';
 import { actionInputHints, getAction, listActions } from '@/libs/actions/registry';
 import { repairActionInput } from '@/libs/actions/repairInput';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { appBaseUrl } from '@/libs/links';
 import { openLabelFor } from '@/libs/workspace/recordHref';
+import { mergeCardRunsItself } from '../decisionHolder';
 
 /**
  * The record a card is ABOUT, read off its action's input: a record named by
@@ -175,6 +177,14 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
         if (consent.said) {
           const { runProposal } = await import('./proposeAction');
           return runProposal(ctx, { actionId: action_id, input: action_input ?? {}, confidence: typeof confidence === 'number' ? confidence : 0.9, rationale: rationale?.trim() || label, suggestedDecision, suggestedDecisionReason }, { tool: 'recommend_action' });
+        }
+      }
+      // A MERGE CARD NOBODY PRESSES (backlog 044): a class whose trust rule
+      // merges it on its own once QA approves has no card to show.
+      if (action_id === MERGE_ACTION_ID && typeof action_input?.riskClass === 'string') {
+        const moot = await mergeCardRunsItself(ctx, action_input.riskClass);
+        if (moot) {
+          return JSON.stringify({ ok: false, error: moot });
         }
       }
       // The record the card is about opens from the card (Chris, 2026-09-28:

@@ -24,6 +24,7 @@ import { ActionError, proposeAction } from '@/services/ActionService';
 import { ASK_KINDS, ASK_RISKS, getAsk } from '@/services/AskService';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
 import { anchoredAskCheck } from '../anchoredFiling';
+import { askHeldByThePersonHere } from '../decisionHolder';
 
 /**
  * The agent principal every tool-made proposal rides — working autonomy, judged by the ladder.
@@ -75,6 +76,14 @@ export function fileAskTool(ctx: RuntimeContext) {
       const refusal = await anchoredAskCheck(ctx, { kind: args.kind, options: args.options, objectRefs: args.object_refs });
       if (refusal) {
         return refusal;
+      }
+      // THE PERSON ASKING IS THE OWNER (backlog 044): a decision the person in
+      // this turn holds is asked here, not filed for "the owner"; a merge that
+      // runs itself on its trust rule is asked of nobody.
+      const held = await askHeldByThePersonHere(ctx, { kind: args.kind, title: args.title, objectRefs: args.object_refs });
+      if (held) {
+        ctx.emit({ type: 'tool_progress', tool: 'file_ask', meta: { filed: false, reason: 'decision_held_here' } } as never);
+        return held;
       }
       const input: Record<string, unknown> = {
         title: args.title,
