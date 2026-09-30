@@ -278,6 +278,21 @@ async function deliveryFacts(orgId: string, runs: readonly WorkerRun[]): Promise
   return { byRun, requests };
 }
 
+/**
+ * The narrowing a call asked for, as a person would read it back.
+ * @param args - The tool's filter arguments.
+ * @param args.kinds - Worker run kinds asked for.
+ * @param args.status - A run status asked for.
+ * @param args.agentSlug - A seat asked for.
+ */
+function filterLine(args: { kinds?: string[]; status?: string; agentSlug?: string }): string {
+  return [
+    args.kinds && args.kinds.length > 0 ? `kinds ${args.kinds.join(', ')}` : null,
+    args.status ? `status ${args.status}` : null,
+    args.agentSlug ? `agent ${args.agentSlug}` : null,
+  ].filter(Boolean).join('; ');
+}
+
 export function listRecentRunsTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -330,6 +345,20 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
           .limit(limit),
         args.withFeedbackOnly ? Promise.resolve(null) : recentReleases(ctx.orgId, Math.min(limit, 10)),
       ]);
+
+      // A filter that matched nothing is not an empty workspace. Conversation
+      // 397 (2026-09-30) asked for kinds ["board"] and ["lead"] in a workspace
+      // with 81 worker runs and was told "No worker runs in this workspace
+      // yet", and the agent went on as if nothing had ever been built.
+      const narrowed = Boolean((args.kinds && args.kinds.length > 0) || args.status || args.agentSlug);
+      const kindsOnRecord = narrowed && !statusRows.some(row => row.n > 0)
+        ? await db
+            .select({ kind: workerRunSchema.kind, n: sql<number>`count(*)::int` })
+            .from(workerRunSchema)
+            .where(eq(workerRunSchema.orgId, ctx.orgId))
+            .groupBy(workerRunSchema.kind)
+        : [];
+      const workspaceTotal = kindsOnRecord.reduce((sum, row) => sum + row.n, 0);
 
       const byStatus: Record<string, number> = {};
       let workerRunCount = 0;
@@ -384,7 +413,9 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
         centsSpent,
         showing: workerRuns.length,
         note: workerRunCount === 0
-          ? 'No worker runs in this workspace yet.'
+          ? (workspaceTotal > 0
+              ? `No worker runs match this filter (${filterLine(args)}). The workspace has ${workspaceTotal} on record: ${kindsOnRecord.map(row => `${row.kind} ${row.n}`).join(', ')}. Drop or change the filter to see them.`
+              : 'No worker runs in this workspace yet.')
           : `${workerRunCount} worker run${workerRunCount === 1 ? '' : 's'} on record; the ${workerRuns.length} most recent follow, newest first. A run is listed whether or not a task record exists for it. A run's status is the engineer's attempt only: "completed" means the run ended, not that QA passed it, that it merged or that it shipped. Each run says those on their own fields — verdict, pullRequest.merge, ci, request.stage, next — and requests carries each request's own status.`,
         workerRuns,
         ...(delivery && Object.keys(delivery.requests).length > 0 ? { requests: delivery.requests } : {}),
@@ -404,7 +435,7 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
       ].join(' '),
       schema: z.object({
         limit: z.number().int().positive().max(100).optional().describe(`How many recent runs to return (default ${DEFAULT_LIMIT}).`),
-        kinds: z.array(z.string()).optional().describe('Only these worker run kinds: worker, lead, board, red-team, compact, snapshot.'),
+        kinds: z.array(z.string()).optional().describe('Only these worker run kinds: worker, lead, board, red-team, compact, snapshot. An engineering build is `worker`.'),
         status: z.string().optional().describe('Only worker runs in this status: queued, running, paused, awaiting_review, completed, failed, cancelled, lost.'),
         agentSlug: z.string().optional().describe('Only worker runs by this agent.'),
         includeBookkeeping: z.boolean().optional().describe('Include compact and snapshot runs, which are left out by default.'),

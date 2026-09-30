@@ -38,6 +38,12 @@ export function fetchUrlTool(ctx: RuntimeContext) {
         if (pull) {
           return pull;
         }
+        // The same for the repository's own pages: its root, a folder, a file.
+        const { readConnectedRepo } = await import('./githubRepoRead');
+        const repoPage = await readConnectedRepo(ctx.orgId, url);
+        if (repoPage) {
+          return repoPage;
+        }
         const provider = getBrowseProvider();
         const page = await provider.fetchPage(url, { orgId: ctx.orgId });
         if (!page) {
@@ -60,7 +66,7 @@ export function fetchUrlTool(ctx: RuntimeContext) {
     {
       name: 'fetch_url',
       description:
-        'Fetch a single web page and return its full readable text — never truncated — plus the total character length. A GitHub pull request URL on a repository this workspace connected returns the PR and its diff, read with the workspace\'s token (private repos included). Use after web_search to read a result, or when the user gives you a URL.',
+        'Fetch a single web page and return its full readable text — never truncated — plus the total character length. A GitHub pull request URL on a repository this workspace connected returns the PR and its diff, and a repository, folder or file URL (`github.com/<owner>/<repo>`, `/tree/<ref>/<path>`, `/blob/<ref>/<path>`) returns its listing or text, read with the workspace\'s token (private repos included). Use after web_search to read a result, or when the user gives you a URL.',
       schema: z.object({
         url: z.string().url().describe('The absolute URL to fetch'),
       }),

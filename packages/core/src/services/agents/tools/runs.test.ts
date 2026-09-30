@@ -210,6 +210,14 @@ describe('list_recent_runs — the factory\'s runs, whether or not a task exists
     expect(out.workerRuns).toEqual([]);
   });
 
+  it('a filter that matched nothing says so, with what the workspace does have (conversation 397)', async () => {
+    const out = await call({ kinds: ['board'] });
+
+    expect(out.workerRunCount).toBe(0);
+    expect(out.note).toMatch(/^No worker runs match this filter \(kinds board\)\. The workspace has \d+ on record: /);
+    expect(out.note).not.toMatch(/in this workspace yet/);
+  });
+
   it('keeps the self-improver\'s view: feedback only, no worker runs\' releases', async () => {
     const out = await call({ withFeedbackOnly: true });
 
