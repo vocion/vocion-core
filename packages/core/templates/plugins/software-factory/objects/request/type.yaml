@@ -18,6 +18,15 @@ schema:
   # request filed from chat lands on Work at once (Chris, 2026-09-28: "it
   # should probably auto file, and the card should be to start the build").
   x-moderation: none
+  # WHAT THE FACTORY KEEPS FOR ITSELF (core: libs/workspace/bookkeeping.ts).
+  # A write that changes only these paths is bookkeeping: it moves no open page
+  # (no live notice), makes no body version and raises no `object.updated`, so
+  # nothing downstream wakes for it. #269, 2026-09-30: four "drawing, attempt
+  # 2" marks in four minutes re-read the open feature page each time and fired
+  # `factory-contract-changed` and `design-mockup-default` five times each, all
+  # to say they had nothing to do. The value is still written; the next change
+  # a person would see carries it to the page.
+  x-bookkeeping: [visuals.mockupDraw, recovery.handledRunIds, recovery.log, recovery.planRequestedAt, rollupsUpdatedAt]
   # When a question about a request stops being a question (backlog 039): a
   # Review item asking about one closes itself once the request ends here.
   x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}

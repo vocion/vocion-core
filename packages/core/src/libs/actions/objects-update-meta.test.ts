@@ -14,7 +14,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, autonomyPolicySchema, businessObjectSchema, businessObjectTypeSchema, trustRuleSchema } = await import('@/models/Schema');
+const { actionRunSchema, autonomyPolicySchema, businessObjectSchema, businessObjectTypeSchema, eventLogSchema, trustRuleSchema } = await import('@/models/Schema');
 const { forgetCachedObjectTypes } = await import('./objects-propose-candidate');
 const { objectsUpdateMetaAction, RESERVED_OBJECT_KEYS } = await import('./objects-update-meta');
 const { listActions } = await import('./registry');
@@ -298,5 +298,32 @@ describe('undo — the record goes back exactly', () => {
 
     expect(undone.status).toBe('undone');
     expect(await readMeta()).toEqual({ title: 'CSV export of the ledger', kind: 'gap', state: 'triaged' });
+  });
+});
+
+describe('machine bookkeeping never fans out (#269)', () => {
+  async function updatedEvents(): Promise<Array<Record<string, unknown>>> {
+    const rows = await db.select({ type: eventLogSchema.type, payload: eventLogSchema.payload }).from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG));
+    return rows.filter(r => r.type === 'object.updated').map(r => r.payload as Record<string, unknown>);
+  }
+
+  it('raises object.updated with the fields that changed, and nothing for a write that changed nothing a person reads', async () => {
+    await db.delete(eventLogSchema);
+    await db.update(businessObjectTypeSchema)
+      .set({ schema: { ...REQUEST_SCHEMA, 'x-bookkeeping': ['rankedAt'] } })
+      .where(eq(businessObjectTypeSchema.id, requestTypeId));
+    forgetCachedObjectTypes();
+
+    // The same value again, and a bookkeeping stamp: quiet.
+    expect((await update({ state: 'triaged' }, 0.99)).status).toBe('done');
+    expect((await update({ rankedAt: '2026-09-30T22:36:00Z' }, 0.99)).status).toBe('done');
+    // A change a person reads, written beside an unchanged field and a stamp: only it is named.
+    expect((await update({ priority: 82, state: 'triaged', rankedAt: '2026-09-30T22:37:00Z' }, 0.99)).status).toBe('done');
+
+    await vi.waitFor(async () => expect(await updatedEvents()).toHaveLength(1), { timeout: 3000, interval: 20 });
+
+    // The quiet writes still land.
+    expect((await readMeta()).rankedAt).toBe('2026-09-30T22:37:00Z');
+    expect((await updatedEvents())[0]).toMatchObject({ objectType: 'request', fields: 'priority' });
   });
 });

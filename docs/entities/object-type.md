@@ -107,6 +107,23 @@ schema:
   x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
 ```
 
+## Bookkeeping
+
+A type names the metadata paths the machine keeps for itself with `x-bookkeeping`: a
+drawing mark, the runs already handled, the time a rollup was last summed. A write that
+changes nothing outside them is quiet. It is still written, but it publishes no live notice
+(no open page re-reads itself), makes no body version, and raises no `object.updated`, so no
+automation wakes for it. `object.updated` names only the fields whose value changed, and an
+automation says which fields it reads with `when.filter.fieldsAny` (see
+[automation](./automation.md)), so a write of any other field never starts it.
+
+```yaml
+# objects/request/type.yaml
+schema:
+  type: object
+  x-bookkeeping: [visuals.mockupDraw, recovery.handledRunIds, rollupsUpdatedAt]
+```
+
 ## Duplicates
 
 A type asks for a check when one of its records is filed with `x-duplicate-check`: the

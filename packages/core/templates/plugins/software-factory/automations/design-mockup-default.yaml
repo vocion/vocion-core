@@ -19,6 +19,11 @@ when:
   event: [object.created, object.updated]
   filter:
     objectType: request
+    # The fields the rule below reads. A write of anything else — the
+    # designer's own `visuals`, a drawing mark — cannot make a mockup owed, so
+    # it never starts this (#269 re-fired it on every one of its own marks). A
+    # create carries every field it was born with, so a new request is heard.
+    fieldsAny: [surface, kind, state]
   maxFiresPer10m: 120
 do:
   job: mockup-default

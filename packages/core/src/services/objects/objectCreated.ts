@@ -64,12 +64,17 @@ export function actorIsPerson(actor: string | null | undefined): boolean {
  * @param object - The row as written.
  * @param object.id - Its id.
  * @param object.title - Its title.
+ * @param object.metadata - What it was born with, for `fields`.
  * @param objectType - Its type's slug.
  * @param origin - Where it came from.
  */
-export function objectCreatedPayload(orgId: string, object: { id: number; title: string }, objectType: string, origin: ObjectOrigin): ObjectCreatedPayload {
+export function objectCreatedPayload(orgId: string, object: { id: number; title: string; metadata?: Record<string, unknown> | null }, objectType: string, origin: ObjectOrigin): ObjectCreatedPayload {
   const actor = origin.actor?.trim() || 'system';
   return {
+    // Every field the record was born with is a field that was written, so
+    // an automation that names the fields it reads (`fieldsAny`) hears the
+    // create and the later write alike (`object.updated`'s `fields`).
+    fields: Object.keys(object.metadata ?? {}).filter(k => object.metadata![k] !== null && object.metadata![k] !== undefined).sort().join(','),
     orgId,
     objectId: object.id,
     objectType,
@@ -105,15 +110,34 @@ export async function announceObjectCreated(orgId: string, object: { id: number;
     // Dynamic, like every other emitter: the bus imports the automation
     // service, which reaches the create paths that call this.
     const { emitEvent, OBJECT_CREATED } = await import('@/services/EventService');
+    const metadata = await recordMetadata(orgId, object.id);
     await emitEvent({
       orgId,
       type: OBJECT_CREATED,
-      payload: objectCreatedPayload(orgId, object, objectType, origin),
+      payload: objectCreatedPayload(orgId, { ...object, metadata }, objectType, origin),
       dedupeKey: `${OBJECT_CREATED}:${object.id}`,
       invokedBy: origin.actor?.trim() || 'system',
       dispatchMode: 'auto',
     });
   } catch (error) {
     console.warn(`[objects] could not raise object.created for #${object.id}`, error);
+  }
+}
+
+/**
+ * The record's metadata as written, for the fields it was born with; empty
+ * when it cannot be read (the event still goes out).
+ * @param orgId - Tenant.
+ * @param id - The record.
+ */
+async function recordMetadata(orgId: string, id: number): Promise<Record<string, unknown>> {
+  try {
+    const { and, eq } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { businessObjectSchema } = await import('@/models/Schema');
+    const [row] = await db.select({ metadata: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id))).limit(1);
+    return (row?.metadata ?? {}) as Record<string, unknown>;
+  } catch {
+    return {};
   }
 }

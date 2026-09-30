@@ -16,5 +16,12 @@ when:
   event: object.updated
   filter:
     objectType: request
+    # WHAT THE CONTRACT IS — this plugin's word, not core's. A write of any
+    # other field (a drawing mark, a priority) never starts this automation:
+    # on #269 a designer re-writing `visuals` fired it five times in four
+    # minutes, each run saying "no contract field changed".
+    fieldsAny: &contract [acceptance, outcome, story, surface, mainRisk]
 do:
   job: factory-contract-changed
+  input:
+    contractFields: *contract

@@ -869,8 +869,12 @@ describe('the contract changed after QA (#201)', () => {
   it('does nothing when no contract field changed, or no merge is waiting', async () => {
     const r = await request({ product: 'rooms', title: 'Rooms show their owner', state: 'building' });
 
-    expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: 'priority' })).did).toBe('no contract field changed');
-    expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: 'acceptance' })).did).toBe('no task to reopen');
+    // The plugin's automation names the contract (`input.contractFields`); core names none.
+    const contractFields = ['acceptance', 'outcome', 'story', 'surface', 'mainRisk'];
+
+    expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: 'priority', contractFields })).did).toBe('no contract field changed');
+    expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: '', contractFields })).did).toBe('no contract field changed');
+    expect((await carry.reopenForContractChange(ORG, { objectId: r.id, fields: 'acceptance', contractFields })).did).toBe('no task to reopen');
     expect(await carry.contractChangeReceipt(ORG, r.id, new Date(), 100)).toBeNull();
   });
 });

@@ -190,6 +190,17 @@ describe('a field write is a new version with who and why', () => {
     expect(body!.currentVersion).toBe(2);
   });
 
+  it('a write of only what the type keeps for itself (x-bookkeeping) is not a version', async () => {
+    await db.update(businessObjectTypeSchema).set({ schema: { ...REQUEST_SCHEMA, 'x-bookkeeping': ['actualCents'] } }).where(and(eq(businessObjectTypeSchema.orgId, ORG), eq(businessObjectTypeSchema.slug, 'request')));
+    forgetCachedObjectTypes();
+    await agentWrite({ priority: 82 });
+    await agentWrite({ actualCents: 412 });
+
+    const [body] = await bodies();
+
+    expect(body!.currentVersion).toBe(2);
+  });
+
   it('undo is a version too', async () => {
     const res = await agentWrite({ priority: 82 });
     await undoAction(res.runId, ORG, { by: PERSON });

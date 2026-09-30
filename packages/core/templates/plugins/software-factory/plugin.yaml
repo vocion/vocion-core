@@ -170,7 +170,14 @@ name: Software factory
 #   at filing (#277 was skipped on "Mockup owed from the designer"), and an
 #   hourly sweep (`design-mockup-sweep`) asks again for open requests that
 #   never got one.
-version: 2.30.0
+# 2.31.0 — machine bookkeeping never fans out (Chris, 2026-09-30, #269: "I
+#   keep getting refreshed every few seconds … Close the gap keeps running").
+#   The request declares the paths the factory keeps for itself
+#   (`x-bookkeeping`): a write of only those moves no page and raises no
+#   `object.updated`. `factory-contract-changed` and `design-mockup-default`
+#   name the fields they read (`when.filter.fieldsAny`), so a write of anything
+#   else starts neither; the contract's fields are this plugin's, not core's.
+version: 2.31.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

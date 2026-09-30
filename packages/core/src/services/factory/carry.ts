@@ -1392,8 +1392,45 @@ export async function planningRunEnded(orgId: string, payload: Record<string, un
   return r ?? skip(requestId, 'planning still running, or a plan was filed');
 }
 
-/** The request fields that make up its contract: writing one after QA changes what was approved. */
-export const CONTRACT_FIELDS = ['acceptance', 'outcome', 'story', 'surface', 'mainRisk'] as const;
+/**
+ * Which of a write's fields are the contract, as the automation that runs this
+ * job says (`input.contractFields`, beside its `when.filter.fieldsAny`) — the
+ * plugin decides what a contract is, never a list here. Without the list, the
+ * automation's filter already chose, and every field the write changed counts.
+ * @param payload - The job's input: the `object.updated` payload with the automation's `input`.
+ */
+function contractFieldsOf(payload: Record<string, unknown>): string[] {
+  const fields = String(payload.fields ?? '').split(',').map(f => f.trim()).filter(Boolean);
+  const contract = Array.isArray(payload.contractFields) ? payload.contractFields.map(String) : null;
+  return contract ? fields.filter(f => contract.includes(f)) : fields;
+}
+
+/**
+ * Whether a write of these fields on a record of this type is one the
+ * contract-changed automation hears — read off the workspace's own automation
+ * (its `when.filter`), so the chat's receipt and the job agree on what a
+ * contract change is.
+ * @param orgId - The workspace.
+ * @param objectType - The record's type slug.
+ * @param fields - The fields written.
+ */
+export async function contractChangeHeard(orgId: string, objectType: string, fields: readonly string[]): Promise<boolean> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { automationSchema } = await import('@/models/Schema');
+  const { matchesFilter } = await import('@/services/eventFilter');
+  const { FACTORY_CONTRACT_CHANGED_JOB } = await import('@/services/jobs/factoryCarry');
+  const rows = await db.select({ whenConfig: automationSchema.whenConfig, doConfig: automationSchema.doConfig }).from(automationSchema).where(and(
+    eq(automationSchema.orgId, orgId),
+    eq(automationSchema.status, 'active'),
+    sql`${automationSchema.doConfig} ->> 'job' = ${FACTORY_CONTRACT_CHANGED_JOB}`,
+  ));
+  const payload = { objectType, fields: [...fields].sort().join(',') };
+  return rows.some((r) => {
+    const input = ((r.doConfig ?? {}) as { input?: Record<string, unknown> }).input ?? {};
+    return matchesFilter(payload, r.whenConfig.filter) && contractFieldsOf({ ...payload, ...input }).length > 0;
+  });
+}
 
 /**
  * THE CONTRACT CHANGED AFTER QA — back through the loop (Chris, 2026-09-29, on
@@ -1408,8 +1445,7 @@ export const CONTRACT_FIELDS = ['acceptance', 'outcome', 'story', 'surface', 'ma
  */
 export async function reopenForContractChange(orgId: string, payload: Record<string, unknown>): Promise<CarryResult> {
   const requestId = Number(payload.objectId);
-  const fields = String(payload.fields ?? '').split(',').filter(Boolean);
-  const changed = fields.filter(f => (CONTRACT_FIELDS as readonly string[]).includes(f));
+  const changed = contractFieldsOf(payload);
   if (!Number.isInteger(requestId) || requestId <= 0 || changed.length === 0) {
     return skip(Number.isInteger(requestId) ? requestId : null, 'no contract field changed');
   }

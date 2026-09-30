@@ -13,7 +13,9 @@ const ORG = 'org_object_created';
 describe('object.created (backlog 038)', () => {
   it('says who asked, and where', () => {
     expect(objectCreatedPayload(ORG, { id: 7, title: 'A room will not open' }, 'request', { source: 'proposal', conversationId: 12, actor: 'user_1', byPerson: true }))
-      .toEqual({ orgId: ORG, objectId: 7, objectType: 'request', title: 'A room will not open', source: 'proposal', conversationId: 12, actor: 'user_1', byPerson: true });
+      .toEqual({ orgId: ORG, objectId: 7, objectType: 'request', title: 'A room will not open', source: 'proposal', conversationId: 12, actor: 'user_1', byPerson: true, fields: '' });
+    // The fields it was born with, so `fieldsAny` hears a create as it hears a write.
+    expect(objectCreatedPayload(ORG, { id: 7, title: 't', metadata: { surface: 'ui', kind: 'gap', blocker: null } }, 'request', { source: 'service' }).fields).toBe('kind,surface');
     expect(objectCreatedPayload(ORG, { id: 7, title: 't' }, 'request', { source: 'service' })).toMatchObject({ actor: 'system', byPerson: false, conversationId: null });
   });
 

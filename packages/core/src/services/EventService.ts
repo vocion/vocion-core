@@ -137,13 +137,18 @@ export const OBJECT_CREATED = 'object.created';
  * The software factory subscribes (`factory-contract-changed`): a request
  * whose contract changed while its merge was waiting goes back through the
  * loop (Chris, 2026-09-29). Payload: `objectId`, `objectType`, `fields`
- * (comma-joined, sorted), `actor`, `byPerson`, `orgId`.
+ * (comma-joined, sorted: the fields whose value changed, less any path the
+ * type keeps for itself — `x-bookkeeping`), `actor`, `byPerson`, `orgId`. A
+ * write that changed none of them raises nothing. An automation names the
+ * fields it reads with `when.filter.fieldsAny`.
  */
 export const OBJECT_UPDATED = 'object.updated';
 
 /** Payload of `object.created`. Scalars only — `when.filter` compares with `===`. */
 export type ObjectCreatedPayload = {
   objectId: number;
+  /** The fields it was born with, comma-joined and sorted — what `fieldsAny` filters read, as on `object.updated`. */
+  fields: string;
   /** The object type's slug, e.g. `request`. What a filter should match on. */
   objectType: string;
   title: string;

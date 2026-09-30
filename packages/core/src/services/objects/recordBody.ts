@@ -4,6 +4,7 @@ import type { ArtifactRow, ArtifactVersionRow, Author } from '@/services/Artifac
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
+import { bookkeepingPaths, withoutBookkeeping } from '@/libs/workspace/bookkeeping';
 import { artifactSchema, businessObjectSchema, businessObjectTypeSchema, userSchema } from '@/models/Schema';
 import { createArtifact, listArtifactVersions, updateArtifact } from '@/services/ArtifactService';
 import { fieldDiff, RECORD_BODY_ROLE, recordBodyEnabled, recordFields, renderRecordBody, restoreSet, stableJson } from './recordBodyFormat';
@@ -221,7 +222,11 @@ export async function writeRecordBodyVersion(input: {
     };
     const spec = specFor(rec, meta);
     const headFields = ((body.spec as MarkdownSpec).record?.fields ?? null) as Record<string, unknown> | null;
-    if (headFields && stableJson(headFields) === stableJson(spec.record!.fields) && body.title === rec.title) {
+    // A write that changed only what the type keeps for itself
+    // (`x-bookkeeping` — a drawing mark, the runs already handled) is not a
+    // version of the record: nobody reading its history asked for it.
+    const quiet = bookkeepingPaths(rec.schema);
+    if (headFields && stableJson(withoutBookkeeping(headFields, quiet)) === stableJson(withoutBookkeeping(spec.record!.fields as Record<string, unknown>, quiet)) && body.title === rec.title) {
       return { status: 'unchanged', artifactId: body.id, version: body.currentVersion };
     }
     const { version } = await updateArtifact({

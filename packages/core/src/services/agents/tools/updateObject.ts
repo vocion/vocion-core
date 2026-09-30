@@ -84,8 +84,8 @@ export function updateObjectTool(ctx: RuntimeContext) {
         const r = (res.result ?? {}) as { title?: string; previous?: Record<string, unknown> };
         // A request's contract changed: say what the factory started from it,
         // so the answer does not offer to do what already happened.
-        const { CONTRACT_FIELDS, contractChangeReceipt } = await import('@/services/factory/carry');
-        const started = object_type === 'request' && Object.keys(set).some(f => (CONTRACT_FIELDS as readonly string[]).includes(f))
+        const { contractChangeHeard, contractChangeReceipt } = await import('@/services/factory/carry');
+        const started = await contractChangeHeard(ctx.orgId, object_type, Object.keys(set)).catch(() => false)
           ? await contractChangeReceipt(ctx.orgId, id, writtenAt).catch(() => null)
           : null;
         return `${object_type} #${id}${r.title ? ` "${r.title}"` : ''} updated — ${fields} written (run #${res.runId}, confidence ${confidence})${res.version ? `, now version ${res.version.to} of its history` : ''}. Done for you; the previous values are on the run and a person can undo it from Review › Decided.${started ? `\n\n${started}` : ''}`;

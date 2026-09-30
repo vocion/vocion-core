@@ -37,6 +37,7 @@
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { evaluateGates, gateRefusal, gatesOf } from '@/libs/gates/handoffGate';
+import { bookkeepingPaths, changedFields } from '@/libs/workspace/bookkeeping';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
 
 const UPDATE_ACTION_ID = 'objects.update_meta';
@@ -408,18 +409,26 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // the same way the gap gate is gated on `gapCheck`: this action is
     // domain-free and must stay so.
     const visual = declaresVisuals(objectType.schema) ? await redraw(ctx.orgId, row.id, next, keys) : null;
-    // Said to whoever subscribes (`object.updated`): what changed, and who changed it.
-    void (async () => {
-      const { emitEvent, OBJECT_UPDATED } = await import('@/services/EventService');
-      const actor = ctx.reviewedBy ?? ctx.invokedBy ?? 'system';
-      await emitEvent({
-        orgId: ctx.orgId,
-        type: OBJECT_UPDATED,
-        payload: { objectId: row.id, objectType: input.objectType, fields: keys.join(','), actor, byPerson: actor.startsWith('usr-'), orgId: ctx.orgId },
-        dedupeKey: `${OBJECT_UPDATED}:${row.id}:${ctx.runId ?? Date.now()}`,
-        invokedBy: actor,
-      });
-    })().catch(err => console.warn('object.updated was not announced', { objectId: row.id, message: (err as Error).message }));
+    // Said to whoever subscribes (`object.updated`): what changed, and who
+    // changed it. `fields` is what a person would see as changed — a key
+    // written with the value it had, or one whose only change is a path the
+    // type keeps for itself (`x-bookkeeping`), is not in it — and a write
+    // that changed none raises nothing: machine bookkeeping never fans out
+    // (#269: four "drawing" marks started eight automations that did nothing).
+    const changed = changedFields(row.metadata, next, bookkeepingPaths(objectType.schema), keys);
+    if (changed.length > 0) {
+      void (async () => {
+        const { emitEvent, OBJECT_UPDATED } = await import('@/services/EventService');
+        const actor = ctx.reviewedBy ?? ctx.invokedBy ?? 'system';
+        await emitEvent({
+          orgId: ctx.orgId,
+          type: OBJECT_UPDATED,
+          payload: { objectId: row.id, objectType: input.objectType, fields: changed.join(','), actor, byPerson: actor.startsWith('usr-'), orgId: ctx.orgId },
+          dedupeKey: `${OBJECT_UPDATED}:${row.id}:${ctx.runId ?? Date.now()}`,
+          invokedBy: actor,
+        });
+      })().catch(err => console.warn('object.updated was not announced', { objectId: row.id, message: (err as Error).message }));
+    }
     // The run is the record's history: who wrote what, why, and what was
     // there before — in one place, queryable by the dedup key's prefix.
     return {

@@ -86,6 +86,29 @@ describe('the triggers publish from the writer\'s own transaction', () => {
     ]);
   });
 
+  it('a write that changes nothing a person reads is quiet: no change, or only what the type keeps for itself', async () => {
+    const [row] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'request', label: 'Request', schema: { 'x-bookkeeping': ['visuals.mockupDraw', 'rollupsUpdatedAt'] } }).returning({ id: businessObjectTypeSchema.id });
+    const [rec] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: row!.id, title: 'Fabrikam share link', metadata: { state: 'building', visuals: { surfaceUrl: 'https://fabrikam.example/s/1' } } }).returning({ id: businessObjectSchema.id });
+    const id = rec!.id;
+    await db.delete(liveNoticeSchema);
+    const meta = (m: Record<string, unknown>) => db.update(businessObjectSchema).set({ metadata: m, updatedAt: new Date() }).where(eq(businessObjectSchema.id, id));
+    // The same values again, with a new updated_at: nothing to hear.
+    await meta({ state: 'building', visuals: { surfaceUrl: 'https://fabrikam.example/s/1' } });
+    // Only the drawing mark and the rollup stamp: bookkeeping.
+    await meta({ state: 'building', rollupsUpdatedAt: '2026-09-30T22:36:00Z', visuals: { surfaceUrl: 'https://fabrikam.example/s/1', mockupDraw: { state: 'drawing', attempt: 2 } } });
+
+    expect(await notices()).toEqual([]);
+
+    // A change a person reads — the state, or the title — is heard.
+    await meta({ state: 'shipped', rollupsUpdatedAt: '2026-09-30T22:36:00Z', visuals: { surfaceUrl: 'https://fabrikam.example/s/1', mockupDraw: { state: 'drawing', attempt: 2 } } });
+    await db.update(businessObjectSchema).set({ title: 'Fabrikam share link, dark' }).where(eq(businessObjectSchema.id, id));
+
+    expect(await notices()).toEqual([
+      { orgId: ORG, topics: [`record:${id}`, 'list:request'], ref: `record:${id}`, kind: 'changed' },
+      { orgId: ORG, topics: [`record:${id}`, 'list:request'], ref: `record:${id}`, kind: 'changed' },
+    ]);
+  });
+
   it('a worker run: its own topic, the runs feed, and the record its input is for', async () => {
     const t = await type(ORG, 'engineering_task');
     const task = await record(ORG, t);
