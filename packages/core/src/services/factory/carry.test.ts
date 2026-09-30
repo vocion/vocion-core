@@ -417,6 +417,21 @@ describe('a planning run that ends without a plan is caught when it ends (#246, 
     expect(recovery.line).toMatch(/^Planning again \(attempt \d of 3\) because the planning run \(automation run #\d+\) ended without filing a plan/);
   });
 
+  it('plans again when planning went quiet, even with an old rejected plan on the request (#130, 2026-09-30)', async () => {
+    const r = await request({ product: 'fleet', title: 'Fleet reminders' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const meta = (await read(r.id)).metadata as Record<string, unknown> & { recovery: Record<string, unknown> };
+    const asked = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    await db.update(businessObjectSchema).set({ metadata: { ...meta, recovery: { ...meta.recovery, stage: 'planning', planRequestedAt: asked } } }).where(eq(businessObjectSchema.id, r.id));
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: Fleet reminders', createdAt: new Date(Date.now() - 3 * 86_400_000), metadata: { requestId: r.id, status: 'rejected', approach: 'Old approach.' } });
+
+    await carry.sweepStuckRequests(ORG);
+
+    const log = ((await read(r.id)).metadata as { recovery: { log: Array<{ text: string }> } }).recovery.log.map(l => l.text);
+
+    expect(log).toContain('Planning failed: the planning run ended without filing a plan.');
+  });
+
   it('does nothing for a run that is not a request\'s planning', async () => {
     expect((await carry.planningRunEnded(ORG, { automationRunId: 999999 })).did).toBe('no request on the run');
   });
@@ -511,6 +526,21 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
 
     expect(after!.status).toBe('superseded');
     expect(await runsFor(r.id)).toHaveLength(2);
+  });
+
+  it('builds a stop with no run behind it from its approved plan (#233, 2026-09-30)', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms pin a note' });
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: Rooms pin a note', metadata: { requestId: r.id, status: 'approved', approvedBy: 'usr-dana', approach: 'Add the note to the room page.', components: ['apps/web — the room page'] } });
+    const attempt = (n: number) => ({ n, at: '2026-09-29T07:00:00Z', kind: 'build', trigger: 'retry', runId: null, taskId: null, line: 'x', failure: null });
+    await db.update(businessObjectSchema).set({ metadata: { ...((await read(r.id)).metadata as Record<string, unknown>), recovery: { log: [], line: null, askId: null, limit: 3, since: null, stage: 'recovering', attempts: [attempt(1), attempt(2), attempt(3)], handledRunIds: [], planRequestedAt: null } } }).where(eq(businessObjectSchema.id, r.id));
+    await carry.stopIfAtLimit(ORG, r.id, 'the limit on automatic attempts is reached');
+    const envType = (await getObjectTypeBySlug(ORG, 'environment')) ?? (await createObjectType({ slug: 'environment', label: 'Environment' }, ORG))[0];
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: envType!.id, title: 'Northwind factory worker (production)', metadata: { slug: 'northwind-worker-production', surface: 'worker', stage: 'production', lastDeployedAt: new Date(Date.now() + 1000).toISOString(), lastDeployedSha: '7e1d2c3b4a5f60718293a4b5c6d7e8f901234567' } });
+
+    const out = await carry.resumeAfterWorkerRebuild(ORG);
+
+    expect(out.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done' });
+    expect(await runsFor(r.id)).toHaveLength(1);
   });
 
   it('stop → approve → new failure files a second, open ask — never reopening the first (prod, 2026-09-29: ask #220)', async () => {

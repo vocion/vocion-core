@@ -45,6 +45,8 @@ const LOST_GRACE_MS = 15 * 60_000;
 const SWEEP_WINDOW_MS = 14 * 24 * 60 * 60_000;
 /** A plan asked for and never written is said, not waited on forever. */
 const PLAN_STALE_MS = 24 * 60 * 60_000;
+/** Planning that has filed nothing this long after it was asked for has ended without a plan. */
+const PLAN_QUIET_MS = 45 * 60_000;
 
 type Meta = Record<string, unknown>;
 type Row = { id: number; title: string; status: string | null; meta: Meta; createdAt: Date | null };
@@ -995,21 +997,25 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
       continue;
     }
     const work = await workFor(orgId, requestId);
-    const failed = work.runs[0];
-    if (!failed || work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting) {
+    // A stop with no run behind it (#233: the plan approved, the count spent
+    // before a build ever started) is resumed too, from its approved plan.
+    const failed = work.runs[0] ?? null;
+    if (work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting) {
       continue;
     }
-    const failure = classifyFailure({ status: failed.status, error: failed.error, failures: failed.failures });
-    const rebuilt = workerRebuiltSince({ stoppedAt: stop.createdAt ?? now, failedVersion: failed.workerVersion ?? null, environments, reported });
+    const failure = failed
+      ? classifyFailure({ status: failed.status, error: failed.error, failures: failed.failures })
+      : { class: 'no_run', sentence: 'the build never started' };
+    const rebuilt = workerRebuiltSince({ stoppedAt: stop.createdAt ?? now, failedVersion: failed?.workerVersion ?? null, environments, reported });
     if (!rebuilt || request.meta.workerRebuildResumedFor === rebuilt.version) {
       continue;
     }
     const line = `New worker (${rebuilt.version}) since the stop; building again.`;
-    const task = work.tasks.find(t => String(t.id) === String((failed.input.record as Meta | undefined)?.id));
+    const task = failed ? work.tasks.find(t => String(t.id) === String((failed.input.record as Meta | undefined)?.id)) : undefined;
     const planId = Number(task?.meta.planId) > 0 ? Number(task!.meta.planId) : (await approvedPlan(work.plans))?.id;
-    const dispatched = await propose(orgId, DISPATCH, { requestId, ...(planId ? { planId } : {}), trigger: 'recovery', recoveryOfRun: failed.id, recoveryClass: failure.class, reason: line }, {
+    const dispatched = await propose(orgId, DISPATCH, { requestId, ...(planId ? { planId } : {}), trigger: 'recovery', ...(failed ? { recoveryOfRun: failed.id } : {}), recoveryClass: failure.class, reason: line }, {
       confidence: 0.9,
-      rationale: `Run #${failed.id} stopped (${failure.sentence}); a new worker was deployed after the stop (${rebuilt.version}, ${rebuilt.source === 'environment' ? 'its environment record' : 'a run reported it'}).`,
+      rationale: `${failed ? `Run #${failed.id}` : `Request #${requestId}`} stopped (${failure.sentence}); a new worker was deployed after the stop (${rebuilt.version}, ${rebuilt.source === 'environment' ? 'its environment record' : 'a run reported it'}).`,
       reason: 'There is a new worker since the stop, so it gets one more attempt; Undo cancels it until a worker claims it.',
     });
     const at = now.toISOString();
@@ -1021,8 +1027,10 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
     }
     await writeMeta(orgId, requestId, { workerRebuildResumedFor: rebuilt.version });
     await supersedeAsk(orgId, stop.id, line);
-    await updateRecovery(orgId, requestId, s => logLine({ ...s, stage: s.stage === 'stopped' ? null : s.stage, askId: s.askId === stop.id ? null : s.askId, line: s.stage === 'stopped' ? null : s.line }, `${line} Ask #${stop.id} resolved itself.${dispatched.res.status === 'pending' ? ` The build is on a card for a person (action #${dispatched.res.runId}).` : ''}`, at, failed.id));
-    await recordRunLine(orgId, failed.id, line);
+    await updateRecovery(orgId, requestId, s => logLine({ ...s, stage: s.stage === 'stopped' ? null : s.stage, askId: s.askId === stop.id ? null : s.askId, line: s.stage === 'stopped' ? null : s.line }, `${line} Ask #${stop.id} resolved itself.${dispatched.res.status === 'pending' ? ` The build is on a card for a person (action #${dispatched.res.runId}).` : ''}`, at, failed?.id ?? null));
+    if (failed) {
+      await recordRunLine(orgId, failed.id, line);
+    }
     out.push({ requestId, did: `rebuilt:${dispatched.res.status}`, line });
   }
   return out;
@@ -1132,6 +1140,15 @@ async function carryPlanningStage(orgId: string, request: FactoryRecord, state: 
   const ended = !filedSince && state.planRequestedAt ? await planningEnded(orgId, id, state.planRequestedAt) : null;
   if (ended) {
     return replan(orgId, request, state, ended.why, now);
+  }
+  // QUIET PLANNING IS FAILED PLANNING (2026-09-30, #130: planning asked for at
+  // 16:53, the run ended "ok" having filed nothing, and the page read
+  // "Planning" for eleven hours; the day-old check below only looked at
+  // requests with no plan at all, and #130 had an old rejected one). Nothing
+  // filed since the ask, well past any planning run: plan again with that
+  // reason, which stops and asks once the planning budget is spent.
+  if (!filedSince && Number.isFinite(asked) && now.getTime() - asked > PLAN_QUIET_MS) {
+    return replan(orgId, request, state, 'the planning run ended without filing a plan', now);
   }
   if (work.plans.length === 0 && Number.isFinite(asked) && now.getTime() - asked > PLAN_STALE_MS) {
     return { requestId: id, did: 'escalate', line: await escalate(orgId, request, 'Stopped: a plan was asked for a day ago and none was written', 'write the plan, or say the work does not need one') };
