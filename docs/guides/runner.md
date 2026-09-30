@@ -95,7 +95,12 @@ on-box target alone.
 | Target | How the container starts | When it claims |
 |---|---|---|
 | `on-box` | the `vocion-runner` service in the box's compose (`infra/aws/docker-compose.prod.yml`), looping, one run at a time, capped at `RUNNER_CPUS` (1) and `RUNNER_MEMORY` (4g), with its own throwaway `vocion-runner-db` | a run that has waited `RUNNER_CLAIM_AFTER` (120 s) unclaimed; 0 makes it primary where there is no cloud target |
-| `aws-fargate` | a task in the installation's AWS account, provisioned by the instance's own IaC | at once |
+| `aws-fargate` | a task in the installation's AWS account, provisioned by the instance's own IaC. Vocion starts one per run when the run is queued (`services/runners/targets.ts`, on the app's own AWS credentials: `ecs:RunTask` on the runner task definitions and `iam:PassRole` on their roles), and the instance's scheduled poll starts one more every minute as the fallback | at once (`RUNNER_CLAIM_AFTER=0`); the poll takes what waited a minute |
+
+Every start is written on the run's progress, where the Runs page reads it: the target and task
+it started, or why it could not and who takes the run instead. A failed start never fails the
+dispatch, because the backup and the poll still build. A target is a small driver (`start(target,
+run)`); Azure Container Apps or a custom host would be one more of the same shape.
 
 A runner claims with the installation runner token (`VOCION_RUNNER_TOKEN`, the same value in the
 app and in the runner's secrets): `POST /api/v1/runner/claim { target, workerId, workerVersion,

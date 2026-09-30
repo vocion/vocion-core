@@ -140,6 +140,11 @@ export async function createWorkerRun(opts: {
     createdBy: opts.createdBy ?? null,
     workspaceSha: opts.workspaceSha ?? null,
   }).returning();
+  // PUSH AT DISPATCH (backlog 052): an installation with a started target (Fargate) starts a
+  // runner for the run now, and writes on the run what it did. Polling targets need nothing; a
+  // start that fails is said on the run and never fails the queueing.
+  const { startRunnerFor } = await import('@/services/runners/targets');
+  await startRunnerFor(row!).catch((e: Error) => console.warn('[runners] start failed', { runId: row!.id, message: e.message }));
   return row!;
 }
 
