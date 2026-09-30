@@ -2,11 +2,14 @@
 
 import type { ClientNotification } from './notificationClient';
 import { Bell, BellDot } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useState } from 'react';
 import { Column, ListEmpty, ListRow, ListRows, ListSkeleton, ListToolbar, Subline } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
+import { useLive } from '@/hooks/useLive';
 import { useRouter } from '@/libs/I18nNavigation';
+import { liveTopic } from '@/libs/live/topics';
 import { ageLabel } from '@/libs/timeAgo';
 import { deliveryLine, fetchNotifications, markNotificationsRead, NOTIFICATIONS_CHANGED } from './notificationClient';
 
@@ -24,6 +27,12 @@ export function NotificationList() {
   const [nextBefore, setNextBefore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // A new or read notification rings the person's topic (migration 0156):
+  // the list re-reads, so one landing while the page is open appears.
+  const { data: session } = useSession();
+  const userId = session?.user?.id ?? null;
+  const [pushed, setPushed] = useState(0);
+  useLive(userId ? [liveTopic.notification(userId)] : [], () => setPushed(n => n + 1));
 
   const apply = useCallback((page: Awaited<ReturnType<typeof fetchNotifications>>, append: boolean) => {
     setItems(list => (append && list ? [...list, ...page.items] : page.items));
@@ -44,7 +53,7 @@ export function NotificationList() {
       live = false;
       window.removeEventListener(NOTIFICATIONS_CHANGED, read);
     };
-  }, [tab, apply]);
+  }, [tab, apply, pushed]);
 
   const older = async (before: number) => {
     await fetchNotifications({ limit: 50, unread: tab === 'unread', before })

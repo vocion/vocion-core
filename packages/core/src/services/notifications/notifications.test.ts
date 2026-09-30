@@ -13,7 +13,7 @@ vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
 const { and, eq } = await import('drizzle-orm');
 const schema = await import('@/models/Schema');
-const { accountMembershipSchema, eventLogSchema, notificationDeliverySchema, notificationPreferenceSchema, notificationRuleSchema, notificationSchema, projectSchema, pushSubscriptionSchema, tenantAccountSchema, userSchema } = schema;
+const { accountMembershipSchema, eventLogSchema, liveNoticeSchema, notificationDeliverySchema, notificationPreferenceSchema, notificationRuleSchema, notificationSchema, projectSchema, pushSubscriptionSchema, tenantAccountSchema, userSchema } = schema;
 const { notify, planDeliveries, markRead, EMAIL_GROUP_MS } = await import('./notify');
 const { deliverDue, MAX_ATTEMPTS } = await import('./delivery');
 const { renderNotification } = await import('./rules');
@@ -120,6 +120,18 @@ describe('notify', () => {
     const [delivery] = await db.select().from(notificationDeliverySchema).where(eq(notificationDeliverySchema.notificationId, first.created[0]!));
 
     expect(delivery).toMatchObject({ channel: 'in_app', status: 'sent' });
+  });
+
+  it('publishes itself on the live stream: written and read each ring the person\'s topic', async () => {
+    await db.delete(liveNoticeSchema);
+    const out = await notify({ orgId: ORG, kind: 'released', userIds: [RILEY], title: 'Released', dedupeKey: 'released:release:77' }, { deliver: 'none' });
+    await markRead(RILEY, ORG, out.created);
+    const notices = await db.select().from(liveNoticeSchema).where(eq(liveNoticeSchema.orgId, ORG));
+
+    expect(notices.map(n => [n.topics, n.ref, n.kind])).toEqual([
+      [[`notification:${RILEY}`], `notification:${out.created[0]}`, 'created'],
+      [[`notification:${RILEY}`], `notification:${out.created[0]}`, 'changed'],
+    ]);
   });
 
   it('marks read, only the person\'s own', async () => {
