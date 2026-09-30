@@ -121,6 +121,20 @@ describe('githubProvider', () => {
     expect(seen.map(s => s.url)).not.toContain('api.github.com/app/installations/777');
   });
 
+  it('tells a GitHub outage apart from an installation the person cannot see', async () => {
+    vi.stubGlobal('fetch', githubApi(happyHandlers({
+      'api.github.com/user/installations': () => new Response('{"message":"upstream"}', { status: 502 }),
+    })).fetchMock);
+
+    expect(await githubProvider.exchange({ query: CALLBACK, redirectUri: REDIRECT })).toEqual({ ok: false, reason: 'github_unavailable' });
+
+    vi.stubGlobal('fetch', githubApi(happyHandlers({
+      'api.github.com/user/installations': () => new Response('{"message":"Forbidden"}', { status: 403 }),
+    })).fetchMock);
+
+    expect(await githubProvider.exchange({ query: CALLBACK, redirectUri: REDIRECT })).toEqual({ ok: false, reason: 'installation_not_yours' });
+  });
+
   it('refuses without a code, a refused code, and a suspended installation', async () => {
     expect(await githubProvider.exchange({ query: { installation_id: '777', setup_action: 'install' }, redirectUri: REDIRECT })).toEqual({ ok: false, reason: 'missing_code' });
 

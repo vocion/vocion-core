@@ -90,25 +90,27 @@ async function userTokenFromCode(code: string, redirectUri: string, config: { cl
 /**
  * Whether the installation is among the ones the user can see, read with
  * the user's own token. Walks pages of 100; GitHub lists an installation
- * here only for a person who is a member of the account it is on.
+ * here only for a person who is a member of the account it is on. A GitHub
+ * outage is not a refusal of ownership, so a 5xx (anything but 403/404)
+ * answers `unavailable` and the person is told to try again.
  * @param userToken - The short-lived user token.
  * @param installationId - The installation the callback named.
  * @param baseUrl - API host.
  */
-async function userCanSeeInstallation(userToken: string, installationId: string, baseUrl: string): Promise<boolean> {
+async function userCanSeeInstallation(userToken: string, installationId: string, baseUrl: string): Promise<'yes' | 'no' | 'unavailable'> {
   let url: string | null = `${baseUrl}/user/installations?per_page=100`;
   for (let page = 0; url && page < 20; page += 1) {
     const res = await fetch(url, { headers: { ...HEADERS, authorization: `Bearer ${userToken}` } });
     if (!res.ok) {
-      return false;
+      return res.status === 403 || res.status === 404 ? 'no' : 'unavailable';
     }
     const body = (await res.json()) as UserInstallationsPage;
     if ((body.installations ?? []).some(inst => String(inst.id) === installationId)) {
-      return true;
+      return 'yes';
     }
     url = nextPageUrl(res.headers.get('link'));
   }
-  return false;
+  return 'no';
 }
 
 export const githubProvider: ConnectProvider = {
@@ -148,7 +150,11 @@ export const githubProvider: ConnectProvider = {
     if (!userToken) {
       return { ok: false, reason: 'code_refused' };
     }
-    if (!(await userCanSeeInstallation(userToken, installationId, baseUrl))) {
+    const visible = await userCanSeeInstallation(userToken, installationId, baseUrl);
+    if (visible === 'unavailable') {
+      return { ok: false, reason: 'github_unavailable' };
+    }
+    if (visible === 'no') {
       return { ok: false, reason: 'installation_not_yours' };
     }
 

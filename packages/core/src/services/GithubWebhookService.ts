@@ -50,8 +50,8 @@ export type GithubSourceRef = {
 export type GithubWebhookDeps = {
   /**
    * Every enabled `github` source, across orgs, whose `repos` names this
-   * repository. With an `installationId`, narrowed to the sources whose
-   * credential is that installation when any are; the full set otherwise.
+   * repository. With an `installationId`, a source whose credential is a
+   * different installation is left out; one holding a pasted token stays.
    */
   sourcesForRepo: (repo: string, installationId?: string) => Promise<GithubSourceRef[]>;
   /** The source's vaulted token, or undefined when it holds none. */
@@ -127,7 +127,7 @@ async function defaultDeps(): Promise<GithubWebhookDeps> {
     },
     async tokenFor(source) {
       const credentials = await getCredentialsForConnector({ orgId: source.orgId, connectorSlug: 'github', apiTokenId: source.apiTokenId }).catch(() => undefined);
-      return resolveGithubToken(credentials).catch(() => undefined);
+      return resolveGithubToken(credentials, { baseUrl: source.config.baseUrl }).catch(() => undefined);
     },
     async emit(orgId, sourceId, event) {
       // Background: a mission check holds an agent loop for minutes, and
