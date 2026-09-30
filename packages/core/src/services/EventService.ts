@@ -392,6 +392,36 @@ export const WORKER_RUN_FAILED = 'worker_run.failed';
 export const MISSION_RUN_COMPLETED = 'mission_run.completed';
 export const CONVERSATION_ENDED = 'conversation.ended';
 export const AUTOMATION_RUN_COMPLETED = 'automation_run.completed';
+/**
+ * A mission-check fire ended in an error — the model failed, the required
+ * tool never landed, the mission was missing. `automation_run.completed` is
+ * raised only for a check that produced a result, so without this a fire that
+ * threw left nothing for its owner to answer: the work simply did not happen
+ * and nobody was told why. Payload: `automationRunId`, `slug`, `kind`,
+ * `error` (the first 500 characters), `completedAt`.
+ */
+export const AUTOMATION_RUN_FAILED = 'automation_run.failed';
+
+/**
+ * A record owes a mockup and one is wanted now (`services/factory/mockupDefault.ts`):
+ * a plugin's designer subscribes and draws it. Raised by the default-mockup
+ * job when a record whose rule says it has a UI is filed or gets its surface,
+ * and again once when the first attempt ended without one. Payload:
+ * `recordId`, `recordType`, `title`, `attempt`, and `lastFailure` on a retry.
+ */
+export const MOCKUP_REQUESTED = 'mockup.requested';
+
+/** Payload of `mockup.requested`. Scalars, which `when.filter` compares with `===`. */
+export type MockupRequestedPayload = {
+  recordId: number;
+  /** The record's type slug — what a subscriber's filter matches on. */
+  recordType: string;
+  title: string;
+  /** 1, then 2 on the one retry. */
+  attempt: number;
+  /** Why the last attempt drew nothing, on a retry — so the next one does not repeat it. */
+  lastFailure?: string;
+};
 
 /**
  * The event types that mean "work finished" — `pr.merged` from the GitHub
@@ -407,6 +437,7 @@ export const DEBRIEF_EVENTS: ReadonlySet<string> = new Set([
   MISSION_RUN_COMPLETED,
   CONVERSATION_ENDED,
   AUTOMATION_RUN_COMPLETED,
+  AUTOMATION_RUN_FAILED,
   'pr.merged',
 ]);
 
@@ -473,6 +504,15 @@ export type AutomationRunCompletedPayload = {
   tasksOk: number;
   tasksFailed: number;
   summary: string;
+  completedAt: string;
+};
+
+/** Payload of `automation_run.failed`. */
+export type AutomationRunFailedPayload = {
+  automationRunId: number;
+  slug: string;
+  kind: 'mission_check';
+  error: string;
   completedAt: string;
 };
 

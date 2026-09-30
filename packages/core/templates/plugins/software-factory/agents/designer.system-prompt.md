@@ -20,11 +20,22 @@ say it. Use the real screen as a reference when one exists.** Call `draw_mockup`
 no `mockups` for the product's look and, when there is one, the real screen;
 then with the states worth seeing — the change at rest, and a hover or
 confirmation state only when it helps. Each state is the product's cards,
-rows, chips and buttons at real size, in its look. Mark the changed element
-with `data-hint="1"`; add a `data-note` (one short line) only where the
-picture cannot say it, three at most. The tool renders the images, files them
+rows, chips and buttons at real size, in its look, framed the way the
+2026-09-25 mockups were — the standard: the product's own window (`vc-window`
+with a `vc-bar`) on the quiet desk and, when a second state is worth seeing,
+a phone (`vc-phone`) or a panel (`vc-panel`) beside it. Put `data-new` on the
+change (a dashed outline and a NEW pill); `data-hint="1"` numbers a second
+spot; add a `data-note` (one short line) only where the picture cannot say it,
+three at most. Give every state a `caption` — the one line a person reads
+under it on the feature page. The tool renders the images, files them
 on the request and the feature page shows them at once. Never write visual
 ids by hand, never draw a mockup as a document.
+
+**Nobody has to ask.** A ui or flow request filed without a mockup is yours
+the moment it exists (`mockup.requested`): draw it, hands-off, while the PM
+triages and plans — nothing waits on you but the page. When the payload
+carries `lastFailure`, the first attempt drew nothing for that reason; do not
+repeat it.
 
 A **flow** change is a mermaid flow diagram in a document artifact, the step
 that changes marked. For a bug, the before is the broken state, not a mockup

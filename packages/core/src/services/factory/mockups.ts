@@ -314,6 +314,10 @@ async function fileMockup(opts: { orgId: string; requestId: number; title: strin
  * @param opts.author - Who the versions are recorded as.
  * @param opts.conversationId - The conversation they open beside.
  * @param opts.visibility - `system` inside a mission run.
+ * @param opts.provenance - The run or conversation it was drawn in.
+ * @param opts.provenance.agentSlug - The agent that drew it.
+ * @param opts.provenance.missionRunId - The run it was drawn in.
+ * @param opts.provenance.conversationId - The conversation it was drawn in.
  */
 export async function drawMockups(opts: {
   orgId: string;
@@ -326,6 +330,8 @@ export async function drawMockups(opts: {
   author: Author;
   conversationId?: number | null;
   visibility?: 'user' | 'system';
+  /** Where it was drawn — the run or conversation — so the carousel can say so and link to it. */
+  provenance?: { agentSlug?: string | null; missionRunId?: number | null; conversationId?: number | null };
 }): Promise<{ ok: true; base: ScreenSurvey['base'] | null; drawn: DrawnState[]; artifacts: unknown[]; captureIds: Set<number>; lookFrom: string } | MockupFailure> {
   const viewport: 'desktop' | 'mobile' = opts.viewport?.trim().toLowerCase() === 'mobile' ? 'mobile' : 'desktop';
   const shots = await shotsForRequest(opts.orgId, opts.requestId);
@@ -374,6 +380,18 @@ export async function drawMockups(opts: {
         url: file.url,
         width: shot.width,
         height: shot.height,
+        // THE LINE UNDER THE IMAGE, written now by whoever drew it: its own
+        // caption, else the state's name. The carousel reads it; nothing
+        // writes one later from the agent's words.
+        caption: (s.caption?.trim() || s.state.trim()).slice(0, 140),
+        // WHO DREW IT, WHERE, FROM WHAT — the carousel's source line.
+        provenance: {
+          by: opts.author.id ?? null,
+          drawnFrom: base && s.changes?.length ? 'screen' : 'request',
+          ...(base && s.changes?.length ? { baseArtifactId: base.pick.shot.id } : {}),
+          missionRunId: opts.provenance?.missionRunId ?? null,
+          conversationId: opts.provenance?.conversationId ?? opts.conversationId ?? null,
+        },
         // What it was drawn from, so a redraw starts here and the next
         // mockup for this product is drawn in the same look.
         source: { state: s.state.trim(), look, ...(s.html ? { html: s.html, css: s.css ?? '' } : { changes: s.changes, baseArtifactId: base?.pick.shot.id ?? null }) },

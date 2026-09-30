@@ -1,0 +1,30 @@
+# SHOW IT FIRST (Chris, 2026-09-30, of the 09-25 mockups on #124 and #130:
+# "I love this style of generated images in mocks for feature cards … that
+# should be the standard for all new features and mocks … build that
+# capability and default into new features"). On production none of the eleven
+# requests filed after #224 had a mockup, because drawing one waited on
+# somebody asking the designer. The designer's standing responsibility, fired
+# by `mockup.requested` (never on a schedule): no ui or flow request is decided
+# without the picture of what it will look like.
+slug: show-it-first
+name: Every visible change is seen before it is decided
+description: >-
+  The designer's standing responsibility. Fired when a request with a ui or
+  flow surface is filed or gets its surface and carries no mockup: draw it with
+  draw_mockup, hands-off, beside the rest of the work and never in front of it.
+goal: >-
+  Every request that changes what a person sees carries mockups of its outcome
+  before anyone is asked to decide it — the product's own window and phone on a
+  quiet desk, the change marked NEW, one image per state worth seeing, each with
+  the one line a person reads under it. A request that cannot be drawn says why
+  on the request, where the feature page shows it.
+agent: designer
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every ui or flow request filed carries mockups drawn with draw_mockup within minutes, or the reason it could not be drawn written on the request
+  - Each mockup is the product's own UI blocks at real size, in its look, with the change marked data-new — never a document, never a screenshot of the wrong screen
+  - Each image carries a caption a person reads under it, in the product's terms
+  - Drawing never holds filing, planning or the build; the feature page is what waits for it
+desiredArtifacts:
+  - The request's mockups, one image per state worth seeing, filed by draw_mockup

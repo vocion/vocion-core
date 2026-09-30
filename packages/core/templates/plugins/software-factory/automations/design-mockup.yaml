@@ -1,0 +1,37 @@
+# THE DRAWING ITSELF. `mockup.requested` names a request that owes its mockup
+# (`design-mockup-default`); the designer draws it with draw_mockup, which
+# files each image on the request and points the feature page at them. The run
+# must end in draw_mockup: one that never calls it gets the recording pass, and
+# one that draws nothing is caught when it ends (`design-mockup-ended`).
+slug: design-mockup
+name: Draw the mockup a request owes
+description: >-
+  A request with a UI has no mockup. The designer surveys the product's look,
+  draws the outcome as its own UI blocks with draw_mockup, and files the images
+  on the request.
+status: active
+when:
+  event: mockup.requested
+  filter:
+    recordType: request
+  maxFiresPer10m: 12
+do:
+  checkMission: show-it-first
+  requireTool: draw_mockup
+  prompt: >-
+    The trigger payload names a request (recordId, title) that changes what a
+    person sees and has no mockup yet. When it carries lastFailure, the last
+    attempt drew nothing for that reason: do not repeat it. Read the request —
+    its story, outcome, acceptance and surfaceUrl — then call draw_mockup with
+    request_id = recordId and no mockups, to get the product's look, the
+    canvas, the chrome and the real screen when there is one. Then call
+    draw_mockup again with the states worth seeing: the change at rest, and a
+    second state (a phone, a panel, a confirmation) only when it shows
+    something the first does not. Draw each as the product's own window
+    (vc-window with a vc-bar) and, beside it, a vc-phone or vc-panel when it
+    helps; mark what changes with data-new; give each a caption — the one line
+    a person reads under it, in the product's terms. UI only: no documents,
+    no prose, nothing the request did not ask for. If drawing shows a
+    criterion is wrong, change the acceptance with update_object. Report in
+    one line: the request, the images drawn, and anything you could not
+    establish.

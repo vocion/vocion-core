@@ -25,6 +25,10 @@
  *     software factory carrying a request from filing to a build and through
  *     a failed run, in code. Subscribed by the software-factory plugin.
  *     `services/jobs/factoryCarry.ts`.
+ *   - `mockup-default`, `mockup-ended` — a record with a UI gets its mockup
+ *     drawn hands-off, and a drawing that drew nothing is tried once more or
+ *     written down. Subscribed by the software-factory plugin.
+ *     `services/jobs/mockupDefault.ts`.
  *
  * (Discovery-call detection, the job that used to live here, became
  * agent-driven — an hourly `checkMission` automation.)
@@ -33,6 +37,7 @@
 import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport';
 import { factoryCarryJobs } from './factoryCarry';
 import { INDEX_ARTIFACT_JOB, runIndexArtifactJob } from './indexArtifact';
+import { mockupDefaultJobs } from './mockupDefault';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
 import { REFRESH_EVALS_JOB, runRefreshEvalsJob } from './refreshEvals';
 import { runSweepIdleConversationsJob, SWEEP_IDLE_CONVERSATIONS_JOB } from './sweepIdleConversations';
@@ -46,6 +51,7 @@ const JOBS: Record<string, BuiltInJob> = {
   [INDEX_ARTIFACT_JOB]: runIndexArtifactJob,
   [SWEEP_IDLE_CONVERSATIONS_JOB]: (orgId, input) => runSweepIdleConversationsJob(orgId, input),
   ...factoryCarryJobs,
+  ...mockupDefaultJobs,
 };
 
 export function builtInJobNames(): string[] {

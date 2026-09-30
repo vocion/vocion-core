@@ -44,7 +44,7 @@ schema:
   x-agent-file:
     dedupOn: [product, title]
     fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, gapCheck, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
-    omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.beforeArtifactIds, visuals.mockupArtifactIds, visuals.afterArtifactIds, visuals.drawnArtifactId]
+    omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.beforeArtifactIds, visuals.mockupArtifactIds, visuals.afterArtifactIds, visuals.drawnArtifactId, visuals.mockupDraw]
   # RELATED (core: libs/workspace/related.ts): what a request is connected
   # to, read from what the records already say. The chat that started it
   # (first) and its artifacts are core's own; these are the factory's.
@@ -197,6 +197,21 @@ schema:
         afterArtifactIds: {type: array, items: {type: integer}, description: 'What shipped, captured from the running product. GIF and video later; a still is enough to close.'}
         surfaceUrl: {type: string, description: 'The path on the live product where this can be seen (e.g. /account). The host comes from the product''s production environment, never from here: a full URL whose host is not one of the product''s environments is read as its path on the product.'}
         noVisualReason: {type: string, description: 'Why this user-facing change carries no visual. Recorded rather than assumed, so the gap is a decision somebody made and not an omission nobody noticed.'}
+        mockupDraw:
+          type: object
+          description: >-
+            Where the default mockup stands, written by the platform
+            (`design-mockup-default`, `design-mockup-ended`), never by hand:
+            `drawing` since `at` (attempt 1, or 2 on the one retry), or
+            `failed` with the `reason` the drawing drew nothing — the line the
+            feature page shows where the mockup would be. Cleared when
+            draw_mockup files the mockups.
+          properties:
+            state: {type: string, enum: [drawing, failed]}
+            attempt: {type: integer}
+            at: {type: string, format: date-time}
+            reason: {type: string}
+            automationRunId: {type: integer}
         drawnArtifactId: {type: integer, description: 'The picture the PLATFORM drew from the record (services/factory/proposalVisual.ts) — a diagram of the shape of the change, kept current on every write. It is what a card shows when nobody has filed a real mockup, and it never satisfies the mockup gate: a drawing derived from the record is not evidence of a proposed experience, so `no mock` stays on the row until Design files one or `noVisualReason` says why not (review, 2026-09-24).'}
     acceptance:
       x-display: {label: Acceptance criteria, role: prose, format: steps, order: 5}

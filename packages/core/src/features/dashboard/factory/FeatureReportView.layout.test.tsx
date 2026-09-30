@@ -413,9 +413,45 @@ describe('the pieces that carried over', () => {
 
     const said = document.querySelector('[data-testid="report-carousel"]')?.textContent ?? '';
 
-    expect(said).toContain('Reported');
-    expect(said).toContain('Screenshot from chat');
+    // Its section, what it is, and who sent it when (2026-09-30).
+    expect(document.querySelector('[data-testid="report-slide-section"]')?.textContent).toBe('Reported in chat');
     expect(said).toContain('header-overflow.png');
+    expect(document.querySelector('[data-testid="report-slide-source"]')?.textContent).toBe('Reported in chat by a person · Sep 30');
+  });
+
+  it('gives every picture its section, caption and source, and the source opens where it came from', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture({
+      request: { id: 41, title: 'Remind a reader who has not opened the room', status: 'new', createdAt: T('2026-09-25T08:05:00Z'), meta: { surface: 'ui', state: 'in_scope', product: 'northwind-portal', visuals: { mockupArtifactIds: [95] } } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [
+        { id: 95, kind: 'file', title: 'Mockup: Remind a reader · Default', recordType: 'object', recordId: '41', recordRole: 'mockup', author: 'Designer', spec: { contentType: 'image/png', url: '/api/artifacts/o-95/o-95.png', caption: 'Remind a person who has not opened it', source: { state: 'Default', html: '<div></div>' }, provenance: { drawnFrom: 'request', missionRunId: 5120 } }, url: null, createdAt: T('2026-09-25T10:00:00Z') },
+      ],
+    }));
+
+    expect(document.querySelector('[data-testid="report-slide-section"]')?.textContent).toBe('Mockup');
+    expect(document.querySelector('[data-testid="report-slide-caption"]')?.textContent).toContain('Remind a person who has not opened it');
+
+    const source = document.querySelector<HTMLButtonElement>('[data-testid="report-slide-source"]');
+
+    expect(source?.textContent).toBe('Designer · drawn from the request · Sep 25');
+    expect(source?.tagName).toBe('BUTTON');
+    // Never a native tooltip: the Tooltip component carries the hint.
+    expect(source?.getAttribute('title')).toBeNull();
+  });
+
+  it('says the mockup is being drawn where it would be, instead of "Preview pending"', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture({
+      request: { id: 41, title: 'Remind a reader who has not opened the room', status: 'new', createdAt: T('2026-09-30T08:05:00Z'), meta: { surface: 'ui', state: 'new', product: 'northwind-portal', visuals: { mockupDraw: { state: 'failed', attempt: 2, at: '2026-09-30T08:10:00Z', reason: 'the renderer is not available' } } } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [],
+    }));
+
+    expect(document.querySelector('[data-testid="report-preview-pending"]')).toBeNull();
+    expect(document.querySelector('[data-testid="report-mockup-status"]')?.textContent).toContain('The mockup was not drawn after 2 attempts');
   });
 
   it('says a missing plan in plain words', () => {

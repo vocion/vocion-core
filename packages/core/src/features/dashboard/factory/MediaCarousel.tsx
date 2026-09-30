@@ -1,19 +1,74 @@
 'use client';
 
+import type { EvidenceSource } from '@/services/factory/carouselSource';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { usePreviewOpener } from '@/features/preview/previewState';
 
 /** One picture on a feature page, with what it is for in the reader's words. */
 export type MediaSlide = {
   id: number;
   src: string;
-  /** Proposed, Today, After… */
+  /** Its section: Mockup, Today, Plan, QA before, QA after, Live, Reported in chat. */
   label: string;
   title: string;
+  /** What it shows, one line — written when it was filed. The title stands in when there is none. */
   caption: string | null;
+  /** Who or what made it and when, linked to where it came from. */
+  source?: EvidenceSource | null;
 };
+
+/**
+ * WHO MADE IT, WHEN — the picture's source line. It opens where the picture
+ * came from (the run, the conversation, the release) in the preview pane, the
+ * one place every peek opens.
+ * @param props
+ * @param props.source - The source.
+ * @param props.tone - On the page, or on the dark lightbox.
+ * @param props.onOpen - Called before the pane opens (the lightbox closes itself).
+ */
+function SourceLine({ source, tone = 'page', onOpen }: { source: EvidenceSource; tone?: 'page' | 'dark'; onOpen?: () => void }) {
+  const open = usePreviewOpener(source.ref ?? { type: 'artifact', id: '0' });
+  const cls = tone === 'dark' ? 'text-[12px] text-white/60' : 'text-[12px] text-muted-foreground';
+  if (!source.ref) {
+    return <span data-testid="report-slide-source" className={`block ${cls}`}>{source.text}</span>;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-testid="report-slide-source"
+          onClick={(e) => {
+            onOpen?.();
+            open(e);
+          }}
+          className={`block max-w-full truncate text-left underline-offset-2 hover:underline ${cls} ${tone === 'dark' ? 'hover:text-white' : 'hover:text-foreground'}`}
+        >
+          {source.text}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Open where it came from</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * The words under a picture: its section, what it shows, and who made it when.
+ * @param props
+ * @param props.slide - The picture.
+ */
+function SlideCaption({ slide }: { slide: MediaSlide }) {
+  return (
+    <p className="min-w-0 flex-1 text-[13px] leading-snug" data-testid="report-slide-caption">
+      <span className="mr-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase" data-testid="report-slide-section">{slide.label}</span>
+      <span className="text-foreground">{slide.caption ?? slide.title}</span>
+      {slide.source && <SourceLine source={slide.source} />}
+    </p>
+  );
+}
 
 /**
  * WHAT IT LOOKS LIKE, as one picture at a time you can swipe (Chris,
@@ -72,7 +127,7 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
               key={s.id}
               type="button"
               onClick={() => setOpen(i)}
-              aria-label={`Open ${s.title} full screen`}
+              aria-label={`Open ${s.caption ?? s.title} full screen`}
               data-testid="report-slide"
               className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
             >
@@ -88,11 +143,7 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
         )}
       </div>
       <div className="flex items-start gap-3">
-        <p className="min-w-0 flex-1 text-[13px] leading-snug">
-          <span className="mr-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{current.label}</span>
-          <span className="text-foreground">{current.title}</span>
-          {current.caption && <span className="block text-muted-foreground">{current.caption}</span>}
-        </p>
+        <SlideCaption slide={current} />
         {many && <span className="shrink-0 pt-0.5 font-mono text-xs text-muted-foreground tabular-nums">{`${idx + 1} / ${slides.length}`}</span>}
       </div>
       {/* THUMBNAILS (Chris, 2026-09-25: "show thumbnails on the gallery"):
@@ -105,7 +156,7 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
               type="button"
               role="tab"
               aria-selected={i === idx}
-              aria-label={`Picture ${i + 1} of ${slides.length}: ${s.title}`}
+              aria-label={`Picture ${i + 1} of ${slides.length}: ${s.label} — ${s.caption ?? s.title}`}
               onClick={() => go(i)}
               className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border bg-muted transition sm:h-16 sm:w-24 ${i === idx ? 'border-foreground ring-1 ring-foreground' : 'border-border opacity-70 hover:opacity-100'}`}
             >
@@ -200,7 +251,7 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
 
   const current = slides[idx]!;
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label={current.title} data-testid="report-lightbox" className="fixed inset-0 z-[100] flex flex-col bg-[#09090b] text-white">
+    <div role="dialog" aria-modal="true" aria-label={current.caption ?? current.title} data-testid="report-lightbox" className="fixed inset-0 z-[100] flex flex-col bg-[#09090b] text-white">
       <div className="flex h-14 shrink-0 items-center gap-3 px-3 pt-[env(safe-area-inset-top)]">
         <span className="font-mono text-xs tabular-nums opacity-70">{`${idx + 1} / ${slides.length}`}</span>
         <span className="min-w-0 flex-1 truncate text-sm">{current.title}</span>
@@ -246,9 +297,12 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
           </div>
         ))}
       </div>
-      <div className="shrink-0 px-4 pt-2 pb-[max(12px,env(safe-area-inset-bottom))] text-center text-[13px] leading-snug">
-        <span className="mr-2 text-[11px] font-semibold tracking-[0.08em] uppercase opacity-60">{current.label}</span>
-        {current.caption ?? current.title}
+      <div className="flex shrink-0 flex-col items-center px-4 pt-2 pb-[max(12px,env(safe-area-inset-bottom))] text-center text-[13px] leading-snug" data-testid="report-lightbox-caption">
+        <span>
+          <span className="mr-2 text-[11px] font-semibold tracking-[0.08em] uppercase opacity-60">{current.label}</span>
+          {current.caption ?? current.title}
+        </span>
+        {current.source && <SourceLine source={current.source} tone="dark" onOpen={() => onClose(idx)} />}
         <span className="mt-1 block text-[11px] opacity-50">{zoomed ? 'Tap to fit' : 'Tap to zoom · swipe for the next'}</span>
       </div>
     </div>,

@@ -4,7 +4,7 @@
  */
 import type { MockupState, ShotCandidate } from './mockup';
 import { describe, expect, it } from 'vitest';
-import { blocksHtml, guardVisuals, mockupHtml, mockupProblems, mockupTitle, mockupVisuals, pickBase, showsAnError, textRuns, visibleText } from './mockup';
+import { blocksHtml, DEFAULT_LOOK, guardVisuals, MOCKUP_KIT_CLASSES, mockupHtml, mockupProblems, mockupTitle, mockupVisuals, pickBase, showsAnError, textRuns, visibleText } from './mockup';
 
 const PNG = '/api/artifacts/org_x-aaaa/org_x-aaaa.png';
 
@@ -236,5 +236,36 @@ describe('mockupProblems — UI blocks, with no screenshot', () => {
     expect(html).toContain('[data-hint]::after{content:attr(data-hint)');
     expect(textRuns(html)).toEqual(textRuns(CARD));
     expect(blocksHtml({ html: CARD }, undefined, 'mobile')).toContain('width:430px;height:932px');
+  });
+
+  it('defaults to the 09-25 look: a quiet warm-grey desk, near-black ink, one blue accent', () => {
+    // #124 and #131 (2026-09-25), which Chris made the standard on 2026-09-30.
+    expect(DEFAULT_LOOK).toMatchObject({ background: '#ecebe8', ink: '#1f2328', accent: '#2f5bd3' });
+
+    const html = blocksHtml({ html: CARD });
+
+    expect(html).toContain('background:#ecebe8');
+  });
+
+  it('draws the product chrome and the dashed NEW outline round the change', () => {
+    const shot = `<div class="vc-window"><div class="vc-bar"><b>Rooms</b><span>Library</span></div><div class="vc-body"><div class="vc-row" data-new>Remind who has not opened it</div></div></div><div class="vc-phone"><div class="vc-display"><div class="vc-card">Reminder sent</div></div></div>`;
+    const html = blocksHtml({ html: shot });
+
+    for (const cls of ['vc-window', 'vc-bar', 'vc-phone', 'vc-display', 'vc-panel', 'vc-btn']) {
+      expect(MOCKUP_KIT_CLASSES).toContain(cls);
+      expect(html).toContain(`.${cls}{`);
+    }
+
+    expect(html).toContain('[data-new]{position:relative;outline:1.5px dashed #2f5bd3');
+    expect(html).toContain('content:\'NEW\'');
+    // The chrome is UI, not an annotation: it passes the same check.
+    expect(mockupProblems([{ state: 'Default', html: shot }], null)).toEqual([]);
+    expect(mockupProblems([{ state: 'Default', html: shot.replace('<b>Rooms</b>', '<b data-new>Rooms</b><i data-new>x</i>') }], null).join(' ')).toMatch(/3 elements marked data-new; at most 2/);
+  });
+
+  it('drops the default drawing\'s progress once the mockups land', () => {
+    const current = { surfaceUrl: '/rooms', mockupDraw: { state: 'drawing', attempt: 1, at: '2026-09-30T10:00:00Z' } };
+
+    expect(mockupVisuals(current, { beforeId: null, mockupIds: [41] })).toEqual({ surfaceUrl: '/rooms', mockupArtifactIds: [41] });
   });
 });

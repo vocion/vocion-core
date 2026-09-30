@@ -142,6 +142,19 @@
 #   deletes it; with no Slack connection the page copies it as rich text with
 #   the picture, and offers the picture as a download. A failed post is
 #   written on the release (`announceFailure`) and read on its page.
+# 2.29.0 — every new feature with a UI gets its mockup (Chris, 2026-09-30, of
+#   the 09-25 mockups on #124 and #130: "that should be the standard for all
+#   new features and mocks … build that capability and default into new
+#   features"). A request with a ui or flow surface and no mockup, filed or
+#   given its surface, is drawn hands-off: `design-mockup-default` marks it
+#   drawing and raises `mockup.requested`, the designer's `show-it-first`
+#   mission draws it with draw_mockup (`design-mockup`), and
+#   `design-mockup-ended` tries once more with the reason or writes it on the
+#   request (`visuals.mockupDraw`), where the feature page shows it. It never
+#   holds filing, planning or the build. The default look is the 09-25 one: a
+#   quiet #ecebe8 desk, the product's window and phone, the change in a
+#   dashed NEW outline. Every carousel image says what it shows, its section
+#   and who made it, when, linked to the run or conversation it came from.
 #
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
@@ -153,7 +166,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.28.0
+version: 2.29.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

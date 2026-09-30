@@ -302,15 +302,50 @@ export async function completeAutomationFire(
     }
     return { ...dispatched, result, automationRunId };
   } catch (err) {
+    const message = (err instanceof Error ? err.message : String(err)).slice(0, 2000);
     await db
       .update(automationRunSchema)
       .set({
         status: 'error',
-        error: (err instanceof Error ? err.message : String(err)).slice(0, 2000),
+        error: message,
         finishedAt: new Date(),
       })
       .where(eq(automationRunSchema.id, automationRunId));
+    if (pending.kind === 'mission_check') {
+      await announceCheckFailed(orgId, slug, automationRunId, invokedBy, message, causedBy);
+    }
     throw err;
+  }
+}
+
+/**
+ * Raise `automation_run.failed` for a mission check that threw, so its
+ * owner can answer the failure the way it answers a finished check — the
+ * default mockup's retry reads it (`services/factory/mockupDefault.ts`).
+ * The same two loop guards as {@link announceCheckCompleted}.
+ * @param orgId - The workspace.
+ * @param slug - The automation.
+ * @param automationRunId - Its run row.
+ * @param invokedBy - Who started the fire.
+ * @param error - What stopped it.
+ * @param causedBy - This fire and the ones behind it.
+ */
+async function announceCheckFailed(orgId: string, slug: string, automationRunId: number, invokedBy: string | undefined, error: string, causedBy: CausalChain): Promise<void> {
+  const { AUTOMATION_RUN_COMPLETED, AUTOMATION_RUN_FAILED, emitEvent } = await import('@/services/EventService');
+  if (invokedBy?.startsWith(`event:${AUTOMATION_RUN_COMPLETED}`) || invokedBy?.startsWith(`event:${AUTOMATION_RUN_FAILED}`)) {
+    return;
+  }
+  try {
+    await emitEvent({
+      orgId,
+      type: AUTOMATION_RUN_FAILED,
+      payload: { automationRunId, slug, kind: 'mission_check', error: error.slice(0, 500), completedAt: new Date().toISOString() },
+      dedupeKey: `${AUTOMATION_RUN_FAILED}:${automationRunId}`,
+      invokedBy: `automation_run:${automationRunId}`,
+      causedBy,
+    });
+  } catch (e) {
+    console.warn(`[automation] could not raise ${AUTOMATION_RUN_FAILED} for run ${automationRunId}`, e);
   }
 }
 
@@ -333,8 +368,8 @@ export async function completeAutomationFire(
  * @param causedBy - This fire and the ones behind it, as the mission run carries them.
  */
 async function announceCheckCompleted(orgId: string, slug: string, automationRunId: number, invokedBy: string | undefined, result: AutomationCheckResult, causedBy: CausalChain): Promise<void> {
-  const { AUTOMATION_RUN_COMPLETED, emitEvent } = await import('@/services/EventService');
-  if (invokedBy?.startsWith(`event:${AUTOMATION_RUN_COMPLETED}`)) {
+  const { AUTOMATION_RUN_COMPLETED, AUTOMATION_RUN_FAILED, emitEvent } = await import('@/services/EventService');
+  if (invokedBy?.startsWith(`event:${AUTOMATION_RUN_COMPLETED}`) || invokedBy?.startsWith(`event:${AUTOMATION_RUN_FAILED}`)) {
     return;
   }
   const payload: AutomationRunCompletedPayload = {

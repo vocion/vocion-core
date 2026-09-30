@@ -322,6 +322,9 @@ registerPreview('artifact', {
       kind: row.kind,
       subtitle: row.folder ?? undefined,
       facts: facts(
+        // A picture's line, as the feature page's carousel reads it: what it
+        // shows, written when it was filed (`carouselSource.ts`).
+        str(spec.caption) && { label: 'Caption', value: str(spec.caption)! },
         { label: 'Kind', value: row.kind },
         { label: 'Version', value: String(row.version) },
         row.author && { label: 'Last edited by', value: row.author },

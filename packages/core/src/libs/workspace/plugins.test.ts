@@ -59,9 +59,11 @@ describe('the shipped catalogue', () => {
     expect(factory.skills).toEqual(['design-the-change', 'rank-the-backlog', 'review-against-contract', 'rubric-designer', 'rubric-engineer', 'rubric-product-manager', 'rubric-qa', 'rubric-release-engineer', 'surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['designing-a-surface', 'house-voice', 'naming-the-work', 'verify-against-reality']);
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'environment', 'product', 'release', 'repo', 'request']);
-    // Four missions carry the loop; the eight reporting and hygiene missions are gone.
-    expect(factory.missions).toEqual(['close-the-gap', 'keep-the-pipeline-answered', 'prove-the-contract', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'factory-ci-failure', 'factory-contract-changed', 'factory-daily-plan', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-result-check', 'factory-run-failed', 'product-debrief', 'release-announcement-draft', 'standard-from-shipped', 'tell-the-requester-check']);
+    // Five missions carry the loop — the designer's `show-it-first` draws a
+    // ui or flow request's mockup the moment it is filed (2.29.0); the eight
+    // reporting and hygiene missions are gone.
+    expect(factory.missions).toEqual(['close-the-gap', 'keep-the-pipeline-answered', 'prove-the-contract', 'show-it-first', 'tell-the-requester']);
+    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'factory-ci-failure', 'factory-contract-changed', 'factory-daily-plan', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-result-check', 'factory-run-failed', 'product-debrief', 'release-announcement-draft', 'standard-from-shipped', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
@@ -296,7 +298,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.agents.find(a => a.slug === 'task-engineer')?.harness?.runsOn).toBe('external-worker');
     expect(ws.agents.find(a => a.slug === 'product-manager')?.harness?.runsOn).toBeUndefined();
     expect(ws.agents.find(a => a.slug === 'designer')?.harness?.runsOn).toBeUndefined();
-    expect(ws.missions.map(m => m.slug)).toHaveLength(4);
+    expect(ws.missions.map(m => m.slug)).toHaveLength(5);
     // The trust ladder covers the actions core registers and nothing
     // else. A push runs on its own; a merge is a person's at the high bar;
     // every other rule ships disabled for the workspace to turn on.
@@ -312,7 +314,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.28.0');
+    expect(ws.sha).toContain('+software-factory@2.29.0');
     // A re-run of a red CI's failed jobs is done for you: it changes no code (backlog 049).
     expect(ws.trust?.rules.find(r => r.action === 'github.rerun_failed_jobs')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
   });
@@ -465,7 +467,17 @@ describe('loadWorkspace with the software factory', () => {
     // An automation either checks a mission, or runs plain code — the jobs
     // that carry a request through the factory (backlog 038).
     expect(ws.automations.every(a => (a.do.job ? true : ws.missions.some(m => m.slug === a.do.checkMission)))).toBe(true);
-    expect(ws.automations.filter(a => a.do.job).map(a => a.do.job).sort()).toEqual(['factory-ci-failed', 'factory-contract-changed', 'factory-intake', 'factory-plan-build', 'factory-plan-review', 'factory-planning-ended', 'factory-reconcile', 'factory-recover', 'factory-recovery-answer', 'factory-sweep']);
+    expect(ws.automations.filter(a => a.do.job).map(a => a.do.job).sort()).toEqual(['factory-ci-failed', 'factory-contract-changed', 'factory-intake', 'factory-plan-build', 'factory-plan-review', 'factory-planning-ended', 'factory-reconcile', 'factory-recover', 'factory-recovery-answer', 'factory-sweep', 'mockup-default', 'mockup-ended']);
+    // EVERY NEW FEATURE WITH A UI GETS ITS MOCKUP (2.29.0): the rule is the
+    // plugin's, on the job's input — core names no surface, kind or state.
+    expect(ws.automations.find(a => a.slug === 'design-mockup-default')).toMatchObject({
+      agent: 'designer',
+      when: { event: ['object.created', 'object.updated'], filter: { objectType: 'request' } },
+      do: { job: 'mockup-default', input: { owedWhen: { field: 'surface', oneOf: ['ui', 'flow'] }, attempts: 2 } },
+    });
+    expect(ws.automations.find(a => a.slug === 'design-mockup')).toMatchObject({ when: { event: 'mockup.requested', filter: { recordType: 'request' } }, do: { checkMission: 'show-it-first', requireTool: 'draw_mockup' } });
+    expect(ws.automations.find(a => a.slug === 'design-mockup-ended')).toMatchObject({ when: { event: ['automation_run.completed', 'automation_run.failed'], filter: { slug: 'design-mockup' } }, do: { job: 'mockup-ended' } });
+    expect(ws.missions.find(m => m.slug === 'show-it-first')?.agent).toBe('designer');
     expect(ws.automations.find(a => a.slug === 'factory-request-filed')?.when).toMatchObject({ event: 'object.created', filter: { objectType: 'request' } });
     expect(ws.automations.find(a => a.slug === 'factory-run-failed')?.when).toMatchObject({ event: 'worker_run.failed', filter: { recordType: 'engineering_task' } });
 

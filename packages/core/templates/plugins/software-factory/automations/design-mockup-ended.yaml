@@ -1,0 +1,21 @@
+# A DRAWING THAT DREW NOTHING IS CAUGHT WHEN IT ENDS. When the designer's run
+# for a request finishes or fails, the request is read: mockups on it, done; none,
+# and the first attempt is tried once more carrying why it drew nothing; none
+# after that, and the reason is written on the request (`visuals.mockupDraw`),
+# where the feature page shows it. It never asks a person and never holds the
+# work. Deterministic: a built-in job.
+slug: design-mockup-ended
+name: A mockup drawing ended
+description: >-
+  When the designer's drawing run ends, check the request has its mockups:
+  otherwise draw once more with the reason, or write the reason on the request.
+status: active
+agent: designer
+when:
+  event: [automation_run.completed, automation_run.failed]
+  filter:
+    slug: design-mockup
+do:
+  job: mockup-ended
+  input:
+    attempts: 2

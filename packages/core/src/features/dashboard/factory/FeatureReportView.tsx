@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { Related, Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { showsAnError } from '@/libs/factory/mockup';
 import { liveTopic } from '@/libs/live/topics';
 import { featureStatusOf } from '@/services/factory/featureReport';
 import { FeatureActivity } from './FeatureActivity';
@@ -101,25 +102,37 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
  * @param props
  * @param props.pictures - The pictures, ranked.
  * @param props.docs - Mockups that are documents rather than pictures.
+ * @param props.mockupStatus
  */
-function HeroMedia({ pictures, docs }: { pictures: ReportEvidence[]; docs: ReportEvidence[] }) {
+function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[]; docs: ReportEvidence[]; mockupStatus?: FeatureReport['mockupStatus'] }) {
+  // Where the default mockup stands, said where it would be: drawing, or why
+  // it drew nothing (`visuals.mockupDraw`).
+  const status = mockupStatus
+    ? (
+        <p data-testid="report-mockup-status" data-tone={mockupStatus.tone} className={`rounded-lg border border-dashed px-3 py-2 text-sm ${mockupStatus.tone === 'warn' ? 'border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300' : 'border-border text-muted-foreground'}`}>
+          {mockupStatus.line}
+        </p>
+      )
+    : null;
   if (pictures.length === 0) {
     return (
-      <div id="report-visuals" data-section="visuals">
+      <div id="report-visuals" data-section="visuals" className="space-y-4">
         {docs.length > 0
           ? <Gallery items={docs} />
-          : (
-              <p data-testid="report-preview-pending" className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
-                Preview pending — no mockup or screenshot yet.
-              </p>
-            )}
+          : status ?? (
+            <p data-testid="report-preview-pending" className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
+              Preview pending — no mockup or screenshot yet.
+            </p>
+          )}
+        {docs.length > 0 && status}
       </div>
     );
   }
-  const word = (e: ReportEvidence) => (e.role === 'today' ? 'Today' : ROLE_WORD[e.role] ?? e.role);
+  const word = (e: ReportEvidence) => e.section ?? (e.role === 'today' ? 'Today' : ROLE_WORD[e.role] ?? e.role);
   return (
     <div id="report-visuals" data-section="visuals" className="space-y-4">
-      <MediaCarousel slides={pictures.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption }))} />
+      <MediaCarousel slides={pictures.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption, source: p.source ?? null }))} />
+      {status}
       {docs.length > 0 && <Gallery items={docs} />}
     </div>
   );
@@ -605,13 +618,19 @@ export function FeatureReportView({ report, status, related = [] }: { report: Fe
   const lines = status ?? featureStatusOf(report, { objectType: '', href: '' }, new Date());
   const visuals = report.sections.find(x => x.key === 'visuals');
   const today = report.sections.find(x => x.key === 'today');
-  // THE BEST REAL PICTURE LEADS: what shipped, then the product today, then a
-  // mockup somebody made — the platform's own drawing only when nothing else
-  // exists. Before it is built the proposal leads (2026-09-25).
+  const qa = report.sections.find(x => x.key === 'qa');
+  // THE BEST REAL PICTURE LEADS: what shipped, then QA's shot of the change,
+  // then the product today, then a mockup somebody made — the platform's own
+  // drawing only when nothing else exists. Before it is built the proposal
+  // leads (2026-09-25). QA's before-shots follow the rest: the screen today
+  // already says what they say.
   const drawn = (e: ReportEvidence) => e.role === 'proposed' && e.title === 'Proposed change';
   const landed = report.phase === 'released' || report.phase === 'qa';
-  const rank = (e: ReportEvidence) => (e.role === 'shipped' ? 0 : drawn(e) ? 4 : e.role === 'today' ? (landed ? 1 : 3) : 2);
-  const ranked = [...(visuals?.evidence ?? []), ...(today?.evidence ?? [])]
+  const rank = (e: ReportEvidence) => (e.role === 'shipped' ? 0 : drawn(e) ? 6 : e.section === 'QA after' ? 1 : e.section === 'QA before' ? 5 : e.role === 'today' ? (landed ? 2 : 4) : 3);
+  // A capture QA itself named as the app's error state stays in the QA
+  // record; it is not a picture of the change.
+  const qaPictures = (qa?.evidence ?? []).filter(e => e.role === 'qa-screenshot' && !showsAnError({ title: e.title, spec: { caption: e.caption } }));
+  const ranked = [...(visuals?.evidence ?? []), ...(today?.evidence ?? []), ...qaPictures]
     .filter((e, i, all) => e.imageUrl !== null && all.findIndex(x => x.id === e.id) === i)
     .sort((a, b) => rank(a) - rank(b));
   const pictures = ranked.some(p => !drawn(p)) ? ranked.filter(p => !drawn(p)) : ranked;
@@ -647,7 +666,7 @@ export function FeatureReportView({ report, status, related = [] }: { report: Fe
       </div>
 
       {/* 3. WHAT IT LOOKS LIKE — the gallery, as it was. */}
-      <HeroMedia pictures={pictures} docs={docs} />
+      <HeroMedia pictures={pictures} docs={docs} mockupStatus={report.mockupStatus} />
 
       {/* 4. CONNECTED WORK — compact; the whole list opens in the pane. */}
       {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} requestId={report.requestId} />}

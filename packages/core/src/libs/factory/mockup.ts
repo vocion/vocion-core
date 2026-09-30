@@ -52,13 +52,33 @@ export type MockupChange = {
  * One image: a state of the change (default, hover, copied) — the product's
  * UI blocks as `html`, or `changes` over the real screen. Exactly one.
  */
-export type MockupState = { state: string; html?: string; css?: string; changes?: MockupChange[] };
+export type MockupState = {
+  state: string;
+  /**
+   * The one line a person reads under the image — what it shows, in the
+   * product's terms ("Remind a person who has not opened it"). Written by
+   * whoever draws it, at filing; the carousel reads it and never makes one up.
+   */
+  caption?: string;
+  html?: string;
+  css?: string;
+  changes?: MockupChange[];
+};
 
 /** The product's look, as the canvas and every block are drawn in it. */
 export type MockupLook = { background: string; ink: string; accent: string; font: string; css?: string };
 
-/** The look when nothing says otherwise: quiet, neutral, legible on a phone. */
-export const DEFAULT_LOOK: MockupLook = { background: '#f1f5f9', ink: '#0f172a', accent: '#4f46e5', font: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif' };
+/**
+ * THE LOOK WHEN NOTHING SAYS OTHERWISE — the 2026-09-25 mockups (#124 "Open
+ * alerts", #131 "Find a document in your library"), which Chris named the
+ * standard for every new feature on 2026-09-30: *"I love this style of
+ * generated images in mocks for feature cards… that should be the standard
+ * for all new features and mocks."* A quiet warm-grey desk (#ecebe8), the
+ * product's own white window and phone on it, ink near black, and one blue
+ * accent for the dashed NEW outline round what changes. A product with a
+ * `look` of its own replaces any of these.
+ */
+export const DEFAULT_LOOK: MockupLook = { background: '#ecebe8', ink: '#1f2328', accent: '#2f5bd3', font: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif' };
 
 /** Canvas sizes: the desk the #124-era mockups were drawn at, and a phone. */
 export const CANVAS: Record<'desktop' | 'mobile', { width: number; height: number }> = {
@@ -103,6 +123,8 @@ export const MOCKUP_LIMITS = {
   headingChars: 60,
   /** The platform's hint badges on one image. */
   hints: 3,
+  /** Dashed NEW outlines on one image: the change, and at most one more place it shows. */
+  news: 2,
   /** Short UX notes on one image, drawn beside the element they are about. */
   notes: 3,
   /** A note is one line. */
@@ -273,6 +295,10 @@ function uiProblems(html: string, css: string, where: string, limit: number): st
   if (hints.length > MOCKUP_LIMITS.hints) {
     out.push(`${where}: ${hints.length} hints; at most ${MOCKUP_LIMITS.hints}. Mark only what changed.`);
   }
+  const news = [...html.matchAll(/\bdata-new\b/gi)].length;
+  if (news > MOCKUP_LIMITS.news) {
+    out.push(`${where}: ${news} elements marked data-new; at most ${MOCKUP_LIMITS.news}. The NEW outline goes round the change itself.`);
+  }
   out.push(...noteProblems(html, runs, where));
   return out;
 }
@@ -375,13 +401,15 @@ export function mockupProblems(states: readonly MockupState[], size: { width: nu
 }
 
 /**
- * The one overlay a mockup carries, drawn by the platform: a ring round an
- * element marked `data-hint`, and a small badge with its number.
+ * The one overlay a mockup carries, drawn by the platform: the dashed accent
+ * outline with a NEW pill round an element marked `data-new` (the change, as
+ * the 09-25 mockups marked it), a ring round an element marked `data-hint`
+ * with a small badge carrying its number, and a note beside `data-note`.
  * @param accent - The ring and badge colour.
  * @param font - The badge's font.
  */
 function hintCss(accent: string, font: string): string {
-  return `[data-hint],[data-note]{position:relative;outline:2px solid ${accent};outline-offset:4px}[data-hint]::after{content:attr(data-hint);position:absolute;top:-15px;right:-15px;width:22px;height:22px;border-radius:999px;background:${accent};color:#fff;font:700 12px/22px ${font};text-align:center;box-shadow:0 1px 3px rgba(15,23,42,.25);z-index:10}[data-note]::before{content:attr(data-note);position:absolute;top:calc(100% + 12px);left:0;width:max-content;max-width:280px;padding:5px 9px;border-radius:8px;background:#0f172a;color:#fff;font:500 12px/1.35 ${font};letter-spacing:0;text-transform:none;white-space:normal;box-shadow:0 4px 12px rgba(15,23,42,.18);z-index:10}`;
+  return `[data-hint],[data-note]{position:relative;outline:2px solid ${accent};outline-offset:4px}[data-hint]::after{content:attr(data-hint);position:absolute;top:-15px;right:-15px;width:22px;height:22px;border-radius:999px;background:${accent};color:#fff;font:700 12px/22px ${font};text-align:center;box-shadow:0 1px 3px rgba(15,23,42,.25);z-index:10}[data-note]::before{content:attr(data-note);position:absolute;top:calc(100% + 12px);left:0;width:max-content;max-width:280px;padding:5px 9px;border-radius:8px;background:#0f172a;color:#fff;font:500 12px/1.35 ${font};letter-spacing:0;text-transform:none;white-space:normal;box-shadow:0 4px 12px rgba(15,23,42,.18);z-index:10}[data-new]{position:relative;outline:1.5px dashed ${accent};outline-offset:6px}[data-new]::after{content:'NEW';position:absolute;top:-15px;right:-4px;padding:2px 7px;border-radius:999px;background:${accent};color:#fff;font:700 9px/12px ${font};letter-spacing:.06em;z-index:10}`;
 }
 
 /**
@@ -412,10 +440,59 @@ export function mockupHtml(baseDataUri: string, size: { width: number; height: n
 }
 
 /**
+ * THE PRODUCT CHROME every UI-blocks mockup may draw in — the frames the
+ * 09-25 mockups were made of, so a designer draws the change and not a
+ * browser. Each is a class on plain HTML:
+ *
+ *   - `vc-window` — the product's own white window on the desk, with a
+ *     `vc-bar` across its top (the product's mark, its nav, a primary
+ *     button) and a `vc-body` under it.
+ *   - `vc-phone` — a phone, its screen a `vc-display`, for the same change
+ *     on a phone or a second state beside the desk.
+ *   - `vc-panel` — a side panel or sheet opening beside the window.
+ *   - `vc-card`, `vc-row`, `vc-chip`, `vc-btn` (and `vc-btn-quiet`),
+ *     `vc-muted`, `vc-toggle` (`vc-on`) — the pieces inside them.
+ *
+ * Put the change inside with `data-new` — the dashed accent outline and NEW
+ * pill — and the platform draws the rest.
+ */
+export const MOCKUP_KIT_CLASSES = ['vc-window', 'vc-bar', 'vc-body', 'vc-phone', 'vc-display', 'vc-panel', 'vc-card', 'vc-row', 'vc-chip', 'vc-btn', 'vc-btn-quiet', 'vc-muted', 'vc-toggle', 'vc-on'] as const;
+
+/**
+ * The chrome's styles, in a look.
+ * @param look - The product's look.
+ */
+function kitCss(look: MockupLook): string {
+  const ink = token(look.ink);
+  const accent = token(look.accent);
+  return [
+    `.vc-window{background:#fff;border-radius:12px;box-shadow:0 1px 2px rgba(15,23,42,.06),0 14px 36px rgba(15,23,42,.10);min-width:0;flex:0 1 auto}`,
+    `.vc-bar{display:flex;align-items:center;gap:14px;height:44px;padding:0 16px;border-bottom:1px solid #ebeae6;font-size:12px;color:#6b6f76}`,
+    `.vc-bar b,.vc-bar strong{color:${ink};font-size:13px}`,
+    `.vc-body{padding:20px 22px;display:flex;flex-direction:column;gap:10px}`,
+    `.vc-phone{flex:none;width:300px;height:640px;border-radius:48px;background:#15171c;padding:11px;box-shadow:0 22px 48px rgba(15,23,42,.24)}`,
+    `.vc-display{width:100%;height:100%;border-radius:38px;background:#f7f7f5;overflow:hidden;padding:46px 16px 16px;display:flex;flex-direction:column;gap:10px}`,
+    `.vc-panel{flex:none;width:360px;background:#fff;border-radius:12px;box-shadow:0 1px 2px rgba(15,23,42,.06),0 14px 36px rgba(15,23,42,.10);padding:18px 20px;display:flex;flex-direction:column;gap:10px}`,
+    `.vc-card{background:#fff;border:1px solid #e7e5e0;border-radius:10px;padding:12px 14px}`,
+    `.vc-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #ebeae6;border-radius:8px;background:#fff}`,
+    `.vc-chip{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:6px;border:1px solid #e2e0da;font-size:11px;font-weight:600;color:${ink};background:#fff}`,
+    `.vc-btn{display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:7px;border:0;background:${accent};color:#fff;font-family:inherit;font-size:12px;font-weight:600;line-height:1}`,
+    `.vc-btn-quiet{background:#fff;color:${ink};border:1px solid #dedcd6}`,
+    `.vc-muted{color:#6b6f76;font-size:12px}`,
+    `.vc-toggle{flex:none;width:30px;height:18px;border-radius:999px;background:#d9d7d1;position:relative}`,
+    `.vc-toggle::before{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.2)}`,
+    `.vc-toggle.vc-on{background:${accent}}`,
+    `.vc-toggle.vc-on::before{left:14px}`,
+  ].join('');
+}
+
+/**
  * The page for a state drawn as UI blocks: the product's components centred
  * on a quiet canvas the size of a desk or a phone, in the product's look.
- * This is the shape of the #124-era mockups — a card, a dialog, a row of
- * chips — and nothing else is on the canvas.
+ * This is the shape of the #124-era mockups — a window and a phone side by
+ * side, a card, a dialog, a row of chips — and nothing else is on the canvas.
+ * The product chrome (`MOCKUP_KIT_CLASSES`) is always available; a product's
+ * own `look.css` comes after it, so it wins.
  * @param state - The state's HTML and CSS.
  * @param state.html - The UI blocks.
  * @param state.css - Their styles.
@@ -426,7 +503,7 @@ export function blocksHtml(state: { html: string; css?: string }, look: MockupLo
   const { width, height } = CANVAS[viewport];
   const font = token(look.font);
   const pad = viewport === 'mobile' ? 20 : 48;
-  return `<!doctype html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box;margin:0;padding:0}html,body{background:${token(look.background)}}#vc-screen{width:${width}px;height:${height}px;overflow:hidden;display:flex;flex-direction:${viewport === 'mobile' ? 'column' : 'row'};align-items:center;justify-content:center;gap:${viewport === 'mobile' ? 20 : 48}px;padding:${pad}px;background:${token(look.background)};color:${token(look.ink)};font-family:${font};font-size:14px;line-height:1.4}${hintCss(token(look.accent), font)}${look.css ?? ''}${state.css ?? ''}</style></head><body><div id="vc-screen">${state.html}</div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box;margin:0;padding:0}html,body{background:${token(look.background)}}#vc-screen{width:${width}px;height:${height}px;overflow:hidden;display:flex;flex-direction:${viewport === 'mobile' ? 'column' : 'row'};align-items:center;justify-content:center;gap:${viewport === 'mobile' ? 20 : 48}px;padding:${pad}px;background:${token(look.background)};color:${token(look.ink)};font-family:${font};font-size:14px;line-height:1.4}${kitCss(look)}${hintCss(token(look.accent), font)}${look.css ?? ''}${state.css ?? ''}</style></head><body><div id="vc-screen">${state.html}</div></body></html>`;
 }
 
 /** The `visuals` keys only the mockup tool writes. */
@@ -478,7 +555,8 @@ export function guardVisuals(current: unknown, next: unknown): { ok: true; value
  * The `visuals` the tool writes: this call's images as the mockups, the
  * screenshot as the before only when one was drawn on, everything else as
  * the record had it. A blank or stale `noVisualReason` is dropped — there is
- * a visual now. Without a screenshot, `beforeArtifactIds` keeps only ids that
+ * a visual now — and so is `mockupDraw`, the default draw's progress
+ * (`libs/factory/mockupDefault.ts`): the mockup it was waiting for is here. Without a screenshot, `beforeArtifactIds` keeps only ids that
  * are captures of the product (`captureIds`): a document someone typed there
  * is not the screen today.
  * @param current - The record's `visuals` now.
@@ -488,7 +566,7 @@ export function guardVisuals(current: unknown, next: unknown): { ok: true; value
  * @param ids.captureIds - Artifact ids known to be captures of the product.
  */
 export function mockupVisuals(current: unknown, ids: { beforeId: number | null; mockupIds: number[]; captureIds?: ReadonlySet<number> }): Record<string, unknown> {
-  const { noVisualReason: _dropped, beforeArtifactIds, ...rest } = bag(current);
+  const { noVisualReason: _dropped, mockupDraw: _drawn, beforeArtifactIds, ...rest } = bag(current);
   const kept = ids.beforeId !== null
     ? [ids.beforeId]
     : (Array.isArray(beforeArtifactIds) ? beforeArtifactIds.map(Number) : []).filter(id => ids.captureIds?.has(id) === true);

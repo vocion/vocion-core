@@ -66,6 +66,7 @@
  */
 
 import type { BlockerFacts } from './blocker';
+import type { CarouselSection, EvidenceSource } from './carouselSource';
 import type { PlanDecision, PlanRecord } from './planRule';
 import type { LiveMissionRunInput, LiveRun, RecordStatus, StatusMove, StatusYou } from '@/libs/factory/liveStatus';
 import type { PullSignals, WorkFacts } from '@/libs/factory/workFacts';
@@ -74,12 +75,15 @@ import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
+import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
 import { liveTopic } from '@/libs/live/topics';
+import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { blockerResolution } from './blocker';
+import { captionOf, CAROUSEL_SECTIONS, sourceOf } from './carouselSource';
 import { planRecordFromTask, planRequirementForTask } from './planRule';
 import { bare, classifyFailure, nextAfter, readRecovery, recoveryStage } from './recovery';
 
@@ -169,6 +173,10 @@ export type ReportArtifact = {
   spec: Record<string, unknown>;
   url: string | null;
   createdAt: Date;
+  /** Who made it, by name — an agent's, a person's — when the loader could read it. */
+  author?: string | null;
+  /** The conversation it was made in, when it was. */
+  conversationId?: number | null;
 };
 
 export type FeatureReportInput = {
@@ -252,7 +260,15 @@ export type ReportEvidence = {
   caption: string | null;
   url: string | null;
   at: Date;
+  /** Where a picture sits in the story — Mockup, Today, Plan, QA before, QA after, Live, Reported in chat (`carouselSource.ts`). */
+  section?: CarouselSection;
+  /** Who or what made it and when, linked to where it came from. */
+  source?: EvidenceSource | null;
 };
+
+/** The records a picture's source line is read from: the runs and releases of the work. */
+type PictureContext = { runs: readonly ReportWorkerRun[]; releases: readonly ReportObject[] };
+const NO_PICTURE_CONTEXT: PictureContext = { runs: [], releases: [] };
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 
@@ -381,6 +397,12 @@ export type ReportActivity = {
 export type FeatureReport = {
   /** Every conversation and run tied to this feature, newest first (loaded beside the report). */
   activity?: ReportActivity[];
+  /**
+   * Where the default mockup stands, when it is not drawn yet — "The designer
+   * is drawing the mockup", or why it drew nothing (`visuals.mockupDraw`).
+   * Shown where the mockup would be. Null once drawn, or when none was asked for.
+   */
+  mockupStatus?: { line: string; tone: 'info' | 'warn' } | null;
   requestId: number;
   /** The plan a build would carry: the newest one not rejected or superseded. Null when there is none. */
   planId: number | null;
@@ -1512,22 +1534,29 @@ function changeSection(tasks: ReportObject[], runs: ReportWorkerRun[]): ReportSe
  * plainly, because the absence is the finding.
  * @param artifacts - Artifacts attached to the tasks.
  * @param taskCount - How many tasks, so the sentence reads right.
+ * @param ctx - The runs and releases each picture's source line is read from.
  */
-function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSection {
+function qaSection(artifacts: ReportArtifact[], taskCount: number, ctx: PictureContext = NO_PICTURE_CONTEXT): ReportSection {
   const s = blank('qa', 'QA');
   s.evidence = artifacts
     .map(a => ({ a, role: qaEvidenceRole(a) }))
     .filter((x): x is { a: ReportArtifact; role: QaEvidenceRole } => x.role !== null)
-    .map(({ a, role }) => ({
-      id: a.id,
-      kind: a.kind,
-      ...drawOf(a),
-      role,
-      title: a.title,
-      caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? str(a.spec, 'summary'),
-      url: evidenceUrl(a),
-      at: a.createdAt,
-    }))
+    .map(({ a, role }) => {
+      const side = shotParts(a.title).side;
+      const section = role === 'qa-screenshot' && side === 'before' ? CAROUSEL_SECTIONS.qaBefore : CAROUSEL_SECTIONS.qaAfter;
+      return {
+        id: a.id,
+        kind: a.kind,
+        ...drawOf(a),
+        role,
+        title: a.title,
+        caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? str(a.spec, 'summary'),
+        url: evidenceUrl(a),
+        at: a.createdAt,
+        section,
+        source: sourceOf({ artifact: a, section, ...ctx }),
+      };
+    })
     .sort((x, y) => x.at.getTime() - y.at.getTime());
   if (s.evidence.length === 0) {
     // SAY WHAT IS OWED, not what the schema expects.
@@ -2649,9 +2678,10 @@ function buildLifecycle(phase: ReportPhase): LifecycleStep[] {
  * it against the running product is decoration (principle 10).
  * @param request - The request.
  * @param artifacts - Every artifact gathered for this work.
- * @param liveBases
+ * @param liveBases - Where the product runs, for the live link.
+ * @param ctx - The runs and releases each picture's source line is read from.
  */
-function todaySection(request: ReportObject, artifacts: ReportArtifact[], liveBases: readonly string[] = []): ReportSection {
+function todaySection(request: ReportObject, artifacts: ReportArtifact[], liveBases: readonly string[] = [], ctx: PictureContext = NO_PICTURE_CONTEXT): ReportSection {
   const s = blank('today', 'How it works today');
   const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
   const surfaceUrl = resolveLiveUrl(str(visuals, 'surfaceUrl'), liveBases);
@@ -2678,6 +2708,8 @@ function todaySection(request: ReportObject, artifacts: ReportArtifact[], liveBa
       caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,
       url: `/dashboard/artifacts/${a.id}`,
       at: a.createdAt,
+      section: CAROUSEL_SECTIONS.today,
+      source: sourceOf({ artifact: a, section: CAROUSEL_SECTIONS.today, ...ctx }),
     })),
     ...reported.map(a => ({
       id: a.id,
@@ -2688,6 +2720,8 @@ function todaySection(request: ReportObject, artifacts: ReportArtifact[], liveBa
       caption: a.title,
       url: `/dashboard/artifacts/${a.id}`,
       at: a.createdAt,
+      section: CAROUSEL_SECTIONS.reported,
+      source: sourceOf({ artifact: a, section: CAROUSEL_SECTIONS.reported, ...ctx }),
     })),
   ];
   if (s.evidence.length === 0 && surfaceUrl === null) {
@@ -2730,6 +2764,28 @@ function buildContext(request: ReportObject, summary: FeatureReportSummary, now:
   return out;
 }
 
+/**
+ * THE DEFAULT MOCKUP, WHILE IT IS NOT THERE (`libs/factory/mockupDefault.ts`):
+ * drawing, with when it started, or why it drew nothing, with when — read off
+ * `visuals.mockupDraw`, never guessed. Null once the mockups are on the record.
+ * @param request - The request.
+ * @param now - The clock.
+ */
+export function mockupStatusOf(request: ReportObject, now: Date): { line: string; tone: 'info' | 'warn' } | null {
+  if (hasMockups(request.meta)) {
+    return null;
+  }
+  const draw = readMockupDraw(request.meta);
+  if (!draw) {
+    return null;
+  }
+  if (draw.state === 'drawing') {
+    const age = formatAge(now.getTime() - new Date(draw.at).getTime());
+    return { line: `The mockup is being drawn${draw.attempt > 1 ? ' again' : ''} — started ${age}.${draw.reason && draw.attempt > 1 ? ` The first attempt drew nothing: ${draw.reason}.` : ''}`, tone: 'info' };
+  }
+  return { line: `The mockup was not drawn${draw.attempt > 1 ? ` after ${draw.attempt} attempts` : ''} (${formatStamp(new Date(draw.at))}): ${draw.reason ?? 'no reason was recorded'}. Asking for a mockup in chat draws it again.`, tone: 'warn' };
+}
+
 /** Surfaces a person can see, and therefore owes a picture of. */
 const VISIBLE_SURFACES: ReadonlySet<string> = new Set(['ui', 'flow']);
 
@@ -2749,8 +2805,9 @@ const DONE_LIKE: ReadonlySet<string> = new Set(['shipped', 'accepted', 'released
  * be cited. They are separated by ROLE, not by type.
  * @param request - The request record.
  * @param artifacts - Every artifact gathered for this work.
+ * @param ctx - The runs and releases each picture's source line is read from.
  */
-function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): ReportSection {
+function visualsSection(request: ReportObject, artifacts: ReportArtifact[], ctx: PictureContext = NO_PICTURE_CONTEXT): ReportSection {
   const s = blank('visuals', 'Preview');
   const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
   const surface = str(request.meta, 'surface');
@@ -2773,16 +2830,25 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): Rep
   const onRequest = artifacts.filter(a => a.recordType === 'object' && a.recordId === String(request.id));
   const pick = (want: Set<string>, role: string): ReportEvidence[] => artifacts
     .filter(a => want.has(String(a.id)) || (want.size === 0 && role === 'proposed' && onRequest.includes(a) && a.recordRole === 'proposal-visual'))
-    .map(a => ({
-      id: a.id,
-      kind: a.kind,
-      ...drawOf(a),
-      role,
-      title: a.title,
-      caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,
-      url: `/dashboard/artifacts/${a.id}`,
-      at: a.createdAt,
-    }))
+    .map((a) => {
+      // The platform's own drawing of the record is the shape of the change —
+      // a plan picture, not a mockup (`visuals.drawnArtifactId`).
+      const section = role === 'shipped'
+        ? (a.recordRole === 'qa-screenshot' ? CAROUSEL_SECTIONS.qaAfter : CAROUSEL_SECTIONS.live)
+        : a.recordRole === 'proposal-visual' ? CAROUSEL_SECTIONS.plan : CAROUSEL_SECTIONS.mockup;
+      return {
+        id: a.id,
+        kind: a.kind,
+        ...drawOf(a),
+        role,
+        title: a.title,
+        caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? (section === CAROUSEL_SECTIONS.mockup ? captionOf(a) : null),
+        url: `/dashboard/artifacts/${a.id}`,
+        at: a.createdAt,
+        section,
+        source: sourceOf({ artifact: a, section, ...ctx }),
+      };
+    })
     .sort((x, y) => x.at.getTime() - y.at.getTime());
 
   // Preview is the MOCK — what we propose it will look like. What it looks
@@ -3383,6 +3449,8 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     }
   }
   const line = moneyLine(input.request, input.tasks, runs);
+  // What every picture's source line is read from (`carouselSource.ts`).
+  const pictures: PictureContext = { runs, releases: input.releases };
   // BUILD IS NEVER OFFERED OVER A LIVE BUILD (2026-09-28). A run still going,
   // or a dispatch still waiting to execute, means the work has started.
   const liveWork = runs.some(runIsLive)
@@ -3454,21 +3522,22 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     sections: [
       askSection(input.request),
       triageSection(input.request),
-      visualsSection(input.request, input.artifacts),
-      todaySection(input.request, input.artifacts, input.liveBases),
+      visualsSection(input.request, input.artifacts, pictures),
+      todaySection(input.request, input.artifacts, input.liveBases, pictures),
       planSection(input.plans, input.tasks, runs.length > 0, input.people),
       contractSection(input.tasks),
       approvalsSection(input.asks, input.actionRuns, runs.length > 0),
       runsSection(runs, mergedPrs),
       changeSection(input.tasks, runs),
-      qaSection(input.artifacts, input.tasks.length),
+      qaSection(input.artifacts, input.tasks.length, pictures),
       releaseSection(input.releases),
       resultSection(normalised.request, normalised.releases.length > 0),
       moneySection(line),
     ],
     timeline,
     contradictions: notices.map(n => n.evidence),
-    hero: visualsSection(input.request, input.artifacts).evidence.find(e => e.imageUrl !== null) ?? null,
+    hero: visualsSection(input.request, input.artifacts, pictures).evidence.find(e => e.imageUrl !== null) ?? null,
+    mockupStatus: mockupStatusOf(input.request, input.now),
     follow: followOf(input),
   };
 }

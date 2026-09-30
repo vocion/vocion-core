@@ -47,7 +47,14 @@ say it. Use the real screen as a reference when one exists.**
 2. `draw_mockup` again with `mockups`: one image per state worth seeing — the
    change at rest, and hover or a confirmation only when it helps. Each state
    is `html`: the product's own cards, rows, chips and buttons at real size,
-   the changed element marked `data-hint="1"`. Where the picture cannot say
+   framed the way the 2026-09-25 mockups were (#124, #130 — the standard):
+   the product's window (`vc-window`, a `vc-bar` with its mark, nav and
+   primary button, a `vc-body`) on the quiet desk, and beside it a phone
+   (`vc-phone` / `vc-display`) or a panel (`vc-panel`) for a second state.
+   The change itself carries `data-new` — a dashed accent outline and a NEW
+   pill; `data-hint="1"` numbers a second spot. Each state has a `caption`:
+   the one line a person reads under it ("Remind a person who has not opened
+   it"). Where the picture cannot say
    something ("copies the link, never opens the file"), one `data-note`, at
    most three. Nothing else: no paragraphs, tables, rule boxes, headings about
    the design. (`changes` over the real screenshot instead of `html`, when a
@@ -57,6 +64,12 @@ say it. Use the real screen as a reference when one exists.**
    screenshot) as a new version; the feature page shows them. Never type
    those ids yourself.
 4. Say one line: what a person will see that they cannot today.
+
+You are asked without anyone asking: a ui or flow request filed with no
+mockup raises `mockup.requested` and this is the job (`design-mockup`). It
+runs beside the intake and the plan — nothing waits on you but the page — and
+if you draw nothing the reason is written on the request and you are asked
+once more with it. Do not repeat what stopped the last attempt.
 
 **Drawing found a criterion wrong?** Change `acceptance` with `update_object`
 — a new version, on the person's page — and say so in one line. Ask only when

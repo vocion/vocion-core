@@ -1,7 +1,7 @@
 import type { FeatureReportInput, ReportActionRun, ReportArtifact, ReportAsk, ReportObject, ReportSectionKey, ReportWorkerRun } from './featureReport';
 import { describe, expect, it } from 'vitest';
 import { recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
-import { assembleFeatureReport, executedRun, formatDuration, moneyLine, personName, planStatusOf, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
+import { assembleFeatureReport, executedRun, formatDuration, mockupStatusOf, moneyLine, personName, planStatusOf, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
 
 /**
  * The feature report, assembled from fixtures.
@@ -470,7 +470,18 @@ describe('QA evidence', () => {
       caption: 'The share menu with the new PDF entry.',
       url: 'https://files.example/qa/share-menu.png',
       at: T('2026-09-05T08:00:00Z'),
+      // Its section and who made it: filed two days after the run ended, it
+      // names no run, so none is claimed for it.
+      section: 'QA after',
+      source: { text: 'QA · after · Sep 5', ref: { type: 'artifact', id: '700' } },
     }]);
+  });
+
+  it('names the run a capture came from, and its side', () => {
+    const during: ReportArtifact = { ...screenshot, id: 702, title: 'Share menu · desktop · before', createdAt: T('2026-09-03T11:00:00Z') };
+    const qa = section(assembleFeatureReport(input({ artifacts: [during] })), 'qa');
+
+    expect(qa.evidence[0]).toMatchObject({ section: 'QA before', source: { text: 'QA · run 501 · before · Sep 3', ref: { type: 'worker_run', id: '501' } } });
   });
 
   it('says plainly that none was captured rather than hiding the section', () => {
@@ -974,6 +985,25 @@ describe('what it looks like', () => {
 
     expect(preview.evidence.map(e => [e.id, e.role, e.imageUrl])).toEqual([[92, 'proposed', '/api/artifacts/o-92/o-92.png'], [93, 'proposed', '/api/artifacts/o-93/o-93.png']]);
     expect(today.evidence.map(e => [e.id, e.role])).toEqual([[81, 'today']]);
+    // Every picture carries its section and who made it (2026-09-30).
+    expect(preview.evidence.map(e => e.section)).toEqual(['Mockup', 'Mockup']);
+    expect(today.evidence[0]).toMatchObject({ section: 'Today', source: { text: 'QA · Sep 21' } });
+  });
+
+  it('captions a mockup with the line written when it was drawn, and says who drew it from what', () => {
+    const drawnMock = { id: 95, kind: 'file', title: 'Mockup: Remind a reader · Default', recordType: 'object', recordId: '7', recordRole: 'mockup', author: 'Designer', spec: { contentType: 'image/png', url: '/api/artifacts/o-95/o-95.png', caption: 'Remind a person who has not opened it', source: { state: 'Default', html: '<div></div>' }, provenance: { drawnFrom: 'request', missionRunId: 5120 } }, url: null, createdAt: new Date('2026-09-25T10:00:00Z') } as never;
+    const s = visuals({ ...req({ surface: 'ui', visuals: { mockupArtifactIds: [95] } }), artifacts: [drawnMock] } as never);
+
+    expect(s.evidence[0]).toMatchObject({ caption: 'Remind a person who has not opened it', section: 'Mockup', source: { text: 'Designer · drawn from the request · Sep 25', ref: { type: 'mission_run', id: '5120' } } });
+  });
+
+  it('says where the default mockup stands while it is not there', () => {
+    const at = '2026-09-30T11:50:00Z';
+    const now = new Date('2026-09-30T12:00:00Z');
+
+    expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupDraw: { state: 'drawing', attempt: 1, at } } } }, now)).toEqual({ line: 'The mockup is being drawn — started 10 min ago.', tone: 'info' });
+    expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupDraw: { state: 'failed', attempt: 2, at, reason: 'the renderer is not available' } } } }, now)?.line).toBe('The mockup was not drawn after 2 attempts (30 Sep 2026, 11:50 UTC): the renderer is not available. Asking for a mockup in chat draws it again.');
+    expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupArtifactIds: [3], mockupDraw: { state: 'drawing', attempt: 1, at } } } }, now)).toBeNull();
   });
 
   it('flags work that was proposed with a visual and closed without one', () => {

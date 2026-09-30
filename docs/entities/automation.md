@@ -72,7 +72,7 @@ replayed.
 
 **Debriefs.** An automation on a completion event — `worker_run.completed`,
 `worker_run.failed`, `mission_run.completed`, `conversation.ended`,
-`automation_run.completed`, `pr.merged` — is a debrief: work finished, and an
+`automation_run.completed`, `automation_run.failed`, `pr.merged` — is a debrief: work finished, and an
 agent reads it back into the record. An agent authored `initiative: low`
 ([agent](./agent.md#behaviour)) sits debriefs out: its automations on these
 events are skipped, not fired and not logged as refused. A schedule or any
@@ -95,6 +95,8 @@ These are the ones the server raises on its own:
 | `mission_run.completed` | A mission run's tasks all finish without failure and the loop settles it — once, from the one write that settles it. `mode` is `check` for an automation's own mission check and `planned` for a brief a person or the planner decomposed; a debrief filters `mode: planned` so it never fires on a check. | `missionRunId`, `missionId`, `missionSlug`, `title`, `agentSlug` (the team lead), `mode`, `summary` (the last task's output, ≤500 chars), `tasksTotal`, `tasksFailed`, `completedAt` (ISO) |
 | `conversation.ended` | The `sweep-idle-conversations` job finds a conversation with no turn for its window (default 30 minutes) and stamps `ended_at`. The only way a conversation ends today — there is no close button — so a workspace that wants the event schedules the job (`do: { job: sweep-idle-conversations }`). A thread picked up again is open again and ends again later. | `conversationId`, `agentSlug`, `title`, `surface`, `messageCount`, `lastMessageAt` (ISO), `endedBy` (`idle`), `summary` (the title), `endedAt` (ISO) |
 | `automation_run.completed` | A `checkMission` fire finishes and its check produced a result (a workflow or job fire raises nothing). A fire that this event itself started raises nothing, so a debrief on it cannot fire on its own check. | `automationRunId`, `slug`, `kind` (`mission_check`), `missionRunId`, `missionRunStatus`, `tasksOk`, `tasksFailed`, `summary`, `completedAt` (ISO) |
+| `automation_run.failed` | A `checkMission` fire threw — its model failed, its required tool never landed, its mission is missing. Without it a fire that threw left its owner nothing to answer. Guarded like `automation_run.completed`. | `automationRunId`, `slug`, `kind` (`mission_check`), `error` (≤500 chars), `completedAt` (ISO) |
+| `mockup.requested` | A record the plugin's rule says has a UI was filed or given its surface and has no mockup (`mockup-default` job; the software factory's `design-mockup-default`), or its first drawing drew nothing. The designer answers it with `draw_mockup`. | `recordId`, `recordType`, `title`, `attempt`, `lastFailure` (on the retry) |
 | `pr.opened`, `pr.synchronized`, `pr.checks_completed`, `pr.review_submitted`, `pr.merged`, `pr.closed`, `run.failed` | The `github` source polls (or its webhook receives) activity on the repositories a workspace lists. | `repo`, `number`, `url`, `headSha`, `branch`, `title`, `author`, plus per-event fields — `conclusion` and `failedChecks` on `pr.checks_completed`, `reviewState` on `pr.review_submitted`, `mergeSha` on `pr.merged`. Shapes in the [GitHub guide](../guides/github.md). |
 
 Every payload field but `objectRefs` is a scalar, so any of them can be used in a `filter`:

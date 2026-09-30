@@ -24,7 +24,7 @@ import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, Re
 import type { RecordOrigin } from '@/services/objects/related';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { actionRunSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { failedFireLines } from '@/services/automations/failedFires';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
@@ -246,6 +246,9 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     : (await reportedAttachments(orgId, { id: request.id, createdAt: row.createdAt, conversationId: origin?.conversationId ?? null }).catch(() => []))
         .map(a => ({ ...a, recordType: 'object', recordId: String(request.id), recordRole: REPORTED_ROLE }));
   const artifactRows = [...onRecords, ...byId.filter(b => !onRecords.some(r => r.id === b.id)), ...reportedRows.filter(r => !onRecords.some(o => o.id === r.id))];
+  // WHO MADE EACH PICTURE, BY NAME (the carousel's source line): an agent's
+  // name from its row, a person's from theirs, the platform as Vocion.
+  const authors = await authorNames(orgId, artifactRows.map(a => ({ kind: a.lastAuthorKind ?? null, id: a.lastAuthorId ?? null })));
   const artifacts: ReportArtifact[] = artifactRows.map(a => ({
     id: a.id,
     kind: a.kind,
@@ -256,6 +259,8 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     spec: (a.spec ?? {}) as Record<string, unknown>,
     url: a.url ?? null,
     createdAt: a.createdAt,
+    author: a.lastAuthorKind === 'system' ? 'Vocion' : (a.lastAuthorId ? authors.get(a.lastAuthorId) ?? null : null),
+    conversationId: a.conversationId ?? null,
   }));
 
   // WHO APPROVED IT, BY NAME. A plan's `approvedBy` is often the approver's
@@ -306,6 +311,34 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   ]);
   const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases });
   return { ...report, activity };
+}
+
+/**
+ * Names for the authors artifacts carry: `agent:<slug>` is the agent's name,
+ * a user id the person's name (or email). Anything else — a worker's token —
+ * has no name here and reads as what made it instead.
+ * @param orgId - Tenant.
+ * @param refs - The authors.
+ */
+async function authorNames(orgId: string, refs: Array<{ kind: string | null; id: string | null }>): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const agentSlugs = [...new Set(refs.map(r => r.id).filter((id): id is string => typeof id === 'string' && id.startsWith('agent:')).map(id => id.slice('agent:'.length)))];
+  const userIds = [...new Set(refs.filter(r => r.kind === 'human' && r.id && !r.id.includes(':')).map(r => r.id as string))];
+  const [agents, users] = await Promise.all([
+    agentSlugs.length === 0
+      ? Promise.resolve([])
+      : db.select({ slug: agentSchema.slug, name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), inArray(agentSchema.slug, agentSlugs))),
+    userIds.length === 0
+      ? Promise.resolve([])
+      : db.select({ id: userSchema.id, name: userSchema.name, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, userIds)),
+  ]).catch(() => [[], []] as const);
+  for (const a of agents) {
+    out.set(`agent:${a.slug}`, a.name?.trim() || a.slug);
+  }
+  for (const u of users) {
+    out.set(u.id, u.name?.trim() || u.email);
+  }
+  return out;
 }
 
 /**
