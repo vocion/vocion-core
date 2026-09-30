@@ -20,6 +20,9 @@ type Result = { requestId: number | null; did: string; line: string | null };
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
+/** How many times the sweep starts a failed review again, per task. */
+export const REVIEW_RESTARTS = 2;
+
 /** How long a task may wait on QA with no review running before the sweep looks. */
 export const AWAITING_REVIEW_QUIET_MS = 15 * 60_000;
 
@@ -65,7 +68,7 @@ export async function ciFailed(orgId: string, payload: Meta): Promise<Result> {
   const { buildAgain, findTaskByPr } = await import('@/services/agents/tools/recordVerdict');
   const task = await findTaskByPr(orgId, url);
   const requestId = task ? Number(task.meta.requestId) || null : null;
-  if (!task || String(task.status ?? '') !== 'awaiting_review') {
+  if (!task || !['awaiting_review', 'review_failed'].includes(String(task.status ?? ''))) {
     return { requestId, did: 'no task waiting on this pull request', line: null };
   }
   const headSha = str(payload.headSha);
@@ -95,12 +98,14 @@ export async function ciFailed(orgId: string, payload: Meta): Promise<Result> {
  * @param now - The clock.
  */
 export async function watchAwaitingReview(orgId: string, now: Date = new Date()): Promise<Result[]> {
-  const { and, desc, eq, gt, lt, sql } = await import('drizzle-orm');
+  const { and, desc, eq, gt, inArray, lt, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { automationRunSchema, businessObjectSchema, eventLogSchema } = await import('@/models/Schema');
   const waiting = await db.select({ id: businessObjectSchema.id, meta: businessObjectSchema.metadata, updatedAt: businessObjectSchema.updatedAt })
     .from(businessObjectSchema)
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.status, 'awaiting_review'), lt(businessObjectSchema.updatedAt, new Date(now.getTime() - AWAITING_REVIEW_QUIET_MS))))
+    // A failed review is watched too: QA that could not finish gets another
+    // review, at most REVIEW_RESTARTS times per task, so it can never loop.
+    .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.status, ['awaiting_review', 'review_failed']), lt(businessObjectSchema.updatedAt, new Date(now.getTime() - AWAITING_REVIEW_QUIET_MS))))
     .limit(20);
   const out: Result[] = [];
   for (const task of waiting) {
@@ -111,7 +116,8 @@ export async function watchAwaitingReview(orgId: string, now: Date = new Date())
     }
     const since = task.updatedAt ?? new Date(0);
     const [reviewed] = await db.select({ id: automationRunSchema.id }).from(automationRunSchema).where(and(eq(automationRunSchema.orgId, orgId), sql`${automationRunSchema.input} ->> 'url' = ${url}`, gt(automationRunSchema.startedAt, since))).limit(1);
-    if (reviewed) {
+    const restarts = Number(meta.reviewRestarts ?? 0);
+    if (reviewed || restarts >= REVIEW_RESTARTS) {
       continue;
     }
     const [checks] = await db.select({ payload: eventLogSchema.payload, dedupeKey: eventLogSchema.dedupeKey }).from(eventLogSchema).where(and(eq(eventLogSchema.orgId, orgId), eq(eventLogSchema.type, 'pr.checks_completed'), sql`${eventLogSchema.payload} ->> 'url' = ${url}`)).orderBy(desc(eventLogSchema.id)).limit(1);
@@ -123,7 +129,11 @@ export async function watchAwaitingReview(orgId: string, now: Date = new Date())
       out.push(await ciFailed(orgId, payload).catch(err => ({ requestId: Number(meta.requestId) || null, did: 'ci failed: could not build again', line: (err as Error).message })));
       continue;
     }
-    // CI passed and no review ran: raise the event again so the review starts.
+    // CI passed and no review ran (or the last one could not finish): raise
+    // the event again so the review starts, and count it.
+    await db.update(businessObjectSchema)
+      .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ reviewRestarts: restarts + 1 })}::jsonb` })
+      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, task.id)));
     const { emitEvent } = await import('@/services/EventService');
     await emitEvent({ orgId, type: 'pr.checks_completed', payload, dedupeKey: `${checks.dedupeKey ?? url}:resweep:${now.toISOString().slice(0, 13)}`, invokedBy: 'system:factory-sweep' }).catch(() => undefined);
     out.push({ requestId: Number(meta.requestId) || null, did: 'review started again', line: `QA had not started on ${url}; the review was started again.` });
