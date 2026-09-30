@@ -319,3 +319,35 @@ describe('the release notes', () => {
     expect(report({ ...RELEASE, meta: { ...RELEASE.meta, notes, notesSource: 'human' } }).notes.source).toBe('human');
   });
 });
+
+describe('the live check after the deploy (2026-09-30)', () => {
+  const LIVE_ART = [
+    ...ARTIFACTS,
+    { id: 1301, title: 'Resume banner · desktop · live', kind: 'link', role: 'qa-screenshot', url: 'https://files.example/qa/relay/resume-live.png?sig=2', md: null },
+    { id: 1302, title: 'Offline notice · desktop · live', kind: 'link', role: 'qa-screenshot', url: 'https://files.example/qa/relay/offline-live.png?sig=3', md: null },
+  ];
+  const withLive = (extra: Record<string, unknown>): PageRow => ({ ...RELEASE, meta: { ...RELEASE.meta, ...extra } });
+
+  it('is absent until a live check ran', () => {
+    expect(report().verification.live).toBeNull();
+    expect(report().announcement.image).toBeNull();
+  });
+
+  it('shows each live state with its picture, and why one was not reached', () => {
+    const page = assembleReleaseReport(withLive({
+      liveCheckedAt: '2026-09-28T08:20:00Z',
+      liveSummary: '1 of 2 live states reached',
+      liveEvidence: [
+        { taskId: 52, flow: 'Resume banner', criterion: 'The upload resumes where it stopped.', artifactId: 1301, status: 'reached' },
+        { taskId: 52, flow: 'Offline notice', criterion: 'Losing signal shows a notice.', artifactId: 1302, status: 'not_reached', reason: 'Step 3 (offline) could not run on production.' },
+      ],
+      announcementImageArtifactId: 1301,
+    }), { linked: LINKED, artifacts: LIVE_ART, now: NOW, timeZone: 'UTC' });
+    const live = page.verification.live!;
+
+    expect(live).toMatchObject({ title: 'Live check', line: '1 of 2 live states reached', tone: 'warn', href: 'https://relay.example' });
+    expect(live.shots.map(s => [s.reached, s.imageUrl])).toEqual([[true, 'https://files.example/qa/relay/resume-live.png?sig=2'], [false, 'https://files.example/qa/relay/offline-live.png?sig=3']]);
+    expect(live.shots[1]!.reason).toBe('Step 3 (offline) could not run on production.');
+    expect(page.announcement.image?.url).toBe('https://files.example/qa/relay/resume-live.png?sig=2');
+  });
+});

@@ -2,7 +2,7 @@ import type { DotTone } from '@/components/patterns';
 import type { PagePrompt } from '@/features/dashboard/pages/PagePrompts';
 import type { PageRecordPage } from '@/libs/workspace/pageFields';
 import type { Tone } from '@/libs/workspace/releaseFeed';
-import type { ReleaseCheck, ReleaseLink, ReleaseProofGroup, ReleaseProofRow, ReleaseReport } from '@/services/factory/releaseReport';
+import type { ReleaseCheck, ReleaseLink, ReleaseLiveShot, ReleaseProofGroup, ReleaseProofRow, ReleaseReport } from '@/services/factory/releaseReport';
 import { DetailMeta, DetailPage, FactList, Section, StatusDot } from '@/components/patterns';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
@@ -77,6 +77,43 @@ function ProofRow({ row }: { row: ReleaseProofRow }) {
         </Line>
       )}
     </li>
+  );
+}
+
+/**
+ * The live product after the deploy: each state the post-deploy check
+ * replayed on production, with its picture, and why it was not reached when
+ * it was not.
+ * @param props
+ * @param props.check - The live check.
+ */
+function LiveCheck({ check }: { check: ReleaseCheck & { shots: ReleaseLiveShot[] } }) {
+  return (
+    <div className="py-2" data-testid="release-check-live">
+      <h4 className="text-[13px] font-medium text-foreground">Live check</h4>
+      <div className="mt-1.5 text-sm"><StatusDot tone={DOT[check.tone]} label={<Line href={check.href}>{check.line}</Line>} /></div>
+      {check.at && <div className="ml-3 text-[12px] text-muted-foreground">{check.at}</div>}
+      {check.shots.length > 0 && (
+        <ul className="mt-1 divide-y divide-rule">
+          {check.shots.map(shot => (
+            <li key={shot.key} className="flex items-start gap-3 py-2" data-testid="release-live-shot" data-reached={shot.reached}>
+              <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
+                <StatusDot tone={shot.reached ? 'pass' : 'amber'} label={shot.reached ? 'Live' : 'Not reached'} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px] leading-relaxed break-words text-foreground">{shot.criterion}</p>
+                {shot.reason && <p className="mt-0.5 text-[12px] break-words text-muted-foreground">{shot.reason}</p>}
+              </div>
+              {shot.imageUrl && shot.href && (
+                <Line href={shot.href}>
+                  <img src={shot.imageUrl} alt={`Live: ${shot.criterion}`} loading="lazy" className="block h-14 w-24 shrink-0 rounded-md border border-border object-cover object-top" />
+                </Line>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -201,12 +238,18 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
           </div>
         )}
         <Checks heading="Post-deploy check" checks={[report.verification.deployCheck]} />
+        {report.verification.live && <LiveCheck check={report.verification.live} />}
         <Checks heading="Product impact" checks={report.verification.impact} />
       </Section>
 
       <Section eyebrow="Announcement">
         <div data-testid="release-announcement" data-state={a.state}>
           <StatusDot tone={a.state === 'published' ? 'pass' : a.state === 'not-prepared' ? 'amber' : 'neutral'} label={a.label} />
+          {a.image && (
+            <Line href={a.image.href}>
+              <img src={a.image.url} alt="The live product, as the announcement shows it" loading="lazy" data-testid="release-announcement-image" className="mt-2 block w-full max-w-xl rounded-md border border-border" />
+            </Line>
+          )}
           {a.text && <blockquote className="mt-2 max-w-3xl border-l-2 border-rule pl-3 text-[15px] leading-relaxed">{a.text}</blockquote>}
           {a.publishedLine && <p className="mt-2 text-[13px] text-muted-foreground">{a.publishedLine}</p>}
           {a.reason && <p className="mt-2 text-[13px] text-muted-foreground">{a.reason}</p>}

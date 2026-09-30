@@ -179,5 +179,7 @@ export function evidenceArtifactIdsOf(meta: Record<string, unknown>): number[] {
   const stored = Array.isArray(meta.verificationArtifactIds) ? meta.verificationArtifactIds : [];
   const packs = Array.isArray(meta.evidence) ? meta.evidence as Array<Record<string, unknown>> : [];
   const cited = packs.flatMap(p => (Array.isArray(p?.criteria) ? p.criteria as Array<Record<string, unknown>> : [])).flatMap(c => [c?.artifactId, c?.beforeArtifactId]);
-  return [...new Set([...stored, ...cited].map(Number).filter(n => Number.isSafeInteger(n) && n > 0))];
+  // The live check after the deploy: its shots and the announcement's image.
+  const live = (Array.isArray(meta.liveEvidence) ? meta.liveEvidence as Array<Record<string, unknown>> : []).map(e => e?.artifactId);
+  return [...new Set([...stored, ...cited, ...live, meta.announcementImageArtifactId].map(Number).filter(n => Number.isSafeInteger(n) && n > 0))];
 }

@@ -37,6 +37,56 @@ export type ReleaseChange = {
 
 export type ReleaseCheck = { key: string; title: string; line: string; tone: Tone; at: string | null; href: string | null };
 
+/** One state captured on the live product after the deploy. */
+export type ReleaseLiveShot = { key: string; criterion: string; reached: boolean; reason: string | null; imageUrl: string | null; href: string | null };
+
+/**
+ * The live shot the announcement leads with (`announcementImageArtifactId`,
+ * set by the post-deploy check), when it is a picture in this workspace.
+ * @param meta - The release's metadata.
+ * @param artifacts - The artifacts the page loaded.
+ */
+function announcementImage(meta: Record<string, unknown>, artifacts: ReleaseArtifact[]): { url: string; href: string } | null {
+  const art = artifacts.find(a => a.id === Number(meta.announcementImageArtifactId));
+  return art?.url && art.kind !== 'markdown' ? { url: art.url, href: artifactHref(art.id) } : null;
+}
+
+/**
+ * The post-deploy live check, from what the check wrote on the release
+ * (`liveEvidence`, `liveSummary`, `liveCheckedAt`), or null before one ran.
+ * @param meta - The release's metadata.
+ * @param artifacts - The artifacts the page loaded.
+ * @param tz - The workspace's zone.
+ */
+function liveCheck(meta: Record<string, unknown>, artifacts: ReleaseArtifact[], tz: string): (ReleaseCheck & { shots: ReleaseLiveShot[] }) | null {
+  const rows = Array.isArray(meta.liveEvidence) ? meta.liveEvidence as Array<Record<string, unknown>> : [];
+  if (rows.length === 0 && !str(meta.liveSummary)) {
+    return null;
+  }
+  const byId = new Map(artifacts.map(a => [a.id, a]));
+  const shots = rows.map((e, i): ReleaseLiveShot => {
+    const art = byId.get(Number(e.artifactId));
+    return {
+      key: `live-${i}`,
+      criterion: str(e.criterion) ?? str(e.flow) ?? 'A live state',
+      reached: e.status === 'reached',
+      reason: str(e.reason),
+      imageUrl: art?.url && art.kind !== 'markdown' ? art.url : null,
+      href: art ? artifactHref(art.id) : str(e.url),
+    };
+  });
+  const reached = shots.filter(s => s.reached).length;
+  return {
+    key: 'live',
+    title: 'Live check',
+    line: str(meta.liveSummary) ?? `${reached} of ${shots.length} live states reached`,
+    tone: shots.length > 0 && reached === shots.length ? 'ok' : reached > 0 ? 'warn' : 'bad',
+    at: when(meta.liveCheckedAt, tz),
+    href: str(meta.url),
+    shots,
+  };
+}
+
 /**
  * One criterion on the release page: its words, whether it passed, and the
  * proof one click away — the after shot as a thumbnail (the before shot
@@ -87,9 +137,17 @@ export type ReleaseReport = {
     /** Per feature: the summary line, and under it each criterion with its proof. */
     acceptance: Array<ReleaseCheck & { proof: ReleaseProofGroup | null }>;
     deployCheck: ReleaseCheck;
+    /**
+     * The live product after the deploy (post-deploy QA): each feature's
+     * states replayed on production, signed in with the product's QA sign-in,
+     * and the picture of each. Null until a live check has run.
+     */
+    live: (ReleaseCheck & { shots: ReleaseLiveShot[] }) | null;
     impact: ReleaseCheck[];
   };
   announcement: ReleaseReading['announcement'] & {
+    /** The live screenshot the announcement leads with, when the live check found one. */
+    image: { url: string; href: string } | null;
     /** The one move the state offers, or null. */
     action: ReleaseAction | null;
     /** Why the move is held, when it is — a release that is down is not announced. */
@@ -461,8 +519,8 @@ export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseL
     attention: r.attention,
     changes,
     notes: releaseNotes(meta, r),
-    verification: { acceptance, deployCheck, impact },
-    announcement,
+    verification: { acceptance, deployCheck, live: liveCheck(meta, options.artifacts ?? [], tz), impact },
+    announcement: { ...announcement, image: announcementImage(meta, options.artifacts ?? []) },
     included,
     activity,
     technical: {
