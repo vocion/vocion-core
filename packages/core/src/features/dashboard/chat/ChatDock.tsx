@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { InlineTitle } from '@/components/ui/inline-title';
 import { PanelCloseButton } from '@/components/ui/panel-close-button';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetGrabber, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewportBelow } from '@/components/ui/useMobile';
 import { CommentChips } from '@/features/comments/AnchoredComments';
@@ -1009,10 +1009,17 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
               closeClassName={previewOpen ? 'hidden' : 'top-10 right-3 -translate-y-1/2'}
               aria-label={ariaLabel}
             >
-              {/* The grabber. It is not a control — the sheet is dismissed by
-                  its close button or the overlay — but it is what tells a
-                  reader at a glance which edge this surface belongs to. */}
-              <div aria-hidden className="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-full bg-border" />
+              {/* The grabber: it says which edge the sheet belongs to, and
+                  dragging it down closes the sheet, as a phone expects. */}
+              <SheetGrabber
+                // A 28px band to drag, laid out in the old grabber's 16px,
+                // so the header row and its close stay where they were.
+                className="-mb-3"
+                onDismiss={() => {
+                  closePreview();
+                  setCollapsedPersisted(true);
+                }}
+              />
               <SheetHeader className="sr-only">
                 <SheetTitle>{ariaLabel}</SheetTitle>
                 {/* One identity (§9.10): the sheet is described as the workspace, never an agent. */}
