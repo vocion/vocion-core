@@ -785,14 +785,16 @@ async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, 
  * @param externalRef - The downstream record to link, when approval supplied one.
  * @param externalRef.system
  * @param externalRef.id
+ * @param origin - Where it was asked for (`originMeta`); written as `metadata.origin` unless the record already says.
  */
 async function decideCandidateObject(
   ctx: ActionContext,
   runId: number,
   status: string,
   externalRef?: { system: string; id: string },
+  origin?: { conversationId: number; userId: string | null; at: string } | null,
 ): Promise<number | null> {
-  const { and, eq } = await import('drizzle-orm');
+  const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
 
@@ -800,6 +802,10 @@ async function decideCandidateObject(
   if (externalRef) {
     updates.externalSystem = externalRef.system;
     updates.externalId = externalRef.id;
+  }
+  if (origin) {
+    // Kept when the record already says where it came from.
+    updates.metadata = sql`jsonb_build_object('origin', ${JSON.stringify(origin)}::jsonb) || coalesce(${businessObjectSchema.metadata}, '{}'::jsonb)`;
   }
 
   const [updated] = await db
@@ -1134,6 +1140,7 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
    * @param input - The decided candidate.
    */
   async execute(ctx, input) {
+    const { originMeta } = await import('@/services/objects/objectCreated');
     const objectId = await decideCandidateObject(
       ctx,
       // `runId` rides the context on execute; without it there is no row to
@@ -1141,6 +1148,8 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
       ctx.runId ?? -1,
       CANDIDATE_STATUS.approved,
       ctx.externalRef,
+      // The conversation that asked for it, on the record, in the same write.
+      originMeta(ctx.origin ?? null),
     );
 
     if (objectId === null) {

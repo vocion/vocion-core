@@ -874,6 +874,24 @@ describe('deciding a candidate', () => {
     });
   }
 
+  it('a record filed from a conversation carries where it came from, in the same write (Chris, 2026-09-30, #269)', async () => {
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate(),
+      origin: { conversationId: 812, userId: 'user_dana', byPerson: true },
+      proposal: { confidence: 0.4, suggestedDecision: 'approve', suggestedDecisionReason: 'Filed from the thread.' },
+    } as never);
+
+    await executeAction(proposed.runId, ORG, { reviewedBy: 'user_moderator' });
+
+    const [object] = await objectsFor();
+
+    expect(object!.metadata).toMatchObject({ origin: { conversationId: 812, userId: 'user_dana' } });
+    expect(typeof (object!.metadata as { origin: { at: unknown } }).origin.at).toBe('string');
+  });
+
   it('approving marks the row approved and writes nowhere', async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);

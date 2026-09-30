@@ -25,6 +25,30 @@ export type ObjectOrigin = {
 };
 
 /**
+ * WHERE A RECORD CAME FROM, KEPT ON THE RECORD (Chris, 2026-09-30, #269: the
+ * chat that started a request was on no page, because the only link was on
+ * the action that filed it). A record filed from a conversation carries
+ * `metadata.origin` from the write that made it; `relatedOf` reads it first
+ * and falls back to the filing action run for records filed before this.
+ */
+export type RecordOriginMeta = { conversationId: number; userId: string | null; at: string };
+
+/**
+ * The `metadata.origin` a create path writes, or null when no conversation
+ * asked for the record.
+ * @param origin - Where the create path says it came from.
+ * @param origin.conversationId - The thread.
+ * @param origin.userId - The person whose turn it was, or the actor.
+ * @param at - When.
+ */
+export function originMeta(origin: { conversationId?: number | null; userId?: string | null } | null | undefined, at: Date = new Date()): RecordOriginMeta | null {
+  const id = origin?.conversationId;
+  return typeof id === 'number' && Number.isSafeInteger(id) && id > 0
+    ? { conversationId: id, userId: origin?.userId?.trim() || null, at: at.toISOString() }
+    : null;
+}
+
+/**
  * Whether an actor id names a person rather than a machine.
  * @param actor - A user id, `agent:<slug>`, `token:<id>`, `system`, …
  */
