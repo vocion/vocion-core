@@ -14,6 +14,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/services/EventService', () => ({
   emitEvent: vi.fn(async () => ({ eventId: 1, deduped: false, triggered: [] })),
 }));
+// No GitHub App installation covers these repositories: the source's own token answers.
+vi.mock('@/services/github/GithubAppService', () => ({
+  installationTokenForRepo: vi.fn(async () => ({ ok: false, reason: 'no_installation', message: 'none', needsUpgrade: false, installationId: null })),
+}));
 
 const { emitEvent } = await import('@/services/EventService');
 const { platformForConnectorSlug } = await import('@/libs/platforms/registry');

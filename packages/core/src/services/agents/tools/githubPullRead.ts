@@ -32,7 +32,39 @@ export function parsePullUrl(url: string): { owner: string; repo: string; number
   return m ? { owner: m[1]!, repo: m[2]!, number: Number(m[3]) } : null;
 }
 
+/**
+ * THE ONE ENTRY POINT for a GitHub token that acts on a repository in a
+ * workspace (backlog 053). Every caller — the PR reads, the merge, the 049
+ * check-log reads and re-runs, the reconciler, the runner — asks here.
+ *
+ * The GitHub App first: the workspace's installation that covers the
+ * repository mints an installation token for that repository alone, at the
+ * workspace's tier, cached until five minutes before it expires. Only when no
+ * installation covers it does the legacy path answer: the token vaulted on a
+ * `github` source that lists the repository, kept for the cutover and removed
+ * once every workspace has installed the app.
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ */
 export async function tokenForRepo(orgId: string, fullName: string): Promise<string | null> {
+  const { installationTokenForRepo } = await import('@/services/github/GithubAppService');
+  const minted = await installationTokenForRepo(orgId, fullName).catch((err: Error) => {
+    console.warn('[tokenForRepo] the GitHub App could not mint a token', { orgId, repo: fullName, error: err.message });
+    return null;
+  });
+  if (minted?.ok) {
+    return minted.token;
+  }
+  return legacySourceToken(orgId, fullName);
+}
+
+/**
+ * The cutover path: the token vaulted on an enabled `github` source that lists
+ * the repository.
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ */
+async function legacySourceToken(orgId: string, fullName: string): Promise<string | null> {
   const rows = await db
     .select({ config: knowledgeSourceSchema.configJson, apiTokenId: knowledgeSourceSchema.apiTokenId })
     .from(knowledgeSourceSchema)

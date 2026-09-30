@@ -41,8 +41,8 @@ export type GithubSourceRef = {
 export type GithubWebhookDeps = {
   /** Every enabled `github` source, across orgs, whose `repos` names this repository. */
   sourcesForRepo: (repo: string) => Promise<GithubSourceRef[]>;
-  /** The source's vaulted token, or undefined when it holds none. */
-  tokenFor: (source: GithubSourceRef) => Promise<string | undefined>;
+  /** A token for the repository: the GitHub App's installation first, the source's vaulted token second; undefined when neither. */
+  tokenFor: (source: GithubSourceRef, repo: string) => Promise<string | undefined>;
   emit: (orgId: string, sourceId: number, event: GithubEvent) => Promise<void>;
 };
 
@@ -80,7 +80,12 @@ async function defaultDeps(): Promise<GithubWebhookDeps> {
       }
       return refs;
     },
-    async tokenFor(source) {
+    async tokenFor(source, repo) {
+      const { installationTokenForRepo } = await import('@/services/github/GithubAppService');
+      const minted = await installationTokenForRepo(source.orgId, repo).catch(() => null);
+      if (minted?.ok) {
+        return minted.token;
+      }
       const credentials = await getCredentialsForConnector({ orgId: source.orgId, connectorSlug: 'github', apiTokenId: source.apiTokenId }).catch(() => undefined);
       return tokenFromCredentials(credentials);
     },
@@ -165,7 +170,7 @@ export async function handleGithubWebhook(
     const events = mapping.events.filter(event => event.type === 'run.failed' || matchesBranchPrefix(String(event.payload.branch ?? ''), source.config.branchPrefix));
     const suites = mapping.checkSuiteFor.filter(suite => matchesBranchPrefix(suite.branch, source.config.branchPrefix));
     if (suites.length > 0) {
-      const token = await resolved.tokenFor(source);
+      const token = await resolved.tokenFor(source, repo);
       if (token) {
         for (const suite of suites) {
           const event = await hydrateCheckSuite(token, source.config.baseUrl, repo, suite.number);

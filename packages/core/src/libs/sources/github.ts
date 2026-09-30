@@ -331,6 +331,22 @@ export async function inspectGithubToken(input: { token: string; repos: string[]
   };
 }
 
+/**
+ * The GitHub App's token for one repository in a workspace, or null when no
+ * installation covers it (or the mint failed, which the installation row records).
+ * @param orgId - The workspace.
+ * @param repo - `owner/name`.
+ */
+async function appTokenFor(orgId: string, repo: string): Promise<string | null> {
+  try {
+    const { installationTokenForRepo } = await import('@/services/github/GithubAppService');
+    const minted = await installationTokenForRepo(orgId, repo);
+    return minted.ok ? minted.token : null;
+  } catch {
+    return null;
+  }
+}
+
 export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
   slug: 'github',
   name: 'GitHub',
@@ -358,14 +374,30 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
 
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = githubConfigSchema.parse(ctx.config);
-    const token = tokenFromCredentials(ctx.credentials);
-    if (!token) {
-      throw new Error('GitHub connector requires an access token in credentials.token');
+    // The GitHub App's installation token for each repository it covers
+    // (backlog 053), the source's own vaulted token for the rest while the
+    // cutover lasts. A source with neither for any repository is misconfigured
+    // as a whole; one repository without a connection is reported and skipped.
+    const legacy = tokenFromCredentials(ctx.credentials);
+    const tokens = new Map<string, string>();
+    for (const repo of cfg.repos) {
+      const token = (cfg.baseUrl === GITHUB_API_URL ? await appTokenFor(ctx.orgId, repo) : null) ?? legacy;
+      if (token) {
+        tokens.set(repo, token);
+      }
     }
-    const client = createGithubClient({ token, baseUrl: cfg.baseUrl });
+    if (tokens.size === 0) {
+      throw new Error('GitHub connector has no access: install the Vocion GitHub App on these repositories from Connections, or store an access token in credentials.token');
+    }
     const since = pollWindowStart(ctx.since, cfg.lookbackDays);
 
     for (const repo of cfg.repos) {
+      const token = tokens.get(repo);
+      if (!token) {
+        ctx.onProgress?.({ kind: 'error', uri: repo, message: `No GitHub connection covers ${repo}: install the Vocion GitHub App on it from Connections.` });
+        continue;
+      }
+      const client = createGithubClient({ token, baseUrl: cfg.baseUrl });
       let poll: RepoPoll;
       try {
         poll = await pollRepository(client, repo, cfg, since, (uri, message) => ctx.onProgress?.({ kind: 'skipped', uri, message }));

@@ -4851,3 +4851,73 @@ export const notificationPreferenceSchema = pgTable(
     primaryKey({ columns: [table.userId, table.orgId] }),
   ],
 );
+
+/**
+ * The deployment's GitHub App (backlog 053), created by GitHub's app-manifest
+ * flow from Connections. The private key, webhook secret and client secret
+ * travel as one vault-encrypted JSON blob (`services/github/GithubAppService`);
+ * nothing here is a usable credential in the clear.
+ */
+export const githubAppSchema = pgTable(
+  'github_app',
+  {
+    id: serial('id').primaryKey(),
+    appId: bigint('app_id', { mode: 'number' }).notNull(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    clientId: text('client_id').notNull(),
+    ownerLogin: text('owner_login'),
+    htmlUrl: text('html_url'),
+    permissions: jsonb('permissions').$type<Record<string, string>>().default({}).notNull(),
+    events: jsonb('events').$type<string[]>().default([]).notNull(),
+    secretCiphertext: text('secret_ciphertext').notNull(),
+    secretNonce: text('secret_nonce').notNull(),
+    secretAuthTag: text('secret_auth_tag').notNull(),
+    secretDekId: integer('secret_dek_id').notNull(),
+    /** `active` | `retired` — a deployment holds one active app. */
+    status: text('status').default('active').notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('github_app_app_id_uq').on(table.appId),
+  ],
+);
+
+/**
+ * An installation of the deployment's GitHub App, bound to one workspace: the
+ * account it is installed on, the repositories its owner chose, what GitHub
+ * granted, and the permission tier this workspace mints tokens at (`base`, or
+ * `pipeline` when the Release engineer may change CI). Tokens are minted per
+ * call and never stored.
+ */
+export const githubInstallationSchema = pgTable(
+  'github_installation',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    appId: bigint('app_id', { mode: 'number' }).notNull(),
+    installationId: bigint('installation_id', { mode: 'number' }).notNull(),
+    accountLogin: text('account_login').notNull(),
+    accountType: text('account_type'),
+    /** GitHub's own word: `all` repositories of the account, or `selected`. */
+    repositorySelection: text('repository_selection').default('selected').notNull(),
+    /** `owner/name` of each selected repository; empty under `all`. */
+    repos: jsonb('repos').$type<string[]>().default([]).notNull(),
+    permissions: jsonb('permissions').$type<Record<string, string>>().default({}).notNull(),
+    /** `base` | `pipeline`. */
+    tier: text('tier').default('base').notNull(),
+    /** `active` | `suspended` | `removed`. */
+    status: text('status').default('active').notNull(),
+    /** Why the last mint failed, in GitHub's words, until one succeeds. */
+    lastError: text('last_error'),
+    connectedBy: text('connected_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('github_installation_org_installation_uq').on(table.orgId, table.installationId),
+    index('github_installation_installation_idx').on(table.installationId),
+  ],
+);
