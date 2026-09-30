@@ -439,6 +439,24 @@ async function escalate(orgId: string, request: FactoryRecord, why: string, unbl
     await linkAskGroup(orgId, priorDecided.id, priorDecided.groupKey ?? `factory-recovery:${request.id}`);
   }
   await updateRecovery(orgId, request.id, s => logLine({ ...s, stage: 'stopped', line, askId: ask.id }, `Stopped after ${s.attempts.length} attempt${s.attempts.length === 1 ? '' : 's'}: ${line} Ask #${ask.id} is with a person.`, now.toISOString()));
+  // The typed moment a person is needed (backlog 048): what the plugin's
+  // "needs a person" notification is declared on. After the ask exists, so a
+  // notification never points at a question that is not there; deduped on
+  // the request and the ask, so a sweep refreshing this stop raises nothing.
+  const { emitEvent, FACTORY_STOPPED } = await import('@/services/EventService');
+  const payload: import('@/services/EventService').FactoryStoppedPayload = {
+    requestId: request.id,
+    title: request.title,
+    askId: ask.id,
+    why: why.replace(/[.\s]+$/, ''),
+    unblock,
+    line,
+    attempts: state.attempts.length,
+    failure: failure?.class ?? null,
+  };
+  await emitEvent({ orgId, type: FACTORY_STOPPED, payload, dedupeKey: `${FACTORY_STOPPED}:${request.id}:${ask.id}`, invokedBy: `factory:${PM}`, dispatchMode: 'auto' }).catch((err) => {
+    console.warn('[factory] could not raise factory.stopped', { requestId: request.id, error: (err as Error).message });
+  });
   return line;
 }
 

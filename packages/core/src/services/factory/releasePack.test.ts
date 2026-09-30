@@ -17,10 +17,19 @@ const draftFilter = (parse(readFileSync(fromRepoRoot('packages/core/templates/pl
 async function linkedEvents(orgId: string) {
   return db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, orgId), eq(eventLogSchema.type, 'release.linked')));
 }
-const { linkRelease, relinkRelease, shippedPrs } = await import('./releasePack');
+const { featureHeadline, linkRelease, relinkRelease, shippedPrs } = await import('./releasePack');
 
 const ORG = 'org_release_pack';
 const PR = 'https://github.com/acme/app/pull';
+
+describe('featureHeadline', () => {
+  it('names one feature, two joined, and more as the first and a count — so a sentence agrees', () => {
+    expect(featureHeadline([])).toEqual({ headline: null, liveVerb: 'is live' });
+    expect(featureHeadline(['Light theme toggle'])).toEqual({ headline: 'Light theme toggle', liveVerb: 'is live' });
+    expect(featureHeadline(['Light theme toggle', 'Dark mode'])).toEqual({ headline: 'Light theme toggle and Dark mode', liveVerb: 'are live' });
+    expect(featureHeadline(['A', 'B', ' ', 'C'])).toEqual({ headline: 'A and 2 more', liveVerb: 'are live' });
+  });
+});
 
 describe('shippedPrs', () => {
   it('ships what the release names, minus what a revert in its own notes undid (#66, 2026-09-27)', () => {
@@ -83,7 +92,7 @@ describe('linkRelease', () => {
     const events = await linkedEvents(ORG);
 
     expect(events).toHaveLength(1);
-    expect(events[0]!.payload).toEqual({ releaseId: release!.id, product: null, userFacing: true, features: 1, internal: 0, announcementState: 'not-prepared', requestIds: [request!.id], taskIds: [task!.id] });
+    expect(events[0]!.payload).toEqual({ releaseId: release!.id, product: null, userFacing: true, features: 1, internal: 0, announcementState: 'not-prepared', requestIds: [request!.id], taskIds: [task!.id], headline: 'Request a file', liveVerb: 'is live' });
     expect(matchesFilter(events[0]!.payload, draftFilter)).toBe(true);
   });
 

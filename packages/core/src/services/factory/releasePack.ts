@@ -291,8 +291,34 @@ async function announceWhatItCanSay(orgId: string, releaseId: number, ids: { req
     announcementState: state,
     requestIds: ids.requestIds,
     taskIds: ids.taskIds,
+    // A release with no linked feature that still changed something people
+    // use is named by those changes, then by its own title.
+    ...(() => {
+      const named = featureHeadline(reading.features.length > 0 ? reading.features.map(f => f.title) : reading.otherChanges.map(c => c.plain));
+      return { ...named, headline: named.headline ?? (row.title.trim() || null) };
+    })(),
   };
   await emitEvent({ orgId, type: RELEASE_LINKED, payload, dedupeKey: `release.linked:${releaseId}`, invokedBy: 'factory:release-pack', ...(dispatchMode ? { dispatchMode } : {}) });
+}
+
+/**
+ * The shipped features by name, for a sentence about the release: one title,
+ * two joined with "and", more as the first and a count — the way a release's
+ * row names a deploy of several. Pure; record titles placed, never read.
+ * @param titles - The linked features' titles, in the release's order.
+ */
+export function featureHeadline(titles: readonly string[]): { headline: string | null; liveVerb: 'is live' | 'are live' } {
+  const named = titles.map(t => t.trim()).filter(Boolean);
+  if (named.length === 0) {
+    return { headline: null, liveVerb: 'is live' };
+  }
+  if (named.length === 1) {
+    return { headline: named[0]!, liveVerb: 'is live' };
+  }
+  if (named.length === 2) {
+    return { headline: `${named[0]} and ${named[1]}`, liveVerb: 'are live' };
+  }
+  return { headline: `${named[0]} and ${named.length - 1} more`, liveVerb: 'are live' };
 }
 
 export type RelinkReport = {

@@ -230,6 +230,13 @@ describe('a failed run recovers', () => {
 
     expect(ask).toMatchObject({ status: 'open', kind: 'approval', sourceRef: expect.stringMatching(new RegExp(`^factory-recovery:${r.id}:`)) });
     expect(ask!.body).toContain('3. Build (run #');
+
+    // The typed moment a person is needed (backlog 048): raised once, after
+    // the ask exists, carrying what the "needs a person" notification says.
+    const stops = await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.stopped'), eq(eventLogSchema.dedupeKey, `factory.stopped:${r.id}:${ask!.id}`)));
+
+    expect(stops).toHaveLength(1);
+    expect(stops[0]!.payload).toMatchObject({ requestId: r.id, title: 'The invite email links to the wrong room', askId: ask!.id, attempts: 3, why: expect.stringContaining('the required checks failed (test)') });
   });
 
   it('plans first when the worker refused for want of a plan', async () => {

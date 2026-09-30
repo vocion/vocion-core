@@ -119,6 +119,17 @@
 #   never arrived; `deploy-run-failed` makes a red deploy branch the seat's
 #   incident; `github.rerun_failed_jobs` is done for you on the ladder.
 #
+# 2.26.0 — notifications (backlog 048). Exactly two moments tell a person,
+#   and nothing else in a day of factory work does (Chris, 2026-09-30: "we
+#   want to be selective … so that it doesn't get too noisy"): a feature
+#   NEEDS A PERSON (`factory.stopped`, raised when the factory stops and puts
+#   its one ask in front of someone — the You line's "Needs you") and a
+#   feature was RELEASED (`release.linked` for a release where something
+#   people use changed). Each opens the record's own page — the feature page,
+#   the release page — and reaches the workspace's accountable person in-app,
+#   on their iPhone and in Chrome by default, by email or Slack when they
+#   turn those on.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -129,7 +140,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.25.0
+version: 2.26.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
@@ -144,3 +155,26 @@ recommend:
 # The plugin's rows sit under their own heading (its pages already say so); a core
 # route it offers — Evals, the reference sets — sits under that heading's "More ›".
 nav: {section: Software factory, order: 0}
+# The two moments a person hears about (2.26.0). Few on purpose: an event not
+# named here notifies nobody. `{field}` is filled from the event's payload.
+notifications:
+  - kind: needs-person
+    label: Needs a person
+    description: The factory stopped on a feature and one decision is with you.
+    event: factory.stopped
+    who: accountable
+    title: '{title} needs you'
+    body: '{why}. What would unblock it: {unblock}.'
+    record: {type: request, id: '{requestId}'}
+    # One notification per stop: a later stop on the same feature, after a
+    # person acted, is a new ask and a new notification.
+    dedupe: 'request:{requestId}:ask:{askId}'
+  - kind: released
+    label: Released
+    description: A feature shipped and is live.
+    event: release.linked
+    filter: {userFacing: true}
+    who: accountable
+    title: 'Released: {headline} {liveVerb}'
+    body: 'Live in {product}.'
+    record: {type: release, id: '{releaseId}'}
