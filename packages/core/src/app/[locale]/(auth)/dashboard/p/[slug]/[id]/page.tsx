@@ -10,6 +10,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
+import { withDuplicateFact } from '@/services/objects/duplicateCheck';
 import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordHref } from '@/services/objects/recordHref';
 import { relatedOf, relatedWrites } from '@/services/objects/related';
@@ -131,7 +132,7 @@ export default async function WorkspaceReportPage(props: {
   // The three lines, with the record's own page as their base — the same
   // read the API, the pane and the chat draw (`services/objects/recordStatus.ts`).
   const status = report
-    ? featureStatusOf(report, { objectType: manifest.report.subject, href: await recordHref(orgId, { objectType: manifest.report.subject, id: recordId }) }, now)
+    ? await withDuplicateFact(orgId, featureStatusOf(report, { objectType: manifest.report.subject, href: await recordHref(orgId, { objectType: manifest.report.subject, id: recordId }) }, now))
     : undefined;
   // The record's version closes the metadata line, and carries the page's
   // re-read while anything runs (one chip, not a History row and a live row).

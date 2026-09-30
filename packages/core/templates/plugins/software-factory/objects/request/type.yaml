@@ -21,6 +21,13 @@ schema:
   # When a question about a request stops being a question (backlog 039): a
   # Review item asking about one closes itself once the request ends here.
   x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
+  # THE SAME ASK TWICE (core: services/objects/duplicateCheck.ts, backlog 044).
+  # #268 was filed from chat a minute after #265 asked for the same thing and
+  # got its own Build card. Now, when a request is filed, a model reads the
+  # product's open requests (and ones closed in the last two weeks) and, sure
+  # at the bar, links it with `duplicateOf`, done for you with Undo; the
+  # intake starts nothing for it. Below the bar nothing is written or said.
+  x-duplicate-check: {field: duplicateOf, within: [product], compare: [outcome, story, body], bar: 0.8, settledDays: 14}
   # WHO ANSWERS ON ITS PAGE (core: services/agents/router.ts pageOwnerDecision).
   # A chat opened on a request's page is the product manager's, whatever the
   # message's keywords score, unless the person names another agent

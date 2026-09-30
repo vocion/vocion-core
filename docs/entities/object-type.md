@@ -107,6 +107,29 @@ schema:
   x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
 ```
 
+## Duplicates
+
+A type asks for a check when one of its records is filed with `x-duplicate-check`: the
+integer field that links a duplicate to the record it repeats, the fields a candidate must
+share, and what is read beside the title. When a record is filed
+(`services/objects/duplicateCheck.ts`), the type's records filed before it that share those
+values, are not duplicates themselves, and are open or settled within `settledDays` are
+shortlisted (trigram overlap first, then the newest), and one classifier call returns typed
+`{duplicateOf, confidence, reason}`. At or above `bar` (default 0.8, the done-for-you bar) the
+link is written through `objects.update_meta`, done for you, with Undo on the record's history
+and on its status line, which then reads "Duplicate of #N". Below it nothing is written or said.
+It never blocks filing: a failed read, an id the model was not shown, or a link a person undid
+before all leave the record as filed.
+
+```yaml
+# objects/request/type.yaml
+schema:
+  type: object
+  x-duplicate-check: {field: duplicateOf, within: [product], compare: [outcome, story, body], bar: 0.8, settledDays: 14}
+```
+
+The software factory's intake runs it before anything is built; a linked request starts nothing.
+
 ## Connected records
 
 What a record is connected to is drawn in one **Related** block on its page and in its preview (`components/patterns/Related`), read by one call (`services/objects/related.relatedOf`). A type says what it is connected to with `x-related` on its schema, in terms of what the records already say. Core draws two relations for every record without being told: the chat that started it (`metadata.origin`, written when a record is filed from a conversation), which always comes first, and the artifacts attached to it. A type that declares nothing is connected to whatever its link fields (`x-display: {to: <type>}`) name.

@@ -130,6 +130,12 @@
 #   on their iPhone and in Chrome by default, by email or Slack when they
 #   turn those on.
 #
+# 2.27.0 — the same ask twice (backlog 044). A request filed is read against
+#   the product's open requests (and ones closed in the last two weeks) by a
+#   model; sure at the bar, it is linked with `duplicateOf`, done for you with
+#   Undo, and the intake starts nothing for it (`x-duplicate-check` on the
+#   request type). Below the bar nothing is written or said.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -140,7 +146,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.26.0
+version: 2.27.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

@@ -9,6 +9,9 @@ import { page } from 'vitest/browser';
  * line chip? Microcard?"). Fixtures are fictional.
  */
 
+const undoAction = vi.hoisted(() => vi.fn(async () => ({ ok: true, status: 'undone' })));
+vi.mock('@/libs/Orpc', () => ({ client: { review: { undoAction } } }));
+
 const { LIVE_POLL_MS, RecordMicrocard, WorkStatus } = await import('./WorkStatus');
 
 const planning: RecordStatus = {
@@ -113,5 +116,34 @@ describe('the three lines', () => {
 
     await expect.element(page.getByTestId('work-status-now')).toHaveTextContent('Nothing running');
     await expect.element(page.getByRole('link', { name: 'Build it' })).toHaveAttribute('href', '/dashboard/p/feature/265#feature-decide');
+  });
+});
+
+describe('a duplicate (backlog 044)', () => {
+  const duplicate: RecordStatus = {
+    ...approved,
+    record: { ...approved.record, id: 268 },
+    stage: { key: 'duplicate', label: 'Duplicate of #265', tone: 'muted' },
+    next: null,
+    duplicate: { of: { id: 265, title: 'Fix the header overflow', href: '/dashboard/p/feature/265' }, reason: 'Both ask that the header stops overflowing on a phone.', confidence: 0.93, undoRunId: 5401 },
+  };
+
+  it('says which record it repeats and why, in one line, with Undo', async () => {
+    await render(<WorkStatus status={duplicate} />);
+
+    await expect.element(page.getByTestId('work-status-duplicate')).toHaveTextContent('Same as #265 Fix the header overflow — Both ask that the header stops overflowing on a phone.');
+    await expect.element(page.getByRole('link', { name: '#265 Fix the header overflow' })).toHaveAttribute('href', '/dashboard/p/feature/265');
+
+    await page.getByTestId('work-status-duplicate-undo').click();
+
+    expect(undoAction).toHaveBeenCalledWith({ id: 5401 });
+  });
+
+  it('reads as a duplicate on the microcard, with Undo beside it', async () => {
+    fetchMock.mockResolvedValue(answer(duplicate));
+    await render(<RecordMicrocard record={{ ...filed, id: 268 }} />);
+
+    await expect.element(page.getByTestId('record-microcard-stage')).toHaveTextContent('· Duplicate of #265');
+    await expect.element(page.getByTestId('work-status-duplicate-undo')).toBeVisible();
   });
 });

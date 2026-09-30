@@ -25,6 +25,8 @@ export const FEATURES = {
   FEEDBACK_CLASSIFY: 'feedback.classify',
   /** Haiku-based duplicate check between a proposed rule and existing ones. */
   FEEDBACK_DEDUPE: 'feedback.dedupe',
+  /** Whether a record just filed repeats one on file (`services/objects/duplicateCheck.ts`). */
+  RECORD_DUPLICATE: 'record.duplicate',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
   /**

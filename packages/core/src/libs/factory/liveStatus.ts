@@ -89,6 +89,17 @@ export type RecordStatus = {
    * and re-reads on a change instead of polling (backlog 050).
    */
   follow?: string[];
+  /**
+   * The record this one repeats, when its type links duplicates
+   * (`x-duplicate-check`) and the link is set: the other record, why, and the
+   * run that wrote it, for Undo (null when a person set it by hand).
+   */
+  duplicate?: {
+    of: { id: number; title: string; href: string };
+    reason: string | null;
+    confidence: number | null;
+    undoRunId: number | null;
+  } | null;
 };
 
 /** A worker run, narrowed to what the Now line reads. */

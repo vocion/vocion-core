@@ -557,6 +557,17 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   if (!request || !isOpen(request)) {
     return skip(id, 'not an open request');
   }
+  // THE SAME ASK TWICE (#265/#268, 2026-09-30): before anything is built,
+  // a model reads whether this repeats a request already on file. Linked
+  // (done for you, Undo on the record), its work is the other one's and
+  // nothing starts; below the bar nothing is said and intake carries on.
+  const { checkNewRecordForDuplicate } = await import('@/services/objects/duplicateCheck');
+  const duplicate = await checkNewRecordForDuplicate(orgId, payload);
+  if (duplicate.linked && duplicate.line) {
+    const line = duplicate.line;
+    await updateRecovery(orgId, id, s => logLine(s, line, new Date().toISOString()));
+    return { requestId: id, did: `duplicate:${duplicate.did}`, line: duplicate.line };
+  }
   const work = await workFor(orgId, id);
   if (work.tasks.length > 0 || work.waiting) {
     return skip(id, 'work already exists for it');

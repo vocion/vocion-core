@@ -2,13 +2,14 @@
 
 import type { DotTone } from '@/components/patterns';
 import type { LiveRun, RecordStatus, TurnRecord } from '@/libs/factory/liveStatus';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Loader2, RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StatusDot } from '@/components/patterns';
-import { useVersionWritten } from '@/features/dashboard/versions/versionEvents';
+import { announceVersionWritten, useVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { useLive } from '@/hooks/useLive';
 import { elapsedLabel } from '@/libs/factory/liveStatus';
 import { liveTopic } from '@/libs/live/topics';
+import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 import { PreviewOpen } from './FeatureDrawerLink';
 
@@ -163,6 +164,57 @@ function NowLine({ live, now }: { live: LiveRun | null; now: number }) {
 }
 
 /**
+ * Undo on a link the duplicate check wrote (`services/objects/duplicateCheck.ts`):
+ * the record goes back to how it was filed, and says so where it is drawn.
+ * @param props
+ * @param props.recordId - The record the link is on.
+ * @param props.runId - The run that wrote it.
+ */
+function UndoDuplicate({ recordId, runId }: { recordId: number; runId: number }) {
+  const [state, setState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const undo = async () => {
+    setState({ busy: true, error: null });
+    try {
+      await client.review.undoAction({ id: runId });
+      // Undo is a write to the record: every surface drawing it re-reads.
+      announceVersionWritten({ ref: { type: 'object', id: String(recordId) }, from: null, to: 0 });
+      setState({ busy: false, error: null });
+    } catch (err) {
+      setState({ busy: false, error: (err as Error).message });
+    }
+  };
+  return (
+    <>
+      <button type="button" disabled={state.busy} onClick={() => void undo()} className="inline-flex shrink-0 items-center gap-1 text-foreground underline underline-offset-2" data-testid="work-status-duplicate-undo">
+        {state.busy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RotateCcw className="size-3" aria-hidden />}
+        Undo
+      </button>
+      {state.error && <span className="basis-full text-destructive" data-testid="work-status-duplicate-error">{`Could not undo: ${state.error}`}</span>}
+    </>
+  );
+}
+
+/**
+ * THE DUPLICATE LINE: which record this one repeats, why, and Undo — one line
+ * wherever the status is drawn, instead of a Build nobody should press.
+ * @param props
+ * @param props.status - The status carrying the duplicate fact.
+ */
+function DuplicateLine({ status }: { status: RecordStatus & { duplicate: NonNullable<RecordStatus['duplicate']> } }) {
+  const d = status.duplicate;
+  return (
+    <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-muted-foreground" data-testid="work-status-duplicate" data-duplicate-of={d.of.id}>
+      <span>
+        {'Same as '}
+        <a href={d.of.href} className="font-medium text-foreground underline underline-offset-2">{`#${d.of.id} ${d.of.title}`}</a>
+        {d.reason ? ` — ${d.reason}` : ''}
+      </span>
+      {d.undoRunId !== null && <UndoDuplicate recordId={status.record.id} runId={d.undoRunId} />}
+    </p>
+  );
+}
+
+/**
  * THE THREE LINES, with the stage above them.
  * @param props
  * @param props.status - The status (server-read, or kept current by {@link useRecordStatus}).
@@ -181,6 +233,7 @@ export function WorkStatus({ status, youAction, className, hideStage }: { status
           <StatusDot tone={TONE[status.stage.tone]} label={<span className="font-semibold">{status.stage.label}</span>} />
         </p>
       )}
+      {status.duplicate && <DuplicateLine status={{ ...status, duplicate: status.duplicate }} />}
       <div className={row}>
         <span className={key}>You</span>
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" data-testid="work-status-you">
@@ -258,6 +311,7 @@ export function RecordMicrocard({ record }: { record: TurnRecord }) {
           {!changed && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
         </span>
       </PreviewOpen>
+      {status?.duplicate?.undoRunId != null && <UndoDuplicate recordId={record.id} runId={status.duplicate.undoRunId} />}
       {changed && (
         <PreviewOpen recordRef={{ type: 'record_history', id: record.change!.historyRef }} className="shrink-0 text-muted-foreground" testId="record-microcard-change">
           {`Changed ${fieldsLine(record.change!.fields)} · v${record.change!.version} ›`}
