@@ -15,6 +15,11 @@ vi.mock('@/services/EventService', () => ({
   emitEvent: vi.fn(async () => ({ eventId: 1, deduped: false, triggered: [] })),
 }));
 
+vi.mock('@/libs/github/app', () => ({
+  installationIdFrom: (c?: Record<string, unknown>) => (typeof c?.installationId === 'string' ? c.installationId : undefined),
+  installationToken: vi.fn(async (id: string) => `ghs_minted_${id}`),
+}));
+
 const { emitEvent } = await import('@/services/EventService');
 const { platformForConnectorSlug } = await import('@/libs/platforms/registry');
 const { githubConnector, pollWindowStart, pullRequestDoc } = await import('@/libs/sources/github');
@@ -335,5 +340,43 @@ describe('githubConnector.inspect', () => {
     const out = await inspect({ repos: [REPO] }, { token: 'ghp_x' });
 
     expect(out.note).toMatch(/Classic token; GitHub lists its scopes as: repo, read:org/);
+  });
+
+  it('names a listed repository the installation did not grant, and stays quiet when the grant is every repository or the list failed', async () => {
+    stubGithub({
+      '/rate_limit': () => res({ rate: { remaining: 1, limit: 5000 } }),
+      [`/repos/${REPO}`]: () => res({ default_branch: 'main', private: true }),
+      '/repos/northwind/other': () => res({ message: 'Not Found' }, 404),
+    });
+    const config = { repos: [REPO, 'northwind/other'] };
+    const granted = { installationId: '777', repositorySelection: 'selected', repositories: [REPO] };
+
+    const out = await inspect(config, granted);
+
+    expect(out.checks.filter(c => c.key.startsWith('granted:')).map(c => [c.key, c.ok])).toEqual([['granted:northwind/other', false]]);
+    expect(out.checks.find(c => c.key === 'granted:northwind/other')!.detail).toMatch(/installation does not include/);
+
+    const all = await inspect(config, { ...granted, repositorySelection: 'all', repositories: [] });
+    const failedListing = await inspect(config, { ...granted, repositories: [] });
+
+    expect(all.checks.some(c => c.key.startsWith('granted:'))).toBe(false);
+    expect(failedListing.checks.some(c => c.key.startsWith('granted:'))).toBe(false);
+  });
+});
+
+describe('githubConnector with a GitHub App installation', () => {
+  it('syncs with a token minted for the installation, sent as Bearer', async () => {
+    const { installationToken } = await import('@/libs/github/app');
+    const seen: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      seen.push((init?.headers as Record<string, string>).authorization ?? '');
+      const path = new URL(String(input)).pathname;
+      return res(path.endsWith('/pulls') ? [] : path.includes('/actions/runs') ? NO_RUNS : NO_REVIEWS);
+    }));
+
+    await collect(githubConnector.sync(ctx({ credentials: { installationId: '777', account: 'northwind' } })));
+
+    expect(installationToken).toHaveBeenCalledWith('777', { baseUrl: 'https://api.github.com' });
+    expect(new Set(seen)).toEqual(new Set(['Bearer ghs_minted_777']));
   });
 });

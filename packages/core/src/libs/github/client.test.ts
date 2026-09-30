@@ -8,7 +8,7 @@ import { resolveGithubToken, tokenFromCredentials } from './client';
 
 vi.mock('./app', () => ({
   installationIdFrom: (c?: Record<string, unknown>) => (typeof c?.installationId === 'string' ? c.installationId : undefined),
-  installationToken: vi.fn(async (id: string) => `ghs_for_${id}`),
+  installationToken: vi.fn(async (id: string, opts?: { baseUrl?: string }) => `ghs_for_${id}@${opts?.baseUrl ?? 'default'}`),
 }));
 
 afterEach(() => vi.clearAllMocks());
@@ -23,8 +23,9 @@ describe('resolveGithubToken', () => {
   it('mints from the installation when the bag holds one and no token', async () => {
     const { installationToken } = await import('./app');
 
-    expect(await resolveGithubToken({ installationId: '777', account: 'acme' })).toBe('ghs_for_777');
-    expect(installationToken).toHaveBeenCalledWith('777');
+    expect(await resolveGithubToken({ installationId: '777', account: 'acme' })).toBe('ghs_for_777@default');
+    expect(installationToken).toHaveBeenCalledWith('777', { baseUrl: undefined });
+    expect(await resolveGithubToken({ installationId: '777' }, { baseUrl: 'https://ghe.example/api/v3' })).toBe('ghs_for_777@https://ghe.example/api/v3');
   });
 
   it('is undefined when the bag holds neither', async () => {

@@ -15,7 +15,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { tokenFromCredentials } from '@/libs/github/client';
+import { resolveGithubToken } from '@/libs/github/client';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
 const PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/files|\.diff|\.patch)?\/?(?:[?#].*)?$/i;
@@ -45,7 +45,7 @@ export async function tokenForRepo(orgId: string, fullName: string): Promise<str
       continue;
     }
     const creds = await getCredentialsForConnector({ orgId, connectorSlug: 'github', apiTokenId: row.apiTokenId }).catch(() => undefined);
-    const token = tokenFromCredentials(creds as Record<string, unknown> | undefined) ?? null;
+    const token = (await resolveGithubToken(creds as Record<string, unknown> | undefined).catch(() => undefined)) ?? null;
     if (token) {
       return token;
     }

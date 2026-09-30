@@ -181,18 +181,18 @@ describe('preferInstalled', () => {
   const b = source('org_b');
   const holds = (byOrg: Record<string, string | undefined>) => async (ref: GithubSourceRef) => byOrg[ref.orgId];
 
-  it('narrows to the sources whose credential is the installation', async () => {
+  it('drops a source whose credential is a different installation and keeps one holding none', async () => {
     expect(await preferInstalled([a, b], '777', holds({ org_a: '777', org_b: '1' }))).toEqual([a]);
+    expect(await preferInstalled([a, b], '777', holds({ org_a: '1', org_b: undefined }))).toEqual([b]);
+    expect(await preferInstalled([a, b], '777', holds({ org_a: '1', org_b: '2' }))).toEqual([]);
   });
 
-  it('keeps every source when none holds the installation, when there is no id, or when there is one source', async () => {
-    const decrypts = vi.fn(holds({ org_a: '1', org_b: undefined }));
+  it('decides even for a single source, and reads no credential when the delivery names no installation', async () => {
+    expect(await preferInstalled([a], '777', holds({ org_a: '1' }))).toEqual([]);
 
-    expect(await preferInstalled([a, b], '777', decrypts)).toEqual([a, b]);
+    const decrypts = vi.fn(holds({ org_a: '1', org_b: '2' }));
+
     expect(await preferInstalled([a, b], undefined, decrypts)).toEqual([a, b]);
-    expect(decrypts).toHaveBeenCalledTimes(2);
-
-    expect(await preferInstalled([a], '777', decrypts)).toEqual([a]);
-    expect(decrypts).toHaveBeenCalledTimes(2);
+    expect(decrypts).not.toHaveBeenCalled();
   });
 });

@@ -18,16 +18,22 @@
 import { Buffer } from 'node:buffer';
 import { createSign } from 'node:crypto';
 import process from 'node:process';
-import { GITHUB_API_URL } from './client';
 
-/** The env vars the app needs. Read late so a test can set them. */
-export const GITHUB_APP_ENV = ['GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_PRIVATE_KEY_BASE64'] as const;
+/**
+ * The env vars the app needs. Read late so a test can set them. The OAuth
+ * client pair is what lets the connect callback prove the person completing
+ * it can see the installation they name ("Request user authorization during
+ * installation" on the app): without it, any installation id would do.
+ */
+export const GITHUB_APP_ENV = ['GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET'] as const;
 
 export type GithubAppConfig = {
   appId: string;
   slug: string;
   /** The PEM, decoded. */
   privateKey: string;
+  clientId: string;
+  clientSecret: string;
 };
 
 /** The app as the environment describes it, or null when any part is missing. */
@@ -35,7 +41,9 @@ export function githubAppConfig(): GithubAppConfig | null {
   const appId = process.env.GITHUB_APP_ID?.trim();
   const slug = process.env.GITHUB_APP_SLUG?.trim();
   const keyBase64 = process.env.GITHUB_APP_PRIVATE_KEY_BASE64?.trim();
-  if (!appId || !slug || !keyBase64) {
+  const clientId = process.env.GITHUB_APP_CLIENT_ID?.trim();
+  const clientSecret = process.env.GITHUB_APP_CLIENT_SECRET?.trim();
+  if (!appId || !slug || !keyBase64 || !clientId || !clientSecret) {
     return null;
   }
   let privateKey: string;
@@ -47,7 +55,7 @@ export function githubAppConfig(): GithubAppConfig | null {
   if (!privateKey.includes('PRIVATE KEY')) {
     return null;
   }
-  return { appId, slug, privateKey };
+  return { appId, slug, privateKey, clientId, clientSecret };
 }
 
 /** Whether the deployment can act as a GitHub App at all. */
@@ -79,7 +87,7 @@ export function appJwt(config: GithubAppConfig | null = githubAppConfig(), now: 
 
 type CachedToken = { token: string; expiresAt: number };
 
-/** Installation token cache, keyed by installation id. */
+/** Installation token cache, keyed by API host and installation id: an Enterprise host mints its own. */
 const tokenCache = new Map<string, CachedToken>();
 
 /** Forget every minted token. For tests. */
@@ -89,6 +97,9 @@ export function clearInstallationTokenCache(): void {
 
 /** How long before GitHub's expiry a cached token stops being reused. */
 const REFRESH_MARGIN_MS = 5 * 60_000;
+
+/** Same host `client.ts` defaults to; spelled here so the two modules need not import each other. */
+const DEFAULT_API_URL = 'https://api.github.com';
 
 /**
  * A token that acts for one installation, minted from the app JWT and cached
@@ -101,13 +112,14 @@ const REFRESH_MARGIN_MS = 5 * 60_000;
  */
 export async function installationToken(installationId: string, opts?: { baseUrl?: string; now?: number }): Promise<string> {
   const now = opts?.now ?? Date.now();
-  const cached = tokenCache.get(installationId);
+  const baseUrl = (opts?.baseUrl ?? DEFAULT_API_URL).replace(/\/+$/, '');
+  const cacheKey = `${baseUrl}|${installationId}`;
+  const cached = tokenCache.get(cacheKey);
   if (cached && cached.expiresAt - REFRESH_MARGIN_MS > now) {
     return cached.token;
   }
   const config = githubAppConfig();
   const jwt = appJwt(config, Math.floor(now / 1000));
-  const baseUrl = (opts?.baseUrl ?? GITHUB_API_URL).replace(/\/+$/, '');
   const res = await fetch(`${baseUrl}/app/installations/${encodeURIComponent(installationId)}/access_tokens`, {
     method: 'POST',
     headers: {
@@ -126,7 +138,7 @@ export async function installationToken(installationId: string, opts?: { baseUrl
     throw new Error(`GitHub answered without a token for installation ${installationId}.`);
   }
   const expiresAt = body.expires_at ? Date.parse(body.expires_at) : now + 60 * 60_000;
-  tokenCache.set(installationId, { token: body.token, expiresAt: Number.isNaN(expiresAt) ? now + 60 * 60_000 : expiresAt });
+  tokenCache.set(cacheKey, { token: body.token, expiresAt: Number.isNaN(expiresAt) ? now + 60 * 60_000 : expiresAt });
   return body.token;
 }
 

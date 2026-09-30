@@ -342,7 +342,7 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
   inspectNote: 'Reads one pull request, one commit\'s check runs and one Actions run per repository to prove the token holds each permission. Nothing is saved.',
 
   async inspect({ config, credentials }) {
-    const token = await resolveGithubToken(credentials);
+    const token = await resolveGithubToken(credentials, { baseUrl: typeof config.baseUrl === 'string' && config.baseUrl.trim() !== '' ? config.baseUrl.trim() : undefined });
     if (!token) {
       throw new InspectInputError('A GitHub access token is required — a fine-grained personal access token from github.com/settings/personal-access-tokens, or a GitHub App installation token.');
     }
@@ -356,8 +356,11 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
     const inspection = await inspectGithubToken({ token, repos: parsed.data.repos, baseUrl: parsed.data.baseUrl });
     // An installation grants a fixed set of repositories; a repo listed here
     // but not granted there reads as GitHub's 404 above, which says nothing
-    // about why. Name it.
-    const granted = Array.isArray(credentials?.repositories) ? (credentials.repositories as unknown[]).filter((r): r is string => typeof r === 'string').map(r => r.toLowerCase()) : null;
+    // about why. Name it. Not when the installation covers every repository,
+    // and not when the stored list is empty — the listing at connect time is
+    // best effort, and an empty one is a failed read, not a grant of nothing.
+    const stored = Array.isArray(credentials?.repositories) ? (credentials.repositories as unknown[]).filter((r): r is string => typeof r === 'string').map(r => r.toLowerCase()) : [];
+    const granted = credentials?.repositorySelection !== 'all' && stored.length > 0 ? stored : null;
     if (granted) {
       for (const repo of parsed.data.repos) {
         if (!granted.includes(repo.toLowerCase())) {
@@ -370,7 +373,7 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
 
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = githubConfigSchema.parse(ctx.config);
-    const token = await resolveGithubToken(ctx.credentials);
+    const token = await resolveGithubToken(ctx.credentials, { baseUrl: cfg.baseUrl });
     if (!token) {
       throw new Error('GitHub connector requires an access token in credentials.token, or a GitHub App installation in credentials.installationId');
     }

@@ -175,10 +175,18 @@ when: {event: run.failed} # any failed deploy run on the deploy branch
 ## Connect with GitHub — the app instead of a token
 
 When the deployment is a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
-`GITHUB_APP_PRIVATE_KEY_BASE64` set), the source's credential form shows
+`GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_CLIENT_ID`,
+`GITHUB_APP_CLIENT_SECRET` set), the source's credential form shows
 **Connect with GitHub** instead of a token field. The person is sent to the
 app's install page on GitHub, chooses the organization and the repositories
 the app may see, and comes back. Nothing is pasted.
+
+The app asks for user authorization during installation, so the callback
+also carries a short-lived code; Vocion turns it into a user token, checks
+the installation is one that person can see, and drops the token. That is
+what stops an admin of one workspace storing another organization's
+installation — installation ids are small integers and the app itself can
+read every one of them.
 
 What is stored is the **installation**: its id, the account it is on, and the
 repositories it was granted. No token is stored. Every call on the source's
@@ -194,10 +202,9 @@ is one click on GitHub's installation page or one line in the YAML.
 
 The app's webhook uses the same `GITHUB_WEBHOOK_SECRET` as a repository
 hook would: the secret authenticates GitHub, and the workspace is found from
-the delivery. A delivery from the app carries `installation.id`, and among
-the sources that list the repository, the ones whose credential is that
-installation are preferred; a pasted-token source listing the same
-repository still receives it when no installed one does.
+the delivery. A delivery from the app carries `installation.id`; a source
+whose credential is a different installation is skipped, and a
+pasted-token source listing the same repository still receives it.
 
 Installing on an organization you do not own files a **request** to its
 owners; the callback says so and stores nothing until an owner approves and

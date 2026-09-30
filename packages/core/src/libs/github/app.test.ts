@@ -22,13 +22,15 @@ beforeEach(() => {
   process.env.GITHUB_APP_ID = '12345';
   process.env.GITHUB_APP_SLUG = 'vocion-agents';
   process.env.GITHUB_APP_PRIVATE_KEY_BASE64 = Buffer.from(PEM).toString('base64');
+  process.env.GITHUB_APP_CLIENT_ID = 'Iv1.client';
+  process.env.GITHUB_APP_CLIENT_SECRET = 'client-secret';
   clearInstallationTokenCache();
 });
 
 afterEach(() => {
-  delete process.env.GITHUB_APP_ID;
-  delete process.env.GITHUB_APP_SLUG;
-  delete process.env.GITHUB_APP_PRIVATE_KEY_BASE64;
+  for (const name of ['GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET']) {
+    delete process.env[name];
+  }
   vi.unstubAllGlobals();
 });
 
@@ -64,7 +66,7 @@ describe('appJwt', () => {
   it('refuses without configuration, naming the env vars and never the key', () => {
     delete process.env.GITHUB_APP_ID;
 
-    expect(() => appJwt(githubAppConfig())).toThrow(/GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY_BASE64/);
+    expect(() => appJwt(githubAppConfig())).toThrow(/GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY_BASE64, GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET/);
   });
 });
 
@@ -96,6 +98,19 @@ describe('installationToken', () => {
     expect(await installationToken('1', { now: Date.parse('2026-09-30T10:00:00Z') })).toBe('ghs_a');
     await expect(installationToken('2')).rejects.toThrow(/installation 2 \(401\)/);
     await expect(installationToken('2')).rejects.not.toThrow(/Bearer/);
+  });
+});
+
+describe('installationToken on GitHub Enterprise', () => {
+  it('mints against the given host and caches per host, so two hosts never share a token', async () => {
+    const fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify({ token: url.includes('ghe.example') ? 'ghs_ghe' : 'ghs_com', expires_at: '2099-01-01T00:00:00Z' }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await installationToken('7', { baseUrl: 'https://ghe.example/api/v3/' })).toBe('ghs_ghe');
+    expect(await installationToken('7')).toBe('ghs_com');
+    expect(await installationToken('7', { baseUrl: 'https://ghe.example/api/v3' })).toBe('ghs_ghe');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://ghe.example/api/v3/app/installations/7/access_tokens');
   });
 });
 

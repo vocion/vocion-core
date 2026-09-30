@@ -19,6 +19,7 @@
  */
 
 import { fetchRetryingRateLimits } from '@/libs/http/retryAfter';
+import { installationIdFrom, installationToken } from './app';
 
 export const GITHUB_API_URL = 'https://api.github.com';
 
@@ -78,18 +79,19 @@ export function tokenFromCredentials(credentials?: Record<string, unknown>): str
  * when the bag holds neither. Throws only when a mint fails, with a message
  * that names the installation and never the key.
  * @param credentials - The decrypted credential bag, when any.
+ * @param opts - The API host, for GitHub Enterprise Server; installation tokens are minted per host.
+ * @param opts.baseUrl - API host override.
  */
-export async function resolveGithubToken(credentials?: Record<string, unknown>): Promise<string | undefined> {
+export async function resolveGithubToken(credentials?: Record<string, unknown>, opts?: { baseUrl?: string }): Promise<string | undefined> {
   const pasted = tokenFromCredentials(credentials);
   if (pasted) {
     return pasted;
   }
-  const { installationIdFrom, installationToken } = await import('./app');
   const installationId = installationIdFrom(credentials);
   if (!installationId) {
     return undefined;
   }
-  return installationToken(installationId);
+  return installationToken(installationId, { baseUrl: opts?.baseUrl });
 }
 
 /**

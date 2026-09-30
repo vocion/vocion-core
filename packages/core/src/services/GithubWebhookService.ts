@@ -18,11 +18,10 @@
  * secret is enough because the secret authenticates GitHub, not a workspace,
  * and the workspace is found from the payload.
  *
- * A delivery from the app also carries `installation.id`. Among the sources
- * that list the repository, the ones whose credential IS that installation
- * are preferred: they are the workspaces that installed the app for it. When
- * none of them holds it (a pasted token, or a repository hook), every source
- * listing the repository gets the delivery, as before.
+ * A delivery from the app also carries `installation.id`. A source whose
+ * credential is a different installation is skipped — it connected another
+ * organization's copy of the app — while a source holding a pasted token
+ * keeps receiving by repository name, as before.
  *
  * A `check_suite` delivery carries neither the pull request's title nor the
  * names of the checks, so those are read from the API with the source's own
@@ -66,10 +65,13 @@ export type GithubWebhookOutcome = {
 };
 
 /**
- * Among the sources listing a repository, the ones whose credential is the
- * delivery's installation — or all of them when none is, or when there is
- * only one (nothing to choose). Reading a credential costs a decrypt, so it
- * is only done when a choice exists.
+ * Among the sources listing a repository, the ones a delivery from the app
+ * is for. A source whose credential is a DIFFERENT installation is dropped:
+ * it connected another organization's copy of the app and this delivery is
+ * not its business, whatever repository it lists. A source holding no
+ * installation (a pasted token) is kept: its scope is the repository list
+ * alone. Without an installation id on the delivery there is nothing to
+ * decide and no credential is read.
  * @param refs - Sources listing the repository.
  * @param installationId - The delivery's `installation.id`, when it carried one.
  * @param installationOf - The installation id a source's credential holds, if any.
@@ -79,16 +81,17 @@ export async function preferInstalled(
   installationId: string | undefined,
   installationOf: (ref: GithubSourceRef) => Promise<string | undefined>,
 ): Promise<GithubSourceRef[]> {
-  if (!installationId || refs.length < 2) {
+  if (!installationId) {
     return refs;
   }
-  const installed: GithubSourceRef[] = [];
+  const kept: GithubSourceRef[] = [];
   for (const ref of refs) {
-    if ((await installationOf(ref)) === installationId) {
-      installed.push(ref);
+    const held = await installationOf(ref);
+    if (held === undefined || held === installationId) {
+      kept.push(ref);
     }
   }
-  return installed.length > 0 ? installed : refs;
+  return kept;
 }
 
 /**
