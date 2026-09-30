@@ -1,7 +1,7 @@
 import type { FeatureReportInput, ReportActionRun, ReportArtifact, ReportAsk, ReportObject, ReportSectionKey, ReportWorkerRun } from './featureReport';
 import { describe, expect, it } from 'vitest';
 import { recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
-import { assembleFeatureReport, executedRun, formatDuration, mockupStatusOf, moneyLine, personName, planStatusOf, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
+import { assembleFeatureReport, executedRun, formatDuration, mockupStatusOf, moneyLine, oneOfEachPicture, personName, planStatusOf, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
 
 /**
  * The feature report, assembled from fixtures.
@@ -1004,6 +1004,27 @@ describe('what it looks like', () => {
     expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupDraw: { state: 'drawing', attempt: 1, at } } } }, now)).toEqual({ line: 'The mockup is being drawn — started 10 min ago.', tone: 'info' });
     expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupDraw: { state: 'failed', attempt: 2, at, reason: 'the renderer is not available' } } } }, now)?.line).toBe('The mockup was not drawn after 2 attempts (30 Sep 2026, 11:50 UTC): the renderer is not available. Asking for a mockup in chat draws it again.');
     expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupArtifactIds: [3], mockupDraw: { state: 'drawing', attempt: 1, at } } } }, now)).toBeNull();
+  });
+
+  it('never says "not drawn" over pictures of the change, nor an infrastructure reason (#269)', () => {
+    const at = '2026-09-30T11:50:00Z';
+    const now = new Date('2026-09-30T12:00:00Z');
+    const rec = (mockupDraw: Record<string, unknown>) => ({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupDraw } } });
+
+    // QA's shots are in the carousel: a failed drawing is not news.
+    expect(mockupStatusOf(rec({ state: 'failed', attempt: 2, at, reason: 'a note, not UI', cause: 'content' }), now, true)).toBeNull();
+
+    // The installation could not draw: in hand, with no technical words.
+    const infra = mockupStatusOf(rec({ state: 'failed', attempt: 1, at, reason: 'renderer missing (browserType.launch: no chrome)', cause: 'infrastructure' }), now);
+
+    expect(infra).toEqual({ line: 'The mockup could not be drawn right now. The operator has been told, and it is drawn on its own once that is fixed.', tone: 'info' });
+    expect(mockupStatusOf(rec({ state: 'drawing', attempt: 2, at, reason: 'renderer missing', cause: 'infrastructure' }), now)?.line).toBe('The mockup is being drawn again — started 10 min ago.');
+  });
+
+  it('keeps one of each picture: the same artifact twice, or the same image filed twice', () => {
+    const e = (id: number, imageUrl: string | null) => ({ id, imageUrl });
+
+    expect(oneOfEachPicture([e(1, '/api/artifacts/a.png'), e(2, '/api/artifacts/a.png?v=2'), e(1, '/api/artifacts/b.png'), e(3, null), e(4, null), e(5, '/api/artifacts/c.png')]).map(x => x.id)).toEqual([1, 3, 4, 5]);
   });
 
   it('flags work that was proposed with a visual and closed without one', () => {

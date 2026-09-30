@@ -10,7 +10,7 @@ import { buttonVariants } from '@/components/ui/buttonVariants';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { showsAnError } from '@/libs/factory/mockup';
 import { liveTopic } from '@/libs/live/topics';
-import { featureStatusOf } from '@/services/factory/featureReport';
+import { featureStatusOf, oneOfEachPicture } from '@/services/factory/featureReport';
 import { FeatureActivity } from './FeatureActivity';
 import { FeatureBuild, FeatureHeadline } from './FeatureBuild';
 import { FeatureDismiss } from './FeatureDismiss';
@@ -107,7 +107,9 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
 function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[]; docs: ReportEvidence[]; mockupStatus?: FeatureReport['mockupStatus'] }) {
   // Where the default mockup stands, said where it would be: drawing, or why
   // it drew nothing (`visuals.mockupDraw`).
-  const status = mockupStatus
+  // A failure line never stands over pictures of the change: the page is not
+  // missing a picture, it has them (Chris, 2026-09-30, #269).
+  const status = mockupStatus && (pictures.length === 0 || mockupStatus.tone === 'info')
     ? (
         <p data-testid="report-mockup-status" data-tone={mockupStatus.tone} className={`rounded-lg border border-dashed px-3 py-2 text-sm ${mockupStatus.tone === 'warn' ? 'border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300' : 'border-border text-muted-foreground'}`}>
           {mockupStatus.line}
@@ -634,9 +636,11 @@ export function FeatureReportView({ report, status, related = [] }: { report: Fe
   // A capture QA itself named as the app's error state stays in the QA
   // record; it is not a picture of the change.
   const qaPictures = (qa?.evidence ?? []).filter(e => e.role === 'qa-screenshot' && !showsAnError({ title: e.title, spec: { caption: e.caption } }));
-  const ranked = [...(visuals?.evidence ?? []), ...(today?.evidence ?? []), ...qaPictures]
-    .filter((e, i, all) => e.imageUrl !== null && all.findIndex(x => x.id === e.id) === i)
-    .sort((a, b) => rank(a) - rank(b));
+  // One slide per picture: the same artifact through two sections, or the
+  // same image filed twice, is drawn once — the best-ranked (`oneOfEachPicture`).
+  const ranked = oneOfEachPicture([...(visuals?.evidence ?? []), ...(today?.evidence ?? []), ...qaPictures]
+    .filter(e => e.imageUrl !== null)
+    .sort((a, b) => rank(a) - rank(b)));
   const pictures = ranked.some(p => !drawn(p)) ? ranked.filter(p => !drawn(p)) : ranked;
   const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
   return (

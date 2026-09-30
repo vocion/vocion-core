@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DRAW_LOST_MS, fieldValue, mockupAfterRun, mockupDecision, MockupRuleSchema } from './mockupDefault';
+import { DRAW_LOST_MS, fieldValue, mockupAfterRun, mockupDecision, MockupRuleSchema, readMockupDraw } from './mockupDefault';
 
 const RULE = MockupRuleSchema.parse({ owedWhen: { field: 'surface', oneOf: ['ui', 'flow'] }, skipWhen: [{ field: 'kind', oneOf: ['bug'] }] });
 const NOW = new Date('2026-09-30T12:00:00Z');
@@ -50,5 +50,29 @@ describe('after a drawing', () => {
     const second = mockupAfterRun(drawing(2), RULE, { reason: 'the renderer is not available', automationRunId: 8 }, NOW);
 
     expect(second).toMatchObject({ do: 'give-up', mark: { state: 'failed', attempt: 2, reason: 'the renderer is not available' } });
+  });
+
+  it('does not try again into an installation that cannot draw, and says only that', () => {
+    const infra = { visuals: { mockupDraw: { state: 'drawing', attempt: 1, at: NOW.toISOString(), reason: 'no renderer (browser missing)', cause: 'infrastructure' } } };
+    const out = mockupAfterRun(infra, RULE, { reason: 'its last draw_mockup call drew nothing', automationRunId: 9 }, NOW);
+
+    expect(out).toMatchObject({ do: 'give-up', mark: { state: 'failed', attempt: 1, cause: 'infrastructure', reason: 'no renderer (browser missing)' } });
+    expect(out.do === 'give-up' && out.line).not.toMatch(/renderer|browser/);
+  });
+});
+
+describe('after the installation could not draw', () => {
+  const failed = (minutesAgo: number) => ({ surface: 'ui', visuals: { mockupDraw: { state: 'failed', attempt: 1, at: new Date(NOW.getTime() - minutesAgo * 60_000).toISOString(), cause: 'infrastructure', reason: 'no renderer' } } });
+
+  it('waits, then draws again from the start once the operator has had time — the caller checks it can', () => {
+    expect(readMockupDraw(failed(5))).toMatchObject({ cause: 'infrastructure' });
+    expect(mockupDecision(failed(5), RULE, NOW)).toMatchObject({ do: 'skip' });
+    expect(mockupDecision(failed(90), RULE, NOW)).toEqual({ do: 'draw', attempt: 1, afterInfrastructure: true });
+  });
+
+  it('leaves a drawing refused for its content written down, as before', () => {
+    const content = { surface: 'ui', visuals: { mockupDraw: { state: 'failed', attempt: 2, at: new Date(NOW.getTime() - 90 * 60_000).toISOString(), cause: 'content', reason: 'a note, not UI' } } };
+
+    expect(mockupDecision(content, RULE, NOW)).toMatchObject({ do: 'skip' });
   });
 });

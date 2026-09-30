@@ -55,6 +55,12 @@ export type MockupDraw = {
   reason?: string;
   /** The fire that drew (or did not), so the reason is one move from its run. */
   automationRunId?: number;
+  /**
+   * Where it failed, as the drawing tool typed it (`MockupFailure.cause`):
+   * `infrastructure` — this installation cannot draw (its operator is told,
+   * a person reads only that); `content` — the drawing was refused.
+   */
+  cause?: 'infrastructure' | 'content';
 };
 
 /** A drawing that started this long ago and never ended is lost, not running. */
@@ -94,6 +100,7 @@ export function readMockupDraw(meta: Meta): MockupDraw | null {
     at: d.at,
     ...(typeof d.reason === 'string' && d.reason !== '' ? { reason: d.reason } : {}),
     ...(Number.isInteger(d.automationRunId) ? { automationRunId: Number(d.automationRunId) } : {}),
+    ...(d.cause === 'infrastructure' || d.cause === 'content' ? { cause: d.cause } : {}),
   };
 }
 
@@ -107,7 +114,7 @@ export function hasMockups(meta: Meta): boolean {
 }
 
 export type MockupDecision
-  = | { do: 'draw'; attempt: number; lastFailure?: string }
+  = | { do: 'draw'; attempt: number; lastFailure?: string; afterInfrastructure?: true }
     | { do: 'skip'; why: string };
 
 /**
@@ -155,6 +162,15 @@ export function mockupDecision(meta: Meta, rule: MockupRule, now: Date, changed?
       ? { do: 'draw', attempt: draw.attempt + 1, lastFailure: 'the last drawing started and never finished' }
       : { do: 'skip', why: 'lost' };
   }
+  // THE INSTALLATION COULD NOT DRAW: nothing about the record was wrong, so
+  // once its operator has had time to fix it, it is drawn again from the
+  // start — the caller checks the installation can draw first
+  // (`afterInfrastructure`), so a still-broken one spends no run.
+  if (draw?.state === 'failed' && draw.cause === 'infrastructure') {
+    return now.getTime() - new Date(draw.at).getTime() >= DRAW_LOST_MS
+      ? { do: 'draw', attempt: 1, afterInfrastructure: true }
+      : { do: 'skip', why: 'this installation could not draw it; its operator is told' };
+  }
   if (draw?.state === 'failed') {
     return { do: 'skip', why: `drew nothing after ${draw.attempt} attempt${draw.attempt === 1 ? '' : 's'}: ${draw.reason ?? 'no reason recorded'}` };
   }
@@ -174,9 +190,10 @@ export type MockupAfterRun
  * @param ended.reason - Why it drew nothing — the fire's error, or the tool's last answer.
  * @param ended.automationRunId - The fire.
  * @param ended.attempt - Which attempt it was, when the record lost track.
+ * @param ended.cause - Where it failed, when the fire knows.
  * @param now - The clock.
  */
-export function mockupAfterRun(meta: Meta, rule: Pick<MockupRule, 'attempts'>, ended: { reason: string; automationRunId: number; attempt?: number }, now: Date): MockupAfterRun {
+export function mockupAfterRun(meta: Meta, rule: Pick<MockupRule, 'attempts'>, ended: { reason: string; automationRunId: number; attempt?: number; cause?: MockupDraw['cause'] }, now: Date): MockupAfterRun {
   if (hasMockups(meta)) {
     return { do: 'done', why: 'drawn' };
   }
@@ -186,6 +203,16 @@ export function mockupAfterRun(meta: Meta, rule: Pick<MockupRule, 'attempts'>, e
   }
   const attempt = draw?.attempt ?? ended.attempt ?? 1;
   const at = now.toISOString();
+  // A drawing the installation could not make is not tried again now — the
+  // second attempt fails the same way — and its reason is the operator's:
+  // the record says only that it could not be drawn (`cause`).
+  if (draw?.cause === 'infrastructure' || ended.cause === 'infrastructure') {
+    return {
+      do: 'give-up',
+      mark: { state: 'failed', attempt, at, reason: (draw?.reason ?? ended.reason).replace(/\s+/g, ' ').trim().slice(0, 400), automationRunId: ended.automationRunId, cause: 'infrastructure' },
+      line: 'The mockup could not be drawn: this installation cannot draw images right now. Its operator is told, and it is drawn again on its own once that is fixed.',
+    };
+  }
   const reason = ended.reason.replace(/\s+/g, ' ').trim().slice(0, 400) || 'the drawing ended without a mockup';
   if (attempt < rule.attempts) {
     return {

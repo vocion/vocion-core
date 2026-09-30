@@ -358,7 +358,7 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
       const items = report.activity ?? [];
       const word = { conversation: 'Conversation', mission_run: 'Agent run', worker_run: 'Run' } as const;
       const conversations = items.filter(i => i.kind === 'conversation').length;
-      const runs = items.length - conversations;
+      const runs = items.filter(i => i.kind !== 'conversation').reduce((n, i) => n + (i.count ?? 1), 0);
       const count = [
         conversations > 0 ? `${conversations} conversation${conversations === 1 ? '' : 's'}` : null,
         runs > 0 ? `${runs} run${runs === 1 ? '' : 's'}` : null,
@@ -371,7 +371,9 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
           : items.map((i) => {
               // A run with no title of its own reads as what it is, with its number.
               const title = /^(?:Mission|Agent) run \d+$/.test(i.title) ? `${word[i.kind]} #${i.id}` : i.title;
-              return `- [${title}](${peek(i.kind, i.id)}) · ${word[i.kind]}${i.status ? ` · ${i.status}` : ''}${i.detail ? ` · ${i.detail}` : ''} · ${ago(i.at)}`;
+              // A repeated agent run is one line, opening its newest run.
+              const repeats = i.count && i.count > 1 ? ` · ran ${i.count} times` : '';
+              return `- [${title}](${peek(i.kind, i.id)}) · ${word[i.kind]}${repeats}${i.status ? ` · ${i.status}` : ''}${i.detail ? ` · ${i.detail}` : ''} · ${repeats ? 'last ' : ''}${ago(i.at)}`;
             }).join('\n'),
       };
     }

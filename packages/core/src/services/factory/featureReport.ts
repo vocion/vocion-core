@@ -397,8 +397,10 @@ export type ReportActivity = {
   at: Date;
   status: string | null;
   detail: string | null;
-  /** The conversation the feature was requested in: its Activity's first entry. */
+  /** The conversation the feature was requested in: the oldest entry, closing its Activity. */
   origin?: boolean;
+  /** How many agent runs of the same title this row stands for (`libs/factory/activityRows.ts`). */
+  count?: number;
 };
 
 export type FeatureReport = {
@@ -1543,6 +1545,27 @@ function changeSection(tasks: ReportObject[], runs: ReportWorkerRun[]): ReportSe
  * @param taskCount - How many tasks, so the sentence reads right.
  * @param ctx - The runs and releases each picture's source line is read from.
  */
+/**
+ * ONE OF EACH PICTURE (Chris, 2026-09-30, #269: "looks like some duplicate
+ * mockups"). The same artifact reached through two paths, and the same image
+ * filed twice — QA's worker filed each after-shot as two artifacts on one
+ * file, and a before and an after that are one capture — are one slide. A
+ * picture is its image; anything without one is itself. The first of each is
+ * kept, in the order given.
+ * @param items - Evidence, in the order it is drawn.
+ */
+export function oneOfEachPicture<T extends { id: number; imageUrl: string | null }>(items: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((e) => {
+    const keys = [`id:${e.id}`, ...(e.imageUrl ? [`img:${e.imageUrl.split(/[?#]/)[0]}`] : [])];
+    if (keys.some(k => seen.has(k))) {
+      return false;
+    }
+    keys.forEach(k => seen.add(k));
+    return true;
+  });
+}
+
 function qaSection(artifacts: ReportArtifact[], taskCount: number, ctx: PictureContext = NO_PICTURE_CONTEXT): ReportSection {
   const s = blank('qa', 'QA');
   s.evidence = artifacts
@@ -1565,6 +1588,9 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number, ctx: PictureC
       };
     })
     .sort((x, y) => x.at.getTime() - y.at.getTime());
+  // The same capture filed twice is one; the newest filing is kept, so its
+  // source line names the latest attempt that took it.
+  s.evidence = oneOfEachPicture([...s.evidence].reverse()).reverse();
   if (s.evidence.length === 0) {
     // SAY WHAT IS OWED, not what the schema expects.
     //
@@ -2780,10 +2806,18 @@ function buildContext(request: ReportObject, summary: FeatureReportSummary, now:
  * THE DEFAULT MOCKUP, WHILE IT IS NOT THERE (`libs/factory/mockupDefault.ts`):
  * drawing, with when it started, or why it drew nothing, with when — read off
  * `visuals.mockupDraw`, never guessed. Null once the mockups are on the record.
+ *
+ * Two things a person is never shown (Chris, 2026-09-30, #269): "the mockup
+ * was not drawn" over a carousel that already has pictures of the change —
+ * the page is not missing a picture, it has several — and an infrastructure
+ * reason ("the renderer is not available…"). A failure the drawing tool typed
+ * as the installation's (`mockupDraw.cause`) reads only that it could not be
+ * drawn and is in hand; its detail went to the operator.
  * @param request - The request.
  * @param now - The clock.
+ * @param pictured - Whether the page already shows pictures of the change.
  */
-export function mockupStatusOf(request: ReportObject, now: Date): { line: string; tone: 'info' | 'warn' } | null {
+export function mockupStatusOf(request: ReportObject, now: Date, pictured = false): { line: string; tone: 'info' | 'warn' } | null {
   if (hasMockups(request.meta)) {
     return null;
   }
@@ -2791,12 +2825,22 @@ export function mockupStatusOf(request: ReportObject, now: Date): { line: string
   if (!draw) {
     return null;
   }
+  const infrastructure = draw.cause === 'infrastructure';
   if (draw.state === 'drawing') {
     const age = formatAge(now.getTime() - new Date(draw.at).getTime());
-    return { line: `The mockup is being drawn${draw.attempt > 1 ? ' again' : ''} — started ${age}.${draw.reason && draw.attempt > 1 ? ` The first attempt drew nothing: ${draw.reason}.` : ''}`, tone: 'info' };
+    return { line: `The mockup is being drawn${draw.attempt > 1 ? ' again' : ''} — started ${age}.${draw.reason && draw.attempt > 1 && !infrastructure ? ` The first attempt drew nothing: ${draw.reason}.` : ''}`, tone: 'info' };
+  }
+  if (pictured) {
+    return null;
+  }
+  if (infrastructure) {
+    return { line: 'The mockup could not be drawn right now. The operator has been told, and it is drawn on its own once that is fixed.', tone: 'info' };
   }
   return { line: `The mockup was not drawn${draw.attempt > 1 ? ` after ${draw.attempt} attempts` : ''} (${formatStamp(new Date(draw.at))}): ${draw.reason ?? 'no reason was recorded'}. Asking for a mockup in chat draws it again.`, tone: 'warn' };
 }
+
+/** The sections whose pictures show the change itself, as the carousel draws them. */
+const PICTURE_SECTIONS: ReadonlySet<string> = new Set(['visuals', 'today', 'qa']);
 
 /** Surfaces a person can see, and therefore owes a picture of. */
 const VISIBLE_SURFACES: ReadonlySet<string> = new Set(['ui', 'flow']);
@@ -2878,7 +2922,9 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[], ctx:
   s.evidence = all.filter(e => !isCurrent(e)).sort((a, b) => drawable(a) - drawable(b));
 
   if (s.evidence.length === 0) {
-    if (noVisualReason !== null) {
+    // A reason written while the installation could not draw is about the
+    // installation, not the work: it went to the operator (`mockupDraw.cause`).
+    if (noVisualReason !== null && readMockupDraw(request.meta)?.cause !== 'infrastructure') {
       s.absence = `Nothing to show, on purpose: ${noVisualReason}`;
       return s;
     }
@@ -3536,6 +3582,21 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const notices = findNotices(normalised, mergedPrs, line);
   const status = withActiveRun(buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl, live }), implementation);
   const facts = workFactsOf(normalised, { mergedPrs, state, release, status });
+  const sections: ReportSection[] = [
+    askSection(input.request),
+    triageSection(input.request),
+    visualsSection(input.request, input.artifacts, pictures),
+    todaySection(input.request, input.artifacts, input.liveBases, pictures),
+    planSection(input.plans, input.tasks, runs.length > 0, input.people),
+    contractSection(input.tasks),
+    approvalsSection(input.asks, input.actionRuns, runs.length > 0),
+    runsSection(runs, mergedPrs),
+    changeSection(input.tasks, runs),
+    qaSection(input.artifacts, input.tasks.length, pictures),
+    releaseSection(input.releases),
+    resultSection(normalised.request, normalised.releases.length > 0),
+    moneySection(line),
+  ];
   return {
     facts,
     requestId: input.request.id,
@@ -3577,25 +3638,11 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     summary: buildSummary(normalised, line),
     context: buildContext(input.request, buildSummary(normalised, line), input.now),
     money: line,
-    sections: [
-      askSection(input.request),
-      triageSection(input.request),
-      visualsSection(input.request, input.artifacts, pictures),
-      todaySection(input.request, input.artifacts, input.liveBases, pictures),
-      planSection(input.plans, input.tasks, runs.length > 0, input.people),
-      contractSection(input.tasks),
-      approvalsSection(input.asks, input.actionRuns, runs.length > 0),
-      runsSection(runs, mergedPrs),
-      changeSection(input.tasks, runs),
-      qaSection(input.artifacts, input.tasks.length, pictures),
-      releaseSection(input.releases),
-      resultSection(normalised.request, normalised.releases.length > 0),
-      moneySection(line),
-    ],
+    sections,
     timeline,
     contradictions: notices.map(n => n.evidence),
     hero: visualsSection(input.request, input.artifacts, pictures).evidence.find(e => e.imageUrl !== null) ?? null,
-    mockupStatus: mockupStatusOf(input.request, input.now),
+    mockupStatus: mockupStatusOf(input.request, input.now, sections.some(x => PICTURE_SECTIONS.has(x.key) && x.evidence.some(e => e.imageUrl !== null && e.role !== 'proposed'))),
     follow: followOf(input),
   };
 }

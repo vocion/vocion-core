@@ -461,13 +461,14 @@ describe('the pieces that carried over', () => {
 });
 
 describe('where it started and what it is connected to (Chris, 2026-09-30, #269)', () => {
-  it('leads its Activity with the chat it was requested in, and draws Related with that chat first', async () => {
+  it('closes its Activity with the chat it was requested in, newest first, and draws Related with that chat first', async () => {
     await page.viewport(1440, 900);
     const report = {
       ...fixture(),
       activity: [
-        { kind: 'conversation' as const, id: 812, title: 'Requested in chat by Dana Okafor', at: T('2026-09-01T09:00:00Z'), status: null, detail: 'Board pack as a PDF', origin: true },
+        { kind: 'mission_run' as const, id: 901, title: 'Scheduled check: Every asker hears back', at: T('2026-09-03T12:00:00Z'), status: 'completed', detail: null, count: 6 },
         { kind: 'worker_run' as const, id: 435, title: 'Room PDF export', at: T('2026-09-03T10:00:00Z'), status: 'running', detail: null },
+        { kind: 'conversation' as const, id: 812, title: 'Requested in chat by Dana Okafor', at: T('2026-09-01T09:00:00Z'), status: null, detail: 'Board pack as a PDF', origin: true },
       ],
     };
     await render(
@@ -484,10 +485,12 @@ describe('where it started and what it is connected to (Chris, 2026-09-30, #269)
 
     await expect.element(page.getByTestId('feature-activity')).toHaveTextContent(/^Activity/);
 
-    const first = document.querySelector('[data-testid="activity-row"]');
+    const rows = [...document.querySelectorAll('[data-testid="activity-row"]')];
 
-    expect(first?.getAttribute('data-origin')).toBe('true');
-    expect(first?.textContent).toContain('Requested in chat by Dana Okafor · Board pack as a PDF');
+    expect(rows[0]?.textContent).toContain('Scheduled check: Every asker hears back · ran 6 times');
+    expect(rows[0]?.textContent).toContain('last ');
+    expect(rows.at(-1)?.getAttribute('data-origin')).toBe('true');
+    expect(rows.at(-1)?.textContent).toContain('Requested in chat by Dana Okafor · Board pack as a PDF');
 
     const labels = [...document.querySelectorAll('[data-testid="feature-related"] dt')].map(d => d.textContent);
 

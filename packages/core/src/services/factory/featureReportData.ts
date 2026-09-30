@@ -24,6 +24,7 @@ import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, Re
 import type { RecordOrigin } from '@/services/objects/related';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { collapseActivity } from '@/libs/factory/activityRows';
 import { actionRunSchema, agentSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { failedFireLines } from '@/services/automations/failedFires';
@@ -365,7 +366,8 @@ async function authorNames(orgId: string, refs: Array<{ kind: string | null; id:
 }
 
 /**
- * Every conversation and run tied to this feature, newest first. A
+ * Every conversation and run tied to this feature, newest first, repeated
+ * agent runs collapsed into one row (`libs/factory/activityRows.ts`). A
  * conversation or mission run counts when one of its tool calls named this
  * request (or one of its tasks) by id — a record it read, wrote or carded —
  * never on a resemblance. Engineering runs are the tasks' own worker runs.
@@ -427,20 +429,20 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
   for (const w of workerRuns) {
     out.push({ kind: 'worker_run', id: w.id, title: w.summary?.split('\n')[0]?.slice(0, 90) || `Engineering run ${w.id}`, at: w.completedAt ?? w.claimedAt ?? w.createdAt, status: w.status, detail: [w.model, w.cents !== null ? `$${(w.cents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ') || null });
   }
-  const sorted = out.sort((a, b) => b.at.getTime() - a.at.getTime());
   if (!origin) {
-    return sorted;
+    return collapseActivity(out);
   }
-  // WHERE IT STARTED, first (Chris, 2026-09-30, #269): the conversation it
-  // was requested in, from the record's own origin, whatever else it did.
+  // WHERE IT STARTED (Chris, 2026-09-30, #269): the conversation it was
+  // requested in, from the record's own origin, in its place in time — the
+  // oldest entry, so it closes the list (`libs/factory/activityRows.ts`).
   const asked: ReportActivity = {
     kind: 'conversation',
     id: origin.conversationId,
     title: `Requested in chat${origin.by ? ` by ${origin.by}` : ''}`,
-    at: origin.at ? new Date(origin.at) : sorted.find(a => a.kind === 'conversation' && a.id === origin.conversationId)?.at ?? new Date(0),
+    at: origin.at ? new Date(origin.at) : out.find(a => a.kind === 'conversation' && a.id === origin.conversationId)?.at ?? new Date(0),
     status: null,
     detail: origin.title,
     origin: true,
   };
-  return [asked, ...sorted.filter(a => !(a.kind === 'conversation' && a.id === origin.conversationId))];
+  return collapseActivity([asked, ...out.filter(a => !(a.kind === 'conversation' && a.id === origin.conversationId))]);
 }

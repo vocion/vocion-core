@@ -177,7 +177,11 @@ name: Software factory
 #   `object.updated`. `factory-contract-changed` and `design-mockup-default`
 #   name the fields they read (`when.filter.fieldsAny`), so a write of anything
 #   else starts neither; the contract's fields are this plugin's, not core's.
-version: 2.31.0
+# 2.32.0 — a mockup the installation could not draw (no renderer) is not
+#   retried into the same wall: its reason goes once to the operator
+#   (`design-mockup-ended` input.operator), a person reads only that it could
+#   not be drawn, and the hourly sweep draws it once the installation can.
+version: 2.32.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

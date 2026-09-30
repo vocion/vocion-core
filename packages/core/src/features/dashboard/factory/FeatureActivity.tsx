@@ -3,6 +3,7 @@
 import type { ReportActivity } from '@/services/factory/featureReport';
 import { Bot, ChevronRight, Hammer, MessageSquare } from 'lucide-react';
 import { usePreviewOpener } from '@/features/preview/previewState';
+import { previewActivity, repeatLabel } from '@/libs/factory/activityRows';
 import { FeatureDrawerLink } from './FeatureDrawerLink';
 
 /**
@@ -18,7 +19,10 @@ import { FeatureDrawerLink } from './FeatureDrawerLink';
  *
  * Compact on the page (2026-09-28): the three newest, and "View all work"
  * opens the whole list in the same pane — no in-page expansion that pushes
- * the plan and the build off the screen.
+ * the plan and the build off the screen. Newest first, where it started
+ * closing the list, a repeated agent run one row ("ran 6 times · last 2m
+ * ago"), and the newest engineering run always in reach (Chris, 2026-09-30,
+ * #269 — `libs/factory/activityRows.ts`).
  */
 
 const ICON = { conversation: MessageSquare, mission_run: Bot, worker_run: Hammer } as const;
@@ -47,10 +51,10 @@ function Row({ item }: { item: ReportActivity }) {
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <span className="min-w-0 flex-1 truncate">
           <span className="text-foreground">{item.title}</span>
-          <span className="text-muted-foreground">{` · ${item.origin && item.detail ? item.detail : WORD[item.kind]}`}</span>
+          <span className="text-muted-foreground">{` · ${item.origin && item.detail ? item.detail : repeatLabel(item) ?? WORD[item.kind]}`}</span>
         </span>
         {item.status && <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{item.status}</span>}
-        <span data-clock className="shrink-0 text-xs text-muted-foreground tabular-nums">{ago(item.at)}</span>
+        <span data-clock className="shrink-0 text-xs text-muted-foreground tabular-nums">{repeatLabel(item) ? `last ${ago(item.at)}` : ago(item.at)}</span>
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
       </button>
     </li>
@@ -62,10 +66,10 @@ export function FeatureActivity({ items, requestId }: { items: ReportActivity[];
     return null;
   }
   const counts = (['conversation', 'mission_run', 'worker_run'] as const)
-    .map(k => [k, items.filter(i => i.kind === k).length] as const)
+    .map(k => [k, items.filter(i => i.kind === k).reduce((n, i) => n + (i.count ?? 1), 0)] as const)
     .filter(([, n]) => n > 0)
     .map(([k, n]) => `${n} ${WORD[k].toLowerCase()}${n === 1 ? '' : 's'}`);
-  const shown = items.slice(0, WORK_PREVIEW_ROWS);
+  const shown = previewActivity(items, WORK_PREVIEW_ROWS);
   return (
     <section id="report-activity-list" className="rounded-lg border border-border" data-testid="feature-activity" aria-labelledby="report-activity-heading">
       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">

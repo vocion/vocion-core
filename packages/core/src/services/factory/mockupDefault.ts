@@ -125,6 +125,16 @@ export async function requestDefaultMockup(orgId: string, input: Record<string, 
   if (decision.do === 'skip') {
     return skip(id, decision.why);
   }
+  // After the installation could not draw: only when it can now, so a
+  // still-broken one spends no run. Once it can, the operator's ask closes.
+  if (decision.afterInfrastructure) {
+    const { renderAvailable } = await import('@/libs/documents/render');
+    const ready = await renderAvailable().catch(() => ({ ok: false as const, reason: 'unknown' }));
+    if (!ready.ok) {
+      return skip(id, 'this installation still cannot draw');
+    }
+    await closeInfrastructureAsks(orgId, 'This installation can draw images again; the mockups it owed are being drawn.');
+  }
   const at = now.toISOString();
   await writeMark(orgId, id, { state: 'drawing', attempt: decision.attempt, at, ...(decision.lastFailure ? { reason: decision.lastFailure } : {}) });
   try {
@@ -222,6 +232,108 @@ export async function defaultMockupEnded(orgId: string, input: Record<string, un
     return { recordId: id, did: `retry:${next.attempt}`, line: next.line };
   }
   return { recordId: id, did: 'gave-up', line: next.line };
+}
+
+/** Where the operator's ask about an installation that cannot draw is filed (`sourceRef` prefix). */
+const INFRA_ASK = 'mockup-infrastructure';
+
+/**
+ * The seat that operates this installation, as the plugin names it on the
+ * automation that runs the `mockup-ended` job (`do.input.operator`) — read,
+ * never written here.
+ * @param orgId - Tenant.
+ */
+async function operatorOf(orgId: string): Promise<string | null> {
+  const { eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { automationSchema } = await import('@/models/Schema');
+  const rows = await db.select({ doConfig: automationSchema.doConfig }).from(automationSchema).where(eq(automationSchema.orgId, orgId));
+  for (const r of rows) {
+    const op = r.doConfig?.job === 'mockup-ended' ? r.doConfig.input?.operator : null;
+    if (typeof op === 'string' && op.trim() !== '') {
+      return op.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Close the operator's open asks about drawing, once the installation can draw.
+ * @param orgId - Tenant.
+ * @param why - The closing note.
+ */
+async function closeInfrastructureAsks(orgId: string, why: string): Promise<void> {
+  const { and, eq, like } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { askSchema } = await import('@/models/Schema');
+  const { supersedeAsk } = await import('@/services/AskService');
+  const open = await db.select({ id: askSchema.id }).from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), like(askSchema.sourceRef, `${INFRA_ASK}:%`)));
+  for (const a of open) {
+    await supersedeAsk(orgId, a.id, why).catch(() => undefined);
+  }
+}
+
+/**
+ * THE INSTALLATION COULD NOT DRAW (Chris, 2026-09-30, #269: "mockup was not
+ * drawn after 2 attempts" over a missing renderer). The drawing tool hit a
+ * failure only the installation's operator can fix (`MockupFailure.cause`):
+ *
+ *   - the record says so, typed (`visuals.mockupDraw.cause`), so the feature
+ *     page tells a person only that it could not be drawn and that it is in
+ *     hand — never the technical reason — and the drawing is not retried
+ *     into the same wall;
+ *   - the operator hears the reason ONCE: one open ask for the whole
+ *     installation, however many requests fail while it is open;
+ *   - it heals: once the installation can draw, the hourly sweep draws what
+ *     was owed and the ask closes (`requestDefaultMockup`).
+ * @param orgId - Tenant.
+ * @param recordId - The record the drawing was for.
+ * @param reason - The failure as the tool had it — the operator's to read.
+ * @param now - The clock.
+ * @returns Whether an ask was filed now (false: one is already open).
+ */
+export async function mockupInfrastructureFailed(orgId: string, recordId: number, reason: string, now: Date = new Date()): Promise<{ asked: boolean; askId: number | null }> {
+  const { readRecord } = await import('@/libs/actions/factory-dispatch');
+  const { readMockupDraw } = await import('@/libs/factory/mockupDefault');
+  const record = await readRecord(orgId, recordId);
+  if (record) {
+    const draw = readMockupDraw(record.meta);
+    const detail = reason.replace(/\s+/g, ' ').trim().slice(0, 400);
+    await writeMark(orgId, recordId, draw?.state === 'drawing'
+      ? { ...draw, reason: detail, cause: 'infrastructure' }
+      : { state: 'failed', attempt: draw?.attempt ?? 1, at: now.toISOString(), reason: detail, cause: 'infrastructure' });
+  }
+  const { and, eq, like } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { askSchema } = await import('@/models/Schema');
+  const [open] = await db.select({ id: askSchema.id }).from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), like(askSchema.sourceRef, `${INFRA_ASK}:%`))).limit(1);
+  if (open) {
+    return { asked: false, askId: open.id };
+  }
+  const operator = await operatorOf(orgId);
+  const { upsertAsk } = await import('@/services/AskService');
+  const { ask } = await upsertAsk({
+    orgId,
+    createdBy: operator ? `agent:${operator}` : 'system',
+    ask: {
+      kind: 'approval',
+      title: 'Mockups cannot be drawn on this installation',
+      body: [
+        `Drawing a mockup failed on the installation itself, not on the request: ${reason.replace(/\s+/g, ' ').trim().slice(0, 600)}`,
+        'Fix the renderer where the agents run. Every mockup it owed is drawn on its own within the hour once it can draw, and this ask closes by itself.',
+      ].join('\n\n'),
+      sourceRef: `${INFRA_ASK}:${recordId}:${now.toISOString()}`,
+      agentSlug: operator,
+      risk: 'medium',
+      options: [
+        { id: 'approve', label: 'The renderer is fixed', description: 'The owed mockups are drawn on the next sweep.', recommended: true },
+        { id: 'reject', label: 'Leave it', description: 'Features go on without mockups until it is fixed.' },
+      ],
+      objectRefs: record ? [{ type: record.typeSlug, id: String(recordId) }] : [],
+      decisionCost: 5,
+    },
+  });
+  return { asked: true, askId: ask.id };
 }
 
 /** At most this many drawings asked for in one sweep, so a backlog drains over hours, not at once. */

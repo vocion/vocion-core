@@ -151,6 +151,14 @@ export function drawMockupTool(ctx: RuntimeContext) {
         provenance: { agentSlug: ctx.agentSlug ?? null, missionRunId: ctx.missionRunId ?? null, conversationId: ctx.conversationId ?? null },
       });
       if (!out.ok) {
+        // THE INSTALLATION COULD NOT DRAW: the record carries it typed and
+        // the operator is told once (`mockupInfrastructureFailed`) — the
+        // reason is theirs, not the request's, and not the agent's to relay.
+        if (out.cause === 'infrastructure') {
+          const { mockupInfrastructureFailed } = await import('@/services/factory/mockupDefault');
+          await mockupInfrastructureFailed(ctx.orgId, requestId, out.reason).catch(err => console.warn('[draw_mockup] could not record an infrastructure failure', { requestId, message: (err as Error).message }));
+          return `Nothing was drawn: this installation cannot draw images right now. That is recorded on ${row.type.label.toLowerCase()} #${requestId}, and the installation's operator has been told once, with the detail. It is not the request's problem and not yours: do not write it onto the request (no noVisualReason), do not file an ask about it, and do not call draw_mockup again in this run. Say in one line that the mockup is waiting on the installation, and stop.`;
+        }
         return out.reason;
       }
       const { toPayload } = await import('@/services/ArtifactService');

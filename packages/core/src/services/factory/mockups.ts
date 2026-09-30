@@ -41,7 +41,15 @@ export type ScreenSurvey = {
 
 export type DrawnState = { state: string; artifactId: number; url: string; title: string };
 
-export type MockupFailure = { ok: false; reason: string };
+/**
+ * Why nothing was drawn. `cause` says WHERE it failed, typed at the place it
+ * failed rather than read back from the words: `infrastructure` — the
+ * installation could not draw at all (no renderer, the render or the store
+ * threw), which only its operator can fix and a person is never shown the
+ * detail of; `content` — the drawing itself was refused, which the drawer
+ * fixes by drawing again.
+ */
+export type MockupFailure = { ok: false; reason: string; cause?: 'infrastructure' | 'content' };
 
 /**
  * Every artifact on the request and on its engineering tasks, as the base
@@ -341,22 +349,22 @@ export async function drawMockups(opts: {
   if (overScreen) {
     const pick = pickBase(shots, opts);
     if (!pick.ok) {
-      return { ok: false, reason: `Nothing was drawn: ${pick.reason} Draw each state as the product's UI blocks in \`html\` instead of \`changes\`.` };
+      return { ok: false, cause: 'content', reason: `Nothing was drawn: ${pick.reason} Draw each state as the product's UI blocks in \`html\` instead of \`changes\`.` };
     }
     const img = await openBase(opts.orgId, pick.url);
     if ('ok' in img) {
-      return { ok: false, reason: `Nothing was drawn: ${img.reason}. Draw each state as UI blocks in \`html\` instead.` };
+      return { ok: false, cause: 'content', reason: `Nothing was drawn: ${img.reason}. Draw each state as UI blocks in \`html\` instead.` };
     }
     base = { pick, img };
   }
   const problems = mockupProblems(opts.states, base ? { width: base.img.width, height: base.img.height } : null);
   if (problems.length > 0) {
-    return { ok: false, reason: `Nothing was drawn:\n${problems.map(p => `- ${p}`).join('\n')}` };
+    return { ok: false, cause: 'content', reason: `Nothing was drawn:\n${problems.map(p => `- ${p}`).join('\n')}` };
   }
   const { renderAvailable, renderScreen } = await import('@/libs/documents/render');
   const ready = await renderAvailable();
   if (!ready.ok) {
-    return { ok: false, reason: `the renderer is not available on this installation (${ready.reason}), so nothing was drawn` };
+    return { ok: false, cause: 'infrastructure', reason: `the renderer is not available on this installation (${ready.reason}), so nothing was drawn` };
   }
   const { look, from } = await productLook(opts.orgId, opts.requestMeta);
   const { saveArtifact } = await import('@/libs/tools/artifacts/store');
@@ -366,8 +374,16 @@ export async function drawMockups(opts: {
     const html = s.changes && s.changes.length > 0 && base
       ? mockupHtml(base.img.dataUri, { width: base.img.width, height: base.img.height }, s.changes, look)
       : blocksHtml({ html: s.html ?? '', css: s.css }, look, viewport);
-    const shot = await renderScreen(html);
-    const file = await saveArtifact({ orgId: opts.orgId, data: Buffer.from(shot.png), ext: 'png', contentType: 'image/png' });
+    // The render and the store are the installation's: a throw there is an
+    // infrastructure failure, said as one, never a crashed turn.
+    let shot: Awaited<ReturnType<typeof renderScreen>>;
+    let file: Awaited<ReturnType<typeof saveArtifact>>;
+    try {
+      shot = await renderScreen(html);
+      file = await saveArtifact({ orgId: opts.orgId, data: Buffer.from(shot.png), ext: 'png', contentType: 'image/png' });
+    } catch (err) {
+      return { ok: false, cause: 'infrastructure', reason: `the installation could not render or store the image (${(err as Error).message.split('\n')[0]}), so nothing was drawn` };
+    }
     const title = mockupTitle(opts.requestTitle, s.state, opts.states.length);
     const artifact = await fileMockup({
       orgId: opts.orgId,

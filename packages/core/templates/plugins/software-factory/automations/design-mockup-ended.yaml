@@ -3,7 +3,9 @@
 # and the first attempt is tried once more carrying why it drew nothing; none
 # after that, and the reason is written on the request (`visuals.mockupDraw`),
 # where the feature page shows it. It never asks a person and never holds the
-# work. Deterministic: a built-in job.
+# work. A drawing the INSTALLATION could not make (no renderer) is not retried
+# into the same wall: its reason goes once to the operator below, and the
+# hourly sweep draws it once the installation can. Deterministic: a built-in job.
 slug: design-mockup-ended
 name: A mockup drawing ended
 description: >-
@@ -19,3 +21,7 @@ do:
   job: mockup-ended
   input:
     attempts: 2
+    # Who operates this installation: when a drawing fails on the installation
+    # itself (no renderer), this seat hears the reason once, and a person on
+    # the feature page reads only that the mockup could not be drawn.
+    operator: release-engineer
