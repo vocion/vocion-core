@@ -817,3 +817,22 @@ export function replanBrief(failure: Failure): string {
 export function attemptsOf(state: Pick<RecoveryState, 'attempts'>, kind: RecoveryEntry['kind']): number {
   return state.attempts.filter(a => a.kind === kind).length;
 }
+
+/**
+ * Which automatic attempt one run was, counted the way the feature page
+ * counts (`recoveryStage`: this stage's attempts against its limit), so a run
+ * page and its feature never read two counters — #435 read "Attempt 2 of 2"
+ * (every run of the feature) while its feature read "Recovering (attempt 2 of
+ * 3)" (2026-09-30). Null for a run the recovery did not send: a build a
+ * person started is where the count begins, not one of its attempts.
+ * @param state - The request's recovery state (`readRecovery`).
+ * @param runId - The run.
+ */
+export function attemptOfRun(state: Pick<RecoveryState, 'attempts' | 'limit'>, runId: number): { n: number; of: number } | null {
+  const entry = state.attempts.find(a => a.runId === runId);
+  if (!entry) {
+    return null;
+  }
+  const upTo = state.attempts.slice(0, state.attempts.indexOf(entry) + 1);
+  return { n: attemptsOf({ attempts: upTo }, entry.kind), of: state.limit };
+}

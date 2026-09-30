@@ -494,6 +494,10 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     title: str(g, 'title') ?? (typeof r.title === 'string' ? r.title : null),
     objective: objective || null,
     ...(input.previous ? { previousTaskId: input.previous.id } : prev ? { previousTaskId: prev.id } : {}),
+    // What was asked of THIS attempt, kept apart from the objective it rides
+    // in, so the run page says it in one line (`RunWhy`). Task metadata only:
+    // `contractFromTask` names the worker's fields and never sends it.
+    ...(input.note ? { attemptNote: input.note.slice(0, 1000) } : {}),
     ...(resume ? { baseSha: String(resume.meta.branch), attempt: (Number(resume.meta.attempt) || 1) + 1, resumedFrom: resume.id } : {}),
     acceptanceContract: acceptance,
     allowedPaths: paths,

@@ -144,7 +144,7 @@ describe('the run page reads the log after a cursor', () => {
     expect(all!.events.map(e => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(all!.cursor).toBe(6);
     expect(since!.events.map(e => e.seq)).toEqual([5, 6]);
-    expect(since!.header).toMatchObject({ kind: 'worker', ref: String(run.id), title: 'northwind-t12', status: 'running', attempt: 1 });
+    expect(since!.header).toMatchObject({ kind: 'worker', ref: String(run.id), title: `Engineering run ${run.id}`, taskId: 'northwind-t12', status: 'running', attempt: 1 });
     expect(await svc.readRunLog(OTHER, String(run.id))).toBeNull();
   });
 

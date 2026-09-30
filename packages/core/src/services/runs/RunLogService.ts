@@ -1,7 +1,7 @@
-import type { AgentCallView, AgentTaskView, RunCheck, RunContext, RunHeader, RunLink, RunLogData, RunLogEvent, RunLogLevel } from '@/libs/worker/runLog';
+import type { AgentCallView, AgentTaskView, RunCheck, RunContext, RunCriterion, RunGlance, RunHeader, RunLink, RunLogData, RunLogEvent, RunLogLevel, RunWhy } from '@/libs/worker/runLog';
 import { and, asc, count, eq, gt, inArray, lt, max } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { eventLevel, stopReason } from '@/libs/worker/runLog';
+import { eventLevel, glanceOf, stopReason } from '@/libs/worker/runLog';
 import { missionRunSchema, toolCallSchema, workerRunEventSchema, workerRunSchema } from '@/models/Schema';
 
 /**
@@ -286,7 +286,7 @@ function readChecks(result: Record<string, unknown>): RunCheck[] {
 async function workerHeader(run: WorkerRunRow, events: RunLogEvent[]): Promise<RunHeader> {
   const progress = (run.progress ?? {}) as Record<string, unknown>;
   const result = (run.result ?? {}) as Record<string, unknown>;
-  const input = (run.input ?? {}) as { task?: { task_id?: string; objective?: string } };
+  const input = (run.input ?? {}) as { task?: { task_id?: string; objective?: string; title?: string } };
   const rawLinks = (result.logLinks && typeof result.logLinks === 'object' ? result.logLinks : {}) as Record<string, unknown>;
   const rawChecks = (rawLinks.checks && typeof rawLinks.checks === 'object' ? rawLinks.checks : {}) as Record<string, unknown>;
   const links: RunLink[] = [];
@@ -301,12 +301,16 @@ async function workerHeader(run: WorkerRunRow, events: RunLogEvent[]): Promise<R
   // The Claude Code block's "last lines": the run's own last lines when it
   // sent them, else the progress tail it kept.
   const lastLines = events.length > 0 ? events.slice(-15).map(e => [e.phase, e.message].filter(Boolean).join(' ')) : undefined;
+  const context = await runContext(run).catch(() => null);
   return {
     kind: 'worker',
     ref: String(run.id),
     id: run.id,
-    title: input.task?.task_id ?? `Engineering run ${run.id}`,
+    // The feature's name, never the worker's handle for the task (`taskId`).
+    title: context?.feature?.title ?? input.task?.title ?? `Engineering run ${run.id}`,
     objective: input.task?.objective ?? null,
+    taskId: input.task?.task_id ?? null,
+    seat: 'Engineer',
     status: run.status,
     attempt: run.attempt,
     startedAt: iso(run.claimedAt ?? run.createdAt),
@@ -327,14 +331,16 @@ async function workerHeader(run: WorkerRunRow, events: RunLogEvent[]): Promise<R
     checks: readChecks(result),
     failures: (Array.isArray(run.failures) ? run.failures : []).map(f => ({ scope: f.scope ?? 'run', message: f.message ?? '' })),
     recovery: result.recovery && typeof result.recovery === 'object' ? str(result.recovery as Record<string, unknown>, 'line') : null,
-    context: await runContext(run).catch(() => null),
+    context,
   };
 }
 
 /**
  * Where an engineering run belongs, from its own input and the records it
- * names: the task's request (the feature), the task's plan, the other runs of
- * the same feature (which attempt this is), and the acceptance it carries.
+ * names: the task's request (the feature), the task's plan, which attempt
+ * this is (the feature's own recovery count), the other runs of the same
+ * feature, the acceptance it carries with each criterion's verdict, the
+ * branch it works on, and why this attempt was started.
  * @param run - The run.
  */
 export async function runContext(run: WorkerRunRow): Promise<RunContext | null> {
@@ -347,13 +353,15 @@ export async function runContext(run: WorkerRunRow): Promise<RunContext | null> 
   }
   const { businessObjectSchema } = await import('@/models/Schema');
   const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
+  const { attemptOfRun, readRecovery } = await import('@/services/factory/recovery');
   const link = await recordLinkerForOrg(run.orgId);
   const ids = [requestId, ...(Number.isSafeInteger(taskId) && taskId > 0 ? [taskId] : [])];
   const rows = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, run.orgId), inArray(businessObjectSchema.id, ids)));
   const request = rows.find(r => r.id === requestId) ?? null;
   const taskRow = rows.find(r => r.id === taskId) ?? null;
+  const taskMeta = (taskRow?.meta ?? {}) as Record<string, unknown>;
   const featureHref = link({ objectType: 'request', id: requestId });
-  const planId = Number((taskRow?.meta as Record<string, unknown> | null)?.planId ?? (task.plan as Record<string, unknown> | undefined)?.plan_id);
+  const planId = Number(taskMeta.planId ?? (task.plan as Record<string, unknown> | undefined)?.plan_id);
   let plan: RunContext['plan'] = null;
   if (Number.isSafeInteger(planId) && planId > 0) {
     const [p] = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, run.orgId), eq(businessObjectSchema.id, planId))).limit(1);
@@ -366,14 +374,110 @@ export async function runContext(run: WorkerRunRow): Promise<RunContext | null> 
     .where(and(eq(workerRunSchema.orgId, run.orgId), sql`${workerRunSchema.input}->'task'->>'request_id' = ${String(requestId)}`))
     .orderBy(asc(workerRunSchema.id))
     .limit(50);
-  const n = siblings.findIndex(r => r.id === run.id) + 1;
-  const acceptance = Array.isArray(task.acceptance_contract) ? task.acceptance_contract.length : 0;
+  const recovery = readRecovery((request?.meta ?? null) as Record<string, unknown> | null);
+  const criteria = acceptanceOf(task.acceptance_contract, taskMeta.verdict);
+  // The attempt before this one: the task this one superseded.
+  const previousId = Number(taskMeta.previousTaskId ?? taskMeta.autoRetryOf);
+  const [previous] = Number.isSafeInteger(previousId) && previousId > 0
+    ? await db.select({ meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, run.orgId), eq(businessObjectSchema.id, previousId))).limit(1)
+    : [];
+  const entry = recovery.attempts.find(a => a.runId === run.id) ?? null;
   return {
     feature: request ? { id: request.id, title: request.title, href: featureHref } : { id: requestId, title: `Feature #${requestId}`, href: featureHref },
     plan,
-    attempt: n > 0 ? { n, of: siblings.length, others: siblings.filter(r => r.id !== run.id).map(r => ({ runId: r.id, status: r.status, href: `/dashboard/p/runs/${r.id}` })) } : null,
-    acceptance: acceptance > 0 ? { count: acceptance, href: `${featureHref}#report-acceptance` } : null,
+    // The task's type as the run names it, never written here.
+    task: taskRow && typeof input.record?.type === 'string' ? { id: taskRow.id, href: link({ objectType: input.record.type, id: taskRow.id }) } : null,
+    attempt: attemptOfRun(recovery, run.id),
+    others: siblings.filter(r => r.id !== run.id).map(r => ({ runId: r.id, status: r.status, href: `/dashboard/p/runs/${r.id}` })),
+    acceptance: criteria.length > 0 ? { count: criteria.length, href: `${featureHref}#report-acceptance`, criteria } : null,
+    branch: branchOf(run, taskMeta, typeof task.repo === 'string' ? task.repo : null),
+    why: whyOfAttempt({
+      previous: (previous?.meta ?? null) as Record<string, unknown> | null,
+      note: typeof taskMeta.attemptNote === 'string' ? taskMeta.attemptNote : null,
+      byPerson: entry === null,
+      recoveryLine: entry?.line ?? null,
+    }),
   };
+}
+
+/**
+ * The acceptance a run carries, each criterion with its verdict when QA has
+ * judged the task: matched by the criterion's own text, else by position.
+ * @param contract - The contract's `acceptance_contract`.
+ * @param verdict - The task's `verdict`, when it has one.
+ */
+export function acceptanceOf(contract: unknown, verdict: unknown): RunCriterion[] {
+  const texts = (Array.isArray(contract) ? contract : []).map((c) => {
+    if (typeof c === 'string') {
+      return c.trim();
+    }
+    const o = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>;
+    return String(o.statement ?? o.criterion ?? o.text ?? '').trim();
+  }).filter(Boolean);
+  const judged = Array.isArray((verdict as { criteria?: unknown } | null)?.criteria)
+    ? ((verdict as { criteria: Array<{ criterion?: unknown; status?: unknown }> }).criteria)
+    : null;
+  return texts.map((text, i) => {
+    if (!judged) {
+      return { text, state: null as RunCriterion['state'] };
+    }
+    const hit = judged.find(j => typeof j.criterion === 'string' && j.criterion.trim() === text) ?? judged[i];
+    const state: RunCriterion['state'] = hit ? (hit.status === 'proven' ? 'proven' : 'open') : null;
+    return { text, state };
+  });
+}
+
+/**
+ * The branch a run works on: what it reported, what it kept, what its task
+ * names — linked to the repository's tree when the repository is on GitHub.
+ * @param run - The run.
+ * @param taskMeta - Its task's metadata.
+ * @param repo - The contract's repository URL.
+ */
+function branchOf(run: WorkerRunRow, taskMeta: Record<string, unknown>, repo: string | null): RunContext['branch'] {
+  const result = (run.result ?? {}) as Record<string, unknown>;
+  const progress = (run.progress ?? {}) as Record<string, unknown>;
+  const name = str(result, 'branch') ?? str(progress, 'keptBranch') ?? str(progress, 'branch') ?? str(taskMeta, 'branch');
+  if (!name) {
+    return null;
+  }
+  const web = repo && /^https:\/\/github\.com\//.test(repo) ? repo.replace(/\.git$/, '') : null;
+  return { name, href: web ? `${web}/tree/${name.split('/').map(encodeURIComponent).join('/')}` : null };
+}
+
+/**
+ * Why an attempt was started, in one line, from what the records say — the
+ * last attempt's CI failure or its send-back, whichever came last; else what
+ * was asked of this attempt; else the factory's own reason. Null on a first
+ * attempt: nothing came before it.
+ * @param o - What the records hold.
+ * @param o.previous - The metadata of the task this attempt superseded.
+ * @param o.note - What was asked of this attempt (`attemptNote`).
+ * @param o.byPerson - A person started it (the recovery did not).
+ * @param o.recoveryLine - The factory's line for the attempt, when it started it.
+ */
+export function whyOfAttempt(o: { previous: Record<string, unknown> | null; note: string | null; byPerson: boolean; recoveryLine: string | null }): RunWhy | null {
+  const prev = o.previous ?? {};
+  const prUrl = str(prev, 'prUrl');
+  const ci = (prev.ciFailure && typeof prev.ciFailure === 'object' ? prev.ciFailure : null) as Record<string, unknown> | null;
+  const verdict = (prev.verdict && typeof prev.verdict === 'object' ? prev.verdict : null) as Record<string, unknown> | null;
+  const sentBack = verdict && verdict.value !== 'approve' ? verdict : null;
+  const at = (v: Record<string, unknown> | null) => (v && typeof v.at === 'string' ? Date.parse(v.at) || 0 : 0);
+  const firstLine = (t: unknown) => (typeof t === 'string' ? t.split('\n').map(l => l.trim()).find(Boolean) ?? null : null);
+  const fromCi: RunWhy | null = ci
+    ? { kind: 'ci', line: `CI failed on the pull request${str(ci, 'failing') ? `: ${str(ci, 'failing')}` : ''}`, detail: firstLine(ci.detail), href: prUrl }
+    : null;
+  const fromReview: RunWhy | null = sentBack
+    ? { kind: 'review', line: `${(sentBack as { heldBy?: string }).heldBy === 'person' ? 'The person who merges held it' : 'QA sent it back'}${typeof sentBack.proven === 'number' && typeof sentBack.total === 'number' ? ` (${sentBack.proven} of ${sentBack.total} proven)` : ''}`, detail: firstLine(String(sentBack.note ?? '').replace(/^A person held the merge: /, '')), href: prUrl }
+    : null;
+  const fromNote: RunWhy | null = o.note ? { kind: 'note', line: firstLine(o.note) ?? o.note, detail: null, href: null } : null;
+  if (o.byPerson && fromNote) {
+    return fromNote;
+  }
+  if (fromCi && fromReview) {
+    return at(ci) >= at(sentBack) ? fromCi : fromReview;
+  }
+  return fromCi ?? fromReview ?? fromNote ?? (o.recoveryLine ? { kind: 'recovery', line: stopReason(o.recoveryLine, 240), detail: null, href: null } : null);
 }
 
 /**
@@ -472,4 +576,16 @@ export async function readRunLog(orgId: string, ref: string, after = 0): Promise
     .limit(EVENTS_PER_RUN);
   const events: RunLogEvent[] = rows.map(r => ({ seq: r.seq, ts: r.ts.toISOString(), phase: r.phase, step: r.step, level: LEVELS.has(r.level as RunLogLevel) ? r.level as RunLogLevel : null, message: r.message, fields: r.fields ?? {} }));
   return { header: await workerHeader(run, events), events, tasks: [], calls: [], cursor: Math.max(after, ...events.map(e => e.seq)) };
+}
+
+/**
+ * A run as the preview pane shows it: the header, the steps without their
+ * logs, and the Now line (`RunGlance`). The pane re-reads it whole while the
+ * run is live, so it stays small whatever the run printed.
+ * @param orgId - Tenant.
+ * @param ref - The run page's id (`123`, or `agent-45`).
+ */
+export async function readRunGlance(orgId: string, ref: string): Promise<RunGlance | null> {
+  const data = await readRunLog(orgId, ref);
+  return data ? glanceOf(data) : null;
 }
