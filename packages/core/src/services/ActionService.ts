@@ -20,6 +20,7 @@ import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { decideExecution } from '@/libs/actions/autoAccept';
+import { decidedByPerson } from '@/libs/actions/decider';
 import { isManualAction } from '@/libs/actions/manual';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
@@ -223,10 +224,11 @@ async function findDecidedRunForKey(
   const statuses = cardKey
     ? [...CARD_STATUSES_THAT_BLOCK]
     : config?.statuses ?? [...DECIDED_STATUSES_THAT_BLOCK];
-  const [row] = await db
+  const rows = await db
     .select({
       id: actionRunSchema.id,
       status: actionRunSchema.status,
+      decidedBy: actionRunSchema.decidedBy,
       decidedAt: actionRunSchema.decidedAt,
       executedAt: actionRunSchema.executedAt,
       createdAt: actionRunSchema.createdAt,
@@ -240,7 +242,15 @@ async function findDecidedRunForKey(
       inArray(actionRunSchema.status, [...statuses]),
     ))
     .orderBy(desc(actionRunSchema.id))
-    .limit(1);
+    .limit(20);
+  // A REJECTION STANDS ONLY WHEN A PERSON MADE IT. A seat withdrawing its own
+  // card, its budget retiring it, or a sweep expiring it says nothing about
+  // the record, yet it used to bar the record for good: request #130
+  // (2026-09-30) could never be planned again because the product manager had
+  // withdrawn an old plan card for it, and every replan was refused as "a
+  // person already decided this exact record". A machine-made `done` still
+  // counts; the record it produced exists (`decisionStillStands` answers for it).
+  const row = cardKey ? rows.at(0) : rows.find(r => r.status !== 'rejected' || decidedByPerson(r.decidedBy));
   if (!row) {
     return undefined;
   }

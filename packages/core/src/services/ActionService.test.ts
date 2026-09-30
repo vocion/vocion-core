@@ -376,6 +376,37 @@ describe('proposing against an already-decided run', () => {
     expect(await db.select().from(actionRunSchema)).toHaveLength(1);
   });
 
+  it('a card a seat withdrew does not bar the record: the next filing is a new card (#130)', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'withdrawn by its seat', { reviewedBy: 'agent:product-manager' });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('created');
+    expect(again.runId).not.toBe(first.runId);
+  });
+
+  it('a sweep that expired a card does not bar the record either', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'expired', { reviewedBy: 'system:review-sweep' });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('created');
+  });
+
+  it('a person\'s rejection still stands when a seat withdrew a later card for the same record', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
+    await db.insert(actionRunSchema).values({ ...row!, id: undefined, decidedBy: 'agent:product-manager' } as never);
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('already_decided');
+    expect(again.runId).toBe(first.runId);
+  });
+
   it('creates no second card for a candidate already approved and run', async () => {
     const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
     await executeAction(first.runId, ORG, { reviewedBy: 'user-jamie' });
