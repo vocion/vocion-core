@@ -72,6 +72,27 @@ export function tokenFromCredentials(credentials?: Record<string, unknown>): str
 }
 
 /**
+ * The token to call with, whichever kind of credential the workspace holds:
+ * a pasted token as-is, or, for a GitHub App installation (`installationId`
+ * and no token), one minted from the app and cached for the hour. Undefined
+ * when the bag holds neither. Throws only when a mint fails, with a message
+ * that names the installation and never the key.
+ * @param credentials - The decrypted credential bag, when any.
+ */
+export async function resolveGithubToken(credentials?: Record<string, unknown>): Promise<string | undefined> {
+  const pasted = tokenFromCredentials(credentials);
+  if (pasted) {
+    return pasted;
+  }
+  const { installationIdFrom, installationToken } = await import('./app');
+  const installationId = installationIdFrom(credentials);
+  if (!installationId) {
+    return undefined;
+  }
+  return installationToken(installationId);
+}
+
+/**
  * `owner/name` split into its halves, or null when the string is not one.
  * @param repo - A repository as the config spells it, e.g. `acme/api`.
  */

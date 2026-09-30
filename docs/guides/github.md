@@ -172,6 +172,37 @@ when: {event: run.failed} # any failed deploy run on the deploy branch
    since the last run, plus two per updated pull request (check runs, reviews),
    plus one for the deploy branch's runs. A quiet repository is three requests.
 
+## Connect with GitHub — the app instead of a token
+
+When the deployment is a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
+`GITHUB_APP_PRIVATE_KEY_BASE64` set), the source's credential form shows
+**Connect with GitHub** instead of a token field. The person is sent to the
+app's install page on GitHub, chooses the organization and the repositories
+the app may see, and comes back. Nothing is pasted.
+
+What is stored is the **installation**: its id, the account it is on, and the
+repositories it was granted. No token is stored. Every call on the source's
+behalf mints an installation token from the app's private key
+(`libs/github/app.ts`), good for an hour and cached in memory until five
+minutes before it expires, so a poll over ten repositories mints once.
+
+The source's `config.repos` still bounds what is read, and must be a subset
+of what the installation was granted — the list is the factory's scope, the
+installation is GitHub's. **Test connection** reports any repository listed
+in the source that the installation does not include, by name, so the fix
+is one click on GitHub's installation page or one line in the YAML.
+
+The app's webhook uses the same `GITHUB_WEBHOOK_SECRET` as a repository
+hook would: the secret authenticates GitHub, and the workspace is found from
+the delivery. A delivery from the app carries `installation.id`, and among
+the sources that list the repository, the ones whose credential is that
+installation are preferred; a pasted-token source listing the same
+repository still receives it when no installed one does.
+
+Installing on an organization you do not own files a **request** to its
+owners; the callback says so and stores nothing until an owner approves and
+GitHub sends them to the Setup URL.
+
 ## The webhook — the same events, sooner
 
 `POST /api/webhooks/github` receives GitHub's deliveries and emits the same

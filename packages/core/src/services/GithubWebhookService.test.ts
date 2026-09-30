@@ -11,7 +11,7 @@ import type { GithubEvent } from '@/libs/github/events';
 import { createHmac } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { githubConfigSchema } from '@/libs/sources/github';
-import { handleGithubWebhook } from './GithubWebhookService';
+import { handleGithubWebhook, preferInstalled } from './GithubWebhookService';
 
 const SECRET = 'hook-secret';
 const REPO = 'northwind/orders-api';
@@ -158,5 +158,41 @@ describe('handleGithubWebhook', () => {
     expect(out.body).toEqual({ ok: true, emitted: 0 });
     expect(emitted).toEqual([]);
     expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe('a delivery from the GitHub App', () => {
+  it('hands the installation id to the source lookup, and none when the delivery has none', async () => {
+    const { deps } = fakeDeps([source('org_a')]);
+    const body = { action: 'opened', pull_request: pr(), repository: { full_name: REPO }, installation: { id: 777 } };
+
+    await handleGithubWebhook(deliver('pull_request', body), deps);
+
+    expect(deps.sourcesForRepo).toHaveBeenCalledWith(REPO, '777');
+
+    await handleGithubWebhook(deliver('pull_request', { ...body, installation: undefined }), deps);
+
+    expect(deps.sourcesForRepo).toHaveBeenLastCalledWith(REPO, undefined);
+  });
+});
+
+describe('preferInstalled', () => {
+  const a = source('org_a');
+  const b = source('org_b');
+  const holds = (byOrg: Record<string, string | undefined>) => async (ref: GithubSourceRef) => byOrg[ref.orgId];
+
+  it('narrows to the sources whose credential is the installation', async () => {
+    expect(await preferInstalled([a, b], '777', holds({ org_a: '777', org_b: '1' }))).toEqual([a]);
+  });
+
+  it('keeps every source when none holds the installation, when there is no id, or when there is one source', async () => {
+    const decrypts = vi.fn(holds({ org_a: '1', org_b: undefined }));
+
+    expect(await preferInstalled([a, b], '777', decrypts)).toEqual([a, b]);
+    expect(await preferInstalled([a, b], undefined, decrypts)).toEqual([a, b]);
+    expect(decrypts).toHaveBeenCalledTimes(2);
+
+    expect(await preferInstalled([a], '777', decrypts)).toEqual([a]);
+    expect(decrypts).toHaveBeenCalledTimes(2);
   });
 });

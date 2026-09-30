@@ -37,7 +37,7 @@ import type { GithubClient } from '@/libs/github/client';
 import type { GithubEvent, GithubPullRequest, GithubWorkflowRun } from '@/libs/github/events';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
-import { createGithubClient, GITHUB_API_URL, splitRepo, tokenFromCredentials } from '@/libs/github/client';
+import { createGithubClient, GITHUB_API_URL, resolveGithubToken, splitRepo } from '@/libs/github/client';
 import {
   checksCompletedEvent,
   matchesBranchPrefix,
@@ -342,7 +342,7 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
   inspectNote: 'Reads one pull request, one commit\'s check runs and one Actions run per repository to prove the token holds each permission. Nothing is saved.',
 
   async inspect({ config, credentials }) {
-    const token = tokenFromCredentials(credentials);
+    const token = await resolveGithubToken(credentials);
     if (!token) {
       throw new InspectInputError('A GitHub access token is required — a fine-grained personal access token from github.com/settings/personal-access-tokens, or a GitHub App installation token.');
     }
@@ -353,14 +353,26 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
     if (!parsed.success) {
       throw new InspectInputError(parsed.error.issues[0]?.message ?? 'Repositories are written owner/name, one or more.');
     }
-    return inspectGithubToken({ token, repos: parsed.data.repos, baseUrl: parsed.data.baseUrl });
+    const inspection = await inspectGithubToken({ token, repos: parsed.data.repos, baseUrl: parsed.data.baseUrl });
+    // An installation grants a fixed set of repositories; a repo listed here
+    // but not granted there reads as GitHub's 404 above, which says nothing
+    // about why. Name it.
+    const granted = Array.isArray(credentials?.repositories) ? (credentials.repositories as unknown[]).filter((r): r is string => typeof r === 'string').map(r => r.toLowerCase()) : null;
+    if (granted) {
+      for (const repo of parsed.data.repos) {
+        if (!granted.includes(repo.toLowerCase())) {
+          inspection.checks.push(check(`granted:${repo}`, `${repo} granted to the installation`, false, 'The GitHub App installation does not include this repository. Add it under the installation\'s repository access on GitHub, or remove it from the source.'));
+        }
+      }
+    }
+    return inspection;
   },
 
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = githubConfigSchema.parse(ctx.config);
-    const token = tokenFromCredentials(ctx.credentials);
+    const token = await resolveGithubToken(ctx.credentials);
     if (!token) {
-      throw new Error('GitHub connector requires an access token in credentials.token');
+      throw new Error('GitHub connector requires an access token in credentials.token, or a GitHub App installation in credentials.installationId');
     }
     const client = createGithubClient({ token, baseUrl: cfg.baseUrl });
     const since = pollWindowStart(ctx.since, cfg.lookbackDays);

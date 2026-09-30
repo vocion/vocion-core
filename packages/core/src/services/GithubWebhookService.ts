@@ -12,7 +12,17 @@
  * One GitHub webhook secret per deployment (`GITHUB_WEBHOOK_SECRET`), like
  * the Slack signing secret: GitHub signs every delivery with it and a
  * workspace owns its repositories by listing them on a source, so the org is
- * resolved from the repository rather than from anything in the URL.
+ * resolved from the repository rather than from anything in the URL. The
+ * deployment's GitHub App uses the same secret for its own webhook, so a
+ * delivery from the app and one from a repository hook verify alike; one
+ * secret is enough because the secret authenticates GitHub, not a workspace,
+ * and the workspace is found from the payload.
+ *
+ * A delivery from the app also carries `installation.id`. Among the sources
+ * that list the repository, the ones whose credential IS that installation
+ * are preferred: they are the workspaces that installed the app for it. When
+ * none of them holds it (a pasted token, or a repository hook), every source
+ * listing the repository gets the delivery, as before.
  *
  * A `check_suite` delivery carries neither the pull request's title nor the
  * names of the checks, so those are read from the API with the source's own
@@ -26,7 +36,7 @@
 import type { GithubCheckRun, GithubEvent, GithubPullRequest } from '@/libs/github/events';
 import type { GithubConfig } from '@/libs/sources/github';
 import { sql } from 'drizzle-orm';
-import { createGithubClient, splitRepo, tokenFromCredentials } from '@/libs/github/client';
+import { createGithubClient, resolveGithubToken, splitRepo } from '@/libs/github/client';
 import { checksCompletedEvent, eventsFromWebhook, matchesBranchPrefix, verifyGithubSignature } from '@/libs/github/events';
 import { githubConfigSchema } from '@/libs/sources/github';
 
@@ -39,8 +49,12 @@ export type GithubSourceRef = {
 };
 
 export type GithubWebhookDeps = {
-  /** Every enabled `github` source, across orgs, whose `repos` names this repository. */
-  sourcesForRepo: (repo: string) => Promise<GithubSourceRef[]>;
+  /**
+   * Every enabled `github` source, across orgs, whose `repos` names this
+   * repository. With an `installationId`, narrowed to the sources whose
+   * credential is that installation when any are; the full set otherwise.
+   */
+  sourcesForRepo: (repo: string, installationId?: string) => Promise<GithubSourceRef[]>;
   /** The source's vaulted token, or undefined when it holds none. */
   tokenFor: (source: GithubSourceRef) => Promise<string | undefined>;
   emit: (orgId: string, sourceId: number, event: GithubEvent) => Promise<void>;
@@ -52,6 +66,32 @@ export type GithubWebhookOutcome = {
 };
 
 /**
+ * Among the sources listing a repository, the ones whose credential is the
+ * delivery's installation — or all of them when none is, or when there is
+ * only one (nothing to choose). Reading a credential costs a decrypt, so it
+ * is only done when a choice exists.
+ * @param refs - Sources listing the repository.
+ * @param installationId - The delivery's `installation.id`, when it carried one.
+ * @param installationOf - The installation id a source's credential holds, if any.
+ */
+export async function preferInstalled(
+  refs: GithubSourceRef[],
+  installationId: string | undefined,
+  installationOf: (ref: GithubSourceRef) => Promise<string | undefined>,
+): Promise<GithubSourceRef[]> {
+  if (!installationId || refs.length < 2) {
+    return refs;
+  }
+  const installed: GithubSourceRef[] = [];
+  for (const ref of refs) {
+    if ((await installationOf(ref)) === installationId) {
+      installed.push(ref);
+    }
+  }
+  return installed.length > 0 ? installed : refs;
+}
+
+/**
  * The real dependencies: `knowledge_source` rows by connector, the vault, and
  * `EventService`. Imported lazily so this module can be loaded by a test that
  * never touches the database.
@@ -61,8 +101,9 @@ async function defaultDeps(): Promise<GithubWebhookDeps> {
   const { knowledgeSourceSchema } = await import('@/models/Schema');
   const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
   const { emitEvent } = await import('@/services/EventService');
+  const { installationIdFrom } = await import('@/libs/github/app');
   return {
-    async sourcesForRepo(repo) {
+    async sourcesForRepo(repo, installationId) {
       const rows = await db
         .select({ id: knowledgeSourceSchema.id, orgId: knowledgeSourceSchema.orgId, configJson: knowledgeSourceSchema.configJson, apiTokenId: knowledgeSourceSchema.apiTokenId, enabled: knowledgeSourceSchema.enabled })
         .from(knowledgeSourceSchema)
@@ -78,11 +119,12 @@ async function defaultDeps(): Promise<GithubWebhookDeps> {
           refs.push({ orgId: row.orgId, sourceId: row.id, apiTokenId: row.apiTokenId, config: parsed.data });
         }
       }
-      return refs;
+      return preferInstalled(refs, installationId, async ref =>
+        installationIdFrom(await getCredentialsForConnector({ orgId: ref.orgId, connectorSlug: 'github', apiTokenId: ref.apiTokenId }).catch(() => undefined)));
     },
     async tokenFor(source) {
       const credentials = await getCredentialsForConnector({ orgId: source.orgId, connectorSlug: 'github', apiTokenId: source.apiTokenId }).catch(() => undefined);
-      return tokenFromCredentials(credentials);
+      return resolveGithubToken(credentials).catch(() => undefined);
     },
     async emit(orgId, sourceId, event) {
       // Background: a mission check holds an agent loop for minutes, and
@@ -150,8 +192,10 @@ export async function handleGithubWebhook(
     return { status: 200, body: { ok: true, ignored: 'delivery names no repository' } };
   }
 
+  const installation = (body as { installation?: { id?: number | string } } | null)?.installation?.id;
+  const installationId = installation === undefined || installation === null ? undefined : String(installation);
   const resolved = deps ?? (await defaultDeps());
-  const sources = await resolved.sourcesForRepo(repo);
+  const sources = await resolved.sourcesForRepo(repo, installationId);
   if (sources.length === 0) {
     return { status: 200, body: { ok: true, ignored: `no github source lists ${repo}` } };
   }
