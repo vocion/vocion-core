@@ -73,6 +73,7 @@ import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
+import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
 import { liveTopic } from '@/libs/live/topics';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
@@ -186,6 +187,8 @@ export type FeatureReportInput = {
   people?: Record<string, string>;
   /** Where a record opens in this workspace (`libs/workspace/recordHref.ts`); absent, the generic view. */
   link?: RecordLinker;
+  /** The product's production environment URLs, the one a person uses first (`resolveLiveUrl`). */
+  liveBases?: readonly string[];
   /**
    * Agent runs working on this record right now or lately — the planning run
    * an automation fire started for it, a reviewer's run over its change
@@ -2644,11 +2647,12 @@ function buildLifecycle(phase: ReportPhase): LifecycleStep[] {
  * it against the running product is decoration (principle 10).
  * @param request - The request.
  * @param artifacts - Every artifact gathered for this work.
+ * @param liveBases
  */
-function todaySection(request: ReportObject, artifacts: ReportArtifact[]): ReportSection {
+function todaySection(request: ReportObject, artifacts: ReportArtifact[], liveBases: readonly string[] = []): ReportSection {
   const s = blank('today', 'How it works today');
   const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
-  const surfaceUrl = str(visuals, 'surfaceUrl');
+  const surfaceUrl = resolveLiveUrl(str(visuals, 'surfaceUrl'), liveBases);
   // The screen as it is: a before-shot filed on the request, and the
   // screenshot a mockup was drawn on (`beforeArtifactIds` beside
   // `mockupArtifactIds`) — one picture of today, however it arrived.
@@ -3091,7 +3095,7 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
  * @param mergedPrs - What the records say merged.
  */
 function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>): ReportReleaseSummary {
-  const surfaceUrl = str((input.request.meta.visuals ?? {}) as Record<string, unknown>, 'surfaceUrl');
+  const surfaceUrl = resolveLiveUrl(str((input.request.meta.visuals ?? {}) as Record<string, unknown>, 'surfaceUrl'), input.liveBases ?? []);
   const shipped = input.releases
     .map(r => ({ r, at: asDate(r.meta.releasedAt) }))
     .filter((x): x is { r: ReportObject; at: Date } => x.at !== null)
@@ -3384,7 +3388,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const planSummary = buildPlanSummary(normalised, planId);
   const live = liveRunOf(normalised, implementation);
   const state = buildState(normalised, live, mergedPrs);
-  const surfaceUrl = str((input.request.meta.visuals ?? {}) as Record<string, unknown>, 'surfaceUrl');
+  const surfaceUrl = resolveLiveUrl(str((input.request.meta.visuals ?? {}) as Record<string, unknown>, 'surfaceUrl'), input.liveBases ?? []);
   const timeline = buildTimeline(normalised, mergedPrs);
   const notices = findNotices(normalised, mergedPrs, line);
   const status = withActiveRun(buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl, live }), implementation);
@@ -3434,7 +3438,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
       askSection(input.request),
       triageSection(input.request),
       visualsSection(input.request, input.artifacts),
-      todaySection(input.request, input.artifacts),
+      todaySection(input.request, input.artifacts, input.liveBases),
       planSection(input.plans, input.tasks, runs.length > 0, input.people),
       contractSection(input.tasks),
       approvalsSection(input.asks, input.actionRuns, runs.length > 0),

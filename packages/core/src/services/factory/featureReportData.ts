@@ -275,7 +275,8 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     ...workerRuns.map(r => (typeof r.result?.pr_url === 'string' ? r.result.pr_url : null)),
   ];
   const current = [...tasks].sort((a, b) => b.id - a.id)[0] ?? null;
-  const [live, activity, link, pulls, mergeRule] = await Promise.all([
+  const product = typeof request.meta.product === 'string' ? request.meta.product : null;
+  const [live, activity, link, pulls, mergeRule, liveBases] = await Promise.all([
     loadLiveMissionRuns(orgId, [{ recordId: requestId, childIds: [...taskIds] }], now),
     loadActivity(orgId, requestId, taskIds, workerRuns),
     recordLinkerForOrg(orgId),
@@ -283,8 +284,17 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     current
       ? mergeRiskClassOf(orgId, current.meta).then(async riskClass => ({ riskClass, runsItself: await mergeRunsItself(orgId, riskClass) })).catch(() => undefined)
       : Promise.resolve(undefined),
+    // Where the product runs (its production environments), so a live link
+    // never carries a host an agent guessed (`libs/factory/liveUrl.ts`). The
+    // surfaces a person opens come first; an API or a worker is never one.
+    product
+      ? import('./productAccess').then(m => m.productAccess(orgId, product)).then(a => [...a.environments]
+          .filter(e => e.url && !['api', 'worker'].includes(String(e.surface ?? '')))
+          .sort((x, y) => (x.login ? 0 : 1) - (y.login ? 0 : 1))
+          .map(e => e.url as string)).catch(() => [])
+      : Promise.resolve([] as string[]),
   ]);
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule });
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases });
   return { ...report, activity };
 }
 
