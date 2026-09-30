@@ -34,6 +34,11 @@ export type RecordLinks = {
   pages: ReadonlyMap<string, string>;
   /** The workspace the links are for; null leaves them bare (the `Link` wrapper and the proxy canonicalise a bare path). */
   workspaceSlug: string | null;
+  /**
+   * Object types whose page is a `report` — one record's whole story, and the
+   * status it is in (`services/objects/recordStatus.ts`). Absent, none.
+   */
+  reports?: ReadonlySet<string>;
 };
 
 /** The manifest fields the rule reads — enough that a test can hand in a literal. */
@@ -111,7 +116,25 @@ export function recordTypeOfPage(links: RecordLinks, pageSlug: string): string |
  * @param workspaceSlug - `project.slug`, to prefix each link; null for bare paths.
  */
 export function recordLinksOf(manifests: readonly ManifestShape[], workspaceSlug: string | null = null): RecordLinks {
-  return { pages: recordPagesOf(manifests), workspaceSlug };
+  return { pages: recordPagesOf(manifests), workspaceSlug, reports: reportTypesOf(manifests) };
+}
+
+/**
+ * Object types a `report` page tells the story of — the types that have a
+ * status to read (`GET /api/v1/objects/:id/status`).
+ * @param manifests - The pages the workspace has on.
+ */
+export function reportTypesOf(manifests: readonly ManifestShape[]): Set<string> {
+  return new Set(manifests.flatMap(m => (m.archetype === 'report' && m.report ? [m.report.subject] : [])));
+}
+
+/**
+ * Whether a record of this type has a report page, and so a status.
+ * @param links - From {@link recordLinksOf}.
+ * @param objectType - The record's type slug.
+ */
+export function hasReportPage(links: RecordLinks, objectType: string | null | undefined): boolean {
+  return objectType ? links.reports?.has(objectType) === true : false;
 }
 
 /**

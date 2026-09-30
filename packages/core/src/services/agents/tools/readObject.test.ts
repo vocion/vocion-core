@@ -4,6 +4,10 @@ const getBusinessObject = vi.fn();
 
 vi.mock('@/services/BusinessObjectService', () => ({ getBusinessObject: (...a: unknown[]) => getBusinessObject(...a) }));
 
+const loadRecordStatus = vi.fn(async () => ({ ok: false, reason: 'no_report' }) as unknown);
+
+vi.mock('@/services/objects/recordStatus', () => ({ loadRecordStatus: (...a: unknown[]) => (loadRecordStatus as (...x: unknown[]) => unknown)(...a) }));
+
 const { readObjectTool, readObjectTools } = await import('./readObject');
 
 const ctx = (slugs: string[]) => ({ orgId: 'org-1', objectTypeSlugs: slugs }) as never;
@@ -85,5 +89,30 @@ describe('read_object', () => {
     getBusinessObject.mockResolvedValue({ id: 4, title: 'Send', status: 'active', metadata: {}, type: { slug: 'product' } });
 
     expect(await readObjectTool(ctx(['request', 'product'])).invoke({ object_type: 'request', id: 4 })).toContain('is a "product"');
+  });
+
+  it('carries where the record is now — You, Now, Next — when its type has a report page (parity with the page)', async () => {
+    getBusinessObject.mockResolvedValue({ id: 265, title: 'Fix header overflow', status: 'active', metadata: { state: 'building' } });
+    loadRecordStatus.mockResolvedValueOnce({
+      ok: true,
+      status: {
+        record: { id: 265, objectType: 'request', title: 'Fix header overflow', href: '/dashboard/p/feature/265' },
+        stage: { key: 'planning', label: 'Planning', tone: 'info' },
+        you: { needsYou: false, line: 'Nothing needs you', why: null, move: null },
+        live: { kind: 'planning', label: 'Writing the plan', step: null, runRef: { type: 'mission_run', id: '6414' }, runHref: '/dashboard/p/runs/agent-6414', runLabel: 'Agent run #6414', startedAt: '2026-09-30T10:00:00.000Z', since: 'started' },
+        next: 'The build starts when the plan is approved.',
+        readAt: '2026-09-30T10:01:30.000Z',
+      },
+    });
+
+    const parsed = JSON.parse(await readObjectTool(ctx(['request'])).invoke({ object_type: 'request', id: 265 }) as string);
+
+    expect(parsed.liveStatus).toEqual({
+      stage: 'Planning',
+      you: 'Nothing needs you',
+      now: 'Writing the plan · 1 min',
+      run: { label: 'Agent run #6414', href: '/dashboard/p/runs/agent-6414', since: '2026-09-30T10:00:00.000Z' },
+      next: 'The build starts when the plan is approved.',
+    });
   });
 });

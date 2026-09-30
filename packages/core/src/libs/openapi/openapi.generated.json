@@ -4111,6 +4111,74 @@
         ]
       }
     },
+    "/api/v1/objects/{id}/status": {
+      "get": {
+        "operationId": "get_objects_id_status",
+        "summary": "Where one record is, in three lines: whether it needs you (and the one move), what is running for it right now (the run, its page, since when), and what happen…",
+        "tags": [
+          "objects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`, `NO_REPORT_PAGE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Where one record is, in three lines: whether it needs you (and the one\nmove), what is running for it right now (the run, its page, since when),\nand what happens next. For any record whose type has a report page in this\nworkspace; the same read the record's page, the preview pane and the chat\ndraw (`libs/factory/liveStatus.ts`). `live` is null when nothing is\nrunning, so a poller stops then.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/openapi": {
       "get": {
         "operationId": "get_openapi",

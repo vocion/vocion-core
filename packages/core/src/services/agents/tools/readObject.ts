@@ -23,8 +23,10 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { nowLine } from '@/libs/factory/liveStatus';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { readRecovery } from '@/services/factory/recovery';
+import { loadRecordStatus } from '@/services/objects/recordStatus';
 
 /**
  * THE RECORD'S HISTORY, COUNTED, AT THE TOP.
@@ -67,6 +69,25 @@ export function recoverySummary(meta: Record<string, unknown>): Record<string, u
   };
 }
 
+/**
+ * The record's three-line status for an agent: the stage, whether it needs a
+ * person, what is running (as a line and as the run), and what is next.
+ * @param orgId - Tenant.
+ * @param id - The record.
+ */
+async function liveStatusOf(orgId: string, id: number): Promise<Record<string, unknown> | null> {
+  try {
+    const read = await loadRecordStatus(orgId, id);
+    if (!read.ok) {
+      return null;
+    }
+    const s = read.status;
+    return { stage: s.stage.label, you: s.you.line, ...(s.you.why ? { why: s.you.why } : {}), now: nowLine(s.live, new Date(s.readAt)), ...(s.live ? { run: { label: s.live.runLabel, href: s.live.runHref, since: s.live.startedAt } } : {}), next: s.next };
+  } catch {
+    return null;
+  }
+}
+
 export function readObjectTool(ctx: RuntimeContext) {
   const readable = ctx.objectTypeSlugs;
   return tool(
@@ -89,10 +110,15 @@ export function readObjectTool(ctx: RuntimeContext) {
       // comes counted, up front (`recoverySummary`).
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
       const summary = recoverySummary(meta);
+      // WHERE IT IS NOW, the same read its page draws (parity rule): for a
+      // record whose type has a report page, You / Now / Next. A status that
+      // cannot be read is left off rather than failing the read.
+      const live = await liveStatusOf(ctx.orgId, row.id);
       return JSON.stringify({
         id: row.id,
         title: row.title,
         status: row.status,
+        ...(live ? { liveStatus: live } : {}),
         ...(summary ? { recoverySummary: summary } : {}),
         ...meta,
       });
