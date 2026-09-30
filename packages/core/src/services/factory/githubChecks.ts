@@ -349,6 +349,23 @@ export async function rerunFailedJobs(orgId: string, url: string, headSha?: stri
 }
 
 /**
+ * The GitHub Actions runs on one commit — what a merge started (its deploy,
+ * its checks on the base branch), read so the request can say what is
+ * carrying it after the merge (`services/factory/delivery.ts`).
+ * @param orgId - The workspace (its GitHub token).
+ * @param repo - `owner/name`.
+ * @param sha - The commit.
+ */
+export async function workflowRunsOn(orgId: string, repo: string, sha: string): Promise<Array<{ id: number; name: string | null; run_number: number | null; html_url: string; status: string | null; conclusion: string | null; run_started_at: string | null; created_at: string | null; head_sha: string | null }>> {
+  const gh = await ghFor(orgId, repo);
+  const res = await call<{ workflow_runs?: Array<{ id: number; name?: string | null; run_number?: number | null; html_url: string; status?: string | null; conclusion?: string | null; run_started_at?: string | null; created_at?: string | null; head_sha?: string | null }> }>(gh, `/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=20`);
+  if (!res.ok) {
+    throw new Error(`the workflow runs on ${sha.slice(0, 12)} in ${repo} could not be listed: ${res.message}`);
+  }
+  return (res.data.workflow_runs ?? []).map(r => ({ id: r.id, name: r.name ?? null, run_number: r.run_number ?? null, html_url: r.html_url, status: r.status ?? null, conclusion: r.conclusion ?? null, run_started_at: r.run_started_at ?? null, created_at: r.created_at ?? null, head_sha: r.head_sha ?? null }));
+}
+
+/**
  * Cancel workflow runs that are still running — the undo of a re-run.
  * @param orgId - The workspace.
  * @param repo - `owner/name`.

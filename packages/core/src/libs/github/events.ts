@@ -154,6 +154,8 @@ export type GithubPullRequest = {
   closed_at?: string | null;
   merged_at?: string | null;
   merge_commit_sha?: string | null;
+  /** Who pressed merge — GitHub's login; absent on a list read that omits it. */
+  merged_by?: { login?: string } | null;
 };
 
 /** A check run as `GET /repos/{o}/{r}/commits/{sha}/check-runs` lists it. */
@@ -263,7 +265,7 @@ export function pullRequestLifecycleEvents(repo: string, pr: GithubPullRequest, 
     events.push(prEvent(PR_SYNCHRONIZED, repo, pr));
   }
   if (pr.merged_at && at(pr.merged_at)) {
-    events.push(prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at }));
+    events.push(prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at, mergedBy: pr.merged_by?.login ?? '' }));
   } else if (pr.state === 'closed' && !pr.merged_at && at(pr.closed_at)) {
     events.push(prEvent(PR_CLOSED, repo, pr, { closedAt: pr.closed_at ?? '' }));
   }
@@ -438,7 +440,7 @@ export function eventsFromWebhook(eventName: string, body: unknown, deployBranch
     } else if (action === 'synchronize') {
       out.events.push(prEvent(PR_SYNCHRONIZED, repo, pr));
     } else if (action === 'closed' && pr.merged_at) {
-      out.events.push(prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at }));
+      out.events.push(prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at, mergedBy: pr.merged_by?.login ?? '' }));
     } else if (action === 'closed') {
       out.events.push(prEvent(PR_CLOSED, repo, pr, { closedAt: pr.closed_at ?? '' }));
     }

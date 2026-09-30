@@ -207,6 +207,20 @@ export async function noteOnRequest(orgId: string, requestId: number, line: stri
 }
 
 /**
+ * THE MERGE SETTLES THE FACTORY'S CARRYING (#269, 2026-09-30: merged at 22:38,
+ * the request still read "Recovering (attempt 2 of 3): QA sent attempt #271
+ * back…" — a line from the morning). Once the change has merged there is no
+ * attempt out and nothing to recover: the stage and its line clear, and the
+ * request's own account says what happened (`services/factory/delivery.ts`).
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param line - What happened, in a sentence.
+ */
+export async function settleOnMerge(orgId: string, requestId: number, line: string): Promise<void> {
+  await updateRecovery(orgId, requestId, s => ({ ...logLine(s, line, new Date().toISOString(), null), stage: null, line: null }));
+}
+
+/**
  * A BLOCKER WHOSE MOVE WAS MADE IS CLEARED (#130, 2026-09-29): "approve plan
  * 136" stayed on the request as Blocked after plan 136 was approved, because
  * nothing read the blocker back when the state it named moved. The records it

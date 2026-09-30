@@ -17,6 +17,7 @@ import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspacePausedBanner } from '@/features/dashboard/WorkspaceOffSwitch';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
+import { NavigationTrail } from '@/features/navigation/cameFrom';
 import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
 import { pluginNav } from '@/features/navigation/pluginNav';
 import { isSurfaceId } from '@/features/navigation/surfaces';
@@ -232,6 +233,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             : null;
         })()}
         <WorkspaceDriftBanner />
+        <NavigationTrail />
         <AgentSurfaceHotkey isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
       </SidebarInset>
     </SidebarProvider>

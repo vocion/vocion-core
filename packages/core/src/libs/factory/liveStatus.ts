@@ -1,5 +1,7 @@
+import type { Delivery } from './delivery';
 import { describeRef } from '@/libs/preview/describeRef';
 import { isLiveStatus } from '@/libs/worker/runLog';
+import { runName, runningRun } from './delivery';
 
 /**
  * WHERE THIS IS, IN THREE LINES — You, Now, Next (Chris, 2026-09-30: "a simple
@@ -30,7 +32,7 @@ import { isLiveStatus } from '@/libs/worker/runLog';
  */
 
 /** What the running thing is doing, as the Now line names it. */
-export type LiveKind = 'queued' | 'building' | 'planning' | 'reviewing' | 'working';
+export type LiveKind = 'queued' | 'building' | 'planning' | 'reviewing' | 'working' | 'deploying';
 
 /** The Now line: the one run carrying the work right now. */
 export type LiveRun = {
@@ -39,9 +41,12 @@ export type LiveRun = {
   label: string;
   /** The run's own last word — its heartbeat step, or the mission task it is on. */
   step: string | null;
-  /** Which run, so the line can open it in the preview pane. */
-  runRef: { type: 'worker_run' | 'mission_run'; id: string };
-  /** The run's own page (`libs/preview/describeRef.ts`). */
+  /**
+   * Which run, so the line can open it in the preview pane — or null for a
+   * run outside Vocion (a GitHub Actions deploy), which opens at `runHref`.
+   */
+  runRef: { type: 'worker_run' | 'mission_run'; id: string } | null;
+  /** The run's own page (`libs/preview/describeRef.ts`), or GitHub's page for an outside run. */
   runHref: string;
   /** "Run #432", "Agent run #6414". */
   runLabel: string;
@@ -160,10 +165,27 @@ function runHref(type: 'worker_run' | 'mission_run', id: number): string {
  * @param input.workerRuns - The record's engineering runs.
  * @param input.missionRuns - Agent runs working on it.
  * @param input.context - The stage it is in.
+ * @param input.delivery - The merge and the runs it started (`libs/factory/delivery.ts`), once merged.
  */
-export function pickLive(input: { workerRuns: readonly LiveWorkerRunInput[]; missionRuns: readonly LiveMissionRunInput[]; context: LiveContext }): LiveRun | null {
+export function pickLive(input: { workerRuns: readonly LiveWorkerRunInput[]; missionRuns: readonly LiveMissionRunInput[]; context: LiveContext; delivery?: Delivery | null }): LiveRun | null {
   const workers = input.workerRuns.filter(r => WORKER_LIVE.has(r.status)).sort((a, b) => b.id - a.id);
   const claimed = workers.find(r => r.claimedAt !== null);
+  // AFTER THE MERGE, THE RUN IT STARTED IS WHAT CARRIES IT (#269, 2026-09-30:
+  // the deploy ran for seven minutes while the page said "Nothing running").
+  // It is GitHub's run, not Vocion's, so it opens on GitHub.
+  const deploying = !claimed && input.delivery ? runningRun(input.delivery) : null;
+  if (deploying) {
+    return {
+      kind: 'deploying',
+      label: `Deploying · ${runName(deploying)}`,
+      step: null,
+      runRef: null,
+      runHref: deploying.url,
+      runLabel: 'on GitHub',
+      startedAt: deploying.startedAt ?? input.delivery!.mergedAt,
+      since: 'started',
+    };
+  }
   if (claimed) {
     const step = typeof claimed.progress.step === 'string' && claimed.progress.step.trim() ? claimed.progress.step.trim() : null;
     return {

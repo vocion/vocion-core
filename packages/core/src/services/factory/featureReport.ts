@@ -73,6 +73,7 @@ import type { PullSignals, WorkFacts } from '@/libs/factory/workFacts';
 import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
+import { deliveryStage, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
 import { pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
@@ -215,6 +216,12 @@ export type FeatureReportInput = {
    * not established.
    */
   mergeRule?: { runsItself: boolean | null; riskClass: string | null };
+  /**
+   * Who watches the work between the merge and the release — the seat that
+   * owns the pipeline's reconcile ("the Release engineer"), by name. Absent,
+   * nobody is named.
+   */
+  watcher?: string | null;
 };
 
 /** One labelled figure in a section. `value` null renders as "not recorded". */
@@ -2312,7 +2319,12 @@ function buildState(input: FeatureReportInput, live: LiveRun | null = null, merg
     // whose rule runs within bounds merges on its own, and nobody is waited on.
     const attempt = currentAttempt(input);
     if (attempt.prUrl && mergedPrs.has(attempt.prUrl)) {
-      return { key: 'merge', label: 'Merged', detail: 'merged; the release is recorded once it is live', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
+      // After the merge, what carries it: the runs the merge started on
+      // GitHub, read back until they finish (`libs/factory/delivery.ts`).
+      const d = readDelivery(input.request.meta);
+      const stage = d ? deliveryStage(d) : 'unread';
+      const label = stage === 'deploying' ? 'Deploying' : stage === 'deployed' ? 'Deployed' : stage === 'failed' ? 'Deploy failed' : 'Merged';
+      return { key: 'merge', label, detail: 'merged; the release is recorded once it is live', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
     }
     if (input.mergeRule?.runsItself === true) {
       return { key: 'merge', label: 'Merging', detail: 'QA approved; it merges on its own on its trust rule', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
@@ -3226,6 +3238,46 @@ function changesDetail(detail: string): string {
 }
 
 /**
+ * MERGED, AND WHAT IS CARRYING IT NOW (Chris, 2026-09-30, #269: "Something
+ * should be watching and go to prod … I'm kind of stuck here, not knowing if
+ * it is going, or what's watching it"). Who merged it and when, the run the
+ * merge started on GitHub and where it stands, and who is watching until the
+ * release lands — each read off the request's own `delivery`, never guessed.
+ * @param input - The records.
+ * @param impl - The implementation, for the pull request.
+ * @param verifiedLine - "N of M acceptance criteria verified."
+ */
+function afterMergeStatus(input: FeatureReportInput, impl: ReportImplementation, verifiedLine: string): ReportStatus {
+  const d = readDelivery(input.request.meta);
+  const change: ReportAction = impl.prUrl ? { kind: 'link', label: 'See the change', href: impl.prUrl } : { kind: 'drawer', label: 'See the change', drawer: 'implementation' };
+  const watcher = input.watcher?.trim() || null;
+  const watching = watcher ? ` ${watcher} is watching it until the release lands.` : '';
+  if (!d) {
+    return { tone: 'ok', headline: 'Merged', sentence: `QA approved it and it merged. Whether it is live is not established until a release records it. ${verifiedLine}`, action: change, secondary: null, next: 'The release is recorded once it is live.' };
+  }
+  const merged = `Merged ${formatStamp(new Date(d.mergedAt))}${d.mergedBy ? ` by ${d.mergedBy}` : ''}${d.pr ? ` (${d.pr})` : ''}.`;
+  const going = runningRun(d);
+  const failed = d.runs.find(r => r.status === 'completed' && !['success', 'skipped', 'neutral', 'cancelled'].includes(r.conclusion ?? ''));
+  switch (deliveryStage(d)) {
+    case 'deploying':
+      return {
+        tone: 'info',
+        headline: 'Deploying',
+        sentence: `${merged} ${going ? `${runName(going)} is running on GitHub${going.startedAt ? `, started ${formatStamp(new Date(going.startedAt))}` : ''}.` : ''}${watching}`.replace(/\s+/g, ' ').trim(),
+        action: going ? { kind: 'link', label: 'Watch the deploy', href: going.url } : change,
+        secondary: null,
+        next: 'When the deploy finishes, the release is recorded and checked live.',
+      };
+    case 'deployed':
+      return { tone: 'ok', headline: 'Deployed', sentence: `${merged} Every run the merge started finished on GitHub; the release is recorded once the product reports it live.${watching} ${verifiedLine}`.replace(/\s+/g, ' ').trim(), action: change, secondary: null, next: 'The release is recorded, then checked live.' };
+    case 'failed':
+      return { tone: 'warn', headline: 'Deploy failed', sentence: `${merged} ${failed ? `${runName(failed)} failed on GitHub.` : 'A run the merge started failed on GitHub.'}${watching}`.replace(/\s+/g, ' ').trim(), action: failed ? { kind: 'link', label: 'Open the failed run', href: failed.url } : change, secondary: null, next: 'The pipeline is fixed and the deploy runs again; the release follows.' };
+    default:
+      return { tone: 'ok', headline: 'Merged', sentence: `${merged} The runs it started on GitHub have not been read yet.${watching} ${verifiedLine}`.replace(/\s+/g, ' ').trim(), action: change, secondary: null, next: 'The deploy the merge started is read next; the release follows it.' };
+  }
+}
+
+/**
  * WHERE THIS IS, IN A SENTENCE, AND THE ONE MOVE.
  *
  * The state (`buildState`) decides the case; this says it for a product owner:
@@ -3313,8 +3365,8 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
       }
       return { tone: 'info', headline: 'In QA', sentence: `Engineering finished and QA is checking the change. Nothing needs you. ${verifiedLine}`, action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null, next: 'Once QA passes it, it merges and deploys.' };
     case 'merge':
-      if (state.label === 'Merged') {
-        return { tone: 'ok', headline: 'Merged', sentence: `QA approved it and it merged. Whether it is live is not established until a release records it. ${verifiedLine}`, action: impl.prUrl ? { kind: 'link', label: 'See the change', href: impl.prUrl } : { kind: 'drawer', label: 'See the change', drawer: 'implementation' }, secondary: null, next: 'The release is recorded once it is live.' };
+      if (['Merged', 'Deploying', 'Deployed', 'Deploy failed'].includes(state.label)) {
+        return afterMergeStatus(input, impl, verifiedLine);
       }
       if (!state.needsYou) {
         return { tone: 'info', headline: 'Merging', sentence: `QA approved it; it merges on its own on its trust rule. Nothing needs you. ${verifiedLine}`, action: impl.prUrl ? { kind: 'link', label: 'See the change', href: impl.prUrl } : { kind: 'drawer', label: 'See the change', drawer: 'implementation' }, secondary: null, next: 'It merges on its own, and the merge deploys it.' };
@@ -3422,6 +3474,7 @@ function liveRunOf(input: FeatureReportInput, impl: ReportImplementation): LiveR
   return pickLive({
     workerRuns: input.workerRuns.map(r => ({ id: r.id, status: r.status, createdAt: r.createdAt, claimedAt: r.claimedAt, progress: r.progress, n: impl.attempts.find(a => a.runId === r.id)?.n ?? 1 })),
     missionRuns: input.missionRuns ?? [],
+    delivery: input.releases.length > 0 ? null : readDelivery(input.request.meta),
     context: {
       planning: recoveryStage(input.request.meta)?.stage === 'planning',
       reviewing: reviewing ? { pr: prLabel(impl.prUrl) } : null,
@@ -3447,6 +3500,11 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     if (signals.merged) {
       mergedPrs.add(url);
     }
+  }
+  // And the merge the request itself recorded (`delivery`, written on `pr.merged`).
+  const delivered = readDelivery(input.request.meta);
+  if (delivered) {
+    mergedPrs.add(delivered.prUrl);
   }
   const line = moneyLine(input.request, input.tasks, runs);
   // What every picture's source line is read from (`carouselSource.ts`).

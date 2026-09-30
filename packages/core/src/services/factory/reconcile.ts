@@ -45,6 +45,8 @@ export type ReconcileDeps = {
   branchChecks: (orgId: string, repo: string, branch: string) => Promise<{ sha: string | null; complete: boolean; failing: string[] }>;
   updatePullBranch: (orgId: string, url: string, expectedHead?: string | null) => Promise<void>;
   emit: (orgId: string, event: GithubEvent) => Promise<{ deduped: boolean }>;
+  /** GitHub's runs on a merge commit (`delivery.ts`); absent, the workspace's own token. */
+  deliveries?: import('./delivery').DeliveryDeps;
 };
 
 async function defaultDeps(): Promise<ReconcileDeps> {
@@ -303,5 +305,9 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the fixed-branch recheck', () => recheckFixedBranches(orgId, now, d));
   await step('the awaiting-review watch', async () => (await import('./ciFailed')).watchAwaitingReview(orgId, now, owner ? { owner } : {}));
   await step('the pickup watch', () => watchQueuedRuns(orgId, now, owner));
+  // AFTER THE MERGE (#269, 2026-09-30): a merge whose webhook never became a
+  // delivery is written from its recorded event, and the runs the merge
+  // started are read again until they finish (`delivery.ts`).
+  await step('the merge read-back', async () => (await (await import('./delivery')).refreshDeliveries(orgId, now, d.deliveries)).map(r => ({ requestId: r.requestId, did: r.did, line: null })));
   return { acted };
 }

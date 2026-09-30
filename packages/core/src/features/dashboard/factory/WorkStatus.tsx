@@ -158,7 +158,14 @@ function NowLine({ live, now }: { live: LiveRun | null; now: number }) {
       {live.step && <span className="text-muted-foreground">{`· ${live.step}`}</span>}
       <span data-clock className="text-muted-foreground tabular-nums">{`· ${liveClock(live, now)}`}</span>
       <span aria-hidden className="text-muted-foreground/50">·</span>
-      <PreviewOpen recordRef={live.runRef} testId="work-status-run">{live.runLabel}</PreviewOpen>
+      {live.runRef
+        ? <PreviewOpen recordRef={live.runRef} testId="work-status-run">{live.runLabel}</PreviewOpen>
+        : (
+            // A run outside Vocion (the deploy a merge started) opens where it runs.
+            <a href={live.runHref} target="_blank" rel="noreferrer" data-testid="work-status-run" className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
+              {live.runLabel}
+            </a>
+          )}
     </span>
   );
 }

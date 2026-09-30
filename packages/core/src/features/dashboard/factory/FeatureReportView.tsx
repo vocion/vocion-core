@@ -306,7 +306,11 @@ function StatusBlock({ report, status }: { report: FeatureReport; status: Record
   return (
     <section id="report-state" data-testid="report-status" aria-label="Current state" className="space-y-3">
       <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Current state</div>
-      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={report.live ? '' : s.sentence} />
+      {/* While a run of Vocion's carries it, the Now line says it and the
+          sentence would repeat it. After the merge the run is GitHub's, and
+          the sentence is the part the Now line cannot say: who merged it,
+          when, and who is watching until the release lands (#269). */}
+      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={report.live && report.live.kind !== 'deploying' ? '' : s.sentence} />
       <WorkStatus status={status} hideStage youAction={yours ? <span className="flex flex-wrap items-center gap-2">{actions}</span> : undefined} className="max-w-prose" />
       {!yours && actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       {report.notices.length > 0 && <Notices notices={report.notices} requestId={report.requestId} />}

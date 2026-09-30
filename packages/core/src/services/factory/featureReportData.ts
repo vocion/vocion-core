@@ -309,8 +309,31 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
           .map(e => e.url as string)).catch(() => [])
       : Promise.resolve([] as string[]),
   ]);
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases });
+  const watcher = await pipelineWatcher(orgId).catch(() => null);
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases, watcher });
   return { ...report, activity };
+}
+
+/**
+ * WHO WATCHES BETWEEN THE MERGE AND THE RELEASE, by name: the seat that owns
+ * the automation running the pipeline's reconcile (`factory-reconcile`, core's
+ * own job) — the plugin says which seat that is, never core.
+ * @param orgId - Tenant.
+ */
+async function pipelineWatcher(orgId: string): Promise<string | null> {
+  const { sql } = await import('drizzle-orm');
+  const { automationSchema } = await import('@/models/Schema');
+  const { FACTORY_RECONCILE_JOB } = await import('@/services/jobs/factoryCarry');
+  const [auto] = await db.select({ owner: automationSchema.ownerAgentSlug }).from(automationSchema).where(and(
+    eq(automationSchema.orgId, orgId),
+    eq(automationSchema.status, 'active'),
+    sql`${automationSchema.doConfig} ->> 'job' = ${FACTORY_RECONCILE_JOB}`,
+  )).limit(1);
+  if (!auto?.owner) {
+    return null;
+  }
+  const [agent] = await db.select({ name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, auto.owner))).limit(1);
+  return agent?.name?.trim() || auto.owner;
 }
 
 /**

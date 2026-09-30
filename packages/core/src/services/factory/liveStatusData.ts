@@ -2,6 +2,7 @@ import type { LiveMissionRunInput, LiveRun, LiveWorkerRunInput } from '@/libs/fa
 import type { PageRow } from '@/libs/workspace/pageFields';
 import { and, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { readDelivery } from '@/libs/factory/delivery';
 import { pickLive, prLabel } from '@/libs/factory/liveStatus';
 import { laneOf } from '@/libs/workspace/workQueue';
 import { automationRunSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
@@ -185,6 +186,7 @@ export async function loadLiveRuns(orgId: string, records: readonly Row[], child
       // a page of rows reads only the live ones, so it names none.
       workerRuns: runs.map(w => ({ ...w, n: 1 })),
       missionRuns: agents.get(id) ?? [],
+      delivery: readDelivery(r.meta),
       context: {
         planning: recoveryStage(r.meta)?.stage === 'planning',
         reviewing: review ? { pr: prLabel(typeof review.meta.prUrl === 'string' ? review.meta.prUrl : null) } : null,
