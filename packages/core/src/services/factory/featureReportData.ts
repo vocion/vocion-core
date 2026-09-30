@@ -30,6 +30,7 @@ import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjec
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { assembleFeatureReport } from './featureReport';
 import { loadLiveMissionRuns, taskOfRun, toolCallNamedId } from './liveStatusData';
+import { loadPullSignals, mergeRiskClassOf, mergeRunsItself } from './pullSignals';
 
 type ObjectRow = { id: number; title: string; status: string | null; createdAt: Date | null; metadata: unknown; type?: { slug: string } | null };
 
@@ -265,12 +266,25 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
 
   // THE RUNS WORKING ON IT NOW — the planning run its fire started for it, a
   // reviewer's run over its change (`liveStatusData.loadLiveMissionRuns`).
-  const [live, activity, link] = await Promise.all([
+  // WHAT GITHUB AND THE TRUST RULE SAY (backlog 044): merged, closed and CI
+  // for every pull request the attempts carry, and whether the current
+  // attempt's merge runs itself — so the report never says merged, green or
+  // "waiting on a person" on a guess.
+  const pullUrls = [
+    ...tasks.map(t => (typeof t.meta.prUrl === 'string' ? t.meta.prUrl : null)),
+    ...workerRuns.map(r => (typeof r.result?.pr_url === 'string' ? r.result.pr_url : null)),
+  ];
+  const current = [...tasks].sort((a, b) => b.id - a.id)[0] ?? null;
+  const [live, activity, link, pulls, mergeRule] = await Promise.all([
     loadLiveMissionRuns(orgId, [{ recordId: requestId, childIds: [...taskIds] }], now),
     loadActivity(orgId, requestId, taskIds, workerRuns),
     recordLinkerForOrg(orgId),
+    loadPullSignals(orgId, pullUrls).catch(() => undefined),
+    current
+      ? mergeRiskClassOf(orgId, current.meta).then(async riskClass => ({ riskClass, runsItself: await mergeRunsItself(orgId, riskClass) })).catch(() => undefined)
+      : Promise.resolve(undefined),
   ]);
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [] });
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule });
   return { ...report, activity };
 }
 

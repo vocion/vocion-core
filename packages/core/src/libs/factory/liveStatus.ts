@@ -75,6 +75,12 @@ export type RecordStatus = {
   /** The Now line; null when nothing is running. Pollers stop when it is null. */
   live: LiveRun | null;
   next: string | null;
+  /**
+   * The delivery facts, each on its own field — QA's verdict, the merge, CI,
+   * the merge rule, the request's stage (`libs/factory/workFacts.ts`). What an
+   * agent reads, so a finished run is never said as a shipped feature.
+   */
+  facts?: import('./workFacts').WorkFacts;
   /** ISO — when this was read. */
   readAt: string;
 };

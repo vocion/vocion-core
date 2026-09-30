@@ -68,9 +68,12 @@
 import type { BlockerFacts } from './blocker';
 import type { PlanDecision, PlanRecord } from './planRule';
 import type { LiveMissionRunInput, LiveRun, RecordStatus, StatusMove, StatusYou } from '@/libs/factory/liveStatus';
+import type { PullSignals, WorkFacts } from '@/libs/factory/workFacts';
 import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
+import { MERGE_ACTION_ID } from '@/libs/actions/factory';
 import { pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
+import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
@@ -188,6 +191,18 @@ export type FeatureReportInput = {
    * (`featureReportData.loadMissionRuns`). Absent, no agent run is known.
    */
   missionRuns?: LiveMissionRunInput[];
+  /**
+   * What GitHub and the merge action recorded about each pull request the
+   * tasks carry — merged, closed, CI (`services/factory/pullSignals.ts`).
+   * Absent, nothing is known, and nothing is said as a "no".
+   */
+  pulls?: ReadonlyMap<string, PullSignals>;
+  /**
+   * Whether QA's approve merges the current attempt on its own — the trust
+   * ladder's answer for its class (`pullSignals.mergeRunsItself`). Absent,
+   * not established.
+   */
+  mergeRule?: { runsItself: boolean | null; riskClass: string | null };
 };
 
 /** One labelled figure in a section. `value` null renders as "not recorded". */
@@ -420,6 +435,12 @@ export type FeatureReport = {
   expectedBenefit: string | null;
   /** Where the running product shows this work, when the record says. */
   surfaceUrl: string | null;
+  /**
+   * THE FACTS, EACH ON ITS OWN FIELD (backlog 044): QA's verdict, the merge,
+   * CI, the merge rule and the request's stage, for the current attempt — what
+   * an agent reads so a finished run is never said as a shipped feature.
+   */
+  facts: WorkFacts;
 };
 
 /**
@@ -2141,8 +2162,9 @@ export type ReportState = {
  * approval, then work in flight, then work waiting to be looked at.
  * @param input - The report's inputs.
  * @param live - What is running for it now (the Now line), which says whether a build is queued or building and what the planning move opens.
+ * @param mergedPrs - Pull requests the records say merged, so an approved change that merged reads Merged.
  */
-function buildState(input: FeatureReportInput, live: LiveRun | null = null): ReportState {
+function buildState(input: FeatureReportInput, live: LiveRun | null = null, mergedPrs: ReadonlySet<string> = new Set()): ReportState {
   // AN ACTUAL OBSTACLE FIRST, and only an actual obstacle reads as Blocked
   // (review, 2026-09-24). Waiting on a decision, on QA or on a merge are
   // waits with names; each says whose move it is in a plain sentence.
@@ -2243,6 +2265,16 @@ function buildState(input: FeatureReportInput, live: LiveRun | null = null): Rep
   }
   const accepted = input.tasks.filter(t => taskStatus(t) === 'accepted');
   if (accepted.length > 0) {
+    // WHO MERGES IT IS THE TRUST RULE'S WORD, NOT A GUESS (backlog 044). A
+    // merged pull request is merged, whatever the task still says; a class
+    // whose rule runs within bounds merges on its own, and nobody is waited on.
+    const attempt = currentAttempt(input);
+    if (attempt.prUrl && mergedPrs.has(attempt.prUrl)) {
+      return { key: 'merge', label: 'Merged', detail: 'merged; the release is recorded once it is live', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
+    }
+    if (input.mergeRule?.runsItself === true) {
+      return { key: 'merge', label: 'Merging', detail: 'QA approved; it merges on its own on its trust rule', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
+    }
     return { key: 'merge', label: 'Ready to merge', detail: 'QA approved; the merge is waiting on a person', needsYou: true, question: null, action: { label: 'Review the merge', href: '#report-qa' }, decision: null };
   }
   // QA SENT IT BACK (record_verdict: changes). The verdict is the reader's
@@ -2286,6 +2318,21 @@ function buildState(input: FeatureReportInput, live: LiveRun | null = null): Rep
     return { key: 'stuck', label: 'QA could not finish', detail: 'QA ended without a verdict; Build again starts a fresh attempt', needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
   }
   const awaitingReview = input.tasks.filter(t => taskStatus(t) === 'awaiting_review');
+  // QA STARTS ONLY ON A GREEN CI (#269, 2026-09-30: "Stuck?" answered "QA is
+  // checking it" while CI had failed and no review ran). The stage says what
+  // CI said about this attempt's commit, and a review is said only while one runs.
+  // Only when the pull requests' signals were read: absent, nothing is known.
+  const waitingOn = input.pulls && awaitingReview.length > 0 && live?.kind !== 'reviewing' ? currentAttempt(input) : null;
+  if (waitingOn?.prUrl && waitingOn.stage === 'awaiting_review') {
+    const ciFailure = waitingOn.task?.meta.ciFailure;
+    const ci = ciFact(waitingOn.signals, { commit: waitingOn.task ? str(waitingOn.task.meta, 'commitSha') : null, ciFailure: ciFailure && typeof ciFailure === 'object' ? ciFailure as Record<string, unknown> : null }, prLabel(waitingOn.prUrl));
+    if (ci.state === 'failed') {
+      return { key: 'qa', label: 'CI failed', detail: `${ci.line}; QA starts only on a green CI, so the engineer builds it again with what failed`, needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
+    }
+    if (ci.state === 'not_reported') {
+      return { key: 'qa', label: 'Waiting for CI', detail: `${ci.line}; QA starts when it is green`, needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
+    }
+  }
   if (awaitingReview.length > 0) {
     const last = input.workerRuns.map(r => r.completedAt ?? r.createdAt).filter((d): d is Date => d instanceof Date).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
     return { key: 'qa', label: 'Awaiting QA', detail: last ? `engineering finished ${formatStamp(last)}; no action needed from you` : 'engineering finished; no action needed from you', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
@@ -3166,8 +3213,17 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
       return { tone: 'info', headline: 'Building', sentence: `Building now. ${started} Nothing needs you; checks, the merge and acceptance are not established until it finishes.`.replace(/\s+/g, ' ').trim(), action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null, next: 'QA checks it, then it merges and deploys.' };
     }
     case 'qa':
+      if (state.label === 'CI failed' || state.label === 'Waiting for CI') {
+        return { tone: state.label === 'CI failed' ? 'warn' : 'info', headline: state.label, sentence: `Engineering finished. ${capitalise(state.detail)}. Nothing needs you. ${verifiedLine}`, action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null, next: state.label === 'CI failed' ? 'The next attempt builds with what CI found; QA checks it once CI is green.' : 'QA checks it once CI is green.' };
+      }
       return { tone: 'info', headline: 'In QA', sentence: `Engineering finished and QA is checking the change. Nothing needs you. ${verifiedLine}`, action: { kind: 'drawer', label: 'View progress', drawer: 'implementation' }, secondary: null, next: 'Once QA passes it, it merges and deploys.' };
     case 'merge':
+      if (state.label === 'Merged') {
+        return { tone: 'ok', headline: 'Merged', sentence: `QA approved it and it merged. Whether it is live is not established until a release records it. ${verifiedLine}`, action: impl.prUrl ? { kind: 'link', label: 'See the change', href: impl.prUrl } : { kind: 'drawer', label: 'See the change', drawer: 'implementation' }, secondary: null, next: 'The release is recorded once it is live.' };
+      }
+      if (!state.needsYou) {
+        return { tone: 'info', headline: 'Merging', sentence: `QA approved it; it merges on its own on its trust rule. Nothing needs you. ${verifiedLine}`, action: impl.prUrl ? { kind: 'link', label: 'See the change', href: impl.prUrl } : { kind: 'drawer', label: 'See the change', drawer: 'implementation' }, secondary: null, next: 'It merges on its own, and the merge deploys it.' };
+      }
       return { tone: 'warn', headline: 'Ready to merge', sentence: `QA accepted the change; it is waiting for a person to merge it. It is not live until it merges. ${verifiedLine}`, action: impl.prUrl ? { kind: 'link', label: 'Review the merge', href: impl.prUrl } : { kind: 'drawer', label: 'Review the merge', drawer: 'implementation' }, secondary: null, next: 'Merging it deploys it.' };
     case 'changes':
       return { tone: 'warn', headline: 'Changes requested', sentence: `QA found problems and sent it back${changesDetail(state.detail)} Nothing from this attempt has merged.`, action: { kind: 'drawer', label: 'Review requested changes', drawer: 'acceptance' }, secondary: canBuild ? { kind: 'build', label: 'Build again' } : null, next: 'Build again starts the next attempt with what QA found.' };
@@ -3198,6 +3254,63 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
     action: { kind: 'build', label: buildLabel },
     secondary: canDismiss ? { kind: 'dismiss', label: 'Dismiss' } : null,
     next: 'Nothing starts until someone builds it.',
+  };
+}
+
+/** The current attempt: the newest task, its stage and the pull request it carries. */
+type CurrentAttempt = { task: ReportObject | null; stage: string | null; prUrl: string | null; signals: PullSignals };
+
+/**
+ * The attempt the facts are about — the newest task — and what GitHub
+ * recorded about its pull request.
+ * @param input - The records.
+ */
+function currentAttempt(input: FeatureReportInput): CurrentAttempt {
+  const task = [...input.tasks].sort((a, b) => b.id - a.id)[0] ?? null;
+  if (!task) {
+    return { task: null, stage: null, prUrl: null, signals: NO_PULL_SIGNALS };
+  }
+  const own = input.workerRuns.filter(r => Number((r.input?.record as { id?: unknown } | undefined)?.id) === task.id);
+  const written = str(task.meta, 'prUrl') ?? [...own].reverse().map(r => runChange(r).prUrl).find(p => p !== null) ?? null;
+  const prUrl = written ? normalisePullUrl(written) : null;
+  return { task, stage: taskStatus(task), prUrl, signals: (prUrl && input.pulls?.get(prUrl)) || NO_PULL_SIGNALS };
+}
+
+/**
+ * THE FACTS, EACH ON ITS OWN FIELD (backlog 044). A run that completed is the
+ * engineer's attempt, not the feature: QA's verdict, the merge, CI and the
+ * release are each read from the record that holds them and said as that.
+ * @param input - The records.
+ * @param ctx - What the report already derived.
+ * @param ctx.mergedPrs - Pull requests the records say merged.
+ * @param ctx.state - The report's state.
+ * @param ctx.release - The release reading.
+ * @param ctx.status - The report's status, for the request's line.
+ */
+function workFactsOf(input: FeatureReportInput, ctx: { mergedPrs: Set<string>; state: ReportState; release: ReportReleaseSummary; status: ReportStatus }): WorkFacts {
+  const attempt = currentAttempt(input);
+  const verdict = verdictFact(attempt.task ? { status: attempt.stage, meta: attempt.task.meta } : null);
+  const pullRequest = pullFact(attempt.prUrl, attempt.signals, attempt.prUrl !== null && ctx.mergedPrs.has(attempt.prUrl));
+  const ciFailure = attempt.task?.meta.ciFailure;
+  const ci = ciFact(attempt.signals, { commit: attempt.task ? str(attempt.task.meta, 'commitSha') : null, ciFailure: ciFailure && typeof ciFailure === 'object' ? ciFailure as Record<string, unknown> : null }, pullRequest.label);
+  const mergeRule = mergeRuleFact(input.mergeRule?.runsItself ?? null, input.mergeRule?.riskClass ?? null);
+  const shipped = ctx.release.state === 'live';
+  const recordState = str(input.request.meta, 'state');
+  const stage = requestStageOf(ctx.state.key, {
+    merged: pullRequest.merge === 'merged',
+    shipped,
+    closed: recordState !== null && recordState !== 'shipped' && ['deferred', 'answered', 'out_of_scope'].includes(recordState),
+    decidingMerge: ctx.state.decision?.actionId === MERGE_ACTION_ID,
+  });
+  return {
+    request: { id: input.request.id, stage, recordState, line: `${REQUEST_STAGE_LINE[stage]}. ${ctx.status.sentence}`.replace(/\s+/g, ' ').trim() },
+    taskId: attempt.task?.id ?? null,
+    verdict,
+    pullRequest,
+    ci,
+    mergeRule,
+    shipped,
+    next: nextForAttempt({ verdict, pullRequest, ci, mergeRule, shipped, taskStage: attempt.stage }),
   };
 }
 
@@ -3234,6 +3347,12 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const runs = [...input.workerRuns].sort((a, b) => runAt(a).getTime() - runAt(b).getTime());
   const normalised: FeatureReportInput = { ...input, workerRuns: runs };
   const mergedPrs = mergedPullRequests(input.releases, input.actionRuns);
+  // GitHub's own word counts too: a pull request `pr.merged` names merged.
+  for (const [url, signals] of input.pulls ?? []) {
+    if (signals.merged) {
+      mergedPrs.add(url);
+    }
+  }
   const line = moneyLine(input.request, input.tasks, runs);
   // BUILD IS NEVER OFFERED OVER A LIVE BUILD (2026-09-28). A run still going,
   // or a dispatch still waiting to execute, means the work has started.
@@ -3256,12 +3375,14 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const implementation = buildImplementation(normalised, mergedPrs, acceptance, release, line);
   const planSummary = buildPlanSummary(normalised, planId);
   const live = liveRunOf(normalised, implementation);
-  const state = buildState(normalised, live);
+  const state = buildState(normalised, live, mergedPrs);
   const surfaceUrl = str((input.request.meta.visuals ?? {}) as Record<string, unknown>, 'surfaceUrl');
   const timeline = buildTimeline(normalised, mergedPrs);
   const notices = findNotices(normalised, mergedPrs, line);
   const status = withActiveRun(buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl, live }), implementation);
+  const facts = workFactsOf(normalised, { mergedPrs, state, release, status });
   return {
+    facts,
     requestId: input.request.id,
     canBuild,
     canDismiss,
@@ -3357,6 +3478,7 @@ export function featureStatusOf(report: FeatureReport, record: { objectType: str
     you: { ...report.you, move: report.you.needsYou && action ? moveOf(action, record.href, report.requestId) : null },
     live: report.live,
     next: report.status.next ?? null,
+    facts: report.facts,
     readAt: now.toISOString(),
   };
 }

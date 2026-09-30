@@ -22,7 +22,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { MERGE_RISK_CLASSES } from '@/libs/actions/factory';
+import { MERGE_ACTION_ID, MERGE_PROPOSAL_CONFIDENCE } from '@/libs/actions/factory';
 import { alignToContract, contractOf } from '@/libs/workspace/featureProof';
 
 /**
@@ -489,20 +489,14 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         }
         return `${recordedAs ? `${recordedAs} ` : ''}Verdict recorded on task #${task.id}: ${value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''}`;
       }
-      const riskRaw = typeof task.meta.riskClass === 'string' ? task.meta.riskClass : 'logic';
       // THE MERGE CARRIES WHAT THE DIFF TOUCHED (2026-09-30). The engineer may
       // go beyond the plan's paths when the outcome needs it; the merge's class,
       // and so its trust rule, is the higher of the task's and the class of the
       // files it changed (the repo's riskDefaults), so a change that reached
-      // auth or billing is ruled as auth or billing.
-      const { higherRisk, readRepo, riskFromPaths } = await import('@/libs/actions/factory-dispatch');
-      const changed = Array.isArray(task.meta.filesChanged) ? (task.meta.filesChanged as unknown[]).filter((f): f is string => typeof f === 'string') : [];
-      const repo = changed.length > 0
-        ? await readRepo(ctx.orgId, typeof task.meta.repoSlug === 'string' ? task.meta.repoSlug : null, typeof task.meta.productSlug === 'string' ? task.meta.productSlug : null).catch(() => null)
-        : null;
-      const touched = repo ? riskFromPaths(changed, (repo.riskDefaults ?? {}) as Record<string, string>) : null;
-      const effective = higherRisk(riskRaw, touched);
-      const riskClass = (MERGE_RISK_CLASSES as readonly string[]).includes(effective) ? effective : 'logic';
+      // auth or billing is ruled as auth or billing. One reading, shared with
+      // the status facts that say whether the merge runs itself.
+      const { mergeRiskClassOf } = await import('@/services/factory/pullSignals');
+      const riskClass = await mergeRiskClassOf(ctx.orgId, task.meta);
       const rollback = typeof task.meta.rollback === 'string' && task.meta.rollback.length >= 8
         ? task.meta.rollback.slice(0, 600)
         : 'Revert the pull request and merge the revert; the merge is the deploy, so the revert ships the same way.';
@@ -510,7 +504,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         const { proposeAction } = await import('@/services/ActionService');
         const res = await proposeAction({
           orgId: ctx.orgId,
-          actionId: 'git.merge',
+          actionId: MERGE_ACTION_ID,
           input: {
             title: `Merge ${task.title}`.slice(0, 200),
             headline: 'QA approved it; merging is the deploy.',
@@ -529,7 +523,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
           },
           principal: { kind: 'agent', id: `agent:${by}`, scope: { orgId: ctx.orgId }, grants: ['*'], autonomy: 2 },
           invokedBy: `agent:${by}`,
-          proposal: { confidence: 0.9, rationale: verdict.note, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: `${count}. ${verdict.note}`.slice(0, 160) },
+          proposal: { confidence: MERGE_PROPOSAL_CONFIDENCE, rationale: verdict.note, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: `${count}. ${verdict.note}`.slice(0, 160) },
         });
         return `Verdict recorded on task #${task.id}: approve, ${count}, at ${commitSha.slice(0, 12)}. The merge card is filed (run #${res.runId}, ${res.status}); a person merges.`;
       } catch (err) {

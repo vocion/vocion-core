@@ -28,6 +28,15 @@ import { manualAction } from './manual';
 export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise'] as const;
 export type MergeRiskClass = typeof MERGE_RISK_CLASSES[number];
 
+/**
+ * The merge's action id, named once: what reads a merge's state or its trust
+ * rule (`services/factory/pullSignals.ts`) takes it from here.
+ */
+export const MERGE_ACTION_ID = 'git.merge';
+
+/** What the merge card is filed at, by QA's approve (`record_verdict`) — the confidence its trust rule is read at. */
+export const MERGE_PROPOSAL_CONFIDENCE = 0.9;
+
 export const gitPushBranchAction = manualAction({
   id: 'git.push_branch',
   name: 'Push a branch',
@@ -38,7 +47,7 @@ export const gitPushBranchAction = manualAction({
 });
 
 const gitMergeHandoff = manualAction({
-  id: 'git.merge',
+  id: MERGE_ACTION_ID,
   name: 'Merge a branch',
   description: 'Merge a reviewed pull request into the mainline (squash), only onto the commit QA judged and only with its checks green. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Undo opens the revert pull request.',
   system: 'Git',
