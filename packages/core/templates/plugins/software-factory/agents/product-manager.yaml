@@ -55,6 +55,9 @@ initiative: high
 # line; Chris, 2026-09-24: "I would have expected action cards for this").
 harness:
   recommendActionBackstop: true
+  # The product's production URLs and QA sign-in, to plan and check against the live product.
+  grantTools:
+    - product_access
 playbooks:
   - naming-the-work
   - designing-a-surface

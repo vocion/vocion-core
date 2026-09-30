@@ -38,4 +38,6 @@ suggestions:
 harness:
   grantTools:
     - record_verdict
+    # The product's production URLs and QA sign-in, to judge the live product.
+    - product_access
 systemPromptFile: ./change-reviewer.system-prompt.md
