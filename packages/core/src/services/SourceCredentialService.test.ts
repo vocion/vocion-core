@@ -196,6 +196,31 @@ describe('updateCredentialValuesForConnector', () => {
     expect(await getCredentialsForSource(ORG, 'jira')).toEqual(OLD);
   });
 
+  it('loses to a write that landed between its read and its update, even though the compare passed', async () => {
+    const installId = await makeInstall('jira');
+    const credId = await storeCredential({ orgId: ORG, installId, displayName: 'a', raw: OLD });
+    // Both callers read the same row. The first one's update lands as soon as
+    // this caller has passed its JS compare: modelled by swapping the row's
+    // ciphertext from inside a one-shot decrypt hook.
+    const vaultModule = await import('@/libs/crypto/credentialVault');
+    const realVault = vaultModule.buildCredentialVault();
+    const RACER = { accessToken: 'at-racer', refreshToken: 'rt-racer', sites: [] };
+    const spy = vi.spyOn(vaultModule, 'buildCredentialVault').mockReturnValueOnce({
+      ...realVault,
+      async decrypt(orgId: string, ct: string, nonce: string, tag: string, dek: number) {
+        const plaintext = await realVault.decrypt(orgId, ct, nonce, tag, dek);
+        const racer = await realVault.encrypt(orgId, Buffer.from(JSON.stringify(RACER), 'utf8'));
+        await db.update(sourceCredentialSchema).set(racer).where(eq(sourceCredentialSchema.id, credId));
+        return plaintext;
+      },
+    } as ReturnType<typeof vaultModule.buildCredentialVault>);
+
+    expect(await updateCredentialValuesForConnector({ orgId: ORG, connectorSlug: 'jira', raw: NEW, expectedRefreshToken: 'rt-1' })).toBe(false);
+    expect(await getCredentialsForSource(ORG, 'jira')).toEqual(RACER);
+
+    spy.mockRestore();
+  });
+
   it('ignores revoked rows', async () => {
     const installId = await makeInstall('jira');
     const credId = await storeCredential({ orgId: ORG, installId, displayName: 'a', raw: OLD });

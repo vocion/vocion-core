@@ -227,11 +227,20 @@ export async function updateCredentialValuesForConnector(input: {
     input.orgId,
     Buffer.from(JSON.stringify(input.raw), 'utf8'),
   );
-  await db
+  // The JS compare above is the cheap first check; this is the one that
+  // holds. Two callers can both read the same row and both pass the compare,
+  // so the write itself insists the ciphertext is still the one that was
+  // read. A concurrent rotation changes it, the update matches no row, and
+  // the loser learns so from the empty return.
+  const written = await db
     .update(sourceCredentialSchema)
     .set({ ciphertext, nonce, authTag, dekId, lastRefreshedAt: new Date() })
-    .where(eq(sourceCredentialSchema.id, credential.id));
-  return true;
+    .where(and(
+      eq(sourceCredentialSchema.id, credential.id),
+      eq(sourceCredentialSchema.ciphertext, credential.ciphertext),
+    ))
+    .returning({ id: sourceCredentialSchema.id });
+  return written.length === 1;
 }
 
 /** Why a credential an install points at cannot be used. */
