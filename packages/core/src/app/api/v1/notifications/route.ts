@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { listNotifications } from '@/services/notifications/inbox';
+import { NO_PERSON, personOf } from '@/services/notifications/person';
 import { authApi, isErrorResponse, jsonError } from '../_shared';
-import { personFor } from './_lib';
 
 /**
  * GET /api/v1/notifications?unread=1&limit=&before=
@@ -25,10 +25,11 @@ export async function GET(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   const url = new URL(req.url);
   const limit = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
   const beforeRaw = url.searchParams.get('before');

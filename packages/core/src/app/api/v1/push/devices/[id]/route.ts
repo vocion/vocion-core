@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { removeDevice } from '@/services/notifications/devices';
+import { NO_PERSON, personOf } from '@/services/notifications/person';
 import { authApi, isErrorResponse, jsonError, readIdParam } from '../../../_shared';
-import { personFor } from '../../../notifications/_lib';
 
 /**
  * DELETE /api/v1/push/devices/:id
@@ -18,10 +18,11 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   const id = readIdParam((await ctx.params).id, 'device');
   if (isErrorResponse(id)) {
     return id;

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { DeviceError, listDevices, parseRegistration, registerDevice, removeWebEndpoint } from '@/services/notifications/devices';
+import { NO_PERSON, personOf } from '@/services/notifications/person';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../_shared';
-import { personFor } from '../../notifications/_lib';
 
 /**
  * GET /api/v1/push/devices
@@ -17,10 +17,11 @@ export async function GET(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   return NextResponse.json({ devices: await listDevices(who.userId) }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
@@ -41,10 +42,11 @@ export async function POST(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   const body = await readJsonBody(req);
   if (isErrorResponse(body)) {
     return body;
@@ -74,10 +76,11 @@ export async function DELETE(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   const body = await readJsonBody(req);
   if (isErrorResponse(body)) {
     return body;

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { markRead } from '@/services/notifications/notify';
+import { NO_PERSON, personOf } from '@/services/notifications/person';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../_shared';
-import { personFor } from '../_lib';
 
 /**
  * POST /api/v1/notifications/read  { ids?: number[], all?: true }
@@ -17,10 +17,11 @@ export async function POST(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   const body = await readJsonBody(req);
   if (isErrorResponse(body)) {
     return body;

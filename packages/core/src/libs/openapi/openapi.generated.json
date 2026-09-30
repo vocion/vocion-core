@@ -3717,6 +3717,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Your notifications in this workspace, newest first — what the bell and the\nnotifications page read. Each carries its kind (and the kind's label), the\ntitle and body, the link it opens, the record it is about, whether it is\nread, and every channel's delivery state (`sent`, `pending` with the retry\nreason, `failed` with why, `skipped` with why). `unread` is the unread\ntotal; `nextBefore` pages further back.\nAuth: dashboard session, or a tenant token (its minter's notifications).\n\nQuery parameters:\n- `unread` — `1` for unread only.\n- `limit` — page size, 1–100 (default 30).\n- `before` — only notifications older than this id (from `nextBefore`).",
@@ -3783,6 +3793,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Your notification settings in this workspace: per kind, per channel on/off\n(a channel a kind does not name takes its default), quiet hours, and where\nSlack notifications go (`dm` or the workspace's `channel`). With them: the\nkinds this workspace declares (label, the event, which plugin declared it,\nwhen it last fired and whom it reached) and each channel's default and\nwhether this server can send it at all.\nAuth: dashboard session, or a tenant token (its minter's settings)."
@@ -3821,6 +3841,16 @@
           },
           "401": {
             "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3888,6 +3918,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Mark notifications read — the ones named, or every unread one with\n`all: true`. Answers how many changed; a notification already read, or\nnot yours, is not counted.\nAuth: dashboard session, or a tenant token (its minter's notifications).",
@@ -3938,6 +3978,16 @@
           },
           "401": {
             "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5127,6 +5177,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "The devices you asked to be notified on — browsers subscribed from the bell\nand iPhones whose app registered — newest first, with the last error a\ndevice reported.\nAuth: dashboard session, or a tenant token (its minter's devices)."
@@ -5165,6 +5225,16 @@
           },
           "401": {
             "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5230,6 +5300,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Stop notifying this browser: removes your web subscription by its\nendpoint (the browser knows its endpoint, not the row id). A device by id\nis `DELETE /api/v1/push/devices/:id`.\nAuth: dashboard session, or a tenant token (its minter's devices).",
@@ -5287,6 +5367,16 @@
           },
           "401": {
             "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
             "content": {
               "application/json": {
                 "schema": {

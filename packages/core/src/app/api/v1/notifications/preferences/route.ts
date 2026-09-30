@@ -3,9 +3,9 @@ import { parsePreferenceChange, PreferenceError } from '@/libs/notifications/pre
 import { CHANNEL_DEFAULTS, CHANNEL_LABELS, NOTIFICATION_CHANNELS } from '@/libs/notifications/types';
 import { listKinds } from '@/services/notifications/inbox';
 import { serverChannels } from '@/services/notifications/notify';
+import { NO_PERSON, personOf } from '@/services/notifications/person';
 import { getPreferences, setPreferences } from '@/services/notifications/preferences';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../_shared';
-import { personFor } from '../_lib';
 
 async function view(userId: string, orgId: string) {
   const [preferences, kinds, server] = await Promise.all([getPreferences(userId, orgId), listKinds(orgId), serverChannels()]);
@@ -33,10 +33,11 @@ export async function GET(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   return NextResponse.json(await view(who.userId, who.orgId), { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
@@ -57,10 +58,11 @@ export async function PUT(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   const body = await readJsonBody(req);
   if (isErrorResponse(body)) {
     return body;

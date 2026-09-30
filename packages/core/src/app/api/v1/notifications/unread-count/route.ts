@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { unreadCount } from '@/services/notifications/inbox';
-import { authApi, isErrorResponse } from '../../_shared';
-import { personFor } from '../_lib';
+import { NO_PERSON, personOf } from '@/services/notifications/person';
+import { authApi, isErrorResponse, jsonError } from '../../_shared';
 
 /**
  * GET /api/v1/notifications/unread-count
@@ -16,9 +16,10 @@ export async function GET(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const who = await personFor(caller);
-  if (isErrorResponse(who)) {
-    return who;
+  const userId = await personOf(caller);
+  if (!userId) {
+    return jsonError('FORBIDDEN', NO_PERSON, 403);
   }
+  const who = { orgId: caller.orgId, userId };
   return NextResponse.json({ unread: await unreadCount(who.userId, who.orgId) }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
