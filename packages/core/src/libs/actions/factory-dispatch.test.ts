@@ -92,6 +92,13 @@ describe('a contract from the records alone', () => {
     expect(contractGaps(c)).toEqual([]);
   });
 
+  it('takes the repo from the repo record when the plan named a folder (#201 runs 426–427, 2026-09-30)', () => {
+    const c = deriveContract({ given: {}, request, plan: { ...plan, repoSlugs: ['apps/stamp-api'] }, repo });
+
+    expect(c.repoSlug).toBe('Acme/northwind-core');
+    expect(deriveContract({ given: {}, request, plan: { ...plan, repoSlugs: ['northwind-core'] }, repo }).repoSlug).toBe('Acme/northwind-core');
+  });
+
   it('takes the paths for the request\'s surface before the whole product (#201: an api-only bug refused for spanning two packages)', () => {
     const withSurface = { ...repo, productPaths: { 'northwind': ['apps/web/**', 'packages/api/**'], 'northwind.data': ['packages/api/**'] } };
     const c = deriveContract({ given: {}, request: { ...request, product: 'northwind', surface: 'data' }, plan: null, repo: withSurface });

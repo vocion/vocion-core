@@ -205,7 +205,10 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   // AN APPROVED PLAN IS NOT WAITING (#130, 2026-09-29): a person approved
   // plan #136 from chat while a second approve card for it sat pending, and
   // the build the approval starts was skipped as "already waiting".
-  const planIds = plans.filter(p => String(p.meta.status ?? '') !== 'approved').map(p => String(p.id));
+  // A card for a plan whose row was rejected or superseded is moot, not a
+  // person's move (2026-09-30, #130: approve card #5158 for rejected plan #136
+  // held the request for fourteen hours).
+  const planIds = plans.filter(p => String(p.meta.status ?? '') !== 'approved' && !['rejected', 'superseded'].includes(String(p.status ?? ''))).map(p => String(p.id));
   const pending = await db.select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input }).from(actionRunSchema).where(and(
     eq(actionRunSchema.orgId, orgId),
     inArray(actionRunSchema.actionId, [DISPATCH, APPROVE_PLAN]),

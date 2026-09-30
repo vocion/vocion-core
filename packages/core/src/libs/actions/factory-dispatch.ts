@@ -443,7 +443,15 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const planRepo = Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null;
   const repoTitle = str(repo, 'title');
   const qualified = (s: string | null) => (s && !s.includes('/') && repoTitle?.includes('/') && repoTitle.split('/').pop() === s ? repoTitle : s);
-  const repoSlug = qualified(str(g, 'repoSlug')) ?? qualified(planRepo) ?? repoTitle;
+  // THE REPO RECORD IS THE REPO (#201 runs 426–427, 2026-09-30: plan #254
+  // named its repo "apps/stamp-api", a folder, and the worker cloned
+  // github.com/apps/stamp-api.git twice). When the product has a repo record,
+  // a named repo is used only if it is that record's; anything else was a
+  // path or a guess, and the record wins.
+  const known = (s: string | null) => (s && repoTitle && qualified(s) === repoTitle ? repoTitle : null);
+  const repoSlug = repoTitle
+    ? known(str(g, 'repoSlug')) ?? known(planRepo) ?? repoTitle
+    : qualified(str(g, 'repoSlug')) ?? qualified(planRepo);
   // THE LAST ATTEMPT'S VERDICT IS THIS ATTEMPT'S BRIEF. QA sent #157 back
   // with "0 of 8 proven" and a line per criterion saying what would settle it
   // (2026-09-26); a rebuild that starts from the request alone repeats the
