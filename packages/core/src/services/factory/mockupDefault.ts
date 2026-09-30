@@ -125,9 +125,10 @@ export async function requestDefaultMockup(orgId: string, input: Record<string, 
   if (decision.do === 'skip') {
     return skip(id, decision.why);
   }
-  // After the installation could not draw: only when it can now, so a
-  // still-broken one spends no run. Once it can, the operator's ask closes.
-  if (decision.afterInfrastructure) {
+  // After the installation could not draw (or a failure of no recorded
+  // kind): only when it can now, so a still-broken one spends no run. Once it
+  // can, the operator's ask closes.
+  if (decision.needsRenderer) {
     const { renderAvailable } = await import('@/libs/documents/render');
     const ready = await renderAvailable().catch(() => ({ ok: false as const, reason: 'unknown' }));
     if (!ready.ok) {
@@ -142,7 +143,7 @@ export async function requestDefaultMockup(orgId: string, input: Record<string, 
   } catch (err) {
     // The ask itself failed: say so on the record, where the page reads it.
     const reason = `the drawing could not be started (${(err as Error).message.split('\n')[0]})`;
-    await writeMark(orgId, id, { state: 'failed', attempt: decision.attempt, at, reason });
+    await writeMark(orgId, id, { state: 'failed', attempt: decision.attempt, at, reason, cause: 'infrastructure' });
     await noteLine(orgId, id, `The mockup was not drawn: ${reason}.`);
     return { recordId: id, did: 'failed-to-start', line: reason };
   }
@@ -227,7 +228,7 @@ export async function defaultMockupEnded(orgId: string, input: Record<string, un
   if (next.do === 'retry') {
     await requestDrawing(orgId, { id, type: record.typeSlug, title: record.title }, next.attempt, next.mark.reason, next.mark.at).catch(async (err) => {
       const why = `the retry could not be started (${(err as Error).message.split('\n')[0]})`;
-      await writeMark(orgId, id, { ...next.mark, state: 'failed', reason: why });
+      await writeMark(orgId, id, { ...next.mark, state: 'failed', reason: why, cause: 'infrastructure' });
     });
     return { recordId: id, did: `retry:${next.attempt}`, line: next.line };
   }

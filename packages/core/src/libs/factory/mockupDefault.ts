@@ -114,7 +114,7 @@ export function hasMockups(meta: Meta): boolean {
 }
 
 export type MockupDecision
-  = | { do: 'draw'; attempt: number; lastFailure?: string; afterInfrastructure?: true }
+  = | { do: 'draw'; attempt: number; lastFailure?: string; needsRenderer?: true }
     | { do: 'skip'; why: string };
 
 /**
@@ -162,14 +162,19 @@ export function mockupDecision(meta: Meta, rule: MockupRule, now: Date, changed?
       ? { do: 'draw', attempt: draw.attempt + 1, lastFailure: 'the last drawing started and never finished' }
       : { do: 'skip', why: 'lost' };
   }
-  // THE INSTALLATION COULD NOT DRAW: nothing about the record was wrong, so
-  // once its operator has had time to fix it, it is drawn again from the
-  // start — the caller checks the installation can draw first
-  // (`afterInfrastructure`), so a still-broken one spends no run.
+  // THE INSTALLATION COULD NOT DRAW: nothing about the record was wrong, so it
+  // spends none of the record's attempts. It is drawn again from the start as
+  // soon as the installation can — the caller checks that first
+  // (`needsRenderer`), so a still-broken one spends no run.
   if (draw?.state === 'failed' && draw.cause === 'infrastructure') {
-    return now.getTime() - new Date(draw.at).getTime() >= DRAW_LOST_MS
-      ? { do: 'draw', attempt: 1, afterInfrastructure: true }
-      : { do: 'skip', why: 'this installation could not draw it; its operator is told' };
+    return { do: 'draw', attempt: 1, needsRenderer: true };
+  }
+  // A FAILURE WRITTEN BEFORE FAILURES WERE TYPED (#269, 2026-09-30): nothing
+  // says whether the record or the installation failed, and its words are not
+  // read to guess. It gets one fresh attempt once the installation can draw;
+  // every mark written since carries a kind, so it is never retried again.
+  if (draw?.state === 'failed' && draw.cause === undefined) {
+    return { do: 'draw', attempt: 1, needsRenderer: true };
   }
   if (draw?.state === 'failed') {
     return { do: 'skip', why: `drew nothing after ${draw.attempt} attempt${draw.attempt === 1 ? '' : 's'}: ${draw.reason ?? 'no reason recorded'}` };
@@ -218,13 +223,13 @@ export function mockupAfterRun(meta: Meta, rule: Pick<MockupRule, 'attempts'>, e
     return {
       do: 'retry',
       attempt: attempt + 1,
-      mark: { state: 'drawing', attempt: attempt + 1, at, reason, automationRunId: ended.automationRunId },
+      mark: { state: 'drawing', attempt: attempt + 1, at, reason, automationRunId: ended.automationRunId, cause: 'content' },
       line: `The mockup was not drawn (attempt ${attempt}): ${reason}. Drawing it once more.`,
     };
   }
   return {
     do: 'give-up',
-    mark: { state: 'failed', attempt, at, reason, automationRunId: ended.automationRunId },
+    mark: { state: 'failed', attempt, at, reason, automationRunId: ended.automationRunId, cause: 'content' },
     line: `The mockup was not drawn after ${attempt} attempts: ${reason}. Asking for a mockup in chat draws it again.`,
   };
 }

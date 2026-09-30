@@ -26,7 +26,7 @@ describe('who owes a mockup', () => {
     expect(mockupDecision({ surface: 'ui', visuals: { mockupDraw: { state: 'drawing', attempt: 1, at: at(60_000) } } }, RULE, NOW)).toEqual({ do: 'skip', why: 'already being drawn (attempt 1)' });
     expect(mockupDecision({ surface: 'ui', visuals: { mockupDraw: { state: 'drawing', attempt: 1, at: at(DRAW_LOST_MS + 1) } } }, RULE, NOW)).toEqual({ do: 'draw', attempt: 2, lastFailure: 'the last drawing started and never finished' });
     expect(mockupDecision({ surface: 'ui', visuals: { mockupDraw: { state: 'drawing', attempt: 2, at: at(DRAW_LOST_MS + 1) } } }, RULE, NOW).do).toBe('skip');
-    expect(mockupDecision({ surface: 'ui', visuals: { mockupDraw: { state: 'failed', attempt: 2, at: at(1), reason: 'no renderer' } } }, RULE, NOW)).toEqual({ do: 'skip', why: 'drew nothing after 2 attempts: no renderer' });
+    expect(mockupDecision({ surface: 'ui', visuals: { mockupDraw: { state: 'failed', attempt: 2, at: at(1), reason: 'a note, not UI', cause: 'content' } } }, RULE, NOW)).toEqual({ do: 'skip', why: 'drew nothing after 2 attempts: a note, not UI' });
   });
 
   it('reads nothing for an update that changed none of the rule\'s fields', () => {
@@ -45,11 +45,12 @@ describe('after a drawing', () => {
   it('tries once more carrying the reason, then writes it down', () => {
     const first = mockupAfterRun(drawing(1), RULE, { reason: 'the renderer is not available', automationRunId: 7 }, NOW);
 
-    expect(first).toEqual({ do: 'retry', attempt: 2, mark: { state: 'drawing', attempt: 2, at: NOW.toISOString(), reason: 'the renderer is not available', automationRunId: 7 }, line: 'The mockup was not drawn (attempt 1): the renderer is not available. Drawing it once more.' });
+    expect(first).toEqual({ do: 'retry', attempt: 2, mark: { state: 'drawing', attempt: 2, at: NOW.toISOString(), reason: 'the renderer is not available', automationRunId: 7, cause: 'content' }, line: 'The mockup was not drawn (attempt 1): the renderer is not available. Drawing it once more.' });
 
     const second = mockupAfterRun(drawing(2), RULE, { reason: 'the renderer is not available', automationRunId: 8 }, NOW);
 
-    expect(second).toMatchObject({ do: 'give-up', mark: { state: 'failed', attempt: 2, reason: 'the renderer is not available' } });
+    // Every mark written now carries its kind: nothing is left of no kind to retry blind.
+    expect(second).toMatchObject({ do: 'give-up', mark: { state: 'failed', attempt: 2, reason: 'the renderer is not available', cause: 'content' } });
   });
 
   it('does not try again into an installation that cannot draw, and says only that', () => {
@@ -64,10 +65,19 @@ describe('after a drawing', () => {
 describe('after the installation could not draw', () => {
   const failed = (minutesAgo: number) => ({ surface: 'ui', visuals: { mockupDraw: { state: 'failed', attempt: 1, at: new Date(NOW.getTime() - minutesAgo * 60_000).toISOString(), cause: 'infrastructure', reason: 'no renderer' } } });
 
-  it('waits, then draws again from the start once the operator has had time — the caller checks it can', () => {
+  it('spends none of the record\'s attempts: drawn again from the start, once the caller finds it can draw', () => {
     expect(readMockupDraw(failed(5))).toMatchObject({ cause: 'infrastructure' });
-    expect(mockupDecision(failed(5), RULE, NOW)).toMatchObject({ do: 'skip' });
-    expect(mockupDecision(failed(90), RULE, NOW)).toEqual({ do: 'draw', attempt: 1, afterInfrastructure: true });
+    expect(mockupDecision(failed(5), RULE, NOW)).toEqual({ do: 'draw', attempt: 1, needsRenderer: true });
+
+    const second = { surface: 'ui', visuals: { mockupDraw: { state: 'failed', attempt: 2, at: NOW.toISOString(), cause: 'infrastructure', reason: 'no renderer' } } };
+
+    expect(mockupDecision(second, RULE, NOW)).toEqual({ do: 'draw', attempt: 1, needsRenderer: true });
+  });
+
+  it('gives a failure written before failures were typed one fresh attempt, never reading its words (#269)', () => {
+    const legacy = { surface: 'ui', visuals: { mockupDraw: { state: 'failed', attempt: 2, at: NOW.toISOString(), reason: 'its last draw_mockup call drew nothing' } } };
+
+    expect(mockupDecision(legacy, RULE, NOW)).toEqual({ do: 'draw', attempt: 1, needsRenderer: true });
   });
 
   it('leaves a drawing refused for its content written down, as before', () => {
