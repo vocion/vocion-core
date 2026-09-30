@@ -21,6 +21,7 @@
  */
 
 import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, ReportAsk, ReportObject, ReportWorkerRun } from './featureReport';
+import type { RecordOrigin } from '@/services/objects/related';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
@@ -28,6 +29,7 @@ import { listArtifactsByIds, listArtifactsForRecords } from '@/services/Artifact
 import { failedFireLines } from '@/services/automations/failedFires';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
+import { recordOrigin } from '@/services/objects/related';
 import { assembleFeatureReport } from './featureReport';
 import { loadLiveMissionRuns, taskOfRun, toolCallNamedId } from './liveStatusData';
 import { loadPullSignals, mergeRiskClassOf, mergeRunsItself } from './pullSignals';
@@ -278,7 +280,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   const product = typeof request.meta.product === 'string' ? request.meta.product : null;
   const [live, activity, link, pulls, mergeRule, liveBases] = await Promise.all([
     loadLiveMissionRuns(orgId, [{ recordId: requestId, childIds: [...taskIds] }], now),
-    loadActivity(orgId, requestId, taskIds, workerRuns),
+    loadActivity(orgId, requestId, taskIds, workerRuns, await recordOrigin(orgId, { id: requestId, meta: (row.metadata ?? {}) as Record<string, unknown>, reviewActionRunId: row.reviewActionRunId }).catch(() => null)),
     recordLinkerForOrg(orgId),
     loadPullSignals(orgId, pullUrls).catch(() => undefined),
     current
@@ -307,8 +309,9 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
  * @param requestId - The request.
  * @param taskIds - Its tasks.
  * @param workerRuns - Its tasks' worker runs.
+ * @param origin - The conversation it was requested in, when it was (`recordOrigin`).
  */
-async function loadActivity(orgId: string, requestId: number, taskIds: Set<number>, workerRuns: ReportWorkerRun[]): Promise<ReportActivity[]> {
+async function loadActivity(orgId: string, requestId: number, taskIds: Set<number>, workerRuns: ReportWorkerRun[], origin: RecordOrigin | null = null): Promise<ReportActivity[]> {
   const ids = [String(requestId), ...[...taskIds].map(String)];
   const calls = await db
     .select({ conversationId: toolCallSchema.conversationId, missionRunId: toolCallSchema.missionRunId, tool: toolCallSchema.tool, at: toolCallSchema.createdAt })
@@ -360,5 +363,20 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
   for (const w of workerRuns) {
     out.push({ kind: 'worker_run', id: w.id, title: w.summary?.split('\n')[0]?.slice(0, 90) || `Engineering run ${w.id}`, at: w.completedAt ?? w.claimedAt ?? w.createdAt, status: w.status, detail: [w.model, w.cents !== null ? `$${(w.cents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ') || null });
   }
-  return out.sort((a, b) => b.at.getTime() - a.at.getTime());
+  const sorted = out.sort((a, b) => b.at.getTime() - a.at.getTime());
+  if (!origin) {
+    return sorted;
+  }
+  // WHERE IT STARTED, first (Chris, 2026-09-30, #269): the conversation it
+  // was requested in, from the record's own origin, whatever else it did.
+  const asked: ReportActivity = {
+    kind: 'conversation',
+    id: origin.conversationId,
+    title: `Requested in chat${origin.by ? ` by ${origin.by}` : ''}`,
+    at: origin.at ? new Date(origin.at) : sorted.find(a => a.kind === 'conversation' && a.id === origin.conversationId)?.at ?? new Date(0),
+    status: null,
+    detail: origin.title,
+    origin: true,
+  };
+  return [asked, ...sorted.filter(a => !(a.kind === 'conversation' && a.id === origin.conversationId))];
 }

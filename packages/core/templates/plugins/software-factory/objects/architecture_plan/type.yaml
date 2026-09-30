@@ -30,6 +30,14 @@ schema:
     fields: [requestId, productSlug, repoSlugs, approach, components, interfaces, dataImpact, risks, alternatives, verification, writtenBy, status, ruleLevel, ruleTriggers]
   # A plan decided on its own record settles its review (backlog 039).
   x-settled: {field: status, in: [approved, rejected, superseded]}
+  # RELATED (core: libs/workspace/related.ts): what a plan is connected to.
+  x-related:
+    - {key: request, label: Request, from: links, field: requestId}
+    - {key: product, label: Product, from: links, field: productSlug, type: product, match: slug}
+    - {key: repos, label: Repositories, from: links, field: repoSlugs, type: repo, match: slug}
+    - {key: tasks, label: Tasks built from it, from: links, field: taskIds}
+    - {key: runs, label: Engineering runs, from: runs, of: tasks}
+    - {key: supersededBy, label: Superseded by, from: links, field: supersededBy}
   properties:
     requestId:
       x-display: {label: Request, format: link, to: request, group: What this plans}

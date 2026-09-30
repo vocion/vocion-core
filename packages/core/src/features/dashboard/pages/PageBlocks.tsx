@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
 import { Link } from '@/libs/I18nNavigation';
 import { fieldIsEmptyOn, interpolateHref, resolveField, resolveRowActionHref, subtitleLines, tableLayout } from '@/libs/workspace/pageFields';
+import { OriginChatLink } from './OriginChatLink';
 import { RowMenu } from './RowMenu';
 
 /**
@@ -278,7 +279,7 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
     : (
         <div className="flex items-stretch">
           <Thumb row={row} field={layout.thumb} fallback={layout.thumbFallback} now={now} />
-          <div className={`min-w-0 flex-1 p-4 ${menuItems.length > 0 ? 'pr-8' : ''}`}>{body}</div>
+          <div className={`min-w-0 flex-1 p-4 ${originChatOf(row) && menuItems.length > 0 ? 'pr-16' : menuItems.length > 0 || originChatOf(row) ? 'pr-8' : ''}`}>{body}</div>
         </div>
       );
   const className = 'block min-w-0 overflow-hidden rounded-lg border border-border bg-background text-left';
@@ -286,22 +287,26 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   // and its own transition is readable, so the tap is acknowledged at once —
   // the card dims and a corner spinner appears — before the new page has
   // rendered a thing (backlog 013). `active:` answers the finger itself.
+  const corner = (menuItems.length > 0 ? 1 : 0) + (originChatOf(row) ? 1 : 0);
   const card = href && !split
     ? (
         <Link href={href} className={`${className} relative transition-colors hover:bg-muted/40 active:bg-muted/60 has-[[data-link-pending]]:opacity-60`}>
           {inner}
-          <PendingIcon className={`absolute top-3 size-4 text-muted-foreground ${menuItems.length > 0 ? 'right-10' : 'right-3'}`} />
+          <PendingIcon className={`absolute top-3 size-4 text-muted-foreground ${corner === 2 ? 'right-17' : corner === 1 ? 'right-10' : 'right-3'}`} />
         </Link>
       )
     : <div className={`${className} ${split ? 'transition-colors focus-within:ring-2 focus-within:ring-ring/40 hover:bg-muted/20' : ''}`} data-testid={split ? 'block-card' : undefined}>{inner}</div>;
   // The menu sits OUTSIDE the anchor — a button inside a link is a tap that
   // does two things — at the card's corner, over the room the body left it.
-  return menuItems.length > 0
+  // So does the chat the record started in (`recordOrigins`), one tap away.
+  const origin = originChatOf(row);
+  return menuItems.length > 0 || origin
     ? (
         <div className="relative min-w-0">
           {card}
-          <div className="absolute top-2 right-2">
-            <RowMenu items={menuItems} label={`More about ${row.title}`} />
+          <div className="absolute top-2 right-2 flex items-center gap-0.5">
+            {origin && <OriginChatLink origin={origin} />}
+            {menuItems.length > 0 && <RowMenu items={menuItems} label={`More about ${row.title}`} />}
           </div>
         </div>
       )
@@ -369,4 +374,15 @@ export function PageBlocks({ rows, fields, primary, rowLink, rowActions = [], ro
           )}
     </section>
   );
+}
+
+/**
+ * The chat a card's record started in, when the page read one (`recordOrigins`).
+ * @param row
+ */
+function originChatOf(row: PageRow): { conversationId: number; title: string; href: string | null } | null {
+  const o = row.meta.originChat as { conversationId?: unknown; title?: unknown; href?: unknown } | undefined;
+  return o && typeof o.conversationId === 'number' && typeof o.title === 'string'
+    ? { conversationId: o.conversationId, title: o.title, href: typeof o.href === 'string' ? o.href : null }
+    : null;
 }

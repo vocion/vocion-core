@@ -6,7 +6,10 @@ import { usePreviewOpener } from '@/features/preview/previewState';
 import { FeatureDrawerLink } from './FeatureDrawerLink';
 
 /**
- * EVERYTHING THAT HAPPENED TO THIS FEATURE, one tap from its page: the
+ * ACTIVITY — WHAT HAPPENED TO THIS FEATURE OVER TIME (named 2026-09-30:
+ * Related is what it is connected to, Activity is what happened), one tap
+ * from its page. Its first entry is where it started: "Requested in chat by
+ * <person>", opening that conversation. Then the
  * conversations it was discussed in, the agent runs that worked on it and the
  * long-running engineering runs building it. A row opens the log in the
  * preview pane — a side panel on a desk, a bottom sheet on a phone (Chris,
@@ -40,11 +43,11 @@ function Row({ item }: { item: ReportActivity }) {
   const Icon = ICON[item.kind];
   return (
     <li>
-      <button type="button" onClick={open} data-testid="activity-row" className="flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-hover">
+      <button type="button" onClick={open} data-testid="activity-row" data-origin={item.origin ? 'true' : undefined} className="flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-hover">
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <span className="min-w-0 flex-1 truncate">
           <span className="text-foreground">{item.title}</span>
-          <span className="text-muted-foreground">{` · ${WORD[item.kind]}`}</span>
+          <span className="text-muted-foreground">{` · ${item.origin && item.detail ? item.detail : WORD[item.kind]}`}</span>
         </span>
         {item.status && <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{item.status}</span>}
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{ago(item.at)}</span>
@@ -64,9 +67,12 @@ export function FeatureActivity({ items, requestId }: { items: ReportActivity[];
     .map(([k, n]) => `${n} ${WORD[k].toLowerCase()}${n === 1 ? '' : 's'}`);
   const shown = items.slice(0, WORK_PREVIEW_ROWS);
   return (
-    <section id="report-activity-list" className="rounded-lg border border-border" data-testid="feature-activity">
+    <section id="report-activity-list" className="rounded-lg border border-border" data-testid="feature-activity" aria-labelledby="report-activity-heading">
       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-        <p className="min-w-0 truncate text-xs text-muted-foreground">{counts.join(' · ')}</p>
+        <p className="min-w-0 truncate text-xs text-muted-foreground">
+          <span id="report-activity-heading" className="font-medium text-foreground">Activity</span>
+          {counts.length > 0 && ` · ${counts.join(' · ')}`}
+        </p>
         {items.length > shown.length && (
           <FeatureDrawerLink requestId={requestId} drawer="work" look="link" className="shrink-0 text-xs">
             View all work

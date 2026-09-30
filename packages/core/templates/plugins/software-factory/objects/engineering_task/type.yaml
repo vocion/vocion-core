@@ -15,6 +15,12 @@ schema:
   type: object
   # A Review item about a task closes itself once the task ends (backlog 039).
   x-settled: {field: status, in: [accepted, rejected, abandoned]}
+  # RELATED (core: libs/workspace/related.ts): what a task is connected to.
+  x-related:
+    - {key: request, label: Feature, from: links, field: requestId}
+    - {key: plan, label: Plan, from: links, field: planId}
+    - {key: runs, label: Engineering runs, from: runs}
+    - {key: pull, label: Pull request, from: url, field: prUrl}
   properties:
     repoSlug:
       x-display: {label: Repository, format: link, to: repo, group: Where}

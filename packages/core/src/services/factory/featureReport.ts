@@ -374,6 +374,8 @@ export type ReportActivity = {
   at: Date;
   status: string | null;
   detail: string | null;
+  /** The conversation the feature was requested in: its Activity's first entry. */
+  origin?: boolean;
 };
 
 export type FeatureReport = {

@@ -382,7 +382,10 @@ export async function runContext(run: WorkerRunRow): Promise<RunContext | null> 
     ? await db.select({ meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, run.orgId), eq(businessObjectSchema.id, previousId))).limit(1)
     : [];
   const entry = recovery.attempts.find(a => a.runId === run.id) ?? null;
+  const { recordOrigin } = await import('@/services/objects/related');
+  const origin = request ? await recordOrigin(run.orgId, { id: request.id, meta: (request.meta ?? {}) as Record<string, unknown> }).catch(() => null) : null;
   return {
+    origin,
     feature: request ? { id: request.id, title: request.title, href: featureHref } : { id: requestId, title: `Feature #${requestId}`, href: featureHref },
     plan,
     // The task's type as the run names it, never written here.

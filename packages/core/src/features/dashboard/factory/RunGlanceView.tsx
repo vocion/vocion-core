@@ -2,11 +2,12 @@
 
 import type { RunGlance } from '@/libs/worker/runLog';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Related } from '@/components/patterns';
 import { useLive } from '@/hooks/useLive';
 import { Link } from '@/libs/I18nNavigation';
 import { liveTopic } from '@/libs/live/topics';
 import { client } from '@/libs/Orpc';
-import { isLiveStatus, refusedBeforeStart } from '@/libs/worker/runLog';
+import { isLiveStatus, refusedBeforeStart, runRelatedItems } from '@/libs/worker/runLog';
 import { RunNowLine, RunStepsCompact, RunTitleBlock, RunWhyLine, useRunClock } from './RunHeader';
 
 /** How often the pane re-reads a live run. */
@@ -90,6 +91,7 @@ export function RunGlanceView({ initial, pollMs = GLANCE_POLL_MS }: { initial: R
           <RunStepsCompact steps={glance.steps} now={now} />
         </div>
       )}
+      <Related items={runRelatedItems(header)} layout="column" className="mt-4 border-t border-rule pt-3" />
       <nav className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-rule pt-3" aria-label="Open">
         <Link href={runHref} className={out} data-testid="run-glance-open">Open run ›</Link>
         {header.prUrl && <a href={header.prUrl} target="_blank" rel="noopener noreferrer" className={out} data-testid="run-glance-pr">Pull request</a>}

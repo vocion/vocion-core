@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import type { DotTone } from '@/components/patterns';
 import type { RecordStatus } from '@/libs/factory/liveStatus';
+import type { RelatedItem } from '@/libs/workspace/related';
 import type { FeatureReport, LiveBuild, ReportAction, ReportAttempt, ReportEvidence, ReportNotice, ReportStatus, Tone } from '@/services/factory/featureReport';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Section, StatusDot } from '@/components/patterns';
+import { Related, Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { liveTopic } from '@/libs/live/topics';
@@ -597,8 +598,9 @@ function StickyAction({ report }: { report: FeatureReport }) {
  * @param props
  * @param props.report - The assembled report.
  * @param props.status - Its three lines as the route read them (the record's own page href). Absent, read off the report here.
+ * @param props.related
  */
-export function FeatureReportView({ report, status }: { report: FeatureReport; status?: RecordStatus }) {
+export function FeatureReportView({ report, status, related = [] }: { report: FeatureReport; status?: RecordStatus; related?: readonly RelatedItem[] }) {
   const lines = status ?? featureStatusOf(report, { objectType: '', href: '' }, new Date());
   const visuals = report.sections.find(x => x.key === 'visuals');
   const today = report.sections.find(x => x.key === 'today');
@@ -648,6 +650,15 @@ export function FeatureReportView({ report, status }: { report: FeatureReport; s
 
       {/* 4. CONNECTED WORK — compact; the whole list opens in the pane. */}
       {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} requestId={report.requestId} />}
+
+      {/* RELATED — what it is connected to: the chat that started it, its
+          plan, tasks, runs, pull requests and releases (`relatedOf`). */}
+      {related.length > 0 && (
+        <section id="report-related" aria-labelledby="report-related-heading" data-testid="feature-related">
+          <h2 id="report-related-heading" className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Related</h2>
+          <Related items={related} className="mt-1" />
+        </section>
+      )}
 
       {/* 5–9. Each stage in a few lines, the full record one tap away. */}
       <div>

@@ -25,6 +25,7 @@ import { recordRef } from '@/services/chat/recordContext';
 import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordBodyEnabled } from '@/services/objects/recordBodyFormat';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
+import { relatedOf } from '@/services/objects/related';
 
 /**
  * A record — `/dashboard/objects/<id>`.
@@ -116,6 +117,10 @@ export default async function ObjectDetailPage(props: {
     }),
   );
 
+  // What it is connected to — the chat that started it, what its type
+  // declares, its artifacts — in the one Related block (`relatedOf`).
+  const related = await relatedOf(orgId, obj.id).catch(() => undefined);
+
   return (
     <>
       <div className="mb-4">
@@ -179,6 +184,7 @@ export default async function ObjectDetailPage(props: {
         sections={sections}
         now={now}
         links={links}
+        related={related}
         aside={(
           <>
             {isDiscovery && keyTopics.length > 0 && (

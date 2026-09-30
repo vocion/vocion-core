@@ -10,6 +10,10 @@ description: >-
 icon: package
 schema:
   type: object
+  # RELATED (core: libs/workspace/related.ts): what a product is connected to.
+  x-related:
+    - {key: repos, label: Repositories, from: backlinks, type: repo, field: product, match: slug}
+    - {key: plans, label: Plans, from: backlinks, type: architecture_plan, field: productSlug, match: slug, limit: 5}
   properties:
     slug:
       x-display: {label: Slug, format: mono, group: Identity}

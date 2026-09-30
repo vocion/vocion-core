@@ -12,6 +12,12 @@ description: >-
 icon: rocket
 schema:
   type: object
+  # RELATED (core: libs/workspace/related.ts): what a release is connected to.
+  x-related:
+    - {key: product, label: Product, from: links, field: product, type: product, match: slug}
+    - {key: requests, label: Features, from: links, field: requestIds}
+    - {key: tasks, label: Engineering tasks, from: links, field: taskIds}
+    - {key: pulls, label: Pull requests, from: url, field: prUrls}
   properties:
     product:
       x-display: {label: Product, format: link, to: product, group: What shipped}

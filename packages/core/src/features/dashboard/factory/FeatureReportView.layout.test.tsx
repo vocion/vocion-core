@@ -398,3 +398,41 @@ describe('the pieces that carried over', () => {
     expect(plainWarning('Two releases claim this request. The second has no commit.')).toBe('Two releases claim this request.');
   });
 });
+
+describe('where it started and what it is connected to (Chris, 2026-09-30, #269)', () => {
+  it('leads its Activity with the chat it was requested in, and draws Related with that chat first', async () => {
+    await page.viewport(1440, 900);
+    const report = {
+      ...fixture(),
+      activity: [
+        { kind: 'conversation' as const, id: 812, title: 'Requested in chat by Dana Okafor', at: T('2026-09-01T09:00:00Z'), status: null, detail: 'Board pack as a PDF', origin: true },
+        { kind: 'worker_run' as const, id: 435, title: 'Room PDF export', at: T('2026-09-03T10:00:00Z'), status: 'running', detail: null },
+      ],
+    };
+    await render(
+      <div className="px-6 py-4">
+        <FeatureReportView
+          report={report}
+          related={[
+            { key: 'o', relation: 'origin', label: 'Started in chat', title: 'Board pack as a PDF', href: '/dashboard/chat?c=812', external: false, preview: { type: 'conversation', id: '812' }, kind: 'conversation', note: 'Dana Okafor', at: null },
+            { key: 'p', relation: 'plans', label: 'Plan', title: '#52 Render the room to PDF', href: '/dashboard/objects/52', external: false, preview: { type: 'object', id: '52' }, kind: 'record', note: null, at: null },
+          ]}
+        />
+      </div>,
+    );
+
+    await expect.element(page.getByTestId('feature-activity')).toHaveTextContent(/^Activity/);
+
+    const first = document.querySelector('[data-testid="activity-row"]');
+
+    expect(first?.getAttribute('data-origin')).toBe('true');
+    expect(first?.textContent).toContain('Requested in chat by Dana Okafor · Board pack as a PDF');
+
+    const labels = [...document.querySelectorAll('[data-testid="feature-related"] dt')].map(d => d.textContent);
+
+    expect(labels).toEqual(['Started in chat', 'Plan']);
+    await expect.element(page.getByRole('link', { name: 'Board pack as a PDF' })).toHaveAttribute('href', '/dashboard/chat?c=812');
+
+    closePreview();
+  });
+});

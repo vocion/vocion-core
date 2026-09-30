@@ -12,6 +12,7 @@ import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
 import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordHref } from '@/services/objects/recordHref';
+import { relatedOf } from '@/services/objects/related';
 import { readPageForOrg } from '@/services/PluginService';
 
 /**
@@ -87,8 +88,9 @@ export default async function WorkspaceReportPage(props: {
     const { ProductOverviewView } = await import('@/features/dashboard/factory/ProductOverviewView');
     const now = new Date();
     const overview = await loadProductOverview(orgId, id, now);
+    const related = overview ? await relatedOf(orgId, Number(id)).catch(() => []) : [];
     return overview
-      ? <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} />
+      ? <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} related={related} />
       : notFound();
   }
   // A release's own page (the Releases feed's row link): what changed for
@@ -111,7 +113,8 @@ export default async function WorkspaceReportPage(props: {
     const ids = evidenceArtifactIdsOf(row.meta);
     const [linked, artifacts, timeZone] = await Promise.all([loadReleaseLinked(orgId, [row]), loadReleaseArtifacts(orgId, ids), workspaceTimeZone(orgId)]);
     const report = assembleReleaseReport(row, { linked, artifacts, timeZone, now: new Date() });
-    return <ReleaseDetailView report={report} recordPage={manifest.recordPage} backHref={`/dashboard/p/${manifest.slug}`} />;
+    const related = await relatedOf(orgId, releaseId).catch(() => []);
+    return <ReleaseDetailView report={report} recordPage={manifest.recordPage} backHref={`/dashboard/p/${manifest.slug}`} related={related} />;
   }
   if (!manifest || manifest.archetype !== 'report' || !manifest.report) {
     return notFound();
@@ -135,6 +138,8 @@ export default async function WorkspaceReportPage(props: {
   const chip = report
     ? <VersionChip objectId={report.requestId} version={version?.version ?? null} updatedAt={version?.at ?? null} live={reportLiveRefresh(report)} />
     : null;
+  // What it is connected to, in the one Related block (`relatedOf`).
+  const related = report ? await relatedOf(orgId, report.requestId).catch(() => []) : [];
 
   return (
     <>
@@ -172,7 +177,7 @@ export default async function WorkspaceReportPage(props: {
       {report && <RecordChangeIntent objectId={report.requestId} title={report.title} selectionRoot={'[id^="report-"]'} />}
       {report && <VersionWatch refs={[{ type: 'object', id: String(report.requestId) }]} />}
       {report
-        ? <FeatureReportView report={report} status={status} />
+        ? <FeatureReportView report={report} status={status} related={related} />
         : (
             <p className="max-w-2xl text-sm text-muted-foreground">
               There is no

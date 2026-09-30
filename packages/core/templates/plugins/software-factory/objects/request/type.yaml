@@ -38,6 +38,16 @@ schema:
     dedupOn: [product, title]
     fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, gapCheck, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
     omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.beforeArtifactIds, visuals.mockupArtifactIds, visuals.afterArtifactIds, visuals.drawnArtifactId]
+  # RELATED (core: libs/workspace/related.ts): what a request is connected
+  # to, read from what the records already say. The chat that started it
+  # (first) and its artifacts are core's own; these are the factory's.
+  x-related:
+    - {key: product, label: Product, from: links, field: product, type: product, match: slug}
+    - {key: plans, label: Plan, from: backlinks, type: architecture_plan, field: requestId}
+    - {key: tasks, label: Engineering tasks, from: backlinks, type: engineering_task, field: requestId}
+    - {key: runs, label: Engineering runs, from: runs, of: tasks}
+    - {key: pulls, label: Pull requests, from: url, field: prUrl, of: tasks}
+    - {key: releases, label: Releases, from: backlinks, type: release, field: requestIds}
   properties:
     kind:
       x-display: {label: Kind, format: badge, group: Triage, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}

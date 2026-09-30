@@ -1,3 +1,5 @@
+import type { RelatedItem } from '@/libs/workspace/related';
+
 /**
  * A RUN READS LIKE A RUNNER PAGE (backlog 036; Chris, 2026-09-28: "for live
  * runs, I'd expect it to look like a GitHub runner or Vercel deployment
@@ -145,7 +147,52 @@ export type RunContext = {
   /** The branch the work is on, linked to its repository when the repository says where. */
   branch?: { name: string; href: string | null } | null;
   why?: RunWhy | null;
+  /** The chat the feature was requested in (`services/objects/related.recordOrigin`). */
+  origin?: { conversationId: number; title: string; href: string | null; by: string | null; at: string | null } | null;
 };
+
+/**
+ * WHAT A RUN IS CONNECTED TO, as the one Related block draws it
+ * (`components/patterns/Related`): the chat its feature started in, the
+ * feature, its plan, the other attempts, its branch and pull request. Read
+ * off the run's own context; the page and the pane both draw it.
+ * @param h - The run's header.
+ */
+export function runRelatedItems(h: RunHeader): RelatedItem[] {
+  const c = h.context;
+  if (!c) {
+    return h.prUrl ? [linkItem('pr', 'Pull request', h.prUrl, prName(h.prUrl))] : [];
+  }
+  const items: RelatedItem[] = [];
+  if (c.origin) {
+    items.push({ key: `origin:${c.origin.conversationId}`, relation: 'origin', label: 'Started in chat', title: c.origin.title, href: c.origin.href, external: false, preview: { type: 'conversation', id: String(c.origin.conversationId) }, kind: 'conversation', note: c.origin.by, at: c.origin.at });
+  }
+  if (c.feature) {
+    items.push({ key: `feature:${c.feature.id}`, relation: 'feature', label: 'Feature', title: `#${c.feature.id} ${c.feature.title}`, href: c.feature.href, external: false, preview: { type: 'object', id: String(c.feature.id) }, kind: 'record', note: null, at: null });
+  }
+  if (c.plan) {
+    items.push({ key: `plan:${c.plan.id}`, relation: 'plan', label: 'Plan', title: `#${c.plan.id} ${c.plan.title}`, href: c.plan.href, external: false, preview: { type: 'object', id: String(c.plan.id) }, kind: 'record', note: null, at: null });
+  }
+  for (const o of c.others ?? []) {
+    items.push({ key: `attempt:${o.runId}`, relation: 'attempts', label: 'Other attempts', title: `Run #${o.runId}`, href: o.href, external: false, preview: { type: 'worker_run', id: String(o.runId) }, kind: 'run', note: o.status, at: null });
+  }
+  if (c.branch) {
+    items.push(c.branch.href ? linkItem('branch', 'Branch', c.branch.href, c.branch.name) : { key: `branch:${c.branch.name}`, relation: 'branch', label: 'Branch', title: c.branch.name, href: null, external: false, preview: null, kind: 'link', note: null, at: null });
+  }
+  if (h.prUrl) {
+    items.push(linkItem('pr', 'Pull request', h.prUrl, prName(h.prUrl)));
+  }
+  return items;
+}
+
+function linkItem(relation: string, label: string, href: string, title: string): RelatedItem {
+  return { key: `${relation}:${href}`, relation, label, title, href, external: /^https?:\/\//.test(href), preview: null, kind: 'link', note: null, at: null };
+}
+
+function prName(url: string): string {
+  const n = /\/(?:pull|merge_requests)\/(\d+)/.exec(url)?.[1];
+  return n ? `PR #${n}` : url.split('/').filter(Boolean).at(-1) ?? url;
+}
 
 /** Everything the run page draws, and what a poll returns. */
 export type RunLogData = {

@@ -3,14 +3,14 @@
 import type { RunContext, RunHeader, RunLink, RunLogData, RunLogLine, RunStep } from '@/libs/worker/runLog';
 import { Check, Copy } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { Accordion, FactList, MetaChip, OpenInPreview, Section } from '@/components/patterns';
+import { Accordion, FactList, MetaChip, relatedFacts, Section } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useLive } from '@/hooks/useLive';
 import { Link } from '@/libs/I18nNavigation';
 import { liveTopic } from '@/libs/live/topics';
 import { client } from '@/libs/Orpc';
-import { deriveSteps, focusStep, isLiveStatus, mergeRunLog, refusedBeforeStart, runNow, stopReason } from '@/libs/worker/runLog';
+import { deriveSteps, focusStep, isLiveStatus, mergeRunLog, refusedBeforeStart, runNow, runRelatedItems, stopReason } from '@/libs/worker/runLog';
 import { cn } from '@/utils/Helpers';
 import { RunNowLine, RunTitleBlock, RunWhyLine, stepDuration, StepIcon, useRunClock } from './RunHeader';
 
@@ -305,13 +305,14 @@ function RunFacts({ header: h }: { header: RunHeader }) {
   const criteria = c?.acceptance?.criteria ?? [];
   const judged = criteria.some(x => x.state !== null);
   const proven = criteria.filter(x => x.state === 'proven').length;
-  const others = c?.others ?? [];
+  // What the run is connected to is the one Related block's rows
+  // (`runRelatedItems`); the run's own facts follow.
+  const related = relatedFacts(runRelatedItems(h));
   return (
     <FactList
       className="mt-3"
       facts={[
-        c?.feature && { key: 'feature', label: 'Feature', preview: { type: 'object', id: String(c.feature.id) }, value: <Link href={c.feature.href} className={link} data-testid="run-context-feature">{`#${c.feature.id} ${c.feature.title}`}</Link> },
-        c?.plan && { key: 'plan', label: 'Plan', preview: { type: 'object', id: String(c.plan.id) }, value: <Link href={c.plan.href} className={link} data-testid="run-context-plan">{`#${c.plan.id} ${c.plan.title}`}</Link> },
+        ...related,
         {
           key: 'run',
           label: 'Run',
@@ -325,20 +326,6 @@ function RunFacts({ header: h }: { header: RunHeader }) {
                   {c?.task ? <Link href={c.task.href} className={link}>{h.taskId}</Link> : h.taskId}
                 </>
               )}
-            </span>
-          ),
-        },
-        others.length > 0 && {
-          key: 'attempts',
-          label: 'Other attempts',
-          value: (
-            <span className="flex flex-wrap gap-x-3 gap-y-1" data-testid="run-context-attempts">
-              {others.map(o => (
-                <span key={o.runId} className="group/row inline-flex items-center gap-1">
-                  <Link href={o.href} className={link}>{`Run #${o.runId} · ${o.status}`}</Link>
-                  <OpenInPreview recordRef={{ type: 'worker_run', id: String(o.runId) }} label={`Open run #${o.runId} in preview`} />
-                </span>
-              ))}
             </span>
           ),
         },
@@ -368,14 +355,6 @@ function RunFacts({ header: h }: { header: RunHeader }) {
               )
             : <Link href={c.acceptance.href} className={link} data-testid="run-context-acceptance">{`${c.acceptance.count} criteri${c.acceptance.count === 1 ? 'on' : 'a'}`}</Link>,
         },
-        c?.branch && {
-          key: 'branch',
-          label: 'Branch',
-          value: c.branch.href
-            ? <a href={c.branch.href} target="_blank" rel="noopener noreferrer" className={cn(link, 'font-mono text-[12px]')} data-testid="run-context-branch">{c.branch.name}</a>
-            : <span className="font-mono text-[12px]" data-testid="run-context-branch">{c.branch.name}</span>,
-        },
-        h.prUrl && { key: 'pr', label: 'Pull request', value: <a href={h.prUrl} target="_blank" rel="noopener noreferrer" className={link} data-testid="run-context-pr">{prLabel(h.prUrl)}</a> },
         typeof h.cents === 'number' && h.cents > 0 && { key: 'cost', label: 'Cost', value: <span className="tabular-nums">{`$${(h.cents / 100).toFixed(2)}`}</span> },
         h.model && { key: 'model', label: 'Model', value: h.model },
         h.links.length > 0 && {
@@ -386,15 +365,6 @@ function RunFacts({ header: h }: { header: RunHeader }) {
       ]}
     />
   );
-}
-
-/**
- * "PR #27" off a pull request URL, or the URL's last segment.
- * @param url - The pull request.
- */
-function prLabel(url: string): string {
-  const n = /\/(?:pull|merge_requests)\/(\d+)/.exec(url)?.[1];
-  return n ? `PR #${n}` : url.split('/').filter(Boolean).at(-1) ?? url;
 }
 
 /**

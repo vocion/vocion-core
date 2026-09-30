@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import type { DotTone } from '@/components/patterns';
 import type { ProductOverview } from '@/libs/workspace/productOverview';
+import type { RelatedItem } from '@/libs/workspace/related';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { DetailMeta, DetailPage, FactList, MetaChip, Section, StatusDot } from '@/components/patterns';
+import { DetailMeta, DetailPage, FactList, MetaChip, Related, Section, StatusDot } from '@/components/patterns';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { Link } from '@/libs/I18nNavigation';
 import { relativeLabel } from '@/libs/timeAgo';
@@ -42,8 +43,9 @@ function Empty({ children }: { children: ReactNode }) {
  * @param props.page.slug - Its slug.
  * @param props.page.title - Its title.
  * @param props.now - The clock, for "8h ago".
+ * @param props.related
  */
-export function ProductOverviewView({ overview: o, page, now }: { overview: ProductOverview; page: { slug: string; title: string }; now: number }) {
+export function ProductOverviewView({ overview: o, page, now, related = [] }: { overview: ProductOverview; page: { slug: string; title: string }; now: number; related?: readonly RelatedItem[] }) {
   const back = `/dashboard/p/${page.slug}`;
   const ago = (d: Date | null) => (d ? relativeLabel(d, now) : null);
   const attentionCount = o.attention.decisions.length + o.attention.blocked.length;
@@ -292,6 +294,13 @@ export function ProductOverviewView({ overview: o, page, now }: { overview: Prod
               </ul>
             )}
       </details>
+
+      {/* What the product is connected to, in the one Related block (`relatedOf`). */}
+      {related.length > 0 && (
+        <Section eyebrow="Related" commentField={null} data-testid="product-related">
+          <Related items={related} />
+        </Section>
+      )}
 
       <details className="py-4" data-testid="product-technical">
         <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">Technical details</summary>

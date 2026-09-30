@@ -1,9 +1,10 @@
 import type { DotTone } from '@/components/patterns';
 import type { PagePrompt } from '@/features/dashboard/pages/PagePrompts';
 import type { PageRecordPage } from '@/libs/workspace/pageFields';
+import type { RelatedItem } from '@/libs/workspace/related';
 import type { Tone } from '@/libs/workspace/releaseFeed';
 import type { ReleaseCheck, ReleaseLink, ReleaseLiveShot, ReleaseProofGroup, ReleaseProofRow, ReleaseReport } from '@/services/factory/releaseReport';
-import { DetailMeta, DetailPage, FactList, Section, StatusDot } from '@/components/patterns';
+import { DetailMeta, DetailPage, FactList, Related, Section, StatusDot } from '@/components/patterns';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
@@ -152,8 +153,9 @@ function Links({ items }: { items: ReleaseLink[] }) {
  * @param props.report - The assembled release.
  * @param props.recordPage - The page's `recordPage` block: the announcement's asks, in the workspace's words.
  * @param props.backHref - The Releases list.
+ * @param props.related
  */
-export function ReleaseDetailView({ report, recordPage, backHref }: { report: ReleaseReport; recordPage?: PageRecordPage; backHref: string }) {
+export function ReleaseDetailView({ report, recordPage, backHref, related = [] }: { report: ReleaseReport; recordPage?: PageRecordPage; backHref: string; related?: readonly RelatedItem[] }) {
   const a = report.announcement;
   const ask: PagePrompt | undefined = a.action && !a.blocked ? recordPage?.actions[a.action] : undefined;
   return (
@@ -290,6 +292,13 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
             )}
       </Section>
 
+      {/* What the release is connected to, in the one Related block (`relatedOf`). */}
+      {related.length > 0 && (
+        <Section eyebrow="Related" commentField={null} data-testid="release-related">
+          <Related items={related} />
+        </Section>
+      )}
+
       <Section eyebrow="Technical details">
         <details data-testid="release-technical">
           <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">Surfaces, pull requests, commits, evidence and record ids</summary>
@@ -328,10 +337,12 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
                 <Links items={report.technical.evidence} />
               </div>
             )}
-            <div>
-              <h4 className="mb-1 text-[12px] text-muted-foreground">Records</h4>
-              <Links items={report.technical.records} />
-            </div>
+            {related.length === 0 && (
+              <div>
+                <h4 className="mb-1 text-[12px] text-muted-foreground">Records</h4>
+                <Links items={report.technical.records} />
+              </div>
+            )}
           </div>
         </details>
       </Section>

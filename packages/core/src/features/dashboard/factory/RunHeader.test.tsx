@@ -150,11 +150,11 @@ describe('open in preview, on a fact row', () => {
   it('shows on the row\'s hover and opens that record in the pane, leaving the page where it is', async () => {
     render(<RunDetail initial={data()} pollMs={60_000} />);
 
-    const row = page.getByTestId('run-context-feature');
+    const row = page.getByRole('link', { name: '#269 Room PDF export' });
 
     await expect.element(row).toBeVisible();
 
-    const button = document.querySelector('[data-fact="feature"] [data-testid="open-in-preview"]') as HTMLElement;
+    const button = document.querySelector('[data-fact="related:feature"] [data-testid="open-in-preview"]') as HTMLElement;
 
     expect(getComputedStyle(button).opacity).toBe('0');
 
@@ -171,8 +171,8 @@ describe('open in preview, on a fact row', () => {
   it('gives the pull request row no preview: it opens GitHub in a new tab', async () => {
     render(<RunDetail initial={data()} pollMs={60_000} />);
 
-    await expect.element(page.getByTestId('run-context-pr')).toHaveAttribute('target', '_blank');
+    await expect.element(page.getByRole('link', { name: 'PR #27' })).toHaveAttribute('target', '_blank');
 
-    expect(document.querySelector('[data-fact="pr"] [data-testid="open-in-preview"]')).toBeNull();
+    expect(document.querySelector('[data-fact="related:pr"] [data-testid="open-in-preview"]')).toBeNull();
   });
 });

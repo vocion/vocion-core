@@ -634,6 +634,18 @@ export default async function WorkspacePage(props: {
     // query for the whole page, after the derivation has chosen WHICH visual
     // each row shows (`services/workspace/pageImages.ts`).
     const drawn = await resolveRowImages(orgId, derived, manifest.fields ?? []);
+    // The chat each record started in, for the card's chat link (Chris,
+    // 2026-09-30, #269), in one read for the page (`recordOrigins`).
+    if (manifest.source?.kind === 'objects' && manifest.layout === 'block') {
+      const { recordOrigins } = await import('@/services/objects/related');
+      const origins = await recordOrigins(orgId, drawn).catch(() => new Map());
+      for (const r of drawn) {
+        const o = origins.get(Number(r.id));
+        if (o) {
+          r.meta = { ...r.meta, originChat: o };
+        }
+      }
+    }
     rows = applyFilter(drawn, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
     if (manifest.sort) {
       // `sortRowsByField` compares a Date field by instant — see its doc
