@@ -36,17 +36,27 @@ export type PageGroup = {
 /**
  * @param root0 - Props.
  * @param root0.groups - The groups, in the order the page sorted them.
+ * @param root0.param - Keep the tab in this QUERY parameter (`?tab=seats`)
+ *   rather than the hash. The server can read a query, so the page renders
+ *   on the tab the link named with nothing to correct after mount; the hash
+ *   stays the default for the pages that already link by it.
+ * @param root0.initial - The tab the server rendered — `param`'s value when
+ *   it names a group. Ignored without `param`.
  */
-export function PageGroupTabs({ groups }: { groups: PageGroup[] }) {
+export function PageGroupTabs({ groups, param, initial }: { groups: PageGroup[]; param?: string; initial?: string }) {
   const first = groups[0]?.key ?? '';
-  const [value, setValue] = useState(first);
+  const start = param && initial && groups.some(g => g.key === initial) ? initial : first;
+  const [value, setValue] = useState(start);
   // THE TAB IS IN THE URL (Chris, 2026-09-25: "tabs should be hashtags with
-  // hash nav so I can back button to it"). A tap pushes `#<key>`, so opening
-  // a row and pressing Back lands on the tab you left, and a link can name a
-  // tab. The hash is read after mount: the server cannot see it.
+  // hash nav so I can back button to it"). A tap pushes `#<key>` — or
+  // `?<param>=<key>` — so opening a row and pressing Back lands on the tab
+  // you left, and a link can name a tab. The hash is read after mount: the
+  // server cannot see it.
   useEffect(() => {
     const read = () => {
-      const h = decodeURIComponent(window.location.hash.slice(1));
+      const h = param
+        ? new URLSearchParams(window.location.search).get(param) ?? ''
+        : decodeURIComponent(window.location.hash.slice(1));
       setValue(groups.some(g => g.key === h) ? h : first);
     };
     read();
@@ -56,12 +66,27 @@ export function PageGroupTabs({ groups }: { groups: PageGroup[] }) {
       window.removeEventListener('hashchange', read);
       window.removeEventListener('popstate', read);
     };
-  }, [groups, first]);
+  }, [groups, first, param]);
   if (groups.length === 0) {
     return null;
   }
   const choose = (key: string) => {
     setValue(key);
+    if (param) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get(param) === key) {
+        return;
+      }
+      // The first tab is the clean URL; every other one is named.
+      if (key === first) {
+        params.delete(param);
+      } else {
+        params.set(param, key);
+      }
+      const qs = params.toString();
+      window.history.pushState(window.history.state, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+      return;
+    }
     if (window.location.hash.slice(1) !== key) {
       window.history.pushState(null, '', `${window.location.pathname}${window.location.search}#${encodeURIComponent(key)}`);
     }

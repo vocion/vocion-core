@@ -1477,6 +1477,32 @@ async function reportPausedAutomations(orgId: string, loaded: LoadedWorkspace, w
   }
 }
 
+/**
+ * The base an override is measured against. A new override, or one whose own
+ * body changed, takes its twin's body as it stands now — whoever edited it
+ * last saw that version. An unchanged override keeps the base already on its
+ * row, so a later change to the plugin's copy shows up as drift. Anything
+ * that is not an override has no base.
+ * @param existing - The stored row, when there is one.
+ * @param existing.origin
+ * @param existing.contentSha
+ * @param existing.frontmatter
+ * @param next - What this apply loaded.
+ */
+export function overrideBaseSha(
+  existing: { origin: string; contentSha: string; frontmatter: unknown } | null,
+  next: Pick<LoadedPlaybook, 'origin' | 'contentSha' | 'baseSha'>,
+): string | undefined {
+  if (next.origin !== 'override') {
+    return undefined;
+  }
+  const kept = (existing?.frontmatter as { baseSha?: unknown } | null)?.baseSha;
+  if (existing && existing.origin === 'override' && existing.contentSha === next.contentSha && typeof kept === 'string') {
+    return kept;
+  }
+  return next.baseSha;
+}
+
 async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, mode: ApplyMode): Promise<UpsertOutcome> {
   const payload = {
     orgId,
@@ -1509,6 +1535,14 @@ async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, mode: ApplyMode
     .from(playbookSchema)
     .where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.slug, pb.slug)));
 
+  // What an override was written against: kept from the row while the
+  // override itself is unchanged, so the plugin moving underneath it reads
+  // as drift rather than being quietly re-baselined on the next apply.
+  const baseSha = overrideBaseSha(existing ?? null, pb);
+  if (baseSha) {
+    payload.frontmatter.baseSha = baseSha;
+  }
+
   if (!existing) {
     if (!mode.dryRun) {
       await db.insert(playbookSchema).values(payload);
@@ -1517,7 +1551,8 @@ async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, mode: ApplyMode
   }
 
   if (
-    existing.contentSha === payload.contentSha
+    (existing.frontmatter as { baseSha?: unknown } | null)?.baseSha === payload.frontmatter.baseSha
+    && existing.contentSha === payload.contentSha
     && existing.name === payload.name
     && existing.description === payload.description
     && existing.version === payload.version

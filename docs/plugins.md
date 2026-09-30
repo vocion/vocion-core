@@ -115,7 +115,7 @@ templates/plugins/<slug>/
 ├── missions/<slug>.yaml
 ├── automations/<slug>.yaml
 ├── teams/<slug>.yaml      # the plugin's team, with the measures it is graded on
-├── pages/<slug>.yaml      # (+ <slug>.md) — list / queue / markdown archetypes
+├── pages/<slug>.yaml      # (+ <slug>.md) — list / queue / markdown / configure archetypes
 └── trust.yaml             # confidence bars for the plugin's own actions
 ```
 
@@ -195,6 +195,52 @@ replaces it; `status: disabled` turns it off. The software-factory plugin
 declares exactly two: a feature needs a person, and a feature was released.
 Each person chooses channels per kind, quiet hours and devices at
 `/dashboard/notifications/settings`, `/api/v1/notifications/preferences` or MCP.
+
+## A Configure page — what drives the plugin, by descriptor
+
+A plugin gets one page that answers *what drives this, and is any of it
+asking for me?* by declaring it, with no code:
+
+```yaml
+# pages/configure.yaml
+slug: configure
+title: Configure
+description: What drives it — its measures, seats, skills, rules and automations, and what it learned from use.
+nav: {section: My plugin, order: 9, secondary: true}
+archetype: configure
+pluginPanel: false
+configure: # optional — omitted, every block in this order
+  tabs: [{kind: seats}, {kind: skills}, {kind: automations}, {kind: trust}, {kind: learned}, {kind: measures}]
+  aside: [{kind: health}, {kind: attention}, {kind: changes}]
+```
+
+Each **tab** is one relation of the plugin, read from the rows core already
+keeps and scoped to what the plugin's directory ships: **seats** (its agents —
+seat, role, model, missions owned, last run; a row opens the agent in the
+preview pane), **skills** (its skills and playbooks, the workspace's
+overrides marked), **automations** (trigger, what it does, the newest fire and
+its result — a match that could not start included — and a person's pause),
+**trust** (each rule in its `trust.yaml` and any class the workspace derived
+from it, `git.merge.docs`: runs on its own, or asks), **learned** (rules its
+agents follow and where each came from) and **measures** (its team's, each
+with its direction and the change against the prior window). The tab is in
+`?tab=`.
+
+The **sidebar** stacks under the tabs on a phone: **health** (the measures,
+value and change), **attention** (links only, and absent when empty: an
+automation that errored, a seat over budget, an override the plugin moved on
+from, a rung that demoted itself, a measure nothing reads) and **changes**
+(pauses, rung changes, adopted rules and applies — what, who, when, link).
+
+An override is *behind the plugin* when the plugin's copy of the SKILL.md body
+changed after the override was last edited: the apply stores the body the
+override replaced (`frontmatter.baseSha`) when the override is new or edited,
+and keeps it while the override is unchanged. An override applied before this
+takes its base on its next apply.
+
+The renderer is `features/dashboard/configure/` over
+`services/plugins/configureData.ts`; the tab and block kinds are a closed set
+in `libs/workspace/pageFields.ts`.
 
 ## Measures and missions — a plugin that improves itself
 

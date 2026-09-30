@@ -8,7 +8,7 @@ import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
 import { parseSourcesRefId, sourcesMarkdown } from '@/libs/preview/sourcesRef';
 import { canOpenArtifact } from '@/libs/share/audience';
-import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
+import { agentSchema, artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
 import { registerPreview } from './registry';
 
@@ -684,6 +684,56 @@ registerPreview('record_history', {
         { label: 'Versions', value: String(history.versions.length) },
       ),
       ...body(lines.join('\n')),
+    };
+  },
+});
+
+/**
+ * An agent — `agent:<slug>`. What a seat on a Configure page, a roster or an
+ * org chart points at: who it is, where it sits, what it runs on and what it
+ * mounts, with its own page one click away. A peek, so it carries no prompt
+ * and no controls: the agent's page is where it is changed.
+ */
+registerPreview('agent', {
+  sourceLabel: 'Agent',
+  href: ref => `/dashboard/agents/${encodeURIComponent(ref.id)}`,
+  resolve: async (ref, ctx) => {
+    const [agent] = await db
+      .select({
+        slug: agentSchema.slug,
+        name: agentSchema.name,
+        description: agentSchema.description,
+        eyebrow: agentSchema.eyebrow,
+        role: agentSchema.role,
+        team: agentSchema.team,
+        model: agentSchema.model,
+        harnessConfig: agentSchema.harnessConfig,
+        skillSlugs: agentSchema.skillSlugs,
+        playbookSlugs: agentSchema.playbookSlugs,
+        active: agentSchema.active,
+      })
+      .from(agentSchema)
+      .where(and(eq(agentSchema.orgId, ctx.orgId), eq(agentSchema.slug, ref.id)))
+      .limit(1);
+    if (!agent) {
+      return null;
+    }
+    const skills = agent.skillSlugs ?? [];
+    const playbooks = agent.playbookSlugs ?? [];
+    return {
+      ref,
+      title: agent.name,
+      sourceLabel: 'Agent',
+      ...(agent.eyebrow ? { subtitle: agent.eyebrow } : {}),
+      facts: facts(
+        { label: 'Role', value: agent.role === 'lead' ? 'Lead' : 'Specialist' },
+        agent.team ? { label: 'Team', value: agent.team } : null,
+        { label: 'Model', value: agent.harnessConfig?.model ?? agent.model ?? '' },
+        skills.length > 0 ? { label: 'Skills', value: skills.join(', ') } : null,
+        playbooks.length > 0 ? { label: 'Playbooks', value: playbooks.join(', ') } : null,
+        String(agent.active) !== 'true' ? { label: 'State', value: 'Inactive' } : null,
+      ),
+      ...body(agent.description),
     };
   },
 });

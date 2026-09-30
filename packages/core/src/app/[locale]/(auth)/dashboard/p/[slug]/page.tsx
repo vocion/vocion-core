@@ -8,6 +8,7 @@ import { notFound, redirect } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
+import { ConfigurePage } from '@/features/dashboard/configure/ConfigurePage';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PageBlocks } from '@/features/dashboard/pages/PageBlocks';
 import { PageFeed } from '@/features/dashboard/pages/PageFeed';
@@ -552,6 +553,15 @@ export default async function WorkspacePage(props: {
         />
       </>
     );
+  }
+
+  // WHAT DRIVES A PLUGIN, on one page: its seats, skills, automations, trust
+  // rules, what it learned and its measures as tabs, with how it is doing,
+  // what needs attention and what changed beside them. Declared by the
+  // plugin's page, drawn by core's generic blocks (Chris, 2026-09-30: "main
+  // block with sidebar blocks. or tabs.").
+  if (manifest.archetype === 'configure') {
+    return <ConfigurePage orgId={orgId} manifest={manifest} searchParams={searchParams} now={await currentTime()} />;
   }
 
   const content = readWorkspacePageContent(manifest);

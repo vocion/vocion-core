@@ -124,6 +124,13 @@ export type LoadedPlaybook = PlaybookManifest & {
    * override: workspace copy whole-file-replacing an activated base twin.
    */
   origin: FolderOrigin;
+  /**
+   * On an override: the SHA-256 of the body it replaces — the base or
+   * plugin twin's SKILL.md as it stands at this load. The applier keeps the
+   * one in force when the override was last edited, so a later change to the
+   * twin reads as drift (`services/plugins/configureData.ts`).
+   */
+  baseSha?: string;
 };
 
 /**
@@ -645,7 +652,7 @@ function composeFolders(
         .filter(f => basename(f) !== 'SKILL.md' && !basename(f).startsWith('.'))
         .map(f => relative(baseFolder, f));
       const merged = new Set([...loaded.sourceFiles, ...baseSiblings]);
-      out.push({ ...loaded, origin: 'override', sourceFiles: [...merged], resources: [...merged] });
+      out.push({ ...loaded, origin: 'override', sourceFiles: [...merged], resources: [...merged], baseSha: skillBodySha(join(baseFolder, 'SKILL.md')) ?? undefined });
     } else {
       if (packEntries?.has(loaded.slug) && !isOverride) {
         throw new Error(
@@ -1010,6 +1017,25 @@ function assertNamedRefs(agents: LoadedAgent[], skills: LoadedPlaybook[], playbo
   }
   if (problems.length > 0) {
     throw new Error(`unresolved references:\n  - ${problems.join('\n  - ')}`);
+  }
+}
+
+/**
+ * The SHA-256 of a SKILL.md body — the same digest `contentSha` is — or null
+ * when the file is missing or has no frontmatter. What an override's twin is
+ * compared by: the body, never the frontmatter, so a reworded description is
+ * not drift.
+ * @param file - Absolute path of a SKILL.md.
+ */
+export function skillBodySha(file: string): string | null {
+  if (!existsSync(file)) {
+    return null;
+  }
+  try {
+    const fm = parseFrontmatter(readFileSync(file, 'utf8'), file);
+    return createHash('sha256').update(fm.body, 'utf8').digest('hex');
+  } catch {
+    return null;
   }
 }
 

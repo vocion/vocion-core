@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadWorkspace } from './loader';
+import { loadWorkspace, skillBodySha } from './loader';
 import { enabledPluginsFromWorkspaceDir, listPlugins, listPluginSlugs, loadPlugin, pluginContents, resolvePlugins } from './plugins';
 
 // Workspace plugins — the abstract rung made installable. Exercised through
@@ -206,6 +206,11 @@ describe('loadWorkspace with plugins', () => {
 
     expect(skill?.origin).toBe('override');
     expect(skill?.body).toBe('Ours wins.');
+    // What it replaced is fingerprinted, so the plugin moving on underneath
+    // the override can be told apart from the override itself changing
+    // (the Configure page's "behind the plugin").
+    expect(skill?.baseSha).toBe(skillBodySha(join(loadPlugin('wiki').sourcePath, 'skills', 'wiki-context', 'SKILL.md')));
+    expect(skill?.baseSha).not.toBe(skill?.contentSha);
   });
 
   it('a workspace automation or team with the plugin\'s slug replaces it outright', () => {
