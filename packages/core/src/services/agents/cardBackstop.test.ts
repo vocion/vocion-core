@@ -302,6 +302,12 @@ describe('a build of something nobody filed is a filing (conversation 351, 2026-
     expect((await buildOrFiling(shaped, async () => false)).mapped).toBe(false);
     expect((await buildOrFiling({ ...shaped, action_input: { requestId: 12 } }, async () => false)).mapped).toBe(true);
     expect((await buildOrFiling({ ...shaped, action_id: 'gmail.send' }, async () => false)).mapped).toBe(false);
+
+    // The request this thread filed a minute ago is the one the build is for (conversation 394).
+    const threaded = await buildOrFiling({ ...shaped, action_input: {} }, async id => id === 265, async () => [266, 265]);
+
+    expect(threaded.mapped).toBe(false);
+    expect((threaded.call.action_input as { requestId: number }).requestId).toBe(265);
   });
 });
 

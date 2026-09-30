@@ -220,6 +220,9 @@ export async function runProposal(
     // Each outcome reads differently on purpose. An agent that re-reads a
     // page has to be able to tell a person "nothing new here" — with one
     // shared sentence it would report every second pass as fresh work.
+    if (res.outcome === 'already_underway') {
+      return `Already under way: ${res.underway?.line ?? 'what was asked for is running'}${res.underway?.href ? ` (${res.underway.href})` : ''}. This is what was asked for, and nothing new was started. Tell the person it is running and link it; do not call it refused or failed.`;
+    }
     if (res.outcome === 'already_decided') {
       const decidedOn = res.decidedAt ? ` on ${res.decidedAt.toISOString().slice(0, 10)}` : '';
       return `Not proposed: a person already decided this exact record${decidedOn} — action run #${res.runId} is ${res.status}. Nothing was queued and nothing changed. Do not propose it again; move on to records nobody has judged yet.`;

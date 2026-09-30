@@ -95,6 +95,14 @@ export type CardBackstopDeps = {
   /** Is there a request record with this id in the workspace? */
   requestExists: (id: number) => Promise<boolean>;
   /**
+   * The records this conversation's own actions filed, newest first
+   * (`action_run.proposal.origin.conversationId`). A build card that names no
+   * request is for the one the thread already filed, not a new filing
+   * (conversation 394, 2026-09-30: "File as a feature request: Approve
+   * dispatch to engineer" went up a minute after request #265 was filed there).
+   */
+  threadRecordIds?: () => Promise<number[]>;
+  /**
    * The agent's typed filing tool for a type (`file_<slug>`, `tools/fileRecord.ts`),
    * when it has one: its schema is the type's own, required fields marked, so a
    * filing card is written through it rather than as free-form fields.
@@ -237,8 +245,9 @@ function thingOf(label: string): string {
  * action refused, a card with nothing to press.
  * @param shaped - The shaped call.
  * @param requestExists - Is there a request by this id?
+ * @param threadRecordIds
  */
-export async function buildOrFiling(shaped: Record<string, unknown>, requestExists: (id: number) => Promise<boolean>): Promise<{ call: Record<string, unknown>; mapped: boolean }> {
+export async function buildOrFiling(shaped: Record<string, unknown>, requestExists: (id: number) => Promise<boolean>, threadRecordIds?: () => Promise<number[]>): Promise<{ call: Record<string, unknown>; mapped: boolean }> {
   if (shaped.action_id !== BUILD_ACTION) {
     return { call: shaped, mapped: false };
   }
@@ -249,6 +258,12 @@ export async function buildOrFiling(shaped: Record<string, unknown>, requestExis
   const requestId = positiveInt(input.requestId);
   if (requestId !== null && await requestExists(requestId).catch(() => false)) {
     return { call: shaped, mapped: false };
+  }
+  // The request this thread already filed, when there is one.
+  for (const id of await threadRecordIds?.().catch(() => []) ?? []) {
+    if (await requestExists(id).catch(() => false)) {
+      return { call: { ...shaped, action_input: { ...input, requestId: id } }, mapped: false };
+    }
   }
   const contract = input.contract && typeof input.contract === 'object' ? input.contract as Record<string, unknown> : {};
   // A filing names a record that does not exist yet: every record number the
@@ -486,7 +501,7 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
       settle();
       return;
     }
-    const { call: shaped, mapped } = await buildOrFiling(shapeRecommendCall(call.args ?? {}), deps.requestExists);
+    const { call: shaped, mapped } = await buildOrFiling(shapeRecommendCall(call.args ?? {}), deps.requestExists, deps.threadRecordIds);
     if (mapped) {
       result.mapped += 1;
     }
@@ -656,6 +671,21 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
     requestExists: async (id) => {
       const { readRecord } = await import('@/libs/actions/factory-dispatch');
       return (await readRecord(opts.orgId, id))?.typeSlug === 'request';
+    },
+    threadRecordIds: async () => {
+      if (!ctx.conversationId) {
+        return [];
+      }
+      const { and, desc, eq, sql } = await import('drizzle-orm');
+      const { db } = await import('@/libs/DB');
+      const { actionRunSchema } = await import('@/models/Schema');
+      const rows = await db.select({ id: sql<string>`${actionRunSchema.result} ->> 'objectId'` }).from(actionRunSchema).where(and(
+        eq(actionRunSchema.orgId, opts.orgId),
+        eq(actionRunSchema.status, 'done'),
+        sql`${actionRunSchema.proposal} -> 'origin' ->> 'conversationId' = ${String(ctx.conversationId)}`,
+        sql`${actionRunSchema.result} ->> 'objectId' is not null`,
+      )).orderBy(desc(actionRunSchema.id)).limit(10);
+      return rows.map(r => Number(r.id)).filter(n => Number.isInteger(n) && n > 0);
     },
     filingTool: (objectType) => {
       const spec = (ctx.filingTypes ?? []).find(t => t.slug === objectType && (ctx.objectTypeSlugs ?? []).includes(t.slug));

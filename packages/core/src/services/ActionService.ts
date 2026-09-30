@@ -67,12 +67,14 @@ export type ActionRunResult = {
  * no consumer could tell a fresh card from a refresh, let alone from one a
  * moderator already threw out.
  */
-export type ProposeOutcome = 'created' | 'refreshed' | 'already_decided';
+export type ProposeOutcome = 'created' | 'refreshed' | 'already_decided' | 'already_underway';
 
 export type ProposeResult = ActionRunResult & {
   outcome: ProposeOutcome;
   /** When the earlier run was decided. Set on `already_decided` only. */
   decidedAt?: Date | null;
+  /** What is already happening, and where to follow it. Set on `already_underway` only. */
+  underway?: { line: string; href?: string | null };
 };
 
 const DAY_IN_MS = 86_400_000;
@@ -421,6 +423,14 @@ export async function proposeAction(input: {
   // The action's own last word, before any row exists. Tenant state the input
   // schema cannot check lives here, and refusing costs the caller nothing but
   // a message it can act on.
+  // What was asked for is already happening: say so, start nothing, refuse nothing.
+  const underway = await action.underway?.(
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, ...(input.turn ? { turn: input.turn } : {}) },
+    parsed,
+  );
+  if (underway) {
+    return { runId: 0, status: 'done', outcome: 'already_underway', underway };
+  }
   const refusal = await action.precheck?.(
     { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, ...(input.turn ? { turn: input.turn } : {}) },
     parsed,

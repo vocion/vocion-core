@@ -412,6 +412,15 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   precheck?: (ctx: ActionContext, input: z.infer<S>) => Promise<string | void>;
   /**
+   * IS WHAT WAS ASKED FOR ALREADY HAPPENING? (2026-09-30, conversation 394:
+   * "Finish the plan and build" came back "Proposal refused: already
+   * building", and the agent told the person the build "did not go out"
+   * while it was queued.) When it returns a line, the proposal is not a
+   * refusal: it answers `already_underway` with that line and the run's
+   * link, and nothing new starts. Checked before `precheck`.
+   */
+  underway?: (ctx: ActionContext, input: z.infer<S>) => Promise<{ line: string; href?: string | null } | null>;
+  /**
    * Fields a refinement requires that the shape marks optional — so the
    * input hints a model reads (`actionInputHints`) can mark them required.
    * `objects.propose_candidate` requires `dedupOn` this way (2026-09-25:

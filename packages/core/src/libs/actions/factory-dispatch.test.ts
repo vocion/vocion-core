@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, riskFromPaths, underwayRefusal } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -373,5 +373,15 @@ describe('a plan\'s own build is never refused as a second start (#201, 2026-09-
 
     expect(underwayRefusal(executing, { trigger: 'plan' })).toBeNull();
     expect(underwayRefusal(executing, { trigger: 'recovery' })).toMatch(/^already building: run #5335/);
+  });
+});
+
+describe('a start of something already running is answered, not refused (conversation 394, 2026-09-30)', () => {
+  it('names the worker run to follow', () => {
+    const building = [{ id: 5381, status: 'done', executedAt: new Date(), result: { workerRunId: 432 }, workerStatus: 'queued' }];
+
+    expect(underwayNow(building)).toEqual({ line: 'run #432 (started by action #5381) is queued', workerRunId: 432 });
+    expect(underwayRefusal(building)).toBe('already building: run #432 (started by action #5381) is queued. Nothing new was started — follow that run.');
+    expect(underwayNow([])).toBeNull();
   });
 });
