@@ -527,6 +527,29 @@ describe('proposing against an already-decided run', () => {
     expect(second.runId).not.toBe(first.runId);
   });
 
+  it('never refreshes an open card on a key built on a blank: the second filing is its own card (#124)', async () => {
+    // Two different requests, both filed with the identity field blank. The
+    // second used to refresh the first one's open card and rewrite the record
+    // it had made.
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-alerts', venue: '' }, principal: agent(2) });
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-alerts', venue: '' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('created');
+    expect(second.runId).not.toBe(first.runId);
+
+    const [firstRow] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
+
+    expect(firstRow?.status).toBe('pending');
+  });
+
+  it('still refreshes the open card when its key is complete', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-corvina' }, principal: agent(2) });
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-corvina' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('refreshed');
+    expect(second.runId).toBe(first.runId);
+  });
+
   it('still blocks the same record when its key is complete', async () => {
     const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-corvina' }, principal: agent(2) });
     await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });

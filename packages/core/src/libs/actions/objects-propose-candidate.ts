@@ -327,7 +327,7 @@ function dedupKeyFrom(objectType: string, values: string[]): string {
  * is exported under.
  * @param input - Anything carrying the three values a key is built from.
  */
-export function candidateDedupKey(input: Pick<CandidateInput, 'objectType' | 'fields' | 'dedupOn'>): string | undefined {
+export function candidateDedupKey(input: Pick<CandidateInput, 'objectType' | 'fields' | 'dedupOn'> & { title?: string }): string | undefined {
   const values = identityValues(input);
   if (values.length === 0) {
     return undefined;
@@ -346,12 +346,30 @@ export function candidateDedupKey(input: Pick<CandidateInput, 'objectType' | 'fi
  * test, for instance).
  * @param input - The parsed action input.
  */
-function identityValues(input: Pick<CandidateInput, 'fields' | 'dedupOn'>): string[] {
+function identityValues(input: Pick<CandidateInput, 'fields' | 'dedupOn'> & { title?: string }): string[] {
   const values: string[] = [];
   for (const fieldName of input.dedupOn ?? []) {
-    values.push(normaliseForKey(input.fields[fieldName]));
+    values.push(normaliseForKey(identityValue(input, fieldName)));
   }
   return values;
+}
+
+/**
+ * One identity field's value. A record's title is the input's own `title`,
+ * not a key inside `fields`: a filing that names `dedupOn: ['title']` and
+ * carries its title where the schema puts it used to key on a blank, so every
+ * request filed that way shared `request|none` and refreshed the first one's
+ * card, rewriting that record (#124 "Open alerts" became another feature,
+ * 2026-09-30).
+ * @param input - The parsed action input.
+ * @param fieldName - A `dedupOn` entry.
+ */
+function identityValue(input: Pick<CandidateInput, 'fields'> & { title?: string }, fieldName: string): unknown {
+  const value = input.fields[fieldName];
+  if ((value === undefined || value === null || value === '') && fieldName === 'title') {
+    return input.title;
+  }
+  return value;
 }
 
 /**
@@ -365,7 +383,7 @@ function identityValues(input: Pick<CandidateInput, 'fields' | 'dedupOn'>): stri
 function emptyIdentityFields(input: CandidateInput): string[] {
   const empty: string[] = [];
   for (const fieldName of input.dedupOn ?? []) {
-    const value = input.fields[fieldName];
+    const value = identityValue(input, fieldName);
     if (value === undefined || value === null || value === '') {
       empty.push(fieldName);
     }

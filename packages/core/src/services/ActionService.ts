@@ -459,7 +459,13 @@ export async function proposeAction(input: {
   // `dedupKey` over the API, so two actions can share one; matching on the
   // key alone would rewrite the other action's row with this input and run
   // this action's `onProposed` against a run it does not own.
-  if (dedupKey) {
+  // A key the action itself does not trust (a candidate missing one of its
+  // identity fields) is shared by every filing missing that same field, so it
+  // answers for no one record: it neither refreshes an open card nor stands
+  // behind a decided one. Refreshing on it rewrote whichever record the first
+  // such card had made (#124, 2026-09-30); such a filing is a new card.
+  const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
+  if (dedupKey && keyIdentifiesOneRecord) {
     const refreshed = await db.transaction(async (tx) => {
       const lookup = tx
         .select({ id: actionRunSchema.id, input: actionRunSchema.input, proposal: actionRunSchema.proposal })
@@ -545,7 +551,6 @@ export async function proposeAction(input: {
     // can do instead.
     // A key the action itself does not trust — a candidate missing one of
     // its identity fields — must not answer for a record nobody has seen.
-    const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
     const decided = keyIdentifiesOneRecord
       ? await findDecidedRunForKey(input.orgId, action.id, dedupKey, action.dedupAgainstDecided)
       : undefined;

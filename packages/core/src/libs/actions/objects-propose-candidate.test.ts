@@ -16,7 +16,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, businessObjectSchema, businessObjectTypeSchema, trustRuleSchema } = await import('@/models/Schema');
-const { forgetCachedObjectTypes, objectProposeCandidateAction, pageKey } = await import('./objects-propose-candidate');
+const { candidateDedupKey, forgetCachedObjectTypes, objectProposeCandidateAction, pageKey } = await import('./objects-propose-candidate');
 const { listActions } = await import('./registry');
 const { proposeAction, executeAction, rejectAction } = await import('@/services/ActionService');
 const { and, eq } = await import('drizzle-orm');
@@ -502,15 +502,15 @@ describe('a refresh from another page', () => {
     expect((await stored(first.runId)).input.summary).toBe('Open mic.');
   });
 
-  it('replaces a card whose identity rests on a blank field, since another record may share its key', async () => {
+  it('leaves a card whose identity rests on a blank field alone: another record may share its key, so the next is its own card', async () => {
     const blankVenue = { ...IDENTITY, venue: '' };
     const first = await propose(fromItsOwnPage({ fields: { ...blankVenue, ticketUrl: 'https://tickets.example.org/open-mic' } }));
-    await propose(fromTheListing({ fields: blankVenue }));
+    const second = await propose(fromTheListing({ fields: blankVenue }));
 
     const { input } = await stored(first.runId);
 
-    expect(input.summary).toBe('Open mic.');
-    expect(input.fields).not.toHaveProperty('ticketUrl');
+    expect(second.runId).not.toBe(first.runId);
+    expect(input.fields).toHaveProperty('ticketUrl', 'https://tickets.example.org/open-mic');
   });
 });
 
@@ -1053,5 +1053,19 @@ describe('pageKey', () => {
     expect(pageKey('/events/open-mic')).toBeNull();
     expect(pageKey('')).toBeNull();
     expect(pageKey(42)).toBeNull();
+  });
+});
+
+describe('candidateDedupKey reads a record\'s own title', () => {
+  it('keys on the input\'s title when dedupOn names title and fields carry none (#124)', () => {
+    const a = candidateDedupKey({ objectType: 'request', title: 'Open alerts', fields: { product: 'kestrel' }, dedupOn: ['title'] });
+    const b = candidateDedupKey({ objectType: 'request', title: 'Show when a document was last opened', fields: { product: 'kestrel' }, dedupOn: ['title'] });
+
+    expect(a).toBe('objects.propose_candidate:request|open-alerts');
+    expect(b).not.toBe(a);
+  });
+
+  it('prefers a title written in fields, as before', () => {
+    expect(candidateDedupKey({ objectType: 'request', title: 'Top level', fields: { title: 'In fields' }, dedupOn: ['title'] })).toBe('objects.propose_candidate:request|in-fields');
   });
 });
