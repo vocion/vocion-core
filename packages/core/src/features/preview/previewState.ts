@@ -63,7 +63,17 @@ function writeParam(value: string | null): void {
   const search = params.toString();
   const next = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
   // push, not replace: Back must close the preview rather than leave the page.
-  window.history.pushState(window.history.state, '', next);
+  //
+  // `null`, never `window.history.state`, so the router ADOPTS the URL. Next
+  // patches `pushState` and folds a write into its own URL only when the
+  // state it is handed is not already its own (`__NA`); the router's state
+  // was passed here, so it skipped the write and kept the URL without
+  // `?preview=`. Its next commit — any `router.refresh()`, the feature
+  // page's live refresh every 5 s — then wrote that URL back with
+  // `replaceState`, and the pane closed (Chris, 2026-09-30, #269). Handed
+  // `null`, the patch copies the router's own history state onto the entry
+  // itself, so Back still traverses, and every later commit keeps the param.
+  window.history.pushState(null, '', next);
   emit();
 }
 
