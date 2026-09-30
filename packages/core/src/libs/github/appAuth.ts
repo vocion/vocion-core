@@ -20,7 +20,7 @@
 
 import { Buffer } from 'node:buffer';
 import { createSign } from 'node:crypto';
-import { GITHUB_API_URL } from './client';
+import { GITHUB_API_URL, splitRepo } from './client';
 
 /** A permission map as GitHub spells it: `{ contents: 'write', checks: 'read' }`. */
 export type GithubPermissions = Record<string, 'read' | 'write' | 'admin'>;
@@ -227,4 +227,25 @@ export async function listInstallationRepos(token: string, opts: { baseUrl?: str
     }
   }
   return repos;
+}
+
+/**
+ * Whether an installation covers a repository: same account, and either every
+ * repository of it or this one among those chosen.
+ * @param row - The installation.
+ * @param row.accountLogin
+ * @param row.repositorySelection
+ * @param row.repos
+ * @param fullName - `owner/name`.
+ */
+export function installationCovers(row: { accountLogin: string; repositorySelection: string; repos: string[] | null }, fullName: string): boolean {
+  const parts = splitRepo(fullName);
+  if (!parts || parts.owner.toLowerCase() !== row.accountLogin.toLowerCase()) {
+    return false;
+  }
+  if (row.repositorySelection === 'all') {
+    return true;
+  }
+  const wanted = fullName.toLowerCase();
+  return (row.repos ?? []).some(r => r.toLowerCase() === wanted);
 }

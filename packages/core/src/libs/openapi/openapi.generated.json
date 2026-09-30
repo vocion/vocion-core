@@ -41,6 +41,10 @@
       "description": "Endpoints under /api/v1/chat-bindings."
     },
     {
+      "name": "connections",
+      "description": "Endpoints under /api/v1/connections."
+    },
+    {
       "name": "conversations",
       "description": "Endpoints under /api/v1/conversations."
     },
@@ -1782,6 +1786,164 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/connections/github/install": {
+      "get": {
+        "operationId": "get_connections_github_install",
+        "summary": "connect this workspace to GitHub: GitHub's install screen for the deployment's app, where the person picks the organization and repositories (backlog 053).",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "A redirect to the resource; there is no body to read."
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "connect this\nworkspace to GitHub: GitHub's install screen for the deployment's app,\nwhere the person picks the organization and repositories (backlog 053).",
+        "parameters": [
+          {
+            "name": "returnTo",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/connections/github/install/callback": {
+      "get": {
+        "operationId": "get_connections_github_install_callback",
+        "summary": "back from GitHub's install screen, then from the GitHub sign-in that proves the person can reach the installation; the installation is bound to the workspace (…",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "A redirect to the resource; there is no body to read."
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "back from GitHub's\ninstall screen, then from the GitHub sign-in that proves the person can\nreach the installation; the installation is bound to the workspace\n(backlog 053)."
+      }
+    },
+    "/api/v1/connections/github/manifest": {
+      "get": {
+        "operationId": "get_connections_github_manifest",
+        "summary": "org>&name=<app name> — create the deployment's GitHub App (backlog 053): a page that posts the app's manifest to GitHub, where the person clicks Create.",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. The body is `text/html`, not JSON.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "org>&name=<app name> —\ncreate the deployment's GitHub App (backlog 053): a page that posts the\napp's manifest to GitHub, where the person clicks Create.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "org",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/connections/github/manifest/callback": {
+      "get": {
+        "operationId": "get_connections_github_manifest_callback",
+        "summary": "GitHub created the app; its credentials are fetched once and sealed in the vault, and the person is back on Connections (backlog 053).",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "A redirect to the resource; there is no body to read."
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "GitHub\ncreated the app; its credentials are fetched once and sealed in the vault,\nand the person is back on Connections (backlog 053)."
       }
     },
     "/api/v1/conversations/{id}/records": {

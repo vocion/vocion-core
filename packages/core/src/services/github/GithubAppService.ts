@@ -22,9 +22,11 @@ import { Buffer } from 'node:buffer';
 import { and, desc, eq, ne } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
-import { listInstallationRepos, mintInstallationToken, permissionsForTier, readInstallation } from '@/libs/github/appAuth';
+import { installationCovers, listInstallationRepos, mintInstallationToken, permissionsForTier, readInstallation } from '@/libs/github/appAuth';
 import { splitRepo } from '@/libs/github/client';
 import { githubAppSchema, githubInstallationSchema } from '@/models/Schema';
+
+export { installationCovers };
 
 /** The vault org the app's secrets are encrypted under: the deployment, not any workspace. */
 export const GITHUB_APP_VAULT_ORG = 'deployment:github-app';
@@ -119,24 +121,6 @@ export async function appSecrets(app: GithubAppRow): Promise<GithubAppSecrets> {
  */
 export async function installationsForOrg(orgId: string): Promise<GithubInstallationRow[]> {
   return db.select().from(githubInstallationSchema).where(and(eq(githubInstallationSchema.orgId, orgId), eq(githubInstallationSchema.status, 'active'))).orderBy(desc(githubInstallationSchema.updatedAt));
-}
-
-/**
- * Whether an installation covers a repository: same account, and either every
- * repository of it or this one among those chosen.
- * @param row - The installation.
- * @param fullName - `owner/name`.
- */
-export function installationCovers(row: Pick<GithubInstallationRow, 'accountLogin' | 'repositorySelection' | 'repos'>, fullName: string): boolean {
-  const parts = splitRepo(fullName);
-  if (!parts || parts.owner.toLowerCase() !== row.accountLogin.toLowerCase()) {
-    return false;
-  }
-  if (row.repositorySelection === 'all') {
-    return true;
-  }
-  const wanted = fullName.toLowerCase();
-  return (row.repos ?? []).some(r => r.toLowerCase() === wanted);
 }
 
 /**
@@ -305,4 +289,27 @@ export async function setInstallationTier(orgId: string, tier: GithubTier): Prom
   for (const r of rows) {
     forgetInstallationTokens(r.installationId);
   }
+}
+
+/**
+ * Raised when a workspace's GitHub connection lands (an install, a change of
+ * repositories, a re-connect): what closes a waiting connection request, and
+ * what an automation subscribes to.
+ */
+export const GITHUB_CONNECTED = 'github.connected';
+
+/**
+ * What follows a binding: the event that says it landed.
+ * @param row - The installation just bound.
+ */
+export async function afterInstallationBound(row: GithubInstallationRow): Promise<void> {
+  const { emitEvent } = await import('@/services/EventService');
+  await emitEvent({
+    orgId: row.orgId,
+    type: GITHUB_CONNECTED,
+    payload: { installationId: row.installationId, account: row.accountLogin, repositorySelection: row.repositorySelection, repos: row.repos, tier: row.tier },
+    dedupeKey: `github.connected:${row.installationId}:${row.updatedAt.getTime()}`,
+    invokedBy: 'github-app',
+    dispatchMode: 'auto',
+  });
 }

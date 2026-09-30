@@ -1,4 +1,4 @@
-import type { GithubSourceRef, GithubWebhookDeps } from './GithubWebhookService';
+import type { GithubAppWebhookDeps, GithubSourceRef, GithubWebhookDeps } from './GithubWebhookService';
 /**
  * The GitHub webhook receiver, with its dependencies faked: refuses an
  * unsigned or mis-signed delivery, answers 501 with no secret, acknowledges a
@@ -11,7 +11,7 @@ import type { GithubEvent } from '@/libs/github/events';
 import { createHmac } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { githubConfigSchema } from '@/libs/sources/github';
-import { handleGithubWebhook } from './GithubWebhookService';
+import { handleGithubAppWebhook, handleGithubWebhook } from './GithubWebhookService';
 
 const SECRET = 'hook-secret';
 const REPO = 'northwind/orders-api';
@@ -158,5 +158,50 @@ describe('handleGithubWebhook', () => {
     expect(out.body).toEqual({ ok: true, emitted: 0 });
     expect(emitted).toEqual([]);
     expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleGithubAppWebhook', () => {
+  function appDeps(sources: GithubSourceRef[], bound: Array<{ orgId: string; status?: string }>) {
+    const { deps: delivery, emitted } = fakeDeps(sources, 'ghs_app');
+    const updates: Array<{ installationId: number; patch: Record<string, unknown> }> = [];
+    const deps: GithubAppWebhookDeps = {
+      webhookSecret: vi.fn(async () => SECRET),
+      workspacesFor: vi.fn(async () => bound.map(b => ({ orgId: b.orgId, accountLogin: 'northwind', repositorySelection: 'selected', repos: [REPO], status: b.status ?? 'active' }))),
+      updateInstallation: vi.fn(async (installationId, patch) => {
+        updates.push({ installationId, patch });
+      }),
+      delivery,
+    };
+    return { deps, emitted, updates };
+  }
+  const installation = { id: 555, repository_selection: 'selected', permissions: { contents: 'write' } };
+
+  it('verifies with the app\'s own secret and answers 501 before an app exists', async () => {
+    const { deps } = appDeps([source('org_a')], [{ orgId: 'org_a' }]);
+    const body = { action: 'opened', pull_request: pr(), repository: { full_name: REPO }, installation };
+
+    expect((await handleGithubAppWebhook(deliver('pull_request', body, { sign: 'sha256=0000' }), deps)).status).toBe(401);
+    expect((await handleGithubAppWebhook(deliver('pull_request', body), { ...deps, webhookSecret: async () => undefined })).status).toBe(501);
+  });
+
+  it('feeds a delivery only to the workspaces the installation is connected to, with the per-repository mapping', async () => {
+    const { deps, emitted } = appDeps([source('org_a'), source('org_b')], [{ orgId: 'org_a' }, { orgId: 'org_b', status: 'removed' }]);
+    const body = { action: 'opened', pull_request: pr(), repository: { full_name: REPO }, installation };
+    const out = await handleGithubAppWebhook(deliver('pull_request', body), deps);
+
+    expect(out.status).toBe(200);
+    expect(emitted.map(e => [e.orgId, e.event.type])).toEqual([['org_a', 'pr.opened']]);
+  });
+
+  it('keeps the installation true: removed, suspended, repositories added and removed', async () => {
+    const { deps, updates } = appDeps([], [{ orgId: 'org_a' }]);
+    await handleGithubAppWebhook(deliver('installation', { action: 'deleted', installation }), deps);
+    await handleGithubAppWebhook(deliver('installation', { action: 'suspend', installation }), deps);
+    await handleGithubAppWebhook(deliver('installation_repositories', { action: 'added', installation, repositories_added: [{ full_name: 'northwind/billing' }], repositories_removed: [] }), deps);
+
+    expect(updates[0]).toMatchObject({ installationId: 555, patch: { status: 'removed' } });
+    expect(updates[1]).toMatchObject({ patch: { status: 'suspended' } });
+    expect(updates[2]).toMatchObject({ patch: { addRepos: ['northwind/billing'], removeRepos: [] } });
   });
 });

@@ -103,6 +103,53 @@ when: {event: pr.merged, filter: {repo: acme/api}}
 when: {event: run.failed} # any failed deploy run on the deploy branch
 ```
 
+## The GitHub App (recommended)
+
+Vocion can hold its own GitHub App, one per deployment, and every workspace
+connects to it. The factory then acts as the app, not as a person: installation
+tokens last an hour, are scoped to the one repository a call is about, and carry
+only the permissions the workspace's tier asks for (backlog 053).
+
+1. **Create the app, once per deployment.** Open
+   `/api/v1/connections/github/manifest?org=<github-org>` while signed in as a
+   workspace owner (Connections → GitHub → *Create GitHub App*). Vocion posts
+   GitHub a manifest: the name `Vocion <host>`, the webhook
+   `https://<host>/api/webhooks/github-app`, the permissions and the events. You
+   click **Create GitHub App** on GitHub. GitHub sends back a one-hour code, and
+   Vocion trades it for the app's id, private key, webhook secret and client
+   secret, which it seals in the vault. Nobody copies a key by hand. Leave `org`
+   empty to own the app from your personal account. The app is public, so an
+   owner of any organization can install it. An installation that no workspace
+   is bound to does nothing.
+2. **Connect a workspace, once per GitHub account.** Open
+   `/api/v1/connections/github/install` (Connections → GitHub → *Connect*).
+   Pick the organization and the repositories on GitHub's install screen. GitHub
+   then asks you to authorize the app, which proves your GitHub account can reach
+   that installation, and Vocion binds it to the workspace you started from. A
+   second workspace on the same organization shares the installation and binds it
+   the same way.
+3. **Tiers.** `base` covers metadata R, contents RW, pull requests RW, actions RW
+   and checks R: reading code and checks, pushing a branch, opening, updating and
+   merging a pull request, and re-running a failed job. `pipeline` adds
+   `workflows: write`, which changing `.github/workflows` needs. The app asks for
+   the pipeline set when it is created, so a workspace can move between tiers
+   without an owner re-approving on GitHub.
+
+`tokenForRepo` (`services/agents/tools/githubPullRead.ts`) is the one entry
+point. It uses the installation that covers the repository first, and a token
+vaulted on a `github` source only when no installation does. A mint GitHub
+refuses is written on the installation (`last_error`) until one succeeds.
+
+The app's webhook replaces the per-repository webhooks below. It receives the
+same deliveries for every repository the app is installed on, plus
+`installation` and `installation_repositories`, which keep each bound
+workspace's record of the installation true. It emits the same events with the
+same dedupe keys. The deliveries are resolved to the workspaces the installation
+is bound to, and within those to the `github` sources that list the repository.
+That keeps the source's `branchPrefix` and `deployBranch` in charge of what each
+workspace hears. A source no longer needs a token of its own once the app covers
+its repositories.
+
 ## Connecting it
 
 1. **Add the source** at `/dashboard/connectors` → GitHub. Settings:

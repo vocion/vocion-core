@@ -26,6 +26,7 @@
 import type { GithubCheckRun, GithubEvent, GithubPullRequest } from '@/libs/github/events';
 import type { GithubConfig } from '@/libs/sources/github';
 import { sql } from 'drizzle-orm';
+import { installationCovers } from '@/libs/github/appAuth';
 import { createGithubClient, splitRepo, tokenFromCredentials } from '@/libs/github/client';
 import { checksCompletedEvent, eventsFromWebhook, matchesBranchPrefix, verifyGithubSignature } from '@/libs/github/events';
 import { githubConfigSchema } from '@/libs/sources/github';
@@ -150,12 +151,24 @@ export async function handleGithubWebhook(
   if (eventName === 'ping') {
     return { status: 200, body: { ok: true, pong: true } };
   }
+  return dispatchGithubDelivery(eventName, body, deps ?? (await defaultDeps()));
+}
+
+/**
+ * A verified delivery, fanned out to every source that lists its repository:
+ * mapped with each source's own settings, check suites hydrated, events
+ * emitted with the poll's dedupe keys. Shared by the per-repository webhook
+ * and the GitHub App's.
+ * @param eventName - `X-GitHub-Event`.
+ * @param body - The parsed delivery.
+ * @param resolved - Where sources, tokens and events come from.
+ */
+export async function dispatchGithubDelivery(eventName: string, body: unknown, resolved: GithubWebhookDeps): Promise<GithubWebhookOutcome> {
   const repo = (body as { repository?: { full_name?: string } } | null)?.repository?.full_name;
   if (!repo) {
     return { status: 200, body: { ok: true, ignored: 'delivery names no repository' } };
   }
 
-  const resolved = deps ?? (await defaultDeps());
   const sources = await resolved.sourcesForRepo(repo);
   if (sources.length === 0) {
     return { status: 200, body: { ok: true, ignored: `no github source lists ${repo}` } };
@@ -186,4 +199,128 @@ export async function handleGithubWebhook(
     }
   }
   return { status: 200, body: { ok: true, emitted } };
+}
+
+/* ------------------------------------------------------------------ */
+/* The GitHub App's webhook (backlog 053)                              */
+/* ------------------------------------------------------------------ */
+
+type InstallationPatch = Partial<{ status: string; permissions: Record<string, string>; repositorySelection: string; addRepos: string[]; removeRepos: string[] }>;
+
+export type GithubAppWebhookDeps = {
+  /** The active app's webhook secret, or undefined before an app exists. */
+  webhookSecret: () => Promise<string | undefined>;
+  /** Every workspace bound to an installation, whatever its status. */
+  workspacesFor: (installationId: number) => Promise<Array<{ orgId: string; accountLogin: string; repositorySelection: string; repos: string[]; status: string }>>;
+  /** Apply what GitHub said changed about an installation to every workspace bound to it. */
+  updateInstallation: (installationId: number, patch: InstallationPatch) => Promise<void>;
+  /** The per-repository delivery path, reused. */
+  delivery: GithubWebhookDeps;
+};
+
+async function defaultAppDeps(): Promise<GithubAppWebhookDeps> {
+  const { db } = await import('@/libs/DB');
+  const { eq } = await import('drizzle-orm');
+  const { githubInstallationSchema } = await import('@/models/Schema');
+  const app = await import('@/services/github/GithubAppService');
+  const delivery = await defaultDeps();
+  return {
+    async webhookSecret() {
+      const active = await app.activeApp();
+      return active ? (await app.appSecrets(active)).webhookSecret : undefined;
+    },
+    async workspacesFor(installationId) {
+      return db.select({ orgId: githubInstallationSchema.orgId, accountLogin: githubInstallationSchema.accountLogin, repositorySelection: githubInstallationSchema.repositorySelection, repos: githubInstallationSchema.repos, status: githubInstallationSchema.status })
+        .from(githubInstallationSchema)
+        .where(eq(githubInstallationSchema.installationId, installationId));
+    },
+    async updateInstallation(installationId, patch) {
+      const rows = await db.select().from(githubInstallationSchema).where(eq(githubInstallationSchema.installationId, installationId));
+      for (const row of rows) {
+        let repos = row.repos ?? [];
+        if (patch.addRepos) {
+          repos = [...new Set([...repos, ...patch.addRepos])];
+        }
+        if (patch.removeRepos) {
+          const gone = new Set(patch.removeRepos.map(r => r.toLowerCase()));
+          repos = repos.filter(r => !gone.has(r.toLowerCase()));
+        }
+        await db.update(githubInstallationSchema).set({
+          ...(patch.status ? { status: patch.status } : {}),
+          ...(patch.permissions ? { permissions: patch.permissions } : {}),
+          ...(patch.repositorySelection ? { repositorySelection: patch.repositorySelection } : {}),
+          repos,
+          updatedAt: new Date(),
+        }).where(eq(githubInstallationSchema.id, row.id));
+      }
+      app.forgetInstallationTokens(installationId);
+    },
+    delivery,
+  };
+}
+
+const INSTALLATION_STATUS: Record<string, string> = { deleted: 'removed', suspend: 'suspended', unsuspend: 'active' };
+
+/**
+ * One delivery to the GitHub App's webhook. Signed with the app's own webhook
+ * secret (from the vault, never an env var). `installation` and
+ * `installation_repositories` keep every bound workspace's record of the
+ * installation true; everything else is resolved to the workspaces the
+ * installation is bound to and runs the per-repository path, so the events and
+ * their dedupe keys are the same whichever webhook delivered them.
+ * @param input - The raw delivery.
+ * @param input.rawBody - The body exactly as received.
+ * @param input.headers - The request headers.
+ * @param deps - Injected for tests; the route passes none.
+ */
+export async function handleGithubAppWebhook(input: { rawBody: string; headers: Headers }, deps?: GithubAppWebhookDeps): Promise<GithubWebhookOutcome> {
+  const resolved = deps ?? (await defaultAppDeps());
+  const verified = verifyGithubSignature(input.rawBody, input.headers.get('x-hub-signature-256'), await resolved.webhookSecret());
+  if (!verified.ok) {
+    return { status: verified.reason === 'missing_secret' ? 501 : 401, body: { error: `signature check failed: ${verified.reason}` } };
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(input.rawBody) as Record<string, unknown>;
+  } catch {
+    return { status: 400, body: { error: 'body is not JSON' } };
+  }
+  const eventName = input.headers.get('x-github-event') ?? '';
+  if (eventName === 'ping') {
+    return { status: 200, body: { ok: true, pong: true } };
+  }
+  const installation = body.installation as { id?: number; permissions?: Record<string, string>; repository_selection?: string } | undefined;
+  const installationId = typeof installation?.id === 'number' ? installation.id : null;
+  if (installationId === null) {
+    return { status: 200, body: { ok: true, ignored: 'delivery names no installation' } };
+  }
+  const action = typeof body.action === 'string' ? body.action : '';
+
+  if (eventName === 'installation') {
+    await resolved.updateInstallation(installationId, {
+      ...(INSTALLATION_STATUS[action] ? { status: INSTALLATION_STATUS[action] } : {}),
+      ...(installation?.permissions ? { permissions: installation.permissions } : {}),
+      ...(installation?.repository_selection ? { repositorySelection: installation.repository_selection } : {}),
+    });
+    return { status: 200, body: { ok: true, installation: installationId, action } };
+  }
+  if (eventName === 'installation_repositories') {
+    const names = (key: string) => ((body[key] as Array<{ full_name?: string }> | undefined) ?? []).map(r => r.full_name ?? '').filter(Boolean);
+    await resolved.updateInstallation(installationId, {
+      ...(installation?.repository_selection ? { repositorySelection: installation.repository_selection } : {}),
+      addRepos: names('repositories_added'),
+      removeRepos: names('repositories_removed'),
+    });
+    return { status: 200, body: { ok: true, installation: installationId, action } };
+  }
+
+  const repo = (body.repository as { full_name?: string } | undefined)?.full_name ?? '';
+  const orgs = new Set((await resolved.workspacesFor(installationId)).filter(w => w.status === 'active' && installationCovers(w, repo)).map(w => w.orgId));
+  if (orgs.size === 0) {
+    return { status: 200, body: { ok: true, ignored: `installation ${installationId} is not connected to a workspace for ${repo || 'this delivery'}` } };
+  }
+  return dispatchGithubDelivery(eventName, body, {
+    ...resolved.delivery,
+    sourcesForRepo: async r => (await resolved.delivery.sourcesForRepo(r)).filter(source => orgs.has(source.orgId)),
+  });
 }
