@@ -153,6 +153,19 @@ export async function runProposal(
   const withAdvice = (out: string): string => (advice.length === 0
     ? out
     : `${out}\n\n${onPersonsWord ? 'Filed on the person\'s word, before these checks were done' : 'Filed; for the record, check it against these'}: ${advice.join('; and ')}. It stands as filed — do not refile it. If one of them changes it, read the page, write the change onto the record with update_object, and say so in one line.`);
+  // WHAT THE PERSON TOLD IT TO DO RUNS AS THEIRS (Chris, 2026-09-29, #246:
+  // "Chris said open so open … Stop making this so complicated", after a
+  // restart became a card for him to approve). In a person's own turn, when a
+  // model reading of their words says they told the agent to take exactly
+  // this action (`saidToDecide`), it is proposed as the person: it runs, with
+  // undo, and puts no card in front of them. Anything the agent decides on
+  // its own still rides the trust ladder, as a card.
+  const asPerson = Boolean(ctx.userId) && !ctx.missionRunId && !factoryStep && !isAgentsOwnSchedule(ctx)
+    && (await (async () => {
+      const { personMessages } = await import('../owedDecision');
+      const { saidToDecide } = await import('../turnJudge');
+      return (await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `${action_id} ${JSON.stringify(action_input).slice(0, 400)} — ${rationale.slice(0, 200)}` })).said;
+    })().catch(() => false));
   try {
     const res = await proposeAction({
       orgId: ctx.orgId,
@@ -164,19 +177,21 @@ export async function runProposal(
       // stacking beside it (2026-09-18: runs 768 and 769, one deal, both
       // pending). Absent, ActionService dedupes on nothing.
       dedupKey: deriveRecommendationDedupKey(action_id, action_input),
-      principal: {
-        kind: 'agent',
-        id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : 'agent:unknown',
-        scope: { orgId: ctx.orgId },
-        grants: ['*'],
-        // Working autonomy: external writes always gate to human approval.
-        autonomy: 2,
-      },
+      principal: asPerson
+        ? { kind: 'user', id: ctx.userId!, role: 'member', scope: { orgId: ctx.orgId } }
+        : {
+            kind: 'agent',
+            id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : 'agent:unknown',
+            scope: { orgId: ctx.orgId },
+            grants: ['*'],
+            // Working autonomy: external writes always gate to human approval.
+            autonomy: 2,
+          },
       // A factory step is stamped `factory:<slug>`, never `agent:<slug>`, so
       // it never lands in this seat's own weekly idea count (which reads
       // `agent:<slug>` alone) — `openProposals`/`withdrawProposal` still find
       // it under either stamp (`seatInvokedBy`).
-      invokedBy: ctx.agentSlug ? `${factoryStep ? 'factory' : 'agent'}:${ctx.agentSlug}` : ctx.userId,
+      invokedBy: asPerson ? ctx.userId : (ctx.agentSlug ? `${factoryStep ? 'factory' : 'agent'}:${ctx.agentSlug}` : ctx.userId),
       // The thread and the person whose turn it was, so a record this
       // files can say it was asked for (a P1 filed in chat starts its build).
       origin: ctx.conversationId ? { conversationId: ctx.conversationId, userId: ctx.userId ?? null, byPerson: !isAgentsOwnSchedule(ctx) } : undefined,
@@ -231,7 +246,12 @@ export async function runProposal(
       }
       return withAdvice(`${action_id} is DONE: filed as ${name} (run #${res.runId}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.`);
     }
-    return `${action_id} is DONE (run #${res.runId}, confidence ${confidence}) — it was reversible and above the bar, so it ran without waiting. Say it was done, and that a person can undo it from the Review queue's Decided tab. Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
+    // The record it moved, linked, so the person can follow it there.
+    const movedId = Number((res.result as { requestId?: unknown } | null)?.requestId);
+    const moved = Number.isInteger(movedId) && movedId > 0
+      ? await import('@/services/objects/recordHref').then(m => m.recordHref(ctx.orgId, { objectType: 'request', id: movedId })).catch(() => null)
+      : null;
+    return `${action_id} is DONE (run #${res.runId}${asPerson ? ', as the person asked' : `, confidence ${confidence}`}) — it ran without waiting; a person can undo it from the Review queue's Decided tab.${moved ? ` Give the person this link to follow it: [request #${movedId}](${moved}).` : ''} Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
   } catch (err) {
     if (err instanceof ActionError) {
       return opts.refused ? opts.refused(err.code, err.message) : `Proposal refused (${err.code}): ${err.message}`;

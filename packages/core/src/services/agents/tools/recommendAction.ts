@@ -163,6 +163,20 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
           }
         }
       }
+      // NO CARD FOR WHAT THE PERSON JUST TOLD IT TO DO (Chris, 2026-09-29, on
+      // #246: "the card came early … and I think unnecessary by the end").
+      // In a person's own turn, when a model reading of their words says they
+      // told the agent to take exactly this action, it runs as theirs
+      // (`runProposal`), with undo, instead of waiting on a tap.
+      if (action_id && ctx.userId && !ctx.missionRunId) {
+        const { personMessages } = await import('../owedDecision');
+        const { saidToDecide } = await import('../turnJudge');
+        const consent = await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `${action_id}: ${label}` }).catch(() => ({ said: false }));
+        if (consent.said) {
+          const { runProposal } = await import('./proposeAction');
+          return runProposal(ctx, { actionId: action_id, input: action_input ?? {}, confidence: typeof confidence === 'number' ? confidence : 0.9, rationale: rationale?.trim() || label, suggestedDecision, suggestedDecisionReason }, { tool: 'recommend_action' });
+        }
+      }
       // The record the card is about opens from the card (Chris, 2026-09-28:
       // "I want to click through to the feature detail page").
       const link = action_id ? await cardHref(ctx.orgId, action_input ?? {}) : null;

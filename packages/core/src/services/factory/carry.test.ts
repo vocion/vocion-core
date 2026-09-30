@@ -361,6 +361,27 @@ describe('the live gaps (backlog 038, the first sweep)', () => {
   });
 });
 
+describe('Build on a closed request reopens it (Chris, 2026-09-29, #246: "Chris said open so open")', () => {
+  it('a person\'s Build clears the verdict and starts the work; undo closes it again', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms remember the theme', state: 'out_of_scope', recommendationState: 'rejected', decisionReason: 'Withdrawn.' });
+    const { proposeAction, undoAction } = await import('@/services/ActionService');
+
+    const res = await proposeAction({ orgId: ORG, actionId: 'factory.dispatch_task', input: { requestId: r.id, reason: 'Chris asked to restart it.' }, principal: { kind: 'user', id: 'usr-chris', role: 'member', scope: { orgId: ORG } }, invokedBy: 'usr-chris' });
+
+    expect(res.status).toBe('done');
+
+    const meta = (await read(r.id)).metadata as Record<string, unknown>;
+
+    expect(meta.state === 'in_scope' || meta.state === 'building').toBe(true);
+    expect(meta.recommendationState).toBe('approved');
+    expect(String(meta.decisionReason)).toContain('Reopened by Build (usr-chris) after it was out of scope');
+
+    await undoAction(res.runId, ORG, { by: 'usr-chris' });
+
+    expect(((await read(r.id)).metadata as Record<string, unknown>).state).toBe('out_of_scope');
+  });
+});
+
 describe('a planning run that ends without a plan is caught when it ends (#246, 2026-09-29)', () => {
   it('plans again at once, handing the planner and the page what its filing was told', async () => {
     const r = await request({ product: 'fleet', title: 'Fleet theme toggle' });

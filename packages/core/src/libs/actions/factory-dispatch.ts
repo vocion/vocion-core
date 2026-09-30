@@ -132,6 +132,9 @@ export function planIsApproved(meta: Meta): boolean {
  * @param id - The object id.
  * @param set - The fields.
  */
+/** The verdicts that close a request; a person's Build reopens it from any of them. */
+const CLOSED_STATES = new Set(['deferred', 'answered', 'out_of_scope']);
+
 export async function writeMeta(orgId: string, id: number, set: Meta): Promise<void> {
   const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
@@ -913,6 +916,20 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     }
     const automatic = isAutomatic(input, ctx);
     const at = new Date().toISOString();
+    // BUILD ON A CLOSED REQUEST REOPENS IT (Chris, 2026-09-29, on #246:
+    // "Chris said open so open. It needs a plan so plan. Plan is done kickoff
+    // build."). A person's start is the decision to build it: the verdict it
+    // was closed with is cleared (the reason stays in its history), and the
+    // build — or its plan first — goes on as for any request. An automatic
+    // start never reopens what a person closed.
+    // What undo puts back, read before a reopen changes it.
+    const before = request ? { state: request.meta.state ?? null, recommendationState: request.meta.recommendationState ?? null, decidedAt: request.meta.decidedAt ?? null, acceptanceFrozenAt: request.meta.acceptanceFrozenAt ?? null } : null;
+    const reopened = Boolean(request && !automatic && (CLOSED_STATES.has(String(request.meta.state ?? '')) || request.meta.recommendationState === 'rejected'));
+    if (request && reopened) {
+      const by = ctx.reviewedBy ?? ctx.invokedBy ?? 'a person';
+      await writeMeta(ctx.orgId, request.id, { state: 'in_scope', recommendationState: 'approved', reopenedAt: at, reopenedBy: by, decisionReason: `Reopened by Build (${by}) after it was ${String(request.meta.state ?? 'rejected').replace(/_/g, ' ')}.` });
+      request.meta = { ...request.meta, state: 'in_scope', recommendationState: 'approved' };
+    }
     // A PERSON'S START SETTLES WHAT IT ANSWERS (Chris, 2026-09-29, #201:
     // approving the re-dispatch left "Needs your decision: Stopped …" and a
     // second card standing beside it). Whatever this start goes on to do —
@@ -937,7 +954,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
           : `QA sent the build of plan #${supersededPlan.id} back to planning: ${input.replan}`).slice(0, 1000);
         const { startPlanning } = await import('@/services/factory/carry');
         const planning = await startPlanning(ctx.orgId, { request, plan: null, why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
-        return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, supersededPlan };
+        return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
       }
     }
     // BUILD IS ONE PATH THROUGH THE PLAN GATE (backlog 038: run 401 went out
@@ -955,7 +972,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       }
       const { startPlanning } = await import('@/services/factory/carry');
       const planning = await startPlanning(ctx.orgId, { request, plan, why: gate.why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
-      return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous, supersededPlan };
+      return { planning: true, workerRunId: null, requestId: request.id, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
     }
     let createdTaskId: number | null = null;
     if (!input.taskId) {
@@ -1031,7 +1048,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         recovery,
       });
     }
-    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, previousTask, previousPlan, previousRequestState: request ? (request.meta.state ?? null) : null, previousRequest: request ? { recommendationState: request.meta.recommendationState ?? null, decidedAt: request.meta.decidedAt ?? null, acceptanceFrozenAt: request.meta.acceptanceFrozenAt ?? null } : null, previousRecovery };
+    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, previousTask, previousPlan, previousRequestState: before ? before.state : null, previousRequest: before ? { recommendationState: before.recommendationState, decidedAt: before.decidedAt, acceptanceFrozenAt: before.acceptanceFrozenAt } : null, previousRecovery };
   },
   async undo(ctx, _input, result) {
     // Planning started instead of a build: nothing ran, so the request goes
