@@ -11,7 +11,7 @@ description: >-
   When a GitHub Actions run on the deploy branch completes without
   succeeding, the Release engineer reads the run, files one incident request
   naming the merge before it and the request it served, and asks a person to
-  roll back, re-run or fix forward, with a recommendation.
+  says what happens next; an environment it left down recovers on its own.
 status: active
 agent: release-engineer
 when:
@@ -30,7 +30,7 @@ do:
     URL, the head sha and the merge it followed — severity p1 if the run is the
     deploy itself or a production health gate, p2 otherwise — linked to that
     request. If the same run id and attempt already has an incident on record, add
-    the new evidence to it instead of filing a second. Then file one ask with three
-    options — roll back (the merge action's Undo, naming its run), re-run, fix
-    forward — and your recommendation. Report in two lines: what broke and why, and
-    what a person must decide.
+    the new evidence to it instead of filing a second. Do not ask a person to roll
+    back: when the environment it deploys is down, its own recovery re-runs,
+    redeploys and rolls the release back, and asks a person once if that runs out.
+    Report in two lines: what broke and why, and what happens next.

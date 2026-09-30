@@ -326,7 +326,7 @@ export async function recordDeploy(orgId: string, payload: Meta, deps?: Partial<
     }
     const set: Meta = { lastDeployedSha: sha, lastDeployedAt: at, lastDeployRunUrl: url };
     const health = await (deps?.health ?? ((o, m) => readHealth(o, m)))(orgId, { ...env.meta, ...set }).catch(() => null);
-    await writeMeta(orgId, env.id, { ...set, ...(health ? healthFields(health, str(obj(env.meta.healthCheck)?.expect)) : {}) });
+    await writeMeta(orgId, env.id, { ...set, ...(health ? healthFields(health, str(obj(env.meta.healthCheck)?.expect)) : {}), ...(health?.health === 'ok' && sha ? { lastHealthySha: sha } : {}) });
     const line = `Deployed ${sha?.slice(0, 7) ?? '?'} to ${name} (run #${payload.runNumber ?? runId})${health ? `; ${health.health === 'ok' ? 'healthy' : health.health}: ${health.detail}` : '; no health check is recorded'}.`;
     await noteOnRecord(orgId, env.id, line, { url, at });
     out.push({ recordId: env.id, did: `deployed: ${health?.health ?? 'unchecked'}`, line });
@@ -369,7 +369,14 @@ export function triggersOf(text: string, parse: (t: string) => unknown): Workflo
   };
 }
 
-async function readTriggers(orgId: string, repo: string, workflow: string, ref: string): Promise<WorkflowTriggers | null> {
+/**
+ * A workflow's triggers, read from its file on a branch.
+ * @param orgId - The workspace.
+ * @param repo - `owner/name`.
+ * @param workflow - The workflow file.
+ * @param ref - The branch.
+ */
+export async function readWorkflowTriggers(orgId: string, repo: string, workflow: string, ref: string): Promise<WorkflowTriggers | null> {
   const { call, ghFor } = await import('./githubChecks');
   const path = workflow.includes('/') ? workflow.replace(/^\.?\//, '') : `.github/workflows/${workflow}`;
   const gh = await ghFor(orgId, repo);
@@ -387,7 +394,7 @@ async function defaultMissedDeps(): Promise<MissedDeps> {
   return {
     branchHead: gh.branchHead,
     runs: (orgId, repo, workflow, branch) => gh.listWorkflowRuns(orgId, repo, { workflow, branch, limit: 20 }),
-    triggers: readTriggers,
+    triggers: readWorkflowTriggers,
     deployBranch: async (orgId, repo) => {
       const { sourceConfigForRepo } = await import('@/services/agents/tools/githubPullRead');
       return str((await sourceConfigForRepo(orgId, repo))?.deployBranch);

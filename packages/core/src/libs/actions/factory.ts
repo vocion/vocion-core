@@ -29,9 +29,11 @@ import { MERGE_ACTION_ID } from './mergeAction';
 /**
  * `pipeline` is a change the seat that owns CI opened itself
  * (`github.open_pull`): its workflows, its runner setup, its checks' config,
- * merged on green with a revert as the undo (backlog 049).
+ * merged on green with a revert as the undo (backlog 049). `rollback` is the
+ * revert of a release an environment's recovery opened (`github.revert_pull`)
+ * after the environment went down on it: what was live before, put back.
  */
-export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise', 'pipeline'] as const;
+export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise', 'pipeline', 'rollback'] as const;
 export type MergeRiskClass = typeof MERGE_RISK_CLASSES[number];
 
 export const gitPushBranchAction = manualAction({
@@ -46,7 +48,7 @@ export const gitPushBranchAction = manualAction({
 const gitMergeHandoff = manualAction({
   id: MERGE_ACTION_ID,
   name: 'Merge a branch',
-  description: 'Merge a reviewed pull request into the mainline (squash), only onto the commit QA judged and only with its checks green. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise, pipeline) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Undo opens the revert pull request.',
+  description: 'Merge a reviewed pull request into the mainline (squash), only onto the commit QA judged and only with its checks green. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise, pipeline, rollback) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Undo opens the revert pull request.',
   system: 'Git',
   grant: 'factory_write',
   extend: {

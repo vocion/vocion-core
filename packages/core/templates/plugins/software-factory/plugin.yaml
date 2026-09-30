@@ -202,7 +202,15 @@ name: Software factory
 #   after it (`environment-deployed`). The reconciler starts a deploy a merge
 #   never got, once per commit, for a workflow every push starts. The product
 #   page shows each environment's run and the pipeline's last line.
-version: 2.34.0
+# 2.35.0 — a down environment is brought back before a person hears (backlog
+#   049). `environment-health` reads each environment's health check every
+#   ten minutes and writes it on the record; down or degraded twice in a row,
+#   its recovery takes one step a pass — re-run the failed deploy, redeploy,
+#   then roll back the release it went down on (`github.revert_pull`, merged
+#   on green under `git.merge.rollback`) — each an action with its Undo and a
+#   line on the environment. Out of steps: one incident, one ask, the
+#   needs-person notification. The product page's Activity carries Undo.
+version: 2.35.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

@@ -2,16 +2,16 @@
 
 import type { DotTone } from '@/components/patterns';
 import type { LiveRun, RecordStatus, TurnRecord } from '@/libs/factory/liveStatus';
-import { ChevronRight, Loader2, RotateCcw } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StatusDot } from '@/components/patterns';
-import { announceVersionWritten, useVersionWritten } from '@/features/dashboard/versions/versionEvents';
+import { useVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { useLive } from '@/hooks/useLive';
 import { elapsedLabel } from '@/libs/factory/liveStatus';
 import { liveTopic } from '@/libs/live/topics';
-import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 import { PreviewOpen } from './FeatureDrawerLink';
+import { UndoRun } from './UndoRun';
 
 /**
  * WHERE THIS IS: You, Now, Next — one component, drawn on the feature page, at
@@ -171,37 +171,6 @@ function NowLine({ live, now }: { live: LiveRun | null; now: number }) {
 }
 
 /**
- * Undo on a link the duplicate check wrote (`services/objects/duplicateCheck.ts`):
- * the record goes back to how it was filed, and says so where it is drawn.
- * @param props
- * @param props.recordId - The record the link is on.
- * @param props.runId - The run that wrote it.
- */
-function UndoDuplicate({ recordId, runId }: { recordId: number; runId: number }) {
-  const [state, setState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
-  const undo = async () => {
-    setState({ busy: true, error: null });
-    try {
-      await client.review.undoAction({ id: runId });
-      // Undo is a write to the record: every surface drawing it re-reads.
-      announceVersionWritten({ ref: { type: 'object', id: String(recordId) }, from: null, to: 0 });
-      setState({ busy: false, error: null });
-    } catch (err) {
-      setState({ busy: false, error: (err as Error).message });
-    }
-  };
-  return (
-    <>
-      <button type="button" disabled={state.busy} onClick={() => void undo()} className="inline-flex shrink-0 items-center gap-1 text-foreground underline underline-offset-2" data-testid="work-status-duplicate-undo">
-        {state.busy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RotateCcw className="size-3" aria-hidden />}
-        Undo
-      </button>
-      {state.error && <span className="basis-full text-destructive" data-testid="work-status-duplicate-error">{`Could not undo: ${state.error}`}</span>}
-    </>
-  );
-}
-
-/**
  * THE DUPLICATE LINE: which record this one repeats, why, and Undo — one line
  * wherever the status is drawn, instead of a Build nobody should press.
  * @param props
@@ -216,7 +185,7 @@ function DuplicateLine({ status }: { status: RecordStatus & { duplicate: NonNull
         <a href={d.of.href} className="font-medium text-foreground underline underline-offset-2">{`#${d.of.id} ${d.of.title}`}</a>
         {d.reason ? ` — ${d.reason}` : ''}
       </span>
-      {d.undoRunId !== null && <UndoDuplicate recordId={status.record.id} runId={d.undoRunId} />}
+      {d.undoRunId !== null && <UndoRun recordId={status.record.id} runId={d.undoRunId} testId="work-status-duplicate-undo" />}
     </p>
   );
 }
@@ -318,7 +287,7 @@ export function RecordMicrocard({ record }: { record: TurnRecord }) {
           {!changed && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
         </span>
       </PreviewOpen>
-      {status?.duplicate?.undoRunId != null && <UndoDuplicate recordId={record.id} runId={status.duplicate.undoRunId} />}
+      {status?.duplicate?.undoRunId != null && <UndoRun recordId={record.id} runId={status.duplicate.undoRunId} testId="work-status-duplicate-undo" />}
       {changed && (
         <PreviewOpen recordRef={{ type: 'record_history', id: record.change!.historyRef }} className="shrink-0 text-muted-foreground" testId="record-microcard-change">
           {`Changed ${fieldsLine(record.change!.fields)} · v${record.change!.version} ›`}

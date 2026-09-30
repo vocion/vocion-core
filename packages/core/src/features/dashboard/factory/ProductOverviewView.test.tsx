@@ -11,6 +11,8 @@ import '@/styles/global.css';
  * the product asks, with the record's machinery behind a disclosure.
  */
 
+const undoAction = vi.fn(async () => ({ ok: true }));
+vi.mock('@/libs/Orpc', () => ({ client: { review: { undoAction } } }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
 }));
@@ -37,7 +39,7 @@ const SEND = row(2, 'Send', {
   shippedThisMonth: 23,
 });
 
-async function draw(environments: PageRow[] = []) {
+async function draw(environments: PageRow[] = [], writes: import('@/services/objects/related').RelatedWrite[] = []) {
   const overview = buildProductOverview({
     environments,
     product: SEND,
@@ -51,7 +53,7 @@ async function draw(environments: PageRow[] = []) {
     links: { workSlug: 'work', releasesSlug: 'releases', record: recordLinker(recordLinksOf([{ slug: 'feature', archetype: 'report', report: { subject: 'request' } }] as never)) },
     now: NOW,
   });
-  render(<ProductOverviewView overview={overview} page={{ slug: 'products', title: 'Products' }} now={NOW.getTime()} />);
+  render(<ProductOverviewView overview={overview} page={{ slug: 'products', title: 'Products' }} now={NOW.getTime()} writes={writes} />);
 
   await expect.element(page.getByRole('heading', { name: 'Send', level: 1 })).toBeInTheDocument();
 }
@@ -115,5 +117,21 @@ describe('the product overview', () => {
     // The run that deployed it, one tap away, and what the pipeline last did there.
     expect(where.querySelector('[data-testid="product-environment-run"]')?.getAttribute('href')).toBe('https://github.com/Acme/northwind-core/actions/runs/51');
     expect(where.querySelector('[data-testid="product-environment-line"]')?.textContent).toBe('Deployed 3f2a9c1 to send-api-production (run #51); healthy.');
+  });
+
+  it('reads a pipeline move in its own words on the Activity, with its Undo', async () => {
+    await draw([], [
+      { runId: 901, recordId: 40, title: 'send-api-production', by: 'release-engineer', at: '2026-09-24T11:00:00Z', href: '/dashboard/objects/40', preview: { type: 'record_history', id: '40' }, line: 'Started deploy.yml on main for feed000 (run #52).', undoable: true, undone: false },
+      { runId: 902, recordId: 40, title: 'send-api-production', by: 'release-engineer', at: '2026-09-24T10:00:00Z', href: '/dashboard/objects/40', preview: { type: 'record_history', id: '40' }, line: 'Re-ran the failed jobs of Acme/northwind-core/actions/runs/36001.', undoable: false, undone: true },
+    ]);
+    const writes = document.querySelector('[data-testid="product-writes"]')!;
+
+    expect(writes.textContent).toContain('release-engineer on send-api-production: Started deploy.yml on main for feed000 (run #52).');
+    expect(writes.textContent).toContain('· undone');
+    expect(writes.querySelectorAll('[data-testid="product-write-undo"]')).toHaveLength(1);
+
+    await page.getByTestId('product-write-undo').click();
+
+    expect(undoAction).toHaveBeenCalledWith({ id: 901 });
   });
 });

@@ -73,10 +73,16 @@ has an incident, add the new evidence to it instead. A flaky or
 infrastructure failure of the deploy is re-run once; anything else is fixed
 forward or rolled back.
 
-**A rollback asks.** The merge's Undo opens the revert pull request; it is a
-person's press. File one ask with the three options — roll back (the merge
-action's Undo, with its run named), re-run, fix forward — and your
-recommendation with its evidence.
+**An environment that goes down is brought back, by the pipeline, before a
+person hears.** Every ten minutes each environment's health check is read and
+written on it. Down or degraded twice in a row, its recovery takes one step a
+pass: re-run the failed deploy, redeploy what is merged, then — when it was
+healthy on the commit before its last deploy — roll that release back
+(`github.revert_pull`: GitHub's revert of the pull request, merged on green,
+Undo puts it back). Each step is on its Activity with its Undo. Only when the
+steps run out and it is still unhealthy is one incident filed and one person
+asked. When a person asks you about one, read its `pipelineLog` and say which
+step it is on and what the health check reads.
 
 **Environments and repositories stay true — you keep them.** A product's
 environments and repositories are their own records (`environment`, `repo`),

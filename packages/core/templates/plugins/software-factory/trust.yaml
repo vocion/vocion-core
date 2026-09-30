@@ -122,6 +122,15 @@ rules:
     enabled: true
     rung: execute-within-bounds
     risk: medium
+  # A release an environment went down on, rolled back (plugin 2.32.0): GitHub's
+  # revert of its pull request, opened by the environment's own recovery after a
+  # re-run and a redeploy did not bring it back. Undo closes the revert, or
+  # reverts it once merged.
+  - action: github.revert_pull
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
   - action: git.merge
     autoApproveAbove: 1
     enabled: false
@@ -132,6 +141,13 @@ rules:
   # revert is the undo"). Its own class, so it earns apart from a product's
   # merges, which stay the workspace's to rule.
   - action: git.merge.pipeline
+    autoApproveAbove: 0.85
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
+  # ...and the rollback merges on green too: it puts back what was live and
+  # healthy before, and Undo puts the release back.
+  - action: git.merge.rollback
     autoApproveAbove: 0.85
     enabled: true
     rung: execute-within-bounds

@@ -58,7 +58,7 @@ async function seatName(orgId: string, owner: string | null): Promise<string> {
   return row?.name?.trim() || 'The pipeline\'s owner';
 }
 
-async function note(orgId: string, recordId: number | null, line: string, runId: number | null = null): Promise<void> {
+async function noteLine(orgId: string, recordId: number | null, line: string, runId: number | null = null): Promise<void> {
   if (recordId) {
     const { noteOnRequest } = await import('./carry');
     await noteOnRequest(orgId, recordId, line, runId).catch(() => undefined);
@@ -129,7 +129,7 @@ export async function raisePipelineFix(orgId: string, o: { recordId: number; req
   };
   await emitEvent({ orgId, type: PIPELINE_NEEDS_FIX, payload, dedupeKey: `${PIPELINE_NEEDS_FIX}:${o.recordId}:${attempt}`, invokedBy: `factory:${o.owner ?? 'system'}`, dispatchMode: 'auto' });
   const line = `${name} is fixing the pipeline (attempt ${attempt} of ${PIPELINE_FIX_ATTEMPTS}): ${o.why}`;
-  await note(orgId, o.recordId, line);
+  await noteLine(orgId, o.recordId, line);
   return { raised: true, attempt, line };
 }
 
@@ -146,14 +146,16 @@ export async function raisePipelineFix(orgId: string, o: { recordId: number; req
  * @param o.owner - The seat that owns the pipeline.
  * @param o.evidenceUrl - What to read first; a pull request or run is re-run when the person approves.
  * @param o.now - When.
+ * @param o.key - What makes this stop its own ask; the record's attempt when omitted.
+ * @param o.tried - What was tried, when the caller kept its own account of it.
  */
-export async function escalatePipeline(orgId: string, o: { recordId: number; requestId: number; why: string; unblock: string; owner: string | null; evidenceUrl?: string | null; now?: string }): Promise<{ askId: number; line: string }> {
+export async function escalatePipeline(orgId: string, o: { recordId: number; requestId: number; why: string; unblock: string; owner: string | null; evidenceUrl?: string | null; now?: string; key?: string; tried?: string[] }): Promise<{ askId: number; line: string }> {
   const { readRecord, writeMeta } = await import('@/libs/actions/factory-dispatch');
   const { upsertAsk } = await import('@/services/AskService');
   const request = await readRecord(orgId, o.requestId);
   const record = o.recordId === o.requestId ? request : await readRecord(orgId, o.recordId);
   const work = record ? readWork(record.meta) : null;
-  const attempts = await movesSince(orgId, o.owner, work?.raisedAt ? new Date(Date.parse(work.raisedAt) - 6 * 3_600_000) : new Date(0), o.recordId);
+  const attempts = o.tried ?? await movesSince(orgId, o.owner, work?.raisedAt ? new Date(Date.parse(work.raisedAt) - 6 * 3_600_000) : new Date(0), o.recordId);
   const at = o.now ?? new Date().toISOString();
   const { parsePullUrl } = await import('@/services/agents/tools/githubPullRead');
   const { parseRunUrl } = await import('./githubChecks');
@@ -170,7 +172,7 @@ export async function escalatePipeline(orgId: string, o: { recordId: number; req
         attempts.length > 0 ? `**What was tried**\n${attempts.map((a, i) => `${i + 1}. ${a}`).join('\n')}` : 'No move of its own reached GitHub.',
         rerunnable ? 'Approve once it is fixed: the failed jobs run again.' : 'Approve once it is fixed; reject to leave it.',
       ].join('\n\n'),
-      sourceRef: `pipeline-stop:${o.recordId}:${work?.attempt ?? 0}`,
+      sourceRef: `pipeline-stop:${o.recordId}:${o.key ?? work?.attempt ?? 0}`,
       agentSlug: o.owner,
       risk: 'medium',
       options: [
@@ -375,6 +377,10 @@ export async function reconcileChanges(orgId: string, now: Date, owner: string |
     const work = readWork(meta);
     const seat = str(change.by)?.replace(/^agent:/, '') ?? work?.owner ?? owner;
     const set = async (patch: Meta) => writeMeta(orgId, row.id, { pipelineChange: { ...change, ...patch } });
+    // A record that keeps its own pipeline account (an environment) hears it there.
+    const note = async (id: number, line: string, runId: number | null = null) => change.noRework === true
+      ? (await import('./environments')).noteOnRecord(orgId, id, line, { runId, url })
+      : noteLine(orgId, id, line, runId);
     let read: Awaited<ReturnType<ChangeDeps['readPull']>>;
     try {
       read = await d.readPull(orgId, url);
@@ -386,14 +392,14 @@ export async function reconcileChanges(orgId: string, now: Date, owner: string |
     if (read.pr.merged_at) {
       await set({ state: 'merged', mergedAt: read.pr.merged_at, mergeSha: read.pr.merge_commit_sha ?? null });
       const line = `${short} merged${read.pr.merge_commit_sha ? ` at ${read.pr.merge_commit_sha.slice(0, 7)}` : ''}: the pipeline fix is in.`;
-      await note(orgId, row.id, line);
+      await note(row.id, line);
       out.push({ requestId: row.id, did: 'change merged', line });
       continue;
     }
     if (read.pr.state !== 'open') {
       await set({ state: 'closed', closedAt: read.pr.closed_at ?? now.toISOString() });
       const line = `${short} was closed without merging.`;
-      await note(orgId, row.id, line);
+      await note(row.id, line);
       out.push({ requestId: row.id, did: 'change closed', line });
       continue;
     }
@@ -418,7 +424,7 @@ export async function reconcileChanges(orgId: string, now: Date, owner: string |
         : res.status === 'pending'
           ? `Every check passed on ${short}; its merge is on a card for a person (action #${res.runId}).`
           : `Every check passed on ${short}; it was merged (action #${res.runId}, Undo opens the revert).`;
-      await note(orgId, row.id, line, res.runId || null);
+      await note(row.id, line, res.runId || null);
       out.push({ requestId: row.id, did: `change green: merge ${res.status}`, line });
       continue;
     }
@@ -427,6 +433,14 @@ export async function reconcileChanges(orgId: string, now: Date, owner: string |
     }
     await set({ headSha: head, failedSha: head });
     const failing = runs.filter(r => !['success', 'neutral', 'skipped'].includes(String(r.conclusion))).map(r => r.name).slice(0, 5).join(', ');
+    // A change whose record carries its own recovery (an environment's
+    // rollback) is written down, and that recovery takes the next step.
+    if (change.noRework === true) {
+      const line = `${short} is red (${failing}): ${verdict.why}; it is not merged.`;
+      await note(row.id, line);
+      out.push({ requestId: row.id, did: 'change red: noted', line });
+      continue;
+    }
     const again = await raisePipelineFix(orgId, {
       recordId: row.id,
       title: row.title,

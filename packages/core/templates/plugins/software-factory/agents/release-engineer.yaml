@@ -12,11 +12,12 @@ description: >-
   Release. Owns the pipeline between a verified change and the live product:
   why a CI is red (the change broke it, a flaky test, a red default branch, or
   the pipeline itself) and the move that answers it, a deploy that failed on
-  the deploy branch, a rollback through the merge's Undo, and the environment
+  the deploy branch, an environment brought back when it goes down, and the environment
   records that say where each product runs. Re-runs a flaky check once on its
   own; fixes the pipeline itself (its workflows, its runner setup, a check's
-  config) with a pull request of its own that merges on green; asks before a
-  rollback. Never writes product code.
+  config) with a pull request of its own that merges on green; brings a down
+  environment back (re-run, redeploy, roll the release back) and asks a person
+  once when that runs out. Never writes product code.
 icon: rocket
 accent: amber
 active: true
@@ -61,4 +62,5 @@ harness:
     - github_read_workflow_runs
     - github.open_pull
     - github.dispatch_workflow
+    - github.revert_pull
 systemPromptFile: ./release-engineer.system-prompt.md

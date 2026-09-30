@@ -474,7 +474,7 @@ export async function recordOrigins(orgId: string, rows: ReadonlyArray<{ id: num
 }
 
 /** One write to a record a record is connected to, as its Activity lists it. */
-export type RelatedWrite = { runId: number; recordId: number; title: string; by: string; at: string; href: string; preview: { type: 'record_history'; id: string }; line?: string | null };
+export type RelatedWrite = { runId: number; recordId: number; title: string; by: string; at: string; href: string; preview: { type: 'record_history'; id: string }; line?: string | null; undoable?: boolean; undone?: boolean };
 
 /**
  * WHAT CHANGED ON WHAT A RECORD IS CONNECTED TO — the writes to it and to the
@@ -500,9 +500,10 @@ export async function relatedWrites(orgId: string, objectId: number, limit = 10)
   }
   const ids = [...titles.keys()].map(String);
   const runs = await db
-    .select({ id: actionRunSchema.id, objectId: sql<string | null>`${actionRunSchema.result} ->> 'objectId'`, line: sql<string | null>`${actionRunSchema.result} ->> 'line'`, by: actionRunSchema.invokedBy, at: actionRunSchema.createdAt })
+    .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, status: actionRunSchema.status, objectId: sql<string | null>`${actionRunSchema.result} ->> 'objectId'`, line: sql<string | null>`${actionRunSchema.result} ->> 'line'`, by: actionRunSchema.invokedBy, at: actionRunSchema.createdAt })
     .from(actionRunSchema)
-    .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'done'), inArray(sql`${actionRunSchema.result} ->> 'objectId'`, ids)))
+    // Undone ones stay, marked: what was done and taken back is still what happened.
+    .where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.status, ['done', 'undone']), inArray(sql`${actionRunSchema.result} ->> 'objectId'`, ids)))
     .orderBy(desc(actionRunSchema.id))
     .limit(limit);
   const people = [...new Set(runs.map(r => r.by).filter((b): b is string => typeof b === 'string' && b !== '' && !b.includes(':')))];
@@ -510,6 +511,7 @@ export async function relatedWrites(orgId: string, objectId: number, limit = 10)
     ? new Map((await db.select({ id: userSchema.id, name: userSchema.name, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, people))).map(u => [u.id, u.name?.trim() || u.email]))
     : new Map<string, string>();
   const link = await recordLinkerForOrg(orgId);
+  const { getAction } = await import('@/libs/actions/registry');
   return runs.flatMap((r) => {
     const recordId = Number(r.objectId);
     const named = titles.get(recordId);
@@ -518,6 +520,6 @@ export async function relatedWrites(orgId: string, objectId: number, limit = 10)
     }
     const by = r.by ? names.get(r.by) ?? r.by.replace(/^(?:agent|factory):/, '') : 'Vocion';
     // A move that says what it did (a deploy started, a pipeline change opened) is read in its own words.
-    return [{ runId: r.id, recordId, title: named.title, by, at: r.at.toISOString(), href: link({ objectType: named.type ?? undefined, id: recordId }), preview: { type: 'record_history' as const, id: String(recordId) }, line: r.line ?? null }];
+    return [{ runId: r.id, recordId, title: named.title, by, at: r.at.toISOString(), href: link({ objectType: named.type ?? undefined, id: recordId }), preview: { type: 'record_history' as const, id: String(recordId) }, line: r.line ?? null, undoable: r.status === 'done' && typeof getAction(r.actionId)?.undo === 'function', undone: r.status === 'undone' }];
   });
 }

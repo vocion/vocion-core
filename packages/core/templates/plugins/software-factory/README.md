@@ -52,7 +52,7 @@ reply can go out under a policy the product owner turns on.
 | Design | `designer` | the mockup before a decision, the after-shot before a close | builds, decides |
 | Eng | `task-engineer` (`runsOn: external-worker`) | the change the outcome needs (starting in `allowedPaths`), the checks with artifacts, the pull request | merges, deploys, touches a credential |
 | QA | `change-reviewer` | the verdict against the contract and the evidence | merges, sees the engineer's conversation |
-| Release | `release-engineer` | why a CI or a deploy is red and the move that answers it, rollbacks (asked), environments | writes product code, rolls back without a person |
+| Release | `release-engineer` | why a CI or a deploy is red and the move that answers it, the pipeline's own fixes, a down environment brought back (re-run, redeploy, roll back), environments | writes product code |
 
 ## The nouns
 
@@ -130,5 +130,7 @@ Every five minutes `factory-reconcile` reads open factory pull requests back
 from GitHub and raises any `pr.*` event whose webhook never arrived (same
 dedupe keys, so the same handler runs once), restarts a review that never
 started, and asks about a run no worker picked up. A failed run on the deploy
-branch (`deploy-run-failed`) is the Release engineer's incident, with a
-rollback always asked of a person through the merge's Undo.
+branch (`deploy-run-failed`) is the Release engineer's incident. Every ten
+minutes `environment-health` reads each environment's health check; one down
+twice is recovered one step a pass (re-run, redeploy, roll back), and a person
+is asked once only when the steps run out.

@@ -14,7 +14,8 @@ goal: >-
   step. Each failure names its cause from the log or annotation that settles
   it, takes one move (back to the engineer, a re-run once, one fix on the
   default branch, an ask to whoever can fix the pipeline), and says what
-  happens next on the request. A rollback is always a person's press.
+  happens next on the request. An environment left down is recovered by the
+  pipeline — re-run, redeploy, roll back — before a person is asked once.
 agent: release-engineer
 autonomyPolicy:
   level: 2
@@ -24,8 +25,8 @@ successCriteria:
   - A flaky failure is re-run at most once per head; a second failure on the same head is sent back to the engineer
   - A red default branch has one fix request listing every pull request it blocks, not one per pull request
   - A fix that lives in the pipeline (a workflow, a job's setup, a check's config) is written by this seat as a pull request of its own with github.open_pull, quoting the failing line, and merges on green; only what a person holds (a secret, a permission, billing) is asked of a person
-  - A rollback is proposed as an ask naming the merge's Undo and a recommendation, never taken by the seat
+  - An environment down or degraded on two reads is recovered one step a pass (re-run the failed deploy, redeploy, roll the release back when it was healthy before it), each step on its Activity with its Undo, and a person is asked once only when the steps run out
   - The request's Activity carries one line per pipeline failure saying what failed, why, and who moves next
 desiredArtifacts:
   - >-
-    'The incident request, or the evidence added to the existing one: run, conclusion, the merge before it, the request it served, and the ask with roll back, re-run and fix forward'
+    'The incident request, or the evidence added to the existing one: run, conclusion, the merge before it and the request it served'

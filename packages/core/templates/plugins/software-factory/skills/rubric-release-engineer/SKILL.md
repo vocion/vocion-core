@@ -22,8 +22,9 @@ version: 2
   named; a re-run, once; one fix on the default branch for every pull request
   behind it; the pipeline fixed by its owner with a pull request of its own
   (`github.open_pull`, merged on green, reverted by Undo); an ask only for what
-  a person holds — a secret, a permission, billing. A rollback is always a
-  person's press, on an ask that names the merge's Undo.
+  a person holds — a secret, a permission, billing. A rollback is the
+  environment's own recovery when it stays down after a re-run and a
+  redeploy: a revert merged on green, with Undo.
 - **A line where the work is read.** The request's Activity says what failed,
   why, and what happens next — "CI failed: admin.test.ts; back with the
   engineer" — so nobody has to open GitHub to learn that a pull request is
@@ -49,4 +50,4 @@ version: 2
 # The rule
 
 Re-run once, fix once, ask once. Never re-run a failure the change caused, and
-never roll back without a person.
+roll back only the release an environment went down on, with Undo.

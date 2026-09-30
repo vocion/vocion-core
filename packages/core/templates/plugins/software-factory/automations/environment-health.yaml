@@ -1,0 +1,23 @@
+# EVERY ENVIRONMENT WITH A HEALTH CHECK IS READ, AND BROUGHT BACK WHEN IT IS
+# DOWN (backlog 049; Chris, 2026-09-30: "a scheduled health read per
+# environment that has a healthCheck. An unhealthy one raises one needs-person
+# notification only after the Release engineer's own recovery (re-run,
+# redeploy, revert of the last release) has been tried and failed, with each
+# attempt recorded"). Deterministic: a built-in job, acting as the seat that
+# owns the pipeline; every step is an action with its Undo and a line on the
+# environment (services/factory/environmentHealth.ts).
+slug: environment-health
+name: Environments answer, or are brought back
+description: >-
+  Every ten minutes, read each environment's health check and write it on the
+  record; bring a down one back (re-run, redeploy, roll back), and ask a person
+  once only when that runs out.
+status: active
+agent: release-engineer
+when:
+  schedule: '*/10 * * * *'
+do:
+  job: factory-environment-health
+  input:
+    # The seat whose moves the recovery makes.
+    owner: release-engineer

@@ -20,6 +20,7 @@ export const FACTORY_CI_FAILED_JOB = 'factory-ci-failed';
 export const FACTORY_RECONCILE_JOB = 'factory-reconcile';
 export const FACTORY_PIPELINE_FIX_ENDED_JOB = 'factory-pipeline-fix-ended';
 export const FACTORY_ENVIRONMENT_DEPLOYED_JOB = 'factory-environment-deployed';
+export const FACTORY_ENVIRONMENT_HEALTH_JOB = 'factory-environment-health';
 
 type Job = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -48,6 +49,12 @@ export const factoryCarryJobs: Record<string, Job> = {
    * @param input
    */
   [FACTORY_ENVIRONMENT_DEPLOYED_JOB]: async (orgId, input) => (await import('@/services/factory/environments')).recordDeploy(orgId, input),
+  /**
+   * Every ten minutes: read each environment's health check, and bring a down one back — re-run, redeploy, roll back — before asking a person once.
+   * @param orgId
+   * @param input
+   */
+  [FACTORY_ENVIRONMENT_HEALTH_JOB]: async (orgId, input) => (await import('@/services/factory/environmentHealth')).watchEnvironments(orgId, input),
   /**
    * `object.created` (request): start the fix a person asked for, or file the Build card.
    * @param orgId

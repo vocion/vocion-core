@@ -9,6 +9,7 @@ import { DetailMeta, DetailPage, FactList, MetaChip, OpenInPreview, Related, Sec
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { Link } from '@/libs/I18nNavigation';
 import { relativeLabel } from '@/libs/timeAgo';
+import { UndoRun } from './UndoRun';
 
 /**
  * A product's overview — what a product card's name opens. The generic
@@ -298,8 +299,10 @@ export function ProductOverviewView({ overview: o, page, now, related = [], writ
                   <span className="text-muted-foreground">{w.line ? `${w.by} on ` : `${w.by} updated `}</span>
                   <Link href={w.href} className={LINK}>{w.title}</Link>
                   {w.line && <span className="text-muted-foreground">{`: ${w.line}`}</span>}
-                  <span className="text-muted-foreground">{` · ${relativeLabel(new Date(w.at), now)}`}</span>
+                  <span className="text-muted-foreground">{` · ${relativeLabel(new Date(w.at), now)}${w.undone ? ' · undone' : ''}`}</span>
                 </span>
+                {/* A move the pipeline made on its own is undone from where it is read. */}
+                {w.undoable && <UndoRun recordId={w.recordId} runId={w.runId} testId="product-write-undo" />}
                 <OpenInPreview recordRef={w.preview} label={`Open ${w.title}'s history in preview`} />
               </li>
             ))}

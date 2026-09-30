@@ -15,6 +15,7 @@ import { factoryDispatchAction } from './factory-dispatch';
 import { githubDispatchWorkflowAction } from './github-dispatch';
 import { githubOpenPullAction } from './github-pull';
 import { githubRerunFailedJobsAction } from './github-rerun';
+import { githubRevertPullAction } from './github-revert';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
@@ -73,6 +74,9 @@ registerAction(githubOpenPullAction);
 // A deploy that should have run, or a redeploy of what is merged, started
 // with workflow_dispatch; Undo cancels the run while it runs (backlog 049).
 registerAction(githubDispatchWorkflowAction);
+// A release that took an environment down, reverted and merged on green
+// (git.merge.rollback); Undo puts it back (backlog 049).
+registerAction(githubRevertPullAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.

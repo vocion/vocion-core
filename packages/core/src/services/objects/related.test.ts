@@ -259,5 +259,7 @@ describe('a product\'s environments and repositories are the one source (Chris, 
       ['release-engineer', 'portal-web-production', { type: 'record_history', id: '361' }, 'Started deploy.yml on main for feed000 (run #52).'],
       ['release-engineer', 'portal-web-production', { type: 'record_history', id: '361' }, null],
     ]);
+    // Each carries its Undo when its action has one and it has not been taken back.
+    expect(writes.map(w => [w.undoable, w.undone])).toEqual([[true, false], [true, false]]);
   });
 });

@@ -181,6 +181,20 @@ describe('a pipeline change is carried to its merge', () => {
   });
 });
 
+describe('a rollback an environment\'s recovery opened', () => {
+  it('red: written on the environment, not sent back to be reworked', async () => {
+    const [t] = await createObjectType({ slug: 'environment', label: 'environment' }, ORG).catch(() => [null]);
+    const typeId = t?.id ?? types.environment!;
+    const [env] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId, title: 'rooms-api-production', metadata: { slug: 'rooms-api-production', pipelineChange: { url: 'https://github.com/Acme/northwind-core/pull/501', riskClass: 'rollback', state: 'open', openedAt: '2026-09-30T12:00:00Z', pushedAt: '2026-09-30T12:00:00Z', noRework: true, by: `agent:${OWNER}` } } }).returning();
+
+    const out = await reconcileChanges(ORG, new Date('2026-09-30T12:20:00Z'), OWNER, { readPull: async () => ({ repo: REPO, pr: pull({ head: { ref: 'revert-140-x', sha: 'rev000000001' } } as never), checkRuns: runs('failure') }), proposeMerge: vi.fn() });
+
+    expect(out.find(r => r.requestId === env!.id)?.did).toBe('change red: noted');
+    expect((await read(env!.id)).metadata).toMatchObject({ lastPipelineLine: expect.stringContaining('is red (e2e)'), pipelineChange: { failedSha: 'rev000000001' } });
+    expect((await read(env!.id)).metadata).not.toHaveProperty('pipelineWork');
+  });
+});
+
 describe('the owner\'s fix run is read back when it ends', () => {
   async function aRun(recordId: number, startedAt: Date) {
     const [run] = await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'pipeline-fix', kind: 'mission_check', status: 'ok', input: { recordId }, startedAt, result: { summary: 'The runner lost its Docker socket; a person must restart it.' } }).returning();

@@ -585,3 +585,20 @@ export async function branchHead(orgId: string, repo: string, branch: string): P
   }
   return { sha: res.data.sha, committedAt: res.data.commit?.committer?.date ?? null };
 }
+
+/**
+ * The merged pull request a commit on a branch came from, or null (a push
+ * straight to the branch).
+ * @param orgId - The workspace.
+ * @param repo - `owner/name`.
+ * @param sha - The commit.
+ */
+export async function mergedPullFor(orgId: string, repo: string, sha: string): Promise<string | null> {
+  const gh = await ghFor(orgId, repo);
+  const res = await call<Array<{ html_url: string; merged_at?: string | null; merge_commit_sha?: string | null }>>(gh, `/commits/${encodeURIComponent(sha)}/pulls`);
+  if (!res.ok) {
+    throw new Error(`the pull requests for ${sha.slice(0, 12)} on ${repo} could not be read: ${res.message}`);
+  }
+  const merged = res.data.filter(p => p.merged_at);
+  return (merged.find(p => p.merge_commit_sha === sha) ?? merged[0])?.html_url ?? null;
+}

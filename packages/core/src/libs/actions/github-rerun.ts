@@ -19,6 +19,7 @@ const rerunInput = z.object({
   headSha: z.string().min(7).optional().describe('The commit whose runs to re-run; the pull request\'s head when omitted.'),
   taskId: z.coerce.number().int().positive().optional().describe('The engineering task the pull request belongs to, when there is one.'),
   reason: z.string().max(500).optional().describe('Why a re-run and not a fix: what made the failure look flaky or infrastructural.'),
+  recordId: z.coerce.number().int().positive().optional().describe('The record this re-run answers (an environment whose deploy failed), so its page shows it.'),
 });
 
 export const githubRerunFailedJobsAction: Action<typeof rerunInput> = {
@@ -50,7 +51,12 @@ export const githubRerunFailedJobsAction: Action<typeof rerunInput> = {
   async execute(ctx, input) {
     const { rerunFailedJobs } = await import('@/services/factory/githubChecks');
     const res = await rerunFailedJobs(ctx.orgId, input.url, input.headSha ?? null);
-    return { rerun: true, repo: res.repo, headSha: res.headSha, runIds: res.runIds, url: input.url };
+    const line = `Re-ran the failed jobs of ${input.url.replace('https://github.com/', '')}${input.reason ? `: ${input.reason}` : ''}`.slice(0, 400);
+    if (input.recordId) {
+      const { noteOnRecord } = await import('@/services/factory/environments');
+      await noteOnRecord(ctx.orgId, input.recordId, line, { runId: ctx.runId ?? null, url: input.url }).catch(() => undefined);
+    }
+    return { rerun: true, repo: res.repo, headSha: res.headSha, runIds: res.runIds, url: input.url, ...(input.recordId ? { objectId: input.recordId, line } : {}) };
   },
   async undo(ctx, _input, result) {
     const repo = typeof result?.repo === 'string' ? result.repo : null;
