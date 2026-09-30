@@ -22,7 +22,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
-import { activeQueryFilters, applyQueryFilters, groupTabKey } from '@/libs/workspace/pageFields';
+import { activeQueryFilters, applyQueryFilters, groupTabKey, LIVE_FALLBACK_EVERY_S } from '@/libs/workspace/pageFields';
 import {
   applyFilter,
   applyWindow,
@@ -776,7 +776,7 @@ export default async function WorkspacePage(props: {
       <TitleBar
         title={manifest.title}
         description={manifest.description}
-        actions={manifest.live ? <LiveRefresh everyMs={manifest.live.every * 1000} /> : undefined}
+        actions={manifest.live ? <LiveRefresh everyMs={(manifest.live.every ?? LIVE_FALLBACK_EVERY_S) * 1000} follow={manifest.live.follow} /> : undefined}
       />
 
       {/* A page a plugin shipped carries that plugin's outcome panel — the

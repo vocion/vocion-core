@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseTopic } from '@/libs/live/topics';
 
 /**
  * Workspace pages, the part that runs anywhere — the page manifest schema,
@@ -258,16 +259,29 @@ const FieldSchema = z.object({
 });
 
 /**
- * A page that stays current while someone is looking at it. The rendered
- * page re-reads its rows and stats every `every` seconds while the tab is
- * visible, and says so ("live · 12s ago"). Bounded: under 5s a page would
- * hammer the database for no reading a person could follow; over 120s it
- * is not live, it is a page you reload. One request per interval per open
- * tab is the whole cost.
+ * A page that stays current while someone is looking at it, and says so
+ * ("live · 12s ago").
+ *
+ * `follow` names what the page is made of on the workspace live stream
+ * (backlog 050): `list:<type>` for records of a type, and the feeds `runs`,
+ * `cards`, `asks`, `events`. The page re-reads the moment one of them
+ * changes, wherever it was written, and makes no polling request while the
+ * stream is up. `every` is the interval it re-reads on otherwise — alone, it
+ * is the whole mechanism; beside `follow`, it is the fallback while the
+ * stream is down (15s when omitted). Bounded: under 5s a page would hammer
+ * the database for no reading a person could follow; over 120s it is not
+ * live, it is a page you reload.
  */
 const LiveSchema = z.object({
-  every: z.number().int().min(5).max(120),
-});
+  every: z.number().int().min(5).max(120).optional(),
+  follow: z.array(z.string().refine((t) => {
+    const topic = parseTopic(t);
+    return topic !== null && (topic.kind === 'list' || topic.kind === 'feed');
+  }, { message: 'follow takes list:<type> or a feed — runs, cards, asks, events' })).min(1).max(20).optional(),
+}).refine(l => l.every !== undefined || l.follow !== undefined, { message: 'live needs every (seconds between re-reads), follow (what the page is made of), or both' });
+
+/** How often a followed page re-reads while the live stream is down, when it names no interval. */
+export const LIVE_FALLBACK_EVERY_S = 15;
 
 /**
  * `since` keeps the rows whose date field is on or after the start of a

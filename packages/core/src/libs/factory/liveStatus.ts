@@ -83,6 +83,12 @@ export type RecordStatus = {
   facts?: import('./workFacts').WorkFacts;
   /** ISO — when this was read. */
   readAt: string;
+  /**
+   * The live-stream topics this status is read from (the record, its tasks,
+   * its runs — `featureReport.followOf`). A surface drawing it follows them
+   * and re-reads on a change instead of polling (backlog 050).
+   */
+  follow?: string[];
 };
 
 /** A worker run, narrowed to what the Now line reads. */

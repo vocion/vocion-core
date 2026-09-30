@@ -53,9 +53,10 @@ source: {kind: objects, objectType: request}
 # Seven states, three lanes, and every sentence on the row: see
 # libs/workspace/workQueue.ts, which is also where the mapping is argued with.
 derive: workQueue
-# States move as workers claim, finish and get reviewed; the queue re-reads
-# itself every 15s while open so what is stuck stays true.
-live: {every: 15}
+# States move as workers claim, finish and get reviewed. The queue follows
+# its requests, their tasks and the runs on the live stream and re-reads the
+# moment one changes; it polls every 15s only while the stream is down.
+live: {follow: ['list:request', 'list:engineering_task', runs], every: 15}
 # The derivation ordered the lanes and the rows inside them; the page just
 # keeps that order.
 sort: {field: meta.order, dir: asc}

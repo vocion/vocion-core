@@ -6,7 +6,9 @@ import { ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StatusDot } from '@/components/patterns';
 import { useVersionWritten } from '@/features/dashboard/versions/versionEvents';
+import { useLive } from '@/hooks/useLive';
 import { elapsedLabel } from '@/libs/factory/liveStatus';
+import { liveTopic } from '@/libs/live/topics';
 import { cn } from '@/utils/Helpers';
 import { PreviewOpen } from './FeatureDrawerLink';
 
@@ -17,20 +19,23 @@ import { PreviewOpen } from './FeatureDrawerLink';
  *
  * The Now line counts up on its own every second from the moment the read
  * says (queued at, claimed at, started at), and the status re-reads itself
- * every few seconds while something is running, stopping once nothing is.
- * A write to the record announced by chat re-reads it at once.
+ * whenever the record, its tasks or their runs change, pushed on the live
+ * stream; polling every few seconds is only the fallback while the stream is
+ * down. A write to the record announced by chat re-reads it at once.
  */
 
 const TONE: Record<RecordStatus['stage']['tone'], DotTone> = { ok: 'pass', warn: 'amber', bad: 'fail', info: 'ink', muted: 'neutral' };
 
-/** How often a status with something running re-reads itself. */
+/** How often a status with something running re-reads itself while the live stream is down. */
 export const LIVE_POLL_MS = 4000;
 
 /**
- * The record's status, kept current: read once when none was handed in,
- * re-read every {@link LIVE_POLL_MS} while `live` is set (and the tab is
- * visible), and re-read when a turn writes the record. Polling stops when
- * `live` is null.
+ * The record's status, kept current: read once when none was handed in, and
+ * again whenever anything it is read from changes — the record, its tasks,
+ * their runs (`status.follow`), pushed on the workspace live stream from
+ * wherever the change was written (backlog 050). While the stream is down it
+ * falls back to re-reading every {@link LIVE_POLL_MS} while something runs
+ * (and the tab is visible). A write announced by chat re-reads it at once.
  * @param recordId - The record.
  * @param initial - A status already read (server-rendered), or null to read one.
  * @param opts - Options.
@@ -57,9 +62,27 @@ export function useRecordStatus(recordId: number, initial: RecordStatus | null, 
           setFetched(next);
         }
       })
-      // A failed read keeps the last status; the next tick tries again.
+      // A failed read keeps the last status; the next change or tick tries again.
       .catch(() => {});
   }, [recordId]);
+
+  // A burst of changes (a heartbeat, the rollup it causes, the chat's own
+  // announcement of the same write) is one read.
+  const soon = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readSoon = useCallback(() => {
+    if (soon.current) {
+      return;
+    }
+    soon.current = setTimeout(() => {
+      soon.current = null;
+      read();
+    }, 250);
+  }, [read]);
+  useEffect(() => () => {
+    if (soon.current) {
+      clearTimeout(soon.current);
+    }
+  }, []);
 
   // The first read, when nothing was handed in.
   useEffect(() => {
@@ -68,10 +91,14 @@ export function useRecordStatus(recordId: number, initial: RecordStatus | null, 
     }
   }, [opts.poll, initial, read]);
 
-  // While something runs, re-read on an interval; stop when nothing does.
+  // Pushed: everything the status is read from.
+  const follow = opts.poll ? [liveTopic.record(recordId), ...(status?.follow ?? [])] : [];
+  const { live } = useLive(follow, readSoon);
+
+  // The fallback: while something runs and the stream is down, re-read on an interval.
   const running = status?.live !== null && status?.live !== undefined;
   useEffect(() => {
-    if (!opts.poll || !running) {
+    if (!opts.poll || !running || live) {
       return;
     }
     const timer = setInterval(() => {
@@ -80,10 +107,10 @@ export function useRecordStatus(recordId: number, initial: RecordStatus | null, 
       }
     }, LIVE_POLL_MS);
     return () => clearInterval(timer);
-  }, [opts.poll, running, read]);
+  }, [opts.poll, running, live, read]);
 
   // A write to the record (chat's `version_written`) moves it now.
-  useVersionWritten(opts.poll ? [{ type: 'object', id: String(recordId) }] : [], read);
+  useVersionWritten(opts.poll ? [{ type: 'object', id: String(recordId) }] : [], readSoon);
   return status;
 }
 

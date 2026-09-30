@@ -127,6 +127,11 @@ export function RecordHistory({ objectId, focusVersion = null }: { objectId: num
   // A version written anywhere — the chat, this page, the artifact pane —
   // lands here without a reload, marked (backlog 035).
   useVersionWritten([{ type: 'object', id: String(objectId) }], (v) => {
+    // A change heard on the live stream names no version: read the list again.
+    if (v.live) {
+      void load();
+      return;
+    }
     // A write beneath the record (a plan filed for it) is not one of its versions.
     if (v.related) {
       return;

@@ -7,7 +7,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { Accordion, DetailMeta, FactList, MetaChip, Section, StatusDot } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useLive } from '@/hooks/useLive';
 import { Link } from '@/libs/I18nNavigation';
+import { liveTopic } from '@/libs/live/topics';
 import { client } from '@/libs/Orpc';
 import { deriveSteps, focusStep, formatDuration, isLiveStatus, mergeRunLog, refusedBeforeStart, stopReason } from '@/libs/worker/runLog';
 import { cn } from '@/utils/Helpers';
@@ -21,9 +23,10 @@ export const RUN_POLL_MS = 3000;
  * page"). The run's header — status, attempt, duration, cost, pull request —
  * then its steps, each a row with a status mark, a name and a duration that
  * opens onto its log. The running step is open and follows its tail; a
- * failed step opens by itself. While the run is live and the tab visible, the
- * page asks every few seconds for the lines after the last one it has; a run
- * that has finished is not polled at all.
+ * failed step opens by itself. While the run is live, each heartbeat and
+ * status change arrives on the live stream and the page asks for the lines
+ * after the last one it has; while the stream is down it asks every few
+ * seconds instead (tab visible). A run that has finished is not read again.
  *
  * One component for both kinds of run: an engineering run's steps come from
  * the worker's step lines, an agent run's from its plan and tool calls
@@ -43,34 +46,46 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
     cursor.current = data.cursor;
   }, [data.cursor]);
 
+  // One read of the lines after the last one held; a read already out is not doubled.
+  const inFlight = useRef(false);
+  const alive = useRef(true);
   useEffect(() => {
-    if (!live || !visible) {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const readMore = useCallback(async () => {
+    if (inFlight.current) {
       return;
     }
-    let cancelled = false;
-    let inFlight = false;
-    const poll = async () => {
-      if (inFlight) {
-        return;
+    inFlight.current = true;
+    try {
+      const next = await client.runs.log({ ref: header.ref, after: cursor.current });
+      if (alive.current) {
+        setData(prev => mergeRunLog(prev, next));
       }
-      inFlight = true;
-      try {
-        const next = await client.runs.log({ ref: header.ref, after: cursor.current });
-        if (!cancelled) {
-          setData(prev => mergeRunLog(prev, next));
-        }
-      } catch {
-        // A missed poll is caught up by the next one: `after` has not moved.
-      } finally {
-        inFlight = false;
-      }
-    };
-    const timer = setInterval(poll, pollMs);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [live, visible, header.ref, pollMs]);
+    } catch {
+      // A missed read is caught up by the next one: `after` has not moved.
+    } finally {
+      inFlight.current = false;
+    }
+  }, [header.ref]);
+
+  // Pushed (backlog 050): every heartbeat that lands an engineering run's new
+  // lines, and every change of its status, is a notice on the run's topic. An
+  // agent run's steps are its tool calls, which publish nothing of their own,
+  // so an agent run keeps asking on the interval.
+  const { live: pushed } = useLive(live && header.kind === 'worker' ? [liveTopic.run(header.id)] : [], () => void readMore());
+
+  // The fallback while the stream is down: ask every few seconds.
+  useEffect(() => {
+    if (!live || !visible || pushed) {
+      return;
+    }
+    const timer = setInterval(() => void readMore(), pollMs);
+    return () => clearInterval(timer);
+  }, [live, visible, pushed, readMore, pollMs]);
 
   // A running step's duration counts up between polls.
   const [now, setNow] = useState(() => Date.now());

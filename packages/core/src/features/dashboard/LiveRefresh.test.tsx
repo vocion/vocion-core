@@ -21,6 +21,17 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh }),
 }));
 
+// The live stream, as a switch and a doorbell: `stream.live` is whether it is
+// up, `stream.ring()` delivers a notice to whatever the page follows.
+const stream = vi.hoisted(() => ({ live: false, topics: [] as readonly string[], ring: () => {} }));
+vi.mock('@/hooks/useLive', () => ({
+  useLive: (topics: readonly string[], onNotice: () => void) => {
+    stream.topics = topics;
+    stream.ring = onNotice;
+    return { live: stream.live && topics.length > 0, state: stream.live ? 'open' : 'down' };
+  },
+}));
+
 function setVisibility(state: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
   document.dispatchEvent(new Event('visibilitychange'));
@@ -29,6 +40,8 @@ function setVisibility(state: 'visible' | 'hidden') {
 afterEach(() => {
   refresh.mockReset();
   setVisibility('visible');
+  stream.live = false;
+  stream.topics = [];
 });
 
 describe('LiveRefresh', () => {
@@ -84,5 +97,48 @@ describe('LiveRefresh', () => {
     await new Promise(r => setTimeout(r, 250));
 
     expect(refresh.mock.calls.length).toBe(after);
+  });
+});
+
+describe('LiveRefresh, following what the page is made of (backlog 050)', () => {
+  it('re-reads when something it follows changes, and makes no polling request while the stream is up', async () => {
+    stream.live = true;
+    const screen = await render(<LiveRefresh everyMs={60} follow={['list:request', 'runs']} />);
+    const pill = screen.getByTestId('live-refresh');
+
+    await expect.element(pill).toHaveAttribute('data-pushed', 'yes');
+    await expect.element(pill).toHaveAttribute('aria-label', expect.stringContaining('the moment something on this page changes'));
+    expect(stream.topics).toEqual(['list:request', 'runs']);
+
+    // Many intervals pass: nothing polls.
+    await new Promise(r => setTimeout(r, 250));
+
+    expect(refresh).not.toHaveBeenCalled();
+
+    // A burst of changes is one re-read.
+    stream.ring();
+    stream.ring();
+    stream.ring();
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    await new Promise(r => setTimeout(r, 100));
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to polling on its interval while the stream is down', async () => {
+    stream.live = false;
+    const screen = await render(<LiveRefresh everyMs={60} follow={['runs']} />);
+
+    await expect.element(screen.getByTestId('live-refresh')).toHaveAttribute('data-pushed', 'no');
+
+    await vi.waitFor(() => expect(refresh.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2000 });
+  });
+
+  it('does not poll a page that asked not to while the stream is down and nothing runs', async () => {
+    stream.live = false;
+    await render(<LiveRefresh everyMs={60} follow={['record:12']} poll={false} />);
+    await new Promise(r => setTimeout(r, 250));
+
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

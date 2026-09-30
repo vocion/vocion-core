@@ -74,6 +74,7 @@ import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
+import { liveTopic } from '@/libs/live/topics';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
@@ -441,6 +442,13 @@ export type FeatureReport = {
    * an agent reads so a finished run is never said as a shipped feature.
    */
   facts: WorkFacts;
+  /**
+   * What this page is made of, as live-stream topics (backlog 050): the
+   * record, its tasks, plans and releases, the runs, cards, asks, artifacts
+   * and agent runs it draws. A page or line showing this report follows
+   * them and re-reads on a change, instead of polling.
+   */
+  follow?: string[];
 };
 
 /**
@@ -3440,7 +3448,39 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     timeline,
     contradictions: notices.map(n => n.evidence),
     hero: visualsSection(input.request, input.artifacts).evidence.find(e => e.imageUrl !== null) ?? null,
+    follow: followOf(input),
   };
+}
+
+/** The most topics the feature page follows for one report. */
+const FEATURE_FOLLOW_CAP = 100;
+/**
+ * The most a status line follows: the records and the newest runs. A chat
+ * can hold many microcards, and they share the tab's one stream.
+ */
+const STATUS_FOLLOW_CAP = 24;
+
+/**
+ * The live topics a report is made of — the records first (a task's runs
+ * publish on the task's own topic too), then the runs, agent runs, asks,
+ * cards and artifacts it draws, newest first, capped. Anything new under the
+ * record moves the record itself (a rollup, a status), so a thing born after
+ * this read is still heard.
+ * @param input - The report's inputs.
+ * @param cap - The most to follow.
+ */
+export function followOf(input: FeatureReportInput, cap = FEATURE_FOLLOW_CAP): string[] {
+  const newest = <T extends { id: number }>(xs: readonly T[]) => [...xs].sort((a, b) => b.id - a.id);
+  const topics = [
+    liveTopic.record(input.request.id),
+    ...[...input.tasks, ...input.plans, ...input.releases].map(r => liveTopic.record(r.id)),
+    ...newest(input.workerRuns).map(r => liveTopic.run(r.id)),
+    ...newest(input.missionRuns ?? []).map(m => liveTopic.mission(m.id)),
+    ...newest(input.asks).map(a => liveTopic.ask(a.id)),
+    ...newest(input.actionRuns).map(a => liveTopic.card(a.id)),
+    ...newest(input.artifacts).map(a => liveTopic.artifact(a.id)),
+  ];
+  return [...new Set(topics)].slice(0, cap);
 }
 
 /**
@@ -3480,5 +3520,6 @@ export function featureStatusOf(report: FeatureReport, record: { objectType: str
     next: report.status.next ?? null,
     facts: report.facts,
     readAt: now.toISOString(),
+    ...(report.follow ? { follow: report.follow.slice(0, STATUS_FOLLOW_CAP) } : {}),
   };
 }

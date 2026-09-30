@@ -10,7 +10,7 @@
 #
 # The facts are libs/factory/runFacts.ts (execution, verification, output,
 # cause, recovery), read once for every row. Live: a worker heartbeats every
-# ~30s, so the page re-reads itself every 15s while it is open.
+# ~30s, and each heartbeat is a notice on the live stream (`live.follow`).
 #
 # Chris, 2026-09-28: "reverse sort the runs page, paginate or load more." The
 # page shows 50 at a time with a "Load more" control (rows/[slug]/page.tsx);
@@ -28,7 +28,9 @@ nav: {section: Software factory, order: 6, secondary: true}
 archetype: list
 pluginPanel: false
 source: {kind: workerRuns, kinds: [worker], agentRuns: true, limit: 500}
-live: {every: 15}
+# Every run's claim, heartbeat and finish is a notice on the `runs` feed, so
+# the page re-reads as they happen; 15s polling is only the fallback.
+live: {follow: [runs], every: 15}
 sort: {field: createdAt, dir: desc}
 
 # All first: the page opens on the history, newest first (Chris: "i don't

@@ -184,13 +184,17 @@ page without knowing the URL; `labelFrom` names the field each value reads as
 (`{param: product, field: meta.product, picker: {labelFrom: meta.productName}}`).
 View links keep the filters in force.
 
-A `list`/`queue` page can also stay **live**: `live: {every: 15}` re-reads the
-rows and stats every 15 seconds while the tab is visible (bounded 5–120) and
-shows "live · 12s ago" in the title row. A hidden tab does not poll; coming
-back re-reads at once. It is polling from a small client component, not a
-socket — one request per interval per open tab is the whole cost — and it
-reads whatever the source already records (a worker's heartbeat, a task's
-status), so nothing new has to be emitted for a page to be live.
+A `list`/`queue` page can also stay **live**. `live: {follow: [list:request, runs]}`
+names what the page is made of on the workspace live stream — `list:<type>` for
+records of a type, and the feeds `runs`, `cards`, `asks` and `events` — and the
+page re-reads the moment one of them changes, wherever the change was written
+(this app, another tab, the worker), at most once a second. While the stream is
+up it makes no polling request at all. `every` (seconds, bounded 5–120) is the
+interval it re-reads on while the stream is down, 15 when omitted; on its own,
+`live: {every: 15}` is plain polling, as before. Either way the title row shows
+"live · 12s ago", a hidden tab does not poll, and coming back re-reads at once.
+Nothing new has to be emitted for a page to be live: records, cards, runs, asks,
+artifacts and events publish their changes themselves (`libs/live/topics.ts`).
 
 ## Manifest example
 

@@ -7,6 +7,7 @@ import { Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { liveTopic } from '@/libs/live/topics';
 import { featureStatusOf } from '@/services/factory/featureReport';
 import { FeatureActivity } from './FeatureActivity';
 import { FeatureBuild, FeatureHeadline } from './FeatureBuild';
@@ -589,13 +590,18 @@ export function FeatureReportView({ report, status }: { report: FeatureReport; s
     .sort((a, b) => rank(a) - rank(b));
   const pictures = ranked.some(p => !drawn(p)) ? ranked.filter(p => !drawn(p)) : ranked;
   const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
+  const moving = report.live !== null || report.timeline.some(e => e.live);
+  const followed = (report.follow ?? []).filter(t => t !== liveTopic.record(report.requestId));
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
       {/* One pane for every drawer on this page, and for every peek. */}
       <PreviewPanel />
-      {/* Re-read while anything runs — a build, the plan being written, a
-          review — so the Now line and the stage move without a reload. */}
-      {(report.live !== null || report.timeline.some(e => e.live)) && <LiveRefresh everyMs={5000} />}
+      {/* Re-read when anything the page is made of changes — its tasks, their
+          runs, its cards, asks and evidence — pushed on the live stream, so
+          the Now line and the stage move without a reload or a poll. The
+          record itself is followed by the route's VersionWatch. While the
+          stream is down it polls every 5s, only while something runs. */}
+      {(followed.length > 0 || moving) && <LiveRefresh everyMs={5000} follow={followed} poll={moving} />}
 
       {/* 1 + 2. THE INTRODUCTION, THEN WHERE IT IS. The title, subtitle and
           context line are the route's title bar; the story is a short plain

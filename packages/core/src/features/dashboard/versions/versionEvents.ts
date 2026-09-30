@@ -1,7 +1,10 @@
 'use client';
 
+import type { LiveNotice } from '@/libs/live/topics';
 import type { RecordRef } from '@/services/chat/pageContext';
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useLive } from '@/hooks/useLive';
+import { topicsForRef } from '@/libs/live/topics';
 
 /**
  * A NEW VERSION, ON THE SCREEN THAT SHOWS IT (backlog 035).
@@ -17,6 +20,13 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
  * showing that ref (the record page, the feature page, the artifact page,
  * the preview pane, the history) refetches in place and marks what changed.
  * No surface listens to the chat directly, and no surface polls.
+ *
+ * A change made ANYWHERE else — another tab, another person, the worker —
+ * arrives the same way (backlog 050): every surface listening here also
+ * follows its refs on the workspace live stream (`hooks/useLive.ts`), and a
+ * notice is announced to it as a version with `live` set. The surface
+ * refetches exactly as it does for chat; no version number is named, since
+ * a notice carries none, so nothing focuses one.
  */
 
 /** What a version write says about itself. */
@@ -34,6 +44,11 @@ export type VersionWritten = {
    * refetches; no version is named, so nothing focuses one.
    */
   related?: string;
+  /**
+   * Heard on the live stream rather than from this tab: something changed
+   * this ref elsewhere. `to` is 0 — read the current version.
+   */
+  live?: true;
 };
 
 const EVENT = 'vocion:version-written';
@@ -102,6 +117,36 @@ export function useVersionWritten(refs: ReadonlyArray<Pick<RecordRef, 'type' | '
     window.addEventListener(EVENT, listen);
     return () => window.removeEventListener(EVENT, listen);
   }, [key]);
+
+  // The same refs, followed on the live stream, for changes made elsewhere.
+  const followed = useMemo(() => liveFollows(key), [key]);
+  useLive(followed.topics, (n) => {
+    for (const ref of followed.refsOf(n)) {
+      handler.current({ ref, from: null, to: 0, live: true });
+    }
+  });
+}
+
+/**
+ * The live topics a surface's refs carry, and which ref a notice is about.
+ * @param key - The refs, as `useVersionWritten` keys them.
+ */
+function liveFollows(key: string): { topics: string[]; refsOf: (n: LiveNotice) => Array<Pick<RecordRef, 'type' | 'id'>> } {
+  const byTopic = new Map<string, Pick<RecordRef, 'type' | 'id'>>();
+  for (const k of key ? key.split('|') : []) {
+    const at = k.indexOf(':');
+    const ref = { type: k.slice(0, at) as RecordRef['type'], id: k.slice(at + 1) };
+    for (const t of topicsForRef(ref)) {
+      if (!byTopic.has(t)) {
+        byTopic.set(t, ref);
+      }
+    }
+  }
+  return {
+    topics: [...byTopic.keys()],
+    // One call per ref the notice concerns — every ref on a resync.
+    refsOf: n => [...new Set(n.kind === 'resync' ? byTopic.values() : n.topics.flatMap(t => byTopic.get(t) ?? []))],
+  };
 }
 
 /* ------------------------------------------------------------------ */
