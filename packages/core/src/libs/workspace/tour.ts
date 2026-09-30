@@ -63,6 +63,18 @@ const StepSchema = z.object({
   mask: z.enum(['dim', 'none']).optional(),
   /** The takeaway for `presentation: caption` — one line, read from across a room. Defaults to the title. */
   caption: z.string().optional(),
+  /** Override the tour's `presentation` for this step — a caption banner leaves a full-screen document readable. */
+  presentation: z.enum(['popover', 'caption']).optional(),
+  /**
+   * Scroll something into view when the step opens — the tour paging through a
+   * document. `target` is a selector; `index` picks among its matches (the
+   * fourth `.sheet` is index 3); `frame` names a same-origin iframe to look in.
+   */
+  scrollTo: z.object({
+    target: z.string(),
+    index: z.number().int().nonnegative().default(0),
+    frame: z.string().optional(),
+  }).optional(),
 })
   .refine(s => s.advance !== 'appear' || s.waitFor !== undefined, { message: 'advance: appear needs waitFor — the selector whose arrival ends the step', path: ['waitFor'] })
   .refine(s => s.advance !== 'click' || s.selector !== undefined, { message: 'advance: click needs selector — the element the audience taps', path: ['selector'] });
