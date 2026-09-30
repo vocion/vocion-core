@@ -40,6 +40,12 @@ describe('atlassianProvider', () => {
     expect(atlassianProvider.requiredEnv).toEqual(['ATLASSIAN_CLIENT_ID', 'ATLASSIAN_CLIENT_SECRET']);
   });
 
+  it('refuses to build an authorize URL when the client is not configured', () => {
+    vi.stubEnv('ATLASSIAN_CLIENT_ID', '');
+
+    expect(() => atlassianProvider.authorizeUrl({ state: 's', redirectUri: 'https://v.example/cb' })).toThrow(/ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET/);
+  });
+
   it('builds the 3LO authorize URL with every parameter auth.atlassian.com requires', () => {
     const url = new URL(atlassianProvider.authorizeUrl({ state: 'st.sig', redirectUri: 'https://v.example/api/connect/atlassian/callback' }));
 

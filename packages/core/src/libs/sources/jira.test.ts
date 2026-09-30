@@ -13,8 +13,9 @@ import { adfToText, buildJql, jiraConnector } from '@/libs/sources/jira';
 // credential service; the tests watch the call, never the database.
 vi.mock('@/services/SourceCredentialService', () => ({
   updateCredentialValuesForConnector: vi.fn(async () => true),
+  getCredentialsForSource: vi.fn(async () => undefined),
 }));
-const { updateCredentialValuesForConnector } = await import('@/services/SourceCredentialService');
+const { getCredentialsForSource, updateCredentialValuesForConnector } = await import('@/services/SourceCredentialService');
 
 function res(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return {
@@ -74,6 +75,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.mocked(updateCredentialValuesForConnector).mockClear();
+  vi.mocked(getCredentialsForSource).mockReset().mockResolvedValue(undefined);
 });
 
 describe('jiraConnector', () => {
@@ -211,13 +213,28 @@ describe('jiraConnector with an Atlassian grant', () => {
     expect(updateCredentialValuesForConnector).not.toHaveBeenCalled();
   });
 
-  it('uses the pinned cloudId when the grant carries one', async () => {
+  it('the baseUrl decides the site even when the grant pins a different cloudId', async () => {
+    // A single-site consent pins cloudId; a source pointed at another site must
+    // not quietly sync the pinned one.
+    vi.stubGlobal('fetch', vi.fn());
+    const it_ = jiraConnector.sync(grantCtx({ credentials: grant({ cloudId: 'cloud-nw', sites: [NORTHWIND] }) }));
+
+    await expect(collect(it_)).rejects.toThrow(/does not reach https:\/\/acme\.atlassian\.net\. It reaches: https:\/\/northwind\.atlassian\.net/);
+  });
+
+  it('uses the pinned cloudId when it is the site the baseUrl names', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(res(PROJECT_PAGE)).mockResolvedValueOnce(res(SEARCH_PAGE));
     vi.stubGlobal('fetch', fetchMock);
 
-    await collect(jiraConnector.sync(grantCtx({ credentials: grant({ cloudId: 'cloud-nw', sites: [NORTHWIND] }) })));
+    await collect(jiraConnector.sync(grantCtx({ credentials: grant({ cloudId: 'cloud-nw', sites: [NORTHWIND] }), config: { baseUrl: 'https://northwind.atlassian.net', projectKeys: ['REV'] } })));
 
     expect(fetchMock.mock.calls[0]![0]).toContain('/ex/jira/cloud-nw/');
+  });
+
+  it('fails at sync when the grant reaches no site at all', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+
+    await expect(collect(jiraConnector.sync(grantCtx({ credentials: grant({ sites: [] }) })))).rejects.toThrow(/It reaches: none/);
   });
 
   it('fails naming the reachable sites when none matches the baseUrl', async () => {
@@ -234,7 +251,7 @@ describe('jiraConnector with an Atlassian grant', () => {
       .mockResolvedValueOnce(res(SEARCH_PAGE));
     vi.stubGlobal('fetch', fetchMock);
 
-    await collect(jiraConnector.sync(grantCtx({ credentials: grant({ expiresAt: new Date(Date.now() + 30_000).toISOString() }) })));
+    await collect(jiraConnector.sync(grantCtx({ credentials: grant({ expiresAt: new Date(Date.now() - 1000).toISOString() }) })));
 
     expect(fetchMock.mock.calls[0]![0]).toBe('https://auth.atlassian.com/oauth/token');
     expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({
@@ -248,6 +265,7 @@ describe('jiraConnector with an Atlassian grant', () => {
     expect(vi.mocked(updateCredentialValuesForConnector).mock.calls[0]![0]).toMatchObject({
       orgId: 'org_1',
       connectorSlug: 'jira',
+      expectedRefreshToken: 'rt-old',
       raw: expect.objectContaining({ accessToken: 'at-new', refreshToken: 'rt-new', cloudId: 'cloud-acme' }),
     });
   });
@@ -276,6 +294,86 @@ describe('jiraConnector with an Atlassian grant', () => {
 
     expect(docs.length).toBeGreaterThan(0);
     expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ kind: 'error', message: expect.stringContaining('rotated the refresh token') }));
+  });
+
+  it('refreshes from the token stored NOW, not the one this run loaded, when another sync rotated it first', async () => {
+    vi.mocked(getCredentialsForSource).mockResolvedValue(grant({ refreshToken: 'rt-rotated-by-other' }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(res({ access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 }))
+      .mockResolvedValueOnce(res(PROJECT_PAGE))
+      .mockResolvedValueOnce(res(SEARCH_PAGE));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await collect(jiraConnector.sync(grantCtx({ credentials: grant({ expiresAt: new Date().toISOString() }) })));
+
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string).refresh_token).toBe('rt-rotated-by-other');
+    expect(vi.mocked(updateCredentialValuesForConnector).mock.calls[0]![0]).toMatchObject({ expectedRefreshToken: 'rt-rotated-by-other' });
+  });
+
+  it('adopts the winner when the compare-and-swap loses to a concurrent rotation or a fresh consent', async () => {
+    vi.mocked(updateCredentialValuesForConnector).mockResolvedValueOnce(false);
+    vi.mocked(getCredentialsForSource)
+      .mockResolvedValueOnce(grant())
+      .mockResolvedValueOnce(grant({ accessToken: 'at-winner', refreshToken: 'rt-winner' }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(res({ access_token: 'at-mine', refresh_token: 'rt-mine', expires_in: 3600 }))
+      .mockResolvedValueOnce(res(PROJECT_PAGE))
+      .mockResolvedValueOnce(res(SEARCH_PAGE));
+    vi.stubGlobal('fetch', fetchMock);
+    const onProgress = vi.fn();
+
+    await collect(jiraConnector.sync(grantCtx({ onProgress, credentials: grant({ expiresAt: new Date().toISOString() }) })));
+
+    expect((fetchMock.mock.calls[1]![1] as RequestInit).headers).toMatchObject({ authorization: 'Bearer at-winner' });
+    expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'error' }));
+  });
+
+  it('keeps the old refresh token when a refresh reply carries none', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(res({ access_token: 'at-new', expires_in: 3600 }))
+      .mockResolvedValueOnce(res(PROJECT_PAGE))
+      .mockResolvedValueOnce(res(SEARCH_PAGE)));
+
+    await collect(jiraConnector.sync(grantCtx({ credentials: grant({ expiresAt: new Date().toISOString() }) })));
+
+    expect(vi.mocked(updateCredentialValuesForConnector).mock.calls[0]![0]).toMatchObject({ raw: expect.objectContaining({ accessToken: 'at-new', refreshToken: 'rt-old' }) });
+  });
+
+  it('refreshes at most once per run: a second 401 after the refresh is final', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(res({ access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 }))
+      .mockResolvedValueOnce(res(PROJECT_PAGE))
+      .mockResolvedValueOnce(res({ errorMessages: ['Unauthorized'] }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(collect(jiraConnector.sync(grantCtx({ credentials: grant({ expiresAt: new Date().toISOString() }) })))).rejects.toThrow(/rejected the credentials \(401\)/);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(updateCredentialValuesForConnector).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refresh Atlassian refuses fails the run with the reconnect hint appended', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(res({ error: 'invalid_grant', error_description: 'Unknown or invalid refresh token.' }, 403)));
+
+    await expect(collect(jiraConnector.sync(grantCtx({ credentials: grant({ expiresAt: new Date().toISOString() }) })))).rejects.toThrow(/Unknown or invalid refresh token\. The Atlassian grant may have been revoked/);
+  });
+
+  it('keeps syncing on the fresh token when persisting it throws, and reports it', async () => {
+    vi.mocked(updateCredentialValuesForConnector).mockRejectedValueOnce(new Error('vault: DEK and data have diverged'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(res({ access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 }))
+      .mockResolvedValueOnce(res(PROJECT_PAGE))
+      .mockResolvedValueOnce(res(SEARCH_PAGE)));
+    const onProgress = vi.fn();
+
+    const docs = await collect(jiraConnector.sync(grantCtx({ onProgress, credentials: grant({ expiresAt: new Date().toISOString() }) })));
+
+    expect(docs.length).toBeGreaterThan(0);
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ kind: 'error', message: expect.stringContaining('rotated the refresh token') }));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(warn.mock.calls[0])).not.toContain('diverged');
+
+    warn.mockRestore();
   });
 
   it('Test connection reports the site and each project key, and never refreshes', async () => {

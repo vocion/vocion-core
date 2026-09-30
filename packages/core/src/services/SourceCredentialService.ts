@@ -157,29 +157,40 @@ export async function storeCredentialForSource(input: {
 }
 
 /**
- * Replace the values of an install's live per-install credential, in place.
+ * Replace the values of an install's live per-install credential, in place,
+ * but only if it still holds the refresh token the caller refreshed from.
  *
  * For grants whose vendor ROTATES the refresh token on every refresh
- * (Atlassian): the connector that refreshed mid-sync has a new refresh token
- * the old row does not, and the next refresh would fail with it. Writing a
- * new row instead would leave one dead row per refresh behind. So the newest
- * unrevoked `source_credential` of the connector's install is re-encrypted
- * with the new bag; id, display name and owner stay as they were.
+ * (Atlassian): the connector that refreshed mid-sync holds a new refresh
+ * token the stored row does not, and the next refresh would fail with the
+ * old one. Writing a new row instead would leave one dead row per refresh
+ * behind, so the newest live `source_credential` of the connector's install
+ * is re-encrypted with the new bag; id, display name and owner stay as they
+ * were.
  *
- * Returns false, and writes nothing, when the install or a live row does not
+ * The compare-and-swap is what makes this safe when the row is shared. Every
+ * source of one connector in an org shares one install, so two Jira sources
+ * syncing at once both start from the same refresh token; without the check
+ * the second persist would overwrite the first's rotated token with a second
+ * one Atlassian minted from an already-retired parent. The same check covers
+ * a person reconnecting mid-sync: the fresh consent they stored must not be
+ * overwritten by the running sync's older lineage. A mismatch writes nothing
+ * and returns `false`; the caller re-reads and carries on with whatever won.
+ *
+ * Also `false`, with nothing written, when the install or a live row does not
  * exist — the credential the sync used may have come from the workspace
- * `api_token` path instead, which this does not touch. The caller decides
- * whether that is an error; the sync that just refreshed still holds a
- * working access token for its own run.
- * @param input - Which connector, and the new bag.
+ * `api_token` path instead, which this does not touch.
+ * @param input - Which connector, the new bag, and the token it was refreshed from.
  * @param input.orgId - The org that owns the install.
  * @param input.connectorSlug - Connector slug the install is keyed by, e.g. `jira`.
  * @param input.raw - The complete new credential bag.
+ * @param input.expectedRefreshToken - The stored bag's `refreshToken` when the caller read it; the write happens only if it is unchanged.
  */
 export async function updateCredentialValuesForConnector(input: {
   orgId: string;
   connectorSlug: string;
   raw: RawCredentials;
+  expectedRefreshToken: string;
 }): Promise<boolean> {
   const [install] = await db
     .select({ id: sourceInstallSchema.id })
@@ -187,13 +198,14 @@ export async function updateCredentialValuesForConnector(input: {
     .where(and(
       eq(sourceInstallSchema.orgId, input.orgId),
       eq(sourceInstallSchema.sourceSlug, input.connectorSlug),
+      eq(sourceInstallSchema.disabled, 'false'),
     ))
     .limit(1);
   if (!install) {
     return false;
   }
   const [credential] = await db
-    .select({ id: sourceCredentialSchema.id })
+    .select()
     .from(sourceCredentialSchema)
     .where(and(
       eq(sourceCredentialSchema.installId, install.id),
@@ -205,13 +217,19 @@ export async function updateCredentialValuesForConnector(input: {
     return false;
   }
   const vault = buildCredentialVault();
+  const stored = JSON.parse(
+    (await vault.decrypt(input.orgId, credential.ciphertext, credential.nonce, credential.authTag, credential.dekId)).toString('utf8'),
+  ) as RawCredentials;
+  if (stored.refreshToken !== input.expectedRefreshToken) {
+    return false;
+  }
   const { ciphertext, nonce, authTag, dekId } = await vault.encrypt(
     input.orgId,
     Buffer.from(JSON.stringify(input.raw), 'utf8'),
   );
   await db
     .update(sourceCredentialSchema)
-    .set({ ciphertext, nonce, authTag, dekId })
+    .set({ ciphertext, nonce, authTag, dekId, lastRefreshedAt: new Date() })
     .where(eq(sourceCredentialSchema.id, credential.id));
   return true;
 }

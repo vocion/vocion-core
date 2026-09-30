@@ -55,6 +55,7 @@ const {
   tenantAccountSchema,
 } = await import('@/models/Schema');
 const {
+  updateCredentialValuesForConnector,
   connectorHoldingCredential,
   credentialIdsInUse,
   credentialStatusForOrg,
@@ -163,6 +164,62 @@ describe('SourceCredentialService', () => {
     await db.update(sourceCredentialSchema).set({ revokedAt: new Date() }).where(eq(sourceCredentialSchema.id, credId));
 
     expect(await getCredentialsForSource(ORG, 'gmail')).toBeUndefined();
+  });
+});
+
+describe('updateCredentialValuesForConnector', () => {
+  const OLD = { accessToken: 'at-1', refreshToken: 'rt-1', sites: [] };
+  const NEW = { accessToken: 'at-2', refreshToken: 'rt-2', sites: [] };
+
+  it('re-encrypts the newest live row in place and stamps lastRefreshedAt', async () => {
+    const installId = await makeInstall('jira');
+    const credId = await storeCredential({ orgId: ORG, installId, displayName: 'Atlassian — Acme', raw: OLD });
+    const [before] = await db.select().from(sourceCredentialSchema).where(eq(sourceCredentialSchema.id, credId));
+
+    expect(await updateCredentialValuesForConnector({ orgId: ORG, connectorSlug: 'jira', raw: NEW, expectedRefreshToken: 'rt-1' })).toBe(true);
+
+    const rows = await db.select().from(sourceCredentialSchema).where(eq(sourceCredentialSchema.installId, installId));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(credId);
+    expect(rows[0]!.displayName).toBe('Atlassian — Acme');
+    expect(rows[0]!.ciphertext).not.toBe(before!.ciphertext);
+    expect(rows[0]!.lastRefreshedAt).toBeInstanceOf(Date);
+    expect(await getCredentialsForSource(ORG, 'jira')).toEqual(NEW);
+  });
+
+  it('writes nothing when the stored refresh token is not the one the caller refreshed from', async () => {
+    const installId = await makeInstall('jira');
+    await storeCredential({ orgId: ORG, installId, displayName: 'a', raw: OLD });
+
+    expect(await updateCredentialValuesForConnector({ orgId: ORG, connectorSlug: 'jira', raw: NEW, expectedRefreshToken: 'rt-someone-elses' })).toBe(false);
+    expect(await getCredentialsForSource(ORG, 'jira')).toEqual(OLD);
+  });
+
+  it('ignores revoked rows', async () => {
+    const installId = await makeInstall('jira');
+    const credId = await storeCredential({ orgId: ORG, installId, displayName: 'a', raw: OLD });
+    await db.update(sourceCredentialSchema).set({ revokedAt: new Date() }).where(eq(sourceCredentialSchema.id, credId));
+
+    expect(await updateCredentialValuesForConnector({ orgId: ORG, connectorSlug: 'jira', raw: NEW, expectedRefreshToken: 'rt-1' })).toBe(false);
+  });
+
+  it('returns false with no install, and never touches another org', async () => {
+    expect(await updateCredentialValuesForConnector({ orgId: ORG, connectorSlug: 'jira', raw: NEW, expectedRefreshToken: 'rt-1' })).toBe(false);
+
+    const installId = await makeInstall('jira');
+    await storeCredential({ orgId: ORG, installId, displayName: 'a', raw: OLD });
+
+    expect(await updateCredentialValuesForConnector({ orgId: 'org_other', connectorSlug: 'jira', raw: NEW, expectedRefreshToken: 'rt-1' })).toBe(false);
+    expect(await getCredentialsForSource(ORG, 'jira')).toEqual(OLD);
+  });
+
+  it('skips a disabled install, as the reader does', async () => {
+    const installId = await makeInstall('jira');
+    await storeCredential({ orgId: ORG, installId, displayName: 'a', raw: OLD });
+    await db.update(sourceInstallSchema).set({ disabled: 'true' }).where(eq(sourceInstallSchema.id, installId));
+
+    expect(await updateCredentialValuesForConnector({ orgId: ORG, connectorSlug: 'jira', raw: NEW, expectedRefreshToken: 'rt-1' })).toBe(false);
   });
 });
 

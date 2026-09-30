@@ -24,7 +24,9 @@ export const JIRA_READ_SCOPES = ['read:jira-work', 'read:jira-user', 'offline_ac
 /**
  * How far before Atlassian's own expiry the token is treated as expired.
  * Atlassian tokens last an hour; five minutes of slack covers a sync that
- * starts near the edge without paying a refresh on every run.
+ * starts near the edge without paying a refresh on every run. This is the
+ * ONE margin: `expiresAt` is stored already shortened by it, and `isExpiring`
+ * compares against the stored value with no second allowance.
  */
 const EXPIRY_MARGIN_SECONDS = 300;
 
@@ -71,14 +73,13 @@ export function expiresAtFrom(expiresIn: number, now: Date = new Date()): string
 }
 
 /**
- * Whether a stored expiry is within `withinSeconds` of now (or already past).
+ * Whether a stored expiry (already margin-adjusted) has arrived.
  * @param expiresAt - The stored ISO expiry.
- * @param withinSeconds - The look-ahead.
  * @param now - Injectable clock.
  */
-export function isExpiring(expiresAt: string, withinSeconds = 60, now: Date = new Date()): boolean {
+export function isExpiring(expiresAt: string, now: Date = new Date()): boolean {
   const at = Date.parse(expiresAt);
-  return Number.isNaN(at) || at - now.getTime() <= withinSeconds * 1000;
+  return Number.isNaN(at) || at <= now.getTime();
 }
 
 type TokenResponse = {
@@ -180,19 +181,20 @@ export async function listAccessibleSites(accessToken: string): Promise<Atlassia
 
 /**
  * The site in a grant whose URL is the source's `baseUrl`, or null.
- * Trailing slashes and case in the host do not count as a difference.
+ *
+ * The URL always decides. A single-site consent pins `cloudId` for
+ * convenience, but a source whose `baseUrl` names a different site must not
+ * quietly sync the pinned one — that would fill a Northwind source with Acme's
+ * tickets. The pin only breaks a tie when several sites carry the same URL,
+ * which Atlassian does not do today. Trailing slashes and case in the host do
+ * not count as a difference.
  * @param grant - The stored grant.
  * @param baseUrl - The source's configured site URL.
  */
 export function siteForBaseUrl(grant: Pick<AtlassianGrant, 'sites' | 'cloudId'>, baseUrl: string): AtlassianSite | null {
   const wanted = normaliseSiteUrl(baseUrl);
-  if (grant.cloudId) {
-    const pinned = grant.sites.find(site => site.id === grant.cloudId);
-    if (pinned) {
-      return pinned;
-    }
-  }
-  return grant.sites.find(site => normaliseSiteUrl(site.url) === wanted) ?? null;
+  const matching = grant.sites.filter(site => normaliseSiteUrl(site.url) === wanted);
+  return matching.find(site => site.id === grant.cloudId) ?? matching[0] ?? null;
 }
 
 function normaliseSiteUrl(url: string): string {

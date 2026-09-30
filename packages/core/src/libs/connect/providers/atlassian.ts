@@ -27,9 +27,15 @@ export const atlassianProvider: ConnectProvider = {
 
   authorizeUrl({ state, redirectUri }) {
     const client = atlassianClient();
+    if (!client) {
+      // The start route checks `configured()` first; this is the backstop, so
+      // an unconfigured deployment never sends a person to a URL with an empty
+      // client id that Atlassian would refuse with a message about us.
+      throw new Error(`Atlassian OAuth is not configured — set ${ATLASSIAN_ENV.join(' and ')}.`);
+    }
     const url = new URL(ATLASSIAN_AUTHORIZE_URL);
     url.searchParams.set('audience', 'api.atlassian.com');
-    url.searchParams.set('client_id', client?.clientId ?? '');
+    url.searchParams.set('client_id', client.clientId);
     url.searchParams.set('scope', JIRA_READ_SCOPES.join(' '));
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('state', state);

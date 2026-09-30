@@ -9,7 +9,8 @@ opt-in per project key. Two ways to connect it.
 On the source's page, **Connect with Atlassian** sends the person to
 `auth.atlassian.com`. They sign in to their Atlassian account, see the three
 scopes below, and consent once. They come back to the source with the grant
-stored in the workspace's vault, and the next sync uses it.
+stored in the workspace's vault; connecting clears any pasted-credential link
+the source had, so the grant is what the next sync uses.
 
 | Scope | For |
 |---|---|
@@ -29,11 +30,19 @@ them fails naming the sites it does reach, so the fix is either the `baseUrl`
 or the account, and the message says which.
 
 **The refresh token rotates.** Atlassian issues a new refresh token on every
-refresh and retires the old one. The connector refreshes about a minute before
-the access token expires, or once when a request answers 401, and saves what
-comes back before it does anything else. A refresh that could not be saved is
-reported on the run (the sync still finishes on the fresh token) and means
-the next run needs a reconnect.
+refresh and retires the old one. The connector treats the access token as
+expired five minutes before Atlassian does, refreshes then (or once, when a
+request answers 401), and saves what comes back before it does anything else.
+
+Every Jira source in a workspace shares one stored grant, so two sources
+syncing at once could both refresh from the same token. The connector refreshes
+from whatever is stored at that moment rather than what it loaded at the start,
+and saves the result only if the stored token is still the one it refreshed
+from; when it is not, the other sync's (or a fresh consent's) token wins and
+this run adopts it. Atlassian's ten-minute reuse window for a retired refresh
+token is the safety net behind that, not the design. A refresh that could not
+be saved is reported on the run (the sync still finishes on the fresh token)
+and means the next run needs a reconnect.
 
 **Test connection never refreshes.** It has nowhere to save a rotated token,
 so an expired grant reports "run Sync now" instead of silently invalidating

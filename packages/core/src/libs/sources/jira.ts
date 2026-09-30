@@ -47,7 +47,7 @@ import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 import { ATLASSIAN_API_BASE, isAtlassianGrant, isExpiring, refreshAtlassianGrant, siteForBaseUrl } from '@/libs/atlassian/oauth';
 import { fetchRetryingRateLimits } from '@/libs/http/retryAfter';
-import { updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
+import { getCredentialsForSource, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
 import { InspectInputError } from './inspect';
 
 const jiraConfigSchema = z.object({
@@ -209,6 +209,18 @@ export function resolveJiraAuth(input: {
   };
 }
 
+const RECONNECT_HINT = 'The Atlassian grant may have been revoked — open the source and Connect with Atlassian again.';
+
+/**
+ * The grant as currently stored for the org's Jira install, or null when the
+ * stored bag is not a grant (or there is none).
+ * @param orgId - The org whose install to read.
+ */
+async function readStoredGrant(orgId: string): Promise<AtlassianGrant | null> {
+  const stored = await getCredentialsForSource(orgId, 'jira').catch(() => undefined);
+  return isAtlassianGrant(stored) ? stored : null;
+}
+
 function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPersistence): JiraAuth {
   const site = siteForBaseUrl(grant, baseUrl);
   if (!site) {
@@ -226,13 +238,41 @@ function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPer
         'The Atlassian access token has expired and Test connection does not refresh it: a refresh rotates the stored refresh token, and the test has nowhere to save the new one. Run Sync now, which refreshes and saves it, then test again.',
       );
     }
-    const fresh = await refreshAtlassianGrant(current.refreshToken);
+    // The install is shared by every Jira source in the org, and a person may
+    // reconnect while this sync runs. So refresh from what is STORED now, not
+    // from what this run loaded at its start: another sync may already have
+    // rotated it, and Atlassian retires a refresh token the moment its
+    // successor is minted (with a ten-minute reuse window as the safety net).
+    const stored = await readStoredGrant(persistence.orgId);
+    const parent = stored?.refreshToken ?? current.refreshToken;
+    let fresh: Awaited<ReturnType<typeof refreshAtlassianGrant>>;
+    try {
+      fresh = await refreshAtlassianGrant(parent);
+    } catch (err) {
+      throw new Error(`${err instanceof Error ? err.message : String(err)} ${RECONNECT_HINT}`);
+    }
     current = { ...current, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken, expiresAt: fresh.expiresAt, ...(fresh.scope ? { scope: fresh.scope } : {}) };
     refreshedOnce = true;
-    const saved = await updateCredentialValuesForConnector({ orgId: persistence.orgId, connectorSlug: 'jira', raw: current });
+    // Compare-and-swap on the parent token: a concurrent sync or a fresh
+    // consent that landed first wins, and this run adopts what it stored.
+    let saved = false;
+    try {
+      saved = await updateCredentialValuesForConnector({ orgId: persistence.orgId, connectorSlug: 'jira', raw: current, expectedRefreshToken: parent });
+      if (!saved) {
+        const winner = await readStoredGrant(persistence.orgId);
+        if (winner && winner.refreshToken !== parent) {
+          current = { ...winner, cloudId: site.id };
+          return;
+        }
+      }
+    } catch (err) {
+      // A vault or database failure must not end a sync that holds a working
+      // token. Reported without the error text, which can carry row contents.
+      console.warn('[jira] could not persist the rotated Atlassian refresh token', { orgId: persistence.orgId, error: err instanceof Error ? err.name : 'unknown' });
+    }
     if (!saved) {
       // The run continues on the fresh token; the NEXT run will not.
-      persistence.warn('Atlassian rotated the refresh token but no per-install credential row could be updated (the grant may be stored as a workspace credential). Reconnect with Atlassian before the next sync.');
+      persistence.warn('Atlassian rotated the refresh token but the stored credential could not be updated (the grant may be stored as a workspace credential). Reconnect with Atlassian before the next sync.');
     }
   };
 
@@ -252,7 +292,7 @@ function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPer
       await refresh();
       return true;
     },
-    reconnectHint: 'The Atlassian grant may have been revoked — open the source and Connect with Atlassian again.',
+    reconnectHint: RECONNECT_HINT,
   };
 }
 
