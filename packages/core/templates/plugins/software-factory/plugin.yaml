@@ -111,6 +111,14 @@
 #   workspace's product slugs, and dedupOn is the type's, never the model's.
 #   Acceptance items require their `statement`.
 #
+# 2.25.0 — the pipeline has an owner (backlog 049). A fifth seat, Release
+#   (`release-engineer`), for what needs judgment; the rest is mechanism. A red
+#   CI is diagnosed by a typed read (`change_broke_it | flaky | main_broken |
+#   infra`) and routed in code; `factory-reconcile` reads open pull requests
+#   back from GitHub every five minutes and raises the events whose webhook
+#   never arrived; `deploy-run-failed` makes a red deploy branch the seat's
+#   incident; `github.rerun_failed_jobs` is done for you on the ladder.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -121,8 +129,8 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.24.0
-description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and four seats — PM, Design, Eng, QA.
+version: 2.25.0
+description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
 recommend:

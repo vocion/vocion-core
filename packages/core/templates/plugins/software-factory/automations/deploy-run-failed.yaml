@@ -1,0 +1,36 @@
+# A RUN ON THE DEPLOY BRANCH FAILED (`run.failed`, from the `github` source:
+# failure, timed_out, startup_failure…; a cancelled run raises nothing). On
+# most repositories a merge to the deploy branch IS the production deploy, so
+# a red run there is an incident, not a CI nuisance: the request that merged
+# may be half-shipped. Two instances wrote this same automation by hand
+# before the plugin had a seat for it (backlog 049); it is the Release
+# engineer's now. A workspace that needs its own words overrides it by slug.
+slug: deploy-run-failed
+name: A failed deploy is an incident
+description: >-
+  When a GitHub Actions run on the deploy branch completes without
+  succeeding, the Release engineer reads the run, files one incident request
+  naming the merge before it and the request it served, and asks a person to
+  roll back, re-run or fix forward, with a recommendation.
+status: active
+agent: release-engineer
+when:
+  event: run.failed
+do:
+  checkMission: keep-the-pipeline-answered
+  prompt: >-
+    A GitHub Actions run on the deploy branch did not succeed: {{repo}}, workflow
+    "{{name}}", run #{{runNumber}} attempt {{runAttempt}}, conclusion {{conclusion}},
+    head {{headSha}}, {{url}}. Read it with github_read_check_logs (the run URL) and
+    say why it failed, quoting the line that settles it. If it reads as flaky or as
+    the pipeline itself (a runner, a secret, a service), re-run it once with
+    propose_action github.rerun_failed_jobs and the run URL, and say so. Otherwise
+    find the merged pull request that produced {{headSha}} and the request it served,
+    and file one request of kind incident with the repository, the workflow, the run
+    URL, the head sha and the merge it followed — severity p1 if the run is the
+    deploy itself or a production health gate, p2 otherwise — linked to that
+    request. If the same run id and attempt already has an incident on record, add
+    the new evidence to it instead of filing a second. Then file one ask with three
+    options — roll back (the merge action's Undo, naming its run), re-run, fix
+    forward — and your recommendation. Report in two lines: what broke and why, and
+    what a person must decide.

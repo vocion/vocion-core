@@ -1,5 +1,5 @@
-# The trust ladder for the factory, over the eight actions core registers
-# (`libs/actions/factory.ts`). Every rule ships DISABLED except the branch
+# The trust ladder for the factory, over the actions core registers
+# (`libs/actions/factory.ts`, `libs/actions/github-rerun.ts`). Every rule ships DISABLED except the branch
 # push: a plugin cannot know who owns a merge in someone else's deployment,
 # and Vocion refuses to let one be unowned. The workspace turns a rung on by
 # slug with `extends: core`.
@@ -93,6 +93,14 @@ rules:
     risk: low
   - action: git.push_branch
     autoApproveAbove: 0.7
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+  # Re-running a red CI's failed jobs once (backlog 049): changes no code, and
+  # Undo cancels the re-run while it runs. Done for you — the diagnosis read
+  # the failure as flaky, or a person fixed the pipeline and answered its ask.
+  - action: github.rerun_failed_jobs
+    autoApproveAbove: 0.8
     enabled: true
     rung: execute-within-bounds
     risk: low

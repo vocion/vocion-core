@@ -1,13 +1,15 @@
 name: Software factory
 description: >-
-  Turns requests into released changes, with a person on every merge. Four
+  Turns requests into released changes, with a person on every merge. Five
   seats, one team: PM (the product manager — reads the request, decides in
   scope or not, writes the plan and the task contract, keeps the loop moving,
   authorizes nothing), Design (the designer — what it will look like before a
   person decides, what it looks like after it ships), Eng (the engineer — the
-  change, in its own checkout) and QA (the reviewer — the verdict against the
-  contract and the evidence). Graded on what was accepted and who is still
-  waiting, never on how many workers ran.
+  change, in its own checkout), QA (the reviewer — the verdict against the
+  contract and the evidence) and Release (the release engineer — why a CI or
+  a deploy is red and the move that answers it, rollbacks, where each product
+  runs). Graded on what was accepted and who is still waiting, never on how
+  many workers ran.
 goal: Every request is a released change or an honest written answer within a week, and a person can run the loop from a phone.
 lead: product-manager
 # TWO OWNERS, TWO DECISIONS (review, 2026-09-24). The workspace's
@@ -34,6 +36,9 @@ lead: product-manager
 #                             the pull request; no merge authority
 #   QA      change-reviewer   the verdict against the contract and the
 #                             verification artifacts; never merges
+#   Release release-engineer  why a CI or a deploy is red and the move that
+#                             answers it, rollbacks (a person's press),
+#                             environments; writes no product code
 measures:
   # The outcome. A task counts as accepted when a PERSON decided its merge ask
   # with anything but a reject — human-confirmed, because "accepted" is a

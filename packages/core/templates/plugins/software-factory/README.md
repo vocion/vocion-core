@@ -1,7 +1,7 @@
 # Software factory
 
 A request becomes work, work becomes a release, and a person runs the loop
-from a phone. Three pages, four seats, one loop.
+from a phone. Three pages, five seats, one loop.
 
 ## The three pages
 
@@ -44,7 +44,7 @@ right now" is answered from the records with links. Two people, two decisions:
 the product owner commits, the engineering owner merges; a routine completion
 reply can go out under a policy the product owner turns on.
 
-## The four seats
+## The five seats
 
 | Seat | Agent | Owns | Never |
 |---|---|---|---|
@@ -52,6 +52,7 @@ reply can go out under a policy the product owner turns on.
 | Design | `designer` | the mockup before a decision, the after-shot before a close | builds, decides |
 | Eng | `task-engineer` (`runsOn: external-worker`) | the change the outcome needs (starting in `allowedPaths`), the checks with artifacts, the pull request | merges, deploys, touches a credential |
 | QA | `change-reviewer` | the verdict against the contract and the evidence | merges, sees the engineer's conversation |
+| Release | `release-engineer` | why a CI or a deploy is red and the move that answers it, rollbacks (asked), environments | writes product code, rolls back without a person |
 
 ## The nouns
 
@@ -65,10 +66,12 @@ the trust ladder; this plugin ships what the fields mean.
 
 ## Missions and automations
 
-Three missions: **close-the-gap** (no request waits more than a week, and
+Four missions: **close-the-gap** (no request waits more than a week, and
 every shipped one carries a result — PM), **tell-the-requester** (every asker
 hears back — PM), **prove-the-contract** (every criterion proven or named
-unproven, every verdict bound to a commit — QA). Nine automations wake them: a
+unproven, every verdict bound to a commit — QA), **keep-the-pipeline-answered**
+(no verified change waits on CI, a deploy or a worker without a next step —
+Release). Nine automations wake them: a
 request arrives, a build decision lands, the weekday planning pass, a failed
 check on a factory branch, work finished, the two-hourly reply pass, the
 weekday result pass, and QA's two reads (the proposal at triage, and one review per
@@ -107,3 +110,25 @@ incumbent price check, dependency currency, the nightly e2e mission, tag audits,
 batches of ten. Each was built; each was removed on 2026-09-24 because it
 explained the machine rather than helping a person decide. What use demands
 comes back as use demands it.
+
+## The pipeline has an owner (2.25.0, backlog 049)
+
+Webhooks first, a reconciler behind them. A red CI on a factory pull request
+(`factory-ci-failure` on `pr.checks_completed`) is read by a typed model read
+over GitHub's own evidence — the failing checks, their annotations, the failing
+step's log tail, the files changed, and whether the base branch is red — and
+routed in code (`services/factory/ciFailed.ts`):
+
+| Cause | The move |
+|---|---|
+| `change_broke_it` | back to the engineer, the failing test named |
+| `flaky` | the failed jobs re-run once (`github.rerun_failed_jobs`, done for you); a second failure is the change's |
+| `main_broken` | one fix request on the default branch listing every pull request it blocks; each is brought up to date and checked again once the branch is green |
+| `infra` | one ask to the Release engineer with the evidence, a re-run as its answer |
+
+Every five minutes `factory-reconcile` reads open factory pull requests back
+from GitHub and raises any `pr.*` event whose webhook never arrived (same
+dedupe keys, so the same handler runs once), restarts a review that never
+started, and asks about a run no worker picked up. A failed run on the deploy
+branch (`deploy-run-failed`) is the Release engineer's incident, with a
+rollback always asked of a person through the merge's Undo.
