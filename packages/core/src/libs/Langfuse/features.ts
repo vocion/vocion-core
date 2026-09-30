@@ -62,6 +62,8 @@ export const FEATURES = {
   TOOL_MOCKUP: 'tool.mockup',
   /** `ci.diagnose` — why a factory pull request's CI is red, read by the classifier (backlog 049). */
   CI_DIAGNOSE: 'factory.ci_diagnose',
+  /** Whether an environment's health response says what its `healthCheck.expect` asks, read by the classifier when the text is not there verbatim (backlog 049). */
+  HEALTH_READ: 'factory.health_read',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

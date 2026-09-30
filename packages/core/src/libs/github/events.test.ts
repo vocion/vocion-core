@@ -22,7 +22,9 @@ import {
   pullRequestLifecycleEvents,
   reviewSubmittedEvents,
   RUN_FAILED,
+  RUN_SUCCEEDED,
   runFailedEvent,
+  runSucceededEvent,
   verifyGithubSignature,
 } from './events';
 
@@ -216,8 +218,17 @@ describe('runFailedEvent', () => {
       conclusion: 'failure',
       url: 'https://github.com/northwind/orders-api/actions/runs/5001',
       completedAt: '2026-09-19T17:00:00Z',
+      path: '',
       dedupeKey: `github:${REPO}:run.failed:5001:2`,
     });
+  });
+
+  it('emits run.succeeded for a run that succeeded, with its workflow file, and nothing else', () => {
+    const ok = runSucceededEvent(REPO, { ...run, conclusion: 'success', path: '.github/workflows/deploy.yml' });
+
+    expect(ok).toMatchObject({ type: RUN_SUCCEEDED, dedupeKey: `github:${REPO}:run.succeeded:5001:2`, payload: { conclusion: 'success', path: '.github/workflows/deploy.yml', headSha: 'deadbeef' } });
+    expect(runSucceededEvent(REPO, run)).toBeNull();
+    expect(runSucceededEvent(REPO, { ...run, status: 'in_progress', conclusion: null })).toBeNull();
   });
 
   it('ignores runs that succeeded, were cancelled, or are still going', () => {
@@ -303,6 +314,8 @@ describe('eventsFromWebhook', () => {
     expect(eventsFromWebhook('workflow_run', { action: 'completed', workflow_run: run, repository }, 'main')?.events.map(e => e.type)).toEqual([RUN_FAILED]);
     expect(eventsFromWebhook('workflow_run', { action: 'completed', workflow_run: { ...run, head_branch: 'factory/x' }, repository }, 'main')?.events).toEqual([]);
     expect(eventsFromWebhook('workflow_run', { action: 'completed', workflow_run: run, repository }, 'release')?.events).toEqual([]);
+    // A deploy that succeeded is an event too: its environments read their last deploy from it.
+    expect(eventsFromWebhook('workflow_run', { action: 'completed', workflow_run: { ...run, conclusion: 'success' }, repository }, 'main')?.events.map(e => e.type)).toEqual([RUN_SUCCEEDED]);
   });
 
   it('maps unmodelled deliveries to nothing, and a delivery with no repository to null', () => {

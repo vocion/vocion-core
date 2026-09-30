@@ -192,7 +192,17 @@ name: Software factory
 #   under `git.merge.pipeline` (Undo opens the revert) or sends it back red;
 #   `pipeline-fix-ended` reads the run back and asks a person once when no
 #   move was made. A CI that could not run is re-run once before any of this.
-version: 2.33.0
+# 2.34.0 — deploys are read, started and written down (backlog 049). The
+#   Release engineer reads a repository's runs with their jobs and failed
+#   steps (`github_read_workflow_runs`) and starts a workflow with
+#   `github.dispatch_workflow` (done for you; Undo cancels the run). Every
+#   finished deploy-branch run (`run.succeeded` is new beside `run.failed`)
+#   is written on the environments whose `deploy` names its workflow and step:
+#   `lastDeployedSha`, `lastDeployedAt`, `lastDeployRunUrl` and the health read
+#   after it (`environment-deployed`). The reconciler starts a deploy a merge
+#   never got, once per commit, for a workflow every push starts. The product
+#   page shows each environment's run and the pipeline's last line.
+version: 2.34.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

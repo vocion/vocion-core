@@ -113,6 +113,15 @@ rules:
     enabled: true
     rung: execute-within-bounds
     risk: medium
+  # A deploy that should have run and did not, or a redeploy of what is
+  # already merged, started with workflow_dispatch (plugin 2.31.0). The merge
+  # was the decision; Undo cancels the run while it runs. Only a seat whose
+  # harness grants it may start one.
+  - action: github.dispatch_workflow
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
   - action: git.merge
     autoApproveAbove: 1
     enabled: false

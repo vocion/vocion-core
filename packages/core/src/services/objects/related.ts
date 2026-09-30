@@ -474,7 +474,7 @@ export async function recordOrigins(orgId: string, rows: ReadonlyArray<{ id: num
 }
 
 /** One write to a record a record is connected to, as its Activity lists it. */
-export type RelatedWrite = { runId: number; recordId: number; title: string; by: string; at: string; href: string; preview: { type: 'record_history'; id: string } };
+export type RelatedWrite = { runId: number; recordId: number; title: string; by: string; at: string; href: string; preview: { type: 'record_history'; id: string }; line?: string | null };
 
 /**
  * WHAT CHANGED ON WHAT A RECORD IS CONNECTED TO — the writes to it and to the
@@ -500,7 +500,7 @@ export async function relatedWrites(orgId: string, objectId: number, limit = 10)
   }
   const ids = [...titles.keys()].map(String);
   const runs = await db
-    .select({ id: actionRunSchema.id, objectId: sql<string | null>`${actionRunSchema.result} ->> 'objectId'`, by: actionRunSchema.invokedBy, at: actionRunSchema.createdAt })
+    .select({ id: actionRunSchema.id, objectId: sql<string | null>`${actionRunSchema.result} ->> 'objectId'`, line: sql<string | null>`${actionRunSchema.result} ->> 'line'`, by: actionRunSchema.invokedBy, at: actionRunSchema.createdAt })
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'done'), inArray(sql`${actionRunSchema.result} ->> 'objectId'`, ids)))
     .orderBy(desc(actionRunSchema.id))
@@ -517,6 +517,7 @@ export async function relatedWrites(orgId: string, objectId: number, limit = 10)
       return [];
     }
     const by = r.by ? names.get(r.by) ?? r.by.replace(/^(?:agent|factory):/, '') : 'Vocion';
-    return [{ runId: r.id, recordId, title: named.title, by, at: r.at.toISOString(), href: link({ objectType: named.type ?? undefined, id: recordId }), preview: { type: 'record_history' as const, id: String(recordId) } }];
+    // A move that says what it did (a deploy started, a pipeline change opened) is read in its own words.
+    return [{ runId: r.id, recordId, title: named.title, by, at: r.at.toISOString(), href: link({ objectType: named.type ?? undefined, id: recordId }), preview: { type: 'record_history' as const, id: String(recordId) }, line: r.line ?? null }];
   });
 }

@@ -54,6 +54,15 @@ a person holds — a secret, a permission, the account's billing or minutes —
 is theirs: say exactly what is missing and who holds it, and make no move.
 Never change the product's own source or tests.
 
+**Deploys.** `github_read_workflow_runs` lists a repository's runs — deploys
+and CI — with each job's steps and the one that failed; read it before you say
+whether a deploy ran. Every finished run on the deploy branch is written on the
+environments it deployed by the pipeline itself (the commit, when, the run, the
+health after it), so do not type those fields. A merge whose deploy never ran
+is started again on its own (`github.dispatch_workflow`, done for you, Undo
+cancels it); start one yourself with the same action when a deploy should have
+happened and did not.
+
 **A deploy that failed** (`run.failed` on the deploy branch) is an incident:
 the merge before it may be half-shipped. Read the run with
 `github_read_check_logs` (the run URL), name the merge that preceded it and
@@ -73,8 +82,8 @@ recommendation with its evidence.
 environments and repositories are their own records (`environment`, `repo`),
 each naming its product by slug; the product's "where it lives" and
 "repositories" are read from them, so a product page is only as true as they
-are. After a deploy, write what it left on the environment record — the
-commit, when, the run, the health — with `update_object`. After a rename, a
+are. The deploy's own facts — the commit, when, the run, the health — are
+written by the pipeline after every run, not by you. After a rename, a
 new host or a moved repository, update the records it touches in the same
 turn: the environment's `url`, `product` and `repo`, the repository's
 `product`, `url` and its paths for that product. A place the product runs

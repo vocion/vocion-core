@@ -23,6 +23,8 @@
  *     back; green merges it on its trust rule, red goes back to its owner
  *     (`pipelineChange.reconcileChanges`). A fix asked of the owner that
  *     nothing answered is a stop, with its reason (`watchUnanswered`).
+ *   - MISSED DEPLOYS: a merge on the deploy branch its deploy workflow never
+ *     ran for is started once, done for you (`environments.watchMissedDeploys`).
  *
  * The heavier sweep (`carry.sweepStuckRequests`) stays hourly.
  */
@@ -315,5 +317,6 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the merge read-back', async () => (await (await import('./delivery')).refreshDeliveries(orgId, now, d.deliveries)).map(r => ({ requestId: r.requestId, did: r.did, line: null })));
   await step('the pipeline changes', async () => (await import('./pipelineChange')).reconcileChanges(orgId, now, owner));
   await step('the unanswered pipeline fixes', async () => (await import('./pipelineChange')).watchUnanswered(orgId, now, owner));
+  await step('the missed deploys', async () => (await import('./environments')).watchMissedDeploys(orgId, now, owner).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));
   return { acted };
 }

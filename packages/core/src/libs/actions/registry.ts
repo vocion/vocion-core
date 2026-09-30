@@ -12,6 +12,7 @@ import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
 import { factoryApprovePlanAction } from './factory-approve-plan';
 import { factoryDispatchAction } from './factory-dispatch';
+import { githubDispatchWorkflowAction } from './github-dispatch';
 import { githubOpenPullAction } from './github-pull';
 import { githubRerunFailedJobsAction } from './github-rerun';
 import { gmailSendAction } from './gmail-send';
@@ -69,6 +70,9 @@ registerAction(githubRerunFailedJobsAction);
 // vocion/pipeline-… branch and its pull request, merged on green under
 // git.merge.pipeline; Undo closes it or reverts it (backlog 049).
 registerAction(githubOpenPullAction);
+// A deploy that should have run, or a redeploy of what is merged, started
+// with workflow_dispatch; Undo cancels the run while it runs (backlog 049).
+registerAction(githubDispatchWorkflowAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.

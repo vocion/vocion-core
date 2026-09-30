@@ -11,7 +11,7 @@ vi.mock('@/services/agents/tools/githubPullRead', async importOriginal => ({
   tokenForRepo: vi.fn(async () => 'github_pat_fixture'),
 }));
 
-const { jobOf, logTailFor, parseRunUrl, readCheckLogs, rerunFailedJobs } = await import('./githubChecks');
+const { branchHead, dispatchWorkflow, jobOf, listWorkflowRuns, logTailFor, parseRunUrl, readCheckLogs, rerunFailedJobs, runJobs, workflowRef } = await import('./githubChecks');
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -107,5 +107,41 @@ describe('rerunFailedJobs', () => {
     stub({ [`${base}/actions/runs?head_sha=abc123`]: { workflow_runs: [{ id: 5, status: 'completed', conclusion: 'failure' }] } });
 
     await expect(rerunFailedJobs('org_1', 'https://github.com/Acme/northwind-core/pull/7', 'abc123')).rejects.toThrow(/Actions: write/);
+  });
+});
+
+describe('the deploys', () => {
+  const base = '/repos/Acme/northwind-core';
+  const run = { id: 36001, name: 'Deploy', path: '.github/workflows/deploy.yml', head_branch: 'main', head_sha: 'c0ffee', run_number: 51, run_attempt: 1, event: 'push', status: 'completed', conclusion: 'success', html_url: 'https://github.com/Acme/northwind-core/actions/runs/36001', created_at: '2026-09-30T12:20:00Z', updated_at: '2026-09-30T12:30:00Z' };
+
+  it('lists one workflow\'s runs on a branch, and a run\'s jobs with the step that failed', async () => {
+    const calls = stub({
+      [`${base}/actions/workflows/deploy.yml/runs?per_page=5&branch=main`]: { workflow_runs: [run] },
+      [`${base}/actions/runs/36001/jobs`]: { jobs: [{ id: 1, name: 'deploy', status: 'completed', conclusion: 'failure', html_url: 'j', steps: [{ name: 'Web app', conclusion: 'success' }, { name: 'Record the release', conclusion: 'failure' }] }] },
+    });
+
+    expect(workflowRef('.github/workflows/deploy.yml')).toBe('deploy.yml');
+    expect(await listWorkflowRuns('org_1', 'Acme/northwind-core', { workflow: '.github/workflows/deploy.yml', branch: 'main', limit: 5 })).toEqual([{ id: 36001, name: 'Deploy', path: '.github/workflows/deploy.yml', branch: 'main', headSha: 'c0ffee', event: 'push', status: 'completed', conclusion: 'success', url: run.html_url, runNumber: 51, attempt: 1, createdAt: '2026-09-30T12:20:00Z', updatedAt: '2026-09-30T12:30:00Z' }]);
+    expect((await runJobs('org_1', 'Acme/northwind-core', 36001))[0]).toMatchObject({ name: 'deploy', failedStep: 'Record the release' });
+    expect(calls[0]).toBe(`GET ${base}/actions/workflows/deploy.yml/runs?per_page=5&branch=main`);
+  });
+
+  it('starts a workflow and finds the run it started', async () => {
+    const started = { ...run, id: 36002, run_number: 52, event: 'workflow_dispatch', status: 'queued', conclusion: null, created_at: new Date().toISOString() };
+    const calls = stub({
+      [`${base}/actions/workflows/deploy.yml/dispatches`]: null,
+      [`${base}/actions/workflows/deploy.yml/runs`]: { workflow_runs: [started] },
+    });
+
+    const out = await dispatchWorkflow('org_1', { repo: 'Acme/northwind-core', workflow: '.github/workflows/deploy.yml', ref: 'main', waitMs: 0 });
+
+    expect(calls[0]).toBe(`POST ${base}/actions/workflows/deploy.yml/dispatches`);
+    expect(out.run).toMatchObject({ id: 36002, runNumber: 52, event: 'workflow_dispatch' });
+  });
+
+  it('reads a branch\'s head and when it landed', async () => {
+    stub({ [`${base}/commits/main`]: { sha: 'feed00', commit: { committer: { date: '2026-09-30T12:00:00Z' } } } });
+
+    expect(await branchHead('org_1', 'Acme/northwind-core', 'main')).toEqual({ sha: 'feed00', committedAt: '2026-09-30T12:00:00Z' });
   });
 });

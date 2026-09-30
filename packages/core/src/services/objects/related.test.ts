@@ -248,11 +248,16 @@ describe('a product\'s environments and repositories are the one source (Chris, 
     await db.insert(actionRunSchema).values([
       { orgId: ORG, actionId: 'objects.update_meta', status: 'done', input: { id: 361 }, result: { objectId: 361 }, invokedBy: 'agent:release-engineer' },
       { orgId: ORG, actionId: 'objects.update_meta', status: 'done', input: { id: 999 }, result: { objectId: 999 }, invokedBy: 'agent:release-engineer' },
+      // A pipeline move says what it did, in its own line.
+      { orgId: ORG, actionId: 'github.dispatch_workflow', status: 'done', input: { recordId: 361 }, result: { objectId: 361, line: 'Started deploy.yml on main for feed000 (run #52).' }, invokedBy: 'agent:release-engineer' },
     ] as never);
     const { relatedWrites } = await import('./related');
 
     const writes = await relatedWrites(ORG, 360);
 
-    expect(writes.map(w => [w.by, w.title, w.preview])).toEqual([['release-engineer', 'portal-web-production', { type: 'record_history', id: '361' }]]);
+    expect(writes.map(w => [w.by, w.title, w.preview, w.line])).toEqual([
+      ['release-engineer', 'portal-web-production', { type: 'record_history', id: '361' }, 'Started deploy.yml on main for feed000 (run #52).'],
+      ['release-engineer', 'portal-web-production', { type: 'record_history', id: '361' }, null],
+    ]);
   });
 });

@@ -106,11 +106,14 @@ describe('the product overview', () => {
 
     expect(document.querySelector('[data-testid="product-environments"]')).toBeNull();
 
-    await draw([row(40, 'send-api-production', { product: 'send', surface: 'api', stage: 'production', url: 'https://api.northwind.example', lastDeployedSha: '3f2a9c1d8e7f', lastHealth: 'ok' })]);
+    await draw([row(40, 'send-api-production', { product: 'send', surface: 'api', stage: 'production', url: 'https://api.northwind.example', lastDeployedSha: '3f2a9c1d8e7f', lastHealth: 'ok', lastDeployRunUrl: 'https://github.com/Acme/northwind-core/actions/runs/51', lastPipelineLine: 'Deployed 3f2a9c1 to send-api-production (run #51); healthy.' })]);
     const where = document.querySelector('[data-testid="product-environments"]')!;
 
     expect(where.textContent).toContain('API · production');
     expect(where.textContent).toContain('api.northwind.example');
     expect(where.textContent).toContain('3f2a9c1');
+    // The run that deployed it, one tap away, and what the pipeline last did there.
+    expect(where.querySelector('[data-testid="product-environment-run"]')?.getAttribute('href')).toBe('https://github.com/Acme/northwind-core/actions/runs/51');
+    expect(where.querySelector('[data-testid="product-environment-line"]')?.textContent).toBe('Deployed 3f2a9c1 to send-api-production (run #51); healthy.');
   });
 });

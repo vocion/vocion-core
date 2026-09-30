@@ -46,6 +46,17 @@ type OpenPullInput = z.infer<typeof openPullInput>;
  * @param invokedBy - `agent:<slug>`, a person's id, or `token:<id>`.
  */
 export async function mayOpenPipelinePull(orgId: string, invokedBy: string | undefined): Promise<{ ok: true } | { ok: false; why: string }> {
+  return mayActOnPipeline(orgId, invokedBy, OPEN_PULL_ACTION_ID);
+}
+
+/**
+ * Whether the proposer may take one of the pipeline's own actions: a person,
+ * or an agent whose harness grants that action by its id.
+ * @param orgId - The workspace.
+ * @param invokedBy - `agent:<slug>`, a person's id, or `token:<id>`.
+ * @param actionId - The action, as the harness grants it.
+ */
+export async function mayActOnPipeline(orgId: string, invokedBy: string | undefined, actionId: string): Promise<{ ok: true } | { ok: false; why: string }> {
   const by = invokedBy ?? '';
   if (by && !by.includes(':')) {
     return { ok: true };
@@ -55,13 +66,13 @@ export async function mayOpenPipelinePull(orgId: string, invokedBy: string | und
   const { db } = await import('@/libs/DB');
   const { agentSchema } = await import('@/models/Schema');
   const owners = (await db.select({ slug: agentSchema.slug, harness: agentSchema.harnessConfig }).from(agentSchema).where(eq(agentSchema.orgId, orgId)))
-    .filter(a => (a.harness?.grantTools ?? []).includes(OPEN_PULL_ACTION_ID))
+    .filter(a => (a.harness?.grantTools ?? []).includes(actionId))
     .map(a => a.slug);
   if (slug && owners.includes(slug)) {
     return { ok: true };
   }
-  const who = owners.length > 0 ? owners.join(' or ') : 'the seat whose harness grants github.open_pull';
-  return { ok: false, why: `A change to a repository's pipeline is opened by the seat that owns the pipeline (${who}), not by ${slug ?? (by || 'this caller')}. Ask it in the same chat, with what broke and the log line that says so.` };
+  const who = owners.length > 0 ? owners.join(' or ') : `the seat whose harness grants ${actionId}`;
+  return { ok: false, why: `${actionId} is the pipeline's own move, made by the seat that owns the pipeline (${who}), not by ${slug ?? (by || 'this caller')}. Ask it in the same chat, with what broke and the log line that says so.` };
 }
 
 async function stampChange(orgId: string, recordId: number, change: Record<string, unknown>): Promise<void> {

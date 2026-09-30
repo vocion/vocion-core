@@ -68,6 +68,10 @@ export type OverviewEnvironment = {
   deployedAt: Date | null;
   /** The post-deploy check's reading, or null when nothing has checked. */
   health: 'ok' | 'degraded' | 'down' | null;
+  /** The run that did the last deploy, one tap from the line. */
+  runUrl: string | null;
+  /** The last thing the pipeline did here, in one line, or null. */
+  line: string | null;
   href: string;
 };
 
@@ -239,6 +243,8 @@ export function environmentsFor(slug: string, rows: PageRow[], record: RecordLin
         deployedSha: sha ? sha.slice(0, 7) : null,
         deployedAt: toDate(m.lastDeployedAt),
         health,
+        runUrl: str(m.lastDeployRunUrl),
+        line: str(m.lastPipelineLine),
         href: record({ objectType: 'environment', id: r.id }),
       };
     });

@@ -37,6 +37,8 @@ export const PR_MERGED = 'pr.merged';
 export const PR_CLOSED = 'pr.closed';
 /** A GitHub Actions run on the deploy branch finished without succeeding. */
 export const RUN_FAILED = 'run.failed';
+/** A GitHub Actions run on the deploy branch succeeded — what an environment's last deploy is read from. */
+export const RUN_SUCCEEDED = 'run.succeeded';
 
 export const GITHUB_EVENT_TYPES = [
   PR_OPENED,
@@ -46,6 +48,7 @@ export const GITHUB_EVENT_TYPES = [
   PR_MERGED,
   PR_CLOSED,
   RUN_FAILED,
+  RUN_SUCCEEDED,
 ] as const;
 
 export type GithubEventType = (typeof GITHUB_EVENT_TYPES)[number];
@@ -125,8 +128,13 @@ export type RunFailedPayload = {
   conclusion: string;
   url: string;
   completedAt: string;
+  /** The workflow's file, e.g. `.github/workflows/deploy.yml` — what an environment's `deploy.workflow` names. */
+  path: string;
   dedupeKey: string;
 };
+
+/** Payload of `run.succeeded`: the same fields, for a run that concluded `success`. */
+export type RunSucceededPayload = RunFailedPayload;
 
 /** One event, ready for `emitEvent`. */
 export type GithubEvent = {
@@ -189,6 +197,9 @@ export type GithubWorkflowRun = {
   conclusion?: string | null;
   html_url: string;
   updated_at: string;
+  /** The workflow file, e.g. `.github/workflows/deploy.yml`. */
+  path?: string | null;
+  created_at?: string;
 };
 
 /* ------------------------------------------------------------------ */
@@ -347,8 +358,12 @@ export function runFailedEvent(repo: string, run: GithubWorkflowRun): GithubEven
   if ((run.status ?? 'completed') !== 'completed' || !FAILING_RUN_CONCLUSIONS.has(run.conclusion ?? '')) {
     return null;
   }
+  return runEvent(RUN_FAILED, repo, run);
+}
+
+function runEvent(type: typeof RUN_FAILED | typeof RUN_SUCCEEDED, repo: string, run: GithubWorkflowRun): GithubEvent {
   const attempt = run.run_attempt ?? 1;
-  const dedupeKey = `github:${repo}:${RUN_FAILED}:${run.id}:${attempt}`;
+  const dedupeKey = `github:${repo}:${type}:${run.id}:${attempt}`;
   const payload: RunFailedPayload = {
     repo,
     runId: run.id,
@@ -361,9 +376,23 @@ export function runFailedEvent(repo: string, run: GithubWorkflowRun): GithubEven
     conclusion: run.conclusion ?? '',
     url: run.html_url,
     completedAt: run.updated_at,
+    path: run.path ?? '',
     dedupeKey,
   };
-  return { type: RUN_FAILED, payload, dedupeKey };
+  return { type, payload, dedupeKey };
+}
+
+/**
+ * `run.succeeded` for a completed workflow run that succeeded, or null for
+ * anything else. Keyed on the run id and attempt, like `run.failed`.
+ * @param repo - `owner/name`.
+ * @param run - The workflow run.
+ */
+export function runSucceededEvent(repo: string, run: GithubWorkflowRun): GithubEvent | null {
+  if ((run.status ?? 'completed') !== 'completed' || run.conclusion !== 'success') {
+    return null;
+  }
+  return runEvent(RUN_SUCCEEDED, repo, run);
 }
 
 /* ------------------------------------------------------------------ */
@@ -468,7 +497,7 @@ export function eventsFromWebhook(eventName: string, body: unknown, deployBranch
   if (eventName === 'workflow_run') {
     const { action, workflow_run: run } = body as WorkflowRunDelivery;
     if (action === 'completed' && run && run.head_branch === deployBranch) {
-      const event = runFailedEvent(repo, run);
+      const event = runFailedEvent(repo, run) ?? runSucceededEvent(repo, run);
       if (event) {
         out.events.push(event);
       }

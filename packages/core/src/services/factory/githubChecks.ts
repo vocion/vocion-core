@@ -15,6 +15,10 @@
  *     what the reconciler reads back when a webhook never arrived, and how a
  *     pull request blocked by a red default branch is checked again once the
  *     branch is green.
+ *   - `listWorkflowRuns`, `runJobs`, `readWorkflowRun`, `branchHead` — the
+ *     deploys: which runs a workflow made, each job's steps and the one that
+ *     failed, and the commit a branch is at; `dispatchWorkflow` starts one
+ *     (`github.dispatch_workflow`) when a deploy should have run and did not.
  *
  * Nothing here reads meaning. The log tail is cut by the step's own
  * timestamps; which check failed is GitHub's conclusion field; why it failed
@@ -414,4 +418,170 @@ export async function updatePullBranch(orgId: string, url: string, expectedHead?
   if (!res.ok) {
     throw new Error(`GitHub did not update ${url} with its base: ${res.message}`);
   }
+}
+
+/** One workflow run, as the pipeline's reads carry it. */
+export type WorkflowRunSummary = {
+  id: number;
+  name: string;
+  /** The workflow file, e.g. `.github/workflows/deploy.yml`. */
+  path: string | null;
+  branch: string | null;
+  headSha: string;
+  event: string;
+  status: string;
+  conclusion: string | null;
+  url: string;
+  runNumber: number;
+  attempt: number;
+  createdAt: string | null;
+  updatedAt: string;
+};
+
+/** One job of a run, with its steps. */
+export type RunJob = { id: number; name: string; status: string; conclusion: string | null; url: string | null; steps: Array<{ name: string; conclusion: string | null }>; failedStep: string | null };
+
+type RawRun = import('@/libs/github/events').GithubWorkflowRun;
+
+const summary = (r: RawRun): WorkflowRunSummary => ({
+  id: r.id,
+  name: r.name ?? '',
+  path: r.path ?? null,
+  branch: r.head_branch ?? null,
+  headSha: r.head_sha,
+  event: r.event,
+  status: r.status ?? 'unknown',
+  conclusion: r.conclusion ?? null,
+  url: r.html_url,
+  runNumber: r.run_number,
+  attempt: r.run_attempt ?? 1,
+  createdAt: r.created_at ?? null,
+  updatedAt: r.updated_at,
+});
+
+/**
+ * The workflow a file path or name refers to, as the Actions API takes it:
+ * the file's name (`deploy.yml`), or a name as given.
+ * @param workflow - `.github/workflows/deploy.yml`, `deploy.yml`, or a numeric id.
+ */
+export function workflowRef(workflow: string): string {
+  const w = workflow.trim();
+  return w.includes('/') ? w.split('/').pop()! : w;
+}
+
+/**
+ * A repository's workflow runs, newest first: one workflow's when named, else every workflow's.
+ * @param orgId - The workspace.
+ * @param repo - `owner/name`.
+ * @param opts - Filters.
+ * @param opts.workflow - A workflow file (`.github/workflows/deploy.yml`) or name.
+ * @param opts.branch - Only runs on this branch.
+ * @param opts.event - Only runs this event started (`push`, `workflow_dispatch`).
+ * @param opts.headSha - Only runs on this commit.
+ * @param opts.limit - How many (default 10, at most 50).
+ */
+export async function listWorkflowRuns(orgId: string, repo: string, opts: { workflow?: string | null; branch?: string | null; event?: string | null; headSha?: string | null; limit?: number } = {}): Promise<WorkflowRunSummary[]> {
+  const gh = await ghFor(orgId, repo);
+  const q = new URLSearchParams({ per_page: String(Math.min(50, Math.max(1, opts.limit ?? 10))) });
+  if (opts.branch) {
+    q.set('branch', opts.branch);
+  }
+  if (opts.event) {
+    q.set('event', opts.event);
+  }
+  if (opts.headSha) {
+    q.set('head_sha', opts.headSha);
+  }
+  const base = opts.workflow ? `/actions/workflows/${encodeURIComponent(workflowRef(opts.workflow))}/runs` : '/actions/runs';
+  const res = await call<{ workflow_runs?: RawRun[] }>(gh, `${base}?${q.toString()}`);
+  if (!res.ok) {
+    throw new Error(`the workflow runs on ${repo} could not be listed: ${res.message}`);
+  }
+  return (res.data.workflow_runs ?? []).map(summary);
+}
+
+/**
+ * One run's jobs, each with its steps and the step that failed.
+ * @param orgId - The workspace.
+ * @param repo - `owner/name`.
+ * @param runId - The run.
+ */
+export async function runJobs(orgId: string, repo: string, runId: number): Promise<RunJob[]> {
+  const gh = await ghFor(orgId, repo);
+  const res = await call<{ jobs?: Array<{ id: number; name: string; status: string; conclusion: string | null; html_url?: string; steps?: Array<{ name: string; conclusion: string | null }> }> }>(gh, `/actions/runs/${runId}/jobs?per_page=50`);
+  if (!res.ok) {
+    throw new Error(`the jobs of run ${runId} on ${repo} could not be read: ${res.message}`);
+  }
+  return (res.data.jobs ?? []).map(j => ({
+    id: j.id,
+    name: j.name,
+    status: j.status,
+    conclusion: j.conclusion,
+    url: j.html_url ?? null,
+    steps: (j.steps ?? []).map(st => ({ name: st.name, conclusion: st.conclusion })),
+    failedStep: (j.steps ?? []).find(st => st.conclusion === 'failure')?.name ?? null,
+  }));
+}
+
+/**
+ * One run, read by its id.
+ * @param orgId - The workspace.
+ * @param repo - `owner/name`.
+ * @param runId - The run.
+ */
+export async function readWorkflowRun(orgId: string, repo: string, runId: number): Promise<WorkflowRunSummary> {
+  const gh = await ghFor(orgId, repo);
+  const res = await call<RawRun>(gh, `/actions/runs/${runId}`);
+  if (!res.ok) {
+    throw new Error(`Actions run ${runId} on ${repo} could not be read: ${res.message}`);
+  }
+  return summary(res.data);
+}
+
+/**
+ * Start a workflow on a branch (`workflow_dispatch`), and the run it started
+ * when GitHub lists it within a few seconds. The workflow must declare
+ * `workflow_dispatch`; GitHub's refusal says so when it does not.
+ * @param orgId - The workspace.
+ * @param o - What to start.
+ * @param o.repo - `owner/name`.
+ * @param o.workflow - The workflow file or name.
+ * @param o.ref - The branch (or tag) to run it on.
+ * @param o.inputs - The workflow's own inputs, as strings.
+ * @param o.waitMs - How long to look for the run it started (default 9 seconds).
+ */
+export async function dispatchWorkflow(orgId: string, o: { repo: string; workflow: string; ref: string; inputs?: Record<string, string>; waitMs?: number }): Promise<{ repo: string; workflow: string; ref: string; dispatchedAt: string; run: WorkflowRunSummary | null }> {
+  const gh = await ghFor(orgId, o.repo);
+  const repo = `${gh.owner}/${gh.repo}`;
+  const at = new Date(Date.now() - 5_000);
+  const res = await call<unknown>(gh, `/actions/workflows/${encodeURIComponent(workflowRef(o.workflow))}/dispatches`, { method: 'POST', body: { ref: o.ref, ...(o.inputs && Object.keys(o.inputs).length > 0 ? { inputs: o.inputs } : {}) } });
+  if (!res.ok) {
+    throw new Error(`GitHub did not start ${o.workflow} on ${repo}@${o.ref}: ${res.message}${res.status === 403 || res.status === 404 ? ' (the token needs Actions: write on this repository)' : ''}`);
+  }
+  const deadline = Date.now() + (o.waitMs ?? 9_000);
+  let run: WorkflowRunSummary | null = null;
+  while (!run) {
+    const runs = await listWorkflowRuns(orgId, repo, { workflow: o.workflow, branch: o.ref, event: 'workflow_dispatch', limit: 5 }).catch(() => []);
+    run = runs.find(r => (r.createdAt ? Date.parse(r.createdAt) : 0) >= at.getTime()) ?? null;
+    if (run || Date.now() >= deadline) {
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 3_000));
+  }
+  return { repo, workflow: o.workflow, ref: o.ref, dispatchedAt: new Date(at.getTime() + 5_000).toISOString(), run };
+}
+
+/**
+ * A branch's newest commit and when it was committed.
+ * @param orgId - The workspace.
+ * @param repo - `owner/name`.
+ * @param branch - The branch.
+ */
+export async function branchHead(orgId: string, repo: string, branch: string): Promise<{ sha: string; committedAt: string | null }> {
+  const gh = await ghFor(orgId, repo);
+  const res = await call<{ sha?: string; commit?: { committer?: { date?: string } } }>(gh, `/commits/${encodeURIComponent(branch)}`);
+  if (!res.ok || !res.data.sha) {
+    throw new Error(`${repo}@${branch} could not be read${res.ok ? '' : `: ${res.message}`}`);
+  }
+  return { sha: res.data.sha, committedAt: res.data.commit?.committer?.date ?? null };
 }

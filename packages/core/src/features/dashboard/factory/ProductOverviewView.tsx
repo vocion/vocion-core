@@ -221,8 +221,13 @@ export function ProductOverviewView({ overview: o, page, now, related = [], writ
                     {e.health
                       ? <StatusDot tone={ENV_DOT[e.health]} label={[e.deployedSha, ago(e.deployedAt), e.health === 'ok' ? 'healthy' : e.health].filter(Boolean).join(' · ')} />
                       : [e.deployedSha, ago(e.deployedAt)].filter(Boolean).join(' · ')}
+                    {e.runUrl && (
+                      <a href={e.runUrl} target="_blank" rel="noopener noreferrer" className={`${LINK} ml-2`} data-testid="product-environment-run">run</a>
+                    )}
                   </span>
                 )}
+                {/* What the pipeline last did here, from the record (backlog 049). */}
+                {e.line && <p className="basis-full text-[12px] text-muted-foreground" data-testid="product-environment-line">{e.line}</p>}
               </li>
             ))}
           </ul>
@@ -290,8 +295,9 @@ export function ProductOverviewView({ overview: o, page, now, related = [], writ
             {writes.map(w => (
               <li key={w.runId} className="group/row flex items-center gap-2 py-2 text-sm">
                 <span className="min-w-0 flex-1">
-                  <span className="text-muted-foreground">{`${w.by} updated `}</span>
+                  <span className="text-muted-foreground">{w.line ? `${w.by} on ` : `${w.by} updated `}</span>
                   <Link href={w.href} className={LINK}>{w.title}</Link>
+                  {w.line && <span className="text-muted-foreground">{`: ${w.line}`}</span>}
                   <span className="text-muted-foreground">{` · ${relativeLabel(new Date(w.at), now)}`}</span>
                 </span>
                 <OpenInPreview recordRef={w.preview} label={`Open ${w.title}'s history in preview`} />

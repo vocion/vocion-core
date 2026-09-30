@@ -44,6 +44,7 @@ import {
   pullRequestLifecycleEvents,
   reviewSubmittedEvents,
   runFailedEvent,
+  runSucceededEvent,
 } from '@/libs/github/events';
 import { InspectInputError } from './inspect';
 
@@ -216,7 +217,8 @@ export async function pollRepository(
   }
 
   // The deploy pipeline: completed runs on the deploy branch inside the
-  // window, of which the ones that did not succeed become events. `created`
+  // window: a failed one is `run.failed`, a successful one `run.succeeded`
+  // (what an environment reads its last deploy from). `created`
   // takes GitHub's search date syntax.
   // One page of 100: a deploy branch does not complete a hundred runs between
   // polls, and the endpoint wraps its array in an object so `list` cannot walk it.
@@ -233,7 +235,7 @@ export async function pollRepository(
     if (new Date(run.updated_at) < since) {
       continue;
     }
-    const event = runFailedEvent(repo, run);
+    const event = runFailedEvent(repo, run) ?? runSucceededEvent(repo, run);
     if (event) {
       out.events.push(event);
     }

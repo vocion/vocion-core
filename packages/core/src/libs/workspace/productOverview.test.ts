@@ -195,7 +195,7 @@ describe('where it runs', () => {
   const ENVS: PageRow[] = [
     row(30, 'send-local', { slug: 'send-local', product: 'send', surface: 'api', stage: 'local', url: 'http://localhost:3100' }),
     row(31, 'send-web-production', { slug: 'send-web-production', product: 'send', surface: 'web', stage: 'production', url: 'https://app.northwind.example' }),
-    row(32, 'send-api-production', { slug: 'send-api-production', product: 'send', surface: 'api', stage: 'production', url: 'https://api.northwind.example', lastDeployedSha: '3f2a9c1d8e7f', lastDeployedAt: '2026-09-24T10:00:00Z', lastHealth: 'ok' }),
+    row(32, 'send-api-production', { slug: 'send-api-production', product: 'send', surface: 'api', stage: 'production', url: 'https://api.northwind.example', lastDeployedSha: '3f2a9c1d8e7f', lastDeployedAt: '2026-09-24T10:00:00Z', lastHealth: 'ok', lastDeployRunUrl: 'https://github.com/Acme/northwind-core/actions/runs/51', lastPipelineLine: 'Deployed 3f2a9c1 to send-api-production (run #51); healthy.' }),
     row(33, 'slate-api-production', { slug: 'slate-api-production', product: 'slate', surface: 'api', stage: 'production' }),
   ];
 
@@ -203,7 +203,8 @@ describe('where it runs', () => {
     const o = build({ environments: ENVS });
 
     expect(o.environments.map(e => e.name)).toEqual(['API · production', 'Web app · production', 'API · local']);
-    expect(o.environments[0]).toMatchObject({ deployedSha: '3f2a9c1', health: 'ok', href: '/dashboard/objects/32' });
+    expect(o.environments[0]).toMatchObject({ deployedSha: '3f2a9c1', health: 'ok', href: '/dashboard/objects/32', runUrl: 'https://github.com/Acme/northwind-core/actions/runs/51', line: 'Deployed 3f2a9c1 to send-api-production (run #51); healthy.' });
+    expect(o.environments[1]).toMatchObject({ runUrl: null, line: null });
     expect(o.environments[1]).toMatchObject({ deployedSha: null, deployedAt: null, health: null });
   });
 

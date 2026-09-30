@@ -10,7 +10,9 @@ description: >-
   not an archaeology dig through CI files. Written by a person or the PM when
   it is set up, and kept current by the deploy itself: the pipeline upserts
   `lastDeployedSha`, `lastDeployedAt` and `lastHealth` over
-  `POST /api/v1/objects` after every run.
+  `POST /api/v1/objects` after every run, and Vocion reads the same back from
+  every deploy-branch run whose workflow (and step) `deploy` names, with a
+  health check after it.
 icon: server
 schema:
   type: object
@@ -148,6 +150,25 @@ schema:
       type: string
       format: date-time
       description: When `lastHealth` was read, so a stale reading reads as stale.
+    lastHealthDetail:
+      x-display: {label: Health said, group: Last deploy}
+      type: string
+      description: What the health check read — the address, the status and what settled it ("answered HTTP 503"). WRITTEN BY THE PIPELINE with `lastHealth`.
+    lastPipelineLine:
+      x-display: {label: Pipeline, group: Last deploy}
+      type: string
+      description: The last thing the pipeline did here, in one line — a deploy recorded, a deploy that did not run started again, a recovery step. WRITTEN BY THE PIPELINE; the whole history is `pipelineLog`.
+    pipelineLog:
+      x-display: {label: What the pipeline did, role: prose, format: steps, order: 7}
+      type: array
+      description: The pipeline's own account of this environment, newest last — each deploy it read, each move it made with the action behind it (its Undo) and the run that proves it. WRITTEN BY THE PIPELINE, never by hand.
+      items:
+        type: object
+        properties:
+          at: {type: string, format: date-time}
+          line: {type: string}
+          url: {type: string}
+          actionRunId: {type: number}
     owners:
       x-display: {label: Owners, group: Identity}
       type: array

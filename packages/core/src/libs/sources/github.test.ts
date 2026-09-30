@@ -236,7 +236,7 @@ describe('githubConnector', () => {
     expect(emitted()[3]).toMatchObject({ dedupeKey: `github:${REPO}#3:pr.review_submitted:abc123:11`, payload: { reviewState: 'approved', reviewer: 'chris' } });
   });
 
-  it('emits run.failed for a failed Actions run on the deploy branch, with its url and conclusion', async () => {
+  it('emits run.failed for a failed Actions run on the deploy branch, and run.succeeded for one that passed', async () => {
     stubRepo([], {
       [`/repos/${REPO}/actions/runs`]: () => res({ workflow_runs: [
         { id: 5001, name: 'Deploy', head_branch: 'main', head_sha: 'd', run_number: 88, run_attempt: 1, event: 'push', status: 'completed', conclusion: 'failure', html_url: `https://github.com/${REPO}/actions/runs/5001`, updated_at: '2026-09-19T17:00:00Z' },
@@ -245,7 +245,8 @@ describe('githubConnector', () => {
     });
     await collect(githubConnector.sync(ctx()));
 
-    expect(emitted().map(e => e.type)).toEqual(['run.failed']);
+    expect(emitted().map(e => e.type)).toEqual(['run.failed', 'run.succeeded']);
+    expect(emitted()[1]).toMatchObject({ dedupeKey: `github:${REPO}:run.succeeded:5002:1`, payload: { conclusion: 'success' } });
     expect(emitted()[0]).toMatchObject({ dedupeKey: `github:${REPO}:run.failed:5001:1`, payload: { url: `https://github.com/${REPO}/actions/runs/5001`, conclusion: 'failure', name: 'Deploy' } });
   });
 

@@ -209,7 +209,8 @@ export async function handleGithubWebhook(
     if (!mapping) {
       continue;
     }
-    const events = mapping.events.filter(event => event.type === 'run.failed' || matchesBranchPrefix(String(event.payload.branch ?? ''), source.config.branchPrefix));
+    // A deploy-branch run is the pipeline's, whatever the branch prefix says.
+    const events = mapping.events.filter(event => event.type === 'run.failed' || event.type === 'run.succeeded' || matchesBranchPrefix(String(event.payload.branch ?? ''), source.config.branchPrefix));
     const suites = mapping.checkSuiteFor.filter(suite => matchesBranchPrefix(suite.branch, source.config.branchPrefix));
     if (suites.length > 0) {
       const token = await resolved.tokenFor(source);
