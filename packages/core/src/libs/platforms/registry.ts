@@ -576,16 +576,18 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'rest',
     label: 'REST API (bearer token)',
     keySource: 'supplied',
-    // `one-live`, like `apollo`, and for the same reason: widening it to
-    // `many` needs `api_token_org_platform_live_idx` rebuilt with `rest` in
-    // its carve-out, and a unique index on a populated table is exactly what
-    // `check:migrations` refuses (`migrations/CONVENTIONS.md`). Until that
-    // rebuild is decided, a workspace holds one live REST credential, so
-    // one REST API per workspace. The token is sent as
-    // `Authorization: Bearer <token>` on every call; there is no other
-    // header scheme, on purpose — one shape, and the first API to need
-    // another can add a `headerName` field beside these two.
-    credentialsPerOrg: 'one-live',
+    // `many`, like `strapi`, and for the same reason: the credential is a token
+    // plus the base URL it was issued for, so it names one API and a workspace
+    // with two APIs needs two. Migration 0153 carved `rest` out of
+    // `api_token_org_platform_live_idx` to allow it — before that, connecting a
+    // second REST source silently revoked the first, because a one-live
+    // platform reads a second save as a rotation. Each source names the
+    // credential it uses through `knowledge_source.api_token_id`.
+    //
+    // The token is sent as `Authorization: Bearer <token>` on every call; there
+    // is no other header scheme, on purpose — one shape, and the first API to
+    // need another can add a `headerName` field beside these two.
+    credentialsPerOrg: 'many',
     connectorSlugs: ['rest'],
     credentialsShareable: false,
     llmProvider: null,

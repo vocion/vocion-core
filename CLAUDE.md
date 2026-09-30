@@ -308,8 +308,11 @@ from crossing over afterwards by the `api_token_platform_immutable_tg` trigger
   before that landed have the hash only and can never be shown again.
 - **Supplied** (every other platform) — the key a workspace holds *with* a
   vendor, AES-256-GCM encrypted under that org's DEK so we can read it back and
-  call out with it. One live key per platform per org, enforced by a partial
-  unique index; saving a second revokes the first in the same transaction.
+  call out with it. How many an org may hold is the descriptor's
+  `credentialsPerOrg`. An LLM platform, `aws` and `custom` hold one live key,
+  enforced by a partial unique index, and saving a second revokes the first in
+  the same transaction. A connector platform holds as many as the workspace
+  wants, told apart by `name`, each connector naming the one it uses.
 
 `src/libs/platforms/registry.ts` is the only list of platforms. Adding one is a
 descriptor there — nothing in the service, router or UI enumerates them.

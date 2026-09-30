@@ -1072,6 +1072,13 @@
       "when": 1790714160986,
       "tag": "0152_agent_voice",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1790800560986,
+      "tag": "0153_rest_many_credentials",
+      "breakpoints": true
     }
   ]
 }

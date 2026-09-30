@@ -229,9 +229,12 @@ model provider's tool schema without a transform.
    workspace's key (KMS-backed on a deployed install) and never written to
    the YAML.
 
-   One live REST credential per workspace today (the `rest` platform is
-   `one-live`, like Apollo, until the partial unique index behind the cap is
-   rebuilt — `packages/core/src/libs/platforms/registry.ts` says why).
+   A workspace holds as many REST credentials as it has REST APIs, told apart
+   by name — the connect form names one `REST API (bearer token) — <source>`
+   by default — and each source calls with the one it is connected to. Two
+   sources never share a credential: a token issued for one API authenticates
+   nothing against another, so pointing a second source at a credential
+   already in use is refused rather than half-working.
 
 3. **Test connection** GETs the health path with the token and reports three
    checks: the API answered, the token was accepted, and what the source
