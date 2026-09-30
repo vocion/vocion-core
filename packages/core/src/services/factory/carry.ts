@@ -946,6 +946,13 @@ export async function replanStaleStops(orgId: string, now: Date = new Date()): P
 }
 
 /**
+ * A NEW WORKER RETRIES EVERY STOP ONCE (2026-09-30). A worker deploy is new
+ * capability: on 2026-09-30 the worker stopped fencing the engineer inside the
+ * plan's paths (squatch-core #130), and four features sat "Stopped" for a
+ * person although the thing that stopped them was gone. So any open stop, not
+ * only an infrastructure one, is built again once per new worker version,
+ * carrying why it stopped; it stops again, with its reason, if it fails again.
+ *
  * A REBUILT WORKER ANSWERS AN INFRASTRUCTURE STOP. Ask #220 (2026-09-28):
  * "Stopped: Open alerts — the infrastructure failed twice", filed at 19:09;
  * the worker image was rebuilt at 21:06 (the deploy's record-environment step
@@ -989,24 +996,21 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
     }
     const work = await workFor(orgId, requestId);
     const failed = work.runs[0];
-    if (!failed || !['failed', 'lost'].includes(failed.status) || work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting) {
+    if (!failed || work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting) {
       continue;
     }
     const failure = classifyFailure({ status: failed.status, error: failed.error, failures: failed.failures });
-    if (!INFRASTRUCTURE_FAILURES.has(failure.class)) {
-      continue;
-    }
     const rebuilt = workerRebuiltSince({ stoppedAt: stop.createdAt ?? now, failedVersion: failed.workerVersion ?? null, environments, reported });
     if (!rebuilt || request.meta.workerRebuildResumedFor === rebuilt.version) {
       continue;
     }
-    const line = `Worker rebuilt (${rebuilt.version}); building again.`;
+    const line = `New worker (${rebuilt.version}) since the stop; building again.`;
     const task = work.tasks.find(t => String(t.id) === String((failed.input.record as Meta | undefined)?.id));
     const planId = Number(task?.meta.planId) > 0 ? Number(task!.meta.planId) : (await approvedPlan(work.plans))?.id;
     const dispatched = await propose(orgId, DISPATCH, { requestId, ...(planId ? { planId } : {}), trigger: 'recovery', recoveryOfRun: failed.id, recoveryClass: failure.class, reason: line }, {
       confidence: 0.9,
-      rationale: `Run #${failed.id} failed on the infrastructure (${failure.sentence}); the worker was rebuilt after the stop (${rebuilt.version}, ${rebuilt.source === 'environment' ? 'its environment record' : 'a run reported it'}).`,
-      reason: 'The failure was the worker, and there is a new worker; Undo cancels it until a worker claims it.',
+      rationale: `Run #${failed.id} stopped (${failure.sentence}); a new worker was deployed after the stop (${rebuilt.version}, ${rebuilt.source === 'environment' ? 'its environment record' : 'a run reported it'}).`,
+      reason: 'There is a new worker since the stop, so it gets one more attempt; Undo cancels it until a worker claims it.',
     });
     const at = now.toISOString();
     if (!dispatched.ok) {
@@ -1039,10 +1043,10 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
   const { readRecord } = await lib();
   const requests = ((await listBusinessObjects(orgId, 'request').catch(() => [])) as Array<{ id: number }>).map(r => r.id).sort((a, b) => a - b);
-  // A stop the worker's rebuild answered resolves first, so the requests it
-  // carried on are not read as stuck below.
-  const acted: CarryResult[] = await resumeAfterWorkerRebuild(orgId, now).catch((err: Error) => {
-    console.warn('factory sweep: the worker-rebuild check failed', { orgId, message: err.message });
+  // A stop a stale plan explains is planned again first: a new plan, not a
+  // new build, is what answers it.
+  const acted: CarryResult[] = await replanStaleStops(orgId, now).catch((err: Error) => {
+    console.warn('factory sweep: the stale-plan check failed', { orgId, message: err.message });
     return [];
   });
   // A replaced attempt's pull request is closed, naming what replaced it, so
@@ -1050,9 +1054,10 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
   await import('./supersededPulls').then(m => m.closeSupersededPulls(orgId)).catch((err: Error) => {
     console.warn('factory sweep: closing superseded pull requests failed', { orgId, message: err.message });
   });
-  // A stop a stale plan explains is planned again, the same way.
-  acted.push(...await replanStaleStops(orgId, now).catch((err: Error) => {
-    console.warn('factory sweep: the stale-plan check failed', { orgId, message: err.message });
+  // Then every other stop a new worker has arrived since is built again once,
+  // so the requests it carried on are not read as stuck below.
+  acted.push(...await resumeAfterWorkerRebuild(orgId, now).catch((err: Error) => {
+    console.warn('factory sweep: the worker-rebuild check failed', { orgId, message: err.message });
     return [];
   }));
   // A request one of those just carried on is not read again in this sweep:

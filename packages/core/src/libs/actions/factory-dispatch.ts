@@ -1056,6 +1056,11 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       const recovery = automatic
         ? noteAttempt(state, { at, kind: 'build', trigger: input.trigger ?? 'retry', runId: run.id, taskId: task.id, line: input.reason })
         : logLine(personActed(state, at, `Build started by ${approvedBy}.`), `Run #${run.id} queued for task #${task.id}.`, at, run.id);
+      // A BUILD ANSWERS THE STOP (2026-09-30, #246: a stop ask from 00:56 stayed
+      // open after the build started again at 01:48, and the sweep then read
+      // the request as waiting on a person). Whatever started this build, the
+      // request's open stop asks are superseded by it.
+      await supersedeStopAsks(ctx.orgId, request.id, input.reason ?? `Building again (run #${run.id}).`).catch(() => undefined);
       // The card was the decision: the acceptance is frozen as the contract
       // and the recommendation is approved, in the same action.
       await writeMeta(ctx.orgId, request.id, {
@@ -1104,3 +1109,20 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     return { cancelledRun: runId };
   },
 };
+
+/**
+ * Supersede a request's open factory stop asks (`factory-recovery:<id>:…`).
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param note - What answered them.
+ */
+async function supersedeStopAsks(orgId: string, requestId: number, note: string): Promise<void> {
+  const { and, eq, like } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { askSchema } = await import('@/models/Schema');
+  const { supersedeAsk } = await import('@/services/AskService');
+  const open = await db.select({ id: askSchema.id }).from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), like(askSchema.sourceRef, `factory-recovery:${requestId}:%`)));
+  for (const ask of open) {
+    await supersedeAsk(orgId, ask.id, note);
+  }
+}

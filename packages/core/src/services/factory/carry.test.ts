@@ -466,11 +466,11 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
 
     const { acted } = await carry.sweepStuckRequests(ORG);
 
-    expect(acted.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done', line: 'Worker rebuilt (northwind-worker-production 3c9e1a7b); building again.' });
+    expect(acted.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done', line: 'New worker (northwind-worker-production 3c9e1a7b) since the stop; building again.' });
 
     const [after] = await db.select().from(askSchema).where(eq(askSchema.id, ask.id));
 
-    expect(after).toMatchObject({ status: 'superseded', decisionNote: 'Worker rebuilt (northwind-worker-production 3c9e1a7b); building again.' });
+    expect(after).toMatchObject({ status: 'superseded', decisionNote: 'New worker (northwind-worker-production 3c9e1a7b) since the stop; building again.' });
 
     const runs = await runsFor(r.id);
 
@@ -481,11 +481,35 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
 
     expect(meta.workerRebuildResumedFor).toBe('northwind-worker-production 3c9e1a7b');
     expect(meta.recovery.askId).toBeNull();
-    expect(meta.recovery.log.at(-1)?.text).toBe(`Worker rebuilt (northwind-worker-production 3c9e1a7b); building again. Ask #${ask.id} resolved itself.`);
+    expect(meta.recovery.log.at(-1)?.text).toBe(`New worker (northwind-worker-production 3c9e1a7b) since the stop; building again. Ask #${ask.id} resolved itself.`);
 
     // Once: a second sweep starts nothing more.
     await carry.sweepStuckRequests(ORG);
 
+    expect(await runsFor(r.id)).toHaveLength(2);
+  });
+
+  it('builds any stop again once a new worker lands, not only an infrastructure one (2026-09-30: the paths fence)', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms remember the theme' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const first = (await runsFor(r.id)).at(-1)!;
+    await claimWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', workerVersion: 'img-before' });
+    await failWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', error: 'out of bounds: the approved plan cannot be built inside the allowed paths', failures: [{ scope: 'out_of_bounds', message: 'the theme column lives outside the allowed paths' }] });
+    const attempt = (n: number) => ({ n, at: '2026-09-30T02:00:00Z', kind: 'build', trigger: 'retry', runId: null, taskId: null, line: 'x', failure: null });
+    await db.update(businessObjectSchema).set({ metadata: { ...((await read(r.id)).metadata as Record<string, unknown>), recovery: { log: [], line: null, askId: null, limit: 3, since: null, stage: 'recovering', attempts: [attempt(1), attempt(2), attempt(3)], handledRunIds: [], planRequestedAt: null } } }).where(eq(businessObjectSchema.id, r.id));
+    await carry.stopIfAtLimit(ORG, r.id, 'the engineer could not work outside the plan\'s paths');
+    const askId = ((await read(r.id)).metadata as { recovery: { askId: number } }).recovery.askId;
+
+    const envType = (await getObjectTypeBySlug(ORG, 'environment')) ?? (await createObjectType({ slug: 'environment', label: 'Environment' }, ORG))[0];
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: envType!.id, title: 'Northwind factory worker (production)', metadata: { slug: 'northwind-worker-production', surface: 'worker', stage: 'production', lastDeployedAt: new Date(Date.now() + 1000).toISOString(), lastDeployedSha: '5d2f0c9e11aa22bb33cc44dd55ee66ff77889900' } });
+
+    const out = await carry.resumeAfterWorkerRebuild(ORG);
+
+    expect(out.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done' });
+
+    const [after] = await db.select().from(askSchema).where(eq(askSchema.id, askId));
+
+    expect(after!.status).toBe('superseded');
     expect(await runsFor(r.id)).toHaveLength(2);
   });
 
