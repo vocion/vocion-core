@@ -184,6 +184,8 @@ test.describe('the platform selector decides which controls exist', () => {
       'Tavily',
       'Brave Search',
       'Firecrawl',
+      // A sign-in to an app the workspace builds, for its QA (2026-09-30).
+      'App sign-in',
       'Other platform',
     ]);
   });
