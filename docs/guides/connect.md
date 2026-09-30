@@ -1,0 +1,98 @@
+# Connecting a source at the vendor
+
+A source that reads a third-party system needs that system's credential. Until
+now every one of them was pasted: a person made a token somewhere else and typed
+it into the connect dialog. For the vendors that offer an authorization flow,
+Vocion now sends the person there instead: they click **Connect with Slack**,
+approve at the vendor, and come back with the credential stored. Nothing is
+pasted and the token never crosses the browser.
+
+The mechanism is one pair of routes and one descriptor per vendor. This guide
+is the mechanism; each vendor's guide says what to create on its side.
+
+## What a person sees
+
+On `/dashboard/sources`, a source whose connector has a provider and whose
+server is configured for it shows one button in its connect dialog, **Connect
+with <vendor>**, in place of the paste form. When the server is not configured
+for that vendor, the paste form stays and one line names the env vars the
+server is missing, so the reason is never a mystery. After the vendor sends the
+person back, the sources page says in one line whether it worked, and if not,
+what to do.
+
+## How it works
+
+```
+person clicks Connect with Slack
+  → GET /api/connect/slack/start?source=<slug>        (admin session)
+      signs a state, 302 to the vendor's authorize URL
+  → vendor: person approves
+  → GET /api/connect/slack/callback?code=…&state=…
+      verifies the state, exchanges the code, stores the credential on the
+      source's install, forgets any pasted credential the source pointed at,
+      303 to /dashboard/sources?connect=ok&source=<slug>
+```
+
+- **Start** is gated exactly like pasting a key: a signed-in workspace admin.
+  It refuses a source the provider does not connect (a `strapi` source cannot
+  start a Slack connect), and refuses with the env var names when the server
+  is not configured.
+- **State** is `base64url(payload).hex(HMAC-SHA256(payload))`, keyed with
+  `AUTH_SECRET`. The payload is `{ v: 1, provider, orgId, sourceSlug, userId,
+  nonce, exp }` with a ten-minute expiry. The callback trusts nothing else:
+  a state that fails its signature, is expired, names another provider, or
+  names an org other than the one the person is signed into is refused with a
+  short code, and no exchange is attempted.
+- **Exchange** is the provider's. It gets every query parameter but `state`
+  and this deployment's callback URL, and returns either a credential bag
+  with a display name, or a refusal reason.
+- **Storage** is `storeCredentialForSource`: the bag is AES-256-GCM encrypted
+  under the workspace's key and attached to the source's install, the same row
+  a pasted token would land in, so the connector reads it the same way. If the
+  source had been pointed at a pasted workspace credential, that link is
+  cleared so the grant just stored is what resolves.
+- **Landing** carries only `connect=ok|error`, a short `reason` code, and the
+  source slug. Nothing the vendor sent — no code, no token, no error text —
+  is written into a URL or a log line.
+
+The callback URL a vendor must be told is:
+
+```
+https://<your-vocion-host>/api/connect/<provider>/callback
+```
+
+`<your-vocion-host>` comes from `NEXT_PUBLIC_APP_URL`, falling back to the
+forwarded host of the request.
+
+## Providers and their env
+
+| Provider | Connects | Env vars | Callback to register |
+|---|---|---|---|
+| `slack` | the `slack` source | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `/api/connect/slack/callback` |
+| `atlassian` | the `jira` source | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | `/api/connect/atlassian/callback` |
+| `github` | the `github` source | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64` (plus `GITHUB_WEBHOOK_SECRET` for the app's webhook) | `/api/connect/github/callback` (the GitHub App's Setup URL) |
+
+All of them are optional. A deployment that sets none keeps the paste forms
+it had. The Atlassian and GitHub providers land in their own pull requests;
+until then their entries answer "not configured".
+
+## Adding a provider
+
+One file under `packages/core/src/libs/connect/providers/`, exporting a
+`ConnectProvider` (`libs/connect/provider.ts`): its id, the connector slugs it
+serves, the env it needs, `authorizeUrl` and `exchange`. Register it in
+`libs/connect/registry.ts`. The routes, the state, the storage and the dialog
+need no change. A provider never logs the state, the code or a token, and its
+refusal reasons are short codes a person can be shown.
+
+## What it does not do, yet
+
+- **Refresh.** A provider whose access tokens expire (Atlassian) stores what it
+  needs to refresh; the connector reading it is what refreshes. Slack bot
+  tokens do not expire unless token rotation is switched on for the app, which
+  this flow does not request.
+- **Revoke at the vendor.** Revoking a credential in Vocion stops Vocion using
+  it; it does not uninstall the app at the vendor.
+- **Workspace-level grants.** The credential lands on the source's install, as
+  Google's grant does today, not on the workspace credential list. Two sources
+  connecting to the same Slack workspace each authorize once.

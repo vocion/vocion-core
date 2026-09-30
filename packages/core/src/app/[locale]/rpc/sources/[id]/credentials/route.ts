@@ -33,6 +33,7 @@
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
+import { connectOptionFor } from '@/libs/connect/registry';
 import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
@@ -110,6 +111,10 @@ export async function GET(
       platformLabel: platform?.label ?? null,
       helpText: platform?.helpText ?? null,
       fields,
+      // Whether this connector can be authorized at the vendor with a click
+      // instead of a pasted key, and if the server is missing what that
+      // needs, the env var names — never their values.
+      connect: connectOptionFor(connectorSlug),
     });
   } catch (err) {
     // Two different failures land here. A credential the install points at but

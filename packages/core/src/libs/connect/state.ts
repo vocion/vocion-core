@@ -1,0 +1,121 @@
+/**
+ * The `state` a vendor hands back unchanged: who started the connect, for
+ * which source, and until when. Signed so the callback can trust it, and
+ * bound to the org so a state minted in one workspace cannot land a
+ * credential in another.
+ *
+ * Shape on the wire: base64url(payload JSON) + '.' + hex(HMAC-SHA256(payload)),
+ * keyed with AUTH_SECRET. The nonce keeps two starts from ever producing the
+ * same state; the expiry keeps a link pasted into a chat from working an hour
+ * later.
+ */
+
+import { Buffer } from 'node:buffer';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { Env } from '@/libs/Env';
+
+export type ConnectStatePayload = {
+  v: 1;
+  provider: string;
+  orgId: string;
+  sourceSlug: string;
+  userId: string;
+  nonce: string;
+  /** Unix milliseconds. */
+  exp: number;
+};
+
+export type ConnectStateRefusal = 'malformed' | 'bad_signature' | 'expired';
+
+const TTL_MS = 10 * 60 * 1000;
+
+function secret(): string {
+  const value = Env.AUTH_SECRET;
+  if (!value) {
+    throw new Error('AUTH_SECRET is required to sign a connect state');
+  }
+  return value;
+}
+
+function sign(payload: string): string {
+  return createHmac('sha256', secret()).update(payload).digest('hex');
+}
+
+/**
+ * Mint a state for one connect attempt.
+ * @param input - Who is connecting what.
+ * @param input.provider - Provider id, e.g. `slack`.
+ * @param input.orgId - The workspace the credential will belong to.
+ * @param input.sourceSlug - The source being connected.
+ * @param input.userId - The person who started it.
+ * @param now - Injected for tests.
+ */
+export function signState(
+  input: { provider: string; orgId: string; sourceSlug: string; userId: string },
+  now: number = Date.now(),
+): string {
+  const payload: ConnectStatePayload = {
+    v: 1,
+    provider: input.provider,
+    orgId: input.orgId,
+    sourceSlug: input.sourceSlug,
+    userId: input.userId,
+    nonce: randomBytes(16).toString('hex'),
+    exp: now + TTL_MS,
+  };
+  const json = JSON.stringify(payload);
+  return `${Buffer.from(json, 'utf8').toString('base64url')}.${sign(json)}`;
+}
+
+/**
+ * Read a state back, or say why it cannot be trusted.
+ * @param state - The value the vendor returned.
+ * @param now - Injected for tests.
+ */
+export function verifyState(
+  state: string | null | undefined,
+  now: number = Date.now(),
+): { ok: true; payload: ConnectStatePayload } | { ok: false; reason: ConnectStateRefusal } {
+  if (!state || typeof state !== 'string') {
+    return { ok: false, reason: 'malformed' };
+  }
+  const dot = state.lastIndexOf('.');
+  if (dot <= 0 || dot === state.length - 1) {
+    return { ok: false, reason: 'malformed' };
+  }
+  const encoded = state.slice(0, dot);
+  const signature = state.slice(dot + 1);
+  let json: string;
+  try {
+    json = Buffer.from(encoded, 'base64url').toString('utf8');
+  } catch {
+    return { ok: false, reason: 'malformed' };
+  }
+  const expected = sign(json);
+  const given = Buffer.from(signature, 'utf8');
+  const wanted = Buffer.from(expected, 'utf8');
+  if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) {
+    return { ok: false, reason: 'bad_signature' };
+  }
+  let payload: ConnectStatePayload;
+  try {
+    payload = JSON.parse(json) as ConnectStatePayload;
+  } catch {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (
+    payload?.v !== 1
+    || typeof payload.provider !== 'string'
+    || typeof payload.orgId !== 'string'
+    || typeof payload.sourceSlug !== 'string'
+    || typeof payload.userId !== 'string'
+    || typeof payload.nonce !== 'string'
+    || typeof payload.exp !== 'number'
+  ) {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (payload.exp <= now) {
+    return { ok: false, reason: 'expired' };
+  }
+  return { ok: true, payload };
+}

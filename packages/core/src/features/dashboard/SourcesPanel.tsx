@@ -1,6 +1,7 @@
 'use client';
 
 import type { ConnectorTile, Source } from './connectors/connectorRows';
+import type { ConnectOutcome } from './connectOutcome';
 import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
 import {
   CheckCircle2,
@@ -25,6 +26,7 @@ import {
 } from '@/libs/sources/configFields';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
+import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
 
 /** How often to re-read the list while a sync is running somewhere. */
 const RUNNING_SYNC_POLL_MS = 5000;
@@ -92,6 +94,23 @@ export function SourcesPanel() {
   const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncOutcome, setSyncOutcome] = useState<SyncOutcome | null>(null);
+  // What a vendor connect came back with, read once off the URL the callback
+  // sent the person to (`?connect=ok|error&reason=…&source=…`) and then
+  // cleared from the address bar so a reload does not repeat it.
+  const [connectOutcome, setConnectOutcome] = useState<ConnectOutcome | null>(null);
+
+  useEffect(() => {
+    const outcome = readConnectOutcome(window.location.search);
+    if (!outcome) {
+      return;
+    }
+    setConnectOutcome(outcome);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('connect');
+    url.searchParams.delete('reason');
+    url.searchParams.delete('source');
+    window.history.replaceState(null, '', url.toString());
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -175,6 +194,22 @@ export function SourcesPanel() {
         </button>
       </div>
 
+      {connectOutcome
+        ? (
+            <div
+              role="status"
+              className={connectOutcome.ok
+                ? 'flex items-start gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm'
+                : 'flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'}
+            >
+              <CircleAlert className="mt-0.5 size-4 shrink-0" />
+              <span className="flex-1">{connectOutcomeMessage(connectOutcome)}</span>
+              <button type="button" onClick={() => setConnectOutcome(null)} className="text-xs underline-offset-2 hover:underline">
+                Dismiss
+              </button>
+            </div>
+          )
+        : null}
       {error
         ? (
             <div className="flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -583,6 +618,9 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   const [credentialName, setCredentialName] = useState('');
   // Null means "supply a new credential". An id means "use that stored one".
   const [pickedCredentialId, setPickedCredentialId] = useState<string | null>(null);
+  // The vendor this connector can be authorized at with a click, when the
+  // server says it has the app configured. Null means paste a key.
+  const [connect, setConnect] = useState<ConnectOption | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -596,6 +634,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
         setStored(data.available ?? []);
         setPlatformFields(Array.isArray(data.fields) && data.fields.length > 0 ? data.fields : null);
         setPlatformHelp(data.helpText ?? null);
+        setConnect(isConnectOption(data.connect) ? data.connect : null);
         setPickedCredentialId(initialCredentialChoice(
           typeof data.linkedCredentialId === 'string' ? data.linkedCredentialId : null,
           data.available ?? [],
@@ -658,7 +697,47 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
             </h3>
           </div>
           <div className="space-y-4 p-4">
-            {stored.length > 0
+            {connect?.configured
+              ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Authorize Vocion at
+                      {' '}
+                      {connect.label}
+                      {' '}
+                      and the credential is stored for this source. Nothing to paste.
+                    </p>
+                    <a
+                      href={`/api/connect/${connect.provider}/start?source=${encodeURIComponent(source.slug)}`}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
+                    >
+                      <KeyRound className="size-3" />
+                      Connect with
+                      {' '}
+                      {connect.label}
+                    </a>
+                    <p className="text-[11px] text-muted-foreground">
+                      Stored AES-GCM encrypted at rest — the token never touches logs or the browser.
+                    </p>
+                  </div>
+                )
+              : null}
+            {connect && !connect.configured
+              ? (
+                  <p className="text-xs text-muted-foreground">
+                    Connecting with
+                    {' '}
+                    {connect.label}
+                    {' '}
+                    needs
+                    {' '}
+                    <span className="font-mono">{connect.requiredEnv.join(', ')}</span>
+                    {' '}
+                    on the server. Until then, paste a token below.
+                  </p>
+                )
+              : null}
+            {!connect?.configured && stored.length > 0
               ? (
                   <fieldset className="space-y-2">
                     <legend className="text-sm font-medium text-foreground/80">Credential</legend>
@@ -691,77 +770,79 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                   </fieldset>
                 )
               : null}
-            {usingStored
-              ? (
-                  <p className="text-xs text-muted-foreground">
-                    Rotating this credential under API credentials updates this connector — nothing to change here.
-                  </p>
-                )
-              : (
-                  <>
-                    <p className="text-xs text-muted-foreground">{help}</p>
-                    {platformFields
-                      ? (
-                          <label className="block">
-                            <span className="text-sm font-medium text-foreground/80">Credential name</span>
-                            <input
-                              type="text"
-                              value={credentialName}
-                              onChange={e => setCredentialName(e.target.value)}
-                              placeholder="e.g. Strapi — production"
-                              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            />
-                            <span className="mt-1 block text-[11px] text-muted-foreground">
-                              How this credential is listed, and how you tell it apart from the next one.
-                            </span>
-                          </label>
-                        )
-                      : null}
-                    {fields.map((field, index) => (
-                      <label key={field.key} className="block">
-                        <span className="text-sm font-medium text-foreground/80">
-                          {field.label}
-                          {field.optional
-                            ? <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
-                            : null}
-                        </span>
-                        <input
+            {connect?.configured
+              ? null
+              : usingStored
+                ? (
+                    <p className="text-xs text-muted-foreground">
+                      Rotating this credential under API credentials updates this connector — nothing to change here.
+                    </p>
+                  )
+                : (
+                    <>
+                      <p className="text-xs text-muted-foreground">{help}</p>
+                      {platformFields
+                        ? (
+                            <label className="block">
+                              <span className="text-sm font-medium text-foreground/80">Credential name</span>
+                              <input
+                                type="text"
+                                value={credentialName}
+                                onChange={e => setCredentialName(e.target.value)}
+                                placeholder="e.g. Strapi — production"
+                                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              />
+                              <span className="mt-1 block text-[11px] text-muted-foreground">
+                                How this credential is listed, and how you tell it apart from the next one.
+                              </span>
+                            </label>
+                          )
+                        : null}
+                      {fields.map((field, index) => (
+                        <label key={field.key} className="block">
+                          <span className="text-sm font-medium text-foreground/80">
+                            {field.label}
+                            {field.optional
+                              ? <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
+                              : null}
+                          </span>
+                          <input
                           // A non-secret value — an instance URL, an account
                           // email — stays readable while it is typed. Masking
                           // it would only make a typo harder to see.
-                          type={isSecretField(platformFields, field, index) ? 'password' : 'text'}
-                          required={!field.optional}
-                          autoComplete="off"
-                          value={values[field.key] ?? ''}
-                          onChange={e => setValues(prev => ({ ...prev, [field.key]: e.target.value }))}
-                          placeholder={isSecretField(platformFields, field, index) ? '••••••••••••••••' : ''}
-                          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                        />
-                      </label>
-                    ))}
-                    <p className="text-[11px] text-muted-foreground">
-                      {platformFields
-                        ? 'Stored AES-GCM encrypted at rest, and listed under API credentials so you can rotate it there.'
-                        : 'Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.'}
-                    </p>
-                    {/* Test before Save, deliberately: the values as typed are
+                            type={isSecretField(platformFields, field, index) ? 'password' : 'text'}
+                            required={!field.optional}
+                            autoComplete="off"
+                            value={values[field.key] ?? ''}
+                            onChange={e => setValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                            placeholder={isSecretField(platformFields, field, index) ? '••••••••••••••••' : ''}
+                            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                          />
+                        </label>
+                      ))}
+                      <p className="text-[11px] text-muted-foreground">
+                        {platformFields
+                          ? 'Stored AES-GCM encrypted at rest, and listed under API credentials so you can rotate it there.'
+                          : 'Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.'}
+                      </p>
+                      {/* Test before Save, deliberately: the values as typed are
                         checked against the real service and nothing is stored,
                         so a bad key never becomes a connected-looking source. */}
-                    {source.inspectable
-                      ? (
-                          <TestConnectionPanel
-                            slug={connectorSlugFor(source)}
-                            note={source.inspectNote}
-                            disabled={!complete}
-                            bodyFor={() => ({
-                              config: source.config ?? {},
-                              credentials: collectCredentialValues(fields, values),
-                            })}
-                          />
-                        )
-                      : null}
-                  </>
-                )}
+                      {source.inspectable
+                        ? (
+                            <TestConnectionPanel
+                              slug={connectorSlugFor(source)}
+                              note={source.inspectNote}
+                              disabled={!complete}
+                              bodyFor={() => ({
+                                config: source.config ?? {},
+                                credentials: collectCredentialValues(fields, values),
+                              })}
+                            />
+                          )
+                        : null}
+                    </>
+                  )}
             {error
               ? (
                   <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -774,14 +855,18 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
             <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={submitting || !complete}
-              className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
-            >
-              {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
-              {usingStored ? 'Use this credential' : 'Save credential'}
-            </button>
+            {connect?.configured
+              ? null
+              : (
+                  <button
+                    type="submit"
+                    disabled={submitting || !complete}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+                  >
+                    {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
+                    {usingStored ? 'Use this credential' : 'Save credential'}
+                  </button>
+                )}
           </div>
         </form>
       </div>
@@ -2296,4 +2381,28 @@ function AddSourceDialog({
   // Every other connector describes its own fields, so one form renders them all.
   const fields = configFieldsFor(kind);
   return <AddConfigurableSourceDialog kind={kind} title={title} fields={fields} existing={source} onClose={onClose} onAdded={onAdded} />;
+}
+
+/** What `/rpc/sources/:id/credentials` says about connecting at the vendor. */
+type ConnectOption = {
+  provider: string;
+  label: string;
+  configured: boolean;
+  requiredEnv: string[];
+};
+
+/**
+ * Whether the server sent a connect option, read defensively: an older
+ * server sends nothing here and the paste form stays.
+ * @param value - `data.connect` off the credentials read.
+ */
+function isConnectOption(value: unknown): value is ConnectOption {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  return typeof v.provider === 'string'
+    && typeof v.label === 'string'
+    && typeof v.configured === 'boolean'
+    && Array.isArray(v.requiredEnv);
 }

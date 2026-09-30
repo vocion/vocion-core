@@ -79,6 +79,18 @@ export const Env = createEnv({
      * 501 and the `github` source relies on polling alone.
      */
     GITHUB_WEBHOOK_SECRET: z.string().optional(),
+    /**
+     * Vendor apps behind `/api/connect/<provider>` (docs/guides/connect.md).
+     * All optional: a provider whose vars are unset shows the paste form and
+     * names what is missing, never a broken button.
+     */
+    SLACK_CLIENT_ID: z.string().optional(),
+    SLACK_CLIENT_SECRET: z.string().optional(),
+    ATLASSIAN_CLIENT_ID: z.string().optional(),
+    ATLASSIAN_CLIENT_SECRET: z.string().optional(),
+    GITHUB_APP_ID: z.string().optional(),
+    GITHUB_APP_SLUG: z.string().optional(),
+    GITHUB_APP_PRIVATE_KEY_BASE64: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -122,6 +134,13 @@ export const Env = createEnv({
     VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN,
     RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,
     GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET,
+    SLACK_CLIENT_ID: process.env.SLACK_CLIENT_ID,
+    SLACK_CLIENT_SECRET: process.env.SLACK_CLIENT_SECRET,
+    ATLASSIAN_CLIENT_ID: process.env.ATLASSIAN_CLIENT_ID,
+    ATLASSIAN_CLIENT_SECRET: process.env.ATLASSIAN_CLIENT_SECRET,
+    GITHUB_APP_ID: process.env.GITHUB_APP_ID,
+    GITHUB_APP_SLUG: process.env.GITHUB_APP_SLUG,
+    GITHUB_APP_PRIVATE_KEY_BASE64: process.env.GITHUB_APP_PRIVATE_KEY_BASE64,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

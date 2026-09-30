@@ -243,6 +243,27 @@ authorises nothing.
 - One Slack app per deployment. Per-org bot tokens through the credential vault are phase 2.
 - No streaming: Slack gets the finished reply.
 
+## Connecting the `slack` source with a click
+
+Everything above is the bot surface: one app installed once, answering
+mentions. The `slack` **source** — the connector that reads channel history
+into the knowledge index — is separate, and until now its bot token was pasted.
+
+With `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` set on the server, the
+source's connect dialog shows **Connect with Slack** instead. The person picks
+the workspace and approves; Vocion receives the bot token over
+`oauth.v2.access` and stores it on the source. The scopes requested are the
+four the source reads with — `channels:read`, `channels:history`,
+`groups:read`, `groups:history` — and nothing else.
+
+On the Slack side: an app (the bot surface's app works, or a separate one),
+with `https://<your-vocion-host>/api/connect/slack/callback` under **OAuth &
+Permissions → Redirect URLs**, and the four bot scopes above. To install it
+into a workspace other than the one that owns the app, turn on **Manage
+Distribution → Activate Public Distribution**; without it the authorize page
+offers only the owning workspace. The mechanism itself is in
+[Connecting a source at the vendor](./connect.md).
+
 ## Other platforms
 
 The Slack code sits behind a `ChatSurfaceAdapter` interface (`libs/surfaces/`) with a registry,
