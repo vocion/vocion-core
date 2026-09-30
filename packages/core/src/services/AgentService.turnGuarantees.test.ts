@@ -699,7 +699,7 @@ describe('the card pass writes every card at once (2026-09-25/28: "waiting like 
 });
 
 describe('the live line says what is happening (2026-09-25: "Working is such a lazy progress label")', () => {
-  it('names the card pass and counts the cards as they land', async () => {
+  it('ends the turn before the cards, which land after it with no status line (conversation 392)', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     backstop.on = true;
     backstop.calls.length = 0;
@@ -709,7 +709,7 @@ describe('the live line says what is happening (2026-09-25: "Working is such a l
     );
     streamEvents.mockClear();
     streamEvents.mockResolvedValue(longAnswerStream());
-    const statuses: string[] = [];
+    const order: string[] = [];
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await runAgentDeep({
@@ -719,14 +719,22 @@ describe('the live line says what is happening (2026-09-25: "Working is such a l
         deliverable: 'answer',
         conversationId: conv.id,
         onEvent: (e) => {
-          if (e.type === 'status') {
-            statuses.push(e.label);
+          if (e.type === 'done') {
+            order.push('done');
+          }
+          if (e.type === 'recommended_action') {
+            order.push(`card: ${e.recommendation.label}`);
+          }
+          if (e.type === 'status' && /decision/.test(e.label)) {
+            order.push(`status: ${e.label}`);
           }
         },
       });
 
-      // What is happening, with counts — never a static label.
-      expect(statuses).toEqual(['Finding the decisions in the answer', 'Writing 2 decision cards · 0 of 2 ready', 'Writing 2 decision cards · 1 of 2 ready', '2 of 2 decision cards ready']);
+      // The composer is free the moment the answer is; the cards follow on the
+      // same stream, and nothing says "Writing…" under a finished answer.
+      expect(order[0]).toBe('done');
+      expect(order.slice(1).sort()).toEqual(['card: Approve the Kestrel upload fix', 'card: Defer the admin panel']);
     } finally {
       warn.mockRestore();
       backstop.on = false;

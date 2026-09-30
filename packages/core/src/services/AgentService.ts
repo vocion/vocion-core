@@ -18,6 +18,7 @@ import { FEATURES } from '@/libs/Langfuse/features';
 import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostMicroCents } from '@/libs/pricing';
 import { toolPrefixFor } from '@/libs/rest/spec';
+import { newerTurnIn } from '@/libs/streams/buffer';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { versionLinksDelta } from '@/libs/versions/versionRef';
 import { agentSchema } from '@/models/Schema';
@@ -1698,6 +1699,45 @@ export async function runAgentDeep(opts: {
     finalText += versionDelta;
   }
 
+  // A record the answer names ("#201", "request 201") links to its page —
+  // live and stored, from one typed event (libs/chat/recordMentions.ts).
+  const { recordMentionLinks } = await import('@/services/chat/recordMentionLinks');
+  const mentionLinks = await recordMentionLinks(opts.orgId, finalText);
+  if (mentionLinks.length > 0) {
+    const { linkRecordMentions } = await import('@/libs/chat/recordMentions');
+    emit({ type: 'record_links', links: mentionLinks });
+    finalText = linkRecordMentions(finalText, mentionLinks);
+  }
+
+  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
+
+  // The turn is over the moment the answer is: say so BEFORE telemetry.
+  //
+  // `done` used to wait behind `await flushTraces()`. On a box whose Langfuse
+  // host is unreachable the SDK retries for 30–40 seconds, and for all of that
+  // time the person watched "Working…" under an answer that had visibly
+  // finished (Chris, 2026-09-17: *"why does this show 'working' for so long
+  // ... then it stops after like 40 seconds"*). Tracing is a record of the
+  // work, not part of it; it never gets to hold the person's turn open.
+  emit({ type: 'done', response: finalText, traceId: trace.id });
+  await flushTraces();
+
+  // After `done`, only what the person reads lands: a card. A status line
+  // would put "Writing…" back under an answer that is finished.
+  const doneAt = Date.now();
+  const afterDone = (e: AgentEvent): void => {
+    if (e.type !== 'status') {
+      emit(e);
+    }
+  };
+
+  // CARDS NEVER HOLD THE CHAT (Chris, 2026-09-30: "cards early but they still
+  // take way too long to generate. Then we get steps after that render the
+  // cards obsolete while they block chat"). The pass runs AFTER `done`: the
+  // composer is free the moment the answer is, the cards land on the same
+  // stream as they are written, without a status line, and a card is never
+  // put up once the person has sent the next message (`newerTurnIn`).
+  //
   // Card backstop (structural, workspace-opt-in) — AFTER the guarantees, so
   // it reads the answer the person actually got. It used to run before the
   // answer pass, saw only a short preamble, and never fired on a turn the
@@ -1732,7 +1772,10 @@ export async function runAgentDeep(opts: {
           instruction: opts.message,
           instructed: (await intentP).wants_action,
         },
-        await realCardBackstopDeps({ ctx: compiled.ctx, orgId: opts.orgId, agentSlug: opts.agentSlug, userId: opts.userId, emit }),
+        {
+          ...(await realCardBackstopDeps({ ctx: compiled.ctx, orgId: opts.orgId, agentSlug: opts.agentSlug, userId: opts.userId, emit: afterDone })),
+          superseded: () => opts.conversationId !== undefined && newerTurnIn(opts.orgId, opts.conversationId, doneAt),
+        },
       );
       // A decision that could not be a card is dropped from what the person
       // sees — no dead card, and no "— not a card: its input does not fit…"
@@ -1749,29 +1792,6 @@ export async function runAgentDeep(opts: {
   } else if (emittedCards.length === 0 && finalText.length > 300) {
     console.warn('card backstop skipped', { orgId: opts.orgId, agentSlug: opts.agentSlug, backstopOn, textChars: finalText.length });
   }
-
-  // A record the answer names ("#201", "request 201") links to its page —
-  // live and stored, from one typed event (libs/chat/recordMentions.ts).
-  const { recordMentionLinks } = await import('@/services/chat/recordMentionLinks');
-  const mentionLinks = await recordMentionLinks(opts.orgId, finalText);
-  if (mentionLinks.length > 0) {
-    const { linkRecordMentions } = await import('@/libs/chat/recordMentions');
-    emit({ type: 'record_links', links: mentionLinks });
-    finalText = linkRecordMentions(finalText, mentionLinks);
-  }
-
-  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
-
-  // The turn is over the moment the answer is: say so BEFORE telemetry.
-  //
-  // `done` used to wait behind `await flushTraces()`. On a box whose Langfuse
-  // host is unreachable the SDK retries for 30–40 seconds, and for all of that
-  // time the person watched "Working…" under an answer that had visibly
-  // finished (Chris, 2026-09-17: *"why does this show 'working' for so long
-  // ... then it stops after like 40 seconds"*). Tracing is a record of the
-  // work, not part of it; it never gets to hold the person's turn open.
-  emit({ type: 'done', response: finalText, traceId: trace.id });
-  await flushTraces();
 
   recordTurn(opts, recordedEvents, {
     response: finalText,

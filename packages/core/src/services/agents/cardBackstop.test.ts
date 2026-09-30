@@ -210,6 +210,24 @@ describe('the card pass writes every card at once, on the scripted model', () =>
   });
 });
 
+describe('a card is never put up after the person sent the next message (conversation 392, 2026-09-30)', () => {
+  it('drops the cards still being written once the conversation moved on', async () => {
+    const cards = [mail('Approve the upload fix', 'ops@northwind.example', 5), mail('Tell Northwind it is fixed', 'cs@northwind.example', 80)];
+    let movedOn = false;
+    const h = harness(cards, { superseded: () => movedOn });
+    setTimeout(() => {
+      movedOn = true;
+    }, 40);
+
+    const out = await runCardBackstop({ answer: ANSWER, already: [], agentPrompt: 'You are the PM.' }, h.deps);
+
+    // The fast card landed before the next message; the slow one never did.
+    expect(out.emitted).toBe(1);
+    expect(h.events.filter(e => e.type === 'recommended_action').map(e => (e as { recommendation: { label: string } }).recommendation.label)).toEqual(['Approve the upload fix']);
+    expect(h.record).toHaveBeenCalledWith(expect.objectContaining({ error: 'not put up: the person sent the next message first' }));
+  });
+});
+
 describe('a question back is not a card when the person just said what to do (conversation 378, 2026-09-29)', () => {
   const askBack: Card = { label: 'File the question on #201', delayMs: 1, args: { action_id: 'ask.file', action_input: { title: 'What is the bug?', body: 'Tool results came back empty.' }, label: 'File the question on #201', rationale: 'need context' } };
   const over = { hasAction: (id: string) => ['gmail.send', 'ask.file'].includes(id) };

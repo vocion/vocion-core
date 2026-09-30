@@ -41,6 +41,8 @@ type BufferedStream = {
   owner: { orgId: string; userId: string };
   /** The conversation the turn belongs to, when it has one (`answeringIn`). */
   conversationId?: number | null;
+  /** When the turn started (`newerTurnIn`). */
+  openedAt: number;
 };
 
 const streams = new Map<string, BufferedStream>();
@@ -66,7 +68,7 @@ function sweep(): void {
  */
 export function openStream(id: string, owner: { orgId: string; userId: string }, conversationId: number | null = null): { append: (data: string) => void; close: () => void } {
   sweep();
-  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner, conversationId };
+  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner, conversationId, openedAt: Date.now() };
   streams.set(id, s);
   return {
     append: (data: string) => {
@@ -202,6 +204,26 @@ export function wasStopped(id: string): boolean {
 export function answeringIn(orgId: string, conversationId: number): boolean {
   for (const s of streams.values()) {
     if (!s.done && s.owner.orgId === orgId && s.conversationId === conversationId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Has the person started another turn in this conversation since `since`?
+ * What runs after a turn's answer (its cards) checks this before it puts
+ * anything up: the composer is free once the answer is, so the next message
+ * can arrive first, and a card for a turn the person moved past is obsolete
+ * (Chris, 2026-09-30: "we get steps after that render the cards obsolete
+ * while they block chat").
+ * @param orgId - The workspace.
+ * @param conversationId - The conversation.
+ * @param since - Epoch ms; a turn opened after this is newer.
+ */
+export function newerTurnIn(orgId: string, conversationId: number, since: number): boolean {
+  for (const s of streams.values()) {
+    if (s.owner.orgId === orgId && s.conversationId === conversationId && s.openedAt > since) {
       return true;
     }
   }

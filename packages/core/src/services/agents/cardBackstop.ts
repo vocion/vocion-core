@@ -106,6 +106,13 @@ export type CardBackstopDeps = {
   record: (row: { input: Record<string, unknown>; output?: string; error?: string; durationMs: number }) => Promise<void>;
   /** The turn's event stream. */
   emit: (event: AgentEvent) => void;
+  /**
+   * Has the conversation moved on? The pass runs after the answer, with the
+   * composer free, so the person may already have sent the next message; a
+   * card for a turn they have moved past is obsolete and is never put up.
+   * Absent, nothing supersedes.
+   */
+  superseded?: () => boolean;
   /** Langfuse callbacks for the pass's model calls. */
   callbacks?: BaseCallbackHandler[];
   /** Log line sink (console.warn in production). */
@@ -564,6 +571,12 @@ ${deps.actionCatalog()}${rules ? `\n\nThe agent's own rules, for what counts as 
       await deps.record({ input: shaped, error: `not put up: ${refusal}`.slice(0, 2000), durationMs: Date.now() - started });
       log('card backstop: a card was refused and dropped', { label, actionId, reason: refusal.slice(0, 300), mapped });
       settle();
+      return;
+    }
+    if (deps.superseded?.()) {
+      release();
+      await deps.record({ input: shaped, error: 'not put up: the person sent the next message first', durationMs: Date.now() - started });
+      log('card backstop: superseded by the next message', { label, actionId });
       return;
     }
     const outcome = await invokeRecommend(tool, shaped);
