@@ -14,8 +14,9 @@ version: 1
 
 # What a verifiable change carries
 
-- **The objective, nothing beside it.** Allowed paths are a fence; a file
-  outside them is a return, not a judgement call.
+- **The objective, reached.** Allowed paths are where the work starts; a file
+  beyond them is judged on whether the outcome needed it, and the report says
+  why.
 - **The base commit it was built on** and the head commit it is offered at.
 - **Every required check, run, with its output attached** — a check you did
   not run is `unproven`, never omitted.

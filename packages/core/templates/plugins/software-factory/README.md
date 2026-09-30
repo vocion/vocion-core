@@ -50,7 +50,7 @@ reply can go out under a policy the product owner turns on.
 |---|---|---|---|
 | PM | `product-manager` (lead) | triage, in scope or not, the plan, the contract, the backlog, telling the asker | merges, writes code |
 | Design | `designer` | the mockup before a decision, the after-shot before a close | builds, decides |
-| Eng | `task-engineer` (`runsOn: external-worker`) | the change inside `allowedPaths`, the checks with artifacts, the pull request | merges, deploys, touches a credential |
+| Eng | `task-engineer` (`runsOn: external-worker`) | the change the outcome needs (starting in `allowedPaths`), the checks with artifacts, the pull request | merges, deploys, touches a credential |
 | QA | `change-reviewer` | the verdict against the contract and the evidence | merges, sees the engineer's conversation |
 
 ## The nouns

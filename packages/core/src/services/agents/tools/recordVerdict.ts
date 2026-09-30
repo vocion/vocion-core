@@ -481,7 +481,19 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         return `Verdict recorded on task #${task.id}: ${args.value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[args.value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''}`;
       }
       const riskRaw = typeof task.meta.riskClass === 'string' ? task.meta.riskClass : 'logic';
-      const riskClass = (MERGE_RISK_CLASSES as readonly string[]).includes(riskRaw) ? riskRaw : 'logic';
+      // THE MERGE CARRIES WHAT THE DIFF TOUCHED (2026-09-30). The engineer may
+      // go beyond the plan's paths when the outcome needs it; the merge's class,
+      // and so its trust rule, is the higher of the task's and the class of the
+      // files it changed (the repo's riskDefaults), so a change that reached
+      // auth or billing is ruled as auth or billing.
+      const { higherRisk, readRepo, riskFromPaths } = await import('@/libs/actions/factory-dispatch');
+      const changed = Array.isArray(task.meta.filesChanged) ? (task.meta.filesChanged as unknown[]).filter((f): f is string => typeof f === 'string') : [];
+      const repo = changed.length > 0
+        ? await readRepo(ctx.orgId, typeof task.meta.repoSlug === 'string' ? task.meta.repoSlug : null, typeof task.meta.productSlug === 'string' ? task.meta.productSlug : null).catch(() => null)
+        : null;
+      const touched = repo ? riskFromPaths(changed, (repo.riskDefaults ?? {}) as Record<string, string>) : null;
+      const effective = higherRisk(riskRaw, touched);
+      const riskClass = (MERGE_RISK_CLASSES as readonly string[]).includes(effective) ? effective : 'logic';
       const rollback = typeof task.meta.rollback === 'string' && task.meta.rollback.length >= 8
         ? task.meta.rollback.slice(0, 600)
         : 'Revert the pull request and merge the revert; the merge is the deploy, so the revert ships the same way.';

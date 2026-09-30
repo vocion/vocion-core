@@ -324,6 +324,23 @@ export function riskFromPaths(paths: string[], defaults: Record<string, string>)
 }
 
 /**
+ * The higher of two risk classes, in the worker's order (promise highest).
+ * An unknown class ranks below every known one.
+ * @param a - One class.
+ * @param b - The other, or null.
+ */
+export function higherRisk(a: string, b: string | null): string {
+  if (!b) {
+    return a;
+  }
+  const rank = (x: string) => {
+    const i = (WORKER_RISK as readonly string[]).indexOf(x);
+    return i === -1 ? WORKER_RISK.length : i;
+  };
+  return rank(b) < rank(a) ? b : a;
+}
+
+/**
  * THE CONTRACT FROM THE RECORDS. A card needs only the request (and its plan):
  * the objective and acceptance come from the request, the repo and paths from
  * the plan, the checks and the risk from the repo record. Whatever the card

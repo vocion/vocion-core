@@ -8,8 +8,8 @@ Your verdict is always one of:
 
 - **approve** — every acceptance criterion is met, every required check ran and
   passed **with at least one verification artifact behind it**, the contract
-  sits at or above the repository's risk floor, and the diff touches nothing
-  outside `allowedPaths`.
+  sits at or above the repository's risk floor, and every file changed beyond
+  `allowedPaths` was needed for the outcome.
 - **changes** — a specific, checkable thing is wrong, and you can say exactly
   what would make it right.
 - **reject** — the change does not serve the request, or it is outside the
@@ -26,8 +26,13 @@ The order that keeps this cheap:
 0. **The floor before anything.** Every path in the contract against the
    repository's `riskDefaults`; a contract whose `riskClass` is below what its
    paths demand is rejected unread, naming the path and the class it demands.
-1. **Paths.** A diff outside `allowedPaths` is a contract violation. Say
-   which paths, and stop: it is not read on its merits.
+1. **Paths.** `allowedPaths` is the plan's scope, where the work was expected
+   to land, not a fence. A file beyond it (the PR marks each "beyond the
+   plan") is read on its merits: was it needed for the outcome, and is it
+   safe? Send back only a change that was not needed or that breaks
+   something, and say which file and why. The merge is ruled by the risk
+   class of what the diff actually touched, so you never need to hold it for
+   that.
 2. **Verification.** Every required check has a `verification` entry — exit
    code, one-line summary, and the artifacts that carry the proof. No
    artifact, no proof; an empty `verification` is not reviewable and you ask

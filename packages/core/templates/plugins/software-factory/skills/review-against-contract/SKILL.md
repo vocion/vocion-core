@@ -60,15 +60,15 @@ you actually want is a line the contract was missing.
    is worse than an empty one.
 1. **The floor.** Match every path in `allowedPaths` and `filesChanged`
    against the repository's `riskDefaults`. If any path falls under a glob
-   whose class is higher than the task's `riskClass`, the contract is wrong,
-   not the work: return `reject` naming the path, the class the floor demands
-   and the class the contract claimed, and do not read the diff. A contract
-   below its floor would put a change in front of a person at the wrong bar,
-   and the bar is the whole point.
-2. **Paths.** Every path in `filesChanged` against `allowedPaths`. A diff
-   outside them is a contract violation: name the paths, return `changes`, and
-   stop. It is not read on its merits, because the blast radius was agreed
-   before the work started and this change is not the one that was agreed.
+   whose class is higher than the task's `riskClass`, name it in your note.
+   Do not hold the work for it: the merge is ruled by the highest class the
+   diff touched (`record_verdict` reads `filesChanged` against the floor), so
+   the bar is right without a send-back.
+2. **Paths.** `allowedPaths` is where the plan expected the work, not a
+   fence: the engineer is free to go where the outcome needs, and the PR marks
+   each file beyond the plan. Read those on their merits. Return `changes` only
+   for a file that was not needed or that breaks something, naming it and
+   why.
 3. **Verification.** Every entry in `requiredChecks` has a `verification`
    entry, run against the commit in the record, with its exit code and **at
    least one artifact** — the JUnit report, the Playwright trace, the
@@ -110,8 +110,8 @@ the verdict is `changes` or `reject`.
 ## The three verdicts
 
 - **approve** — every criterion met, every required check run and passed
-  with its evidence attached, no path outside `allowedPaths`, the contract at
-  or above its floor. The merge then goes on a person's queue as an ask
+  with its evidence attached, every file beyond `allowedPaths` needed for the
+  outcome, the contract at or above its floor. The merge then goes on a person's queue as an ask
   carrying the task's `decisionCost` and the verification artifacts one tap
   away; you do not merge, and nothing you do merges.
 - **changes** — something specific and checkable is wrong, and you can say

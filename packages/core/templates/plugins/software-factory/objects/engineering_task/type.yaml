@@ -322,7 +322,7 @@ gates:
     require:
       - {field: objective, present: true}
       - {field: baseSha, present: true, message: pin the base commit the worker starts from}
-      - {field: allowedPaths, minItems: 1, message: fence the change to the paths it may touch}
+      - {field: allowedPaths, minItems: 1, message: name where the change is expected to land}
       - {field: requiredChecks, minItems: 1, message: name the checks that must pass}
       - {field: acceptanceContract, minItems: 1, message: carry the criteria a reviewer can check}
       - {field: riskClass, present: true}

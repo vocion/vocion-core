@@ -483,6 +483,13 @@ requirements/                       # Product specs and case studies
 
 ## Conventions
 
+- **Faster, then better, then safer when possible — in that order (Chris, 2026-09-30).** Every
+  feature, and above all every agentic workflow and step, is built for speed first, quality
+  second, and safety where it does not cost the speed. An agent gets the outcome and the freedom
+  to reach it; a plan, contract or scope is where it starts, never a fence (the factory worker's
+  `allowed_paths` is scope; `humanOwned` is the only wall). The system finishes its own work:
+  verified work merges itself on its trust rule, ruled by the risk of what the diff touched
+  (`recordVerdict`), and a replaced attempt closes its pull request (`supersededPulls.ts`).
 - **Accelerate, never block (Chris, 2026-09-29 — core, non-negotiable).** Vocion exists to
   speed a person up and raise quality, never to stop them (`docs/DESIGN-PRINCIPLES.md`,
   principle 13). In code that means:
@@ -505,9 +512,10 @@ requirements/                       # Product specs and case studies
      automation's own config (`do.requireTool`), or one shared definition
      (`libs/factory/requestStates.ts`).
 
-  Before shipping, answer four questions. Can this stop a person who asked for it? Can it fail
-  without saying why? Does it read meaning from words? Does it name a type in core? Any yes means
-  it is not done.
+  Before shipping, answer six questions. Can this stop a person who asked for it? Can it fail
+  without saying why? Does it read meaning from words? Does it name a type in core? Does it fence
+  an agent in? Does it leave finished work for a person to push through? Any yes means it is not
+  done.
 - **Structural over prompting.** When a model behavior is a REQUIREMENT (cards must emit, raw
   data must never dump, events must be typed), do not iterate system-prompt wording. Prompt once,
   and if the behavior is still inconsistent, enforce it structurally. Levers in order of strength:

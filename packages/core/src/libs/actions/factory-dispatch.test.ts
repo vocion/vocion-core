@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, pathsFromComponents, pickResumeBase, riskFromPaths } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, riskFromPaths } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -347,5 +347,15 @@ describe('a source brings what is generated from it (#130 run 418)', () => {
     });
 
     expect(c.allowedPaths).toEqual(expect.arrayContaining(['apps/api/prisma/schema/**']));
+  });
+});
+
+describe('a merge is ruled by what its diff touched (2026-09-30)', () => {
+  it('takes the higher class, and keeps the task\'s when the files add nothing higher', () => {
+    const defaults = { 'apps/web/**': 'ui', 'packages/auth/**': 'auth', 'packages/db/**': 'schema' };
+
+    expect(higherRisk('ui', riskFromPaths(['apps/web/a.tsx', 'packages/auth/session.ts'], defaults))).toBe('auth');
+    expect(higherRisk('schema', riskFromPaths(['apps/web/a.tsx'], defaults))).toBe('schema');
+    expect(higherRisk('logic', null)).toBe('logic');
   });
 });
