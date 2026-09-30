@@ -77,6 +77,8 @@ const cfg = {
   // Where a `postgres` service answers when the contract names no url: the target's sidecar or
   // compose service. A repo whose tests expect another address names it on its repo record.
   postgresUrl: env.RUNNER_POSTGRES_URL || 'postgresql://postgres:postgres@localhost:5432/postgres',
+  // Set by a target that starts a database beside the runner: it wins over a repo record's url.
+  targetPostgresUrl: env.RUNNER_POSTGRES_URL || '',
   servicesWaitSeconds: num(env.SERVICES_WAIT_SECONDS, 90),
   // QA evidence: where the screenshots are stored and who signs the links. Presign keys that do
   // not rotate keep a seven-day link seven days. No bucket: the shots go into Vocion inline.
@@ -719,7 +721,7 @@ function waitForTcp(url, seconds) {
 // names (its migrations), then environment.setup. A service that never answers fails the run here,
 // before any model call, with the address it waited on.
 async function startServices(task) {
-  const wanted = (task.environment?.services || []).map(e => serviceSpec(e, { postgresUrl: cfg.postgresUrl }));
+  const wanted = (task.environment?.services || []).map(e => serviceSpec(e, { postgresUrl: cfg.postgresUrl, targetPostgresUrl: cfg.targetPostgresUrl }));
   const setup = Array.isArray(task.environment?.setup) ? task.environment.setup : [];
   if (!wanted.length && !setup.length) {
     return;

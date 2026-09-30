@@ -8,6 +8,12 @@ test('a service named alone waits at the runner default and exports the usual va
   assert.deepEqual(serviceSpec('postgres', defaults), { name: 'postgres', url: defaults.postgresUrl, env: ['DATABASE_URL', 'TEST_DATABASE_URL'], setup: [] });
 });
 
+test('the target\'s own database wins over the address a repo record names, which cannot know it', () => {
+  const s = serviceSpec({ name: 'postgres', url: 'postgresql://app:app@localhost:55432/ledger', setup: ['npm run db:migrate'] }, { ...defaults, targetPostgresUrl: 'postgresql://runner:runner@localhost:5432/runner' });
+  assert.equal(s.url, 'postgresql://runner:runner@localhost:5432/runner');
+  assert.deepEqual(s.setup, ['npm run db:migrate']);
+});
+
 test('a service the repo record describes waits where it says and runs its setup', () => {
   const s = serviceSpec({ name: 'postgres', url: 'postgresql://runner:runner@localhost:55432/ledger', env: ['DATABASE_URL'], setup: ['npm run db:migrate -w @northwind/api'] }, defaults);
   assert.deepEqual(s, { name: 'postgres', url: 'postgresql://runner:runner@localhost:55432/ledger', env: ['DATABASE_URL'], setup: ['npm run db:migrate -w @northwind/api'] });

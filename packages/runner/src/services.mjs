@@ -8,15 +8,19 @@ const DEFAULT_ENV = ['DATABASE_URL', 'TEST_DATABASE_URL'];
 
 /**
  * One service entry, whether the contract wrote a name or an object: { name, url, env, setup }.
- * A name alone waits at the runner's default address for that service.
+ *
+ * Where it answers: the target's own database when the target provides one (RUNNER_POSTGRES_URL:
+ * the Fargate -db task's sidecar, the on-box runner's database), since one installation fleet
+ * builds every repository and a repo record cannot know its address; else the url the repo record
+ * names; else the runner's default. The repository's tests read the exported variables.
  * @param {string | { name: string, url?: string, env?: string[], setup?: string[] }} entry
- * @param {{ postgresUrl: string }} defaults
+ * @param {{ postgresUrl: string, targetPostgresUrl?: string }} defaults
  */
 export function serviceSpec(entry, defaults) {
   const o = typeof entry === 'string' ? { name: entry } : (entry || {});
   return {
     name: o.name,
-    url: o.url || (o.name === 'postgres' ? defaults.postgresUrl : ''),
+    url: o.name === 'postgres' ? (defaults.targetPostgresUrl || o.url || defaults.postgresUrl) : (o.url || ''),
     env: Array.isArray(o.env) && o.env.length ? [...o.env] : [...DEFAULT_ENV],
     setup: Array.isArray(o.setup) ? [...o.setup] : [],
   };

@@ -134,7 +134,7 @@ The same image runs everywhere. A deploy target only decides where the container
 | `ANTHROPIC_API_KEY` | the model key, the only secret the engineer's process keeps |
 | `GITHUB_TOKEN` | the repository token the runner's own git and `gh` use; the engineer never sees it |
 | `MAX_BUDGET_USD`, `WALL_CLOCK_MINUTES` | ceilings; the run's own cap and deadline tighten them |
-| `RUNNER_POSTGRES_URL` | where `postgres` answers when the contract names no url |
+| `RUNNER_POSTGRES_URL` | the database the target starts beside the runner; it wins over a repo record's url, which cannot know the address on every target |
 | `QA_EVIDENCE_BUCKET`, `QA_EVIDENCE_REGION`, `PRESIGN_ACCESS_KEY_ID`, `PRESIGN_SECRET_ACCESS_KEY` | where screenshots are stored; without a bucket they go into Vocion inline |
 | `DEFAULT_REPO`, `DEFAULT_PRODUCT` | only for a run queued with a bare message and no contract |
 | `LOCAL_TASK`, `LOCAL_TASK_JSON` | run a contract with no Vocion at all (`-` reads stdin) |
