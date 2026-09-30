@@ -861,7 +861,8 @@ describe('nothing waits on a review that never starts (2026-09-30, #269: CI fail
     expect(out.did).toBe('ci failed: built again');
     expect((await read(task.id)).status).toBe('changes_requested');
     // On its own where the workspace's retry rule says so (production); a card here.
-    expect(out.line).toMatch(/^CI failed on the pull request \(checks\)\. Build again (started on its own|is on a card for a person)/);
+    // With no GitHub connection the cause cannot be read, and it says so: the change's route.
+    expect(out.line).toMatch(/^CI failed: checks\. The cause could not be read \(.+\), so it is back with the engineer\. Build again (started on its own|is on a card for a person)/);
 
     void before;
   });

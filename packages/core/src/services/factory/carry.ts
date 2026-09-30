@@ -115,6 +115,18 @@ async function updateRecovery(orgId: string, requestId: number, change: (s: Reco
 }
 
 /**
+ * One line on a request's own account (its Activity), from a step outside
+ * this file — a red CI's routing (`ciFailed.ts`), the pipeline reconciler.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param line - What happened, in a sentence.
+ * @param runId - The run it was about, when there is one.
+ */
+export async function noteOnRequest(orgId: string, requestId: number, line: string, runId: number | null = null): Promise<void> {
+  await updateRecovery(orgId, requestId, s => logLine(s, line, new Date().toISOString(), runId));
+}
+
+/**
  * A BLOCKER WHOSE MOVE WAS MADE IS CLEARED (#130, 2026-09-29): "approve plan
  * 136" stayed on the request as Blocked after plan 136 was approved, because
  * nothing read the blocker back when the state it named moved. The records it
@@ -540,8 +552,8 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   if (decision.do === 'start') {
     const out = await propose(orgId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), trigger: 'request', reason: `Started on its own: ${decision.why}.` }, {
       confidence: 0.9,
-      rationale: `Filed from a person's turn in a conversation as a fix, with its acceptance written: ${decision.why}.`,
-      reason: 'A person asked for this fix; the build starts now and Undo cancels it until a worker claims it.',
+      rationale: `A fix with its acceptance written: ${decision.why}.`,
+      reason: 'The build starts now, and Undo cancels it until a worker claims it.',
     });
     const line = !out.ok
       ? `Filed; the build could not start: ${out.error}`
@@ -1094,12 +1106,8 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
     console.warn('factory sweep: the stale-plan check failed', { orgId, message: err.message });
     return [];
   });
-  // A task waiting on QA with no review behind it: CI failed → built again
-  // with what failed; CI passed and no review ran → the review starts again.
-  acted.push(...await import('./ciFailed').then(m => m.watchAwaitingReview(orgId, now)).catch((err: Error) => {
-    console.warn('factory sweep: the awaiting-review watch failed', { orgId, message: err.message });
-    return [];
-  }));
+  // A task waiting on QA with no review behind it is watched every five
+  // minutes by the reconciler (`reconcile.ts`, backlog 049), not here.
   // A replaced attempt's pull request is closed, naming what replaced it, so
   // the open PRs are the work still live (services/factory/supersededPulls.ts).
   await import('./supersededPulls').then(m => m.closeSupersededPulls(orgId)).catch((err: Error) => {

@@ -209,7 +209,15 @@ export async function markReviewFailed(orgId: string, prUrl: string): Promise<nu
 }
 
 /** Where a sent-back attempt goes next. */
-export type SendBack = { to: 'engineer' | 'plan'; why: string; note?: string };
+export type SendBack = {
+  to: 'engineer' | 'plan';
+  why: string;
+  note?: string;
+  /** What sent it back, when it was not QA (a red CI): the attempt's line on the feature page. */
+  reason?: string;
+  /** Who sent it back, for the stop line; QA when omitted. */
+  by?: string;
+};
 
 /**
  * WHERE A SEND-BACK GOES (Chris, 2026-09-29: "does our flow handle a QA send
@@ -271,7 +279,7 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
     // ONE LIMIT FOR EVERY AUTOMATIC STEP (backlog 038): a QA send-back retry
     // counts toward the same three per request as a recovery does.
     const { stopIfAtLimit } = await import('@/services/factory/carry');
-    const stopped = await stopIfAtLimit(orgId, requestId, `QA sent attempt #${task.id} back`);
+    const stopped = await stopIfAtLimit(orgId, requestId, `${route.by ?? 'QA'} sent attempt #${task.id} back`);
     if (stopped) {
       return stopped;
     }
@@ -284,7 +292,7 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
     const res = await proposeAction({
       orgId,
       actionId: 'factory.dispatch_task',
-      input: { requestId, ...(hasPlan ? { planId } : {}), autoRetryOf: task.id, ...toPlan, ...(route.note ? { note: route.note.slice(0, 4000) } : {}), reason: route.to === 'plan' ? `QA sent attempt #${task.id} back to planning: ${route.why}`.slice(0, 500) : `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.` },
+      input: { requestId, ...(hasPlan ? { planId } : {}), autoRetryOf: task.id, ...toPlan, ...(route.note ? { note: route.note.slice(0, 4000) } : {}), reason: route.reason?.slice(0, 500) ?? (route.to === 'plan' ? `QA sent attempt #${task.id} back to planning: ${route.why}`.slice(0, 500) : `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.`) },
       principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: 'agent:product-manager',
       // Core's own retry, not the model's: `autoRetryOf` is kept.

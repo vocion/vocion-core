@@ -56,6 +56,8 @@ export const FEATURES = {
   TOOL_IMAGE: 'tool.image',
   /** The `draw_mockup` survey — a vision read of the real screen a mockup is drawn on. */
   TOOL_MOCKUP: 'tool.mockup',
+  /** `ci.diagnose` — why a factory pull request's CI is red, read by the classifier (backlog 049). */
+  CI_DIAGNOSE: 'factory.ci_diagnose',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

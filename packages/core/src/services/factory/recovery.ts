@@ -544,6 +544,16 @@ export function intakeDecision(input: { meta: Record<string, unknown>; origin: {
   const kind = str(m.kind)?.toLowerCase() ?? null;
   const severity = str(m.severity)?.toLowerCase() ?? null;
   const fix = kind === 'bug' || kind === 'incident' || severity === 'p1';
+  // A RED DEFAULT BRANCH IS FIXED WITHOUT A CARD (backlog 049). The factory
+  // filed it on GitHub's own evidence (`ciFailed.ts`), listing the pull
+  // requests it blocks; every one of them waits on it, so a tap in front of
+  // the build only lengthens the wait. The build still goes through QA and the
+  // merge's own trust rule, and Undo cancels it until a worker claims it.
+  const pipelineFix = m.pipelineFix && typeof m.pipelineFix === 'object' && !Array.isArray(m.pipelineFix) ? m.pipelineFix as Record<string, unknown> : null;
+  if (fix && pipelineFix && str(pipelineFix.repo)) {
+    const blocks = Array.isArray(pipelineFix.blocks) ? pipelineFix.blocks.length : 0;
+    return { do: 'start', why: `${str(pipelineFix.branch) ?? 'the default branch'} of ${str(pipelineFix.repo)} is red, and ${blocks} pull request${blocks === 1 ? ' waits' : 's wait'} on it` };
+  }
   if (fix && input.origin.conversationId && input.origin.byPerson) {
     const what = [kind, severity?.toUpperCase()].filter(Boolean).join(', ');
     return { do: 'start', why: `a person asked for this fix in conversation #${input.origin.conversationId} (${what}, ${acceptance.length} acceptance criteri${acceptance.length === 1 ? 'on' : 'a'})` };
