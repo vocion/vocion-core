@@ -838,6 +838,12 @@ export const AgentManifestSchema = z.object({
      */
     grantTools: z.array(z.string()).default([]),
     model: z.string().optional(),
+    /**
+     * How hard the model thinks: low, medium, high, max. An external worker
+     * passes it to its model (`seatModelPolicy` puts it on the contract's
+     * `model_policy`); without this key the applier dropped it silently.
+     */
+    effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
     modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
     /**
      * Ask the vendor to cache this agent's prompt prefix, or forbid it.
