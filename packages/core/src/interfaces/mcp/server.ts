@@ -7,6 +7,7 @@ import { capabilityTools } from './tools/capability-tools';
 import { chatTools } from './tools/chat-tools';
 import { dataTools } from './tools/data-tools';
 import { missionTools } from './tools/mission-tools';
+import { notificationTools } from './tools/notification-tools';
 import { playbookTools } from './tools/playbook-tools';
 import { pluginTools } from './tools/plugin-tools';
 import { reviewTools } from './tools/review-tools';
@@ -59,6 +60,7 @@ export async function buildServer(
     ...chatTools(config, identity),
     ...reviewTools(config, identity),
     ...voiceTools(config, identity),
+    ...notificationTools(config, identity),
     ...(await agentTools(config, identity)),
   ];
 
