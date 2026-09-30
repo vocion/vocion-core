@@ -1001,6 +1001,9 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
           .where(and(eq(businessObjectSchema.orgId, ctx.orgId), eq(businessObjectSchema.id, previousTaskId)));
         const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
         await recomputeRollupsForObject(ctx.orgId, previousTaskId).catch(() => undefined);
+        // Its pull request closes now, naming this attempt, rather than
+        // waiting for the sweep (services/factory/supersededPulls.ts).
+        void import('@/services/factory/supersededPulls').then(m => m.closeSupersededPulls(ctx.orgId)).catch(() => undefined);
       }
     }
     const gaps = contractGaps(task.meta);

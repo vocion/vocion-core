@@ -115,3 +115,40 @@ export async function revertPull(orgId: string, url: string): Promise<{ revertUr
   }
   return { revertUrl };
 }
+
+/**
+ * Close a pull request with one comment saying why. Merged or already closed
+ * is not an error: there is nothing to close. The branch is left alone, so a
+ * later attempt can still continue from it.
+ * @param orgId - The workspace.
+ * @param url - The pull request.
+ * @param comment - Why it is closed, in the words the PR page shows.
+ */
+export async function closePull(orgId: string, url: string, comment: string): Promise<{ closed: boolean; state: string }> {
+  const p = await pullFor(orgId, url);
+  const base = `https://api.github.com/repos/${p.owner}/${p.repo}`;
+  const res = await fetch(`${base}/pulls/${p.number}`, { headers: HEADERS(p.token), signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) {
+    throw new Error(`GitHub did not return ${url} (HTTP ${res.status})`);
+  }
+  const meta = await res.json() as { merged?: boolean; state?: string };
+  if (meta.merged || meta.state !== 'open') {
+    return { closed: false, state: meta.merged ? 'merged' : String(meta.state ?? 'unknown') };
+  }
+  await fetch(`${base}/issues/${p.number}/comments`, {
+    method: 'POST',
+    headers: { ...HEADERS(p.token), 'content-type': 'application/json' },
+    body: JSON.stringify({ body: comment }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const patch = await fetch(`${base}/pulls/${p.number}`, {
+    method: 'PATCH',
+    headers: { ...HEADERS(p.token), 'content-type': 'application/json' },
+    body: JSON.stringify({ state: 'closed' }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!patch.ok) {
+    throw new Error(`GitHub refused to close ${url} (HTTP ${patch.status})`);
+  }
+  return { closed: true, state: 'closed' };
+}

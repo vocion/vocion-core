@@ -1045,6 +1045,11 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
     console.warn('factory sweep: the worker-rebuild check failed', { orgId, message: err.message });
     return [];
   });
+  // A replaced attempt's pull request is closed, naming what replaced it, so
+  // the open PRs are the work still live (services/factory/supersededPulls.ts).
+  await import('./supersededPulls').then(m => m.closeSupersededPulls(orgId)).catch((err: Error) => {
+    console.warn('factory sweep: closing superseded pull requests failed', { orgId, message: err.message });
+  });
   // A stop a stale plan explains is planned again, the same way.
   acted.push(...await replanStaleStops(orgId, now).catch((err: Error) => {
     console.warn('factory sweep: the stale-plan check failed', { orgId, message: err.message });
