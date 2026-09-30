@@ -1,8 +1,10 @@
 'use client';
 
 import type { RunGlance } from '@/libs/worker/runLog';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useLive } from '@/hooks/useLive';
 import { Link } from '@/libs/I18nNavigation';
+import { liveTopic } from '@/libs/live/topics';
 import { client } from '@/libs/Orpc';
 import { isLiveStatus, refusedBeforeStart } from '@/libs/worker/runLog';
 import { RunNowLine, RunStepsCompact, RunTitleBlock, RunWhyLine, useRunClock } from './RunHeader';
@@ -19,8 +21,10 @@ export const GLANCE_POLL_MS = 4000;
  * page, its pull request and its contract. The pane's own header row carries
  * the title.
  *
- * While the run is live and the tab visible, the pane re-reads the glance
- * whole every few seconds; a finished run is not read again.
+ * While the run is live, each heartbeat and status change arrives on the
+ * live stream (`useLive`, the run's own topic, as its page follows it) and
+ * the pane re-reads the glance whole; while the stream is down it asks every
+ * few seconds instead (tab visible). A finished run is not read again.
  * @param props
  * @param props.initial - The run as the preview read it.
  * @param props.pollMs - How often to re-read while live; {@link GLANCE_POLL_MS} unless a test says otherwise.
@@ -32,26 +36,46 @@ export function RunGlanceView({ initial, pollMs = GLANCE_POLL_MS }: { initial: R
   const visible = useSyncExternalStore(subscribeVisibility, readVisible, () => true);
   const now = useRunClock(live);
 
+  // One read of the glance; a read already out is not doubled.
+  const inFlight = useRef(false);
+  const alive = useRef(true);
   useEffect(() => {
-    if (!live || !visible) {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const reread = useCallback(async () => {
+    if (inFlight.current) {
       return;
     }
-    let cancelled = false;
-    const timer = setInterval(() => {
-      client.runs.glance({ ref: header.ref })
-        .then((next) => {
-          if (!cancelled) {
-            setGlance(next as RunGlance);
-          }
-        })
-        // A missed read is caught up by the next one.
-        .catch(() => undefined);
-    }, pollMs);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [live, visible, header.ref, pollMs]);
+    inFlight.current = true;
+    try {
+      const next = await client.runs.glance({ ref: header.ref });
+      if (alive.current) {
+        setGlance(next as RunGlance);
+      }
+    } catch {
+      // A missed read is caught up by the next one.
+    } finally {
+      inFlight.current = false;
+    }
+  }, [header.ref]);
+
+  // Pushed (backlog 050): every heartbeat that lands an engineering run's new
+  // lines, and every change of its status, is a notice on the run's topic —
+  // the same one its page follows. An agent run publishes nothing of its own,
+  // so it keeps asking on the interval.
+  const { live: pushed } = useLive(live && header.kind === 'worker' ? [liveTopic.run(header.id)] : [], () => void reread());
+
+  // The fallback while the stream is down: ask every few seconds.
+  useEffect(() => {
+    if (!live || !visible || pushed) {
+      return;
+    }
+    const timer = setInterval(() => void reread(), pollMs);
+    return () => clearInterval(timer);
+  }, [live, visible, pushed, reread, pollMs]);
 
   const refused = refusedBeforeStart({ header, events: [], tasks: [], calls: [], cursor: 0 });
   const runHref = header.kind === 'agent' ? `/dashboard/p/runs/agent-${header.id}` : `/dashboard/p/runs/${header.id}`;
