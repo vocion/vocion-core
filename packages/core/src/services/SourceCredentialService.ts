@@ -156,6 +156,66 @@ export async function storeCredentialForSource(input: {
   return { installId, credentialId };
 }
 
+/**
+ * Replace the values of an install's live per-install credential, in place.
+ *
+ * For grants whose vendor ROTATES the refresh token on every refresh
+ * (Atlassian): the connector that refreshed mid-sync has a new refresh token
+ * the old row does not, and the next refresh would fail with it. Writing a
+ * new row instead would leave one dead row per refresh behind. So the newest
+ * unrevoked `source_credential` of the connector's install is re-encrypted
+ * with the new bag; id, display name and owner stay as they were.
+ *
+ * Returns false, and writes nothing, when the install or a live row does not
+ * exist — the credential the sync used may have come from the workspace
+ * `api_token` path instead, which this does not touch. The caller decides
+ * whether that is an error; the sync that just refreshed still holds a
+ * working access token for its own run.
+ * @param input - Which connector, and the new bag.
+ * @param input.orgId - The org that owns the install.
+ * @param input.connectorSlug - Connector slug the install is keyed by, e.g. `jira`.
+ * @param input.raw - The complete new credential bag.
+ */
+export async function updateCredentialValuesForConnector(input: {
+  orgId: string;
+  connectorSlug: string;
+  raw: RawCredentials;
+}): Promise<boolean> {
+  const [install] = await db
+    .select({ id: sourceInstallSchema.id })
+    .from(sourceInstallSchema)
+    .where(and(
+      eq(sourceInstallSchema.orgId, input.orgId),
+      eq(sourceInstallSchema.sourceSlug, input.connectorSlug),
+    ))
+    .limit(1);
+  if (!install) {
+    return false;
+  }
+  const [credential] = await db
+    .select({ id: sourceCredentialSchema.id })
+    .from(sourceCredentialSchema)
+    .where(and(
+      eq(sourceCredentialSchema.installId, install.id),
+      isNull(sourceCredentialSchema.revokedAt),
+    ))
+    .orderBy(desc(sourceCredentialSchema.createdAt))
+    .limit(1);
+  if (!credential) {
+    return false;
+  }
+  const vault = buildCredentialVault();
+  const { ciphertext, nonce, authTag, dekId } = await vault.encrypt(
+    input.orgId,
+    Buffer.from(JSON.stringify(input.raw), 'utf8'),
+  );
+  await db
+    .update(sourceCredentialSchema)
+    .set({ ciphertext, nonce, authTag, dekId })
+    .where(eq(sourceCredentialSchema.id, credential.id));
+  return true;
+}
+
 /** Why a credential an install points at cannot be used. */
 export type BrokenCredentialReason = 'revoked' | 'expired' | 'missing';
 

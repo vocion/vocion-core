@@ -9,6 +9,13 @@ import type { IngestDoc } from '@/services/IngestionService';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adfToText, buildJql, jiraConnector } from '@/libs/sources/jira';
 
+// The connector persists a rotated Atlassian refresh token through the
+// credential service; the tests watch the call, never the database.
+vi.mock('@/services/SourceCredentialService', () => ({
+  updateCredentialValuesForConnector: vi.fn(async () => true),
+}));
+const { updateCredentialValuesForConnector } = await import('@/services/SourceCredentialService');
+
 function res(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -63,7 +70,11 @@ async function collect(it: AsyncIterable<IngestDoc>): Promise<IngestDoc[]> {
   return out;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.mocked(updateCredentialValuesForConnector).mockClear();
+});
 
 describe('jiraConnector', () => {
   it('yields configured projects then issues, keyed by immutable numeric id', async () => {
@@ -160,8 +171,149 @@ describe('jiraConnector', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses to run without email + apiToken credentials', async () => {
+  it('refuses to run without email + apiToken credentials, naming the OAuth alternative', async () => {
     await expect(collect(jiraConnector.sync(ctx({ credentials: {} })))).rejects.toThrow(/apiToken/i);
+  });
+});
+
+describe('jiraConnector with an Atlassian grant', () => {
+  const ACME = { id: 'cloud-acme', url: 'https://acme.atlassian.net', name: 'Acme' };
+  const NORTHWIND = { id: 'cloud-nw', url: 'https://northwind.atlassian.net', name: 'Northwind' };
+  const SEARCH_PAGE = { issues: [issue('1', 'REV-1')], isLast: true };
+
+  function grant(over: Record<string, unknown> = {}) {
+    return {
+      accessToken: 'at-old',
+      refreshToken: 'rt-old',
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      scope: 'read:jira-work read:jira-user offline_access',
+      sites: [ACME, NORTHWIND],
+      ...over,
+    };
+  }
+
+  function grantCtx(over: Partial<SourceContext> = {}): SourceContext {
+    vi.stubEnv('ATLASSIAN_CLIENT_ID', 'cid');
+    vi.stubEnv('ATLASSIAN_CLIENT_SECRET', 'csecret');
+    return ctx({ credentials: grant(), ...over });
+  }
+
+  it('calls api.atlassian.com for the site whose URL is the baseUrl, as Bearer, and links documents to the site', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(res(PROJECT_PAGE)).mockResolvedValueOnce(res(SEARCH_PAGE));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const docs = await collect(jiraConnector.sync(grantCtx()));
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://api.atlassian.com/ex/jira/cloud-acme/rest/api/3/project/search?startAt=0&maxResults=50');
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).headers).toMatchObject({ authorization: 'Bearer at-old' });
+    expect(fetchMock.mock.calls[1]![0]).toBe('https://api.atlassian.com/ex/jira/cloud-acme/rest/api/3/search/jql');
+    expect(docs.find(d => d.externalId === 'jira:1')?.uri).toBe('https://acme.atlassian.net/browse/REV-1');
+    expect(updateCredentialValuesForConnector).not.toHaveBeenCalled();
+  });
+
+  it('uses the pinned cloudId when the grant carries one', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(res(PROJECT_PAGE)).mockResolvedValueOnce(res(SEARCH_PAGE));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await collect(jiraConnector.sync(grantCtx({ credentials: grant({ cloudId: 'cloud-nw', sites: [NORTHWIND] }) })));
+
+    expect(fetchMock.mock.calls[0]![0]).toContain('/ex/jira/cloud-nw/');
+  });
+
+  it('fails naming the reachable sites when none matches the baseUrl', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    const it_ = jiraConnector.sync(grantCtx({ config: { baseUrl: 'https://elsewhere.atlassian.net/', projectKeys: ['REV'] } }));
+
+    await expect(collect(it_)).rejects.toThrow(/does not reach https:\/\/elsewhere\.atlassian\.net\. It reaches: https:\/\/acme\.atlassian\.net, https:\/\/northwind\.atlassian\.net/);
+  });
+
+  it('refreshes an expiring token before the first request and persists the rotated refresh token', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(res({ access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 }))
+      .mockResolvedValueOnce(res(PROJECT_PAGE))
+      .mockResolvedValueOnce(res(SEARCH_PAGE));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await collect(jiraConnector.sync(grantCtx({ credentials: grant({ expiresAt: new Date(Date.now() + 30_000).toISOString() }) })));
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://auth.atlassian.com/oauth/token');
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({
+      grant_type: 'refresh_token',
+      client_id: 'cid',
+      client_secret: 'csecret',
+      refresh_token: 'rt-old',
+    });
+    expect((fetchMock.mock.calls[1]![1] as RequestInit).headers).toMatchObject({ authorization: 'Bearer at-new' });
+    expect(updateCredentialValuesForConnector).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateCredentialValuesForConnector).mock.calls[0]![0]).toMatchObject({
+      orgId: 'org_1',
+      connectorSlug: 'jira',
+      raw: expect.objectContaining({ accessToken: 'at-new', refreshToken: 'rt-new', cloudId: 'cloud-acme' }),
+    });
+  });
+
+  it('retries once after a 401 with a refreshed token, and gives up on a second 401', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(res({ errorMessages: ['Unauthorized'] }, 401))
+      .mockResolvedValueOnce(res({ access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 }))
+      .mockResolvedValueOnce(res({ errorMessages: ['Unauthorized'] }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(collect(jiraConnector.sync(grantCtx()))).rejects.toThrow(/rejected the credentials \(401\)\. The Atlassian grant may have been revoked/);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(updateCredentialValuesForConnector).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns, and keeps syncing, when the rotated token had no row to land in', async () => {
+    vi.mocked(updateCredentialValuesForConnector).mockResolvedValueOnce(false);
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(res({ access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 }))
+      .mockResolvedValueOnce(res(PROJECT_PAGE))
+      .mockResolvedValueOnce(res(SEARCH_PAGE)));
+    const onProgress = vi.fn();
+
+    const docs = await collect(jiraConnector.sync(grantCtx({ onProgress, credentials: grant({ expiresAt: new Date().toISOString() }) })));
+
+    expect(docs.length).toBeGreaterThan(0);
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ kind: 'error', message: expect.stringContaining('rotated the refresh token') }));
+  });
+
+  it('Test connection reports the site and each project key, and never refreshes', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(res(PROJECT_PAGE));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const out = await jiraConnector.inspect!({ config: { baseUrl: 'https://acme.atlassian.net', projectKeys: ['REV', 'NOPE'] }, credentials: grant(), options: {} });
+
+    expect(out).toMatchObject({
+      reachable: true,
+      authorized: true,
+      note: 'Site https://acme.atlassian.net.',
+      checks: [
+        { key: 'project:REV', ok: true, detail: 'Revenue' },
+        { key: 'project:NOPE', ok: false },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('Test connection with an expired grant says a sync must refresh it, rather than rotating a token it cannot save', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const out = await jiraConnector.inspect!({ config: { baseUrl: 'https://acme.atlassian.net', projectKeys: ['REV'] }, credentials: grant({ expiresAt: new Date(Date.now() - 1000).toISOString() }), options: {} }) as { authorized: boolean; error: string | null };
+
+    expect(out.authorized).toBe(false);
+    expect(out.error).toMatch(/Run Sync now/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(updateCredentialValuesForConnector).not.toHaveBeenCalled();
+  });
+
+  it('Test connection with a pasted token still works', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(res(PROJECT_PAGE)));
+
+    const out = await jiraConnector.inspect!({ config: { baseUrl: 'https://acme.atlassian.net/', projectKeys: ['REV'] }, credentials: { email: 'a@acme.example', apiToken: 't' }, options: {} }) as { authorized: boolean };
+
+    expect(out.authorized).toBe(true);
   });
 });
 
