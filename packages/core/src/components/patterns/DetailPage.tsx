@@ -1,12 +1,14 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import type { RecordRef } from '@/services/chat/pageContext';
 import { ChevronRight } from 'lucide-react';
 import { useEffect } from 'react';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
+import { OpenInPreview } from './OpenInPreview';
 
 /**
  * The Detail archetype — one record on its own URL. A breadcrumb with
@@ -337,7 +339,19 @@ export function Section(props: {
   );
 }
 
-export type Fact = { label: ReactNode; value: ReactNode; href?: string; key?: string };
+export type Fact = {
+  label: ReactNode;
+  value: ReactNode;
+  href?: string;
+  key?: string;
+  /**
+   * The record the row names, when the preview pane can show it: the row
+   * then carries an "Open in preview" action at its right end
+   * (`OpenInPreview`), revealed on hover, always there on touch. The value's
+   * own link still goes to the full page. A row with no preview has none.
+   */
+  preview?: Pick<RecordRef, 'type' | 'id'> | null;
+};
 
 /**
  * FactList — label/value pairs. `rows`: label left in a fixed column, value
@@ -363,9 +377,12 @@ export function FactList(props: { facts: ReadonlyArray<Maybe<Fact>>; layout?: 'r
     return (
       <dl data-pattern="fact-list" className={cn('flex flex-col gap-2.5', props.className)}>
         {facts.map((f, i) => (
-          <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)}>
+          <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="group/row" data-fact={f.key}>
             <dt className="text-[12px] text-muted-foreground">{f.label}</dt>
-            <dd className="text-sm break-words text-foreground">{value(f)}</dd>
+            <dd className="flex items-start gap-2 text-sm break-words text-foreground">
+              <span className="min-w-0 flex-1">{value(f)}</span>
+              {f.preview && <OpenInPreview recordRef={f.preview} className="-my-0.5" />}
+            </dd>
           </div>
         ))}
       </dl>
@@ -374,9 +391,10 @@ export function FactList(props: { facts: ReadonlyArray<Maybe<Fact>>; layout?: 'r
   return (
     <dl data-pattern="fact-list" className={cn('divide-y divide-rule', props.className)}>
       {facts.map((f, i) => (
-        <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="flex gap-4 py-2 text-sm">
+        <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="group/row flex items-start gap-4 py-2 text-sm" data-fact={f.key}>
           <dt className="w-32 shrink-0 text-[12px] leading-5 text-muted-foreground">{f.label}</dt>
           <dd className="min-w-0 flex-1 break-words text-foreground">{value(f)}</dd>
+          {f.preview && <OpenInPreview recordRef={f.preview} className="-my-0.5" />}
         </div>
       ))}
     </dl>
