@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, riskFromPaths } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, riskFromPaths, underwayRefusal } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -357,5 +357,14 @@ describe('a merge is ruled by what its diff touched (2026-09-30)', () => {
     expect(higherRisk('ui', riskFromPaths(['apps/web/a.tsx', 'packages/auth/session.ts'], defaults))).toBe('auth');
     expect(higherRisk('schema', riskFromPaths(['apps/web/a.tsx'], defaults))).toBe('schema');
     expect(higherRisk('logic', null)).toBe('logic');
+  });
+});
+
+describe('a plan\'s own build is never refused as a second start (#201, 2026-09-30)', () => {
+  it('lets the plan\'s build through while the start that asked for the plan is still executing', () => {
+    const executing = [{ id: 5335, status: 'executing', executedAt: null, result: null }];
+
+    expect(underwayRefusal(executing, { trigger: 'plan' })).toBeNull();
+    expect(underwayRefusal(executing, { trigger: 'recovery' })).toMatch(/^already building: run #5335/);
   });
 });

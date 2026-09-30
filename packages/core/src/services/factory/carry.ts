@@ -1100,6 +1100,16 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
       }
       continue;
     }
+    // AN APPROVED PLAN NOTHING WAS BUILT FROM IS BUILT (2026-09-30, #201:
+    // plan #254 approved, its build refused by a guard, and the request sat
+    // with no stage and nothing running). The newest approved plan with no
+    // task created since its approval starts its build.
+    const plan = await approvedPlan(work.plans);
+    if (plan && state.stage !== 'stopped' && !work.tasks.some(t => (t.createdAt?.getTime() ?? 0) >= (plan.createdAt?.getTime() ?? 0))) {
+      const r = await buildFromApprovedPlan(orgId, { planId: plan.id, requestId: id, approvedBy: String(plan.meta.approvedBy ?? 'a person'), byPerson: false });
+      acted.push(r);
+      continue;
+    }
     const newest = work.runs[0];
     if (newest && ['failed', 'lost'].includes(newest.status) && !state.handledRunIds.includes(newest.id) && state.stage !== 'stopped' && now.getTime() - newest.updatedAt.getTime() < SWEEP_WINDOW_MS) {
       const r = await recoverFailedRun(orgId, newest.id, { now });

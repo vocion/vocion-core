@@ -716,7 +716,11 @@ export type EarlierStart = { id: number; status: string; executedAt: Date | null
 export function underwayRefusal(earlier: readonly EarlierStart[], opts: { trigger?: string | null; now?: Date } = {}): string | null {
   const now = (opts.now ?? new Date()).getTime();
   for (const run of earlier) {
-    if (IN_FLIGHT_RUN_STATUSES.includes(run.status)) {
+    // A plan's own build continues the start that asked for the plan, even
+    // while that start is still executing (#201, 2026-09-30: run 5335 went to
+    // planning, the plan was approved two minutes later, and its build was
+    // refused as "already building: run #5335 is starting it").
+    if (IN_FLIGHT_RUN_STATUSES.includes(run.status) && opts.trigger !== 'plan') {
       return `already building: run #${run.id} is starting it now. Nothing new was started — follow that run.`;
     }
     if (run.status !== 'done' || !run.result) {
