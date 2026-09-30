@@ -115,4 +115,45 @@ describe('read_object', () => {
       next: 'The build starts when the plan is approved.',
     });
   });
+
+  it('carries the delivery facts on their own fields, so a finished run is never read as shipped (backlog 044)', async () => {
+    getBusinessObject.mockResolvedValue({ id: 248, title: 'Theme toggle', status: 'active', metadata: { state: 'building' } });
+    loadRecordStatus.mockResolvedValueOnce({
+      ok: true,
+      status: {
+        record: { id: 248, objectType: 'request', title: 'Theme toggle', href: '/dashboard/p/feature/248' },
+        stage: { key: 'changes', label: 'Changes requested', tone: 'warn' },
+        you: { needsYou: true, line: 'Needs you: Review requested changes', why: 'QA proved 5 of 6', move: null },
+        live: null,
+        next: 'Build again starts the next attempt with what QA found.',
+        facts: {
+          request: { id: 248, stage: 'changes_asked', recordState: 'building', line: 'Changes asked.' },
+          taskId: 301,
+          verdict: { value: 'changes', proven: 5, total: 6, commit: 'abc1234', at: null, line: 'QA sent it back: 5 of 6 proven' },
+          pullRequest: { url: 'https://github.com/northwind/portal/pull/128', label: 'PR #128', merge: 'not_merged', mergedAt: null, line: 'PR #128 is not merged (nothing records a merge)' },
+          ci: { state: 'passed', failedChecks: null, commit: 'abc1234', at: null, line: 'CI passed on PR #128' },
+          mergeRule: { runsItself: true, riskClass: 'ui', line: 'This merge (ui) runs itself on its trust rule once QA approves; no card, nobody presses merge' },
+          shipped: false,
+          next: 'The next attempt builds with what QA found',
+        },
+        readAt: '2026-09-30T18:00:00.000Z',
+      },
+    });
+
+    const out = await readObjectTool(ctx(['request'])).invoke({ object_type: 'request', id: 248 }) as string;
+    const { facts } = JSON.parse(out).liveStatus;
+
+    expect(facts).toMatchObject({
+      request: { id: 248, stage: 'changes_asked', recordState: 'building' },
+      attempt: { taskId: 301 },
+      verdict: { value: 'changes', proven: 5, total: 6 },
+      pullRequest: { merge: 'not_merged' },
+      ci: { state: 'passed' },
+      mergeRule: { runsItself: true, riskClass: 'ui' },
+      shipped: false,
+      next: 'The next attempt builds with what QA found',
+    });
+    // Inside what a cut replay keeps, before the record's own fields.
+    expect(out.indexOf('"merge":"not_merged"')).toBeLessThan(1200);
+  });
 });

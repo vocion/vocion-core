@@ -4,6 +4,14 @@ import { z } from 'zod';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 import { objectKnowledge } from '@/services/MemoryService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
+import { liveStatusOf } from './readObject';
+
+/**
+ * How many records a lookup reads the delivery status of. Each is the feature
+ * report's own read, so a long list says where to read it instead of paying
+ * for twenty.
+ */
+const STATUS_READS = 6;
 
 // Metadata keys that are plumbing, not answer material — never surfaced to the
 // model. They invite verbatim dumps: internal ids, deep-links, profile URLs.
@@ -72,7 +80,15 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
       // echoes any human-readable tool output (and even a "synthesize"
       // instruction line) straight into chat. A raw JSON array is data the
       // model won't paste as an answer — it has to read + synthesize it.
-      const rows = objects.map((obj) => {
+      // WHERE EACH ONE IS, FROM THE RECORDS (backlog 044): for a record whose
+      // type has a report page, the same You / Now / Next and delivery facts
+      // read_object returns — so "what's running" is answered from QA's
+      // verdict, the merge and CI, never from a field that only says a run
+      // ended. Only for a short list; a long one says to read the few that matter.
+      const statuses = objects.length <= STATUS_READS
+        ? await Promise.all(objects.map(obj => liveStatusOf(ctx.orgId, obj.id)))
+        : [];
+      const rows = objects.map((obj, i) => {
         const meta = (obj.metadata ?? {}) as Record<string, unknown>;
         // THE ID, first.
         //
@@ -88,6 +104,9 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
         // It is the first key because it is what the next tool call needs, and
         // a digest that buries the handle is a digest a model has to hunt in.
         const rec: Record<string, unknown> = { id: obj.id, title: obj.title, status: obj.status };
+        if (statuses[i]) {
+          rec.liveStatus = statuses[i];
+        }
         for (const [k, v] of Object.entries(meta)) {
           if (v == null || NOISE_KEY.test(k) || isUrl(v)) {
             continue;
@@ -127,7 +146,7 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
     },
     {
       name: 'lookup_objects',
-      description: 'Look up the structured business objects (follow-ups, events, deals, accounts) the agent tracks. Returns a compact, sanitized digest to SYNTHESIZE into a plain answer — never paste it back verbatim.',
+      description: `Look up the structured business objects (follow-ups, events, deals, accounts) the agent tracks. Returns a compact, sanitized digest to SYNTHESIZE into a plain answer — never paste it back verbatim. When ${STATUS_READS} or fewer records match and their type has a report page, each carries liveStatus: where it is now and its delivery facts (QA's verdict, whether its pull request merged, CI, whether its merge runs itself, the request's stage) — say status from those fields, never from a field that only says a run ended.`,
       schema: z.object({
         type_slug: z.string().optional().describe(`Object type to filter by${available ? ` (available: ${available})` : ''}`),
         id: z.number().int().positive().optional().describe('One record by its id — the fastest way to read a record you already know.'),

@@ -21,6 +21,7 @@
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
+import type { WorkFacts } from '@/libs/factory/workFacts';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { nowLine } from '@/libs/factory/liveStatus';
@@ -70,19 +71,48 @@ export function recoverySummary(meta: Record<string, unknown>): Record<string, u
 }
 
 /**
+ * The delivery facts as an agent reads them: each on its own typed field, with
+ * the line it reads as (`libs/factory/workFacts.ts`, backlog 044). A finished
+ * run is not a merge, a merge is not a release, and "not reported" is not a
+ * pass — each field says only what its record says.
+ * @param f - The report's facts.
+ */
+function factsForAgent(f: WorkFacts): Record<string, unknown> {
+  return {
+    request: { id: f.request.id, stage: f.request.stage, recordState: f.request.recordState, line: f.request.line },
+    attempt: f.taskId === null ? null : { taskId: f.taskId },
+    verdict: { value: f.verdict.value, proven: f.verdict.proven, total: f.verdict.total, line: f.verdict.line },
+    pullRequest: { url: f.pullRequest.url, merge: f.pullRequest.merge, line: f.pullRequest.line },
+    ci: { state: f.ci.state, failedChecks: f.ci.failedChecks, line: f.ci.line },
+    mergeRule: { runsItself: f.mergeRule.runsItself, riskClass: f.mergeRule.riskClass, line: f.mergeRule.line },
+    shipped: f.shipped,
+    next: f.next,
+  };
+}
+
+/**
  * The record's three-line status for an agent: the stage, whether it needs a
- * person, what is running (as a line and as the run), and what is next.
+ * person, what is running (as a line and as the run), and what is next — and
+ * the delivery facts under it.
  * @param orgId - Tenant.
  * @param id - The record.
  */
-async function liveStatusOf(orgId: string, id: number): Promise<Record<string, unknown> | null> {
+export async function liveStatusOf(orgId: string, id: number): Promise<Record<string, unknown> | null> {
   try {
     const read = await loadRecordStatus(orgId, id);
     if (!read.ok) {
       return null;
     }
     const s = read.status;
-    return { stage: s.stage.label, you: s.you.line, ...(s.you.why ? { why: s.you.why } : {}), now: nowLine(s.live, new Date(s.readAt)), ...(s.live ? { run: { label: s.live.runLabel, href: s.live.runHref, since: s.live.startedAt } } : {}), next: s.next };
+    return {
+      stage: s.stage.label,
+      you: s.you.line,
+      ...(s.you.why ? { why: s.you.why } : {}),
+      now: nowLine(s.live, new Date(s.readAt)),
+      ...(s.live ? { run: { label: s.live.runLabel, href: s.live.runHref, since: s.live.startedAt } } : {}),
+      next: s.next,
+      ...(s.facts ? { facts: factsForAgent(s.facts) } : {}),
+    };
   } catch {
     return null;
   }

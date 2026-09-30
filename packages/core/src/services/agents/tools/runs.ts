@@ -15,13 +15,19 @@
  */
 
 import type { RuntimeContext } from '../types';
+import type { WorkerRun } from '@/services/WorkerRunService';
 import { tool } from '@langchain/core/tools';
 import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { actionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { runFacts } from '@/libs/factory/runFacts';
+import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, verdictFact } from '@/libs/factory/workFacts';
+import { actionRunSchema, businessObjectSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
 import { getObjectTypeBySlug, listBusinessObjects } from '@/services/BusinessObjectService';
+import { taskStatus } from '@/services/factory/featureReport';
+import { loadPullSignals, mergeRiskClassOf, mergeRulesFor } from '@/services/factory/pullSignals';
 import { runRecord } from '@/services/WorkerRunService';
+import { liveStatusOf } from './readObject';
 
 /** The machinery's own noise — left out unless asked for, as the work item leaves it out. */
 const BOOKKEEPING_KINDS = ['compact', 'snapshot'];
@@ -157,6 +163,121 @@ async function recentReleases(orgId: string, limit: number): Promise<{ count: nu
   };
 }
 
+/** How many distinct pieces of work a listing reads the full status of — each is the feature report's own read. */
+const STATUS_READS = 6;
+
+type Meta = Record<string, unknown>;
+
+/**
+ * What a run completed, in a clause: the run's own evidence, never its status
+ * word alone ("completed" is the engineer's attempt, not the feature).
+ * @param run - The run.
+ */
+function completedLine(run: WorkerRun): string {
+  const f = runFacts({ ...run, progress: (run.progress ?? {}) as Meta, result: (run.result ?? null) as Meta | null, input: (run.input ?? {}) as Meta });
+  switch (f.execution) {
+    case 'completed':
+      return `the run finished: ${f.headline}`;
+    case 'running':
+      return 'still running';
+    case 'queued':
+      return 'queued; no worker has taken it';
+    case 'cancelled':
+      return `stopped: ${f.headline}`;
+    default:
+      return `the run failed${f.failureClass ? ` (${f.failureClass})` : ''}: ${f.headline}`;
+  }
+}
+
+/**
+ * THE DELIVERY FACTS PER RUN (backlog 044). Conversation 392 read "#248
+ * completed" as shipped when QA had sent it back and the pull request was
+ * unmerged. Each run now carries, on separate typed fields, what it completed,
+ * QA's verdict on its attempt, whether its pull request merged, CI on its
+ * commit, the request's stage and what is next — read from the task, GitHub's
+ * events, the merge action and the feature report, in a few batched reads.
+ * @param orgId - Tenant.
+ * @param runs - The listed runs, newest first.
+ * @returns Run id → its facts, and request id → the request's status.
+ */
+async function deliveryFacts(orgId: string, runs: readonly WorkerRun[]): Promise<{ byRun: Map<number, Meta>; requests: Record<string, unknown> }> {
+  const recordIds = [...new Set(runs.map(r => runRecord(r)?.id).filter((id): id is number => typeof id === 'number'))];
+  const tasks = recordIds.length === 0
+    ? []
+    : await db
+        .select({ id: businessObjectSchema.id, status: businessObjectSchema.status, metadata: businessObjectSchema.metadata })
+        .from(businessObjectSchema)
+        .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, recordIds)));
+  const taskById = new Map(tasks.map(t => [t.id, { id: t.id, status: t.status ?? null, meta: (t.metadata ?? {}) as Meta }]));
+  const prOf = (run: WorkerRun): string | null => {
+    const task = taskById.get(runRecord(run)?.id ?? -1);
+    const url = (typeof task?.meta.prUrl === 'string' ? task.meta.prUrl : null)
+      ?? (typeof (run.result as Meta | null)?.pr_url === 'string' ? (run.result as Meta).pr_url as string : null)
+      ?? (typeof (run.progress as Meta | null)?.prUrl === 'string' ? (run.progress as Meta).prUrl as string : null);
+    return url ? normalisePullUrl(url) : null;
+  };
+  // The request each task serves, newest first, for its status.
+  const requestIds: number[] = [];
+  for (const run of runs) {
+    const rid = Number(taskById.get(runRecord(run)?.id ?? -1)?.meta.requestId);
+    if (Number.isSafeInteger(rid) && rid > 0 && !requestIds.includes(rid)) {
+      requestIds.push(rid);
+    }
+  }
+  const approved = tasks.filter(t => ((t.metadata ?? {}) as Meta).verdict && (((t.metadata ?? {}) as Meta).verdict as Meta).value === 'approve');
+  const classes = new Map(await Promise.all(approved.map(async t => [t.id, await mergeRiskClassOf(orgId, (t.metadata ?? {}) as Meta).catch(() => 'logic')] as const)));
+  const [pulls, rules, statuses] = await Promise.all([
+    loadPullSignals(orgId, runs.map(prOf)).catch(() => new Map()),
+    mergeRulesFor(orgId, classes.values()).catch(() => new Map<string, boolean | null>()),
+    Promise.all(requestIds.slice(0, STATUS_READS).map(async id => [id, await liveStatusOf(orgId, id)] as const)),
+  ]);
+  const requests: Record<string, unknown> = {};
+  const currentTask = new Map<number, number | null>();
+  const stageOf = new Map<number, string>();
+  for (const [id, status] of statuses) {
+    if (!status) {
+      continue;
+    }
+    requests[String(id)] = status;
+    const facts = (status.facts ?? null) as { attempt?: { taskId?: number } | null; request?: { stage?: string } } | null;
+    currentTask.set(id, facts?.attempt?.taskId ?? null);
+    if (facts?.request?.stage) {
+      stageOf.set(id, facts.request.stage);
+    }
+  }
+  const byRun = new Map<number, Meta>();
+  for (const run of runs) {
+    const task = taskById.get(runRecord(run)?.id ?? -1) ?? null;
+    const url = prOf(run);
+    const signals = (url && pulls.get(url)) || NO_PULL_SIGNALS;
+    const stage = task ? taskStatus({ id: task.id, title: '', status: task.status, createdAt: null, meta: task.meta }) : null;
+    const verdict = verdictFact(task ? { status: stage, meta: task.meta } : null);
+    const pullRequest = pullFact(url, signals);
+    const ciFailure = task?.meta.ciFailure;
+    const commit = typeof task?.meta.commitSha === 'string' ? task.meta.commitSha : typeof (run.result as Meta | null)?.commit_sha === 'string' ? (run.result as Meta).commit_sha as string : null;
+    const ci = ciFact(signals, { commit, ciFailure: ciFailure && typeof ciFailure === 'object' ? ciFailure as Meta : null }, pullRequest.label);
+    const riskClass = task ? classes.get(task.id) ?? null : null;
+    const mergeRule = mergeRuleFact(riskClass ? rules.get(riskClass) ?? null : null, riskClass);
+    const requestId = Number(task?.meta.requestId);
+    const hasRequest = Number.isSafeInteger(requestId) && requestId > 0;
+    const current = hasRequest ? currentTask.get(requestId) : undefined;
+    const superseded = task !== null && current !== undefined && current !== null && current !== task.id;
+    const live = run.status === 'queued' || run.status === 'running' || run.status === 'paused';
+    byRun.set(run.id, {
+      completed: completedLine(run),
+      ...(task ? { task: { id: task.id, stage } } : {}),
+      verdict: { value: verdict.value, proven: verdict.proven, total: verdict.total, line: verdict.line },
+      pullRequest: { merge: pullRequest.merge, line: pullRequest.line },
+      ci: { state: ci.state, failedChecks: ci.failedChecks, line: ci.line },
+      ...(verdict.value === 'approve' ? { mergeRule: { runsItself: mergeRule.runsItself, riskClass: mergeRule.riskClass, line: mergeRule.line } } : {}),
+      ...(hasRequest ? { request: { id: requestId, stage: stageOf.get(requestId) ?? 'not read (see read_object)' } } : {}),
+      ...(superseded ? { superseded: true } : {}),
+      next: live ? 'Still going: its verdict, merge and CI follow once it finishes' : nextForAttempt({ verdict, pullRequest, ci, mergeRule, shipped: hasRequest && stageOf.get(requestId) === 'shipped', taskStage: stage, superseded }),
+    });
+  }
+  return { byRun, requests };
+}
+
 export function listRecentRunsTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -219,6 +340,12 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
         centsSpent += row.cents;
       }
 
+      // "completed" never stands alone (backlog 044): each run carries what it
+      // completed, QA's verdict, the merge, CI, the request's stage and what is next.
+      const delivery = await deliveryFacts(ctx.orgId, workerRows).catch((err) => {
+        console.warn('list_recent_runs: delivery facts could not be read', { orgId: ctx.orgId, message: (err as Error).message });
+        return null;
+      });
       const workerRuns = workerRows.map((run) => {
         const result = (run.result ?? null) as Record<string, unknown> | null;
         const input = (run.input ?? {}) as Record<string, unknown>;
@@ -226,6 +353,7 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
           id: run.id,
           kind: run.kind,
           status: run.status,
+          ...(delivery?.byRun.get(run.id) ?? {}),
           agent: run.agentSlug,
           objective: objectiveOf(input),
           record: runRecord(run),
@@ -257,8 +385,9 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
         showing: workerRuns.length,
         note: workerRunCount === 0
           ? 'No worker runs in this workspace yet.'
-          : `${workerRunCount} worker run${workerRunCount === 1 ? '' : 's'} on record; the ${workerRuns.length} most recent follow, newest first. A run is listed whether or not a task record exists for it.`,
+          : `${workerRunCount} worker run${workerRunCount === 1 ? '' : 's'} on record; the ${workerRuns.length} most recent follow, newest first. A run is listed whether or not a task record exists for it. A run's status is the engineer's attempt only: "completed" means the run ended, not that QA passed it, that it merged or that it shipped. Each run says those on their own fields — verdict, pullRequest.merge, ci, request.stage, next — and requests carries each request's own status.`,
         workerRuns,
+        ...(delivery && Object.keys(delivery.requests).length > 0 ? { requests: delivery.requests } : {}),
         releases: releases === null
           ? (args.withFeedbackOnly ? undefined : 'This workspace has no `release` object type, so nothing here says what reached people.')
           : releases,
@@ -269,7 +398,7 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
     {
       name: 'list_recent_runs',
       description: [
-        'What the workspace\'s agents have run and built. Returns the org\'s worker runs (external workers, the software factory\'s engineer, lead ticks, red-team grades) — every run on record, whether or not a task record exists for it — with the total count, spend, a count per status, and the most recent N newest first: id, kind, status, agent, what it was asked to do, the record it ran for, what it said it did, cost, and what the worker reported about the change — PR URL, branch, commit, files changed, each check with its status, task id, risk class — plus, on a failed run, the kept branch and PR from its last heartbeat and how to continue; when it started and ended.',
+        'What the workspace\'s agents have run and built, and where each piece of work stands. Returns the org\'s worker runs (external workers, the software factory\'s engineer, lead ticks, red-team grades) — every run on record, whether or not a task record exists for it — with the total count, spend, a count per status, and the most recent N newest first: id, kind, status, agent, what it was asked to do, the record it ran for, what it said it did, cost, and what the worker reported about the change — PR URL, branch, commit, files changed, each check with its status, task id, risk class — plus, on a failed run, the kept branch and PR from its last heartbeat and how to continue; when it started and ended. Each run also carries its delivery facts on separate fields: what it completed, QA\'s verdict on that attempt (value, proven of total), whether its pull request merged, CI on its commit, whether its merge runs itself, the request\'s stage (building, changes_asked, awaiting_qa, merged, shipped …) and what is next; `requests` carries each request\'s live status. A run\'s status "completed" is never a merge or a release — say status from these fields.',
         'When the workspace has a `release` object type, the recent releases ride along (product, version, when it reached people, the PRs and tasks it carried). Use this to answer "what have you built", "what shipped", "what is running", "what did the factory do this week" — before concluding that nothing happened.',
         'Also lists recent workflow runs and action proposals; set `withFeedbackOnly` to see only workflow runs carrying a rating or note (the self-improver\'s use). `kinds`, `status` and `agentSlug` narrow the worker runs; bookkeeping runs (compact, snapshot) are left out unless `includeBookkeeping` is set.',
       ].join(' '),
