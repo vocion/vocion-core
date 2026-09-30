@@ -77,7 +77,10 @@ async function ghFor(orgId: string, fullName: string): Promise<Gh> {
   }
   const token = await tokenForRepo(orgId, fullName);
   if (!token) {
-    throw new Error(`this workspace has no GitHub connection for ${fullName}: its github source must list the repository and hold a token`);
+    // The gap is raised where the person can close it, and the refusal says so.
+    const { withConnectionRequest } = await import('@/services/connections/connectionRequests');
+    const request = await withConnectionRequest({ orgId, repo: fullName, kind: 'install', why: `The factory needs GitHub access to ${fullName} to read its pull requests and checks, re-run failed jobs and update branches.` });
+    throw new Error(`this workspace has no GitHub connection for ${fullName}.${request || ' Connect it from Connections.'}`);
   }
   return { owner, repo, token };
 }
@@ -342,7 +345,10 @@ export async function rerunFailedJobs(orgId: string, url: string, headSha?: stri
   for (const id of runIds) {
     const res = await call<unknown>(gh, `/actions/runs/${id}/rerun-failed-jobs`, { method: 'POST', body: {} });
     if (!res.ok) {
-      throw new Error(`GitHub refused to re-run run ${id} on ${repo}: ${res.message}${res.status === 403 || res.status === 404 ? ' (the token needs Actions: write on this repository)' : ''}`);
+      const request = res.status === 403
+        ? await (await import('@/services/connections/connectionRequests')).withConnectionRequest({ orgId, repo, kind: 'upgrade', why: `Re-running failed CI jobs on ${repo} needs Actions: write, which this workspace's GitHub access does not carry.` })
+        : '';
+      throw new Error(`GitHub refused to re-run run ${id} on ${repo}: ${res.message}${res.status === 403 || res.status === 404 ? ' (the token needs Actions: write on this repository)' : ''}${request}`);
     }
   }
   return { repo, headSha: sha, runIds };
@@ -381,6 +387,9 @@ export async function updatePullBranch(orgId: string, url: string, expectedHead?
   const gh = await ghFor(orgId, `${pr.owner}/${pr.repo}`);
   const res = await call<unknown>(gh, `/pulls/${pr.number}/update-branch`, { method: 'PUT', body: expectedHead ? { expected_head_sha: expectedHead } : {} });
   if (!res.ok) {
-    throw new Error(`GitHub did not update ${url} with its base: ${res.message}`);
+    const request = res.status === 403
+      ? await (await import('@/services/connections/connectionRequests')).withConnectionRequest({ orgId, repo: `${pr.owner}/${pr.repo}`, kind: 'upgrade', why: `Bringing pull requests on ${pr.owner}/${pr.repo} up to date with their base needs Contents: write, which this workspace's GitHub access does not carry.` })
+      : '';
+    throw new Error(`GitHub did not update ${url} with its base: ${res.message}${request}`);
   }
 }

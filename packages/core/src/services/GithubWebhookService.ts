@@ -254,6 +254,14 @@ async function defaultAppDeps(): Promise<GithubAppWebhookDeps> {
         }).where(eq(githubInstallationSchema.id, row.id));
       }
       app.forgetInstallationTokens(installationId);
+      // What landed on GitHub answers the requests waiting on it: repositories
+      // added or new permissions accepted close them, removal closes nothing.
+      if (patch.status !== 'removed' && patch.status !== 'suspended') {
+        const { closeConnectionRequests } = await import('@/services/connections/connectionRequests');
+        for (const row of rows) {
+          await closeConnectionRequests(row.orgId, 'github', row.accountLogin, 'GitHub confirmed the change on the installation.', patch.addRepos?.length ? ['install'] : patch.permissions ? ['upgrade'] : []).catch(() => undefined);
+        }
+      }
     },
     delivery,
   };

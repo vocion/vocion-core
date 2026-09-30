@@ -421,7 +421,7 @@ describe('loadWorkspace with the software factory', () => {
     // deploy reads, the red CI, the reconcile pass and a failed deploy.
     const release = ws.agents.find(a => a.slug === 'release-engineer');
 
-    expect(release?.harness?.grantTools).toEqual(['product_access', 'github_read_check_logs']);
+    expect(release?.harness?.grantTools).toEqual(['product_access', 'github_read_check_logs', 'request_connection']);
     expect(release?.skills).toEqual(['rubric-release-engineer']);
     expect(ws.missions.find(m => m.slug === 'keep-the-pipeline-answered')?.agent).toBe('release-engineer');
     expect(ws.automations.filter(a => a.agent === 'release-engineer').map(a => a.slug).sort()).toEqual(['deploy-run-failed', 'factory-ci-failure', 'factory-reconcile']);

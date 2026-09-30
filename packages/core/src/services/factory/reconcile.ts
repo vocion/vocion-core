@@ -283,6 +283,37 @@ export async function watchQueuedRuns(orgId: string, now: Date, owner: string | 
 }
 
 /**
+ * A repository the workspace's GitHub sources list that nothing can reach is
+ * a gap a person closes in one click (backlog 053): one connection request per
+ * account, raised once and refreshed after, closed by itself when the
+ * connection lands. A request the person turned down is not raised again.
+ * @param orgId - The workspace.
+ * @param owner - The seat that owns the pipeline, who asks.
+ */
+export async function watchConnections(orgId: string, owner: string | null): Promise<Result[]> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { knowledgeSourceSchema } = await import('@/models/Schema');
+  const { githubConfigSchema } = await import('@/libs/sources/github');
+  const rows = await db.select({ config: knowledgeSourceSchema.configJson, enabled: knowledgeSourceSchema.enabled })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), sql`${knowledgeSourceSchema.configJson} ->> '_connector' = 'github'`));
+  const repos = [...new Set(rows.filter(r => r.enabled !== 'false').flatMap(r => githubConfigSchema.safeParse(r.config).data?.repos ?? []))];
+  if (repos.length === 0) {
+    return [];
+  }
+  const { raiseConnectionGaps } = await import('@/services/connections/connectionRequests');
+  const gaps = await raiseConnectionGaps({
+    orgId,
+    provider: 'github',
+    resources: repos,
+    agentSlug: owner,
+    why: 'The factory watches these repositories and nothing in this workspace can reach them: their pull requests, checks and deploy runs go unseen until GitHub is connected.',
+  });
+  return gaps.filter(g => g.created).map(g => ({ requestId: null, did: 'no connection: asked', line: `Nothing reaches ${g.account} on GitHub; connection request ask #${g.askId} is up.` }));
+}
+
+/**
  * One reconcile pass: the cheap read-back every five minutes.
  * @param orgId - The workspace.
  * @param input - The automation's `do.input` (`owner`: the seat that owns the pipeline).
@@ -303,5 +334,6 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the fixed-branch recheck', () => recheckFixedBranches(orgId, now, d));
   await step('the awaiting-review watch', async () => (await import('./ciFailed')).watchAwaitingReview(orgId, now, owner ? { owner } : {}));
   await step('the pickup watch', () => watchQueuedRuns(orgId, now, owner));
+  await step('the connection watch', () => watchConnections(orgId, owner));
   return { acted };
 }

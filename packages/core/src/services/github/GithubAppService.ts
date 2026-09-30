@@ -303,6 +303,11 @@ export const GITHUB_CONNECTED = 'github.connected';
  * @param row - The installation just bound.
  */
 export async function afterInstallationBound(row: GithubInstallationRow): Promise<void> {
+  // The requests this connection answers close first, so nothing downstream
+  // of the event reads them as still waiting.
+  const { closeConnectionRequests } = await import('@/services/connections/connectionRequests');
+  const scope = row.repositorySelection === 'all' ? `every repository of ${row.accountLogin}` : row.repos.join(', ') || row.accountLogin;
+  await closeConnectionRequests(row.orgId, 'github', row.accountLogin, `GitHub connected: the Vocion GitHub App is installed on ${scope}.`);
   const { emitEvent } = await import('@/services/EventService');
   await emitEvent({
     orgId: row.orgId,

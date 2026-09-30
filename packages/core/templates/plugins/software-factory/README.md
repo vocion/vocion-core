@@ -132,3 +132,12 @@ dedupe keys, so the same handler runs once), restarts a review that never
 started, and asks about a run no worker picked up. A failed run on the deploy
 branch (`deploy-run-failed`) is the Release engineer's incident, with a
 rollback always asked of a person through the merge's Undo.
+
+GitHub access comes from the Vocion GitHub App (backlog 053; `docs/guides/github.md`).
+A repository nothing can reach becomes **one connection request per account**, an ask
+whose link is the install screen and which closes by itself when the installation
+lands. The request is raised by a seat's `request_connection` (the PM and the
+Release engineer hold it, so "connect vocion-core to GitHub" in chat puts up the
+card), by a factory call that was refused for lack of access (no token, or a 403
+on a re-run or a branch update, which asks for the permission instead), and by
+`factory-reconcile` for a repository the workspace's GitHub sources list.

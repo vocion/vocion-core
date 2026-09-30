@@ -38,7 +38,9 @@ async function pullFor(orgId: string, url: string): Promise<Pull> {
   }
   const token = await tokenForRepo(orgId, `${pr.owner}/${pr.repo}`);
   if (!token) {
-    throw new Error(`this workspace has no GitHub connection for ${pr.owner}/${pr.repo}`);
+    const { withConnectionRequest } = await import('@/services/connections/connectionRequests');
+    const request = await withConnectionRequest({ orgId, repo: `${pr.owner}/${pr.repo}`, kind: 'install', why: `Merging and reverting the factory's pull requests on ${pr.owner}/${pr.repo} needs GitHub access to it.` });
+    throw new Error(`this workspace has no GitHub connection for ${pr.owner}/${pr.repo}.${request}`);
   }
   return { ...pr, token };
 }

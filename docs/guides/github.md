@@ -145,6 +145,19 @@ only the permissions the workspace's tier asks for (backlog 053).
    `GET|PATCH /api/v1/connections/github`, `POST …/test` and
    `DELETE …/installations/:id`.
 
+5. **From chat, and when something is missing.** When a repository cannot be
+   reached, a **connection request** is raised: one ask per GitHub account, kind
+   `credential`, whose link is the install screen. For a missing permission (a
+   403 on a re-run or a branch update) the link goes to the installation's
+   permissions instead. The request closes by itself, marked done by the system,
+   when the installation or the permission lands (`github.connected`, or the
+   app's installation webhooks). Three things raise it: a seat granted
+   `request_connection` (in the software-factory plugin, the PM and the Release
+   engineer, so "connect vocion-core to GitHub" in chat puts up the card), a
+   factory call refused for lack of access, and `factory-reconcile` finding a
+   repository the workspace's GitHub sources list that nothing reaches. The
+   machinery does not raise again a request that a person turned down.
+
 `tokenForRepo` (`services/agents/tools/githubPullRead.ts`) is the one entry
 point. It uses the installation that covers the repository first, and a token
 vaulted on a `github` source only when no installation does. A mint GitHub

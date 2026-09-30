@@ -58,6 +58,8 @@ harness:
   # The product's production URLs and QA sign-in, to plan and check against the live product.
   grantTools:
     - product_access
+    # Raise ONE card that connects a repository nothing here can reach (backlog 053).
+    - request_connection
 playbooks:
   - naming-the-work
   - designing-a-surface

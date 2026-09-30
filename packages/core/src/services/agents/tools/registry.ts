@@ -74,6 +74,7 @@ import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
 import { recordVerdictTools } from './recordVerdict';
 import { renderArtifactTools } from './renderArtifacts';
+import { requestConnectionTools } from './requestConnection';
 import { restTools } from './restDirect';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
@@ -189,6 +190,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only: what CI said on a pull request or an Actions run — failing
     // checks, annotations, the failing step's log tail (backlog 049).
     ...githubCheckLogsTools(ctx),
+    ...requestConnectionTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),

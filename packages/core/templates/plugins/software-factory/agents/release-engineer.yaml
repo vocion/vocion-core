@@ -49,4 +49,6 @@ harness:
   grantTools:
     - product_access
     - github_read_check_logs
+    # Raise ONE card that connects a repository nothing here can reach (backlog 053).
+    - request_connection
 systemPromptFile: ./release-engineer.system-prompt.md
