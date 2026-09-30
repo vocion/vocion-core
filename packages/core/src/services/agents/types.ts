@@ -343,6 +343,14 @@ export type AgentEvent
      * click away.
      */
     | { type: 'record_links'; links: Array<{ text: string; href: string }> }
+    /**
+     * The records this turn filed or changed, once the answer is done — one
+     * microcard each under the turn, with the record's live status where its
+     * type has a report page (`libs/factory/liveStatus.ts`). Typed from the
+     * turn's own `record_created` and `version_written` events, never read
+     * from the answer's words.
+     */
+    | { type: 'turn_records'; records: import('@/libs/factory/liveStatus').TurnRecord[] }
     | { type: 'run_meta'; model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' }
     /**
      * The workspace chose the agent for this turn because nobody named one

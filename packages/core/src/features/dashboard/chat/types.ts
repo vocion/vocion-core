@@ -215,6 +215,12 @@ export type ChatMessage = {
   /** Artifacts this turn created or changed (0101) — chips under the message. */
   artifacts?: ChatMessageArtifact[];
   /**
+   * Records this turn filed or changed (`turn_records`) — one microcard each
+   * under the latest turn, with the record's live status. Live only, like
+   * `selfUpdates`: the record's own page carries it after a reload.
+   */
+  records?: import('@/libs/factory/liveStatus').TurnRecord[];
+  /**
    * What the system taught itself during this turn — one chip under the
    * message, each entry undoable. Several in a turn group into that chip
    * rather than stacking beside it.

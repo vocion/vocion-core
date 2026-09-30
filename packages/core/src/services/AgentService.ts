@@ -614,6 +614,9 @@ export async function runAgentDeep(opts: {
   const createdRecords: import('@/services/chat/pageContext').RecordRef[] = [];
   // Versions the turn wrote (a record changed) — linked at the end (`versionLinksDelta`).
   const writtenVersions: import('@/libs/versions/versionRef').WrittenVersion[] = [];
+  // Which fields each version this turn wrote changed, by record — the
+  // microcard's "Changed acceptance · v3" (`turn_records`).
+  const changedFields = new Map<string, string[]>();
   // The record the person's page shows, when it is one (`/p/feature/201` is request 201).
   const pageRecordRef = opts.pageContext?.record?.type === 'object' && /^\d+$/.test(opts.pageContext.record.id) ? { type: 'object' as const, id: opts.pageContext.record.id, label: opts.pageContext.record.label } : null;
   const emit = (event: import('./agents/types').AgentEvent): void => {
@@ -632,6 +635,7 @@ export async function runAgentDeep(opts: {
     }
     if (event.type === 'version_written' && !event.related) {
       writtenVersions.push({ ref: event.ref, to: event.to });
+      changedFields.set(`${event.ref.type}:${event.ref.id}`, [...new Set([...(changedFields.get(`${event.ref.type}:${event.ref.id}`) ?? []), ...(event.fields ?? [])])]);
     }
     recordedEvents.push(event);
     rawEmit(event);
@@ -1707,6 +1711,14 @@ export async function runAgentDeep(opts: {
     const { linkRecordMentions } = await import('@/libs/chat/recordMentions');
     emit({ type: 'record_links', links: mentionLinks });
     finalText = linkRecordMentions(finalText, mentionLinks);
+  }
+
+  // THE RECORDS THIS TURN FILED OR CHANGED, one microcard each under it:
+  // from the turn's own typed events, never from the reply's words.
+  const { turnRecordsOf } = await import('@/services/chat/turnRecords');
+  const turnRecords = await turnRecordsOf(opts.orgId, { created: createdRecords, written: writtenVersions, fields: changedFields }).catch(() => []);
+  if (turnRecords.length > 0) {
+    emit({ type: 'turn_records', records: turnRecords });
   }
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });

@@ -204,6 +204,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                     onOpenArtifact={onOpenArtifact}
                     conversationId={conversationId}
                     pageRecord={pageRecord}
+                    latest={i === lastIdx}
                   />
                 )}
             {blocksAfter(i)}

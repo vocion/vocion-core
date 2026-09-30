@@ -4,6 +4,7 @@ import type { TurnOutcome } from './queueReducer';
 import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
+import type { TurnRecord } from '@/libs/factory/liveStatus';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
@@ -728,6 +729,14 @@ export function useChatSession({
           ...(m.content ? { content: linkRecordMentions(m.content, links) } : {}),
           ...(m.runs ? { runs: m.runs.map(r => (r.type === 'text' ? { ...r, text: linkRecordMentions(r.text, links) } : r)) } : {}),
         }));
+        return;
+      }
+      case 'turn_records': {
+        // The records the turn filed or changed, typed (`services/chat/turnRecords.ts`):
+        // one microcard each under the turn, kept current while it runs.
+        flushDeltas();
+        const records = (evt as unknown as { records: TurnRecord[] }).records ?? [];
+        appendToLatestAgent(m => ({ ...m, records }));
         return;
       }
       case 'record_created': {
