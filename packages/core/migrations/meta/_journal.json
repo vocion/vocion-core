@@ -1086,6 +1086,13 @@
       "when": 1790744948477,
       "tag": "0154_app_login_many_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0155_live_notice",
+      "breakpoints": true
     }
   ]
 }

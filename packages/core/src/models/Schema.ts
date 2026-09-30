@@ -3,7 +3,7 @@ import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
-import { bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, bigserial, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -3767,6 +3767,33 @@ export const eventLogSchema = pgTable(
   table => [
     uniqueIndex('event_log_dedupe_idx').on(table.orgId, table.dedupeKey),
     index('event_log_org_type_idx').on(table.orgId, table.type),
+  ],
+);
+
+/**
+ * live_notice — the workspace live stream's ring (migration 0155, backlog 050).
+ *
+ * One row per change a person could see: which topics it concerns
+ * (`record:12`, `list:<type>`, `card:7`, `runs`…), what changed (`ref`) and
+ * how (`kind`), never the change itself. Written by triggers on the tables
+ * that change what a person sees, and by `publish()` in `libs/live/publish.ts`
+ * for anything else; the insert rings `pg_notify('vocion_live')`, which every
+ * app process hears. Kept an hour, so a reconnecting tab replays what it
+ * missed (`Last-Event-ID`); pruned by `libs/live/hub.ts`.
+ */
+export const liveNoticeSchema = pgTable(
+  'live_notice',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    orgId: text('org_id').notNull(),
+    topics: text('topics').array().notNull(),
+    ref: text('ref').notNull(),
+    kind: text('kind').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('live_notice_org_id_idx').on(table.orgId, table.id),
+    index('live_notice_created_idx').on(table.createdAt),
   ],
 );
 
