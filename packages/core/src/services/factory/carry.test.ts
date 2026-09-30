@@ -432,6 +432,20 @@ describe('a planning run that ends without a plan is caught when it ends (#246, 
     expect(log).toContain('Planning failed: the planning run ended without filing a plan.');
   });
 
+  it('a plan whose row was rejected is not waiting on anyone, whatever its metadata says (#130)', async () => {
+    const r = await request({ product: 'fleet', title: 'Fleet nudges' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const meta = (await read(r.id)).metadata as Record<string, unknown> & { recovery: Record<string, unknown> };
+    await db.update(businessObjectSchema).set({ metadata: { ...meta, recovery: { ...meta.recovery, stage: 'planning', planRequestedAt: new Date(Date.now() - 2 * 3_600_000).toISOString() } } }).where(eq(businessObjectSchema.id, r.id));
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: Fleet nudges', status: 'rejected', createdAt: new Date(Date.now() - 3 * 86_400_000), metadata: { requestId: r.id, status: 'in_review', approach: 'Old approach.' } });
+
+    await carry.sweepStuckRequests(ORG);
+
+    const log = ((await read(r.id)).metadata as { recovery: { log: Array<{ text: string }> } }).recovery.log.map(l => l.text);
+
+    expect(log).toContain('Planning failed: the planning run ended without filing a plan.');
+  });
+
   it('does nothing for a run that is not a request\'s planning', async () => {
     expect((await carry.planningRunEnded(ORG, { automationRunId: 999999 })).did).toBe('no request on the run');
   });
@@ -555,9 +569,8 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
 
     expect(supersededAsk!.status).toBe('superseded');
 
-    // The rebuilt attempt fails again a different way — a second stop, on the
-    // SAME sourceRef as the first (a worker rebuild is not a person's action,
-    // so `since` never moved).
+    // The rebuilt attempt fails again a different way — a second stop. A new
+    // worker starts a new count (2026-09-30), so it is its own ask.
     const rebuilt = (await runsFor(r.id)).at(-1)!;
     await claimWorkerRun({ orgId: ORG, id: rebuilt.id, workerId: 'w-2', workerVersion: 'img-after' });
     await failWorkerRun({ orgId: ORG, id: rebuilt.id, workerId: 'w-2', error: 'verification failed: Claude produced no changes in the working tree (checks on the base: test=passed)' });
@@ -575,16 +588,12 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
     const [secondAsk] = await db.select().from(askSchema).where(eq(askSchema.id, meta.recovery.askId!));
 
     expect(secondAsk).toMatchObject({ status: 'open', kind: 'approval' });
-    expect(secondAsk!.sourceRef).toMatch(new RegExp(`^${ask.sourceRef}:follow-up-`));
-    expect(secondAsk!.body).toContain(`ask #${ask.id} on this request was already decided (superseded)`);
+    expect(secondAsk!.sourceRef).not.toBe(ask.sourceRef);
 
-    // The first ask is untouched — still superseded, never reopened — and the
-    // two are put in one group so a person opening either sees both.
+    // The first ask is untouched — still superseded, never reopened.
     const [firstAfter] = await db.select().from(askSchema).where(eq(askSchema.id, ask.id));
 
     expect(firstAfter!.status).toBe('superseded');
-    expect(firstAfter!.groupKey).not.toBeNull();
-    expect(firstAfter!.groupKey).toBe(secondAsk!.groupKey);
   });
 
   it('an escalation that cannot file an open ask fails the run as an error, never a silent ok (never silent)', async () => {

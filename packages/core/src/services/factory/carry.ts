@@ -219,7 +219,10 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   // so no new plan was created, and the sweep read "ended without filing a
   // plan", planned again twice and asked a person to "write the plan" — one
   // that was written and waiting for them.
-  const waiting = plans.some(p => String(p.meta.status ?? '') === 'in_review') || pending.some((a) => {
+  // The ROW's status decides (2026-09-30, #130: plan #136's row read rejected
+  // while its metadata still said in_review, and the request sat "waiting on a
+  // person" for a plan nobody could approve).
+  const waiting = plans.some(p => String(p.meta.status ?? '') === 'in_review' && !['rejected', 'superseded'].includes(String(p.status ?? ''))) || pending.some((a) => {
     const i = (a.input ?? {}) as Meta;
     return a.actionId === DISPATCH
       ? Number(i.requestId) === requestId || taskIds.includes(String(i.taskId))
@@ -1011,6 +1014,9 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
       continue;
     }
     const line = `New worker (${rebuilt.version}) since the stop; building again.`;
+    // A new worker starts a new count: the attempts it is retrying were made
+    // by the old one (#246 read "Recovering (attempt 4 of 3)" after the resume).
+    await updateRecovery(orgId, requestId, s => ({ ...s, attempts: [], since: now.toISOString() }));
     const task = failed ? work.tasks.find(t => String(t.id) === String((failed.input.record as Meta | undefined)?.id)) : undefined;
     const planId = Number(task?.meta.planId) > 0 ? Number(task!.meta.planId) : (await approvedPlan(work.plans))?.id;
     const dispatched = await propose(orgId, DISPATCH, { requestId, ...(planId ? { planId } : {}), trigger: 'recovery', ...(failed ? { recoveryOfRun: failed.id } : {}), recoveryClass: failure.class, reason: line }, {
