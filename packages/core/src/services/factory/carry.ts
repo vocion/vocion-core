@@ -110,7 +110,7 @@ async function propose(orgId: string, actionId: string, input: Meta, env: { conf
  * @param env.rationale - Why the payload is right.
  * @param env.reason - Why it should be approved.
  */
-async function proposeAsPerson(orgId: string, userId: string, conversationId: number, actionId: string, input: Meta, env: { confidence: number; rationale: string; reason: string }): Promise<{ ok: true; res: ProposeResult } | { ok: false; error: string }> {
+async function proposeAsPerson(orgId: string, userId: string, conversationId: number | null, actionId: string, input: Meta, env: { confidence: number; rationale: string; reason: string }): Promise<{ ok: true; res: ProposeResult } | { ok: false; error: string }> {
   try {
     const { proposeAction } = await import('@/services/ActionService');
     const res = await proposeAction({
@@ -119,7 +119,7 @@ async function proposeAsPerson(orgId: string, userId: string, conversationId: nu
       input,
       principal: { kind: 'user', id: userId, role: 'member', scope: { orgId } },
       invokedBy: userId,
-      origin: { conversationId, userId, byPerson: true },
+      ...(conversationId !== null ? { origin: { conversationId, userId, byPerson: true } } : {}),
       proposal: { confidence: env.confidence, rationale: env.rationale, agentSlug: PM, suggestedDecision: 'approve', suggestedDecisionReason: env.reason },
     });
     return { ok: true, res };
@@ -151,6 +151,29 @@ async function personSaidTo(orgId: string, conversationId: number, decision: str
   const { saidToDecide } = await import('@/services/agents/turnJudge');
   const said = await saidToDecide({ orgId, messages: await personMessages({ orgId, conversationId }), decision });
   return said.said ? { userId, quote: said.quote } : null;
+}
+
+/**
+ * The person who asked for a record: the one whose conversation it was filed
+ * from, else the actor when that is a person. Null when a machine filed it.
+ * @param orgId - Tenant.
+ * @param conversationId - The filing conversation, when there was one.
+ * @param actor - The event's actor.
+ */
+async function filingPerson(orgId: string, conversationId: number | null, actor: unknown): Promise<string | null> {
+  const { decidedByMachine } = await import('@/libs/actions/decider');
+  if (conversationId !== null) {
+    const { and, eq } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { conversationSchema } = await import('@/models/Schema');
+    const [conversation] = await db.select({ createdBy: conversationSchema.createdBy }).from(conversationSchema).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId))).limit(1);
+    const createdBy = conversation?.createdBy?.trim();
+    if (createdBy && !decidedByMachine(createdBy)) {
+      return createdBy;
+    }
+  }
+  const who = typeof actor === 'string' ? actor.trim() : '';
+  return who && who !== 'system' && !who.includes(':') && !decidedByMachine(who) ? who : null;
 }
 
 /**
@@ -635,6 +658,41 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   }
   const plan = await approvedPlan(work.plans);
   const at = new Date().toISOString();
+  // A PERSON'S REQUEST BUILDS BY DEFAULT (Chris, 2026-09-30: "do i have to
+  // say 'file it and build it'? Should it not get intent? Should that not be
+  // the default assumption for anything that isn't high risk?"). Asking for it
+  // is the intent, so the build is the person's own action, started now with
+  // Undo. Risk is judged where it can be seen: the plan's approval on its trust
+  // bar, and the merge's rule for its risk class. What holds it here is only
+  // the person's word to hold it, read by a model, never matched; then it is
+  // the Build card. An idea an agent filed on its own schedule is not a
+  // person's ask, and stays a card.
+  const conversationId = typeof payload.conversationId === 'number' ? payload.conversationId : null;
+  const person = payload.byPerson === true ? await filingPerson(orgId, conversationId, payload.actor) : null;
+  if (person) {
+    const held = conversationId !== null
+      ? await personSaidTo(orgId, conversationId, `hold request #${id} "${request.title}": only file it, and do not start building it yet`).catch(() => null)
+      : null;
+    if (held) {
+      await updateRecovery(orgId, id, s => logLine(s, 'Filed and held, as you asked: the Build card waits for you.', at));
+    } else {
+      const started = await proposeAsPerson(orgId, person, conversationId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), trigger: 'request', reason: 'A person asked for it.' }, {
+        confidence: 0.9,
+        rationale: `A person asked for this${conversationId !== null ? ` in conversation #${conversationId}` : ''}; its acceptance is written (${decision.why}).`,
+        reason: 'Asked for by a person; Undo cancels it until a worker claims it.',
+      });
+      if (started.ok && started.res.status !== 'pending') {
+        const line = 'Filed and started: you asked for it. Undo cancels it until a worker claims it.';
+        await updateRecovery(orgId, id, s => logLine(s, line, at));
+        return { requestId: id, did: `start:${started.res.status}:person`, line };
+      }
+      // Refused or held by the action itself: said here, and the card carries it.
+      await updateRecovery(orgId, id, s => logLine(s, `Filed; the build could not start on its own: ${started.ok ? `it is waiting on a card (action #${started.res.runId})` : started.error}`, at));
+      if (started.ok) {
+        return { requestId: id, did: `card:${started.res.status}:person`, line: null };
+      }
+    }
+  }
   if (decision.do === 'start') {
     const out = await propose(orgId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), trigger: 'request', reason: `Started on its own: ${decision.why}.` }, {
       confidence: 0.9,
@@ -646,28 +704,6 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
       : out.res.status === 'pending' ? `Filed; the build is on a card for a person (action #${out.res.runId}): ${decision.why}.` : `Filed and started on its own: ${decision.why}.`;
     await updateRecovery(orgId, id, s => logLine(s, line, at));
     return { requestId: id, did: out.ok ? `start:${out.res.status}` : 'start:refused', line };
-  }
-  // THE PERSON'S WORD RUNS. Filed in their conversation and told to build
-  // it: the build is theirs, started now with Undo, not a card for them.
-  const conversationId = typeof payload.conversationId === 'number' ? payload.conversationId : null;
-  const toldToBuild = payload.byPerson === true && conversationId !== null
-    ? await personSaidTo(orgId, conversationId, `build request #${id} "${request.title}" now (start the engineering build)`).catch(() => null)
-    : null;
-  if (toldToBuild && conversationId !== null) {
-    const started = await proposeAsPerson(orgId, toldToBuild.userId, conversationId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), reason: `Build it, as the person asked: ${decision.why}.` }, {
-      confidence: 0.9,
-      rationale: `The person asked for the build in the conversation that filed it${toldToBuild.quote ? ` ("${toldToBuild.quote.slice(0, 160)}")` : ''}.`,
-      reason: 'Asked for in the person\'s own words; Undo cancels it until a worker claims it.',
-    });
-    if (started.ok && started.res.status !== 'pending') {
-      const line = `Filed and started, as you asked: ${decision.why}.`;
-      await updateRecovery(orgId, id, s => logLine(s, line, at));
-      return { requestId: id, did: `start:${started.res.status}:person`, line };
-    }
-    // Refused or held: the Build card below still carries it, and says why.
-    if (!started.ok) {
-      await updateRecovery(orgId, id, s => logLine(s, `You asked for the build; it could not start on its own: ${started.error}`, at));
-    }
   }
   const out = await propose(orgId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), reason: `Ready to build: ${decision.why}.` }, {
     confidence: 0.5,

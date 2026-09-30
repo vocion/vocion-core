@@ -117,17 +117,15 @@ describe('filing starts the work', () => {
     expect(dispatch?.approvedByAgent).toBe(true);
   });
 
-  it('builds on the person\'s word: told in the filing conversation to build it, the build is theirs, with no card (conversation 398)', async () => {
+  it('builds what a person asks for by default, as their action, with no card and no magic words (Chris, 2026-09-30)', async () => {
     const r = await request({ kind: 'feature', severity: undefined, product: 'rooms', title: 'Show when a room was last opened' });
     const [conversation] = await db.insert(conversationSchema).values({ orgId: ORG, agentSlug: 'product-manager', title: 'last opened', createdBy: 'user-dana' } as never).returning();
-    await db.insert(conversationMessageSchema).values({ conversationId: conversation!.id, role: 'user', content: 'Add a last-opened line to the room page. Please file it and build it.' } as never);
-    consent.said = true;
+    await db.insert(conversationMessageSchema).values({ conversationId: conversation!.id, role: 'user', content: 'Add a last-opened line to the room page.' } as never);
 
     const out = await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: conversation!.id, byPerson: true });
-    consent.said = false;
 
     expect(out.did).toMatch(/^start:.*:person$/);
-    expect(out.line).toMatch(/^Filed and started, as you asked/);
+    expect(out.line).toMatch(/^Filed and started: you asked for it/);
 
     const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.actionId, 'factory.dispatch_task'))).orderBy(actionRunSchema.id);
     const mine = (await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).filter(a => (a.input as { requestId?: number }).requestId === r.id);
@@ -137,17 +135,27 @@ describe('filing starts the work', () => {
     expect(mine.some(a => a.status === 'pending')).toBe(false);
   });
 
-  it('still files the Build card when the person asked only to file it', async () => {
+  it('builds a request a person filed from a page too, with no conversation', async () => {
+    const r = await request({ kind: 'feature', severity: undefined, product: 'rooms', title: 'Show the room owner on the room card' });
+
+    const out = await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: null, byPerson: true, actor: 'user-dana' });
+
+    expect(out.did).toMatch(/^start:.*:person$/);
+  });
+
+  it('holds it on the Build card when the person said to only file it', async () => {
     const r = await request({ kind: 'feature', severity: undefined, product: 'rooms', title: 'Show who last opened a room' });
     const [conversation] = await db.insert(conversationSchema).values({ orgId: ORG, agentSlug: 'product-manager', title: 'who opened', createdBy: 'user-dana' } as never).returning();
-    await db.insert(conversationMessageSchema).values({ conversationId: conversation!.id, role: 'user', content: 'File a request for this, I will look later.' } as never);
+    await db.insert(conversationMessageSchema).values({ conversationId: conversation!.id, role: 'user', content: 'Just file this, do not build it yet.' } as never);
+    consent.said = true;
 
     const out = await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: conversation!.id, byPerson: true });
+    consent.said = false;
 
     expect(out.did).toBe('card:pending');
   });
 
-  it('files the Build card for a request nobody asked for in a conversation', async () => {
+  it('files the Build card for an idea a machine filed on its own', async () => {
     const r = await request({ product: 'rooms', title: 'Rename the share button' });
 
     const out = await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: null, byPerson: true });
