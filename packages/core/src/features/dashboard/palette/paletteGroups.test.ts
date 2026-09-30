@@ -29,7 +29,7 @@ describe('buildPaletteGroups', () => {
     const groups = buildPaletteGroups({ query: '', routes: DASHBOARD_ROUTES, isAdmin: false });
     const by = (h: string) => groups.find(g => g.heading === h);
 
-    expect(by('You')?.rows.map(r => r.url)).toEqual(['/dashboard/profile']);
+    expect(by('You')?.rows.map(r => r.url)).toEqual(['/dashboard/profile', '/dashboard/notifications', '/dashboard/notifications/settings']);
     expect(by('Organization')?.rows.map(r => r.url)).not.toContain('/dashboard/profile');
 
     const agents = by('Team')?.rows.find(r => r.url === '/dashboard/agents');

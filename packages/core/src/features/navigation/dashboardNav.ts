@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   BarChart3,
+  Bell,
   Blocks,
   BookOpen,
   CalendarClock,
@@ -194,6 +195,8 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
 
   // ── YOU — personal, not the workspace's ─────────────────────────────────
   { url: '/dashboard/profile', title: 'Profile', group: 'You', icon: Users, i18nKey: 'profile', keywords: ['account', 'password', 'name'] },
+  { url: '/dashboard/notifications', title: 'Notifications', group: 'You', icon: Bell, i18nKey: 'notifications', keywords: ['bell', 'alerts', 'unread', 'push'] },
+  { url: '/dashboard/notifications/settings', title: 'Notification settings', group: 'You', icon: Bell, tabOf: '/dashboard/notifications', keywords: ['notifications', 'push', 'iphone', 'chrome', 'email', 'slack', 'quiet hours', 'devices'] },
 ];
 
 /**
