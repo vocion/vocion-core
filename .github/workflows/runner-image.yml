@@ -1,0 +1,104 @@
+# The runner image (packages/runner), built and published from vocion-core, tagged by the commit
+# it was built from, the way a deploy names what it runs (backlog 052). An installation's targets
+# pull it: the on-box backup, the Fargate fleet, a laptop. Nothing here deploys: core holds no
+# account, and an installation moves to a new runner when its core pin moves.
+#
+#   pull_request   build for linux/amd64 and prove the image starts, says it has nothing to do,
+#                  and carries the browser QA needs. Nothing is pushed.
+#   push to main   build linux/amd64 and linux/arm64 and push ghcr.io/<owner>/vocion-runner with
+#                  the tags sha-<commit> (what a target pins) and main (the newest).
+name: Runner image
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - packages/runner/**
+      - .github/workflows/runner-image.yml
+  push:
+    branches: [main]
+    paths:
+      - packages/runner/**
+      - .github/workflows/runner-image.yml
+  workflow_dispatch:
+concurrency:
+  group: runner-image-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  packages: write
+defaults:
+  run:
+    shell: bash
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/vocion-runner
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-qemu-action@v3
+        if: github.event_name != 'pull_request'
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build for this runner (amd64) and load it
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/runner
+          file: packages/runner/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: vocion-runner:ci
+          build-args: WORKER_VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
+
+      - name: The image starts, has nothing to do, and exits 0
+        run: |
+          out=$(docker run --rm -e RUNNER_TARGET=ci vocion-runner:ci)
+          echo "$out"
+          echo "$out" | head -1 | jq -e --arg v "${GITHUB_SHA}" '.phase == "boot" and .worker_version == $v and (.worker | startswith("ci-"))'
+          echo "$out" | jq -e -s 'map(select(.phase == "exit")) | length == 1'
+
+      - name: The image carries every module, the hooks, the schema and a browser
+        run: |
+          docker run --rm --entrypoint sh vocion-runner:ci -c '
+            set -e
+            ls /opt/vocion-runner/src/runner.mjs /opt/vocion-runner/contract/schema.json /opt/vocion-runner/claude-settings.json
+            for h in guard-bash guard-write log-tool path-allowed; do test -x /opt/vocion-runner/hooks/$h.sh; done
+            test ! -e /opt/vocion-runner/src/runner.test.mjs
+            node /opt/vocion-runner/src/contract.mjs check-flows /dev/null || true
+            cd /opt/vocion-runner && node -e "import(\"playwright\").then(async (p) => { const b = await p.chromium.launch({ args: [\"--no-sandbox\"] }); await b.close(); console.log(\"chromium ok\"); })"
+            claude --version'
+
+      - name: Log in to the registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build for amd64 and arm64 and push, tagged by the commit
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/runner
+          file: packages/runner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:main
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: WORKER_VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=runner
+
+      - name: Say what was published
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "### Runner image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${IMAGE}:sha-${GITHUB_SHA}\` (also \`:main\`), linux/amd64 and linux/arm64" >> "$GITHUB_STEP_SUMMARY"

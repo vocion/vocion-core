@@ -57,6 +57,16 @@ humanOwned: [infra/secrets/**]
 engineerRules: [Short declaratives, plain nouns.]
 ```
 
+## The image
+
+`.github/workflows/runner-image.yml` builds the image on every change to `packages/runner`. On a
+pull request it builds for linux/amd64 and proves the image starts, reports its version, and
+carries its modules, hooks, schema and a working chromium. On `main` it pushes
+`ghcr.io/vocion/vocion-runner:sha-<commit>` and `:main` for linux/amd64 and linux/arm64. A target
+pins the `sha-` tag of the core commit its installation runs, so the runner moves when the core
+pin moves, never on its own. The image reports that commit as `workerVersion` on every claim and
+heartbeat.
+
 ## Running it
 
 The same image runs everywhere. A deploy target only decides where the container starts.
