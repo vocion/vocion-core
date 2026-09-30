@@ -45,6 +45,7 @@ import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
 import { getBrandTool } from './getBrand';
+import { githubCheckLogsTools } from './githubCheckLogs';
 import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
 import { hubspotCatalogTools } from './hubspotCatalog';
@@ -185,6 +186,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only: a product's production URLs and QA sign-in (never the
     // password, which only the worker reads, over the API).
     ...productAccessTools(ctx),
+    // Granted-only: what CI said on a pull request or an Actions run — failing
+    // checks, annotations, the failing step's log tail (backlog 049).
+    ...githubCheckLogsTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),

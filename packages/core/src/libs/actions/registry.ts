@@ -12,6 +12,7 @@ import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
 import { factoryApprovePlanAction } from './factory-approve-plan';
 import { factoryDispatchAction } from './factory-dispatch';
+import { githubRerunFailedJobsAction } from './github-rerun';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
@@ -60,6 +61,9 @@ registerAction(objectsRenameAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
 registerAction(factoryDispatchAction);
 registerAction(factoryApprovePlanAction);
+// Re-run a red CI's failed jobs once — changes no code, Undo cancels it while
+// it runs; done for you on the software factory's trust ladder (backlog 049).
+registerAction(githubRerunFailedJobsAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.
