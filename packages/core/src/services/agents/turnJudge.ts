@@ -42,7 +42,7 @@ export const AnswerJudgementSchema = z.object({
   answered: z.boolean().describe('The reply gives the person an actual answer or result — not only a promise, a fragment or nothing.'),
   ends_on_promise: z.boolean().describe('The reply ends by saying it will do or look at something it has not done yet in this turn.'),
   promise: z.string().max(300).nullable().describe('That closing promise, quoted exactly; null when there is none.'),
-  claims_unrecorded_work: z.boolean().describe('The reply says something was filed, changed, withdrawn, sent, dispatched or put up as a card that the list of steps does not show as done.'),
+  claims_unrecorded_work: z.boolean().describe('The reply says something was filed, changed, withdrawn, sent, dispatched or put up as a card that the list of steps does not show as done. A step the reply itself says is waiting, queued or pending is not such a claim.'),
   claim: z.string().max(300).nullable().describe('That claim, quoted exactly; null when there is none.'),
   wrote_call_as_text: z.string().max(80).nullable().describe('The name of a tool the reply wrote out as text (its name, or a block of its arguments) instead of calling; null when none.'),
   cut_off: z.boolean().describe('The reply stops mid-sentence or mid-thought.'),

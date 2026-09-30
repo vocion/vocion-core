@@ -118,6 +118,27 @@ describe('the write', () => {
     expect(row!.metadata).toEqual({ state: 'new' });
   });
 
+  it('a change the person asked for runs as theirs, whatever the agent\'s confidence (Chris, 2026-09-29: "Delete the 246 feature request")', async () => {
+    const { NO_INTENT } = await import('../turnJudge');
+    const ctx = { ...ctxFor(['request']), userId: 'usr-owner', turnIntent: Promise.resolve({ ...NO_INTENT, changes_page_record: true, decides: true, wants_action: true }) } as RuntimeContext;
+    const [t] = updateObjectTools(ctx);
+
+    const out = await t!.invoke({ object_type: 'request', id: requestId, set: { priority: 82 }, reason: 'The person asked for it.', confidence: 0.3 });
+
+    expect(out).toMatch(/updated — priority written/);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run!.invokedBy).toBe('usr-owner');
+    expect(run!.status).toBe('done');
+  });
+
+  it('a pending write says where to act on it', async () => {
+    const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { priority: 82 }, reason: 'r', confidence: 0.3 });
+
+    expect(out).toMatch(/\[Review the change\]\(\/dashboard\/inbox\/proposal-\d+\)/);
+  });
+
   it('hands an unknown field back as a refusal naming the declared ones', async () => {
     const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { severity: 'p1' }, reason: 'r', confidence: 0.9 });
 

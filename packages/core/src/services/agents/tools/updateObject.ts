@@ -63,7 +63,10 @@ export function updateObjectTool(ctx: RuntimeContext) {
       }
       try {
         const writtenAt = new Date(Date.now() - 1_000);
-        const res = await writeRecordAsAgent(ctx, { objectType: object_type, id, set, reason, confidence });
+        // On the person's word (the turn's intent read) the change is theirs and runs, with undo.
+        const intent = ctx.userId && !ctx.missionRunId ? await (ctx.turnIntent ?? Promise.resolve(null)).catch(() => null) : null;
+        const onPersonsWord = Boolean(intent && (intent.changes_page_record || intent.changes_existing_record || intent.decides));
+        const res = await writeRecordAsAgent(ctx, { objectType: object_type, id, set, reason, confidence, onPersonsWord });
         ctx.emit({ type: 'tool_progress', tool: 'update_object', meta: { runId: res.runId, status: res.status, outcome: res.outcome } } as never);
         const fields = Object.keys(set).join(', ');
         if (res.outcome === 'already_decided') {
@@ -73,7 +76,7 @@ export function updateObjectTool(ctx: RuntimeContext) {
           return `The pending update to ${object_type} #${id} (${fields}) now carries these values (run #${res.runId}); it is still waiting for a person. Do NOT say the record changed.`;
         }
         if (res.status === 'pending') {
-          return `Update to ${object_type} #${id} (${fields}) is PENDING a person's decision (run #${res.runId}, confidence ${confidence} was under the bar for objects.update_meta in this workspace). Do NOT say the record changed — say the update is queued in Review.`;
+          return `Update to ${object_type} #${id} (${fields}) is PENDING a person's decision (run #${res.runId}, held by this workspace's trust rule for this kind of change). Do NOT say the record changed — say in one line it is waiting, with its link: [Review the change](/dashboard/inbox/proposal-${res.runId}).`;
         }
         if (res.status !== 'done') {
           return `Update to ${object_type} #${id} did not land (run #${res.runId} is ${res.status}${res.error ? `: ${res.error}` : ''}).`;

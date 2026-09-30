@@ -89,21 +89,30 @@ export type RecordWriteResult = Awaited<ReturnType<typeof proposeAction>> & {
  * @param input.confidence - 0–1; decides done-for-you or Review under the trust rule.
  * @param input.label - The record as the person knows it, for the event ("request #214").
  * @param input.ownsVisualIds - The mockup tool's own write: `visuals` ids are its to set, so they are not guarded.
+ * @param input.onPersonsWord
  */
-export async function writeRecordAsAgent(ctx: RuntimeContext, input: { objectType: string; id: number; set: Record<string, unknown>; reason: string; confidence: number; label?: string; ownsVisualIds?: boolean }): Promise<RecordWriteResult> {
+export async function writeRecordAsAgent(ctx: RuntimeContext, input: { objectType: string; id: number; set: Record<string, unknown>; reason: string; confidence: number; label?: string; ownsVisualIds?: boolean; onPersonsWord?: boolean }): Promise<RecordWriteResult> {
   const set = input.ownsVisualIds || !('visuals' in input.set) ? input.set : await guardedVisualsSet(ctx, input.id, input.set);
+  // A CHANGE THE PERSON ASKED FOR IS THEIRS (Chris, 2026-09-29: "Delete the
+  // 246 feature request" became a close pending in Review, held by the rule
+  // that keeps request decisions at a person — he WAS the person). Written
+  // on their word, it runs as their own write, with undo; the agent's own
+  // judgement calls still ride the trust ladder.
+  const asPerson = input.onPersonsWord === true && Boolean(ctx.userId);
   const res = await proposeAction({
     orgId: ctx.orgId,
     actionId: 'objects.update_meta',
     input: { objectType: input.objectType, id: input.id, set, reason: input.reason },
-    principal: {
-      kind: 'agent',
-      id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : 'agent:unknown',
-      scope: { orgId: ctx.orgId },
-      grants: ['*'],
-      autonomy: 2,
-    },
-    invokedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId,
+    principal: asPerson
+      ? { kind: 'user', id: ctx.userId!, role: 'member', scope: { orgId: ctx.orgId } }
+      : {
+          kind: 'agent',
+          id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : 'agent:unknown',
+          scope: { orgId: ctx.orgId },
+          grants: ['*'],
+          autonomy: 2,
+        },
+    invokedBy: asPerson ? ctx.userId : (ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId),
     proposal: {
       confidence: input.confidence,
       rationale: input.reason,

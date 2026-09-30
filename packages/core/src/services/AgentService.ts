@@ -339,7 +339,7 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
       ].filter(Boolean).join('; and ');
       const correction = (await (input.answer ?? composeAnswerWithModel)({
         orgId: input.orgId,
-        system: `${input.systemPrompt ?? ''}\n\nThis turn, ${owed}. In one or two sentences, tell the person plainly what did not happen and what happens next. Do not repeat the rest of your reply.`.trim(),
+        system: `${input.systemPrompt ?? ''}\n\nThis turn, ${owed}. In one sentence, tell the person plainly what did not happen and what happens next. If your reply already says that plainly, answer with nothing at all. Do not repeat the rest of your reply.`.trim(),
         human: `Steps you took:\n${stepLines(input.toolCalls).join('\n') || '(none)'}\n\nYour reply:\n${text.slice(-3_000)}`,
       })).trim();
       if (correction) {
