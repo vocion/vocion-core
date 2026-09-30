@@ -312,6 +312,12 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // marked returned to the seat that produced it so Work says so — the
     // seat fixes the work; nobody is interrupted (libs/gates/handoffGate.ts).
     const failure = evaluateGates(gatesOf(objectType.schema), meta, input.set);
+    // On the person's word the change lands (Chris, 2026-09-29: "Checks
+    // inform; they never hard-stop a person"). The gate still binds what an
+    // agent writes on its own.
+    if (failure && ctx.turn?.onPersonsWord) {
+      return undefined;
+    }
     if (failure) {
       await writeMetadata(ctx.orgId, row.id, {
         ...meta,

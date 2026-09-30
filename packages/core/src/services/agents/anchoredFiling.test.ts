@@ -24,7 +24,7 @@ vi.mock('@/services/ActionService', async importOriginal => ({
 // reading that the latest message is a change to something already there.
 vi.mock('./turnJudge', async (importOriginal) => {
   const real = await importOriginal<typeof import('./turnJudge')>();
-  return { ...real, readIntent: vi.fn(async () => ({ ...real.NO_INTENT, changes_existing_record: true, wants_action: true })) };
+  return { ...real, readIntent: vi.fn(async () => ({ ...real.NO_INTENT, changes_existing_record: true, changed_record_type: 'request', wants_action: true })) };
 });
 
 const { db } = await import('@/libs/DB');
@@ -49,7 +49,7 @@ describe('anchoredFilingRefusal', () => {
   });
 
   it('refuses a change to something already there with no record open — the misread that filed #232', () => {
-    const out = anchoredFilingRefusal({ message: CHANGE, intent: I({ changes_existing_record: true }), objectType: 'request', anchor: null });
+    const out = anchoredFilingRefusal({ message: CHANGE, intent: I({ changes_existing_record: true, changed_record_type: 'request' }), objectType: 'request', anchor: null });
 
     expect(out).toContain('no request is open on their page');
     expect(out).toContain('lookup_objects');
@@ -57,7 +57,13 @@ describe('anchoredFilingRefusal', () => {
   });
 
   it('refuses it on a page about a record of another type too', () => {
-    expect(anchoredFilingRefusal({ message: CHANGE, intent: I({ changes_existing_record: true }), objectType: 'request', anchor: { id: 25, objectType: 'product' } })).toContain('no request is open');
+    expect(anchoredFilingRefusal({ message: CHANGE, intent: I({ changes_existing_record: true, changed_record_type: 'request' }), objectType: 'request', anchor: { id: 25, objectType: 'product' } })).toContain('no request is open');
+  });
+
+  it('files a plan for the request the person asked to restart — a different kind is not the change misfiled (conversation 391)', () => {
+    expect(anchoredFilingRefusal({ message: 'Can you restart this request?', intent: I({ changes_existing_record: true, changed_record_type: 'request' }), objectType: 'architecture_plan', anchor: null })).toBeNull();
+    // Not knowing the kind never blocks.
+    expect(anchoredFilingRefusal({ message: 'Change this.', intent: I({ changes_existing_record: true }), objectType: 'request', anchor: null })).toBeNull();
   });
 
   it('files when the person wants a new or separate record, whatever else they said', () => {

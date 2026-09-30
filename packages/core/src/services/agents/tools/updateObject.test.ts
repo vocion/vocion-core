@@ -133,6 +133,32 @@ describe('the write', () => {
     expect(run!.status).toBe('done');
   });
 
+  it('a declared gate informs a change the person asked for, and the change lands (no hard stop)', async () => {
+    const [gated] = await db.insert(businessObjectTypeSchema).values({
+      orgId: ORG,
+      slug: 'idea',
+      label: 'Idea',
+      schema: { 'type': 'object', 'properties': { state: { type: 'string' }, howWeCheck: { type: 'string' } }, 'x-gates': [{ name: 'decision-ready', when: { field: 'state', becomes: ['in_scope'] }, producedBy: 'product-manager', require: [{ field: 'howWeCheck', present: true, message: 'say how we will know it worked' }] }] },
+    }).returning({ id: businessObjectTypeSchema.id });
+    const [idea] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: gated!.id, title: 'Theme toggle', metadata: { state: 'new' } }).returning({ id: businessObjectSchema.id });
+    const { NO_INTENT } = await import('../turnJudge');
+    const asked = { ...ctxFor(['idea']), userId: 'usr-owner', turnIntent: Promise.resolve({ ...NO_INTENT, changes_page_record: true, decides: true }) } as RuntimeContext;
+
+    // The agent's own call still meets the gate.
+    const own = await toolFor(['idea']).invoke({ object_type: 'idea', id: idea!.id, set: { state: 'in_scope' }, reason: 'r', confidence: 0.9 });
+
+    expect(own).toMatch(/decision-ready/);
+
+    // On the person's word it lands.
+    const out = await updateObjectTools(asked)[0]!.invoke({ object_type: 'idea', id: idea!.id, set: { state: 'in_scope' }, reason: 'Reopen it.', confidence: 0.9 });
+
+    expect(out).toMatch(/updated — state written/);
+
+    const [row] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, idea!.id));
+
+    expect(row!.metadata).toMatchObject({ state: 'in_scope' });
+  });
+
   it('a pending write says where to act on it', async () => {
     const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { priority: 82 }, reason: 'r', confidence: 0.3 });
 

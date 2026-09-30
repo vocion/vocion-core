@@ -15,7 +15,7 @@ pull request cannot pass [the test](#the-test), it is not finished.
 
 ## How to read this
 
-Four **values** and twelve **principles**, in the shape the Agile Manifesto uses.
+Four **values** and thirteen **principles**, in the shape the Agile Manifesto uses.
 
 The values settle arguments. Read them the way that manifesto is read: there is value in the thing
 on the right, and we value the thing on the left more. The principles say what the values mean when
@@ -76,7 +76,7 @@ approval and rejection is training data.
 
 ---
 
-# The twelve principles
+# The thirteen principles
 
 ### 1. Every outcome has an owner, and every agent knows why it exists
 
@@ -195,6 +195,19 @@ core. Every vertical added to the core is paid for by every workspace that will 
 > **In the work** — the changes shipped this month came from hitting walls at 8am trying to run
 > real prospecting, not from a backlog.
 
+### 13. Accelerate, never block
+
+Vocion is here to make a person faster and their work better. It is never a guardrail they have to
+get past. What a person asks for runs as theirs, with undo. A check that finds something says so in
+one line, and only when it changes the ask. A step that fails says why where the person is looking,
+tries again with that reason, and asks once, only when it cannot recover. No hard stops on a
+person's own request, and nothing silent.
+
+> **In the work** — on 2026-09-29 a PM's own request was refused three times by quality checks,
+> planning then ended with no plan and no reason on the page, and "restart this" took ten steps
+> and ended on a card to approve what he had just asked for. His words: *"We are not trying to build
+> hard guardrails. Let me work. Don't stop me."*
+
 ---
 
 # The test
@@ -205,8 +218,9 @@ Four questions, before shipping anything.
 2. **Is this one obvious path, or another option?** A default beats a setting; one shape beats a pattern per screen.
 3. **Can a person check it?** In one move, from where the claim is read.
 4. **Did real work demand this, and did we earn it?** Can the change name the thing it unblocked?
+5. **Does it ever stop a person who asked, or fail without saying why?** If yes, it is not done.
 
-**If a proposal survives all four, build it. If it cannot, it is not finished.**
+**If a proposal survives all five, build it. If it cannot, it is not finished.**
 
 ---
 

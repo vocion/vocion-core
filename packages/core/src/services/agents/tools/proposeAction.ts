@@ -247,11 +247,14 @@ export async function runProposal(
       return withAdvice(`${action_id} is DONE: filed as ${name} (run #${res.runId}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.`);
     }
     // The record it moved, linked, so the person can follow it there.
-    const movedId = Number((res.result as { requestId?: unknown } | null)?.requestId);
-    const moved = Number.isInteger(movedId) && movedId > 0
-      ? await import('@/services/objects/recordHref').then(m => m.recordHref(ctx.orgId, { objectType: 'request', id: movedId })).catch(() => null)
+    // The action names the record it moved (`result.record`); core names no type.
+    const movedRecord = (res.result as { record?: { objectType?: unknown; id?: unknown } } | null)?.record;
+    const movedId = Number(movedRecord?.id);
+    const movedType = typeof movedRecord?.objectType === 'string' ? movedRecord.objectType : null;
+    const moved = movedType && Number.isInteger(movedId) && movedId > 0
+      ? await import('@/services/objects/recordHref').then(m => m.recordHref(ctx.orgId, { objectType: movedType, id: movedId })).catch(() => null)
       : null;
-    return `${action_id} is DONE (run #${res.runId}${asPerson ? ', as the person asked' : `, confidence ${confidence}`}) — it ran without waiting; a person can undo it from the Review queue's Decided tab.${moved ? ` Give the person this link to follow it: [request #${movedId}](${moved}).` : ''} Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
+    return `${action_id} is DONE (run #${res.runId}${asPerson ? ', as the person asked' : `, confidence ${confidence}`}) — it ran without waiting; a person can undo it from the Review queue's Decided tab.${moved ? ` Give the person this link to follow it: [${movedType!.replace(/[_-]+/g, ' ')} #${movedId}](${moved}).` : ''} Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
   } catch (err) {
     if (err instanceof ActionError) {
       return opts.refused ? opts.refused(err.code, err.message) : `Proposal refused (${err.code}): ${err.message}`;

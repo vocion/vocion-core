@@ -391,8 +391,12 @@ describe('a planning run that ends without a plan is caught when it ends (#246, 
     const [event] = (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.plan_requested'))))
       .filter(e => (e.payload as { requestId: number }).requestId === r.id);
     await db.update(eventLogSchema).set({ triggered: [{ slug: 'automation:factory-plan-request' }] } as never).where(eq(eventLogSchema.id, event!.id));
-    const [run] = await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'factory-plan-request', kind: 'mission_check', status: 'completed', input: { requestId: r.id }, startedAt: new Date(Date.parse(asked) + 1000) } as never).returning();
-    await db.insert(toolCallSchema).values({ orgId: ORG, agentSlug: 'product-manager', tool: 'file_architecture_plan', input: { requestId: r.id }, output: 'Refused: nothing was filed (VALIDATION_FAILED). components must name a package.', createdAt: new Date(Date.parse(asked) + 2000) } as never);
+    // The automation says which call is its job; the run's mission run holds its calls.
+    await db.insert(automationSchema).values({ orgId: ORG, slug: 'factory-plan-request', name: 'Write the plan', status: 'active', whenConfig: { event: 'factory.plan_requested' }, doConfig: { checkMission: 'close-the-gap', requireTool: 'file_architecture_plan' }, ownerAgentSlug: 'product-manager' } as never).onConflictDoNothing();
+    const [run] = await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'factory-plan-request', kind: 'mission_check', status: 'completed', input: { requestId: r.id }, targetRunId: 9246, startedAt: new Date(Date.parse(asked) + 1000) } as never).returning();
+    await db.insert(toolCallSchema).values({ orgId: ORG, agentSlug: 'product-manager', tool: 'file_architecture_plan', missionRunId: 9246, input: { requestId: r.id }, output: 'Refused: nothing was filed (VALIDATION_FAILED). components must name a package.', createdAt: new Date(Date.parse(asked) + 2000) } as never);
+    // A call some other turn made in the same window is not this run's.
+    await db.insert(toolCallSchema).values({ orgId: ORG, agentSlug: 'product-manager', tool: 'file_architecture_plan', conversationId: 77, input: { requestId: r.id }, output: 'Not filed: something a chat turn was told.', createdAt: new Date(Date.parse(asked) + 3000) } as never);
 
     const out = await carry.planningRunEnded(ORG, { automationRunId: run!.id, slug: 'factory-plan-request' });
 

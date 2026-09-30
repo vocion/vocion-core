@@ -26,6 +26,7 @@ import type { Failure, RecoveryState } from './recovery';
 import type { FactoryRecord } from '@/libs/actions/factory-dispatch';
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
+import { CLOSED_REQUEST_STATES as CLOSED } from '@/libs/factory/requestStates';
 import { blockerRefs, blockerResolution } from './blocker';
 import { classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
@@ -34,7 +35,6 @@ const PM = 'product-manager';
 const DISPATCH = 'factory.dispatch_task';
 const APPROVE_PLAN = 'factory.approve_plan';
 const LIVE_RUN = new Set(['queued', 'running', 'paused', 'awaiting_review']);
-const CLOSED = new Set(['deferred', 'answered', 'out_of_scope', 'shipped']);
 /** A lost run may still be re-claimed by its worker for a while; wait this long first. */
 const LOST_GRACE_MS = 15 * 60_000;
 /**
@@ -299,7 +299,7 @@ async function planningEnded(orgId: string, requestId: number, askedAt: string):
   if (slugs.length === 0) {
     return { why: 'nothing picked up the request for a plan' };
   }
-  const fires = await db.select({ id: automationRunSchema.id, status: automationRunSchema.status, error: automationRunSchema.error }).from(automationRunSchema).where(and(
+  const fires = await db.select({ id: automationRunSchema.id, slug: automationRunSchema.slug, status: automationRunSchema.status, error: automationRunSchema.error, targetRunId: automationRunSchema.targetRunId }).from(automationRunSchema).where(and(
     eq(automationRunSchema.orgId, orgId),
     inArray(automationRunSchema.slug, slugs),
     gte(automationRunSchema.startedAt, new Date(Date.parse(askedAt) - 1000)),
@@ -309,18 +309,23 @@ async function planningEnded(orgId: string, requestId: number, askedAt: string):
     return null;
   }
   const last = [...fires].sort((a, b) => b.id - a.id)[0]!;
-  // What the planner was told when it tried to file, in the tool's own words
-  // — the reason the next attempt needs, and the one the page shows.
+  // What the planning run was told when it made its required call, in the
+  // tool's own words — read off THAT run (its mission run's calls) and the
+  // call its automation requires (`do.requireTool`), never a tool name
+  // written here or a call some other turn made in the same window.
   const { desc } = await import('drizzle-orm');
-  const { toolCallSchema } = await import('@/models/Schema');
-  const [filing] = await db.select({ output: toolCallSchema.output, error: toolCallSchema.error }).from(toolCallSchema).where(and(
-    eq(toolCallSchema.orgId, orgId),
-    eq(toolCallSchema.tool, 'file_architecture_plan'),
-    gte(toolCallSchema.createdAt, new Date(Date.parse(askedAt) - 1000)),
-    sql`${toolCallSchema.input} ->> 'requestId' = ${String(requestId)}`,
-  )).orderBy(desc(toolCallSchema.id)).limit(1);
+  const { automationSchema, toolCallSchema } = await import('@/models/Schema');
+  const [auto] = await db.select({ doConfig: automationSchema.doConfig }).from(automationSchema).where(and(eq(automationSchema.orgId, orgId), eq(automationSchema.slug, last.slug))).limit(1);
+  const required = auto?.doConfig?.requireTool;
+  const [filing] = required && last.targetRunId
+    ? await db.select({ output: toolCallSchema.output, error: toolCallSchema.error }).from(toolCallSchema).where(and(
+        eq(toolCallSchema.orgId, orgId),
+        eq(toolCallSchema.missionRunId, last.targetRunId),
+        eq(toolCallSchema.tool, required),
+      )).orderBy(desc(toolCallSchema.id)).limit(1)
+    : [];
   const told = (filing?.error || filing?.output || '').trim().slice(0, 400);
-  return { why: `the planning run (automation run #${last.id}) ended without filing a plan${told ? `; its filing was answered: "${told}"` : filing ? '' : '; it never called file_architecture_plan'}${last.error ? `; the run failed: ${last.error.split('\n')[0]!.slice(0, 200)}` : ''}` };
+  return { why: `the planning run (automation run #${last.id}) ended without filing a plan${told ? `; its filing was answered: "${told}"` : filing || !required ? '' : `; it never called ${required}`}${last.error ? `; the run failed: ${last.error.split('\n')[0]!.slice(0, 200)}` : ''}` };
 }
 
 /**

@@ -31,12 +31,13 @@ export const TurnIntentSchema = z.object({
   changes_existing_record: z.boolean().describe('The person wants a record that already exists changed (on this page or elsewhere), not a new one.'),
   wants_to_choose: z.boolean().describe('The person wants to be handed a choice or options to decide themselves ("which one", "let me decide").'),
   wants_work_on_record: z.boolean().describe('The person wants work done on the record on the page — mockups, images, a design, attachments.'),
+  changed_record_type: z.string().max(60).nullable().describe('When they want an existing record changed, its type as one lower-case slug (e.g. request); null otherwise.'),
   record_type: z.string().max(60).nullable().describe('When they want a record filed, its type as one lower-case slug from the types named below (e.g. request, bug); null otherwise.'),
   summary: z.string().max(200).describe('What they want, in one short line.'),
 });
 export type TurnIntent = z.infer<typeof TurnIntentSchema>;
 
-export const NO_INTENT: TurnIntent = { changes_page_record: false, files_new_record: false, decides: false, wants_action: false, changes_existing_record: false, wants_to_choose: false, wants_work_on_record: false, record_type: null, summary: '' };
+export const NO_INTENT: TurnIntent = { changes_page_record: false, files_new_record: false, decides: false, wants_action: false, changes_existing_record: false, wants_to_choose: false, wants_work_on_record: false, changed_record_type: null, record_type: null, summary: '' };
 
 export const AnswerJudgementSchema = z.object({
   answered: z.boolean().describe('The reply gives the person an actual answer or result — not only a promise, a fragment or nothing.'),

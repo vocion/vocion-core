@@ -103,6 +103,8 @@ export async function writeRecordAsAgent(ctx: RuntimeContext, input: { objectTyp
     orgId: ctx.orgId,
     actionId: 'objects.update_meta',
     input: { objectType: input.objectType, id: input.id, set, reason: input.reason },
+    // On the person's word the type's gates inform and the change lands.
+    ...(asPerson ? { turn: { reads: [], onPersonsWord: true } } : {}),
     principal: asPerson
       ? { kind: 'user', id: ctx.userId!, role: 'member', scope: { orgId: ctx.orgId } }
       : {

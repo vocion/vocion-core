@@ -7,7 +7,7 @@ Vocion is a multi-tenant SaaS application built on Next.js 16. It provides conte
 ## Design principles — read before any product decision
 
 `docs/DESIGN-PRINCIPLES.md` is the bar for every feature, page, default, entity field and agent
-behaviour in this repo. Four values and twelve principles. A PR description for user-facing work
+behaviour in this repo. Four values and thirteen principles. A PR description for user-facing work
 should say which of them it serves.
 
 **The four values**, which settle arguments:
@@ -483,22 +483,42 @@ requirements/                       # Product specs and case studies
 
 ## Conventions
 
-- **Structural over prompting.** When a model behavior is a REQUIREMENT (cards
-  must emit, raw data must never dump, events must be typed), do not iterate
-  system-prompt wording — prompt once, and if the behavior is still
-  inconsistent, enforce it in code. Levers in order of strength: typed
-  contracts/events the UI consumes, deterministic post-processing, a gated
-  backstop LLM pass that fires only on violation (see
-  `harnessConfig.recommendActionBackstop` in AgentService), recency reminders
-  inside tool outputs (weakest). Prove behavior with a harness/E2E run —
-  "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
-  to restore action cards; the backstop guaranteed them. Same story for the
-  `<scratch>` strip and the typed trace.) **Worked example, all four levers in
-  one change:** "this turn produces an artifact" — a typed `deliverable` field
-  on the turn request, armed by an explicit `@artifact` tag the person types,
-  with deterministic wrapping of a long-form answer, a gated backstop pass only
-  for the short-answer case, and a prompt line carried into the out-of-process
-  loop as the weakest lever. See `docs/agent-chat-surface.md` → *Deliverables*.
+- **Accelerate, never block (Chris, 2026-09-29 — core, non-negotiable).** Vocion exists to
+  speed a person up and raise quality, never to stop them (`docs/DESIGN-PRINCIPLES.md`,
+  principle 13). In code that means:
+  1. **The person's word runs.** What a person tells an agent to do runs as their action, with
+     undo, and shows no card. Consent is a model's reading of their own words
+     (`services/agents/turnJudge.saidToDecide`). Cards and review are for what an agent decides
+     on its own.
+  2. **Checks inform; they never hard-stop a person.** A quality check (capabilities, wiki, the
+     proposal bar, declared gates) returns its finding as advice (`GateTurn.onPersonsWord`,
+     `runProposal`'s advice). The person hears it only when it changes the ask, in one line.
+  3. **Nothing fails silently; everything heals.** Every step delivers, or fails with its reason
+     where the person is looking, retries itself carrying that reason, and asks once only when
+     recovery runs out. A step that "completes" without its deliverable is a failure.
+  4. **Meaning is read by a model, never matched.** Intent, consent, "did it answer", "did it
+     claim work": a small model returns typed fields (`turnJudge.ts`), and code routes on them. No
+     regexes, keyword lists or `includes()` over a person's words or an agent's reply, and no
+     editing an agent's words after it writes them. Voice is the agent's `voice:` setting.
+  5. **No concretions in core logic.** No type slugs, product names or tool names written into
+     core behaviour. Read them from the record, the action's result (`result.record`), the
+     automation's own config (`do.requireTool`), or one shared definition
+     (`libs/factory/requestStates.ts`).
+
+  Before shipping, answer four questions. Can this stop a person who asked for it? Can it fail
+  without saying why? Does it read meaning from words? Does it name a type in core? Any yes means
+  it is not done.
+- **Structural over prompting.** When a model behavior is a REQUIREMENT (cards must emit, raw
+  data must never dump, events must be typed), do not iterate system-prompt wording. Prompt once,
+  and if the behavior is still inconsistent, enforce it structurally. Levers in order of strength:
+  1. typed contracts and events the UI consumes;
+  2. a model read with typed output that code routes on (`turnJudge.ts`);
+  3. a gated backstop pass that fires only on violation (the owed-write and owed-change passes);
+  4. the right tool channel (results as tool messages, never pasted text);
+  5. recency reminders inside tool outputs (weakest).
+
+  Never rewrite the model's copy after the fact. Prove behavior with a harness or E2E run: "the
+  prompt says so" is not evidence.
 - **Principles first.** Product decisions are judged against `docs/DESIGN-PRINCIPLES.md` (see the section
   near the top). If a change cannot pass its test, it is not finished.
 - Conventional Commits (enforced by commitlint + lefthook)

@@ -55,7 +55,11 @@ export function anchoredFilingRefusal(opts: { message: string; intent: TurnInten
     }
     return `Not filed: the person is on ${kind} #${anchor.id}'s page and asked to change it, so the change belongs on ${kind} #${anchor.id}, not on a new ${kind}. Write it with update_object (object_type "${opts.objectType}", id ${anchor.id}), each field you change with its whole new value; it lands as a new version of #${anchor.id}. File a separate ${kind} only when the person asks for a new or separate one.`;
   }
-  if (!intent.changes_existing_record) {
+  // Only a filing of the SAME kind as the record they want changed is the
+  // change misfiled (#232); a plan for the request they asked to restart is
+  // not (conversation 391, #246). When the read names no kind, nothing is
+  // refused: not knowing is never a reason to block the person.
+  if (!intent.changes_existing_record || intent.changed_record_type !== opts.objectType) {
     return null;
   }
   const said = text.trim().split('\n')[0]!.slice(0, 80);
