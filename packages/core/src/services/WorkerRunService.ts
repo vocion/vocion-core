@@ -204,8 +204,9 @@ function capRemainingCents(run: WorkerRun): number | null {
  * @param opts.id
  * @param opts.workerId
  * @param opts.workerVersion - What the worker is (image, build or commit), when it says. Kept on the run so a recovery can tell whether the worker changed since a failure.
+ * @param opts.target
  */
-export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string; workerVersion?: string | null }): Promise<{ run: WorkerRun; toolClaim: string }> {
+export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string; workerVersion?: string | null; target?: string | null }): Promise<{ run: WorkerRun; toolClaim: string }> {
   // Claiming too, and this is the half that matters operationally: the
   // Fargate worker polls, so refusing the claim is what actually stops work
   // starting on runs that were queued before the switch was pulled. A worker
@@ -233,13 +234,21 @@ export async function claimWorkerRun(opts: { orgId: string; id: number; workerId
     status: 'running',
     workerId: opts.workerId,
     workerVersion: opts.workerVersion?.trim().slice(0, 200) || null,
+    // Which installation target ran it, as the runner said (libs/runners/config.ts).
+    workerTarget: opts.target?.trim().slice(0, 64) || null,
     attempt: run.attempt + 1,
     claimedAt: now,
     heartbeatAt: now,
     leaseExpiresAt: new Date(now.getTime() + run.leaseSeconds * 1000),
     updatedAt: now,
-  }).where(eq(workerRunSchema.id, run.id)).returning();
-  return { run: updated!, toolClaim: toolClaimFor(updated!) };
+    // ONE HOLDER (backlog 052): the installation's runners claim across workspaces, so two can
+    // reach the same queued run at once. The claim holds only if nobody claimed since this read
+    // (a claim bumps `attempt`); the one that lost is told, like any held run.
+  }).where(and(eq(workerRunSchema.id, run.id), eq(workerRunSchema.attempt, run.attempt))).returning();
+  if (!updated) {
+    throw new WorkerRunError('CONFLICT', `Run ${run.id} was claimed by another worker a moment ago`, 409);
+  }
+  return { run: updated, toolClaim: toolClaimFor(updated) };
 }
 
 export type HeartbeatInput = {

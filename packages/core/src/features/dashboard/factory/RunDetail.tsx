@@ -357,6 +357,7 @@ function RunFacts({ header: h }: { header: RunHeader }) {
         },
         typeof h.cents === 'number' && h.cents > 0 && { key: 'cost', label: 'Cost', value: <span className="tabular-nums">{`$${(h.cents / 100).toFixed(2)}`}</span> },
         h.model && { key: 'model', label: 'Model', value: h.model },
+        h.target && { key: 'target', label: 'Ran on', value: <span data-testid="run-target">{h.target}</span> },
         h.links.length > 0 && {
           key: 'links',
           label: 'Documents',

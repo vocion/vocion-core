@@ -250,8 +250,10 @@ export async function watchQueuedRuns(orgId: string, now: Date, owner: string | 
   if (stuck.length === 0) {
     return out;
   }
-  const [lastClaim] = await db.select({ at: workerRunSchema.claimedAt, version: workerRunSchema.workerVersion }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), isNotNull(workerRunSchema.claimedAt))).orderBy(desc(workerRunSchema.claimedAt)).limit(1);
-  const lastSeen = lastClaim?.at ? `The last run a worker claimed was at ${lastClaim.at.toISOString()}${lastClaim.version ? ` (worker ${lastClaim.version})` : ''}.` : 'No worker has claimed a run in this workspace yet.';
+  const [lastClaim] = await db.select({ at: workerRunSchema.claimedAt, version: workerRunSchema.workerVersion, target: workerRunSchema.workerTarget }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), isNotNull(workerRunSchema.claimedAt))).orderBy(desc(workerRunSchema.claimedAt)).limit(1);
+  // Which target stopped claiming is named, so the ask says where to look (the on-box runner, the
+  // Fargate fleet), not only that nothing picked the run up (backlog 052).
+  const lastSeen = lastClaim?.at ? `The last run a worker claimed was at ${lastClaim.at.toISOString()}${lastClaim.target ? ` on ${lastClaim.target}` : ''}${lastClaim.version ? ` (worker ${lastClaim.version})` : ''}.` : 'No worker has claimed a run in this workspace yet.';
   const { readRecord } = await import('@/libs/actions/factory-dispatch');
   const types = await (await import('@/libs/factory/types')).factoryTypes(orgId);
   for (const run of stuck) {

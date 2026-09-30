@@ -109,6 +109,10 @@
       "description": "Endpoints under /api/v1/rooms."
     },
     {
+      "name": "runner",
+      "description": "Endpoints under /api/v1/runner."
+    },
+    {
       "name": "runs",
       "description": "Endpoints under /api/v1/runs."
     },
@@ -6450,6 +6454,102 @@
         ]
       }
     },
+    "/api/v1/runner/claim": {
+      "post": {
+        "operationId": "post_runner_claim",
+        "summary": "The installation's runners take the next engineering run from any workspace on it (backlog 052).",
+        "tags": [
+          "runner"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Success, with no body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "The installation's runners take the next engineering run from any workspace on it (backlog\n052). Auth: the installation runner token (`VOCION_RUNNER_TOKEN`), never a workspace's.\n`target` must be one the installation declares (`libs/runners/config.ts`); `claimAfterSeconds`\nis how long a run waits before this runner takes it (the on-box backup's `RUNNER_CLAIM_AFTER`),\nand the target's own setting wins over it; `runId` claims only that run.\n\n200 `{ run, leaseExpiresAt, toolClaim, runToken, git }`: `runToken` is the credential for every\ncall about this run, scoped to the workspace that queued it; `git` is the repository's push\ncredential when the workspace has one (`services/runners/repoCredential.ts`). 204 when there is\nnothing for this target to take.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "claimAfterSeconds": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "runId": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "target": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "workerId": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "workerVersion": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs": {
       "get": {
         "operationId": "get_runs",
@@ -7495,7 +7595,7 @@
             }
           }
         },
-        "description": "`workerVersion` is what the worker is — its image tag, build or commit —\nkept on the run, so a failure in the worker's own environment is retried\nonly once the worker has changed.\nTake the lease. 409 if someone else holds it, 402 if the agent is over budget.\nReturns the run and a short-lived `toolClaim` for /api/internal/agent-tools.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "`workerVersion` is what the worker is — its image tag, build or commit —\nkept on the run, so a failure in the worker's own environment is retried\nonly once the worker has changed. `target` is which runner target it is\n(`on-box`, `aws-fargate`), shown on the Runs page.\nTake the lease. 409 if someone else holds it, 402 if the agent is over budget.\nReturns the run and a short-lived `toolClaim` for /api/internal/agent-tools.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",
@@ -7515,6 +7615,9 @@
                 "type": "object",
                 "description": "The fields this endpoint reads.",
                 "properties": {
+                  "target": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
                   "workerId": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },

@@ -221,7 +221,10 @@ name: Software factory
 #   its preview mode), `services` and `setup`, `humanOwned`, `engineerRules`,
 #   and each check's `command`. The dispatch carries them into the contract with
 #   the product's production environments as the live URLs.
-version: 2.37.0
+# 2.38.0 — the installation's runners (backlog 052). The Runs page names the
+#   runner target that claimed each run (`meta.target`: the on-box backup, the
+#   Fargate fleet), from `worker_run.worker_target`.
+version: 2.38.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

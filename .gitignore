@@ -78,6 +78,8 @@ infra/terraform/crash.log
 
 # AWS production env (operator-managed; never commit)
 infra/aws/.env.production
+# The on-box runner's own secrets (docker-compose.prod.yml `vocion-runner`), beside the app's.
+runner.env
 
 # agent-runtime build artifacts
 packages/agent-runtime/dist/

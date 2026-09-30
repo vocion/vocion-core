@@ -317,6 +317,7 @@ async function workerHeader(run: WorkerRunRow, events: RunLogEvent[]): Promise<R
     endedAt: iso(run.completedAt),
     cents: run.cents,
     model: run.model,
+    target: run.workerTarget ?? null,
     prUrl: str(result, 'pr_url') ?? str(progress, 'prUrl'),
     error: run.error,
     summary: run.summary,

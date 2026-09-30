@@ -1114,6 +1114,13 @@
       "when": 1790900180000,
       "tag": "0158_live_notice_quiet_bookkeeping",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1790900240000,
+      "tag": "0159_worker_target",
+      "breakpoints": true
     }
   ]
 }

@@ -46,6 +46,14 @@ const env = process.env;
 const cfg = {
   vocionUrl: (env.VOCION_URL || '').replace(/\/+$/, '').replace(/\/api\/v1$/, ''),
   vocionToken: env.VOCION_TOKEN || '',
+  // The installation's runner token (backlog 052): this runner claims from every workspace on the
+  // installation, and each claim hands back a run token for that one run's workspace.
+  runnerToken: env.VOCION_RUNNER_TOKEN || '',
+  // As a backup, take only a run that has waited this long unclaimed; 0 makes this runner primary.
+  claimAfterSeconds: seconds(env.RUNNER_CLAIM_AFTER, 120),
+  // With nothing configured, wait this long before exiting, so a service that restarts on exit
+  // does not spin.
+  idleSeconds: seconds(env.RUNNER_IDLE_SECONDS, 0),
   agentSlug: env.VOCION_AGENT_SLUG || '',
   // Which deploy target this container is (on-box, aws-fargate, local...), said at claim and on
   // every heartbeat so the Runs page names what claimed a run.
@@ -94,6 +102,11 @@ const startedAt = Date.now();
 const hostId = (env.ECS_CONTAINER_METADATA_URI_V4 ? await ecsTaskId() : '') || os.hostname();
 const workerId = `${cfg.target}-${hostId}-${process.pid}`;
 
+/** A whole number of seconds, where 0 is a value and not a default. */
+function seconds(v, d) {
+  const n = Number(v);
+  return v !== undefined && v !== '' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : d;
+}
 function num(v, d) {
   const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d;
 }
@@ -102,7 +115,7 @@ function num(v, d) {
 
 // `record` is the task record the run was queued for (run.input.record, { type, id }, set by the
 // dispatch); null for a run queued bare, which then reports to nothing.
-const state = { runId: cfg.runId || null, phase: 'boot', note: '', counts: {}, pendingUsage: null, model: null, costUsd: 0, stopped: false, stopReason: '', killReason: '', paused: false, lostLease: false, claude: null, services: [], serviceEnv: {}, kept: null, record: null, task: null, runLogs: null };
+const state = { runId: cfg.runId || null, phase: 'boot', note: '', counts: {}, pendingUsage: null, model: null, costUsd: 0, stopped: false, stopReason: '', killReason: '', paused: false, lostLease: false, claude: null, services: [], serviceEnv: {}, kept: null, record: null, task: null, runLogs: null, held: false };
 
 // The run's own step log, small enough to ride heartbeat/complete/fail (backlog 036, the fixed
 // contract): one event per phase this worker logs, plus claude.tool / claude.tool.result from the
@@ -116,8 +129,9 @@ const EARLY_HEARTBEAT_DEBOUNCE_MS = 5000;
 let lastHeartbeatAttemptAt = 0;
 let earlyHeartbeatScheduled = false;
 function requestEarlyHeartbeat() {
+  // Nothing to report until a run is held: a heartbeat before the claim is refused, and read as a lost lease.
   // eslint-disable-next-line no-use-before-define -- called only once the client below exists
-  if (!vocion.enabled || !state.runId || state.lostLease || earlyHeartbeatScheduled) {
+  if (!vocion.enabled || !state.held || state.lostLease || earlyHeartbeatScheduled) {
     return;
   }
   const wait = Math.max(0, EARLY_HEARTBEAT_DEBOUNCE_MS - (Date.now() - lastHeartbeatAttemptAt));
@@ -153,12 +167,15 @@ async function ecsTaskId() {
 // ---------- Vocion client ----------
 
 const vocion = {
-  enabled: Boolean(cfg.vocionUrl && cfg.vocionToken),
+  enabled: Boolean(cfg.vocionUrl && (cfg.vocionToken || cfg.runnerToken)),
+  // The credential for the next call: the workspace token, or once an installation claim is made,
+  // the run token it handed back.
+  token: cfg.vocionToken,
   async call(method, p, body) {
     const url = `${cfg.vocionUrl}/api/v1${p}`;
     const res = await fetch(url, {
       method,
-      headers: { 'content-type': 'application/json', 'authorization': `Bearer ${cfg.vocionToken}` },
+      headers: { 'content-type': 'application/json', 'authorization': `Bearer ${this.token}` },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(20000),
     });
@@ -234,7 +251,7 @@ function applyHeartbeatReply(r) {
 }
 
 async function heartbeat() {
-  if (!vocion.enabled || !state.runId || state.lostLease) {
+  if (!vocion.enabled || !state.held || state.lostLease) {
     return;
   }
   lastHeartbeatAttemptAt = Date.now();
@@ -550,6 +567,47 @@ async function claimRun(id) {
   return run;
 }
 
+/**
+ * Claim from the installation (backlog 052): the next engineering run from any workspace on it,
+ * as this target, waiting RUNNER_CLAIM_AFTER when this runner is the backup. With WORKER_RUN_ID
+ * set (a target started for one run), that run or nothing. The reply's run token is then the
+ * credential for every call about the run, and its git credential the one the runner pushes with.
+ */
+async function claimFromInstallation() {
+  setPhase('poll', `installation claim as ${cfg.target}${cfg.claimAfterSeconds ? `, runs waiting ${cfg.claimAfterSeconds}s or more` : ''}${cfg.runId ? `, run ${cfg.runId}` : ''}`);
+  const deadline = Date.now() + cfg.pollMaxSeconds * 1000;
+  vocion.token = cfg.runnerToken;
+  while (Date.now() < deadline) {
+    const body = { target: cfg.target, workerId, workerVersion: WORKER_VERSION, claimAfterSeconds: cfg.claimAfterSeconds, ...(cfg.runId ? { runId: Number(cfg.runId) } : {}) };
+    let r;
+    try {
+      r = await vocion.post('/runner/claim', body);
+    } catch (e) {
+      r = { status: 0, ok: false, json: { error: String(e.message || e) } };
+    }
+    if (r.status === 200 && r.json?.run) {
+      const run = r.json.run;
+      vocion.token = r.json.runToken;
+      if (r.json.git?.token) {
+        // The repository's own push credential for this run; the engineer's process never sees it.
+        cfg.githubToken = r.json.git.token;
+        process.env.GITHUB_TOKEN = r.json.git.token;
+        process.env.GH_TOKEN = r.json.git.token;
+      }
+      log('claimed', { attempt: run.attempt, leaseExpiresAt: r.json.leaseExpiresAt, capCents: run.capCents, endsAt: run.endsAt, kind: run.kind, agentSlug: run.agentSlug, target: cfg.target, git: r.json.git?.source || 'environment' });
+      return run;
+    }
+    if (r.status !== 204) {
+      log('poll.error', { status: r.status, error: r.json?.error });
+    }
+    if (cfg.runId) {
+      return null;
+    }
+    await sleep(cfg.pollEverySeconds * 1000);
+  }
+  return null;
+}
+
 async function pollForRun() {
   setPhase('poll', `${cfg.agentSlug ? `agentSlug=${cfg.agentSlug}` : 'any engineer'} up to ${cfg.pollMaxSeconds}s`);
   const deadline = Date.now() + cfg.pollMaxSeconds * 1000;
@@ -755,7 +813,7 @@ function runClaude(task, runId) {
 
   // The agent never sees the GitHub or Vocion credentials; it only needs the Anthropic key.
   const childEnv = { ...process.env };
-  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'VOCION_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_AUTHORIZATION_TOKEN']) {
+  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'VOCION_TOKEN', 'VOCION_RUNNER_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_AUTHORIZATION_TOKEN']) {
     delete childEnv[k];
   }
   Object.assign(childEnv, state.serviceEnv, {
@@ -1479,17 +1537,31 @@ async function main() {
     vocion.enabled = false;
   } else {
     if (!vocion.enabled) {
-      log('exit', { note: 'VOCION_URL or VOCION_TOKEN missing and no LOCAL_TASK; nothing to do' }); return;
-    }
-    runId = cfg.runId || await pollForRun();
-    if (!runId) {
-      log('exit', { note: `no queued run${cfg.agentSlug ? ` for ${cfg.agentSlug}` : ''} within ${cfg.pollMaxSeconds}s` }); return;
-    }
-    state.runId = runId;
-    run = await claimRun(runId);
-    if (!run) {
+      log('exit', { note: 'VOCION_URL, or VOCION_RUNNER_TOKEN / VOCION_TOKEN, missing and no LOCAL_TASK; nothing to do' });
+      if (cfg.idleSeconds) {
+        await sleep(cfg.idleSeconds * 1000);
+      }
       return;
     }
+    if (cfg.runnerToken) {
+      run = await claimFromInstallation();
+      if (!run) {
+        log('exit', { note: cfg.runId ? `run ${cfg.runId} is not this runner's to take (claimed, or not queued)` : `no run for ${cfg.target} within ${cfg.pollMaxSeconds}s` }); return;
+      }
+      runId = String(run.id);
+      state.runId = runId;
+    } else {
+      runId = cfg.runId || await pollForRun();
+      if (!runId) {
+        log('exit', { note: `no queued run${cfg.agentSlug ? ` for ${cfg.agentSlug}` : ''} within ${cfg.pollMaxSeconds}s` }); return;
+      }
+      state.runId = runId;
+      run = await claimRun(runId);
+      if (!run) {
+        return;
+      }
+    }
+    state.held = true;
     startHeartbeat();
     const rec = run.input?.record;
     if (rec && typeof rec === 'object' && rec.id != null && rec.type) {

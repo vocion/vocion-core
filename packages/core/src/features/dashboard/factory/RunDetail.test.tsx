@@ -216,6 +216,13 @@ describe('where the run belongs (Chris, 2026-09-29: "context of the implementati
     expect(states).toEqual(['proven', 'open', 'proven']);
   });
 
+  it('names the runner target that claimed it (backlog 052)', async () => {
+    log.mockResolvedValue({ header: header({ target: 'aws-fargate' }), events: [], tasks: [], calls: [], cursor: 0 });
+    await render(<RunDetail initial={live({ context, target: 'aws-fargate' })} pollMs={60_000} />);
+
+    await expect.element(page.getByTestId('run-target')).toHaveTextContent('aws-fargate');
+  });
+
   it('a run whose records name no feature draws no context block', async () => {
     log.mockResolvedValue({ header: header(), events: [], tasks: [], calls: [], cursor: 0 });
     await render(<RunDetail initial={live({ context: null })} pollMs={60_000} />);

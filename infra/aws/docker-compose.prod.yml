@@ -64,6 +64,71 @@ services:
     # The standalone output places the worker entry alongside server.js.
     command: [node, packages/core/src/scripts/worker-serve.js]
 
+  # THE ON-BOX RUNNER (backlog 052): the installation's backup engineering runner, the same
+  # image every target runs (packages/runner), looping poll -> claim -> build, one run at a
+  # time. It takes a run only once it has waited RUNNER_CLAIM_AFTER unclaimed (120 s), so a
+  # cloud target started at dispatch builds first and the box builds what the cloud did not;
+  # RUNNER_CLAIM_AFTER=0 makes it primary where there is no cloud target.
+  #
+  # Capped so it can never starve the app: a share of the CPU and memory, a pid limit, and no
+  # env_file of the app's. Its only secrets are in runner.env (VOCION_RUNNER_TOKEN, the model
+  # key, a fallback GITHUB_TOKEN), because everything in its environment is visible to the
+  # engineer's tests, and the app's DATABASE_URL must never be. With no runner.env it idles.
+  #
+  # The image is the core commit's: an installation sets VOCION_RUNNER_IMAGE to
+  # ghcr.io/vocion/vocion-runner:sha-<core commit> when its pin moves.
+  #
+  # Behind the `runner` profile: it ships with the compose, and an installation turns it on
+  # (COMPOSE_PROFILES=runner) once runner.env and the image are in place, so a box that cannot
+  # pull the image yet never fails its deploy for it.
+  vocion-runner:
+    image: ${VOCION_RUNNER_IMAGE:-ghcr.io/vocion/vocion-runner:main}
+    container_name: vocion-runner
+    profiles: [runner]
+    restart: unless-stopped
+    env_file:
+      - path: runner.env
+        required: false
+    environment:
+      VOCION_URL: http://app:3000
+      RUNNER_TARGET: on-box
+      RUNNER_CLAIM_AFTER: ${RUNNER_CLAIM_AFTER:-120}
+      POLL_MAX_SECONDS: ${RUNNER_POLL_MAX_SECONDS:-900}
+      RUNNER_IDLE_SECONDS: '300'
+      RUNNER_POSTGRES_URL: postgresql://${RUNNER_DB_USER:-runner}:${RUNNER_DB_PASSWORD:-runner}@localhost:${RUNNER_DB_PORT:-5432}/${RUNNER_DB_NAME:-runner}
+    # The throwaway database's network namespace: localhost is the runner's own postgres, and
+    # through it the app is reachable as `app` on the compose network.
+    network_mode: service:vocion-runner-db
+    depends_on:
+      - vocion-runner-db
+    cpus: ${RUNNER_CPUS:-1}
+    mem_limit: ${RUNNER_MEMORY:-4g}
+    pids_limit: 2048
+    tmpfs:
+      - /tmp
+    logging:
+      driver: json-file
+      options: {max-size: 20m, max-file: '3'}
+
+  # The runner's own database, for a repository whose checks need one: empty, in memory, never
+  # the app's. Its user, password, database and port are what the repo records' `services` name.
+  vocion-runner-db:
+    image: postgres:16-alpine
+    container_name: vocion-runner-db
+    profiles: [runner]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${RUNNER_DB_USER:-runner}
+      POSTGRES_PASSWORD: ${RUNNER_DB_PASSWORD:-runner}
+      POSTGRES_DB: ${RUNNER_DB_NAME:-runner}
+      PGPORT: ${RUNNER_DB_PORT:-5432}
+    tmpfs:
+      - /var/lib/postgresql/data
+    cpus: 0.5
+    mem_limit: 512m
+    networks:
+      - vocion
+
   caddy:
     image: caddy:2-alpine
     container_name: vocion-caddy

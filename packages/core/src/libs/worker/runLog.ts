@@ -75,6 +75,8 @@ export type RunHeader = {
   endedAt: string | null;
   cents: number | null;
   model: string | null;
+  /** Which runner target ran it (`on-box`, `aws-fargate`); null when the worker did not say. */
+  target?: string | null;
   prUrl: string | null;
   error: string | null;
   summary: string | null;

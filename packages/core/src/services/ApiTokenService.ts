@@ -43,6 +43,7 @@ import { db } from '@/libs/DB';
 import { DEFAULT_PLATFORM_ID, getPlatform, hintField, holdsManyCredentials, isCredentialPlatformId, keyHint, validatePlatformCredential } from '@/libs/platforms/registry';
 import { apiTokenSchema } from '@/models/Schema';
 import { normalizeWorkspaceRole } from '@/services/authz';
+import { RUN_TOKEN_PREFIX, verifyRunToken } from '@/services/runners/runToken';
 
 const PREFIX = 'vcn_live';
 
@@ -128,6 +129,17 @@ export type TokenIdentity = { orgId: string; tokenId: string; principal: Princip
  * @param raw
  */
 export async function verifyToken(raw: string): Promise<TokenIdentity | null> {
+  // A run token (services/runners/runToken.ts): the installation's runner acting for the one
+  // workspace whose run it claimed, for as long as a run lasts. Its authority is that workspace's
+  // and nothing wider; it is never stored and never shown.
+  if (raw.startsWith(RUN_TOKEN_PREFIX)) {
+    const claim = verifyRunToken(raw);
+    if (!claim) {
+      return null;
+    }
+    const principal: Principal = { kind: 'user', id: `runner:${claim.target}:run-${claim.runId}`, scope: { orgId: claim.orgId }, grants: ['*'] };
+    return { orgId: claim.orgId, tokenId: `run-${claim.runId}`, principal };
+  }
   const parts = raw.split('_');
   // vcn _ live _ <id> _ <secret>
   if (parts.length !== 4 || `${parts[0]}_${parts[1]}` !== PREFIX) {

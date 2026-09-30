@@ -222,6 +222,8 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
             runRef: String(r.id),
             status: r.status,
             model: r.model,
+            // Which of the installation's runner targets claimed it (backlog 052).
+            target: r.workerTarget,
             attempt: r.attempt,
             cents: r.cents,
             tokens: r.tokens,
