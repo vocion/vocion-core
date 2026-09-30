@@ -396,19 +396,19 @@ starts the first), and `&autoplay=1` plays it unattended.
 slug: rfi
 title: RFI Writer · Draft the RFI with every claim cited
 description: One line for the launcher menu
-next: change-order          # autoplay chains into this tour at the end
+next: change-order # autoplay chains into this tour at the end
 steps:
   - route: /dashboard/p/rfis
     title: Hand it to the role
     body: Tap the button. The role opens beside the log.
     selector: '[data-tour=handoff]'
-    advance: click          # the tap on the spotlit element moves the tour
+    advance: click # the tap on the spotlit element moves the tour
   - route: /dashboard/p/rfis
     title: It checks the ASI log first
     body: Watch for A-601.
     selector: '[data-testid=agent-rail]'
     placement: left
-    advance: appear         # moves on once waitFor (with waitForText) is on the page
+    advance: appear # moves on once waitFor (with waitForText) is on the page
     waitFor: '[data-testid=agent-rail]'
     waitForText: superseded it on Aug 21
 ```
@@ -421,3 +421,14 @@ one element among many matching a selector (the button labelled *Approve*),
 `interactive: true` lets the page take taps, `routePrefix: true` accepts any
 route beneath `route`, and `dwellMs` sets how long autoplay holds a step.
 Autoplay taps a `click` step's element itself, the way a finger would.
+
+A tapped link is followed by the tour, in the same tab, even one that would
+open a new tab — so a step can take the audience to a page whose address is
+only known at run time (an artifact the agent just made), and the next steps
+mark `interactive: true` so the tour follows rather than navigating. To page
+through a document, a step names what to bring into view:
+`scrollTo: {frame: '[data-document-open-frame]', target: '.sheet', index: 3}`
+scrolls the full-screen document to its fourth sheet (served documents are
+sandboxed, so the tour asks by message and the document scrolls itself), and
+`presentation: caption` on that step puts the words in the bottom banner so the
+page stays readable.
