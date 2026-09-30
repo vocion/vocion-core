@@ -145,7 +145,7 @@ describe('handleGithubWebhook', () => {
 
     expect(calls).toEqual([`/repos/${REPO}/pulls/3`, `/repos/${REPO}/commits/abc123/check-runs`]);
     expect(emitted.map(e => e.event.type)).toEqual(['pr.checks_completed']);
-    expect(emitted[0]!.event).toMatchObject({ dedupeKey: `github:${REPO}#3:pr.checks_completed:abc123`, payload: { conclusion: 'failure', failedChecks: 'unit' } });
+    expect(emitted[0]!.event).toMatchObject({ dedupeKey: `github:${REPO}#3:pr.checks_completed:abc123:failed-1`, payload: { conclusion: 'failure', failedChecks: 'unit' } });
   });
 
   it('leaves a check suite for the next poll when the source holds no token', async () => {

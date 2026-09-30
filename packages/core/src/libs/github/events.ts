@@ -277,6 +277,14 @@ const PASSING_CONCLUSIONS = new Set(['success', 'neutral', 'skipped']);
  * `pr.checks_completed` for a head sha whose every check run has finished,
  * or null while any is still running (or none exist yet — a commit with no
  * checks is not a commit whose checks passed).
+ *
+ * A FAILED SET IS KEYED ON ITS RUNS, NOT ONLY ITS SHA (backlog 049). A re-run
+ * of the failed jobs finishes on the same head with new check runs; keyed on
+ * the sha alone, its completion deduped into the first failure and nothing
+ * heard that the re-run passed or failed again. A failure carries the newest
+ * check run's id, so each failing attempt is its own event and a re-poll of
+ * the same attempt is still absorbed. A pass keeps the sha-only key: a head
+ * passes once, and its reviews start from that event.
  * @param repo - `owner/name`.
  * @param pr - The pull request.
  * @param checkRuns - The check runs on `pr.head.sha`.
@@ -292,7 +300,8 @@ export function checksCompletedEvent(repo: string, pr: GithubPullRequest, checkR
     failedCheckCount: failed.length,
     checkCount: checkRuns.length,
   };
-  return prEvent(PR_CHECKS_COMPLETED, repo, pr, extra);
+  const newest = Math.max(...checkRuns.map(run => Number(run.id) || 0));
+  return prEvent(PR_CHECKS_COMPLETED, repo, pr, extra, failed.length > 0 ? `failed-${newest}` : undefined);
 }
 
 /**

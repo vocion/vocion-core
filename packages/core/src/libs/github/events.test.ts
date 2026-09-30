@@ -139,7 +139,17 @@ describe('checksCompletedEvent', () => {
 
     expect(event?.type).toBe(PR_CHECKS_COMPLETED);
     expect(event?.payload).toMatchObject({ conclusion: 'failure', failedChecks: 'typecheck, lint', failedCheckCount: 2, checkCount: 4 });
-    expect(event?.dedupeKey).toBe(`github:${REPO}#3:pr.checks_completed:abc123`);
+    expect(event?.dedupeKey).toBe(`github:${REPO}#3:pr.checks_completed:abc123:failed-4`);
+  });
+
+  it('keys a failed set on its newest run, so a re-run on the same head is its own event; a pass keeps the sha key', () => {
+    const first = checksCompletedEvent(REPO, pr(), runs);
+    const rerunFailedAgain = checksCompletedEvent(REPO, pr(), [runs[0]!, { id: 7, name: 'typecheck', status: 'completed', conclusion: 'failure' }]);
+    const rerunPassed = checksCompletedEvent(REPO, pr(), [runs[0]!, { id: 8, name: 'typecheck', status: 'completed', conclusion: 'success' }]);
+
+    expect(rerunFailedAgain?.dedupeKey).not.toBe(first?.dedupeKey);
+    expect(rerunPassed?.dedupeKey).toBe(`github:${REPO}#3:pr.checks_completed:abc123`);
+    expect(checksCompletedEvent(REPO, pr(), runs)?.dedupeKey).toBe(first?.dedupeKey);
   });
 
   it('reports success when every check passed, was neutral or was skipped', () => {

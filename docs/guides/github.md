@@ -52,9 +52,18 @@ A cancelled Actions run is somebody's choice, not a failure, so it raises no
 The dedupe key holds the head sha, so a re-poll of unchanged state is absorbed
 by `emitEvent` (recorded as `deduped`, nothing fires), while a push that moves
 the head is a new event. Reviews add their id (`…:<headSha>:<reviewId>`), since
-two reviews can land on one sha; failed runs are keyed on run id and attempt
+two reviews can land on one sha; a failed `pr.checks_completed` adds the newest
+check run's id (`…:<headSha>:failed-<checkRunId>`), since a re-run of the failed
+jobs finishes on the same head with new check runs, and a pass keeps the
+sha-only key; failed runs are keyed on run id and attempt
 (`github:<repo>:run.failed:<runId>:<attempt>`), so a re-run that fails again is
 a new event.
+
+A delivery GitHub failed to make is never redelivered. The software factory's
+`factory-reconcile` automation reads every open factory pull request back every
+five minutes and emits the event it earned with these same keys, so a missed
+webhook runs its automation late instead of never, and a delivered one is a
+no-op.
 
 One consequence to know about: the poller cannot see individual pushes, only
 that a pull request moved. It emits `pr.synchronized` for the head sha it sees,

@@ -151,7 +151,7 @@ describe('githubConnector', () => {
       payload: { repo: REPO, number: 3, headSha: 'abc123', branch: 'factory/task-042', title: 'feat(intake): accept requests', author: 'factory-bot', url: `https://github.com/${REPO}/pull/3` },
     });
     expect(emitted()[1]).toMatchObject({
-      dedupeKey: `github:${REPO}#3:pr.checks_completed:abc123`,
+      dedupeKey: `github:${REPO}#3:pr.checks_completed:abc123:failed-2`,
       payload: { conclusion: 'failure', failedChecks: 'typecheck' },
     });
   });
