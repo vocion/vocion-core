@@ -10,6 +10,7 @@ import { turnAttribution } from './routing';
 import { SelectionToolbar } from './SelectionToolbar';
 import { UserMessage } from './UserMessage';
 import { useSelectionReply } from './useSelectionReply';
+import { useThreadRecords } from './useThreadRecords';
 
 /**
  * Message list (Phase C).
@@ -152,6 +153,9 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
   }, []);
 
   const lastIdx = messages.length - 1;
+  // WHAT THIS THREAD IS ABOUT, under the latest turn whatever it was about:
+  // read from the records, so it survives a reload (Chris, 2026-09-30, #269).
+  const threadRecords = useThreadRecords(conversationId, `${messages.length}:${streaming ? 1 : 0}`);
   const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
   return (
     <div ref={containerRef} onScroll={handleScroll} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} onWheel={onWheel} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-8 overflow-x-clip overflow-y-auto overscroll-y-contain px-4 pt-16 pb-6 sm:px-6">
@@ -205,6 +209,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                     conversationId={conversationId}
                     pageRecord={pageRecord}
                     latest={i === lastIdx}
+                    threadRecords={i === lastIdx ? threadRecords : undefined}
                   />
                 )}
             {blocksAfter(i)}

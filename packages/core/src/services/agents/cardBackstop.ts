@@ -676,16 +676,8 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
       if (!ctx.conversationId) {
         return [];
       }
-      const { and, desc, eq, sql } = await import('drizzle-orm');
-      const { db } = await import('@/libs/DB');
-      const { actionRunSchema } = await import('@/models/Schema');
-      const rows = await db.select({ id: sql<string>`${actionRunSchema.result} ->> 'objectId'` }).from(actionRunSchema).where(and(
-        eq(actionRunSchema.orgId, opts.orgId),
-        eq(actionRunSchema.status, 'done'),
-        sql`${actionRunSchema.proposal} -> 'origin' ->> 'conversationId' = ${String(ctx.conversationId)}`,
-        sql`${actionRunSchema.result} ->> 'objectId' is not null`,
-      )).orderBy(desc(actionRunSchema.id)).limit(10);
-      return rows.map(r => Number(r.id)).filter(n => Number.isInteger(n) && n > 0);
+      const { threadRecordIds } = await import('@/services/chat/turnRecords');
+      return threadRecordIds(opts.orgId, ctx.conversationId);
     },
     filingTool: (objectType) => {
       const spec = (ctx.filingTypes ?? []).find(t => t.slug === objectType && (ctx.objectTypeSlugs ?? []).includes(t.slug));

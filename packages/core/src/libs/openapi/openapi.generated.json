@@ -41,6 +41,10 @@
       "description": "Endpoints under /api/v1/chat-bindings."
     },
     {
+      "name": "conversations",
+      "description": "Endpoints under /api/v1/conversations."
+    },
+    {
       "name": "evals",
       "description": "Endpoints under /api/v1/evals."
     },
@@ -1755,6 +1759,74 @@
           }
         },
         "description": "unbind a channel. Auth: tenant API token or dashboard session.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/conversations/{id}/records": {
+      "get": {
+        "operationId": "get_conversations_id_records",
+        "summary": "The records this conversation is about, newest first, at most three: every record its own actions filed, then those its latest turn read or wrote by id.",
+        "tags": [
+          "conversations"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "The records this conversation is about, newest first, at most three: every\nrecord its own actions filed, then those its latest turn read or wrote by\nid. Each carries its page and whether it has a live status to read\n(`GET /api/v1/objects/:id/status`). The chat draws one microcard per\nrecord under the latest turn, and it survives a reload because it is read\nfrom the records, not from the turn's events.",
         "parameters": [
           {
             "name": "id",
