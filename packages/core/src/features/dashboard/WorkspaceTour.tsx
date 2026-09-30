@@ -324,6 +324,20 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       }
       const el = targetRef.current ?? findTarget(step.selector!, step.selectorText);
       if (el && el.contains(t)) {
+        // The tour follows its own links: a spotlit same-origin link is
+        // navigated here, client-side and in this tab — including one that
+        // would open a new tab (the full-screen document) — so no other
+        // handler on the way (a preview closing itself) can cancel the move.
+        const link = (t as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null;
+        if (link && new URL(link.href, window.location.href).origin === window.location.origin) {
+          e.preventDefault();
+          const url = new URL(link.href, window.location.href);
+          // Advance first: the tapped step's own route guard would otherwise
+          // see the new page land before the step moved on, and push back.
+          advanceRef.current();
+          router.push(`${url.pathname}${url.search}` as never);
+          return;
+        }
         setTimeout(() => advanceRef.current(), 350);
         return;
       }
@@ -332,7 +346,50 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
     };
     document.addEventListener('click', onClick, true);
     return () => document.removeEventListener('click', onClick, true);
-  }, [active, idx, slug, step.advance, step.selector, step.selectorText]);
+  }, [active, idx, slug, step.advance, step.selector, step.selectorText, router]);
+
+  // `scrollTo` — page to the named element (in a same-origin frame, when
+  // given) once it exists. The frame may still be loading, so keep looking.
+  const scrollKey = step.scrollTo ? JSON.stringify(step.scrollTo) : '';
+  useEffect(() => {
+    if (!active || !onRoute || !scrollKey) {
+      return;
+    }
+    const { target, index, frame } = JSON.parse(scrollKey) as NonNullable<TourStep['scrollTo']>;
+    let tries = 0;
+    const poll = setInterval(() => {
+      tries++;
+      let root: Document | null = document;
+      const iframe = frame ? document.querySelector(frame) as HTMLIFrameElement | null : null;
+      if (frame) {
+        try {
+          root = iframe?.contentDocument ?? null;
+        } catch {
+          root = null;
+        }
+      }
+      const el = root?.querySelectorAll(target)[index] as HTMLElement | undefined;
+      if (el) {
+        clearInterval(poll);
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      // A sandboxed document (opaque origin) cannot be reached into; ask it
+      // instead — served documents listen for this (libs/tools/artifacts/serve.ts).
+      // Asked a few times, since the frame may still be loading; it is idempotent.
+      if (iframe?.contentWindow && !root) {
+        iframe.contentWindow.postMessage({ type: 'vocion:scroll-to', target, index }, '*');
+        if (tries >= 6) {
+          clearInterval(poll);
+        }
+        return;
+      }
+      if (tries > 40) {
+        clearInterval(poll);
+      }
+    }, 250);
+    return () => clearInterval(poll);
+  }, [active, idx, slug, onRoute, scrollKey]);
 
   // Autoplay: hold each step, perform its tap, then move on.
   useEffect(() => {
@@ -449,7 +506,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
           : clamp(rect.top + rect.height + 14, rect.left); // bottom (default)
 
   const dim = (step.mask ?? tour.mask) !== 'none';
-  const caption = tour.presentation === 'caption';
+  const caption = (step.presentation ?? tour.presentation) === 'caption';
   const waiting = step.advance === 'appear';
   const tapStep = step.advance === 'click';
   // Page taps reach the page on interactive steps, and on tap steps (where

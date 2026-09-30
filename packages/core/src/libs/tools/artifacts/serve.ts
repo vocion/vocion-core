@@ -102,7 +102,7 @@ export async function resolveArtifactFile(opts: {
       // keeps the app's chrome out of every NEW version, and this keeps it out
       // of rows written before that existed — so nothing prints that is not
       // the document, on a surface that browsers print directly.
-      const body = Buffer.from(stripDocumentChrome(row.spec.html), 'utf8');
+      const body = Buffer.from(withScrollListener(stripDocumentChrome(row.spec.html)), 'utf8');
       return {
         status: 200,
         body,
@@ -181,4 +181,21 @@ export async function resolveArtifactFile(opts: {
       'X-Content-Type-Options': 'nosniff',
     },
   };
+}
+
+/**
+ * The one thing the page around a served document may ask of it: scroll to an
+ * element — a guided tour paging through a deck at full screen. The document
+ * runs with an opaque origin (CSP sandbox above), so the parent cannot reach
+ * in; it asks by message, and only the parent is listened to.
+ */
+const SCROLL_LISTENER = `<script data-vocion-scroll>(function(){window.addEventListener('message',function(e){var d=e.data;if(e.source!==window.parent||!d||d.type!=='vocion:scroll-to'||typeof d.target!=='string')return;var el=document.querySelectorAll(d.target)[d.index|0];if(el)el.scrollIntoView({behavior:'smooth',block:'start'});});})();</script>`;
+
+/**
+ * Add the scroll listener before `</body>`, or at the end when there is none.
+ * @param html - The document as stored.
+ */
+export function withScrollListener(html: string): string {
+  const end = html.lastIndexOf('</body>');
+  return end === -1 ? html + SCROLL_LISTENER : html.slice(0, end) + SCROLL_LISTENER + html.slice(end);
 }

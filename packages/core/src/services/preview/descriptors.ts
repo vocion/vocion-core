@@ -225,8 +225,9 @@ registerPreview('object', { sourceLabel: 'HubSpot', resolve: resolveObject });
  * instead: it is a preview, and the full page still owns the real rendering.
  * @param kind - The artifact kind.
  * @param spec - Its spec.
+ * @param id - The artifact's row id, for the document's full-screen link.
  */
-function specSummary(kind: string, spec: Record<string, unknown>): string | null {
+function specSummary(kind: string, spec: Record<string, unknown>, id?: number): string | null {
   if (kind === 'sequence' && Array.isArray(spec.sends)) {
     const sends = spec.sends as Array<{ day?: number; step?: number; subject?: string; body?: string }>;
     const head = typeof spec.sequenceName === 'string' ? `**${spec.sequenceName}**\n\n` : '';
@@ -245,6 +246,8 @@ function specSummary(kind: string, spec: Record<string, unknown>): string | null
     const first = v?.sheets.find(sh => sh.image);
     return [
       first?.image ? `![Sheet 1](${first.image})` : null,
+      // A deck is read at the size it is shown at: the full-screen view is one tap away.
+      id ? `[Open full screen](/dashboard/artifacts/${id}/open)` : null,
       `**${outline.sheetCount} ${outline.sheetCount === 1 ? 'sheet' : 'sheets'}**${v ? ` · ${v.ok ? 'render-verified, no issues' : `${v.issues.length} ${v.issues.length === 1 ? 'issue' : 'issues'}`}${v.pdfPages !== null ? ` · PDF ${v.pdfPages} pages` : ''}` : ' · not verified'}`,
       outline.sheets.map(sh => `${sh.n}. ${sh.label || '(no label)'}`).join('\n'),
       v && v.issues.length > 0 ? v.issues.map(i => `- ${i}`).join('\n') : null,
@@ -318,7 +321,7 @@ registerPreview('artifact', {
     // Chris, 2026-09-17: *"no preview or content on the Preview pane for this
     // artifact."*
     const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v : null);
-    const text = str(spec.md) ?? str(spec.markdown) ?? str(spec.text) ?? specSummary(row.kind, spec);
+    const text = str(spec.md) ?? str(spec.markdown) ?? str(spec.text) ?? specSummary(row.kind, spec, row.id);
     return {
       ref,
       title: row.title,
