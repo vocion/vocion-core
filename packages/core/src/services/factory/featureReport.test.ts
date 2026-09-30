@@ -1112,7 +1112,7 @@ describe('a task QA sent back', () => {
     expect(planned.status.sentence).toBe('A plan comes first because the allowed paths span 2 packages (apps/web, packages/core). The build starts on its own once the plan is approved.');
     expect(planned.timeline.some(e => e.title === 'Recovered: planning first because the allowed paths span 2 packages' && e.href === '/dashboard/p/runs/12')).toBe(true);
 
-    const recovering = { ...planning, stage: 'recovering', line: 'Recovering (attempt 2 of 3): the required checks failed (test)', attempts: [...planning.attempts, { ...planning.attempts[0], n: 2, kind: 'build' }] };
+    const recovering = { ...planning, stage: 'recovering', line: 'Recovering (attempt 2 of 3): the required checks failed (test)', attempts: [...planning.attempts, { ...planning.attempts[0], n: 2, kind: 'build' }, { ...planning.attempts[0], n: 3, kind: 'build' }] };
     const live = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building', recovery: recovering } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [failed, run({ id: 999, status: 'running' })] }));
 
     expect(live.state).toMatchObject({ key: 'recovering', label: 'Recovering (attempt 2 of 3)', detail: 'the required checks failed (test)' });
@@ -1122,8 +1122,8 @@ describe('a task QA sent back', () => {
     const halted = { ...recovering, stage: 'stopped', line: 'Stopped after 3 attempts: the required checks failed (test). What would unblock it: read the failing check.' };
     const done = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building', recovery: halted } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [failed] }));
 
-    expect(done.state).toMatchObject({ key: 'stuck', label: 'Stopped after 2 attempts', needsYou: true });
-    expect(done.status.headline).toBe('Stopped after 2 attempts');
+    expect(done.state).toMatchObject({ key: 'stuck', label: 'Stopped after 3 attempts', needsYou: true });
+    expect(done.status.headline).toBe('Stopped after 3 attempts');
     expect(done.status.sentence).toBe('The required checks failed (test). What would unblock it: read the failing check. A person decides what happens next; nothing from these attempts has merged.');
   });
 

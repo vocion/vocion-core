@@ -918,7 +918,7 @@ export async function replanStaleStops(orgId: string, now: Date = new Date()): P
       continue;
     }
     const state = readRecovery(request.meta);
-    if (state.attempts.length >= state.limit) {
+    if (attemptsOf(state, 'build') >= state.limit) {
       continue;
     }
     const task = work.tasks.find(t => String(t.id) === String((failed.input.record as Meta | undefined)?.id));

@@ -163,6 +163,17 @@ describe('the count and the stage', () => {
     expect(planning.log.at(-1)?.text).toBe('Recovered: planning first because the allowed paths span 2 packages (apps/web, packages/core).');
     expect(recoveryStage({ recovery: { ...planning, stage: 'stopped', line: 'Stopped after 1 attempt: x.' } })).toMatchObject({ label: 'Stopped after 1 attempt' });
   });
+
+  it('counts a build retry against the build budget, not the planning attempts before it (#246)', () => {
+    let s = readRecovery({});
+    s = noteAttempt(s, { at: AT, kind: 'plan', trigger: 'recovery', runId: null, taskId: null, line: 'the plan was refused' });
+    s = noteAttempt(s, { at: AT, kind: 'plan', trigger: 'recovery', runId: null, taskId: null, line: 'the plan was refused again' });
+    s = noteAttempt(s, { at: AT, kind: 'build', trigger: 'request', runId: 7, taskId: 70, line: 'the plan was approved' });
+    s = noteAttempt(s, { at: AT, kind: 'build', trigger: 'retry', runId: 8, taskId: 71, line: 'QA sent attempt #70 back' });
+
+    expect(s.line).toBe('Recovering (attempt 2 of 3): QA sent attempt #70 back');
+    expect(recoveryStage({ recovery: s })).toMatchObject({ label: 'Recovering (attempt 2 of 3)' });
+  });
 });
 
 describe('the worker\'s own environment failing (#124, 2026-09-28)', () => {

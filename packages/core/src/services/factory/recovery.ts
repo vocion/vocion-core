@@ -144,15 +144,18 @@ export function personActed(state: RecoveryState, at: string, what: string): Rec
  */
 export function noteAttempt(state: RecoveryState, entry: Omit<RecoveryEntry, 'n' | 'failure'>): RecoveryState {
   const n = state.attempts.length + 1;
+  // What a person reads counts this stage's attempts against this stage's
+  // budget, the same count `stopIfAtLimit` stops on (#246 read "attempt 4 of 3").
+  const ofStage = attemptsOf(state, entry.kind) + 1;
   const stage = entry.kind === 'plan' ? 'planning' : entry.trigger === 'recovery' || entry.trigger === 'retry' ? 'recovering' : null;
   const why = bare(entry.line);
   const plain = why.replace(/^Recovered:\s*/, '');
   const line = stage === 'planning'
     ? `Planning — ${why}`
-    : stage === 'recovering' ? `Recovering (attempt ${n} of ${state.limit}): ${plain}` : null;
+    : stage === 'recovering' ? `Recovering (attempt ${ofStage} of ${state.limit}): ${plain}` : null;
   const text = entry.kind === 'plan'
     ? `${entry.trigger === 'recovery' ? 'Recovered: planning first because' : 'Planning first:'} ${why}.`
-    : stage === 'recovering' ? `Recovered: ${plain} (attempt ${n} of ${state.limit}).` : `Attempt ${n} of ${state.limit} started: ${why}.`;
+    : stage === 'recovering' ? `Recovered: ${plain} (attempt ${ofStage} of ${state.limit}).` : `Attempt ${ofStage} of ${state.limit} started: ${why}.`;
   return logLine({
     ...state,
     stage,
@@ -607,7 +610,8 @@ export function recoveryStage(meta: Record<string, unknown> | null | undefined):
     return { stage: 'planning', label: 'Planning', line: s.line ?? 'Planning — a plan is being written before the build.' };
   }
   if (s.stage === 'recovering') {
-    return { stage: 'recovering', label: `Recovering (attempt ${Math.max(1, n)} of ${s.limit})`, line: s.line ?? `Recovering (attempt ${Math.max(1, n)} of ${s.limit}).` };
+    const built = Math.max(1, attemptsOf(s, 'build'));
+    return { stage: 'recovering', label: `Recovering (attempt ${built} of ${s.limit})`, line: s.line ?? `Recovering (attempt ${built} of ${s.limit}).` };
   }
   return { stage: 'stopped', label: `Stopped after ${n} attempt${n === 1 ? '' : 's'}`, line: s.line ?? `Stopped after ${n} attempts; a person decides what happens next.` };
 }
