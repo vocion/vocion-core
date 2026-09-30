@@ -17,6 +17,7 @@
 
 import type { Action, ReviewCard } from './types';
 import { z } from 'zod';
+import { factoryTypes } from '@/libs/factory/types';
 import { planIsApproved, readRecord, writeMeta } from './factory-dispatch';
 
 export const APPROVE_PLAN_ACTION_ID = 'factory.approve_plan';
@@ -77,10 +78,11 @@ export const factoryApprovePlanAction: Action<typeof approvePlanInput> = {
     // approval for a plan it had never filed. The planner files the plan; its
     // approval is proposed by the factory, in code, once the plan exists.
     if (String(ctx.invokedBy ?? '').startsWith('agent:')) {
-      return 'A plan\'s approval is not yours to propose: file the plan with objects.propose_candidate (objectType architecture_plan) and stop — the factory proposes its approval on the trust bar once the plan exists.';
+      return 'A plan\'s approval is not yours to propose: file the plan with objects.propose_candidate and stop — the factory proposes its approval on the trust bar once the plan exists.';
     }
+    const planType = (await factoryTypes(ctx.orgId)).plan;
     const plan = await readRecord(ctx.orgId, input.planId);
-    if (!plan || plan.typeSlug !== 'architecture_plan') {
+    if (!plan || plan.typeSlug !== planType) {
       return `No architecture plan #${input.planId} in this workspace.`;
     }
     if (plan.meta.status === 'rejected' || plan.meta.status === 'superseded') {
@@ -111,7 +113,7 @@ export const factoryApprovePlanAction: Action<typeof approvePlanInput> = {
   },
   async execute(ctx, input) {
     const plan = await readRecord(ctx.orgId, input.planId);
-    if (!plan || plan.typeSlug !== 'architecture_plan') {
+    if (!plan || plan.typeSlug !== (await factoryTypes(ctx.orgId)).plan) {
       throw new Error(`No architecture plan #${input.planId}.`);
     }
     const previous = { status: plan.meta.status ?? null, approvedBy: plan.meta.approvedBy ?? null, approvedAt: plan.meta.approvedAt ?? null };

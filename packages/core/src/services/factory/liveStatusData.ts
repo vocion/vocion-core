@@ -43,15 +43,16 @@ export const toolCallNamedId = sql<string>`coalesce(${toolCallSchema.input}->>'i
  * The task a worker run was queued for — `input.record`, the same ref
  * `WorkerRunService.runRecord` reads — or null.
  * @param input - `worker_run.input`.
+ * @param taskType - The factory's task type (`libs/factory/types.ts`).
  */
-export function taskOfRun(input: Record<string, unknown>): number | null {
+export function taskOfRun(input: Record<string, unknown>, taskType: string): number | null {
   const rec = input.record;
   if (!rec || typeof rec !== 'object') {
     return null;
   }
   const { type, id } = rec as Record<string, unknown>;
   const n = typeof id === 'number' ? id : Number(id);
-  return type === 'engineering_task' && Number.isInteger(n) && n > 0 ? n : null;
+  return type === taskType && Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /** One record and the records beneath it (its tasks), by id. */
@@ -205,5 +206,7 @@ export async function loadLiveRuns(orgId: string, records: readonly Row[], child
  */
 export async function loadWorkLive(orgId: string, rows: readonly PageRow[], tasks: readonly PageRow[], now: Date = new Date()): Promise<Map<number, LiveRun | null>> {
   const inProgress = rows.filter(r => laneOf(r) === 'progress');
-  return loadLiveRuns(orgId, inProgress, tasks, taskOfRun, now).catch(() => new Map());
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const taskType = (await factoryTypes(orgId)).task;
+  return loadLiveRuns(orgId, inProgress, tasks, input => taskOfRun(input, taskType), now).catch(() => new Map());
 }

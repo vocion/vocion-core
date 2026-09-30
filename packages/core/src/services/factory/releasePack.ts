@@ -133,14 +133,16 @@ export async function buildReleasePack(orgId: string, releaseId: number): Promis
   if (shipped.length === 0 && reverted.length === 0) {
     return null;
   }
-  const tasks = (await objectsOfType(orgId, 'engineering_task'))
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const types = await factoryTypes(orgId);
+  const tasks = (await objectsOfType(orgId, types.task))
     .filter(t => typeof t.meta.prUrl === 'string' && shipped.includes(normalPr(t.meta.prUrl)));
   const requestIdOf = (t: Row) => {
     const n = Number(t.meta.requestId);
     return Number.isFinite(n) && n > 0 ? n : null;
   };
   const wanted = new Set(tasks.map(requestIdOf).filter((id): id is number => id !== null));
-  const requests = wanted.size === 0 ? [] : (await objectsOfType(orgId, 'request')).filter(r => wanted.has(r.id));
+  const requests = wanted.size === 0 ? [] : (await objectsOfType(orgId, types.request)).filter(r => wanted.has(r.id));
   const shippedIds = tasks.map(t => t.id);
   // ONE COUNT (`libs/workspace/featureProof.ts`): the work's own acceptance
   // lines, and the plan-risk lines as their own group, judged on the attempt

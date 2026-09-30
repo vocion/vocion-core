@@ -307,9 +307,10 @@ export async function fileMainFix(orgId: string, o: { repo: string; branch: stri
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
   const { writeMeta } = await import('@/libs/actions/factory-dispatch');
   const { CLOSED_REQUEST_STATES } = await import('@/libs/factory/requestStates');
+  const types = await (await import('@/libs/factory/types')).factoryTypes(orgId);
   const infra = o.cause === 'infra';
   const fixIn: CiFixPlace = infra ? 'pipeline' : o.fixIn ?? 'code';
-  const open = ((await listBusinessObjects(orgId, 'request').catch(() => [])) as Array<{ id: number; metadata: unknown }>).find((r) => {
+  const open = ((await listBusinessObjects(orgId, types.request).catch(() => [])) as Array<{ id: number; metadata: unknown }>).find((r) => {
     const m = (r.metadata ?? {}) as Meta;
     const fix = (m.pipelineFix ?? null) as Meta | null;
     // The same place, and the same kind of fix: a pipeline fix its owner writes is not an engineer's build.
@@ -329,7 +330,7 @@ export async function fileMainFix(orgId: string, o: { repo: string; branch: stri
   const { createBusinessObject } = await import('@/services/BusinessObjectService');
   const checks = o.failing.slice(0, 5).join(', ') || 'its checks';
   const row = await createBusinessObject({
-    typeSlug: 'request',
+    typeSlug: types.request,
     title: (infra ? `The pipeline could not run on ${o.repo}: ${checks}` : `${o.branch} is red on ${o.repo}: ${checks}`).slice(0, 140),
     metadata: {
       kind: 'incident',

@@ -19,6 +19,7 @@
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { REOPENABLE_REQUEST_STATES } from '@/libs/factory/requestStates';
+import { factoryTypes } from '@/libs/factory/types';
 
 export const DISPATCH_ACTION_ID = 'factory.dispatch_task';
 
@@ -539,7 +540,7 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
     .select({ title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, 'repo')));
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).repo)));
   // By its title (owner/name), its short slug, then the product it builds.
   const hit = rows.find(x => slug && x.title === slug)
     ?? rows.find(x => slug && ((x.meta as Meta).slug === slug || x.title.endsWith(`/${slug}`)))
@@ -588,7 +589,7 @@ async function sentBackTask(orgId: string, requestId: number, planId: number | n
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(
       eq(businessObjectSchema.orgId, orgId),
-      eq(businessObjectTypeSchema.slug, 'engineering_task'),
+      eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).task),
       sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
       inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']),
     ))
@@ -614,7 +615,7 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     const { reportedLinks } = await import('@/services/objects/reported');
     const reported = await reportedLinks(ctx.orgId, request.id).catch(() => []);
     const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note, reported });
-    task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: 'engineering_task', meta: { ...meta, requestId: request.id } };
+    task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: (await factoryTypes(ctx.orgId)).task, meta: { ...meta, requestId: request.id } };
   }
   return { task, plan, request, repo };
 }
@@ -903,12 +904,13 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       return underway;
     }
     const { task, plan } = await loadAll(ctx, input);
-    if (!task || task.typeSlug !== 'engineering_task') {
+    const types = await factoryTypes(ctx.orgId);
+    if (!task || task.typeSlug !== types.task) {
       return `No engineering task #${input.taskId} in this workspace. Carry the contract on this action (contract + requestId) or name a task that exists.`;
     }
     if (!input.taskId && input.requestId) {
       const req = await readRecord(ctx.orgId, input.requestId);
-      if (!req || req.typeSlug !== 'request') {
+      if (!req || req.typeSlug !== types.request) {
         return `No request #${input.requestId} in this workspace.`;
       }
     }
@@ -920,7 +922,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         ? `Engineering task #${task.id} is not ready to build: it has no ${gaps.join(', ')}. Fill them on the task, then start it.`
         : `This request is not ready to build: nothing says its ${gaps.join(', ')}. Approve a plan that names the files, or give the repo record productPaths for ${str(task.meta, 'product') ?? 'this product'}.`;
     }
-    if (input.planId && (!plan || plan.typeSlug !== 'architecture_plan')) {
+    if (input.planId && (!plan || plan.typeSlug !== types.plan)) {
       return `No architecture plan #${input.planId} in this workspace.`;
     }
     if (plan && task.meta.requestId !== undefined && String(plan.meta.requestId) !== String(task.meta.requestId)) {
@@ -1039,7 +1041,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     if (!input.taskId) {
       const { createBusinessObject } = await import('@/services/BusinessObjectService');
       const { title, ...rest } = task.meta as Meta & { title?: string };
-      const created = await createBusinessObject({ typeSlug: 'engineering_task', title: String(title ?? task.title), status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready', ...(input.autoRetryOf ? { autoRetryOf: input.autoRetryOf } : {}), dispatchTrigger: input.trigger ?? (input.autoRetryOf ? 'retry' : 'person'), ...(input.recoveryOfRun ? { recoveryOfRun: input.recoveryOfRun, recoveryClass: input.recoveryClass ?? null } : {}) } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
+      const created = await createBusinessObject({ typeSlug: task.typeSlug, title: String(title ?? task.title), status: 'active', metadata: { ...rest, requestId: input.requestId, productSlug: request ? str(request.meta, 'product') : undefined, status: 'ready', ...(input.autoRetryOf ? { autoRetryOf: input.autoRetryOf } : {}), dispatchTrigger: input.trigger ?? (input.autoRetryOf ? 'retry' : 'person'), ...(input.recoveryOfRun ? { recoveryOfRun: input.recoveryOfRun, recoveryClass: input.recoveryClass ?? null } : {}) } } as never, ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy ?? 'system');
       createdTaskId = (created as { id: number }).id;
       task = { ...task, id: createdTaskId };
       // THE WORKER'S KEY on the task it will report to (2026-09-26: run 357
@@ -1089,7 +1091,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       modelPolicy: await seatModelPolicy(ctx.orgId, agentSlug),
     });
     const capCents = typeof task.meta.tokenBudget === 'number' ? Math.round(task.meta.tokenBudget * 100) : null;
-    const run = await createWorkerRun({ orgId: ctx.orgId, agentSlug, input: { task: contract, record: { id: task.id, type: 'engineering_task' } }, capCents, createdBy: approvedBy });
+    const run = await createWorkerRun({ orgId: ctx.orgId, agentSlug, input: { task: contract, record: { id: task.id, type: task.typeSlug } }, capCents, createdBy: approvedBy });
     const previousTask = { status: task.meta.status ?? null, workerRunId: task.meta.workerRunId ?? null };
     await writeMeta(ctx.orgId, task.id, { status: 'dispatched', workerRunId: run.id, ...(plan ? { planId: plan.id } : {}) });
     let previousRecovery: unknown = null;

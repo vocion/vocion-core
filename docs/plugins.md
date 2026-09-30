@@ -242,6 +242,35 @@ The renderer is `features/dashboard/configure/` over
 `services/plugins/configureData.ts`; the tab and block kinds are a closed set
 in `libs/workspace/pageFields.ts`.
 
+## Factory types — the roles a factory plugin's records play
+
+Core's factory services (`services/factory/`, `libs/actions/factory*`) name no
+object type. A factory plugin says once which of its types plays each role:
+
+```yaml
+factory:
+  types:
+    request: request # the ask
+    task: engineering_task # the unit a worker builds
+    plan: architecture_plan # the approach approved before a build
+    environment: environment # where a product runs
+    release: release # what shipped
+    product: product # what is built
+    repo: repo # the code it is built in
+```
+
+Every factory service reads its slugs through `factoryTypes(orgId)`
+(`libs/factory/types.ts`): the first plugin the workspace has on that declares
+the block, else the core's own factory plugin. A plugin that calls its work item
+something else runs the same loop with no core edit
+(`services/factory/renamedTypes.test.ts`), and `libs/factory/noConcretions.test.ts`
+fails the build on a type slug written where a type goes in that code.
+
+Work-row states carry their own tone (`workStateOf` in
+`libs/workspace/workQueue.ts`, written as `meta.stateTone`). A `format: badge`
+field with `toneFrom` draws that tone wherever its own `tones:` names none, so a
+page lists only the tones it changes and a new state is never drawn uncoloured.
+
 ## Measures and missions — a plugin that improves itself
 
 Every plugin ships a **team** with **measures**, so the team report grades it

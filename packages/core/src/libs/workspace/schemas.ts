@@ -289,6 +289,26 @@ export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
  * the connector slugs it works better with, so the same suggestion can say
  * which system to connect.
  */
+/**
+ * A factory plugin's roles, each the slug of an object type the plugin ships:
+ * the ask (`request`), the unit a worker builds (`task`), the approach a
+ * person approves before a build (`plan`), where a product runs
+ * (`environment`), what shipped (`release`), what is built (`product`), and
+ * the code it is built in (`repo`).
+ */
+export const FactoryManifestSchema = z.object({
+  types: z.object({
+    request: SlugSchema,
+    task: SlugSchema,
+    plan: SlugSchema,
+    environment: SlugSchema,
+    release: SlugSchema,
+    product: SlugSchema,
+    repo: SlugSchema,
+  }),
+});
+export type FactoryManifest = z.infer<typeof FactoryManifestSchema>;
+
 export const PluginManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().min(1),
@@ -320,6 +340,13 @@ export const PluginManifestSchema = z.object({
    * See {@link NotificationRuleManifestSchema}.
    */
   notifications: NotificationListSchema,
+  /**
+   * The object types a factory plugin's records are, by role (backlog 045).
+   * Core's factory services read their type slugs from here
+   * (`libs/factory/types.ts`) and never name one in code, so a plugin that
+   * calls its work item something else runs the same loop.
+   */
+  factory: FactoryManifestSchema.optional(),
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 

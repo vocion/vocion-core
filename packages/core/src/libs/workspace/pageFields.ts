@@ -251,9 +251,13 @@ const FieldSchema = z.object({
    */
   emphasis: z.enum(['strong']).optional(),
   /**
-   * An accessor holding a tone (`ok`, `warn`, `bad`, `info`, `muted`) drawn
-   * as a small dot before the value, for a sentence that carries a state
-   * without being a badge ("Issue detected", "Current checks passed").
+   * An accessor holding a tone (`ok`, `warn`, `bad`, `info`, `muted`). On a
+   * sentence that carries a state without being a badge ("Issue detected",
+   * "Current checks passed") it is drawn as a small dot before the value. On
+   * a `format: badge` field it is the pill's tone wherever `tones` names
+   * none, so a row whose state carries its own tone (the Work page's
+   * `meta.stateTone`) needs no hand-kept list and a manifest names only the
+   * tones it changes.
    */
   toneFrom: z.string().optional(),
 });

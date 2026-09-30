@@ -61,7 +61,8 @@ export type MockupFailure = { ok: false; reason: string; cause?: 'infrastructure
 export async function shotsForRequest(orgId: string, requestId: number): Promise<ShotCandidate[]> {
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
   const { listArtifactsForRecords } = await import('@/services/ArtifactService');
-  const tasks = await listBusinessObjects(orgId, 'engineering_task').catch(() => []);
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const tasks = await listBusinessObjects(orgId, (await factoryTypes(orgId)).task).catch(() => []);
   const taskIds = tasks
     .filter(t => Number(((t.metadata ?? {}) as Record<string, unknown>).requestId) === requestId)
     .map(t => String(t.id));
@@ -206,13 +207,14 @@ export async function productLook(orgId: string, requestMeta: Record<string, unk
   try {
     const { listBusinessObjects } = await import('@/services/BusinessObjectService');
     if (product) {
-      const products = await listBusinessObjects(orgId, 'product').catch(() => []);
+      const types = await (await import('@/libs/factory/types')).factoryTypes(orgId);
+      const products = await listBusinessObjects(orgId, types.product).catch(() => []);
       const row = products.find(p => String(bag(p.metadata).slug ?? '').toLowerCase() === product || p.title.trim().toLowerCase() === product);
       const parsed = lookSchema.safeParse(bag(row?.metadata).look);
       if (row && parsed.success && Object.keys(parsed.data).length > 0) {
         return { look: { ...DEFAULT_LOOK, ...parsed.data }, from: `product "${row.title}"` };
       }
-      const requests = await listBusinessObjects(orgId, 'request').catch(() => []);
+      const requests = await listBusinessObjects(orgId, types.request).catch(() => []);
       const siblings = requests.filter(r => String(bag(r.metadata).product ?? '').toLowerCase() === product).map(r => String(r.id));
       const { listArtifactsForRecords } = await import('@/services/ArtifactService');
       const drawn = (await listArtifactsForRecords({ orgId, recordType: 'object', recordIds: siblings }))

@@ -609,7 +609,11 @@ export function planGate(input: { contract: Record<string, unknown>; planApprove
 }
 
 /** The stage a request's page and row show, when the factory is carrying it. */
-export type RecoveryStage = { stage: 'planning' | 'recovering' | 'stopped'; label: string; line: string };
+/**
+ * A carrying stage, with the tone its badge is drawn in: the stage says how
+ * it looks, so a new stage is never drawn uncoloured (backlog 045).
+ */
+export type RecoveryStage = { stage: 'planning' | 'recovering' | 'stopped'; label: string; line: string; tone: 'info' | 'warn' | 'bad' };
 
 /**
  * The stage off a request's metadata: "Planning", "Recovering (attempt N of
@@ -623,13 +627,14 @@ export function recoveryStage(meta: Record<string, unknown> | null | undefined):
   }
   const n = s.attempts.length;
   if (s.stage === 'planning') {
-    return { stage: 'planning', label: 'Planning', line: s.line ?? 'Planning — a plan is being written before the build.' };
+    return { stage: 'planning', label: 'Planning', line: s.line ?? 'Planning — a plan is being written before the build.', tone: 'info' };
   }
   if (s.stage === 'recovering') {
     const built = Math.max(1, attemptsOf(s, 'build'));
-    return { stage: 'recovering', label: `Recovering (attempt ${built} of ${s.limit})`, line: s.line ?? `Recovering (attempt ${built} of ${s.limit}).` };
+    // The last automatic attempt is drawn as a warning: the next stop asks a person.
+    return { stage: 'recovering', label: `Recovering (attempt ${built} of ${s.limit})`, line: s.line ?? `Recovering (attempt ${built} of ${s.limit}).`, tone: built >= s.limit ? 'warn' : 'info' };
   }
-  return { stage: 'stopped', label: `Stopped after ${n} attempt${n === 1 ? '' : 's'}`, line: s.line ?? `Stopped after ${n} attempts; a person decides what happens next.` };
+  return { stage: 'stopped', label: `Stopped after ${n} attempt${n === 1 ? '' : 's'}`, line: s.line ?? `Stopped after ${n} attempts; a person decides what happens next.`, tone: 'bad' };
 }
 
 /** Failures that are the machine's, not the work's: a new worker is what answers them. */

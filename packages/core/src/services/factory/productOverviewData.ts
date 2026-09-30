@@ -49,7 +49,9 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
   if (!Number.isInteger(recordId) || recordId <= 0) {
     return null;
   }
-  const products = await loadObjectRows(orgId, 'product');
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const types = await factoryTypes(orgId);
+  const products = await loadObjectRows(orgId, types.product);
   const found = products.find(p => Number(p.id) === recordId);
   if (!found) {
     return null;
@@ -60,9 +62,9 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
   const derived = await derivedFieldsOf(orgId, recordId).catch(() => ({ values: {}, drift: {} }));
   const product = { ...found, meta: { ...found.meta, ...derived.values } };
   const [requests, releases, environments, work, rel] = await Promise.all([
-    loadObjectRows(orgId, 'request'),
-    loadObjectRows(orgId, 'release'),
-    loadObjectRows(orgId, 'environment'),
+    loadObjectRows(orgId, types.request),
+    loadObjectRows(orgId, types.release),
+    loadObjectRows(orgId, types.environment),
     readPageForOrg(WORK_PAGE, orgId).catch(() => null),
     readPageForOrg(RELEASES_PAGE, orgId).catch(() => null),
   ]);

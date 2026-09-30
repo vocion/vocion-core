@@ -210,7 +210,12 @@ name: Software factory
 #   on green under `git.merge.rollback`) — each an action with its Undo and a
 #   line on the environment. Out of steps: one incident, one ask, the
 #   needs-person notification. The product page's Activity carries Undo.
-version: 2.35.0
+# 2.36.0 — the loop's types are named here, once (backlog 045). `factory.types`
+#   says which object type is the request, the task, the plan, the
+#   environment, the release, the product and the repo; core reads them and
+#   names none in code. Work-row stages carry their own tones, so a page
+#   names only the tones it changes.
+version: 2.36.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
@@ -225,6 +230,18 @@ recommend:
 # The plugin's rows sit under their own heading (its pages already say so); a core
 # route it offers — Evals, the reference sets — sits under that heading's "More ›".
 nav: {section: Software factory, order: 0}
+# Which of this plugin's object types plays each role in the loop (backlog 045).
+# Core's factory services read these and name no type in code: a workspace
+# whose plugin calls its work item something else runs the same factory.
+factory:
+  types:
+    request: request
+    task: engineering_task
+    plan: architecture_plan
+    environment: environment
+    release: release
+    product: product
+    repo: repo
 # The two moments a person hears about (2.26.0). Few on purpose: an event not
 # named here notifies nobody. `{field}` is filled from the event's payload.
 notifications:

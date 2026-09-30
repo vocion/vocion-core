@@ -397,11 +397,47 @@ function carryingLabel(row: PageRow): ReturnType<typeof recoveryStage> {
   return wait === null || wait === 'dispatch' ? carrying : null;
 }
 
+/** A badge tone, the page vocabulary's (`pageFields` `tones`). */
+export type StateTone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
+
+/** A Work row's state: the badge's words, and the tone they are drawn in. */
+export type WorkState = { label: string; tone: StateTone };
+
+/**
+ * EVERY STATE, WITH ITS TONE — one definition (backlog 045). The page used to
+ * carry a hand-kept `tones:` list per manifest, and a stage added here was
+ * drawn uncoloured until someone copied it there (the instance's Work page
+ * lacked every stage added on 2026-09-28). The state says how it looks; a
+ * manifest names only the tones it changes.
+ *
+ * Blocked and a stop read bad; a decision or a merge waiting on a person reads
+ * warn; work moving reads info; work nobody has started, or that asks for
+ * nothing, is muted. Normal waiting is never painted as failure.
+ */
+const STATE: Record<string, WorkState> = {
+  blocked: { label: 'Blocked', tone: 'bad' },
+  merge: { label: 'Ready to merge', tone: 'warn' },
+  qa: { label: 'Awaiting QA', tone: 'info' },
+  stuck: { label: 'QA could not finish', tone: 'bad' },
+  changes: { label: 'Changes asked', tone: 'warn' },
+  stalled: { label: 'Stalled', tone: 'warn' },
+  dispatch: { label: 'Awaiting dispatch', tone: 'muted' },
+  building: { label: 'Building', tone: 'info' },
+  answered: { label: 'Answered', tone: 'muted' },
+  shipped: { label: 'Shipped', tone: 'ok' },
+  helped: { label: 'Shipped · helped', tone: 'ok' },
+  didNotHelp: { label: 'Shipped · did not help', tone: 'bad' },
+  deferred: { label: 'Deferred', tone: 'muted' },
+  staged: { label: 'Staged', tone: 'muted' },
+  decide: { label: 'Decide', tone: 'warn' },
+  queued: { label: 'Queued', tone: 'muted' },
+};
+
 /** What a queued outcome is called before anyone has started it. */
-const PROPOSED_STATE_LABEL: Record<string, string> = {
-  new: 'Not triaged',
-  triaged: 'Triaged',
-  in_scope: 'In scope',
+const PROPOSED_STATE: Record<string, WorkState> = {
+  new: { label: 'Not triaged', tone: 'muted' },
+  triaged: { label: 'Triaged', tone: 'muted' },
+  in_scope: { label: 'In scope', tone: 'muted' },
 };
 
 /**
@@ -413,9 +449,7 @@ const PROPOSED_STATE_LABEL: Record<string, string> = {
  * The badge says it once, on the row, so one list can hold rows in different
  * states without a heading between every pair of them.
  *
- * The label only: which tone paints it is presentation, and the page manifest
- * owns that through `format: badge` + `tones`, the same way every other
- * badged field on every other page does.
+ * The label only; {@link workStateOf} carries its tone.
  * @param row - The row.
  * @param lane - The lane it landed in.
  * @param opts
@@ -423,51 +457,64 @@ const PROPOSED_STATE_LABEL: Record<string, string> = {
  * @param opts.now
  */
 export function stateOf(row: PageRow, lane: WorkLane, opts: { staged?: boolean; now?: Date } = {}): string {
+  return workStateOf(row, lane, opts).label;
+}
+
+/**
+ * The row's state and the tone it is drawn in (`meta.stateTone`, which the
+ * Work page's badge reads through `toneFrom`).
+ * @param row - The row.
+ * @param lane - The lane it landed in.
+ * @param opts
+ * @param opts.staged
+ * @param opts.now
+ */
+export function workStateOf(row: PageRow, lane: WorkLane, opts: { staged?: boolean; now?: Date } = {}): WorkState {
   if (lane !== 'done' && isBlocked(row)) {
-    return 'Blocked';
+    return STATE.blocked!;
   }
   // A gate sent it back: the seat named owes the fix, and the row says so
   // before anything else — a returned outcome is not waiting on a person.
   const returnedTo = str(row, 'returnedTo');
   if (lane !== 'done' && returnedTo) {
-    return `Returned to ${seatLabel(returnedTo)}`;
+    return { label: `Returned to ${seatLabel(returnedTo)}`, tone: 'warn' };
   }
   if (lane === 'progress') {
     const carrying = carryingLabel(row);
     if (carrying) {
-      return carrying.label;
+      return { label: carrying.label, tone: carrying.tone };
     }
     switch (waitOf(row)) {
       case 'merge':
-        return 'Ready to merge';
+        return STATE.merge!;
       case 'qa':
-        return 'Awaiting QA';
+        return STATE.qa!;
       case 'stuck':
-        return 'QA could not finish';
+        return STATE.stuck!;
       case 'changes':
-        return 'Changes asked';
+        return STATE.changes!;
       case 'dispatch':
         // Nothing sends written tasks to a worker by itself: past a day it
         // is not waiting, it has stalled.
-        return isStale(row, opts.now ?? new Date()) ? 'Stalled' : 'Awaiting dispatch';
+        return isStale(row, opts.now ?? new Date()) ? STATE.stalled! : STATE.dispatch!;
       default:
-        return 'Building';
+        return STATE.building!;
     }
   }
   if (lane === 'done') {
     if (str(row, 'state') === 'answered') {
-      return 'Answered';
+      return STATE.answered!;
     }
     const result = str(row, 'result');
-    return result === 'helped' ? 'Shipped · helped' : result === 'did_not_help' ? 'Shipped · did not help' : 'Shipped';
+    return result === 'helped' ? STATE.helped! : result === 'did_not_help' ? STATE.didNotHelp! : STATE.shipped!;
   }
   if (str(row, 'state') === 'deferred') {
-    return 'Deferred';
+    return STATE.deferred!;
   }
   if (isWaitingOnPerson(row)) {
-    return opts.staged ? 'Staged' : 'Decide';
+    return opts.staged ? STATE.staged! : STATE.decide!;
   }
-  return PROPOSED_STATE_LABEL[str(row, 'state') ?? ''] ?? 'Queued';
+  return PROPOSED_STATE[str(row, 'state') ?? ''] ?? STATE.queued!;
 }
 
 /**
@@ -1217,7 +1264,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
     });
     for (const [i, { row, rank, staged, ahead }] of shown.entries()) {
       const flags = flagsOf(row, lane);
-      const state = stateOf(row, lane, { staged, now });
+      const { label: state, tone: stateTone } = workStateOf(row, lane, { staged, now });
       const related = relatedOf(row);
       out.push({
         ...row,
@@ -1233,6 +1280,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           problem: (str(row, 'outcome') ?? str(row, 'summary')) ?? undefined,
           rank: rank === null ? undefined : String(rank),
           state,
+          stateTone,
           stage: stageOf(row),
           blockerLine: blockerOf(row) && lane !== 'done' ? blockerOf(row)!.what : undefined,
           visualGap: visualGap(row, lane) ?? undefined,

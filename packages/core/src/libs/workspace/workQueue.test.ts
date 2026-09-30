@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isDismissed, isProbeRow, laneOf, stageOf, stateOf, visualArtifactId, visualGap, whyLine, workLine } from './workQueue';
+import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isDismissed, isProbeRow, laneOf, stageOf, stateOf, visualArtifactId, visualGap, whyLine, workLine, workStateOf } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -747,5 +747,53 @@ describe('the Now line on a Work row (Chris, 2026-09-30: "Live indicator. Stream
 
     expect(out.filter(r => r.meta.laneKey === 'progress').map(r => r.id)).toEqual([2, 1]);
     expect(out.find(r => r.id === 2)!.meta.needsYou).toBe(true);
+  });
+});
+
+describe('each state carries its tone (backlog 045)', () => {
+  // What the Work page's hand-kept `tones:` list drew before the states
+  // carried their own: the same tones, now from one definition.
+  const BEFORE: Record<string, string> = { 'Blocked': 'bad', 'Building': 'info', 'Awaiting dispatch': 'muted', 'Stalled': 'warn', 'Awaiting QA': 'info', 'Ready to merge': 'warn', 'Changes asked': 'warn', 'QA could not finish': 'bad', 'Planning': 'info', 'Recovering (attempt 1 of 3)': 'info', 'Recovering (attempt 3 of 3)': 'warn', 'Stopped after 2 attempts': 'bad', 'Decide': 'warn', 'Staged': 'muted', 'Deferred': 'muted', 'Returned to PM': 'warn', 'Shipped': 'ok', 'Shipped · helped': 'ok', 'Shipped · did not help': 'bad', 'Answered': 'muted', 'Queued': 'muted', 'Triaged': 'muted', 'In scope': 'muted', 'Not triaged': 'muted' };
+  const attempt = (n: number) => Array.from({ length: n }, (_, i) => ({ trigger: 'recovery', kind: 'build', at: `2026-09-2${i}T00:00:00Z` }));
+  const cases: Array<[PageRow, Parameters<typeof workStateOf>[1], { staged?: boolean }?]> = [
+    [row(1, 'a', { state: 'building', taskCount: 2, runningTaskCount: 0, blocker: { what: 'x', owner: 'y', next: 'z' } }), 'progress'],
+    [row(2, 'a', { state: 'building', taskCount: 1, runningTaskCount: 1 }), 'progress'],
+    [row(3, 'a', { state: 'building', taskCount: 3, runningTaskCount: 0 }), 'progress'],
+    [row(4, 'a', { state: 'building', taskCount: 3, runningTaskCount: 0 }, new Date('2026-09-10T00:00:00Z')), 'progress'],
+    [row(5, 'a', { state: 'building', taskCount: 1, awaitingReviewTaskCount: 1, runningTaskCount: 0 }), 'progress'],
+    [row(6, 'a', { state: 'building', taskCount: 1, acceptedTaskCount: 1, runningTaskCount: 0 }), 'progress'],
+    [row(7, 'a', { state: 'building', taskCount: 1, changesRequestedTaskCount: 1, runningTaskCount: 0 }), 'progress'],
+    [row(8, 'a', { state: 'building', taskCount: 1, reviewFailedTaskCount: 1, runningTaskCount: 0 }), 'progress'],
+    [row(9, 'a', { state: 'building', recovery: { stage: 'planning', limit: 3, attempts: [], log: [] } }), 'progress'],
+    [row(10, 'a', { state: 'building', recovery: { stage: 'recovering', limit: 3, attempts: attempt(1), log: [] } }), 'progress'],
+    [row(11, 'a', { state: 'building', recovery: { stage: 'recovering', limit: 3, attempts: attempt(3), log: [] } }), 'progress'],
+    [row(12, 'a', { state: 'building', recovery: { stage: 'stopped', limit: 3, attempts: attempt(2), log: [] } }), 'progress'],
+    [row(13, 'a', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build' }), 'proposed'],
+    [row(14, 'a', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build' }), 'proposed', { staged: true }],
+    [row(15, 'a', { state: 'deferred' }), 'proposed'],
+    [row(16, 'a', { state: 'building', returnedTo: 'product-manager' }), 'progress'],
+    [row(17, 'a', { state: 'shipped' }), 'done'],
+    [row(18, 'a', { state: 'shipped', result: 'helped' }), 'done'],
+    [row(19, 'a', { state: 'shipped', result: 'did_not_help' }), 'done'],
+    [row(20, 'a', { state: 'answered' }), 'done'],
+    [row(21, 'a', {}), 'proposed'],
+    [row(22, 'a', { state: 'triaged' }), 'proposed'],
+    [row(23, 'a', { state: 'in_scope' }), 'proposed'],
+    [row(24, 'a', { state: 'new' }), 'proposed'],
+  ];
+
+  it('draws every state in the tone the page listed for it', () => {
+    const drawn = Object.fromEntries(cases.map(([r, lane, opts]) => {
+      const s = workStateOf(r, lane, { now: NOW, ...opts });
+      return [s.label, s.tone];
+    }));
+
+    expect(drawn).toEqual(BEFORE);
+  });
+
+  it('writes the tone beside the state, where the badge reads it', () => {
+    const [out] = deriveWorkQueue([row(30, 'a', { state: 'building', taskCount: 1, acceptedTaskCount: 1, runningTaskCount: 0 })], { now: NOW });
+
+    expect(out?.meta).toMatchObject({ state: 'Ready to merge', stateTone: 'warn' });
   });
 });

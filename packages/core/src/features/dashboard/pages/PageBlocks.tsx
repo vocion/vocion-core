@@ -137,7 +137,8 @@ const FACT_LINK = 'rounded-sm underline decoration-border underline-offset-2 tra
  */
 function Fact({ row, field, now, links }: { row: PageRow; field: PageField; now: number; links?: LinkMap }) {
   const to = field.href ? resolveRowActionHref(row, field.href) : null;
-  const tone = field.toneFrom ? resolveField(row, field.toneFrom) : undefined;
+  // A badge draws its tone in the pill itself; the dot is for a sentence.
+  const tone = field.toneFrom && field.format !== 'badge' ? resolveField(row, field.toneFrom) : undefined;
   const dot = typeof tone === 'string' ? TONE_DOT[tone] : undefined;
   const value = <FieldValue row={row} field={field} now={now} links={links} />;
   const body = dot ? <StatusDot tone={dot} label={value} /> : value;

@@ -86,11 +86,13 @@ export async function loadReleaseLinked(orgId: string, rows: PageRow[]): Promise
   const slugs = [...new Set(rows.map(r => r.meta?.product).filter((s): s is string => typeof s === 'string' && s !== ''))];
   const products = new Map<string, string>();
   if (slugs.length > 0) {
+    const { factoryTypes } = await import('@/libs/factory/types');
+    const productType = (await factoryTypes(orgId)).product;
     const found = await db
       .select({ title: businessObjectSchema.title, slug: sql<string>`${businessObjectSchema.metadata} ->> 'slug'` })
       .from(businessObjectSchema)
       .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, 'product'), inArray(sql`${businessObjectSchema.metadata} ->> 'slug'`, slugs)));
+      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, productType), inArray(sql`${businessObjectSchema.metadata} ->> 'slug'`, slugs)));
     for (const p of found) {
       if (p.slug) {
         products.set(p.slug, p.title);
@@ -109,11 +111,13 @@ export type ReleaseArtifact = ProofArtifact;
  * @param id - The record id.
  */
 export async function loadReleaseRow(orgId: string, id: number): Promise<PageRow | null> {
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const releaseType = (await factoryTypes(orgId)).release;
   const [r] = await db
     .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, createdAt: businessObjectSchema.createdAt, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id), eq(businessObjectTypeSchema.slug, 'release')))
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id), eq(businessObjectTypeSchema.slug, releaseType)))
     .limit(1);
   return r ? { id: r.id, title: r.title, status: r.status ?? null, createdAt: r.createdAt ?? null, meta: (r.meta ?? {}) as Record<string, unknown> } : null;
 }

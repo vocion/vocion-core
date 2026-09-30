@@ -173,7 +173,8 @@ export async function reconcileOpenPulls(orgId: string, now: Date, deps: Reconci
  */
 export async function recheckFixedBranches(orgId: string, now: Date, deps: ReconcileDeps): Promise<Result[]> {
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
-  const fixes = ((await listBusinessObjects(orgId, 'request').catch(() => [])) as Array<{ id: number; metadata: unknown }>)
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const fixes = ((await listBusinessObjects(orgId, (await factoryTypes(orgId)).request).catch(() => [])) as Array<{ id: number; metadata: unknown }>)
     .map(r => ({ id: r.id, meta: (r.metadata ?? {}) as Meta }))
     .filter(r => r.meta.pipelineFix && typeof r.meta.pipelineFix === 'object' && !(r.meta.pipelineFix as Meta).recheckedAt);
   const out: Result[] = [];
@@ -252,6 +253,7 @@ export async function watchQueuedRuns(orgId: string, now: Date, owner: string | 
   const [lastClaim] = await db.select({ at: workerRunSchema.claimedAt, version: workerRunSchema.workerVersion }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), isNotNull(workerRunSchema.claimedAt))).orderBy(desc(workerRunSchema.claimedAt)).limit(1);
   const lastSeen = lastClaim?.at ? `The last run a worker claimed was at ${lastClaim.at.toISOString()}${lastClaim.version ? ` (worker ${lastClaim.version})` : ''}.` : 'No worker has claimed a run in this workspace yet.';
   const { readRecord } = await import('@/libs/actions/factory-dispatch');
+  const types = await (await import('@/libs/factory/types')).factoryTypes(orgId);
   for (const run of stuck) {
     const sourceRef = `pipeline-pickup:${run.id}`;
     if (await getAskBySourceRef(orgId, sourceRef)) {
@@ -278,7 +280,7 @@ export async function watchQueuedRuns(orgId: string, now: Date, owner: string | 
           { id: 'approve', label: 'The workers are running', description: 'Nothing else to do: the run is claimed on the next poll.', recommended: true },
           { id: 'reject', label: 'Leave it queued', description: 'It stays queued until a worker claims it.' },
         ],
-        objectRefs: [...(taskId ? [{ type: 'engineering_task', id: String(taskId) }] : []), ...(requestId ? [{ type: 'request', id: String(requestId) }] : [])],
+        objectRefs: [...(taskId ? [{ type: task?.typeSlug ?? types.task, id: String(taskId) }] : []), ...(requestId ? [{ type: types.request, id: String(requestId) }] : [])],
         decisionCost: 5,
         contextUrl: `/dashboard/p/runs/${run.id}`,
       },

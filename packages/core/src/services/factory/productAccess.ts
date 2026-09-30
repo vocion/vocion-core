@@ -38,7 +38,8 @@ export async function productAccess(orgId: string, product: string, opts: { reve
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
   const { resolveCredentialById } = await import('@/services/ApiTokenService');
   const stage = opts.stage ?? 'production';
-  const rows = ((await listBusinessObjects(orgId, 'environment').catch(() => [])) as Array<{ metadata: unknown }>)
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const rows = ((await listBusinessObjects(orgId, (await factoryTypes(orgId)).environment).catch(() => [])) as Array<{ metadata: unknown }>)
     .map(r => (r.metadata ?? {}) as Meta)
     .filter(m => str(m, 'product') === product && (str(m, 'stage') ?? 'production') === stage);
   const environments: EnvironmentAccess[] = [];

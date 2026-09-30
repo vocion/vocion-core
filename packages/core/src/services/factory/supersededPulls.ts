@@ -109,7 +109,7 @@ async function realDeps(orgId: string) {
   const { listBusinessObjects, getBusinessObject } = await import('@/services/BusinessObjectService');
   const { closePull } = await import('./githubMerge');
   return {
-    tasks: async () => ((await listBusinessObjects(orgId, 'engineering_task').catch(() => [])) as Array<{ id: number; status: string | null; metadata: unknown }>)
+    tasks: async () => ((await listBusinessObjects(orgId, (await (await import('@/libs/factory/types')).factoryTypes(orgId)).task).catch(() => [])) as Array<{ id: number; status: string | null; metadata: unknown }>)
       .map(r => ({ id: r.id, status: r.status, meta: (r.metadata ?? {}) as Meta })),
     requestState: async (id: number) => {
       const row = await getBusinessObject(id, orgId).catch(() => null) as { metadata?: unknown } | null;

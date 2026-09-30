@@ -91,6 +91,8 @@ import { bare, classifyFailure, nextAfter, readRecovery, recoveryStage } from '.
 /** A business object as the report reads it — request, task or release. */
 export type ReportObject = {
   id: number;
+  /** Its object type's slug, read off the record: what a link to it opens. */
+  type?: string | null;
   title: string;
   status: string | null;
   createdAt: Date | null;
@@ -1878,7 +1880,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       detail: str(plan.meta, 'approach'),
       cents: null,
       tone: 'info',
-      href: (input.link ?? genericRecordLinker)({ objectType: 'architecture_plan', id: plan.id }),
+      href: (input.link ?? genericRecordLinker)({ objectType: plan.type, id: plan.id }),
     });
     if (asDate(plan.meta.approvedAt)) {
       out.push({
@@ -1891,7 +1893,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
         detail: null,
         cents: null,
         tone: 'ok',
-        href: (input.link ?? genericRecordLinker)({ objectType: 'architecture_plan', id: plan.id }),
+        href: (input.link ?? genericRecordLinker)({ objectType: plan.type, id: plan.id }),
       });
     }
   }
@@ -1906,7 +1908,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
         detail: null,
         cents: null,
         tone: 'warn',
-        href: (input.link ?? genericRecordLinker)({ objectType: 'engineering_task', id: task.id }),
+        href: (input.link ?? genericRecordLinker)({ objectType: task.type, id: task.id }),
       });
     }
   }
@@ -1933,7 +1935,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       detail: str(task.meta, 'objective') ?? task.title,
       cents: num(task.meta, 'estimateCents'),
       tone: 'info',
-      href: (input.link ?? genericRecordLinker)({ objectType: 'engineering_task', id: task.id }),
+      href: (input.link ?? genericRecordLinker)({ objectType: task.type, id: task.id }),
     });
   }
 
@@ -2023,7 +2025,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       detail: str(release.meta, 'announcement') ?? str(release.meta, 'notes'),
       cents: null,
       tone: 'ok',
-      href: (input.link ?? genericRecordLinker)({ objectType: 'release', id: release.id }),
+      href: (input.link ?? genericRecordLinker)({ objectType: release.type, id: release.id }),
     });
   }
 
@@ -3090,7 +3092,7 @@ function buildPlanSummary(input: FeatureReportInput, planId: number | null): Rep
     approach: str(current.meta, 'approach'),
     components: list(current.meta, 'components'),
     risks: list(current.meta, 'risks'),
-    href: (input.link ?? genericRecordLinker)({ objectType: 'architecture_plan', id: current.id }),
+    href: (input.link ?? genericRecordLinker)({ objectType: current.type, id: current.id }),
     absence: null,
   };
 }
@@ -3248,11 +3250,11 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
       label: 'Live',
       sentence: `Live since ${formatStamp(shipped.at)}, in ${name}.`,
       at: shipped.at,
-      href: surfaceUrl ?? (input.link ?? genericRecordLinker)({ objectType: 'release', id: shipped.r.id }),
+      href: surfaceUrl ?? (input.link ?? genericRecordLinker)({ objectType: shipped.r.type, id: shipped.r.id }),
     };
   }
   if (input.releases.length > 0) {
-    return { state: 'unverified', label: 'Release not verified', sentence: 'A release record names this work and carries no shipped time.', at: null, href: (input.link ?? genericRecordLinker)({ objectType: 'release', id: input.releases[0]!.id }) };
+    return { state: 'unverified', label: 'Release not verified', sentence: 'A release record names this work and carries no shipped time.', at: null, href: (input.link ?? genericRecordLinker)({ objectType: input.releases[0]!.type, id: input.releases[0]!.id }) };
   }
   const mergedSomething = input.tasks.some(t => str(t.meta, 'commitSha') !== null || taskStatus(t) === 'accepted') || [...mergedPrs].length > 0;
   if (mergedSomething || str(input.request.meta, 'state') === 'shipped') {

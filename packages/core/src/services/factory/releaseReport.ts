@@ -496,7 +496,7 @@ export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseL
   // it — "Engineering task 222" led to the raw record, the page that says
   // least about what the task did.
   const taskHref = (id: number) => {
-    const href = link({ objectType: 'engineering_task', id });
+    const href = link({ objectType: linked.records.get(id)?.type, id });
     const run = Number(linked.records.get(id)?.meta.workerRunId ?? linked.records.get(id)?.meta.runId);
     return href.endsWith(rawRecordPath(id)) && Number.isSafeInteger(run) && run > 0
       ? `${href.slice(0, href.length - rawRecordPath(id).length)}/dashboard/p/runs/${run}`

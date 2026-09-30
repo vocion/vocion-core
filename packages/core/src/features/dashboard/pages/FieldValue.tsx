@@ -21,6 +21,9 @@ import { fieldHasSource, fieldIsFresh, formatDuration, formatMoney, formatProgre
 
 type PillStatus = React.ComponentProps<typeof StatusPill>['status'];
 
+/** The tones a page may name (`pageFields` `tones`). */
+const TONE_NAMES: Readonly<Record<string, true>> = { ok: true, warn: true, bad: true, info: true, muted: true };
+
 export function toneToStatus(tone: string): PillStatus {
   switch (tone) {
     case 'ok':
@@ -271,7 +274,11 @@ function FieldBody({ row, field, now, links }: { row: PageRow; field: PageField;
   const s = String(raw);
   switch (field.format) {
     case 'badge': {
-      const tone = field.tones?.[s];
+      // The page's own tone for this value first; else the tone the row
+      // carries for it (`toneFrom`), so a state defined with its tone is
+      // never drawn uncoloured because a manifest did not list it.
+      const carried = field.toneFrom ? resolveField(row, field.toneFrom) : undefined;
+      const tone = field.tones?.[s] ?? (typeof carried === 'string' && carried in TONE_NAMES ? carried : undefined);
       // A flag that is off is nothing to badge unless the page maps it.
       if (raw === false && !tone) {
         return <EmptyValue field={field} />;

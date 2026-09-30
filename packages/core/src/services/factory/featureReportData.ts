@@ -21,10 +21,12 @@
  */
 
 import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, ReportAsk, ReportObject, ReportWorkerRun } from './featureReport';
+import type { FactoryTypes } from '@/libs/factory/types';
 import type { RecordOrigin } from '@/services/objects/related';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { collapseActivity } from '@/libs/factory/activityRows';
+import { factoryTypes } from '@/libs/factory/types';
 import { actionRunSchema, agentSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { failedFireLines } from '@/services/automations/failedFires';
@@ -45,6 +47,7 @@ type ObjectRow = { id: number; title: string; status: string | null; createdAt: 
 function toReportObject(row: ObjectRow): ReportObject {
   return {
     id: row.id,
+    type: row.type?.slug ?? null,
     title: row.title,
     status: row.status ?? null,
     createdAt: row.createdAt ?? null,
@@ -68,9 +71,10 @@ function idOf(source: Record<string, unknown> | null | undefined, key: string): 
  * the same ref `WorkerRunService.runRecord` reads.
  * @param input - `worker_run.input`.
  * @param taskIds - The task ids.
+ * @param taskType - The factory's task type.
  */
-function runIsForTask(input: Record<string, unknown>, taskIds: Set<number>): boolean {
-  const n = taskOfRun(input);
+function runIsForTask(input: Record<string, unknown>, taskIds: Set<number>, taskType: string): boolean {
+  const n = taskOfRun(input, taskType);
   return n !== null && taskIds.has(n);
 }
 
@@ -81,8 +85,9 @@ function runIsForTask(input: Record<string, unknown>, taskIds: Set<number>): boo
  * @param input - `action_run.input`.
  * @param requestId - The request.
  * @param taskIds - Its tasks.
+ * @param types - The factory's types.
  */
-function actionIsForWork(input: Record<string, unknown>, requestId: number, taskIds: Set<number>): boolean {
+function actionIsForWork(input: Record<string, unknown>, requestId: number, taskIds: Set<number>, types: FactoryTypes): boolean {
   if (idOf(input, 'requestId') === requestId) {
     return true;
   }
@@ -93,10 +98,10 @@ function actionIsForWork(input: Record<string, unknown>, requestId: number, task
   const rec = input.record as Record<string, unknown> | undefined;
   if (rec && typeof rec === 'object') {
     const n = idOf(rec, 'id');
-    if (rec.type === 'request' && n === requestId) {
+    if (rec.type === types.request && n === requestId) {
       return true;
     }
-    if (rec.type === 'engineering_task' && n !== null && taskIds.has(n)) {
+    if (rec.type === types.task && n !== null && taskIds.has(n)) {
       return true;
     }
   }
@@ -114,13 +119,13 @@ function actionIsForWork(input: Record<string, unknown>, requestId: number, task
  * @param now - The clock, for the elapsed figure.
  */
 export async function loadFeatureReport(orgId: string, requestId: number, now: Date = new Date()): Promise<FeatureReport | null> {
-  const row = await getBusinessObject(requestId, orgId);
-  if (!row || row.type?.slug !== 'request') {
+  const [row, types] = await Promise.all([getBusinessObject(requestId, orgId), factoryTypes(orgId)]);
+  if (!row || row.type?.slug !== types.request) {
     return null;
   }
   const request = toReportObject(row as ObjectRow);
 
-  const allTasks = await listBusinessObjects(orgId, 'engineering_task');
+  const allTasks = await listBusinessObjects(orgId, types.task);
   const tasks = allTasks
     .map(t => toReportObject(t as ObjectRow))
     .filter(t => idOf(t.meta, 'requestId') === requestId)
@@ -130,13 +135,13 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   // The plan stage. `catch` because a workspace on an older plugin has no such
   // object type, and a missing type is not a plan: the section then says the
   // stage did not happen, which is the honest answer.
-  const allPlans = await listBusinessObjects(orgId, 'architecture_plan').catch(() => []);
+  const allPlans = await listBusinessObjects(orgId, types.plan).catch(() => []);
   const plans = allPlans
     .map(pl => toReportObject(pl as ObjectRow))
     .filter(pl => idOf(pl.meta, 'requestId') === requestId)
     .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
 
-  const allReleases = await listBusinessObjects(orgId, 'release').catch(() => []);
+  const allReleases = await listBusinessObjects(orgId, types.release).catch(() => []);
   const releases = allReleases
     .map(r => toReportObject(r as ObjectRow))
     .filter((r) => {
@@ -154,7 +159,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   ]);
 
   const workerRuns: ReportWorkerRun[] = runRows
-    .filter(r => runIsForTask((r.input ?? {}) as Record<string, unknown>, taskIds))
+    .filter(r => runIsForTask((r.input ?? {}) as Record<string, unknown>, taskIds, types.task))
     .map(r => ({
       id: r.id,
       agentSlug: r.agentSlug,
@@ -177,8 +182,8 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
 
   const asks: ReportAsk[] = askRows
     .filter(a => (a.objectRefs ?? []).some(ref =>
-      (ref.type === 'request' && Number(ref.id) === requestId)
-      || (ref.type === 'engineering_task' && taskIds.has(Number(ref.id)))))
+      (ref.type === types.request && Number(ref.id) === requestId)
+      || (ref.type === types.task && taskIds.has(Number(ref.id)))))
     .map(a => ({
       id: a.id,
       kind: a.kind,
@@ -196,7 +201,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     }));
 
   const actionRuns: ReportActionRun[] = actionRows
-    .filter(a => actionIsForWork((a.input ?? {}) as Record<string, unknown>, requestId, taskIds))
+    .filter(a => actionIsForWork((a.input ?? {}) as Record<string, unknown>, requestId, taskIds, types))
     .map(a => ({
       id: a.id,
       actionId: a.actionId,

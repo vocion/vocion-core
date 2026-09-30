@@ -549,7 +549,8 @@ describe('the contradiction: a failed run whose pull request merged', () => {
 describe('the timeline', () => {
   it('links the release to its release page where the workspace declares one, the generic record where not', () => {
     const link = recordLinker(recordLinksOf([{ slug: 'releases', archetype: 'list', source: { kind: 'objects', objectType: 'release' }, recordPage: { kind: 'release', actions: {} } }] as never, 'northwind'));
-    const linked = assembleFeatureReport(input({ link }));
+    // The release carries its own type, read off the record (backlog 045).
+    const linked = assembleFeatureReport(input({ link, releases: input().releases.map(r => ({ ...r, type: 'release' })) }));
 
     expect(linked.timeline.find(e => e.key === 'release-9')!.href).toBe('/w/northwind/dashboard/p/releases/9');
     expect(linked.timeline.find(e => e.key === 'contract-77')!.href).toBe('/w/northwind/dashboard/objects/77');

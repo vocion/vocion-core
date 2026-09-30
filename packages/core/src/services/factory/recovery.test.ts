@@ -159,7 +159,7 @@ describe('the count and the stage', () => {
   it('says Planning with the rule\'s sentence, and Stopped after the attempts', () => {
     const planning = noteAttempt(readRecovery({}), { at: AT, kind: 'plan', trigger: 'recovery', runId: null, taskId: null, line: 'the allowed paths span 2 packages (apps/web, packages/core)' });
 
-    expect(recoveryStage({ recovery: planning })).toEqual({ stage: 'planning', label: 'Planning', line: 'Planning — the allowed paths span 2 packages (apps/web, packages/core)' });
+    expect(recoveryStage({ recovery: planning })).toEqual({ stage: 'planning', label: 'Planning', line: 'Planning — the allowed paths span 2 packages (apps/web, packages/core)', tone: 'info' });
     expect(planning.log.at(-1)?.text).toBe('Recovered: planning first because the allowed paths span 2 packages (apps/web, packages/core).');
     expect(recoveryStage({ recovery: { ...planning, stage: 'stopped', line: 'Stopped after 1 attempt: x.' } })).toMatchObject({ label: 'Stopped after 1 attempt' });
   });

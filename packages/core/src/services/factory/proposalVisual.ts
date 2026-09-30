@@ -75,10 +75,11 @@ function strings(value: unknown): string[] {
  * @param meta - The request's metadata as it stands after the write.
  */
 export async function visualInputFor(orgId: string, requestId: number, meta: Record<string, unknown>): Promise<ProposalVisualInput> {
-  // A workspace on an older plugin has no `architecture_plan` type at all,
-  // and a missing type is not a plan: the drawing then falls back to the
-  // shape it can make from the request alone.
-  const plans = await listBusinessObjects(orgId, 'architecture_plan').catch(() => []);
+  // A workspace on an older plugin has no plan type at all, and a missing
+  // type is not a plan: the drawing then falls back to the shape it can make
+  // from the request alone.
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const plans = await listBusinessObjects(orgId, (await factoryTypes(orgId)).plan).catch(() => []);
   const mine = plans
     .map(p => ({ id: p.id, meta: bag(p.metadata), at: p.createdAt?.getTime() ?? 0 }))
     .filter(p => Number(p.meta.requestId) === requestId)

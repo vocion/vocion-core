@@ -27,6 +27,7 @@ import type { FactoryRecord } from '@/libs/actions/factory-dispatch';
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
 import { CLOSED_REQUEST_STATES as CLOSED } from '@/libs/factory/requestStates';
+import { factoryTypes } from '@/libs/factory/types';
 import { blockerRefs, blockerResolution } from './blocker';
 import { attemptsOf, classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
@@ -309,14 +310,15 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   const { actionRunSchema, askSchema, workerRunSchema } = await import('@/models/Schema');
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
   const toRow = (r: { id: number; title: string; status: string | null; metadata: unknown; createdAt: Date | null }): Row => ({ id: r.id, title: r.title, status: r.status, meta: (r.metadata ?? {}) as Meta, createdAt: r.createdAt });
-  const tasks = ((await listBusinessObjects(orgId, 'engineering_task').catch(() => [])) as Array<Parameters<typeof toRow>[0]>).map(toRow).filter(t => Number(t.meta.requestId) === requestId);
-  const plans = ((await listBusinessObjects(orgId, 'architecture_plan').catch(() => [])) as Array<Parameters<typeof toRow>[0]>).map(toRow).filter(p => Number(p.meta.requestId) === requestId);
+  const types = await factoryTypes(orgId);
+  const tasks = ((await listBusinessObjects(orgId, types.task).catch(() => [])) as Array<Parameters<typeof toRow>[0]>).map(toRow).filter(t => Number(t.meta.requestId) === requestId);
+  const plans = ((await listBusinessObjects(orgId, types.plan).catch(() => [])) as Array<Parameters<typeof toRow>[0]>).map(toRow).filter(p => Number(p.meta.requestId) === requestId);
   const taskIds = tasks.map(t => String(t.id));
   const runs = taskIds.length === 0
     ? []
     : (await db.select().from(workerRunSchema).where(and(
         eq(workerRunSchema.orgId, orgId),
-        sql`${workerRunSchema.input} -> 'record' ->> 'type' = 'engineering_task'`,
+        sql`${workerRunSchema.input} -> 'record' ->> 'type' = ${types.task}`,
         inArray(sql<string>`${workerRunSchema.input} -> 'record' ->> 'id'`, taskIds),
       ))).map(r => ({ id: r.id, status: r.status, kind: r.kind, error: r.error, failures: (r.failures ?? []) as RunRow['failures'], input: (r.input ?? {}) as Meta, result: (r.result ?? null) as Meta | null, updatedAt: r.updatedAt, createdAt: r.createdAt, workerVersion: r.workerVersion ?? null })).sort((a, b) => b.id - a.id);
   const refs = new Set([`request:${requestId}`, ...taskIds.map(id => `engineering_task:${id}`)]);
@@ -459,12 +461,13 @@ async function planningEnded(orgId: string, requestId: number, askedAt: string):
 
 /**
  * Whether a request is open for the factory to act on at all.
+ * @param orgId - Tenant, whose plugin names the request type.
  * @param request - The request.
  */
-function isOpen(request: FactoryRecord): boolean {
+async function isOpen(orgId: string, request: FactoryRecord): Promise<boolean> {
   // A DUPLICATE IS CLOSED (#232/#234, 2026-09-29): `duplicateOf` ends the
   // record by itself — intake already skipped one; the sweep carried it on.
-  return request.typeSlug === 'request' && !CLOSED.has(String(request.meta.state ?? '')) && request.meta.recommendationState !== 'rejected' && !(Number(request.meta.duplicateOf ?? 0) > 0);
+  return request.typeSlug === (await factoryTypes(orgId)).request && !CLOSED.has(String(request.meta.state ?? '')) && request.meta.recommendationState !== 'rejected' && !(Number(request.meta.duplicateOf ?? 0) > 0);
 }
 
 /**
@@ -531,7 +534,7 @@ async function escalate(orgId: string, request: FactoryRecord, why: string, unbl
       risk: 'medium',
       // Approve names the action it takes, not "go ahead as proposed".
       options: stopOptions(request.id, failure),
-      objectRefs: [{ type: 'request', id: String(request.id) }],
+      objectRefs: [{ type: (await factoryTypes(orgId)).request, id: String(request.id) }],
       decisionCost: 5,
       contextUrl: `/dashboard/p/feature/${request.id}`,
     },
@@ -628,7 +631,7 @@ export async function startPlanning(orgId: string, opts: { request: { id: number
     return { planId: open.id, via: 'approval', previous };
   }
   if (open) {
-    await reviewFiledPlan(orgId, { objectId: open.id, objectType: 'architecture_plan' });
+    await reviewFiledPlan(orgId, { objectId: open.id, objectType: (await factoryTypes(orgId)).plan });
     return { planId: open.id, via: 'approval', previous };
   }
   const { FACTORY_PLAN_REQUESTED, emitEvent } = await import('@/services/EventService');
@@ -659,11 +662,11 @@ export async function startPlanning(orgId: string, opts: { request: { id: number
 export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectCreatedPayload>): Promise<CarryResult> {
   const { readRecord, writeMeta } = await lib();
   const id = Number(payload.objectId);
-  if (payload.objectType !== 'request' || !Number.isInteger(id) || id <= 0) {
+  if (payload.objectType !== (await factoryTypes(orgId)).request || !Number.isInteger(id) || id <= 0) {
     return skip(null, 'not a request');
   }
   const request = await readRecord(orgId, id);
-  if (!request || !isOpen(request)) {
+  if (!request || !(await isOpen(orgId, request))) {
     return skip(id, 'not an open request');
   }
   // THE SAME ASK TWICE (#265/#268, 2026-09-30): before anything is built,
@@ -761,13 +764,13 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
 export async function reviewFiledPlan(orgId: string, payload: Partial<ObjectCreatedPayload>): Promise<CarryResult> {
   const { planIsApproved, readRecord } = await lib();
   const planId = Number(payload.objectId);
-  if (payload.objectType !== 'architecture_plan' || !Number.isInteger(planId)) {
+  if (payload.objectType !== (await factoryTypes(orgId)).plan || !Number.isInteger(planId)) {
     return skip(null, 'not a plan');
   }
   const plan = await readRecord(orgId, planId);
   const requestId = Number(plan?.meta.requestId);
   const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-  if (!plan || !request || !isOpen(request)) {
+  if (!plan || !request || !(await isOpen(orgId, request))) {
     return skip(Number.isInteger(requestId) ? requestId : null, 'no open request for this plan');
   }
   if (readRecovery(request.meta).stage !== 'planning') {
@@ -820,7 +823,7 @@ export async function buildFromApprovedPlan(orgId: string, payload: { planId?: u
   const plan = Number.isInteger(planId) && planId > 0 ? await readRecord(orgId, planId) : null;
   const requestId = Number(payload.requestId ?? plan?.meta.requestId);
   const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-  if (!plan || !request || !isOpen(request)) {
+  if (!plan || !request || !(await isOpen(orgId, request))) {
     return skip(Number.isInteger(requestId) ? requestId : null, 'no open request for this plan');
   }
   const work = await workFor(orgId, requestId);
@@ -871,7 +874,7 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   }
   const rec = runRecord(run);
   // An engineering task is code; a run for anything else is an agent's prompt, not this loop's.
-  if (run.kind !== 'worker' || rec?.type !== 'engineering_task') {
+  if (run.kind !== 'worker' || rec?.type !== (await factoryTypes(orgId)).task) {
     return skip(null, 'not an engineering run');
   }
   if (run.status === 'lost' && now.getTime() - run.updatedAt.getTime() < LOST_GRACE_MS) {
@@ -880,7 +883,7 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   const task = await readRecord(orgId, rec.id);
   const requestId = Number(task?.meta.requestId);
   const request = task && Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-  if (!task || !request || !isOpen(request)) {
+  if (!task || !request || !(await isOpen(orgId, request))) {
     return skip(Number.isInteger(requestId) ? requestId : null, 'no open request for this run');
   }
   const state = readRecovery(request.meta);
@@ -1102,7 +1105,7 @@ export async function replanStaleStops(orgId: string, now: Date = new Date()): P
   for (const stop of stops) {
     const requestId = Number(/^factory-recovery:(\d+):/.exec(String(stop.sourceRef ?? ''))?.[1]);
     const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-    if (!request || !isOpen(request)) {
+    if (!request || !(await isOpen(orgId, request))) {
       continue;
     }
     const work = await workFor(orgId, requestId);
@@ -1173,7 +1176,7 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
   // dated by its last recovery line.
   const withOpenAsk = new Set(stops.map(st => Number(/^factory-recovery:(\d+):/.exec(String(st.sourceRef ?? ''))?.[1])));
   const { listBusinessObjects: listRequests } = await import('@/services/BusinessObjectService');
-  for (const r of ((await listRequests(orgId, 'request').catch(() => [])) as Array<{ id: number; metadata: unknown }>)) {
+  for (const r of ((await listRequests(orgId, (await factoryTypes(orgId)).request).catch(() => [])) as Array<{ id: number; metadata: unknown }>)) {
     const state = readRecovery((r.metadata ?? {}) as Meta);
     if (state.stage === 'stopped' && !withOpenAsk.has(r.id)) {
       const last = state.log.at(-1)?.at;
@@ -1185,7 +1188,7 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
   }
   const oldest = new Date(Math.min(...stops.map(a => (a.createdAt ?? now).getTime())));
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
-  const environments = ((await listBusinessObjects(orgId, 'environment').catch(() => [])) as Array<{ title: string; metadata: unknown }>)
+  const environments = ((await listBusinessObjects(orgId, (await factoryTypes(orgId)).environment).catch(() => [])) as Array<{ title: string; metadata: unknown }>)
     .map(r => (r.metadata ?? {}) as Meta)
     .filter(m => m.surface === 'worker' || /worker/i.test(String(m.slug ?? '')))
     .map(m => ({ slug: String(m.slug ?? 'worker'), lastDeployedAt: typeof m.lastDeployedAt === 'string' ? m.lastDeployedAt : null, lastDeployedSha: typeof m.lastDeployedSha === 'string' ? m.lastDeployedSha : null }));
@@ -1205,7 +1208,7 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
   for (const stop of stops) {
     const requestId = Number(/^factory-recovery:(\d+):/.exec(String(stop.sourceRef ?? ''))?.[1]);
     const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-    if (!request || !isOpen(request)) {
+    if (!request || !(await isOpen(orgId, request))) {
       continue;
     }
     const work = await workFor(orgId, requestId);
@@ -1272,7 +1275,7 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
 export async function sweepStuckRequests(orgId: string, now: Date = new Date(), limit = 10): Promise<{ acted: CarryResult[] }> {
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
   const { readRecord } = await lib();
-  const requests = ((await listBusinessObjects(orgId, 'request').catch(() => [])) as Array<{ id: number }>).map(r => r.id).sort((a, b) => a - b);
+  const requests = ((await listBusinessObjects(orgId, (await factoryTypes(orgId)).request).catch(() => [])) as Array<{ id: number }>).map(r => r.id).sort((a, b) => a - b);
   // A stop a stale plan explains is planned again first: a new plan, not a
   // new build, is what answers it.
   const acted: CarryResult[] = await replanStaleStops(orgId, now).catch((err: Error) => {
@@ -1303,7 +1306,7 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
       continue;
     }
     const request = await readRecord(orgId, id);
-    if (!request || !isOpen(request)) {
+    if (!request || !(await isOpen(orgId, request))) {
       continue;
     }
     const state = readRecovery(request.meta);
@@ -1410,7 +1413,7 @@ export async function planningRunEnded(orgId: string, payload: Record<string, un
     return skip(null, 'no request on the run');
   }
   const request = await (await lib()).readRecord(orgId, requestId);
-  if (!request || !isOpen(request)) {
+  if (!request || !(await isOpen(orgId, request))) {
     return skip(requestId, 'request closed');
   }
   const state = readRecovery(request.meta);
