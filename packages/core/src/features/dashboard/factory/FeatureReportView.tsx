@@ -49,6 +49,7 @@ const DOT_TONE: Record<Tone, DotTone> = { ok: 'pass', warn: 'amber', bad: 'fail'
 /** What this evidence is FOR, in the reader's words rather than the field's. */
 const ROLE_WORD: Record<string, string> = {
   'proposed': 'Proposed',
+  'reported': 'Reported',
   'shipped': 'After',
   'qa-screenshot': 'Screenshot',
   'qa-video': 'Video',

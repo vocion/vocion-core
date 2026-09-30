@@ -1141,6 +1141,7 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
    */
   async execute(ctx, input) {
     const { originMeta } = await import('@/services/objects/objectCreated');
+    const origin = originMeta(ctx.origin ?? null);
     const objectId = await decideCandidateObject(
       ctx,
       // `runId` rides the context on execute; without it there is no row to
@@ -1149,8 +1150,13 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
       CANDIDATE_STATUS.approved,
       ctx.externalRef,
       // The conversation that asked for it, on the record, in the same write.
-      originMeta(ctx.origin ?? null),
+      origin,
     );
+    if (objectId !== null && origin) {
+      // And what the person sent in it, as the record's own evidence.
+      const { linkReportedAttachments } = await import('@/services/objects/reported');
+      await linkReportedAttachments(ctx.orgId, objectId, origin.conversationId).catch(() => undefined);
+    }
 
     if (objectId === null) {
       throw new Error(

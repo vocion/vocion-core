@@ -121,6 +121,12 @@ export const createBusinessObject = async (
   }
 
   if (obj) {
+    // What the person sent in that conversation is the record's evidence (`reported.ts`).
+    const asked = originMeta(origin ? { conversationId: origin.conversationId } : null);
+    if (asked) {
+      const { linkReportedAttachments } = await import('@/services/objects/reported');
+      await linkReportedAttachments(orgId, obj.id, asked.conversationId).catch(() => undefined);
+    }
     await announceObjectCreated(orgId, obj, input.typeSlug, origin ?? { source: 'service', actor: userId });
   }
   return obj;

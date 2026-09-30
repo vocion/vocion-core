@@ -2662,19 +2662,34 @@ function todaySection(request: ReportObject, artifacts: ReportArtifact[], liveBa
     ? new Set(visuals.beforeArtifactIds.map(String))
     : new Set<string>();
   const shots = artifacts.filter(a => a.recordRole === 'before-shot' || drawnOn.has(String(a.id)));
+  // WHAT THE PERSON SAW (Chris, 2026-09-30, #268): a picture they sent in the
+  // chat it was filed from is the screen before, said as theirs.
+  const reported = artifacts.filter(a => a.recordRole === 'reported' && a.recordId === String(request.id) && !shots.includes(a) && drawOf(a).imageUrl !== null);
   s.facts = surfaceUrl === null
     ? []
     : [{ label: 'See it live', value: surfaceUrl, href: surfaceUrl }];
-  s.evidence = shots.map(a => ({
-    id: a.id,
-    kind: a.kind,
-    ...drawOf(a),
-    role: 'today',
-    title: a.title,
-    caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,
-    url: `/dashboard/artifacts/${a.id}`,
-    at: a.createdAt,
-  }));
+  s.evidence = [
+    ...shots.map(a => ({
+      id: a.id,
+      kind: a.kind,
+      ...drawOf(a),
+      role: 'today',
+      title: a.title,
+      caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,
+      url: `/dashboard/artifacts/${a.id}`,
+      at: a.createdAt,
+    })),
+    ...reported.map(a => ({
+      id: a.id,
+      kind: a.kind,
+      ...drawOf(a),
+      role: 'reported',
+      title: 'Screenshot from chat',
+      caption: a.title,
+      url: `/dashboard/artifacts/${a.id}`,
+      at: a.createdAt,
+    })),
+  ];
   if (s.evidence.length === 0 && surfaceUrl === null) {
     s.absence = 'Nothing says where this lives on the running product, so there is no way to go and see what it does today.';
   }

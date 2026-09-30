@@ -6,6 +6,7 @@ import { relationsOf } from '@/libs/workspace/related';
 import { actionRunSchema, artifactSchema, businessObjectSchema, businessObjectTypeSchema, conversationSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { RECORD_BODY_ROLE } from '@/services/objects/recordBodyFormat';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
+import { REPORTED_ROLE, reportedAttachments } from '@/services/objects/reported';
 
 /**
  * WHAT A RECORD IS CONNECTED TO, read from what the records already say
@@ -137,7 +138,7 @@ function values(v: unknown): string[] {
  */
 export async function relatedOf(orgId: string, objectId: number, opts: { relations?: readonly Relation[] } = {}): Promise<RelatedItem[]> {
   const [self] = await db
-    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata, reviewActionRunId: businessObjectSchema.reviewActionRunId, schema: businessObjectTypeSchema.schema })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata, reviewActionRunId: businessObjectSchema.reviewActionRunId, createdAt: businessObjectSchema.createdAt, schema: businessObjectTypeSchema.schema })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, objectId)))
@@ -273,6 +274,13 @@ export async function relatedOf(orgId: string, objectId: number, opts: { relatio
           ))
           .orderBy(desc(artifactSchema.updatedAt))
           .limit(rel.limit);
+        // A record filed before its uploads were linked finds what the person
+        // reported in the chat it came from (`reported.ts`).
+        if ((!rel.role || rel.role === REPORTED_ROLE) && !rows.some(r => r.role === REPORTED_ROLE)) {
+          const origin = await recordOrigin(orgId, { id: self.id, meta, reviewActionRunId: self.reviewActionRunId }).catch(() => null);
+          const sent = origin ? await reportedAttachments(orgId, { id: self.id, createdAt: self.createdAt, conversationId: origin.conversationId }).catch(() => []) : [];
+          rows.push(...sent.filter(a => !rows.some(r => r.id === a.id)).map(a => ({ id: a.id, title: a.title, kind: a.kind, role: REPORTED_ROLE, at: a.updatedAt })));
+        }
         items.push(...rows.map(a => ({
           key: `${rel.key}:artifact:${a.id}`,
           relation: rel.key,

@@ -393,6 +393,31 @@ describe('the pieces that carried over', () => {
     expect(srcs.indexOf(png(92))).toBeLessThan(srcs.indexOf(png(93)));
   });
 
+  it('shows what the person reported in chat as the screen before, not "Preview pending" (Chris, 2026-09-30, #268)', async () => {
+    await page.viewport(1440, 900);
+    const shot = '/api/artifacts/o-88/header-overflow.png';
+    await draw(fixture({
+      request: { id: 41, title: 'Fix header width overflow on mobile', status: 'new', createdAt: T('2026-09-30T08:05:00Z'), meta: { surface: 'ui', state: 'in_scope', product: 'northwind-portal' } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [
+        { id: 88, kind: 'file', title: 'header-overflow.png', recordType: 'object', recordId: '41', recordRole: 'reported', spec: { contentType: 'image/png' }, url: shot, createdAt: T('2026-09-30T08:00:00Z') },
+      ],
+    }));
+
+    expect(document.querySelector('[data-testid="report-preview-pending"]')).toBeNull();
+
+    const slide = document.querySelector('[data-testid="report-slide"]');
+
+    expect(slide?.querySelector('img')?.getAttribute('src')).toBe(shot);
+
+    const said = document.querySelector('[data-testid="report-carousel"]')?.textContent ?? '';
+
+    expect(said).toContain('Reported');
+    expect(said).toContain('Screenshot from chat');
+    expect(said).toContain('header-overflow.png');
+  });
+
   it('says a missing plan in plain words', () => {
     expect(plainWarning('The plan rule required a plan for this work and none is on the record. 1 worker run ran anyway.')).toBe('This feature was built without the required plan.');
     expect(plainWarning('Two releases claim this request. The second has no commit.')).toBe('Two releases claim this request.');

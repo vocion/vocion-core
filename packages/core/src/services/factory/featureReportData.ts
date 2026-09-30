@@ -30,6 +30,7 @@ import { failedFireLines } from '@/services/automations/failedFires';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { recordOrigin } from '@/services/objects/related';
+import { REPORTED_ROLE, reportedAttachments } from '@/services/objects/reported';
 import { assembleFeatureReport } from './featureReport';
 import { loadLiveMissionRuns, taskOfRun, toolCallNamedId } from './liveStatusData';
 import { loadPullSignals, mergeRiskClassOf, mergeRunsItself } from './pullSignals';
@@ -237,7 +238,14 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     listArtifactsForRecords({ orgId, recordType: 'object', recordIds }),
     pictureIds.size === 0 ? Promise.resolve([]) : listArtifactsByIds({ orgId, ids: [...pictureIds] }),
   ]);
-  const artifactRows = [...onRecords, ...byId.filter(b => !onRecords.some(r => r.id === b.id))];
+  // The chat it was requested in, read once: its Activity leads with it, and
+  // a request filed before its uploads were linked finds them there (`reported.ts`).
+  const origin = await recordOrigin(orgId, { id: request.id, meta: (row.metadata ?? {}) as Record<string, unknown>, reviewActionRunId: row.reviewActionRunId }).catch(() => null);
+  const reportedRows = onRecords.some(a => a.recordRole === REPORTED_ROLE && a.recordId === String(request.id))
+    ? []
+    : (await reportedAttachments(orgId, { id: request.id, createdAt: row.createdAt, conversationId: origin?.conversationId ?? null }).catch(() => []))
+        .map(a => ({ ...a, recordType: 'object', recordId: String(request.id), recordRole: REPORTED_ROLE }));
+  const artifactRows = [...onRecords, ...byId.filter(b => !onRecords.some(r => r.id === b.id)), ...reportedRows.filter(r => !onRecords.some(o => o.id === r.id))];
   const artifacts: ReportArtifact[] = artifactRows.map(a => ({
     id: a.id,
     kind: a.kind,
@@ -280,7 +288,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   const product = typeof request.meta.product === 'string' ? request.meta.product : null;
   const [live, activity, link, pulls, mergeRule, liveBases] = await Promise.all([
     loadLiveMissionRuns(orgId, [{ recordId: requestId, childIds: [...taskIds] }], now),
-    loadActivity(orgId, requestId, taskIds, workerRuns, await recordOrigin(orgId, { id: requestId, meta: (row.metadata ?? {}) as Record<string, unknown>, reviewActionRunId: row.reviewActionRunId }).catch(() => null)),
+    loadActivity(orgId, requestId, taskIds, workerRuns, origin),
     recordLinkerForOrg(orgId),
     loadPullSignals(orgId, pullUrls).catch(() => undefined),
     current

@@ -82,6 +82,18 @@ describe('a contract from the records alone', () => {
     ]);
   });
 
+  it('lists what the person reported in chat, so the engineer opens what they saw (Chris, 2026-09-30, #268)', () => {
+    const reported = [{ title: 'header-overflow.png', url: 'https://app.northwind.example/dashboard/artifacts/88', file: 'https://app.northwind.example/api/artifacts/o-88/header-overflow.png' }];
+    const c = deriveContract({ given: {}, request, plan, repo, reported });
+
+    expect(String(c.objective).split('\n')).toEqual([
+      'Send a link to upload a file to you. Surface what exists.',
+      '',
+      'What the person reported (open each to see what they saw):',
+      '- header-overflow.png: https://app.northwind.example/api/artifacts/o-88/header-overflow.png (https://app.northwind.example/dashboard/artifacts/88)',
+    ]);
+  });
+
   it('builds a request with no plan from the paths the repo gives its product (#201: a P1 bug filed without a plan)', () => {
     const withProduct = { ...repo, productPaths: { northwind: ['apps/web/**', 'packages/api/**', 'not a path'] } };
     const c = deriveContract({ given: {}, request: { ...request, product: 'northwind' }, plan: null, repo: withProduct });
