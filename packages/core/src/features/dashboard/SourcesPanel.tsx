@@ -25,6 +25,7 @@ import {
 } from '@/libs/sources/configFields';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
+import { GithubAppConnection } from './connectors/GithubAppConnection';
 
 /** How often to re-read the list while a sync is running somewhere. */
 const RUNNING_SYNC_POLL_MS = 5000;
@@ -205,17 +206,20 @@ export function SourcesPanel() {
             </div>
           )
         : (
-            <ConnectorList
-              rows={rows}
-              syncingId={syncingId}
-              searchRef={searchRef}
-              onConnectNew={slug => setAddingKind(slug)}
-              onSync={s => void handleSync(s.id)}
-              onTest={setTestingSource}
-              onEdit={setEditingSource}
-              onDelete={setDeletingSource}
-              onConnect={setConnectingSource}
-            />
+            <>
+              <GithubAppConnection />
+              <ConnectorList
+                rows={rows}
+                syncingId={syncingId}
+                searchRef={searchRef}
+                onConnectNew={slug => setAddingKind(slug)}
+                onSync={s => void handleSync(s.id)}
+                onTest={setTestingSource}
+                onEdit={setEditingSource}
+                onDelete={setDeletingSource}
+                onConnect={setConnectingSource}
+              />
+            </>
           )}
 
       {addingKind

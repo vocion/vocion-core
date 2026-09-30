@@ -16,6 +16,7 @@
 
 export type WhereToIntent
   = | 'connect-source'
+    | 'connect-github'
     | 'sync-source'
     | 'reconnect-zoom'
     | 'fix-credential'
@@ -63,6 +64,7 @@ const T = (
 
 export const WHERE_TO: readonly WhereTo[] = [
   T('connect-source', 'Connect a system', '/dashboard/connectors', 'Find the system in the list and click Connect; a connected row expands to show its sync history, size and any missing scopes.', ['connector', 'connect', 'integration', 'source', 'ingest', 'gmail', 'drive', 'hubspot', 'slack', 'notion', 'calendar', 'granola']),
+  T('connect-github', 'Connect GitHub', '/dashboard/connectors', 'The GitHub block at the top: Create GitHub App once for this deployment, then Connect GitHub to pick the organization and repositories on GitHub. Test connection says what each account can do.', ['github', 'github app', 'install', 'repository', 'repositories', 'repo', 'pull request', 'ci', 'workflow', 'permissions']),
   T('sync-source', 'Sync a connected system now', '/dashboard/connectors', 'Expand the connected row and click Sync now; the run\'s progress and its last result show in the same row.', ['sync', 'refresh', 'resync', 'reindex']),
   T('reconnect-zoom', 'Re-authorise Zoom', '/dashboard/connectors', 'Expand Zoom: the row lists the scopes it needs and marks the ones the last error said were missing. Add those scopes to the Zoom Marketplace app, save, then click Reconnect here.', ['zoom', 'scope', 'scopes', '4711', 'recording', 'transcript', 'reauthorize', 'reauthorise']),
   T('fix-credential', 'Fix a revoked or expired credential', '/dashboard/connectors', 'The row says "Credential revoked" or "expired"; expand it and click Reconnect to store a fresh one.', ['credential', 'revoked', 'expired', 'token', 'reconnect', 'key']),

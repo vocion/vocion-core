@@ -1788,6 +1788,114 @@
         ]
       }
     },
+    "/api/v1/connections/github": {
+      "get": {
+        "operationId": "get_connections_github",
+        "summary": "The deployment's GitHub App (null before one is created) and this workspace's installations of it: account, repositories, tier, status and the last error a min…",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "The deployment's GitHub App (null before one is created) and this\nworkspace's installations of it: account, repositories, tier, status and\nthe last error a mint met (backlog 053). No secret is ever in the answer.\nAuth: tenant API token or dashboard session."
+      },
+      "patch": {
+        "operationId": "patch_connections_github",
+        "summary": "Body `{ tier: 'base' | 'pipeline' }`: what this workspace's tokens are minted at.",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Body `{ tier: 'base' | 'pipeline' }`: what this workspace's tokens are\nminted at. `pipeline` adds `workflows: write`, which \"the Release engineer\nmay change CI and deploy config\" needs.\nRequires the `manage_sources` capability.\n\n**Requires the `manage_sources` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "A JSON object. This endpoint reads its fields dynamically, so they are described in the prose above.",
+                "properties": {},
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "x-required-capability": [
+          "manage_sources"
+        ]
+      }
+    },
     "/api/v1/connections/github/install": {
       "get": {
         "operationId": "get_connections_github_install",
@@ -1857,6 +1965,87 @@
           }
         },
         "description": "back from GitHub's\ninstall screen, then from the GitHub sign-in that proves the person can\nreach the installation; the installation is bound to the workspace\n(backlog 053)."
+      }
+    },
+    "/api/v1/connections/github/installations/{id}": {
+      "delete": {
+        "operationId": "delete_connections_github_installations_id",
+        "summary": "Disconnect: this workspace stops using the installation.",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success, with no body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Disconnect: this workspace stops using the installation. It stays\ninstalled on GitHub, where another workspace may use it and an owner\nuninstalls it.\nRequires the `manage_sources` capability.\n\n**Requires the `manage_sources` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "x-required-capability": [
+          "manage_sources"
+        ]
       }
     },
     "/api/v1/connections/github/manifest": {
@@ -1944,6 +2133,56 @@
           }
         },
         "description": "GitHub\ncreated the app; its credentials are fetched once and sealed in the vault,\nand the person is back on Connections (backlog 053)."
+      }
+    },
+    "/api/v1/connections/github/test": {
+      "post": {
+        "operationId": "post_connections_github_test",
+        "summary": "Test connection: every installation of this workspace read again from GitHub (repositories, grant, suspension) and a token minted at the workspace's tier, the…",
+        "tags": [
+          "connections"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Test connection: every installation of this workspace read again from\nGitHub (repositories, grant, suspension) and a token minted at the\nworkspace's tier, the way every call mints one. Answers\n`{ results: [{ installationId, account, ok, message, repos }] }`.\nRequires the `manage_sources` capability.\n\n**Requires the `manage_sources` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "x-required-capability": [
+          "manage_sources"
+        ]
       }
     },
     "/api/v1/conversations/{id}/records": {

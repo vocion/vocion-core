@@ -135,6 +135,16 @@ only the permissions the workspace's tier asks for (backlog 053).
    the pipeline set when it is created, so a workspace can move between tiers
    without an owner re-approving on GitHub.
 
+4. **On Connections** the GitHub block at the top of `/dashboard/connectors` shows
+   the app and each connected account with its repositories. It offers *Change
+   repositories*, which opens the installation's settings on GitHub, and
+   *Disconnect*, after which this workspace stops using the installation; it stays
+   installed on GitHub. It also has *Test connection*, which reads each
+   installation again and mints a token at the tier, and the tier switch, *The
+   Release engineer may change CI and deploy config*. The API behind the block is
+   `GET|PATCH /api/v1/connections/github`, `POST …/test` and
+   `DELETE …/installations/:id`.
+
 `tokenForRepo` (`services/agents/tools/githubPullRead.ts`) is the one entry
 point. It uses the installation that covers the repository first, and a token
 vaulted on a `github` source only when no installation does. A mint GitHub

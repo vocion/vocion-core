@@ -185,3 +185,45 @@ describe('setInstallationTier', () => {
     expect(JSON.parse(String(fetchImpl.mock.calls[1]![1]!.body)).permissions.workflows).toBe('write');
   });
 });
+
+describe('what Connections shows', () => {
+  it('lists the workspace\'s installations with where to change them on GitHub, and never a secret', async () => {
+    await seedApp();
+    await seedInstallation({ accountType: 'Organization', lastError: 'GitHub refused an installation token (422): not granted' });
+    const view = await svc.connectionView(ORG);
+
+    expect(view.app).toEqual({ appId: 1001, slug: 'vocion-northwind', name: 'Vocion (Northwind)', ownerLogin: 'northwind', htmlUrl: 'https://github.com/apps/vocion-northwind' });
+    expect(view.installations).toHaveLength(1);
+    expect(view.installations[0]).toMatchObject({ accountLogin: 'Northwind', tier: 'base', status: 'active', settingsUrl: 'https://github.com/organizations/Northwind/settings/installations/555' });
+    expect(JSON.stringify(view)).not.toMatch(/PRIVATE KEY|whsec|cs-fixture/);
+  });
+
+  it('tests each installation by reading it again and minting at the tier', async () => {
+    await seedApp();
+    await seedInstallation();
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith('/access_tokens')) {
+        return new Response(JSON.stringify({ token: 'ghs_t', expires_at: '2099-01-01T00:00:00Z' }), { status: 201 });
+      }
+      if (url.includes('/installation/repositories')) {
+        return new Response(JSON.stringify({ total_count: 2, repositories: [{ full_name: 'northwind/orders-api' }, { full_name: 'northwind/billing' }] }));
+      }
+      return new Response(JSON.stringify({ account: { login: 'Northwind', type: 'Organization' }, repository_selection: 'selected', permissions: {} }));
+    });
+    const [result] = await svc.testConnection(ORG, fetchImpl as unknown as typeof fetch);
+
+    expect(result).toMatchObject({ ok: true, account: 'Northwind', repos: ['northwind/orders-api', 'northwind/billing'] });
+    expect(result!.message).toBe('Connected to 2 repositories at the base tier.');
+  });
+
+  it('disconnects only this workspace from an installation', async () => {
+    await seedApp();
+    const mine = await seedInstallation();
+    await seedInstallation({ orgId: 'org_kestrel' });
+
+    expect(await svc.disconnectInstallation('org_kestrel', mine.id)).toBe(false);
+    expect(await svc.disconnectInstallation(ORG, mine.id)).toBe(true);
+    expect((await svc.connectionView(ORG)).installations).toHaveLength(0);
+    expect((await svc.connectionView('org_kestrel')).installations).toHaveLength(1);
+  });
+});

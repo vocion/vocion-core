@@ -313,3 +313,108 @@ export async function afterInstallationBound(row: GithubInstallationRow): Promis
     dispatchMode: 'auto',
   });
 }
+
+/* ------------------------------------------------------------------ */
+/* What Connections shows (backlog 053)                                */
+/* ------------------------------------------------------------------ */
+
+export type GithubConnectionView = {
+  app: { appId: number; slug: string; name: string; ownerLogin: string | null; htmlUrl: string | null } | null;
+  installations: Array<{
+    id: number;
+    installationId: number;
+    accountLogin: string;
+    accountType: string | null;
+    repositorySelection: string;
+    repos: string[];
+    tier: GithubTier;
+    status: string;
+    lastError: string | null;
+    /** Where an owner changes the repositories or uninstalls, on GitHub. */
+    settingsUrl: string;
+    updatedAt: string;
+  }>;
+};
+
+/**
+ * Where an installation's repositories are changed on GitHub.
+ * @param row - The installation.
+ * @param row.accountLogin - Its account.
+ * @param row.accountType - `Organization` or `User`.
+ * @param row.installationId - Its id.
+ */
+export function installationSettingsUrl(row: { accountLogin: string; accountType: string | null; installationId: number }): string {
+  return row.accountType === 'User'
+    ? `https://github.com/settings/installations/${row.installationId}`
+    : `https://github.com/organizations/${encodeURIComponent(row.accountLogin)}/settings/installations/${row.installationId}`;
+}
+
+/**
+ * The deployment's app and this workspace's installations of it, as Connections shows them.
+ * @param orgId - The workspace.
+ */
+export async function connectionView(orgId: string): Promise<GithubConnectionView> {
+  const app = await activeApp();
+  const rows = await db.select().from(githubInstallationSchema).where(and(eq(githubInstallationSchema.orgId, orgId), ne(githubInstallationSchema.status, 'removed'))).orderBy(desc(githubInstallationSchema.updatedAt));
+  return {
+    app: app ? { appId: app.appId, slug: app.slug, name: app.name, ownerLogin: app.ownerLogin, htmlUrl: app.htmlUrl } : null,
+    installations: rows.map(r => ({
+      id: r.id,
+      installationId: r.installationId,
+      accountLogin: r.accountLogin,
+      accountType: r.accountType,
+      repositorySelection: r.repositorySelection,
+      repos: r.repos ?? [],
+      tier: (r.tier === 'pipeline' ? 'pipeline' : 'base') as GithubTier,
+      status: app && r.appId !== app.appId ? 'retired-app' : r.status,
+      lastError: r.lastError,
+      settingsUrl: installationSettingsUrl(r),
+      updatedAt: r.updatedAt.toISOString(),
+    })),
+  };
+}
+
+export type ConnectionTest = { installationId: number; account: string; ok: boolean; message: string; repos: string[] };
+
+/**
+ * Test connection: for each installation, read it again from GitHub (which
+ * refreshes its repositories and grant) and mint a token at the workspace's
+ * tier, which is what every call will do. Says, per account, what works.
+ * @param orgId - The workspace.
+ * @param fetchImpl - Injected for tests.
+ */
+export async function testConnection(orgId: string, fetchImpl?: typeof fetch): Promise<ConnectionTest[]> {
+  const rows = await db.select().from(githubInstallationSchema).where(and(eq(githubInstallationSchema.orgId, orgId), ne(githubInstallationSchema.status, 'removed')));
+  const out: ConnectionTest[] = [];
+  for (const row of rows) {
+    try {
+      const bound = await bindInstallation({ orgId, installationId: row.installationId, connectedBy: row.connectedBy, ...(fetchImpl ? { fetchImpl } : {}) });
+      if (bound.status === 'suspended') {
+        out.push({ installationId: row.installationId, account: bound.accountLogin, ok: false, message: `The app is suspended on ${bound.accountLogin}. An owner unsuspends it on GitHub.`, repos: bound.repos });
+        continue;
+      }
+      const minted = await mintForInstallation(bound, null, fetchImpl ? { fetchImpl } : {});
+      const scope = bound.repositorySelection === 'all' ? `every repository of ${bound.accountLogin}` : `${bound.repos.length} ${bound.repos.length === 1 ? 'repository' : 'repositories'}`;
+      out.push(minted.ok
+        ? { installationId: row.installationId, account: bound.accountLogin, ok: true, message: `Connected to ${scope} at the ${bound.tier} tier.`, repos: bound.repos }
+        : { installationId: row.installationId, account: bound.accountLogin, ok: false, message: minted.needsUpgrade ? `${minted.message} An owner accepts the app's new permissions on GitHub.` : minted.message, repos: bound.repos });
+    } catch (err) {
+      out.push({ installationId: row.installationId, account: row.accountLogin, ok: false, message: (err as Error).message, repos: row.repos ?? [] });
+    }
+  }
+  return out;
+}
+
+/**
+ * Disconnect: this workspace stops using an installation. The installation
+ * stays on GitHub (another workspace may use it); an owner uninstalls it there.
+ * @param orgId - The workspace.
+ * @param id - The installation row's id.
+ */
+export async function disconnectInstallation(orgId: string, id: number): Promise<boolean> {
+  const rows = await db.update(githubInstallationSchema).set({ status: 'removed', updatedAt: new Date() }).where(and(eq(githubInstallationSchema.orgId, orgId), eq(githubInstallationSchema.id, id))).returning({ installationId: githubInstallationSchema.installationId });
+  for (const r of rows) {
+    forgetInstallationTokens(r.installationId);
+  }
+  return rows.length > 0;
+}
