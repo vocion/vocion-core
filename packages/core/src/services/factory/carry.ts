@@ -993,6 +993,14 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
     .map(m => ({ slug: String(m.slug ?? 'worker'), lastDeployedAt: typeof m.lastDeployedAt === 'string' ? m.lastDeployedAt : null, lastDeployedSha: typeof m.lastDeployedSha === 'string' ? m.lastDeployedSha : null }));
   const reported = (await db.select({ v: workerRunSchema.workerVersion, at: workerRunSchema.claimedAt }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), isNotNull(workerRunSchema.workerVersion), gt(workerRunSchema.claimedAt, oldest))).orderBy(desc(workerRunSchema.id)).limit(20))
     .flatMap(r => (r.v && r.at ? [{ version: r.v, at: r.at }] : []));
+  // A DEPLOY IS NEW CAPABILITY TOO (2026-09-30, #201: its stop was a bad repo
+  // in the contract; the fix shipped in core, not in the worker, and the stop
+  // waited for a worker rebuild that would never come). Every deploy applies
+  // the workspace, so the newest applied version stands for "the platform
+  // changed since the stop", and it resumes each stop once, the same as a new
+  // worker does.
+  const { workspaceVersionSchema } = await import('@/models/Schema');
+  const [applied] = await db.select({ id: workspaceVersionSchema.id, at: workspaceVersionSchema.appliedAt }).from(workspaceVersionSchema).where(and(eq(workspaceVersionSchema.orgId, orgId), eq(workspaceVersionSchema.status, 'applied'))).orderBy(desc(workspaceVersionSchema.id)).limit(1);
   const { readRecord, writeMeta } = await lib();
   const { supersedeAsk } = await import('@/services/AskService');
   const out: CarryResult[] = [];
@@ -1012,11 +1020,16 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
     const failure = failed
       ? classifyFailure({ status: failed.status, error: failed.error, failures: failed.failures })
       : { class: 'no_run', sentence: 'the build never started' };
-    const rebuilt = workerRebuiltSince({ stoppedAt: stop.createdAt ?? now, failedVersion: failed?.workerVersion ?? null, environments, reported });
+    const deployedSince = applied?.at && applied.at.getTime() > (stop.createdAt ?? now).getTime()
+      ? { version: `deploy ${applied.id}`, source: 'deploy' as const }
+      : null;
+    const rebuilt = workerRebuiltSince({ stoppedAt: stop.createdAt ?? now, failedVersion: failed?.workerVersion ?? null, environments, reported }) ?? deployedSince;
     if (!rebuilt || request.meta.workerRebuildResumedFor === rebuilt.version) {
       continue;
     }
-    const line = `New worker (${rebuilt.version}) since the stop; building again.`;
+    const line = rebuilt.source === 'deploy'
+      ? `Vocion was deployed since the stop (${rebuilt.version}); building again.`
+      : `New worker (${rebuilt.version}) since the stop; building again.`;
     // A new worker starts a new count: the attempts it is retrying were made
     // by the old one (#246 read "Recovering (attempt 4 of 3)" after the resume).
     await updateRecovery(orgId, requestId, s => ({ ...s, attempts: [], since: now.toISOString() }));
@@ -1024,7 +1037,7 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
     const planId = Number(task?.meta.planId) > 0 ? Number(task!.meta.planId) : (await approvedPlan(work.plans))?.id;
     const dispatched = await propose(orgId, DISPATCH, { requestId, ...(planId ? { planId } : {}), trigger: 'recovery', ...(failed ? { recoveryOfRun: failed.id } : {}), recoveryClass: failure.class, reason: line }, {
       confidence: 0.9,
-      rationale: `${failed ? `Run #${failed.id}` : `Request #${requestId}`} stopped (${failure.sentence}); a new worker was deployed after the stop (${rebuilt.version}, ${rebuilt.source === 'environment' ? 'its environment record' : 'a run reported it'}).`,
+      rationale: `${failed ? `Run #${failed.id}` : `Request #${requestId}`} stopped (${failure.sentence}); ${rebuilt.source === 'deploy' ? `Vocion was deployed after the stop (${rebuilt.version})` : `a new worker was deployed after the stop (${rebuilt.version}, ${rebuilt.source === 'environment' ? 'its environment record' : 'a run reported it'})`}.`,
       reason: 'There is a new worker since the stop, so it gets one more attempt; Undo cancels it until a worker claims it.',
     });
     const at = now.toISOString();

@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, agentSchema, askSchema, automationRunSchema, automationSchema, businessObjectSchema, eventLogSchema, toolCallSchema, trustRuleSchema, workerRunSchema } = await import('@/models/Schema');
+const { actionRunSchema, agentSchema, askSchema, automationRunSchema, automationSchema, businessObjectSchema, eventLogSchema, toolCallSchema, trustRuleSchema, workerRunSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { createObjectType, getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
 const carry = await import('./carry');
@@ -555,6 +555,30 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
 
     expect(out.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done' });
     expect(await runsFor(r.id)).toHaveLength(1);
+  });
+
+  it('builds a stop again once after a deploy, even with no new worker (#201, 2026-09-30: the fix shipped in core)', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms keep a pinned note' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const first = (await runsFor(r.id)).at(-1)!;
+    await claimWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', workerVersion: 'img-same' });
+    await failWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', error: 'prepare failed: git clone failed (128): remote: Repository not found.', failures: [{ scope: 'git', message: 'Repository not found.' }] });
+    const attempt = (n: number) => ({ n, at: '2026-09-30T04:00:00Z', kind: 'build', trigger: 'retry', runId: null, taskId: null, line: 'x', failure: null });
+    await db.update(businessObjectSchema).set({ metadata: { ...((await read(r.id)).metadata as Record<string, unknown>), recovery: { log: [], line: null, askId: null, limit: 3, since: null, stage: 'recovering', attempts: [attempt(1), attempt(2), attempt(3)], handledRunIds: [], planRequestedAt: null } } }).where(eq(businessObjectSchema.id, r.id));
+    await carry.stopIfAtLimit(ORG, r.id, 'the repository could not be cloned');
+
+    // A deploy applies the workspace after the stop.
+    await db.insert(workspaceVersionSchema).values({ orgId: ORG, sha: 'local-7a1b', status: 'applied', appliedAt: new Date(Date.now() + 1000) });
+
+    const out = await carry.resumeAfterWorkerRebuild(ORG);
+
+    // Run alone, the deploy is the only change since the stop; in the full file,
+    // earlier tests' worker environments may answer first. Either resumes it.
+    expect(out.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done', line: expect.stringMatching(/since the stop.*building again\.$/) });
+    expect(await runsFor(r.id)).toHaveLength(2);
+
+    // Once per deploy.
+    expect((await carry.resumeAfterWorkerRebuild(ORG)).find(a => a.requestId === r.id)).toBeUndefined();
   });
 
   it('stop → approve → new failure files a second, open ask — never reopening the first (prod, 2026-09-29: ask #220)', async () => {
