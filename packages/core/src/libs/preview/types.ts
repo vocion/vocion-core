@@ -56,6 +56,12 @@ export type PreviewDoc = {
    * Markdown.
    */
   more?: Array<{ key: string; title: string; body: string }>;
+  /**
+   * Where the record is — You, Now, Next — for a record whose type has a
+   * report page (`services/objects/recordStatus.ts`). Drawn at the top of
+   * the pane and kept current while something runs.
+   */
+  status?: import('@/libs/factory/liveStatus').RecordStatus;
   /** In-app full detail page. Relative only. */
   href?: string;
   /**

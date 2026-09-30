@@ -14,6 +14,7 @@ import { ARTIFACT_KIND_ICON } from '@/features/dashboard/artifacts/kinds';
 import { SharePicker } from '@/features/dashboard/artifacts/SharePicker';
 import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/agentSurface';
 import { RunStepList } from '@/features/dashboard/factory/RunDetail';
+import { LiveWorkStatus } from '@/features/dashboard/factory/WorkStatus';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
 import { Link, useRouter } from '@/libs/I18nNavigation';
@@ -231,6 +232,9 @@ function Body(props: { doc: PreviewDoc }) {
   }
   return (
     <div className="px-4 py-3">
+      {/* WHERE IT IS, first: the same You / Now / Next as its page, kept
+          current while something runs (`WorkStatus`). */}
+      {doc.status && <LiveWorkStatus key={doc.status.record.id} recordId={doc.status.record.id} initial={doc.status} className="mb-4 border-b border-border/60 pb-3" />}
       {doc.subtitle && <p className="mb-3 text-sm leading-relaxed text-foreground">{doc.subtitle}</p>}
       {doc.facts && doc.facts.length > 0 && (
         // One muted line by default; the kind, version and dates are a

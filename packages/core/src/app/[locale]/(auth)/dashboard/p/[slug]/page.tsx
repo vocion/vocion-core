@@ -52,6 +52,7 @@ import {
   knowledgeSourceSchema,
   toolCallSchema,
 } from '@/models/Schema';
+import { loadWorkLive } from '@/services/factory/liveStatusData';
 import { loadPendingBuilds } from '@/services/factory/pendingBuilds';
 import { loadReleaseLinked } from '@/services/factory/releaseData';
 import { inboxHref } from '@/services/inbox/inboxRef';
@@ -587,13 +588,19 @@ export default async function WorkspacePage(props: {
     const derived = manifest.derive === 'workQueue'
       // Each row's acceptance count is its feature page's (featureProof), so
       // the queue reads the attempts and the releases that name them.
-      ? deriveWorkQueue(loaded, {
-          now: new Date(now),
-          tasks: await loadObjectRows(orgId, 'engineering_task'),
-          releases: await loadObjectRows(orgId, 'release'),
-          // A Build card already up is the row's decision (journey 4, #214).
-          pendingBuilds: await loadPendingBuilds(orgId),
-        })
+      ? await (async () => {
+          const tasks = await loadObjectRows(orgId, 'engineering_task');
+          return deriveWorkQueue(loaded, {
+            now: new Date(now),
+            tasks,
+            releases: await loadObjectRows(orgId, 'release'),
+            // A Build card already up is the row's decision (journey 4, #214).
+            pendingBuilds: await loadPendingBuilds(orgId),
+            // What is running for each row right now, in one read for the
+            // page (the Now line); the page re-reads on its `live` interval.
+            live: await loadWorkLive(orgId, loaded, tasks, new Date(now)),
+          });
+        })()
       : manifest.derive === 'releaseOutcome'
         ? deriveReleaseOutcome(loaded, { now: new Date(now) })
         : releaseFeed

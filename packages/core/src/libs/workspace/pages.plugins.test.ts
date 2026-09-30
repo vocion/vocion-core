@@ -102,14 +102,15 @@ describe('plugin pages', () => {
     // draw nothing when there is nothing to say — and the picture, which is
     // drawn rather than said.
     // No fact row of internals under the card: every field is on the row's one line, or it is not on the page (Chris, 2026-09-25).
-    expect(keys).toEqual(['title', 'visual', 'status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product']);
+    // `now` is what is running for it this minute, in progress only (2026-09-30).
+    expect(keys).toEqual(['title', 'visual', 'status', 'blocked', 'unmet', 'now', 'summary', 'detail', 'why', 'cost', 'product']);
     // Every field sits in the subtitle so the uppercase fact list never
     // draws: five labels a person reads past to reach five values. The
     // picture is the one exception, and it is not in the fact list either —
     // it leads the block, because "PREVIEW" over a thumbnail is a caption
     // saying what a person can already see.
     // What it is, the user problem, and what it needs — nothing else on the row (Chris, 2026-09-25).
-    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', subtitle: ['status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product'] });
+    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', subtitle: ['status', 'blocked', 'now', 'unmet', 'summary', 'detail', 'why', 'cost', 'product'] });
 
     // Sixteen fields became these. The record's own vocabulary is gone.
     // `status` is the derived badge — "Blocked", "Decide" — never the

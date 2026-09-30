@@ -716,3 +716,36 @@ describe('a duplicate is closed (#232, #234)', () => {
     expect(isDismissed(row(233, 'Pin a note', { state: 'new' }))).toBe(false);
   });
 });
+
+describe('the Now line on a Work row (Chris, 2026-09-30: "Live indicator. Streaming updates to the work table?")', () => {
+  const building = row(265, 'Fix the header overflow', { state: 'building', taskCount: 1, runningTaskCount: 1 });
+  const queued = { kind: 'queued' as const, label: 'Waiting for a worker', step: null, runRef: { type: 'worker_run' as const, id: '432' }, runHref: '/dashboard/p/runs/432', runLabel: 'Run #432', startedAt: '2026-09-21T15:57:00.000Z', since: 'queued' as const };
+  const claimed = { ...queued, kind: 'building' as const, label: 'Engineer building', step: 'Running the checks', startedAt: '2026-09-21T15:56:00.000Z', since: 'claimed' as const };
+  const nowOf = (rows: PageRow[], id: number) => rows.find(r => r.id === id)!.meta.now as { line: string; live: boolean; href: string | null };
+
+  it('carries what is running for the row, and its line changes when the run does', () => {
+    const waiting = deriveWorkQueue([building], { now: NOW, live: new Map([[265, queued]]) });
+    const going = deriveWorkQueue([building], { now: NOW, live: new Map([[265, claimed]]) });
+    const idle = deriveWorkQueue([building], { now: NOW, live: new Map([[265, null]]) });
+
+    expect(nowOf(waiting, 265)).toEqual({ line: 'Waiting for a worker · queued 3 min', live: true, href: '/dashboard/p/runs/432' });
+    expect(nowOf(going, 265)).toEqual({ line: 'Engineer building · Running the checks · 4 min', live: true, href: '/dashboard/p/runs/432' });
+    expect(nowOf(idle, 265)).toEqual({ line: 'Nothing running', live: false, href: null });
+  });
+
+  it('carries no Now line on a row that is not in progress, or when the page read none', () => {
+    const proposed = row(300, 'Share a document', { state: 'in_scope' });
+
+    expect(deriveWorkQueue([proposed], { now: NOW, live: new Map() })[0]!.meta.now).toBeUndefined();
+    expect(deriveWorkQueue([building], { now: NOW })[0]!.meta.now).toBeUndefined();
+  });
+
+  it('leads the lane with the rows that need a person', () => {
+    const older = row(1, 'Older, running', { state: 'building', taskCount: 1, runningTaskCount: 1 }, new Date('2026-09-20T10:00:00Z'));
+    const merge = row(2, 'Newer, ready to merge', { state: 'building', taskCount: 1, acceptedTaskCount: 1 }, new Date('2026-09-21T10:00:00Z'));
+    const out = deriveWorkQueue([older, merge], { now: NOW });
+
+    expect(out.filter(r => r.meta.laneKey === 'progress').map(r => r.id)).toEqual([2, 1]);
+    expect(out.find(r => r.id === 2)!.meta.needsYou).toBe(true);
+  });
+});

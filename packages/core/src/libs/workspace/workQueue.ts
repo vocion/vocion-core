@@ -1,5 +1,7 @@
 import type { ProofRecord } from './featureProof';
 import type { PageRow } from './pageFields';
+import type { LiveRun } from '@/libs/factory/liveStatus';
+import { nowLine } from '@/libs/factory/liveStatus';
 import { seatLabel } from '@/libs/gates/handoffGate';
 import { readRecovery, recoveryStage } from '@/services/factory/recovery';
 import { featureProof, shippedTaskIdsOf } from './featureProof';
@@ -114,7 +116,27 @@ export type WorkQueueOptions = {
    * says: journey 4's #214 had its Build card pending and read as queued.
    */
   pendingBuilds?: ReadonlyArray<{ requestId: number; runId: number; at: Date | null }>;
+  /**
+   * THE NOW LINE per record — what is running for it right now, or null —
+   * read in one batch for the page (`services/factory/liveStatusData.loadLiveRuns`).
+   * Each in-progress row carries it with a live dot; absent, rows carry none.
+   */
+  live?: ReadonlyMap<number, LiveRun | null>;
 };
+
+/** A row's Now line as the `live` field format draws it. */
+export type RowNow = { line: string; live: boolean; href: string | null };
+
+/**
+ * Whether an in-progress row is waiting on a person: an obstacle written
+ * down, QA's changes, a review that could not finish, a merge, or the
+ * factory stopped at its limit. These lead the lane.
+ * @param row - The row.
+ */
+export function progressNeedsYou(row: PageRow): boolean {
+  const wait = waitOf(row);
+  return isBlocked(row) || wait === 'merge' || wait === 'changes' || wait === 'stuck' || recoveryStage(meta(row))?.stage === 'stopped';
+}
 
 /**
  * How long a row may promise "no action needed" without anything on its
@@ -1059,9 +1081,11 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date, decideShown = DEC
   }
   // A stopped run costs a day; a running one costs nothing to leave alone. So
   // blocked sorts above building, and the lane's note says how many stopped.
+  // A row waiting on a person leads next (Chris, 2026-09-30: "'Needs you'
+  // rows lead"): it moves the moment it is read.
   if (lane === 'progress') {
     return [...rows]
-      .sort((a, b) => Number(isBlocked(b)) - Number(isBlocked(a)) || time(a) - time(b))
+      .sort((a, b) => Number(isBlocked(b)) - Number(isBlocked(a)) || Number(progressNeedsYou(b)) - Number(progressNeedsYou(a)) || time(a) - time(b))
       .map(row => ({ row, lane, rank: null }));
   }
   // Proposed holds two kinds of row, and only one of them is stopped on a
@@ -1093,6 +1117,15 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date, decideShown = DEC
     // Not now, by a person's decision: last, unranked, and back at the top when the date passes.
     ...deferred.sort((a, b) => time(a) - time(b)).map(row => ({ row, lane, rank: null })),
   ];
+}
+
+/**
+ * A row's Now line, as the `live` field format draws it.
+ * @param live - The row's live run, or null.
+ * @param now - The clock.
+ */
+function rowNow(live: LiveRun | null, now: Date): RowNow {
+  return { line: nowLine(live, now), live: live !== null, href: live?.runHref ?? null };
 }
 
 /**
@@ -1211,6 +1244,10 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           // building or done the row says what is happening, not why.
           whyLine: lane === 'proposed' ? (whyLine(row) ?? undefined) : undefined,
           workLine: workLine(row, lane, now, { staged, ahead }) ?? undefined,
+          // What is running for it right now — "Waiting for a worker · queued
+          // 3 min", "Writing the plan · 1 min" — or "Nothing running".
+          now: lane === 'progress' && options.live ? rowNow(options.live.get(Number(row.id)) ?? null, now) : undefined,
+          needsYou: lane === 'progress' ? progressNeedsYou(row) || undefined : undefined,
           costLine: costLine(row, lane) ?? undefined,
           flags: flags.length > 0 ? flags : undefined,
         },

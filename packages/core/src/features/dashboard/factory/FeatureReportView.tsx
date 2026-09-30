@@ -1,4 +1,5 @@
 import type { DotTone } from '@/components/patterns';
+import type { RecordStatus } from '@/libs/factory/liveStatus';
 import type { FeatureReport, LiveBuild, ReportAction, ReportAttempt, ReportEvidence, ReportNotice, ReportStatus, Tone } from '@/services/factory/featureReport';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -6,6 +7,7 @@ import { Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { featureStatusOf } from '@/services/factory/featureReport';
 import { FeatureActivity } from './FeatureActivity';
 import { FeatureBuild, FeatureHeadline } from './FeatureBuild';
 import { FeatureDismiss } from './FeatureDismiss';
@@ -13,6 +15,7 @@ import { FeatureDrawerLink } from './FeatureDrawerLink';
 import { LocalDate } from './LocalDate';
 import { MediaCarousel } from './MediaCarousel';
 import { RunRow } from './RunRow';
+import { WorkStatus } from './WorkStatus';
 
 /**
  * The feature page, drawn for the person who owns the outcome (Chris,
@@ -229,41 +232,44 @@ function ActionButton({ action, report, primary, children }: { action: ReportAct
 }
 
 /**
- * WHERE IT IS, AND THE ONE MOVE. One or two sentences — what is known, and
- * what is not established — and one action that follows the state.
+ * WHERE IT IS: the stage, then You, Now, Next (Chris, 2026-09-30: "so I
+ * understand when I'm waiting. What's next. What's running."). The same
+ * three lines the chat, the preview pane and the Work row draw
+ * (`WorkStatus`). The stage keeps its one sentence while nothing runs — what
+ * is known and what is not; while something runs, the Now line says it, and
+ * opens the run. The move sits on the You line when it is a person's; any
+ * other move follows the lines.
  * @param props
  * @param props.report - The report.
+ * @param props.status - The three lines, as the page's route read them.
  */
-function StatusBlock({ report }: { report: FeatureReport }) {
+function StatusBlock({ report, status }: { report: FeatureReport; status: RecordStatus }) {
   const s: ReportStatus = report.status;
   const secondary = s.secondary === null
     ? null
     : s.secondary.kind === 'dismiss'
       ? <FeatureDismiss requestId={report.requestId} />
       : <ActionButton action={s.secondary} report={report} primary={false} />;
+  // The move that IS the running run ("Watch the plan being written") is
+  // the Now line already; drawn twice it would be two ways to one place.
+  const moveIsLive = s.action?.kind === 'link' && report.live !== null && s.action.href === report.live.runHref;
+  const actions = s.action && !moveIsLive
+    ? s.action.kind === 'build'
+      ? <ActionButton action={s.action} report={report} primary>{secondary}</ActionButton>
+      : (
+          <>
+            <ActionButton action={s.action} report={report} primary />
+            {secondary}
+          </>
+        )
+    : null;
+  const yours = report.state.needsYou && actions !== null;
   return (
     <section id="report-state" data-testid="report-status" aria-label="Current state" className="space-y-3">
-      {/* THE CURRENT STATE, said once, and the run carrying it as a row
-          that opens it (Chris, 2026-09-29: "is that 'current state'?"). */}
       <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Current state</div>
-      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={s.sentence} />
-      {s.activeRun && (
-        <div className="-mx-2 max-w-prose" data-testid="report-active-run">
-          <RunRow attempt={s.activeRun.attempt} of={s.activeRun.of} testId="report-active-run-row" />
-        </div>
-      )}
-      {s.action && (
-        <div className="flex flex-wrap items-center gap-2">
-          {s.action.kind === 'build'
-            ? <ActionButton action={s.action} report={report} primary>{secondary}</ActionButton>
-            : (
-                <>
-                  <ActionButton action={s.action} report={report} primary />
-                  {secondary}
-                </>
-              )}
-        </div>
-      )}
+      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={report.live ? '' : s.sentence} />
+      <WorkStatus status={status} hideStage youAction={yours ? <span className="flex flex-wrap items-center gap-2">{actions}</span> : undefined} className="max-w-prose" />
+      {!yours && actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       {report.notices.length > 0 && <Notices notices={report.notices} requestId={report.requestId} />}
     </section>
   );
@@ -563,7 +569,13 @@ function StickyAction({ report }: { report: FeatureReport }) {
   );
 }
 
-export function FeatureReportView({ report }: { report: FeatureReport }) {
+/**
+ * @param props
+ * @param props.report - The assembled report.
+ * @param props.status - Its three lines as the route read them (the record's own page href). Absent, read off the report here.
+ */
+export function FeatureReportView({ report, status }: { report: FeatureReport; status?: RecordStatus }) {
+  const lines = status ?? featureStatusOf(report, { objectType: '', href: '' }, new Date());
   const visuals = report.sections.find(x => x.key === 'visuals');
   const today = report.sections.find(x => x.key === 'today');
   // THE BEST REAL PICTURE LEADS: what shipped, then the product today, then a
@@ -581,7 +593,9 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
       {/* One pane for every drawer on this page, and for every peek. */}
       <PreviewPanel />
-      {report.timeline.some(e => e.live) && <LiveRefresh everyMs={5000} />}
+      {/* Re-read while anything runs — a build, the plan being written, a
+          review — so the Now line and the stage move without a reload. */}
+      {(report.live !== null || report.timeline.some(e => e.live)) && <LiveRefresh everyMs={5000} />}
 
       {/* 1 + 2. THE INTRODUCTION, THEN WHERE IT IS. The title, subtitle and
           context line are the route's title bar; the story is a short plain
@@ -602,7 +616,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
             )}
           </div>
         )}
-        <StatusBlock report={report} />
+        <StatusBlock report={report} status={lines} />
       </div>
 
       {/* 3. WHAT IT LOOKS LIKE — the gallery, as it was. */}

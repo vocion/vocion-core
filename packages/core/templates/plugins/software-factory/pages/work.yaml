@@ -89,7 +89,10 @@ primary:
   # or where it stands, with how long it has waited (`detail`). Internal
   # status that helps nobody decide (`no criteria`, `no mock`, a rank) is on
   # the feature page, not repeated on every row (Chris, 2026-09-25).
-  subtitle: [status, blocked, unmet, summary, detail, why, cost, product]
+  # `now` is what is running for it this minute — "Waiting for a worker ·
+  # queued 3 min", "Writing the plan · 1 min" — behind a dot that breathes
+  # while something runs, re-read with the page (Chris, 2026-09-30).
+  subtitle: [status, blocked, now, unmet, summary, detail, why, cost, product]
   # THE PICTURE LEADS. What this outcome changes, drawn by the platform from
   # what the record says, at the moment the record says it
   # (`services/factory/proposalVisual.ts`). It is a shape, not a screenshot:
@@ -143,6 +146,9 @@ fields:
   # What is happening, minus whatever the badge already said. A queued row's
   # line is empty on purpose: "Queued" under a badge reading "Queued" is the
   # repetition this page was redrawn to lose.
+  # What is running for this row right now, and since when — in progress
+  # only (`deriveWorkQueue` → `meta.now`, libs/factory/liveStatus.ts).
+  - {key: now, label: Now, from: meta.now, format: live}
   - {key: summary, label: Problem, from: meta.problem}
   - {key: detail, label: What is happening, from: meta.workLine}
   # One human sentence, built from the closed reason list. Never `manual_toil`.

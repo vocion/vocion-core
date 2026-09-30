@@ -7,7 +7,9 @@ import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
+import { recordHref } from '@/services/objects/recordHref';
 import { readPageForOrg } from '@/services/PluginService';
 
 /**
@@ -118,7 +120,13 @@ export default async function WorkspaceReportPage(props: {
     return notFound();
   }
 
-  const report = await loadFeatureReport(orgId, recordId);
+  const now = new Date();
+  const report = await loadFeatureReport(orgId, recordId, now);
+  // The three lines, with the record's own page as their base — the same
+  // read the API, the pane and the chat draw (`services/objects/recordStatus.ts`).
+  const status = report
+    ? featureStatusOf(report, { objectType: manifest.report.subject, href: await recordHref(orgId, { objectType: manifest.report.subject, id: recordId }) }, now)
+    : undefined;
 
   return (
     <>
@@ -160,7 +168,7 @@ export default async function WorkspaceReportPage(props: {
       {report && <RecordChangeIntent objectId={report.requestId} title={report.title} selectionRoot={'[id^="report-"]'} />}
       {report && <VersionWatch refs={[{ type: 'object', id: String(report.requestId) }]} />}
       {report
-        ? <FeatureReportView report={report} />
+        ? <FeatureReportView report={report} status={status} />
         : (
             <p className="max-w-2xl text-sm text-muted-foreground">
               There is no

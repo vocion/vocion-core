@@ -53,12 +53,12 @@ export function FeatureHeadline({ requestId, tone, headline, sentence }: { reque
   const shown = now
     ? now.planning
       ? { tone: 'ink' as DotTone, headline: 'Planning', sentence: `${now.planning}. The build starts once the plan is approved.` }
-      : { tone: 'ink' as DotTone, headline: 'Building', sentence: 'Queued for the engineer just now.' }
+      : { tone: 'ink' as DotTone, headline: 'Waiting for a worker', sentence: 'Queued for the engineer just now.' }
     : { tone, headline, sentence };
   return (
     <p className="max-w-prose text-[15px] leading-relaxed text-foreground" data-testid="report-headline">
       <StatusDot tone={shown.tone} label={<span className="font-semibold">{shown.headline}</span>} className="mr-2 align-baseline" />
-      <span data-testid="report-status-sentence">{shown.sentence}</span>
+      {shown.sentence && <span data-testid="report-status-sentence">{shown.sentence}</span>}
     </p>
   );
 }

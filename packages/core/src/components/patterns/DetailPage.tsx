@@ -207,11 +207,13 @@ const DOT: Record<DotTone, string> = {
  * @param props.tone
  * @param props.label
  * @param props.className
+ * @param props.pulse - Something is running right now: the dot breathes.
+ * Motion only when the person has not asked for less (`motion-safe`).
  */
-export function StatusDot(props: { tone: DotTone; label: ReactNode; className?: string }) {
+export function StatusDot(props: { tone: DotTone; label: ReactNode; className?: string; pulse?: boolean }) {
   return (
-    <span className={cn('inline-flex items-center gap-1.5', props.className)} data-pattern="status-dot">
-      <span className={cn('size-1.5 shrink-0 rounded-full', DOT[props.tone])} aria-hidden />
+    <span className={cn('inline-flex items-center gap-1.5', props.className)} data-pattern="status-dot" data-live={props.pulse ? 'true' : undefined}>
+      <span className={cn('size-1.5 shrink-0 rounded-full', DOT[props.tone], props.pulse && 'motion-safe:animate-pulse')} aria-hidden />
       {props.label}
     </span>
   );

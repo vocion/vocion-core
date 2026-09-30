@@ -236,7 +236,7 @@ describe('the action follows the state', () => {
     await expect.element(page.getByTestId('feature-dismiss')).toBeInTheDocument();
   });
 
-  it('never draws Build over a live run: the current state names the run as a row that opens it (Chris, 2026-09-29)', async () => {
+  it('never draws Build over a live run: the Now line names the run and opens it (Chris, 2026-09-29/30)', async () => {
     await page.viewport(1440, 900);
     await draw(proposal({
       tasks: [{ id: 77, title: 'Room PDF export', status: 'running', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41 } }],
@@ -247,12 +247,18 @@ describe('the action follows the state', () => {
     // The row is the move: no second "View progress" button beside it.
     expect(document.querySelector('[data-testid="report-primary-action"]')).toBeNull();
 
-    const row = page.getByTestId('report-active-run-row');
+    // The Now line says what runs, its step, and opens the run (2026-09-30).
+    const now = page.getByTestId('work-status-now');
 
-    await expect.element(row).toHaveTextContent('Running');
-    await expect.element(row).toHaveTextContent('Run #503');
-    await expect.element(row).toHaveTextContent('attempt 1 of 1');
-    expect(row.element().getAttribute('data-preview-key')).toBe('worker_run:503');
+    await expect.element(now).toHaveTextContent('Engineer building');
+    await expect.element(now).toHaveTextContent('Running the checks');
+    await expect.element(page.getByTestId('work-status-you')).toHaveTextContent('Nothing needs you');
+    await expect.element(page.getByTestId('work-status-next')).toHaveTextContent('QA checks it');
+
+    const run = page.getByTestId('work-status-run');
+
+    await expect.element(run).toHaveTextContent('Run #503');
+    expect(run.element().getAttribute('data-preview-key')).toBe('worker_run:503');
     await expect.element(page.getByTestId('report-status')).toHaveTextContent('Current state');
     // The Implementation lists the live run as a row too.
     expect(document.querySelector('[data-testid="report-runs"] [data-run-row="503"][data-live="true"]')).not.toBeNull();
@@ -281,7 +287,7 @@ describe('the action follows the state', () => {
 
     await page.getByTestId('feature-build').click();
 
-    await expect.element(page.getByTestId('report-headline')).toHaveTextContent('Building');
+    await expect.element(page.getByTestId('report-headline')).toHaveTextContent('Waiting for a worker');
     await expect.element(page.getByTestId('report-status-sentence')).toHaveTextContent('Queued for the engineer just now.');
 
     await page.getByRole('button', { name: 'Undo' }).click();

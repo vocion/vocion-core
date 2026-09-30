@@ -215,8 +215,14 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
       const { recordBody } = await import('@/services/objects/recordBody');
       const bodyRow = await recordBody(ctx.orgId, obj.id).catch(() => null);
       const historyLink = bodyRow ? `[History — v${bodyRow.currentVersion}](?preview=${encodeURIComponent(`record_history:${obj.id}`)})` : '';
+      // WHERE IT IS, at the top — the same three lines its page draws, for
+      // a record whose type has a report page. A status that cannot be read
+      // leaves the preview as it was rather than failing it.
+      const { loadRecordStatus } = await import('@/services/objects/recordStatus');
+      const status = await loadRecordStatus(ctx.orgId, obj.id).catch(() => null);
       return {
         ref,
+        ...(status?.ok ? { status: status.status } : {}),
         title: obj.title,
         sourceLabel: obj.type?.label ?? 'Record',
         facts: facts(...parts.facts, obj.status && { label: 'Status', value: obj.status }, bodyRow && { label: 'Version', value: `v${bodyRow.currentVersion}` }),

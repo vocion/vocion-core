@@ -65,9 +65,12 @@ const FieldSchema = z.object({
    * `{phase, note}` object as "phase · note" (any other object as its
    * primitive entries), so coarse progress reads as a sentence, not JSON.
    * `duration` reads an integer number of seconds as "18m 25s", because a
-   * run's length is the thing being compared and `1105` is not.
+   * run's length is the thing being compared and `1105` is not. `live`
+   * reads a `{line, live}` object — what is running for the row right now
+   * (`libs/factory/liveStatus.ts`) — as that line behind a status dot that
+   * breathes while something runs.
    */
-  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'icon', 'money', 'link', 'relative', 'progress', 'steps', 'duration', 'compare', 'workload']).default('text'),
+  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'icon', 'money', 'link', 'relative', 'progress', 'steps', 'duration', 'compare', 'workload', 'live']).default('text'),
   /**
    * For `format: compare`, the figure ours is read against and who it
    * belongs to. Our price beside the incumbent's is one fact, not four

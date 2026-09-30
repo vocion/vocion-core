@@ -1,6 +1,7 @@
 import type React from 'react';
 import type { PageField, PageRow } from '@/libs/workspace/pageFields';
 import { createElement } from 'react';
+import { StatusDot } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
 import { iconByName } from '@/features/dashboard/iconByName';
@@ -259,6 +260,13 @@ function FieldBody({ row, field, now, links }: { row: PageRow; field: PageField;
     return field.format === 'badge'
       ? <span className="text-xs text-muted-foreground" title={`${field.label ?? field.key}: not recorded`}>not recorded</span>
       : <EmptyValue field={field} />;
+  }
+  // What is running for the row right now: the line, a dot that breathes
+  // while something runs (`deriveWorkQueue` → `meta.now`).
+  if (field.format === 'live' && typeof raw === 'object' && raw !== null && 'line' in raw) {
+    const now = raw as { line: unknown; live?: unknown };
+    const live = now.live === true;
+    return <StatusDot tone={live ? 'amber' : 'neutral'} pulse={live} label={<span className={live ? 'text-foreground' : undefined} data-testid="row-now">{String(now.line)}</span>} />;
   }
   const s = String(raw);
   switch (field.format) {
