@@ -97,6 +97,63 @@ async function propose(orgId: string, actionId: string, input: Meta, env: { conf
 }
 
 /**
+ * The same proposal, as the person: their own action, so it runs with Undo
+ * and puts no card in front of them. Only for a step the person told the
+ * factory to take in their own words (`personSaidTo`).
+ * @param orgId - Tenant.
+ * @param userId - The person whose word it is.
+ * @param conversationId - Where they said it.
+ * @param actionId - The action.
+ * @param input - Its input.
+ * @param env - The envelope, as `propose` takes it.
+ * @param env.confidence - How sure the factory is.
+ * @param env.rationale - Why the payload is right.
+ * @param env.reason - Why it should be approved.
+ */
+async function proposeAsPerson(orgId: string, userId: string, conversationId: number, actionId: string, input: Meta, env: { confidence: number; rationale: string; reason: string }): Promise<{ ok: true; res: ProposeResult } | { ok: false; error: string }> {
+  try {
+    const { proposeAction } = await import('@/services/ActionService');
+    const res = await proposeAction({
+      orgId,
+      actionId,
+      input,
+      principal: { kind: 'user', id: userId, role: 'member', scope: { orgId } },
+      invokedBy: userId,
+      origin: { conversationId, userId, byPerson: true },
+      proposal: { confidence: env.confidence, rationale: env.rationale, agentSlug: PM, suggestedDecision: 'approve', suggestedDecisionReason: env.reason },
+    });
+    return { ok: true, res };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Whether the person who filed this in a conversation told the factory, in
+ * their own words, to take this step, read by a model (`saidToDecide`),
+ * never matched. Conversation 398 (2026-09-30): "Please file it and build it."
+ * filed #277 and then put its Build card in front of the same person.
+ * @param orgId - Tenant.
+ * @param conversationId - The conversation the record was filed from.
+ * @param decision - The step, in words the read can check their message against.
+ */
+async function personSaidTo(orgId: string, conversationId: number, decision: string): Promise<{ userId: string; quote: string | null } | null> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { conversationSchema } = await import('@/models/Schema');
+  const [conversation] = await db.select({ createdBy: conversationSchema.createdBy }).from(conversationSchema).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId))).limit(1);
+  const userId = conversation?.createdBy?.trim();
+  const { decidedByMachine } = await import('@/libs/actions/decider');
+  if (!userId || decidedByMachine(userId)) {
+    return null;
+  }
+  const { personMessages } = await import('@/services/agents/owedDecision');
+  const { saidToDecide } = await import('@/services/agents/turnJudge');
+  const said = await saidToDecide({ orgId, messages: await personMessages({ orgId, conversationId }), decision });
+  return said.said ? { userId, quote: said.quote } : null;
+}
+
+/**
  * Read the request fresh, change its recovery state, write it back. Fresh
  * every time, because a dispatch this step proposed has written it since.
  * @param orgId - Tenant.
@@ -589,6 +646,28 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
       : out.res.status === 'pending' ? `Filed; the build is on a card for a person (action #${out.res.runId}): ${decision.why}.` : `Filed and started on its own: ${decision.why}.`;
     await updateRecovery(orgId, id, s => logLine(s, line, at));
     return { requestId: id, did: out.ok ? `start:${out.res.status}` : 'start:refused', line };
+  }
+  // THE PERSON'S WORD RUNS. Filed in their conversation and told to build
+  // it: the build is theirs, started now with Undo, not a card for them.
+  const conversationId = typeof payload.conversationId === 'number' ? payload.conversationId : null;
+  const toldToBuild = payload.byPerson === true && conversationId !== null
+    ? await personSaidTo(orgId, conversationId, `build request #${id} "${request.title}" now (start the engineering build)`).catch(() => null)
+    : null;
+  if (toldToBuild && conversationId !== null) {
+    const started = await proposeAsPerson(orgId, toldToBuild.userId, conversationId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), reason: `Build it, as the person asked: ${decision.why}.` }, {
+      confidence: 0.9,
+      rationale: `The person asked for the build in the conversation that filed it${toldToBuild.quote ? ` ("${toldToBuild.quote.slice(0, 160)}")` : ''}.`,
+      reason: 'Asked for in the person\'s own words; Undo cancels it until a worker claims it.',
+    });
+    if (started.ok && started.res.status !== 'pending') {
+      const line = `Filed and started, as you asked: ${decision.why}.`;
+      await updateRecovery(orgId, id, s => logLine(s, line, at));
+      return { requestId: id, did: `start:${started.res.status}:person`, line };
+    }
+    // Refused or held: the Build card below still carries it, and says why.
+    if (!started.ok) {
+      await updateRecovery(orgId, id, s => logLine(s, `You asked for the build; it could not start on its own: ${started.error}`, at));
+    }
   }
   const out = await propose(orgId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), reason: `Ready to build: ${decision.why}.` }, {
     confidence: 0.5,

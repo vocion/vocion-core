@@ -10,9 +10,15 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+// The consent read is a model's; each test says what it found.
+const consent = vi.hoisted(() => ({ said: false }));
+vi.mock('@/services/agents/turnJudge', async original => ({
+  ...(await original<typeof import('@/services/agents/turnJudge')>()),
+  saidToDecide: vi.fn(async () => ({ said: consent.said, quote: consent.said ? 'Please file it and build it.' : null })),
+}));
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, agentSchema, askSchema, automationRunSchema, automationSchema, businessObjectSchema, eventLogSchema, toolCallSchema, trustRuleSchema, workerRunSchema, workspaceVersionSchema } = await import('@/models/Schema');
+const { actionRunSchema, agentSchema, askSchema, conversationMessageSchema, conversationSchema, automationRunSchema, automationSchema, businessObjectSchema, eventLogSchema, toolCallSchema, trustRuleSchema, workerRunSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { createObjectType, getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
 const carry = await import('./carry');
@@ -109,6 +115,36 @@ describe('filing starts the work', () => {
     const [dispatch] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.actionId, 'factory.dispatch_task')));
 
     expect(dispatch?.approvedByAgent).toBe(true);
+  });
+
+  it('builds on the person\'s word: told in the filing conversation to build it, the build is theirs, with no card (conversation 398)', async () => {
+    const r = await request({ kind: 'feature', severity: undefined, product: 'rooms', title: 'Show when a room was last opened' });
+    const [conversation] = await db.insert(conversationSchema).values({ orgId: ORG, agentSlug: 'product-manager', title: 'last opened', createdBy: 'user-dana' } as never).returning();
+    await db.insert(conversationMessageSchema).values({ conversationId: conversation!.id, role: 'user', content: 'Add a last-opened line to the room page. Please file it and build it.' } as never);
+    consent.said = true;
+
+    const out = await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: conversation!.id, byPerson: true });
+    consent.said = false;
+
+    expect(out.did).toMatch(/^start:.*:person$/);
+    expect(out.line).toMatch(/^Filed and started, as you asked/);
+
+    const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.actionId, 'factory.dispatch_task'))).orderBy(actionRunSchema.id);
+    const mine = (await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).filter(a => (a.input as { requestId?: number }).requestId === r.id);
+
+    expect(run).toBeDefined();
+    expect(mine.some(a => a.invokedBy === 'user-dana' && a.status !== 'pending')).toBe(true);
+    expect(mine.some(a => a.status === 'pending')).toBe(false);
+  });
+
+  it('still files the Build card when the person asked only to file it', async () => {
+    const r = await request({ kind: 'feature', severity: undefined, product: 'rooms', title: 'Show who last opened a room' });
+    const [conversation] = await db.insert(conversationSchema).values({ orgId: ORG, agentSlug: 'product-manager', title: 'who opened', createdBy: 'user-dana' } as never).returning();
+    await db.insert(conversationMessageSchema).values({ conversationId: conversation!.id, role: 'user', content: 'File a request for this, I will look later.' } as never);
+
+    const out = await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: conversation!.id, byPerson: true });
+
+    expect(out.did).toBe('card:pending');
   });
 
   it('files the Build card for a request nobody asked for in a conversation', async () => {
