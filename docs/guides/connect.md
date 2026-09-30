@@ -36,24 +36,31 @@ person clicks Connect with Slack
 - **Start** is gated exactly like pasting a key: a signed-in workspace admin.
   It refuses a source the provider does not connect (a `strapi` source cannot
   start a Slack connect), and refuses with the env var names when the server
-  is not configured.
+  is not configured. It also fails closed when `AUTH_SECRET` or
+  `NEXT_PUBLIC_APP_URL` is unset: the callback URL is derived from the
+  configured origin only, never from a request's Host header.
 - **State** is `base64url(payload).hex(HMAC-SHA256(payload))`, keyed with
   `AUTH_SECRET`. The payload is `{ v: 1, provider, orgId, sourceSlug, userId,
   nonce, exp }` with a ten-minute expiry. The callback trusts nothing else:
   a state that fails its signature, is expired, names another provider, or
-  names an org other than the one the person is signed into is refused with a
-  short code, and no exchange is attempted.
+  names an org or a person other than the admin signed in is refused with a
+  short code (`state_expired`, `wrong_workspace`, `wrong_person`, `not_admin`,
+  `signed_out`), and no exchange is attempted.
 - **Exchange** is the provider's. It gets every query parameter but `state`
   and this deployment's callback URL, and returns either a credential bag
   with a display name, or a refusal reason.
 - **Storage** is `storeCredentialForSource`: the bag is AES-256-GCM encrypted
-  under the workspace's key and attached to the source's install, the same row
-  a pasted token would land in, so the connector reads it the same way. If the
-  source had been pointed at a pasted workspace credential, that link is
-  cleared so the grant just stored is what resolves.
+  under the workspace's key and attached to the workspace's install of the
+  **connector** (`config._connector`), the same row a pasted token lands in
+  and the row sync resolves. One grant serves every source of that kind in
+  the workspace: connect Slack once and every `slack` source reads with it.
+  If the source that started the connect had been pointed at a pasted
+  workspace credential, that link is cleared so the grant is what resolves.
 - **Landing** carries only `connect=ok|error`, a short `reason` code, and the
-  source slug. Nothing the vendor sent — no code, no token, no error text —
-  is written into a URL or a log line.
+  source slug. A code, a token or free text from the vendor never reaches a
+  URL or a log line; a vendor's refusal reaches the landing URL only as its
+  short error code (`access_denied`, `invalid_code`), sanitized to
+  `[a-z0-9_.-]`.
 
 The callback URL a vendor must be told is:
 
@@ -93,6 +100,6 @@ refusal reasons are short codes a person can be shown.
   this flow does not request.
 - **Revoke at the vendor.** Revoking a credential in Vocion stops Vocion using
   it; it does not uninstall the app at the vendor.
-- **Workspace-level grants.** The credential lands on the source's install, as
-  Google's grant does today, not on the workspace credential list. Two sources
-  connecting to the same Slack workspace each authorize once.
+- **Workspace-level grants.** The credential lands on the connector's install,
+  as Google's grant does today, not on the workspace credential list, so it
+  is not rotated or revoked from API credentials.

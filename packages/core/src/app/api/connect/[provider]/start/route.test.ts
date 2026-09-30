@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn(), clearLinkedCredential: vi.fn() }));
 vi.mock('@/libs/connect/state', () => ({ signState: vi.fn(() => 'signed.state') }));
+const env: Record<string, string | undefined> = {};
+vi.mock('@/libs/Env', () => ({ Env: env }));
 
 const configured = { value: true };
 vi.mock('@/libs/connect/registry', () => {
@@ -51,6 +53,8 @@ function context(provider = 'slack') {
 beforeEach(() => {
   vi.clearAllMocks();
   configured.value = true;
+  env.AUTH_SECRET = 'secret';
+  env.NEXT_PUBLIC_APP_URL = 'https://agents.example';
   vi.mocked(clerkAuth).mockResolvedValue(admin);
   vi.mocked(findSourceBySlug).mockResolvedValue({ id: 7, slug: 'slack', connectorSlug: 'slack' });
 });
@@ -96,6 +100,28 @@ describe('GET /api/connect/[provider]/start', () => {
     await expect(res.json()).resolves.toEqual({
       error: 'Connecting with Slack needs SLACK_CLIENT_ID, SLACK_CLIENT_SECRET on the server.',
     });
+  });
+
+  it('fails closed when the server cannot sign a state or name its own origin', async () => {
+    env.AUTH_SECRET = undefined;
+    env.NEXT_PUBLIC_APP_URL = undefined;
+
+    const res = await GET(request(), context());
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'Connecting at a vendor needs AUTH_SECRET, NEXT_PUBLIC_APP_URL on the server.' });
+    expect(signState).not.toHaveBeenCalled();
+  });
+
+  it('never builds the redirect_uri from the request host', async () => {
+    env.NEXT_PUBLIC_APP_URL = 'https://configured.example';
+
+    const res = await GET(
+      new NextRequest('https://evil.example/api/connect/slack/start?source=slack', { headers: { 'host': 'evil.example', 'x-forwarded-host': 'evil.example' } }),
+      context(),
+    );
+
+    expect(res.headers.get('location')).toContain(encodeURIComponent('https://configured.example/api/connect/slack/callback'));
   });
 
   it('sends an admin to the vendor with a state bound to org, source and person', async () => {

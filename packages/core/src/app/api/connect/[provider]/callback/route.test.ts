@@ -5,6 +5,8 @@ vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn(), clearLinkedCredential: vi.fn() }));
 vi.mock('@/libs/connect/state', () => ({ verifyState: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({ storeCredentialForSource: vi.fn() }));
+const env: Record<string, string | undefined> = {};
+vi.mock('@/libs/Env', () => ({ Env: env }));
 
 const exchange = vi.fn();
 vi.mock('@/libs/connect/registry', () => {
@@ -39,7 +41,7 @@ const admin = {
   has: () => true,
 };
 
-const payload = { v: 1 as const, provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', userId: 'user_1', nonce: 'n', exp: 1 };
+const payload = { v: 1 as const, provider: 'slack', orgId: 'org_1', sourceSlug: 'slack-1727000000', userId: 'user_1', nonce: 'n', exp: 1 };
 
 function request(query = '?code=c0de&state=signed.state') {
   return new NextRequest(`https://agents.example/api/connect/slack/callback${query}`, {
@@ -51,16 +53,17 @@ function context(provider = 'slack') {
   return { params: Promise.resolve({ provider }) };
 }
 
-function landing(res: Response) {
+function landing(res: Response): { path: string; connect?: string; reason?: string; source?: string } {
   const url = new URL(res.headers.get('location')!);
   return { path: url.pathname, ...Object.fromEntries(url.searchParams) };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  env.NEXT_PUBLIC_APP_URL = 'https://agents.example';
   vi.mocked(clerkAuth).mockResolvedValue(admin);
   vi.mocked(verifyState).mockReturnValue({ ok: true, payload });
-  vi.mocked(findSourceBySlug).mockResolvedValue({ id: 7, slug: 'slack', connectorSlug: 'slack' });
+  vi.mocked(findSourceBySlug).mockResolvedValue({ id: 7, slug: 'slack-1727000000', connectorSlug: 'slack' });
   exchange.mockResolvedValue({ ok: true, credentials: { token: 'xoxb-1', teamId: 'T1' }, displayName: 'Slack — Noco' });
   vi.mocked(storeCredentialForSource).mockResolvedValue({ installId: 1, credentialId: 2 });
 });
@@ -81,7 +84,7 @@ describe('GET /api/connect/[provider]/callback', () => {
 
     const res = await GET(request(), context());
 
-    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'wrong_workspace', source: 'slack' });
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'wrong_workspace', source: 'slack-1727000000' });
     expect(exchange).not.toHaveBeenCalled();
     expect(storeCredentialForSource).not.toHaveBeenCalled();
   });
@@ -91,7 +94,7 @@ describe('GET /api/connect/[provider]/callback', () => {
 
     const res = await GET(request(), context());
 
-    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'invalid_code', source: 'slack' });
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'invalid_code', source: 'slack-1727000000' });
     expect(storeCredentialForSource).not.toHaveBeenCalled();
   });
 
@@ -104,19 +107,60 @@ describe('GET /api/connect/[provider]/callback', () => {
     });
   });
 
-  it('stores the bag on the source, forgets a pasted link, and lands with ok', async () => {
+  it('stores the bag under the CONNECTOR, where sync reads it, not the source row\'s own slug', async () => {
+    // A source made in the UI is `slack-<timestamp>`; sync resolves the
+    // install by config._connector (`slack`). Storing under the row's slug
+    // would put the grant where nothing reads it.
     const res = await GET(request(), context());
 
     expect(storeCredentialForSource).toHaveBeenCalledWith({
       orgId: 'org_1',
       sourceSlug: 'slack',
       raw: { token: 'xoxb-1', teamId: 'T1' },
-      displayName: 'Slack — Noco',
+      displayName: 'Slack — Noco (slack-1727000000)',
       userId: 'user_1',
     });
     expect(clearLinkedCredential).toHaveBeenCalledWith('org_1', 7);
     expect(res.status).toBe(303);
-    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', source: 'slack' });
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', source: 'slack-1727000000' });
+  });
+
+  it('refuses a signed-out person with its own code, so the message can say to sign in', async () => {
+    vi.mocked(clerkAuth).mockResolvedValue({ ...admin, orgId: null, userId: null, role: null });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res).reason).toBe('signed_out');
+    expect(exchange).not.toHaveBeenCalled();
+  });
+
+  it('refuses a state started by another person, even in the same workspace', async () => {
+    vi.mocked(clerkAuth).mockResolvedValue({ ...admin, userId: 'user_2' });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res).reason).toBe('wrong_person');
+    expect(exchange).not.toHaveBeenCalled();
+  });
+
+  it('refuses a member who somehow holds an admin\'s state', async () => {
+    vi.mocked(clerkAuth).mockResolvedValue({ ...admin, role: 'member' });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res).reason).toBe('not_admin');
+    expect(storeCredentialForSource).not.toHaveBeenCalled();
+  });
+
+  it('lands with a code instead of a 500 when AUTH_SECRET is unset and verify throws', async () => {
+    vi.mocked(verifyState).mockImplementation(() => {
+      throw new Error('AUTH_SECRET is required to sign a connect state');
+    });
+
+    const res = await GET(request(), context());
+
+    expect(res.status).toBe(303);
+    expect(landing(res).reason).toBe('server_unconfigured');
   });
 
   it('never puts the vendor code in the landing URL, even when storing fails', async () => {
@@ -126,6 +170,6 @@ describe('GET /api/connect/[provider]/callback', () => {
     const location = res.headers.get('location')!;
 
     expect(location).not.toContain('c0de');
-    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'store_failed', source: 'slack' });
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'store_failed', source: 'slack-1727000000' });
   });
 });
