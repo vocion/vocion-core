@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { isPubliclyFetchable, postSlackReply, resetSlackScopeCache, slackBlocks, uploadSlackImages } from './slack';
+import { deleteSlackPost, isPubliclyFetchable, postSlackReply, resetSlackScopeCache, slackBlocks, uploadSlackImages } from './slack';
 
 /**
  * The media ladder, against a mocked Slack API. Verified on the live app
@@ -77,6 +77,8 @@ describe('postSlackReply media ladder', () => {
     );
 
     expect(ref?.media).toBe('uploaded');
+    // An upload posts the message itself; its files are the only handle to take it back.
+    expect(ref?.fileIds).toEqual(['F1']);
     expect(calls.map(c => c.url)).toEqual([
       `${BASE}/files.getUploadURLExternal`,
       'https://files.slack.test/upload/1',
@@ -169,5 +171,23 @@ describe('uploadSlackImages', () => {
     );
 
     expect(result).toEqual({ ok: false, error: 'missing_scope' });
+  });
+});
+
+describe('deleteSlackPost', () => {
+  it('deletes the message by its ts and each uploaded file, and counts one already gone as done', async () => {
+    const { calls, impl } = slackMock({ 'files.delete': { ok: false, error: 'file_not_found' } });
+
+    expect(await deleteSlackPost({ channelId: 'C1', ts: '900.1', fileIds: ['F1'] }, 'xoxb-test', BASE, impl)).toEqual({ ok: true });
+    expect(calls.map(c => [c.url.split('/').pop(), c.body])).toEqual([
+      ['chat.delete', { channel: 'C1', ts: '900.1' }],
+      ['files.delete', { file: 'F1' }],
+    ]);
+  });
+
+  it('says why when Slack will not delete it', async () => {
+    const { impl } = slackMock({ 'chat.delete': { ok: false, error: 'cant_delete_message' } });
+
+    expect(await deleteSlackPost({ channelId: 'C1', ts: '900.1' }, 'xoxb-test', BASE, impl)).toEqual({ ok: false, error: 'cant_delete_message' });
   });
 });

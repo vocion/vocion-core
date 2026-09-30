@@ -9,6 +9,7 @@ import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { Link } from '@/libs/I18nNavigation';
+import { ReleaseAnnouncePublish } from './ReleaseAnnouncePublish';
 
 /**
  * One release's page, drawn — `/dashboard/p/releases/<id>`.
@@ -157,7 +158,9 @@ function Links({ items }: { items: ReleaseLink[] }) {
  */
 export function ReleaseDetailView({ report, recordPage, backHref, related = [] }: { report: ReleaseReport; recordPage?: PageRecordPage; backHref: string; related?: readonly RelatedItem[] }) {
   const a = report.announcement;
-  const ask: PagePrompt | undefined = a.action && !a.blocked ? recordPage?.actions[a.action] : undefined;
+  // Publishing is one press on the page (`ReleaseAnnouncePublish`), not a chat
+  // that files a card; drafting and reviewing the words stay the PM's prompts.
+  const ask: PagePrompt | undefined = a.action && a.action !== 'publish' ? recordPage?.actions[a.action] : undefined;
   return (
     <DetailPage
       data-testid="release-detail"
@@ -257,8 +260,11 @@ export function ReleaseDetailView({ report, recordPage, backHref, related = [] }
           {a.reason && <p className="mt-2 text-[13px] text-muted-foreground">{a.reason}</p>}
           {a.state === 'not-prepared' && <p className="mt-2 text-[13px] text-muted-foreground">Nothing has been written for the people who use it yet.</p>}
           {a.requesters && <p className="mt-2 text-[13px] text-muted-foreground">{a.requesters}</p>}
-          {a.blocked && <p className="mt-2 text-[13px] text-[var(--brand-fail)]">{a.blocked}</p>}
+          {a.blocked && <div className="mt-2 text-[13px]" data-testid="release-announcement-advice"><StatusDot tone="amber" label={a.blocked} /></div>}
+          {a.failure && <p className="mt-2 text-[13px] text-[var(--brand-fail)]" data-testid="release-announcement-failure">{a.failure}</p>}
           {ask && <div className="mt-3"><PagePrompts prompts={[ask]} page={report.title} record={{ type: 'object', id: String(report.id), label: report.title, href: `${backHref}/${report.id}` }} /></div>}
+          {a.publish && <ReleaseAnnouncePublish releaseId={report.id} title={report.title} text={a.text} imageUrl={a.image?.url ?? null} mode={a.publish.mode} />}
+          {!a.publish && a.state === 'published' && a.post?.runId && <ReleaseAnnouncePublish releaseId={report.id} title={report.title} text={a.text} imageUrl={a.image?.url ?? null} mode="published" runId={a.post.runId} />}
         </div>
       </Section>
 

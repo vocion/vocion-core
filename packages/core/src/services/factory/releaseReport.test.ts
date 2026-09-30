@@ -130,11 +130,29 @@ describe('the release page', () => {
 
     const heldDown = report({ ...RELEASE, meta: { ...RELEASE.meta, announcement: 'Uploads resume.', notesSource: 'human', healthAfter: 'down' } }).announcement;
 
+    // A check informs; the press stays (principle 13).
     expect(heldDown.blocked).toContain('down');
+    expect(heldDown.publish).toEqual({ mode: 'copy' });
 
     const published = report({ ...RELEASE, meta: { ...RELEASE.meta, announcement: 'Uploads resume.', announcedAt: '2026-09-28T10:00:00Z', announcedTo: { channels: ['changelog', 'status page'] } } }).announcement;
 
     expect(published).toMatchObject({ state: 'published', action: null, publishedLine: 'Published Mon, Sep 28, 2026, 10:00 AM UTC to changelog, status page' });
+    expect(published.publish).toBeNull();
+  });
+
+  it('publishes in one press where it can: Slack with a connection, else a copy; a failed post says why', () => {
+    const approved = { ...RELEASE, meta: { ...RELEASE.meta, announcement: 'Uploads resume.', notesSource: 'human' } };
+
+    expect(report().announcement.publish).toBeNull();
+    expect(assembleReleaseReport(approved, { linked: LINKED, now: NOW, timeZone: 'UTC', announceMode: 'slack' }).announcement.publish).toEqual({ mode: 'slack' });
+
+    const failed = assembleReleaseReport({ ...approved, meta: { ...approved.meta, announceFailure: { at: '2026-09-28T09:00:00Z', error: 'Slack refused the post: not_in_channel.' } } }, { linked: LINKED, now: NOW, timeZone: 'UTC' }).announcement;
+
+    expect(failed.failure).toBe('Not published (Mon, Sep 28, 2026, 9:00 AM UTC): Slack refused the post: not_in_channel.');
+
+    const posted = assembleReleaseReport({ ...approved, meta: { ...approved.meta, announcedAt: '2026-09-28T10:00:00Z', announcedTo: { channels: ['Slack'], post: { surface: 'slack', channelId: 'C0NW', ts: '1.2', fileIds: [], media: 'blocks', runId: 88 } } } }, { linked: LINKED, now: NOW, timeZone: 'UTC' }).announcement;
+
+    expect(posted).toMatchObject({ state: 'published', publish: null, post: { surface: 'slack', runId: 88 }, failure: null });
   });
 
   it('says why an internal release needs no announcement', () => {

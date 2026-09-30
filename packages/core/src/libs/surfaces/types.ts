@@ -78,7 +78,16 @@ export type ChatPostRef = {
   threadRef?: string;
   /** How the images were carried, so a caller can say so honestly. */
   media?: 'none' | 'uploaded' | 'blocks' | 'unreachable';
+  /**
+   * The files an upload created, when the images were uploaded. An upload
+   * posts the message itself and hands back no `ts`, so these are the only
+   * handle a caller has to take the post back (`deleteSlackPost`).
+   */
+  fileIds?: string[];
 };
+
+/** Reads the bytes behind an image, so an adapter can upload one that sits behind our sign-in. */
+export type ChatImageFetcher = (image: ChatImage) => Promise<Uint8Array | null>;
 
 /**
  * Where a reply goes, and the face it wears. The persona fields are optional
@@ -111,5 +120,5 @@ export type ChatSurfaceAdapter = {
    * so the caller can record what we said (`slack_post`), or null when the
    * platform did not say.
    */
-  reply: (target: ChatReplyTarget, message: string | ChatMessage) => Promise<ChatPostRef | null>;
+  reply: (target: ChatReplyTarget, message: string | ChatMessage, opts?: { fetchImage?: ChatImageFetcher }) => Promise<ChatPostRef | null>;
 };

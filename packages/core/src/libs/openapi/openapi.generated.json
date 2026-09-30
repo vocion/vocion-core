@@ -4366,6 +4366,130 @@
         ]
       }
     },
+    "/api/v1/objects/{id}/announce": {
+      "get": {
+        "operationId": "get_objects_id_announce",
+        "summary": "A release's announcement as it would be published: the words, the live screenshot it leads with (`image.url`, null when the release has none) and where publish…",
+        "tags": [
+          "objects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "A release's announcement as it would be published: the words, the live\nscreenshot it leads with (`image.url`, null when the release has none) and\nwhere publishing sends it (`mode`: `slack` when the workspace has a Slack\nconnection, else `copy`).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post_objects_id_announce",
+        "summary": "Publish a release's announcement, with its picture, to the workspace's Slack channel — `release.announce`, proposed as the caller.",
+        "tags": [
+          "objects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Publish a release's announcement, with its picture, to the workspace's\nSlack channel — `release.announce`, proposed as the caller. A person's own\npress runs at once (their action, with Undo on the run); a token's rides\nthe trust ladder and may come back `pending`. The words and the picture\nare read off the release, never from the request. A failed post is\nwritten on the release and returned as `error`.\n\nReturns `{ runId, status, line, error }`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/objects/{id}/external-ref": {
       "post": {
         "operationId": "post_objects_id_external_ref",

@@ -68,8 +68,12 @@ notes a person owns.
 One or two sentences from the owned notes — what people can now do, in the
 product's voice — that a store listing, a status page or a chat channel can
 carry whole. Written to `announcement`. Releasing it is the **`release.announce`**
-action: proposed, decided by a person, and when it runs, `announcedAt` and
-`announcedTo.channels` are written. Telling each asker that their request
+action (it carries the release's `releaseId`): a person's press on the release
+page, or a card a person approves, posts the words to the workspace's Slack
+channel with the live screenshot (`announcementImageArtifactId`) uploaded beside
+them, and writes `announcedAt` and `announcedTo.channels`; Undo deletes the post.
+Without a Slack connection the page copies it as rich text with the picture.
+Never propose it for a release a person can publish from its page. Telling each asker that their request
 shipped is one **`notify.requester`** per request, on the channel they used,
 and each id lands in `announcedTo.requestIds` when the reply goes.
 

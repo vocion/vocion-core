@@ -180,6 +180,18 @@ schema:
       properties:
         channels: {type: array, items: {type: string}}
         requestIds: {type: array, items: {type: integer}}
+        # Where a press on the release page posted it (core:
+        # services/factory/releaseAnnounce.ts), so Undo can take it back.
+        # `{surface, channelId, ts, fileIds, media, runId}`.
+        post: {type: object}
+    announceFailure:
+      x-display: {label: Last publish failed, group: Telling people}
+      type: object
+      description: Why the last press to publish the announcement did not post it — written by the post that failed, shown on the release page where the person pressed, and cleared by the next post that lands.
+      properties:
+        at: {type: string, format: date-time}
+        error: {type: string}
+        surface: {type: string}
 # What rolls up onto a release: the tasks it lists in `taskIds`. Same
 # mechanism as the request's, linked the other way round — the parent names
 # its children.

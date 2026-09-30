@@ -226,13 +226,52 @@ export const credentialsWriteAction = manualAction({
   grant: 'factory_write',
 });
 
-export const releaseAnnounceAction = manualAction({
+const releaseAnnounceHandoff = manualAction({
   id: 'release.announce',
   name: 'Announce a release',
-  description: 'Publish release notes or a changelog entry under the company\'s name — a blog post, a changelog page, a customer email. A wrong one cannot be unsent. Hand-off: a person publishes and marks it done with the URL.',
+  description: 'Publish a release\'s announcement under the company\'s name, with the live screenshot it leads with: posted to the workspace\'s Slack channel (the picture uploaded with it). Carries the release\'s id; the words and the picture are read off the release, never from the proposal. Undo deletes the post.',
   system: 'Release',
   grant: 'factory_write',
+  extend: {
+    /** The release whose announcement this publishes. Its words and picture are read off the record at execution. */
+    releaseId: z.number().int().positive(),
+  },
+  extraFields: input => [{ label: 'Release', value: `#${input.releaseId}` }],
 });
+
+/**
+ * ONE PRESS, WITH ITS PICTURE (backlog 043). Publishing is performed here,
+ * not handed off: a person's press on the release page (their own action) or
+ * an approved card posts the announcement to the workspace's Slack channel
+ * with the live screenshot uploaded beside it, and records where it landed on
+ * the release (`services/factory/releaseAnnounce.ts`). Undo deletes the post.
+ * A workspace with no Slack connection publishes by copy from the page, which
+ * runs nothing here.
+ */
+export const releaseAnnounceAction: Action = {
+  ...releaseAnnounceHandoff,
+  manual: undefined,
+  external: true,
+  async reviewCard(ctx, raw) {
+    const card = await releaseAnnounceHandoff.reviewCard!(ctx, raw);
+    return { ...card, nextAction: 'Approving posts the announcement to the workspace\'s Slack channel now, with its picture. Undo deletes the post.', verbs: { approve: 'Publish', reject: 'Hold' } };
+  },
+  async execute(ctx, raw) {
+    const input = raw as { releaseId: number };
+    const { publishAnnouncementToSlack } = await import('@/services/factory/releaseAnnounce');
+    const { post, line } = await publishAnnouncementToSlack({ orgId: ctx.orgId, releaseId: input.releaseId, runId: ctx.runId ?? null, by: ctx.reviewedBy ?? ctx.invokedBy ?? null });
+    return { published: true, releaseId: input.releaseId, post, line };
+  },
+  async undo(ctx, raw, result) {
+    const input = raw as { releaseId: number };
+    const post = (result?.post ?? null) as { channelId?: string; ts?: string | null; fileIds?: string[] } | null;
+    if (!post?.channelId) {
+      throw new Error('This run recorded no post, so there is nothing to take back.');
+    }
+    const { unpublishAnnouncement } = await import('@/services/factory/releaseAnnounce');
+    return unpublishAnnouncement(ctx.orgId, input.releaseId, { channelId: post.channelId, ts: post.ts ?? null, fileIds: post.fileIds ?? [] });
+  },
+};
 
 /**
  * Telling the asker is two different things (review, 2026-09-24). A routine,

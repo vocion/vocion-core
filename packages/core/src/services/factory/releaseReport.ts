@@ -52,6 +52,35 @@ function announcementImage(meta: Record<string, unknown>, artifacts: ReleaseArti
 }
 
 /**
+ * The post a press published, as the release recorded it (`announcedTo.post`).
+ * @param meta - The release's metadata.
+ */
+function announcedPost(meta: Record<string, unknown>): { surface: 'slack'; runId: number | null } | null {
+  const to = meta.announcedTo && typeof meta.announcedTo === 'object' ? meta.announcedTo as Record<string, unknown> : {};
+  const post = to.post && typeof to.post === 'object' ? to.post as Record<string, unknown> : null;
+  if (!post || post.surface !== 'slack') {
+    return null;
+  }
+  const runId = Number(post.runId);
+  return { surface: 'slack', runId: Number.isSafeInteger(runId) && runId > 0 ? runId : null };
+}
+
+/**
+ * Why the last press did not publish, with when (`announceFailure`).
+ * @param meta - The release's metadata.
+ * @param tz - The workspace's zone.
+ */
+function announceFailure(meta: Record<string, unknown>, tz: string): string | null {
+  const f = meta.announceFailure && typeof meta.announceFailure === 'object' ? meta.announceFailure as Record<string, unknown> : null;
+  const error = f ? str(f.error) : null;
+  if (!error) {
+    return null;
+  }
+  const at = when(f!.at, tz);
+  return `Not published${at ? ` (${at})` : ''}: ${error}`;
+}
+
+/**
  * The post-deploy live check, from what the check wrote on the release
  * (`liveEvidence`, `liveSummary`, `liveCheckedAt`), or null before one ran.
  * @param meta - The release's metadata.
@@ -150,10 +179,24 @@ export type ReleaseReport = {
     image: { url: string; href: string } | null;
     /** The one move the state offers, or null. */
     action: ReleaseAction | null;
-    /** Why the move is held, when it is — a release that is down is not announced. */
+    /**
+     * Advice beside the move, when the release's own checks say something a
+     * person should weigh before announcing — a release that is down. It
+     * informs; it never takes the move away.
+     */
     blocked: string | null;
     publishedLine: string | null;
     requesters: string | null;
+    /**
+     * One press that publishes the words with the picture: to Slack when the
+     * workspace has a connection, else a copy as rich text (and the picture
+     * as a download). Null when there is nothing to publish, or it is out.
+     */
+    publish: { mode: 'slack' | 'copy' } | null;
+    /** The post a press published, so the page can offer Undo on its run. */
+    post: { surface: 'slack'; runId: number | null } | null;
+    /** Why the last press did not publish, written on the release by the post that failed. */
+    failure: string | null;
   };
   included: Array<{ key: string; title: string; href: string; detail: string }>;
   activity: ReleaseActivity[];
@@ -316,8 +359,9 @@ function evidenceLinks(ids: number[], artifacts: ReleaseArtifact[]): ReleaseLink
  * @param options.artifacts - The evidence artifacts it cites.
  * @param options.now - The clock.
  * @param options.timeZone - The workspace's zone.
+ * @param options.announceMode - Where a press publishes the announcement (`services/factory/releaseAnnounce.ts`); copy when unsaid.
  */
-export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseLinked; artifacts?: ReleaseArtifact[]; now?: Date; timeZone?: string } = {}): ReleaseReport {
+export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseLinked; artifacts?: ReleaseArtifact[]; now?: Date; timeZone?: string; announceMode?: 'slack' | 'copy' } = {}): ReleaseReport {
   const linked = options.linked ?? NO_LINKS;
   const now = options.now ?? new Date();
   const tz = options.timeZone ?? 'UTC';
@@ -377,9 +421,12 @@ export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseL
   const announcement = {
     ...a,
     action,
-    blocked: down && action === 'publish' ? 'The health check found the service down; a release that is down is not announced.' : null,
+    blocked: down && a.text !== null && a.state !== 'published' ? 'The health check found the service down; announcing now points people at something that is not working.' : null,
     publishedLine: a.publishedAt ? `Published ${formatDateTime(a.publishedAt, tz)}${a.channels.length > 0 ? ` to ${a.channels.join(', ')}` : ''}` : null,
     requesters: requesterCount > 0 ? `${requesterCount === 1 ? '1 person who asked has' : `${requesterCount} people who asked have`} not been told it shipped.` : null,
+    publish: a.text !== null && a.state !== 'published' ? { mode: options.announceMode ?? 'copy' } : null,
+    post: announcedPost(meta),
+    failure: a.state === 'published' ? null : announceFailure(meta, tz),
   };
 
   // INCLUDED WORK: each feature once, by its own title. Deploying code does

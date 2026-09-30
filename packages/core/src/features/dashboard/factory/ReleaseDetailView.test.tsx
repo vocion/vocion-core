@@ -13,6 +13,11 @@ vi.mock('@/libs/I18nNavigation', () => ({
   Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }));
 
+const undoAction = vi.fn(async (_input: { id: number }) => ({ ok: true, status: 'undone' }));
+vi.mock('@/libs/Orpc', () => ({
+  client: { review: { undoAction: (input: { id: number }) => undoAction(input) } },
+}));
+
 /**
  * The release page, drawn: its sections in the order a product owner asks
  * them, the way back to Releases rather than to Objects, and the placeholder
@@ -132,5 +137,52 @@ describe('the release page, drawn', () => {
     await render(<div style={{ width: 390 }}><ReleaseDetailView report={report} recordPage={DETAIL} backHref="/dashboard/p/releases" /></div>);
 
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth + 1);
+  });
+
+  describe('the announcement publishes in one press, with its picture', () => {
+    const LIVE = { id: 1301, title: 'Resume banner · desktop · live', kind: 'file', role: 'live-screenshot', url: '/api/artifacts/1301', md: null };
+    const approved = (extra: Record<string, unknown> = {}): PageRow => ({ ...ROW, meta: { ...ROW.meta, announcement: 'Uploads now pick up where they stopped.', notesSource: 'human', announcementImageArtifactId: 1301, ...extra } });
+
+    it('leads with the live picture, and posts to Slack when the workspace has a connection', async () => {
+      const report = assembleReleaseReport(approved(), { linked: LINKED, artifacts: [LIVE], now: NOW, timeZone: 'UTC', announceMode: 'slack' });
+      const screen = await render(<ReleaseDetailView report={report} recordPage={DETAIL} backHref="/dashboard/p/releases" />);
+      const section = screen.container.querySelector('[data-testid="release-announcement"]')!;
+
+      // The picture comes before the words.
+      expect(section.firstElementChild?.nextElementSibling?.querySelector('img')?.getAttribute('src')).toBe('/api/artifacts/1301');
+      expect(section.querySelector('[data-testid="release-announce-publish"]')?.getAttribute('data-mode')).toBe('slack');
+      expect(section.querySelector('[data-testid="release-announce-slack"]')?.textContent).toContain('Post to Slack');
+      expect(section.querySelector('[data-testid="release-announce-copy"]')).toBeNull();
+    });
+
+    it('copies with the picture and offers it as a download when there is no Slack connection', async () => {
+      const report = assembleReleaseReport(approved(), { linked: LINKED, artifacts: [LIVE], now: NOW, timeZone: 'UTC' });
+      const screen = await render(<ReleaseDetailView report={report} recordPage={DETAIL} backHref="/dashboard/p/releases" />);
+      const section = screen.container.querySelector('[data-testid="release-announcement"]')!;
+
+      expect(section.querySelector('[data-testid="release-announce-copy"]')?.textContent).toContain('Copy with picture');
+      expect(section.querySelector('[data-testid="release-announce-download"]')?.getAttribute('href')).toBe('/api/artifacts/1301');
+      expect(section.querySelector('[data-testid="release-announce-download"]')?.getAttribute('download')).toBe('uploads-that-survive-a-bad-connection.png');
+    });
+
+    it('says why the last post failed, and offers Undo on a post a press made', async () => {
+      const failed = assembleReleaseReport(approved({ announceFailure: { at: '2026-09-28T09:00:00Z', error: 'Slack refused the post: channel_not_found.' } }), { linked: LINKED, artifacts: [LIVE], now: NOW, timeZone: 'UTC', announceMode: 'slack' });
+      const one = await render(<ReleaseDetailView report={failed} recordPage={DETAIL} backHref="/dashboard/p/releases" />);
+
+      expect(one.container.querySelector('[data-testid="release-announcement-failure"]')?.textContent).toContain('channel_not_found');
+
+      one.unmount();
+      const published = assembleReleaseReport(approved({ announcedAt: '2026-09-28T10:00:00Z', announcedTo: { channels: ['Slack'], post: { surface: 'slack', channelId: 'C0NW', ts: null, fileIds: ['F1'], media: 'uploaded', runId: 88 } } }), { linked: LINKED, artifacts: [LIVE], now: NOW, timeZone: 'UTC', announceMode: 'slack' });
+      const two = await render(<ReleaseDetailView report={published} recordPage={DETAIL} backHref="/dashboard/p/releases" />);
+
+      expect(two.container.querySelector('[data-testid="release-announce-slack"]')).toBeNull();
+      expect(two.container.textContent).toContain('Published Mon, Sep 28, 2026, 10:00 AM UTC to Slack');
+
+      (two.container.querySelector('[data-testid="release-announce-undo"]') as HTMLButtonElement).click();
+
+      await expect.poll(() => undoAction.mock.calls.length).toBe(1);
+
+      expect(undoAction.mock.calls[0]![0]).toEqual({ id: 88 });
+    });
   });
 });

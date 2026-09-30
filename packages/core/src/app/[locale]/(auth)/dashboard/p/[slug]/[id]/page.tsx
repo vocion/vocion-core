@@ -113,8 +113,9 @@ export default async function WorkspaceReportPage(props: {
     const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
     const { evidenceArtifactIdsOf } = await import('@/libs/workspace/criterionEvidence');
     const ids = evidenceArtifactIdsOf(row.meta);
-    const [linked, artifacts, timeZone] = await Promise.all([loadReleaseLinked(orgId, [row]), loadReleaseArtifacts(orgId, ids), workspaceTimeZone(orgId)]);
-    const report = assembleReleaseReport(row, { linked, artifacts, timeZone, now: new Date() });
+    const { announceMode } = await import('@/services/factory/releaseAnnounce');
+    const [linked, artifacts, timeZone, mode] = await Promise.all([loadReleaseLinked(orgId, [row]), loadReleaseArtifacts(orgId, ids), workspaceTimeZone(orgId), announceMode(orgId)]);
+    const report = assembleReleaseReport(row, { linked, artifacts, timeZone, now: new Date(), announceMode: mode });
     const related = await relatedOf(orgId, releaseId).catch(() => []);
     return <ReleaseDetailView report={report} recordPage={manifest.recordPage} backHref={`/dashboard/p/${manifest.slug}`} related={related} />;
   }

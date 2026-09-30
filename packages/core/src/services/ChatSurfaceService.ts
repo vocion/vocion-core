@@ -1,4 +1,4 @@
-import type { ChatInbound, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatImageFetcher, ChatInbound, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
 import process from 'node:process';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
@@ -360,11 +360,17 @@ export type AnnouncementInput = {
   threadTs?: string | null;
   agentSlug?: string | null;
   createdBy?: string | null;
+  /**
+   * Reads the bytes behind an image that sits behind our sign-in, so the
+   * post can upload it rather than link to a page Slack cannot open. Scoped
+   * to the caller's org by whoever builds it.
+   */
+  fetchImage?: ChatImageFetcher;
 };
 
 export type AnnouncementResult
   = | { outcome: 'unbound' }
-    | { outcome: 'posted'; ts: string; media: string; recorded: boolean }
+    | { outcome: 'posted'; channelId: string; ts: string; media: string; recorded: boolean; fileIds: string[] }
     | { outcome: 'failed'; error: string };
 
 /**
@@ -392,7 +398,7 @@ export async function postAnnouncementToChannel(adapter: ChatSurfaceAdapter, inp
   };
   let posted: ChatPostRef | null;
   try {
-    posted = await adapter.reply(target, { text: input.text, ...(input.images?.length ? { images: input.images } : {}) });
+    posted = await adapter.reply(target, { text: input.text, ...(input.images?.length ? { images: input.images } : {}) }, input.fetchImage ? { fetchImage: input.fetchImage } : undefined);
   } catch (error) {
     return { outcome: 'failed', error: error instanceof Error ? error.message : String(error) };
   }
@@ -411,5 +417,5 @@ export async function postAnnouncementToChannel(adapter: ChatSurfaceAdapter, inp
     images: input.images ?? [],
     createdBy: input.createdBy ?? null,
   });
-  return { outcome: 'posted', ts: posted?.ts ?? '', media: posted?.media ?? 'none', recorded: Boolean(row) };
+  return { outcome: 'posted', channelId: posted?.channelId ?? input.channelId, ts: posted?.ts ?? '', media: posted?.media ?? 'none', recorded: Boolean(row), fileIds: posted?.fileIds ?? [] };
 }

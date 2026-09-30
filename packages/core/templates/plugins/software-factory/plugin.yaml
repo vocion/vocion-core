@@ -135,6 +135,13 @@
 #   model; sure at the bar, it is linked with `duplicateOf`, done for you with
 #   Undo, and the intake starts nothing for it (`x-duplicate-check` on the
 #   request type). Below the bar nothing is written or said.
+# 2.28.0 — the announcement goes out with its picture (backlog 043). The
+#   release page publishes in one press: `release.announce` (now carrying the
+#   release's id) posts the words with the live screenshot uploaded to the
+#   workspace's Slack channel, records the post on the release and Undo
+#   deletes it; with no Slack connection the page copies it as rich text with
+#   the picture, and offers the picture as a download. A failed post is
+#   written on the release (`announceFailure`) and read on its page.
 #
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
@@ -146,7 +153,7 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.27.0
+version: 2.28.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
