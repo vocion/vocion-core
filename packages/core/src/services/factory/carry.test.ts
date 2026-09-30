@@ -834,3 +834,70 @@ describe('planning and building each get the whole retry budget (#246, 2026-09-2
     expect(await carry.stopIfAtLimit(ORG, r.id, 'QA sent attempt #1 back')).toBeNull();
   });
 });
+
+describe('nothing waits on a review that never starts (2026-09-30, #269: CI failed, QA never ran)', () => {
+  async function waitingOnQa(title: string, prNumber: number) {
+    const r = await request({ product: 'rooms', title });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const tasks = (await db.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, ORG), eq(businessObjectSchema.typeId, types.engineering_task!))))
+      .filter(t => Number((t.metadata as Record<string, unknown>).requestId) === r.id);
+    const task = tasks.at(-1)!;
+    // The engineer finished: its run is over, only QA is left.
+    for (const run of await runsFor(r.id)) {
+      await db.update(workerRunSchema).set({ status: 'completed' }).where(eq(workerRunSchema.id, run.id));
+    }
+    const prUrl = `https://github.com/Acme/northwind-core/pull/${prNumber}`;
+    await db.update(businessObjectSchema).set({ status: 'awaiting_review', updatedAt: new Date(Date.now() - 3_600_000), metadata: { ...(task.metadata as Record<string, unknown>), status: 'awaiting_review', prUrl, commitSha: 'bc9f315a148d' } }).where(eq(businessObjectSchema.id, task.id));
+    return { r, task, prUrl };
+  }
+
+  it('builds the attempt again when CI failed on its pull request', async () => {
+    const { ciFailed } = await import('./ciFailed');
+    const { r, task, prUrl } = await waitingOnQa('Rooms open for invited guests', 140);
+    const before = (await runsFor(r.id)).length;
+
+    const out = await ciFailed(ORG, { url: prUrl, conclusion: 'failure', headSha: 'bc9f315a148d3d8d', failedChecks: ['checks'] });
+
+    expect(out.did).toBe('ci failed: built again');
+    expect((await read(task.id)).status).toBe('changes_requested');
+    // On its own where the workspace's retry rule says so (production); a card here.
+    expect(out.line).toMatch(/^CI failed on the pull request \(checks\)\. Build again (started on its own|is on a card for a person)/);
+
+    void before;
+  });
+
+  it('the sweep finds a task waiting on QA with a red CI behind it, and one whose green CI never started a review', async () => {
+    const { watchAwaitingReview } = await import('./ciFailed');
+    const red = await waitingOnQa('Rooms show who joined', 141);
+    const green = await waitingOnQa('Rooms show who left', 142);
+    await db.insert(eventLogSchema).values([
+      { orgId: ORG, type: 'pr.checks_completed', payload: { url: red.prUrl, conclusion: 'failure', headSha: 'bc9f315a148d', failedChecks: ['test'] }, dedupeKey: 'github:141:checks' },
+      { orgId: ORG, type: 'pr.checks_completed', payload: { url: green.prUrl, conclusion: 'success', headSha: 'bc9f315a148d' }, dedupeKey: 'github:142:checks' },
+    ] as never);
+
+    const out = await watchAwaitingReview(ORG);
+
+    expect(out.map(o => o.did).sort()).toEqual(['ci failed: built again', 'review started again']);
+    expect((await read(red.task.id)).status).toBe('changes_requested');
+
+    const raised = (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'pr.checks_completed'))))
+      .filter(e => (e.payload as { url: string }).url === green.prUrl);
+
+    expect(raised).toHaveLength(2);
+  });
+});
+
+describe('a stop whose ask is closed is still a stop (2026-09-30, "Open alerts" #124)', () => {
+  it('resumes on a deploy after the stop, though no ask is open', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms alert on the first open' });
+    const at = new Date(Date.now() - 86_400_000).toISOString();
+    await db.update(businessObjectSchema).set({ metadata: { ...((await read(r.id)).metadata as Record<string, unknown>), recovery: { log: [{ at, text: 'Stopped after 2 attempts.', runId: null }], line: 'Stopped after 2 attempts.', askId: 999999, limit: 3, since: null, stage: 'stopped', attempts: [], handledRunIds: [], planRequestedAt: null } } }).where(eq(businessObjectSchema.id, r.id));
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: Rooms alert on the first open', metadata: { requestId: r.id, status: 'approved', approvedBy: 'usr-dana', approach: 'Alert on the first open.', components: ['apps/web — the room page'] } });
+    await db.insert(workspaceVersionSchema).values({ orgId: ORG, sha: 'local-9c2d', status: 'applied', appliedAt: new Date() });
+
+    const out = await carry.resumeAfterWorkerRebuild(ORG);
+
+    expect(out.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done' });
+    expect(((await read(r.id)).metadata as { recovery: { stage: string | null } }).recovery.stage).not.toBe('stopped');
+  });
+});

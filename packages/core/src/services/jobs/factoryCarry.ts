@@ -16,10 +16,17 @@ export const FACTORY_RECOVERY_ANSWER_JOB = 'factory-recovery-answer';
 export const FACTORY_SWEEP_JOB = 'factory-sweep';
 export const FACTORY_CONTRACT_CHANGED_JOB = 'factory-contract-changed';
 export const FACTORY_PLANNING_ENDED_JOB = 'factory-planning-ended';
+export const FACTORY_CI_FAILED_JOB = 'factory-ci-failed';
 
 type Job = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
 export const factoryCarryJobs: Record<string, Job> = {
+  /**
+   * `pr.checks_completed` (not success) on a factory pull request: build the attempt again with what failed.
+   * @param orgId
+   * @param input
+   */
+  [FACTORY_CI_FAILED_JOB]: async (orgId, input) => (await import('@/services/factory/ciFailed')).ciFailed(orgId, input),
   /**
    * `object.created` (request): start the fix a person asked for, or file the Build card.
    * @param orgId

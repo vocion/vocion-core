@@ -10,16 +10,20 @@ describe('judgeVerdict', () => {
     expect(r).toEqual({ proven: 1, total: 3, refusal: null });
   });
 
-  it('refuses an approve that carries an unproven criterion', () => {
+  it('records an approve that carries an unproven criterion as changes, never a refusal (#130 review 9025)', () => {
     const r = judgeVerdict('approve', [proven('a'), { criterion: 'b', status: 'unproven' }], []);
 
-    expect(r.refusal).toMatch(/^Not recorded: an approve cannot carry 1 criteria that are not proven \(1 of 2 proven; first: "b"\)/);
+    expect(r.refusal).toBeNull();
+    expect(r.value).toBe('changes');
+    expect(r.recordedAs).toMatch(/^Recorded as changes, not approve: 1 of 2 criteria are not proven \(first: "b"\)/);
   });
 
-  it('refuses an approve with a blocking finding', () => {
-    const r = judgeVerdict('approve', [proven('a')], [{ against: 'path', ref: 'apps/**', severity: 'block', what: 'outside allowed paths' }]);
+  it('records an approve with a blocking finding as changes', () => {
+    const r = judgeVerdict('approve', [proven('a')], [{ against: 'check', ref: 'test', severity: 'block', what: 'the suite fails' }]);
 
-    expect(r.refusal).toMatch(/blocking finding/);
+    expect(r.refusal).toBeNull();
+    expect(r.value).toBe('changes');
+    expect(r.recordedAs).toMatch(/blocking finding/);
   });
 
   it('refuses proven without evidence, and an empty criteria list', () => {
@@ -67,7 +71,11 @@ describe('alignToContract', () => {
     const invented = [proven('Type-to-filter works'), proven('Non-matches are hidden'), proven('Clearing restores the list')];
 
     expect(alignToContract(contract, invented).map(c => c.status)).toEqual(['unchecked', 'unchecked', 'unchecked']);
-    expect(judgeVerdict('approve', alignToContract(contract, invented), []).refusal).toMatch(/0 of 3 proven/);
+
+    const graded = judgeVerdict('approve', alignToContract(contract, invented), []);
+
+    expect(graded.value).toBe('changes');
+    expect(graded.recordedAs).toMatch(/3 of 3 criteria are not proven/);
   });
 
   it('pairs by text in any order, and a line nobody judged is unchecked', () => {
@@ -90,8 +98,8 @@ describe('alignToContract', () => {
 });
 
 describe('buildAgain', () => {
-  it('never retries an attempt that was itself the automatic retry, and needs a request', async () => {
-    expect(await buildAgain('org_x', { id: 165, meta: { requestId: 131, autoRetryOf: 164 } })).toMatch(/already the automatic retry/);
+  it('retries a retry too, bounded by the per-stage limit, and needs a request (2026-09-30)', async () => {
+    expect(await buildAgain('org_x', { id: 165, meta: { requestId: 131, autoRetryOf: 164 } }) ?? '').not.toMatch(/already the automatic retry/);
     expect(await buildAgain('org_x', { id: 165, meta: {} })).toBeNull();
   });
 

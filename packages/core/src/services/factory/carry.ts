@@ -981,7 +981,20 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
   const { and, desc, eq, gt, isNotNull, like } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { askSchema, workerRunSchema } = await import('@/models/Schema');
-  const stops = await db.select({ id: askSchema.id, sourceRef: askSchema.sourceRef, createdAt: askSchema.createdAt }).from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), like(askSchema.sourceRef, 'factory-recovery:%')));
+  const stops: Array<{ id: number | null; sourceRef: string | null; createdAt: Date | null }> = await db.select({ id: askSchema.id, sourceRef: askSchema.sourceRef, createdAt: askSchema.createdAt }).from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), like(askSchema.sourceRef, 'factory-recovery:%')));
+  // A STOP WHOSE ASK IS CLOSED IS STILL A STOP (2026-09-30, "Open alerts"
+  // #124: its ask #220 was decided on 09-28, the request stayed "Stopped",
+  // and nothing would ever look at it again). Such a request joins the stops,
+  // dated by its last recovery line.
+  const withOpenAsk = new Set(stops.map(st => Number(/^factory-recovery:(\d+):/.exec(String(st.sourceRef ?? ''))?.[1])));
+  const { listBusinessObjects: listRequests } = await import('@/services/BusinessObjectService');
+  for (const r of ((await listRequests(orgId, 'request').catch(() => [])) as Array<{ id: number; metadata: unknown }>)) {
+    const state = readRecovery((r.metadata ?? {}) as Meta);
+    if (state.stage === 'stopped' && !withOpenAsk.has(r.id)) {
+      const last = state.log.at(-1)?.at;
+      stops.push({ id: null, sourceRef: `factory-recovery:${r.id}:closed-ask`, createdAt: last ? new Date(last) : null });
+    }
+  }
   if (stops.length === 0) {
     return [];
   }
@@ -1048,8 +1061,10 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
       continue;
     }
     await writeMeta(orgId, requestId, { workerRebuildResumedFor: rebuilt.version });
-    await supersedeAsk(orgId, stop.id, line);
-    await updateRecovery(orgId, requestId, s => logLine({ ...s, stage: s.stage === 'stopped' ? null : s.stage, askId: s.askId === stop.id ? null : s.askId, line: s.stage === 'stopped' ? null : s.line }, `${line} Ask #${stop.id} resolved itself.${dispatched.res.status === 'pending' ? ` The build is on a card for a person (action #${dispatched.res.runId}).` : ''}`, at, failed?.id ?? null));
+    if (stop.id !== null) {
+      await supersedeAsk(orgId, stop.id, line);
+    }
+    await updateRecovery(orgId, requestId, s => logLine({ ...s, stage: s.stage === 'stopped' ? null : s.stage, askId: s.askId === stop.id ? null : s.askId, line: s.stage === 'stopped' ? null : s.line }, `${line}${stop.id !== null ? ` Ask #${stop.id} resolved itself.` : ''}${dispatched.res.status === 'pending' ? ` The build is on a card for a person (action #${dispatched.res.runId}).` : ''}`, at, failed?.id ?? null));
     if (failed) {
       await recordRunLine(orgId, failed.id, line);
     }
@@ -1079,6 +1094,12 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
     console.warn('factory sweep: the stale-plan check failed', { orgId, message: err.message });
     return [];
   });
+  // A task waiting on QA with no review behind it: CI failed → built again
+  // with what failed; CI passed and no review ran → the review starts again.
+  acted.push(...await import('./ciFailed').then(m => m.watchAwaitingReview(orgId, now)).catch((err: Error) => {
+    console.warn('factory sweep: the awaiting-review watch failed', { orgId, message: err.message });
+    return [];
+  }));
   // A replaced attempt's pull request is closed, naming what replaced it, so
   // the open PRs are the work still live (services/factory/supersededPulls.ts).
   await import('./supersededPulls').then(m => m.closeSupersededPulls(orgId)).catch((err: Error) => {

@@ -87,7 +87,7 @@ export function reachable(evidence: string, shotIds: ReadonlySet<number> = new S
  * @param shotIds - The task's own screenshot artifact ids.
  * @returns The count, and the refusal when the verdict contradicts itself.
  */
-export function judgeVerdict(value: string, criteria: VerdictCriterion[], findings: VerdictFinding[], shotIds: ReadonlySet<number> = new Set()): { proven: number; total: number; refusal: string | null } {
+export function judgeVerdict(value: string, criteria: VerdictCriterion[], findings: VerdictFinding[], shotIds: ReadonlySet<number> = new Set()): { proven: number; total: number; refusal: string | null; value?: string; recordedAs?: string } {
   const total = criteria.length;
   const proven = criteria.filter(c => c.status === 'proven').length;
   if (total === 0) {
@@ -108,12 +108,17 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
   }
   if (value === 'approve') {
     const open = criteria.filter(c => c.status !== 'proven');
+    // AN APPROVE WITH SOMETHING UNPROVEN IS A CHANGES (2026-09-30, #130 review
+    // 9025: QA approved 7 of 8, was refused, the recording pass approved again
+    // and was refused again, and the task sat "QA could not finish" asking a
+    // person to Build again). The evidence allows one verdict, so that is the
+    // one recorded, and the next attempt is sent back with the open criteria.
     if (open.length > 0) {
-      return { proven, total, refusal: `Not recorded: an approve cannot carry ${open.length} criteria that are not proven (${proven} of ${total} proven; first: "${open[0]!.criterion}"). Record changes with what would settle them, or prove them.` };
+      return { proven, total, refusal: null, value: 'changes', recordedAs: `Recorded as changes, not approve: ${open.length} of ${total} criteria are not proven (first: "${open[0]!.criterion}"), so the next attempt proves ${open.length === 1 ? 'it' : 'them'}.` };
     }
     const block = findings.find(f => f.severity === 'block');
     if (block) {
-      return { proven, total, refusal: `Not recorded: an approve cannot carry a blocking finding ([${block.against}] ${block.ref}: ${block.what}). Record changes or reject.` };
+      return { proven, total, refusal: null, value: 'changes', recordedAs: `Recorded as changes, not approve: a blocking finding is open ([${block.against}] ${block.ref}: ${block.what}).` };
     }
   }
   return { proven, total, refusal: null };
@@ -151,7 +156,7 @@ export function mergeSummary(note: string, criteria: VerdictCriterion[], proven:
   return [`${note.trim()}`, '', `QA: ${proven} of ${criteria.length} criteria proven.`, ...lines].join('\n').slice(0, 4_000);
 }
 
-async function findTaskByPr(orgId: string, prUrl: string) {
+export async function findTaskByPr(orgId: string, prUrl: string) {
   const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
@@ -204,7 +209,7 @@ export async function markReviewFailed(orgId: string, prUrl: string): Promise<nu
 }
 
 /** Where a sent-back attempt goes next. */
-export type SendBack = { to: 'engineer' | 'plan'; why: string };
+export type SendBack = { to: 'engineer' | 'plan'; why: string; note?: string };
 
 /**
  * WHERE A SEND-BACK GOES (Chris, 2026-09-29: "does our flow handle a QA send
@@ -256,8 +261,11 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
   const requestId = Number(task.meta.requestId);
   // A re-plan is a different step from a rebuild, so a retry may still send
   // its work back to planning; the three-per-request limit bounds both.
-  if (!Number.isFinite(requestId) || requestId <= 0 || (task.meta.autoRetryOf && route.to === 'engineer')) {
-    return task.meta.autoRetryOf ? 'This attempt was already the automatic retry, so the next build is a person\'s call.' : null;
+  // Bounded by the per-stage limit (stopIfAtLimit), not by "a retry of a
+  // retry is a person's call" (2026-09-30: that rule parked a build a third
+  // attempt would have fixed).
+  if (!Number.isFinite(requestId) || requestId <= 0) {
+    return null;
   }
   try {
     // ONE LIMIT FOR EVERY AUTOMATIC STEP (backlog 038): a QA send-back retry
@@ -276,7 +284,7 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
     const res = await proposeAction({
       orgId,
       actionId: 'factory.dispatch_task',
-      input: { requestId, ...(hasPlan ? { planId } : {}), autoRetryOf: task.id, ...toPlan, reason: route.to === 'plan' ? `QA sent attempt #${task.id} back to planning: ${route.why}`.slice(0, 500) : `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.` },
+      input: { requestId, ...(hasPlan ? { planId } : {}), autoRetryOf: task.id, ...toPlan, ...(route.note ? { note: route.note.slice(0, 4000) } : {}), reason: route.to === 'plan' ? `QA sent attempt #${task.id} back to planning: ${route.why}`.slice(0, 500) : `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.` },
       principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: 'agent:product-manager',
       // Core's own retry, not the model's: `autoRetryOf` is kept.
@@ -417,7 +425,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // unchecked — absent is not proven.
       const contract = contractOf(task.meta);
       const criteria = contract.length > 0 ? alignToContract(contract, judged) : judged;
-      const { proven, total, refusal: ruled } = judgeVerdict(args.value, criteria, findings, await taskShotIds(ctx.orgId, task.id));
+      const { proven, total, refusal: ruled, value: judgedValue, recordedAs } = judgeVerdict(args.value, criteria, findings, await taskShotIds(ctx.orgId, task.id));
+      const value = (judgedValue ?? args.value) as typeof VERDICT_VALUES[number];
       // JUDGED WITHOUT LOOKING. On #131 attempt 176 the PR listed seventeen
       // short screenshot links and QA opened none: it read the task through a
       // lookup that clips long fields and called every link "truncated". A
@@ -449,7 +458,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       }
       const by = ctx.agentSlug ?? 'change-reviewer';
       const verdict = {
-        value: args.value,
+        value,
         commitSha,
         at: new Date().toISOString(),
         by,
@@ -460,16 +469,16 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         findings,
         independentChecks,
       };
-      await writeTask(ctx.orgId, task.id, { verdict, status: TASK_STATUS_FOR[args.value] });
+      await writeTask(ctx.orgId, task.id, { verdict, status: TASK_STATUS_FOR[value] });
       // The request's counts move with the task, or the Work row keeps saying
       // "Awaiting QA" under a verdict (2026-09-26: rollups only reran on cost).
       const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
       await recomputeRollupsForObject(ctx.orgId, task.id).catch(() => undefined);
-      ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value: args.value, proven, total } } as never);
+      ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value, proven, total } } as never);
       const count = `${proven} of ${total} criteria proven`;
-      if (args.value !== 'approve') {
+      if (value !== 'approve') {
         let retry: string | null = null;
-        if (args.value === 'changes') {
+        if (value === 'changes') {
           const planOf = (m: Record<string, unknown>) => (Number(m.planId) > 0 ? Number(m.planId) : null);
           const previous = await previousAttempt(ctx.orgId, task.meta.previousTaskId);
           const route = sendBackRoute({ asked: args.send_back_to ?? null, why: args.send_back_reason ?? null, criteria, planId: planOf(task.meta), previous: previous ? { criteria: previous.criteria, planId: planOf(previous.meta) } : null });
@@ -478,7 +487,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
           }
           retry = await buildAgain(ctx.orgId, task, route);
         }
-        return `Verdict recorded on task #${task.id}: ${args.value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[args.value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''}`;
+        return `${recordedAs ? `${recordedAs} ` : ''}Verdict recorded on task #${task.id}: ${value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''}`;
       }
       const riskRaw = typeof task.meta.riskClass === 'string' ? task.meta.riskClass : 'logic';
       // THE MERGE CARRIES WHAT THE DIFF TOUCHED (2026-09-30). The engineer may
