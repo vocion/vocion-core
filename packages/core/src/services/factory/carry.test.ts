@@ -736,3 +736,14 @@ describe('the contract changed after QA (#201)', () => {
     expect(await carry.contractChangeReceipt(ORG, r.id, new Date(), 100)).toBeNull();
   });
 });
+
+describe('planning and building each get the whole retry budget (#246, 2026-09-29)', () => {
+  it('two failed planning attempts leave the build its retry', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms keep a light theme' });
+    const attempt = (n: number, kind: 'plan' | 'build') => ({ n, at: '2026-09-29T23:40:00Z', kind, trigger: 'recovery', runId: null, taskId: null, line: 'x', failure: kind === 'plan' ? { class: 'no_plan', sentence: 'refused' } : null });
+    await db.update(businessObjectSchema).set({ metadata: { ...((await read(r.id)).metadata as Record<string, unknown>), recovery: { log: [], line: null, askId: null, limit: 3, since: null, stage: 'building', attempts: [attempt(1, 'plan'), attempt(2, 'plan'), attempt(3, 'build')], handledRunIds: [], planRequestedAt: null } } }).where(eq(businessObjectSchema.id, r.id));
+
+    // One build so far: QA's send-back is retried, not stopped.
+    expect(await carry.stopIfAtLimit(ORG, r.id, 'QA sent attempt #1 back')).toBeNull();
+  });
+});

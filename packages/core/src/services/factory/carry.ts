@@ -28,7 +28,7 @@ import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
 import { CLOSED_REQUEST_STATES as CLOSED } from '@/libs/factory/requestStates';
 import { blockerRefs, blockerResolution } from './blocker';
-import { classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
+import { attemptsOf, classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
 /** The seat whose judgement the factory's own proposals represent. */
 const PM = 'product-manager';
@@ -438,10 +438,10 @@ export async function stopIfAtLimit(orgId: string, requestId: number, why: strin
     return null;
   }
   const state = readRecovery(request.meta);
-  if (state.attempts.length < state.limit) {
+  if (attemptsOf(state, 'build') < state.limit) {
     return null;
   }
-  return escalate(orgId, request, `Stopped after ${state.attempts.length} automatic attempts: ${why}`, 'read what QA asked for and press Build with a note on what to change');
+  return escalate(orgId, request, `Stopped after ${attemptsOf(state, 'build')} automatic build attempts: ${why}`, 'read what QA asked for and press Build with a note on what to change');
 }
 
 /**
@@ -641,8 +641,8 @@ export async function buildFromApprovedPlan(orgId: string, payload: { planId?: u
     await updateRecovery(orgId, requestId, s => personActed(s, at, `${by} approved plan #${planId}.`));
   }
   const state = readRecovery((await readRecord(orgId, requestId))?.meta);
-  if (state.attempts.length >= state.limit) {
-    const line = await escalate(orgId, request, `Stopped after ${state.attempts.length} attempts: the plan is approved, and the limit on automatic attempts is reached`, 'press Build to start it');
+  if (attemptsOf(state, 'build') >= state.limit) {
+    const line = await escalate(orgId, request, `Stopped after ${attemptsOf(state, 'build')} build attempts: the plan is approved, and the limit on automatic builds is reached`, 'press Build to start it');
     return { requestId, did: 'escalate', line };
   }
   const out = await propose(orgId, DISPATCH, { requestId, planId, trigger: 'plan', reason: `Plan #${planId} approved by ${by}; the build starts with its paths.` }, {
@@ -728,7 +728,7 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
       { workerVersion: await newestWorkerVersion(orgId, run), environment: after?.environment ?? null },
     );
   }
-  const decision = recoveryDecision({ failure, attempts: state.attempts.length, limit: state.limit, contractDelta: delta, environmentDelta: envDelta, lastWasInfraRetry: ['lost', 'transient'].includes(String(task.meta.recoveryClass ?? '')), stalePlan });
+  const decision = recoveryDecision({ failure, attempts: attemptsOf(state, 'build'), limit: state.limit, contractDelta: delta, environmentDelta: envDelta, lastWasInfraRetry: ['lost', 'transient'].includes(String(task.meta.recoveryClass ?? '')), stalePlan });
   const handledAs = stalePlan && failure.class === 'no_changes' ? staleFailure(stalePlan) : failure;
   // Handled first, so the event and the sweep never both act on this run.
   await updateRecovery(orgId, requestId, s => markHandled(s, run.id, handledAs));
@@ -827,7 +827,7 @@ async function replan(orgId: string, request: FactoryRecord, state: RecoveryStat
     return logLine({ ...s, attempts: counted }, `Planning failed: ${why}.`, now.toISOString());
   });
   const fresh = readRecovery((await (await lib()).readRecord(orgId, request.id))?.meta);
-  const decision = recoveryDecision({ failure, attempts: fresh.attempts.length, limit: fresh.limit, planWhy });
+  const decision = recoveryDecision({ failure, attempts: attemptsOf(fresh, 'plan'), limit: fresh.limit, planWhy });
   if (decision.do !== 'plan') {
     return { requestId: request.id, did: 'escalate', line: await escalate(orgId, request, decision.why, 'write the plan, or say the work does not need one, then press Build') };
   }
@@ -839,7 +839,7 @@ async function replan(orgId: string, request: FactoryRecord, state: RecoveryStat
   await emitEvent({ orgId, type: FACTORY_PLAN_REQUESTED, payload: { requestId: request.id, title: request.title, why: `${planWhy}. The last attempt did not file a plan — ${why}. Do not repeat what stopped it` }, dedupeKey: `${FACTORY_PLAN_REQUESTED}:${request.id}:${at}`, invokedBy: `factory:${PM}`, dispatchMode: 'auto' });
   // What the page's Current state reads: that it is planning again, which
   // attempt this is, and why the last one stopped.
-  const again = `Planning again (attempt ${fresh.attempts.length + 1} of ${fresh.limit}) because ${why}.`;
+  const again = `Planning again (attempt ${attemptsOf(fresh, 'plan') + 1} of ${fresh.limit}) because ${why}.`;
   await updateRecovery(orgId, request.id, s => logLine({ ...s, line: again }, again, at));
   return { requestId: request.id, did: 'plan', line: `Recovered: planning again because ${why}.` };
 }

@@ -791,3 +791,15 @@ export function replanBrief(failure: Failure): string {
   const text = `${parts.map(bare).join('. ')}.`;
   return text.length > 1000 ? `${text.slice(0, 998).trimEnd()}…` : text;
 }
+
+/**
+ * Automatic attempts of ONE stage since a person last acted. Planning and
+ * building each get the whole limit: #246 (2026-09-29) spent two of its three
+ * on planning runs the platform's own checks refused, and its first build,
+ * which QA sent back with one gap, was stopped before its retry.
+ * @param state - The recovery state.
+ * @param kind - The stage: plan or build.
+ */
+export function attemptsOf(state: Pick<RecoveryState, 'attempts'>, kind: RecoveryEntry['kind']): number {
+  return state.attempts.filter(a => a.kind === kind).length;
+}
