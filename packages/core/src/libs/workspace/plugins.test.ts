@@ -444,7 +444,7 @@ describe('loadWorkspace with the software factory', () => {
     // An automation either checks a mission, or runs plain code — the jobs
     // that carry a request through the factory (backlog 038).
     expect(ws.automations.every(a => (a.do.job ? true : ws.missions.some(m => m.slug === a.do.checkMission)))).toBe(true);
-    expect(ws.automations.filter(a => a.do.job).map(a => a.do.job).sort()).toEqual(['factory-contract-changed', 'factory-intake', 'factory-plan-build', 'factory-plan-review', 'factory-planning-ended', 'factory-recover', 'factory-recovery-answer', 'factory-sweep']);
+    expect(ws.automations.filter(a => a.do.job).map(a => a.do.job).sort()).toEqual(['factory-ci-failed', 'factory-contract-changed', 'factory-intake', 'factory-plan-build', 'factory-plan-review', 'factory-planning-ended', 'factory-recover', 'factory-recovery-answer', 'factory-sweep']);
     expect(ws.automations.find(a => a.slug === 'factory-request-filed')?.when).toMatchObject({ event: 'object.created', filter: { objectType: 'request' } });
     expect(ws.automations.find(a => a.slug === 'factory-run-failed')?.when).toMatchObject({ event: 'worker_run.failed', filter: { recordType: 'engineering_task' } });
 

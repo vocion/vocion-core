@@ -647,8 +647,24 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
         });
         triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
       }
-    } catch {
-      // Same tolerance as workflows above - one bad automation never drops the event.
+    } catch (err) {
+      // One bad automation never drops the event, and never vanishes either
+      // (2026-09-30, PR #140: the automation meant to send a red CI back to
+      // the engineer matched, threw before its run row existed, and the
+      // event's `triggered` list was empty with no trace of why; the task
+      // then sat "awaiting review" for seven hours). The failure is a run row
+      // with its error, where the fire would have been, and a log line.
+      const message = (err as Error)?.message ?? String(err);
+      console.warn('[events] an automation matched and could not start', { orgId: input.orgId, slug: a.slug, event: input.type, message });
+      const skipId = await recordSkippedFire(input.orgId, a.slug, {
+        event: input.type,
+        payload,
+        result: { kind: 'skipped', reason: 'fire_failed', detail: `matched ${input.type} and could not start: ${message}`.slice(0, 500), event: input.type, causedBy },
+        error: message,
+      }).catch(() => null);
+      if (skipId !== null) {
+        skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'fire_failed' });
+      }
     }
   }
 

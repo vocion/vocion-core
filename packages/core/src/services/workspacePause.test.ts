@@ -182,6 +182,18 @@ describe('the guard refuses the four paths that start work', () => {
     expect((err as Error).message).toContain('Chris');
   });
 
+  it('an automation that matches and cannot start leaves an error row, never nothing (2026-09-30, PR #140)', async () => {
+    await db.insert(automationSchema).values({ orgId: ORG, slug: 'broken-answer', name: 'broken-answer', status: 'active', whenConfig: { event: 'pr.checks_completed' } as never, doConfig: { job: 'no-such-job' } as never });
+
+    const result = await emitEvent({ orgId: ORG, type: 'pr.checks_completed', payload: { url: 'https://github.com/northwind/app/pull/7', conclusion: 'failure' } });
+
+    expect(result.skipped).toEqual([{ slug: 'broken-answer', automationRunId: expect.any(Number), reason: 'fire_failed' }]);
+
+    const { runs } = await listAutomationRuns(ORG, { slug: 'broken-answer' });
+
+    expect(runs.some(r => r.status === 'error' && (r.result as { reason?: string } | null)?.reason === 'fire_failed')).toBe(true);
+  });
+
   it('refuses a scheduled automation fire and writes a skipped run saying why', async () => {
     await seedAutomation('hourly-check', { schedule: '0 * * * *' });
     await pull();

@@ -664,18 +664,21 @@ export async function automationRunFacets(orgId: string): Promise<{ slugs: strin
  * @param opts.payload
  * @param opts.result
  * @param opts.invokedBy - Who asked, when it was not an event — a schedule fire refused by the workspace switch.
+ * @param opts.error
  */
 export async function recordSkippedFire(
   orgId: string,
   slug: string,
-  opts: { event: string; payload: Record<string, unknown>; result: AutomationSkipResult; invokedBy?: string },
+  opts: { event: string; payload: Record<string, unknown>; result: AutomationSkipResult; invokedBy?: string; error?: string },
 ): Promise<number> {
   const now = new Date();
   const [row] = await db.insert(automationRunSchema).values({
     orgId,
     slug,
     kind: SKIPPED_RUN_KIND,
-    status: 'ok',
+    // A fire that could not start is an error on its row, not an ok skip.
+    status: opts.error ? 'error' : 'ok',
+    ...(opts.error ? { error: opts.error.slice(0, 2000) } : {}),
     invokedBy: opts.invokedBy ?? `event:${opts.event}`,
     dryRun: false,
     input: opts.payload,

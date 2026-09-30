@@ -60,7 +60,7 @@ export const DEFAULT_MAX_FIRES_PER_10M = 6;
  * because "why did nothing run all afternoon" is answered from this log or
  * from nowhere.
  */
-export type SkipReason = 'self_trigger' | 'rate_limited' | 'workspace_paused';
+export type SkipReason = 'self_trigger' | 'rate_limited' | 'workspace_paused' | 'fire_failed';
 
 /**
  * Prepend this fire to the chain that led to it.
