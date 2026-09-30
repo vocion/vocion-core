@@ -22,7 +22,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { MERGE_ACTION_ID, MERGE_PROPOSAL_CONFIDENCE } from '@/libs/actions/factory';
+import { MERGE_ACTION_ID, MERGE_PROPOSAL_CONFIDENCE } from '@/libs/actions/mergeAction';
 import { alignToContract, contractOf } from '@/libs/workspace/featureProof';
 
 /**

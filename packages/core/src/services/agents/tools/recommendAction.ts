@@ -14,7 +14,7 @@ import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
-import { MERGE_ACTION_ID } from '@/libs/actions/factory';
+import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { actionInputHints, getAction, listActions } from '@/libs/actions/registry';
 import { repairActionInput } from '@/libs/actions/repairInput';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';

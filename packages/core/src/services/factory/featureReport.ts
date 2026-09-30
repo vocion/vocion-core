@@ -71,7 +71,7 @@ import type { LiveMissionRunInput, LiveRun, RecordStatus, StatusMove, StatusYou 
 import type { PullSignals, WorkFacts } from '@/libs/factory/workFacts';
 import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
-import { MERGE_ACTION_ID } from '@/libs/actions/factory';
+import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';

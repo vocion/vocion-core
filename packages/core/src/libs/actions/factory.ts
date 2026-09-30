@@ -18,6 +18,7 @@
 import type { Action } from './types';
 import { z } from 'zod';
 import { manualAction } from './manual';
+import { MERGE_ACTION_ID } from './mergeAction';
 
 /**
  * A merge is not one decision. The class names what the diff touches, and
@@ -27,15 +28,6 @@ import { manualAction } from './manual';
  */
 export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise'] as const;
 export type MergeRiskClass = typeof MERGE_RISK_CLASSES[number];
-
-/**
- * The merge's action id, named once: what reads a merge's state or its trust
- * rule (`services/factory/pullSignals.ts`) takes it from here.
- */
-export const MERGE_ACTION_ID = 'git.merge';
-
-/** What the merge card is filed at, by QA's approve (`record_verdict`) — the confidence its trust rule is read at. */
-export const MERGE_PROPOSAL_CONFIDENCE = 0.9;
 
 export const gitPushBranchAction = manualAction({
   id: 'git.push_branch',

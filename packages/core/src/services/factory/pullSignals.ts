@@ -1,6 +1,7 @@
 import type { PullSignals } from '@/libs/factory/workFacts';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { MERGE_ACTION_ID, MERGE_PROPOSAL_CONFIDENCE, MERGE_RISK_CLASSES } from '@/libs/actions/factory';
+import { MERGE_RISK_CLASSES } from '@/libs/actions/factory';
+import { MERGE_ACTION_ID, MERGE_PROPOSAL_CONFIDENCE } from '@/libs/actions/mergeAction';
 import { db } from '@/libs/DB';
 import { NO_PULL_SIGNALS, normalisePullUrl } from '@/libs/factory/workFacts';
 import { PR_CHECKS_COMPLETED, PR_CLOSED, PR_MERGED } from '@/libs/github/events';
