@@ -115,7 +115,7 @@ describe('RecordChangeIntent', () => {
   it('Change opens the chat with the passage and the change intent — the artifact gesture', async () => {
     await render(
       <div>
-        <RecordChangeIntent objectId={41} title="Export the ledger as CSV" selectionRoot="[data-test-root]" showHistory={false} />
+        <RecordChangeIntent objectId={41} title="Export the ledger as CSV" selectionRoot="[data-test-root]" />
         <div data-test-root>
           <ul data-record-field="acceptance"><li>Existing exports keep working</li></ul>
         </div>

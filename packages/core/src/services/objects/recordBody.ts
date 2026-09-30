@@ -119,6 +119,19 @@ export function authorFor(by: string | null | undefined): Author {
 }
 
 /**
+ * A record's current version and when it was written — what its version chip
+ * reads (`features/dashboard/versions/VersionChip`). A read only: a record
+ * whose body was never made has no version yet, and says null rather than
+ * making one to count.
+ * @param orgId - The workspace.
+ * @param objectId - The record.
+ */
+export async function recordVersionOf(orgId: string, objectId: number): Promise<{ version: number; at: string } | null> {
+  const body = await findBody(orgId, objectId);
+  return body ? { version: body.currentVersion, at: body.updatedAt.toISOString() } : null;
+}
+
+/**
  * The record's body artifact, created from the row on first use.
  * @param orgId - The workspace.
  * @param objectId - The record (`business_object.id`).

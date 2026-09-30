@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { DotTone } from '@/components/patterns';
 import type { RecordStatus } from '@/libs/factory/liveStatus';
 import type { FeatureReport, LiveBuild, ReportAction, ReportAttempt, ReportEvidence, ReportNotice, ReportStatus, Tone } from '@/services/factory/featureReport';
@@ -5,7 +6,6 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
-import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { liveTopic } from '@/libs/live/topics';
 import { featureStatusOf } from '@/services/factory/featureReport';
@@ -168,9 +168,10 @@ function WatchTheBuild({ live }: { live: LiveBuild }) {
  * report column once clipped it to two grey specks (2026-09-23).
  * @param props - The context bits.
  * @param props.bits - Short facts, in reading order.
+ * @param props.end - What closes the line: the record's version chip.
  */
-export function ReportContextLine({ bits }: { bits: readonly string[] }) {
-  if (bits.length === 0) {
+export function ReportContextLine({ bits, end }: { bits: readonly string[]; end?: ReactNode }) {
+  if (bits.length === 0 && !end) {
     return null;
   }
   return (
@@ -181,8 +182,30 @@ export function ReportContextLine({ bits }: { bits: readonly string[] }) {
           {bit}
         </span>
       ))}
+      {end && (
+        <span className="flex items-center gap-2">
+          {bits.length > 0 && <span aria-hidden className="text-border">·</span>}
+          {end}
+        </span>
+      )}
     </p>
   );
+}
+
+/**
+ * How the feature page re-reads itself, or null when there is nothing to
+ * follow and nothing running: when anything the page is made of changes —
+ * its tasks, their runs, its cards, asks and evidence — pushed on the live
+ * stream, so the Now line and the stage move without a reload or a poll. The
+ * record itself is followed by the route's VersionWatch. While the stream is
+ * down it polls every 5s, only while something runs. The version chip
+ * carries it (`versions/VersionChip`).
+ * @param report - The report.
+ */
+export function reportLiveRefresh(report: Pick<FeatureReport, 'live' | 'timeline' | 'follow' | 'requestId'>): { everyMs: number; follow: string[]; poll: boolean } | null {
+  const moving = report.live !== null || report.timeline.some(e => e.live);
+  const followed = (report.follow ?? []).filter(t => t !== liveTopic.record(report.requestId));
+  return followed.length > 0 || moving ? { everyMs: 5000, follow: followed, poll: moving } : null;
 }
 
 /**
@@ -590,18 +613,13 @@ export function FeatureReportView({ report, status }: { report: FeatureReport; s
     .sort((a, b) => rank(a) - rank(b));
   const pictures = ranked.some(p => !drawn(p)) ? ranked.filter(p => !drawn(p)) : ranked;
   const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
-  const moving = report.live !== null || report.timeline.some(e => e.live);
-  const followed = (report.follow ?? []).filter(t => t !== liveTopic.record(report.requestId));
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
       {/* One pane for every drawer on this page, and for every peek. */}
       <PreviewPanel />
-      {/* Re-read when anything the page is made of changes — its tasks, their
-          runs, its cards, asks and evidence — pushed on the live stream, so
-          the Now line and the stage move without a reload or a poll. The
-          record itself is followed by the route's VersionWatch. While the
-          stream is down it polls every 5s, only while something runs. */}
-      {(followed.length > 0 || moving) && <LiveRefresh everyMs={5000} follow={followed} poll={moving} />}
+      {/* The re-read — pushed on the live stream for what the page is made
+          of, polled every 5s while it is down and something runs — rides the
+          version chip in the title's metadata line (`reportLiveRefresh`). */}
 
       {/* 1 + 2. THE INTRODUCTION, THEN WHERE IT IS. The title, subtitle and
           context line are the route's title bar; the story is a short plain

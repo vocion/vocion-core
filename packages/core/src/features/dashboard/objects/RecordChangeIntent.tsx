@@ -1,9 +1,6 @@
 'use client';
 
-import { History } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
-import { openPreview } from '@/features/preview/previewState';
 
 /**
  * A record page declares its Change intent (backlog 035) — one element,
@@ -20,39 +17,21 @@ import { openPreview } from '@/features/preview/previewState';
  * History. The page refreshes in place and marks what changed
  * (`versions/VersionWatch`).
  *
- * `History` is the one visible control: it opens the record's versions in
- * the preview panel (`record_history`), where each carries Restore.
+ * It draws nothing of its own. The record's versions open from its version
+ * chip at the end of the metadata line (`versions/VersionChip`), where each
+ * carries Restore.
  * @param props - Component props.
  * @param props.objectId - The record (`business_object.id`).
  * @param props.title - The record's title, for the conversation's chip.
  * @param props.selectionRoot - CSS selector for the region whose text belongs to the record.
- * @param props.showHistory - Render the History control here (default true).
  */
-export function RecordChangeIntent({ objectId, title, selectionRoot, showHistory = true }: { objectId: number; title?: string; selectionRoot: string; showHistory?: boolean }) {
+export function RecordChangeIntent({ objectId, title, selectionRoot }: { objectId: number; title?: string; selectionRoot: string }) {
   return (
-    <>
-      <AskAboutThis
-        record={{ type: 'object', id: String(objectId), ...(title ? { label: title } : {}) }}
-        selectionRoot={selectionRoot}
-        variant="none"
-        changeable
-      />
-      {showHistory && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={e => openPreview({ type: 'record_history', id: String(objectId) }, e.currentTarget)}
-              data-testid="record-history-open"
-              className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            >
-              <History className="size-3.5" aria-hidden />
-              History
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Every version of this record — who, when, why — with Restore</TooltipContent>
-        </Tooltip>
-      )}
-    </>
+    <AskAboutThis
+      record={{ type: 'object', id: String(objectId), ...(title ? { label: title } : {}) }}
+      selectionRoot={selectionRoot}
+      variant="none"
+      changeable
+    />
   );
 }

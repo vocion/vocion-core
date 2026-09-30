@@ -9,6 +9,107 @@ import { relativeLabel } from '@/libs/timeAgo';
 /** The soonest a followed page re-reads again after it just did: a busy build is a re-read every 1.5s, not one per heartbeat. */
 const FOLLOW_MIN_GAP_MS = 1_500;
 
+/** How a live page re-reads itself: the fallback interval, what it follows, whether it polls when the stream is down. */
+export type LiveRefreshOptions = { everyMs: number; follow?: readonly string[]; poll?: boolean };
+
+/** What a live page knows about its own re-reading. */
+export type LiveRefreshState = {
+  /** The tab is visible; false = paused. */
+  visible: boolean;
+  /** When the page last re-read, ms. */
+  updatedAt: number;
+  /** The clock, ticking each second while visible, for "3s ago". */
+  now: number;
+  /** Re-read now. */
+  refresh: () => void;
+  /** Changes arrive on the live stream. */
+  pushed: boolean;
+  /** Re-reading on the interval (the stream is down, or the page follows nothing). */
+  polling: boolean;
+};
+
+/**
+ * The re-read {@link LiveRefresh} draws, as a hook, so another control can
+ * carry it — the record's version chip (`versions/VersionChip`). Pushed on
+ * the live stream when the page follows topics, polled on `everyMs` while
+ * the stream is down. `null` re-reads nothing and returns null.
+ * @param opts - How to re-read, or null for a page that is not live.
+ */
+export function useLiveRefresh(opts: LiveRefreshOptions | null): LiveRefreshState | null {
+  const everyMs = opts?.everyMs ?? 0;
+  const follow = opts?.follow;
+  const poll = opts?.poll ?? true;
+  const on = opts !== null;
+  const router = useRouter();
+  const [updatedAt, setUpdatedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  // The tab's visibility as an external store: true on the server, the
+  // document's word on the client, re-read on every `visibilitychange`.
+  const visible = useSyncExternalStore(subscribeVisibility, readVisible, () => true);
+  // The last read, for working out when the next one is due after a return.
+  const lastRead = useRef(updatedAt);
+
+  const refresh = useCallback(() => {
+    router.refresh();
+    const t = Date.now();
+    lastRead.current = t;
+    setUpdatedAt(t);
+    setNow(t);
+  }, [router]);
+
+  // Pushed: a change to anything the page is made of re-reads it, a burst
+  // gathered into one re-read a second.
+  const burst = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { live } = useLive(on ? follow ?? [] : [], () => {
+    if (burst.current) {
+      return;
+    }
+    const wait = Math.max(0, FOLLOW_MIN_GAP_MS - (Date.now() - lastRead.current));
+    burst.current = setTimeout(() => {
+      burst.current = null;
+      refresh();
+    }, wait);
+  });
+  useEffect(() => () => {
+    if (burst.current) {
+      clearTimeout(burst.current);
+    }
+  }, []);
+  const pushed = follow !== undefined && follow.length > 0 && live;
+  const polling = on && !pushed && (follow === undefined || follow.length === 0 || poll);
+
+  // The clock the label counts with, while anyone can see it.
+  useEffect(() => {
+    if (!visible || !on) {
+      return;
+    }
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [visible, on]);
+
+  useEffect(() => {
+    if (!visible || !polling) {
+      return;
+    }
+    // The first read comes when it would have been due — at once, if the tab
+    // was hidden longer than the interval — and the interval runs from there.
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const due = Math.max(0, everyMs - (Date.now() - lastRead.current));
+    const first = setTimeout(() => {
+      refresh();
+      timer = setInterval(refresh, everyMs);
+    }, due);
+    return () => {
+      clearTimeout(first);
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [visible, everyMs, refresh, polling]);
+
+  return on ? { visible, updatedAt, now, refresh, pushed, polling } : null;
+}
+
 /**
  * Keep a server-rendered list page current while someone is looking at it.
  *
@@ -32,72 +133,7 @@ const FOLLOW_MIN_GAP_MS = 1_500;
  * @param props.poll - Whether to poll when the stream is down (default true).
  */
 export function LiveRefresh({ everyMs, follow, poll = true }: { everyMs: number; follow?: readonly string[]; poll?: boolean }) {
-  const router = useRouter();
-  const [updatedAt, setUpdatedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
-  // The tab's visibility as an external store: true on the server, the
-  // document's word on the client, re-read on every `visibilitychange`.
-  const visible = useSyncExternalStore(subscribeVisibility, readVisible, () => true);
-  // The last read, for working out when the next one is due after a return.
-  const lastRead = useRef(updatedAt);
-
-  const refresh = useCallback(() => {
-    router.refresh();
-    const t = Date.now();
-    lastRead.current = t;
-    setUpdatedAt(t);
-    setNow(t);
-  }, [router]);
-
-  // Pushed: a change to anything the page is made of re-reads it, a burst
-  // gathered into one re-read a second.
-  const burst = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { live } = useLive(follow ?? [], () => {
-    if (burst.current) {
-      return;
-    }
-    const wait = Math.max(0, FOLLOW_MIN_GAP_MS - (Date.now() - lastRead.current));
-    burst.current = setTimeout(() => {
-      burst.current = null;
-      refresh();
-    }, wait);
-  });
-  useEffect(() => () => {
-    if (burst.current) {
-      clearTimeout(burst.current);
-    }
-  }, []);
-  const pushed = follow !== undefined && follow.length > 0 && live;
-  const polling = !pushed && (follow === undefined || follow.length === 0 || poll);
-
-  // The clock the label counts with, while anyone can see it.
-  useEffect(() => {
-    if (!visible) {
-      return;
-    }
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, [visible]);
-
-  useEffect(() => {
-    if (!visible || !polling) {
-      return;
-    }
-    // The first read comes when it would have been due — at once, if the tab
-    // was hidden longer than the interval — and the interval runs from there.
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const due = Math.max(0, everyMs - (Date.now() - lastRead.current));
-    const first = setTimeout(() => {
-      refresh();
-      timer = setInterval(refresh, everyMs);
-    }, due);
-    return () => {
-      clearTimeout(first);
-      if (timer) {
-        clearInterval(timer);
-      }
-    };
-  }, [visible, everyMs, refresh, polling]);
+  const { visible, updatedAt, now, refresh, pushed, polling } = useLiveRefresh({ everyMs, follow, poll })!;
 
   // What it says, in the two places it has room to say it. On a phone the
   // elapsed seconds are the least useful thing on the row — they change every

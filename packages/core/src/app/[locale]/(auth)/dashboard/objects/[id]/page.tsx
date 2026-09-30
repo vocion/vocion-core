@@ -12,6 +12,7 @@ import { RecordBody } from '@/features/dashboard/objects/RecordBody';
 import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { VersionChip } from '@/features/dashboard/versions/VersionChip';
 import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -21,6 +22,7 @@ import { resolveField } from '@/libs/workspace/pages';
 import { declaredRecordFields, hasInspectionImage, isDiscoveryRecord, recordSections } from '@/libs/workspace/records';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { recordRef } from '@/services/chat/recordContext';
+import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordBodyEnabled } from '@/services/objects/recordBodyFormat';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
 
@@ -101,6 +103,7 @@ export default async function ObjectDetailPage(props: {
   const sections = recordSections(row, fields, handled);
   const now = await currentTime();
   const hasBody = recordBodyEnabled(obj.type.slug, obj.type.schema);
+  const version = hasBody ? await recordVersionOf(orgId, obj.id).catch(() => null) : null;
 
   // The record's neighbours, by their own titles: the request that asked
   // for this, the release it shipped in, the repository and product it
@@ -137,8 +140,10 @@ export default async function ObjectDetailPage(props: {
                 </Badge>
               )}
               {/* A record with a body is changeable in place and carries its
-                  versions (backlog 035): select → Change, and History. */}
+                  versions (backlog 035): select → Change, and its version
+                  chip, which opens the history in the pane. */}
               {hasBody && <RecordChangeIntent objectId={obj.id} title={obj.title} selectionRoot="[data-record-body]" />}
+              {hasBody && <VersionChip objectId={obj.id} version={version?.version ?? null} updatedAt={version?.at ?? null} />}
             </div>
           </div>
         )}

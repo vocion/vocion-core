@@ -1,14 +1,16 @@
 import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
-import { FeatureReportView, ReportContextLine } from '@/features/dashboard/factory/FeatureReportView';
+import { FeatureReportView, ReportContextLine, reportLiveRefresh } from '@/features/dashboard/factory/FeatureReportView';
 import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { VersionChip } from '@/features/dashboard/versions/VersionChip';
 import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
+import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordHref } from '@/services/objects/recordHref';
 import { readPageForOrg } from '@/services/PluginService';
 
@@ -127,6 +129,12 @@ export default async function WorkspaceReportPage(props: {
   const status = report
     ? featureStatusOf(report, { objectType: manifest.report.subject, href: await recordHref(orgId, { objectType: manifest.report.subject, id: recordId }) }, now)
     : undefined;
+  // The record's version closes the metadata line, and carries the page's
+  // re-read while anything runs (one chip, not a History row and a live row).
+  const version = report ? await recordVersionOf(orgId, report.requestId).catch(() => null) : null;
+  const chip = report
+    ? <VersionChip objectId={report.requestId} version={version?.version ?? null} updatedAt={version?.at ?? null} live={reportLiveRefresh(report)} />
+    : null;
 
   return (
     <>
@@ -147,17 +155,13 @@ export default async function WorkspaceReportPage(props: {
         title={report ? report.title : manifest.title}
         description={report
           ? (
-              (report.goal ?? null) === null && report.context.length === 0
-                ? undefined
-                : (
-                    // The subtitle reads at body size and normal contrast —
-                    // it is what the work is FOR; the context line under it
-                    // is metadata, smaller and muted (Chris, 2026-09-28).
-                    <>
-                      {report.goal && <span className="block text-[15px] leading-relaxed text-foreground">{report.goal}</span>}
-                      <ReportContextLine bits={report.context} />
-                    </>
-                  )
+              // The subtitle reads at body size and normal contrast — it is
+              // what the work is FOR; the context line under it is metadata,
+              // smaller and muted (Chris, 2026-09-28), closed by the version.
+              <>
+                {report.goal && <span className="block text-[15px] leading-relaxed text-foreground">{report.goal}</span>}
+                <ReportContextLine bits={report.context} end={chip} />
+              </>
             )
           : manifest.description}
       />
