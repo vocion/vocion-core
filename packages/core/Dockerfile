@@ -137,6 +137,7 @@ RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SH
 RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/app/packages/core/.next/cache \
     NODE_OPTIONS=--max-old-space-size=6144 \
     SKIP_ENV_VALIDATION=1 \
+    VOCION_TYPES_CHECKED=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
     DATABASE_URL="postgres://stub@stub/stub" \
     CLERK_SECRET_KEY="sk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA" \

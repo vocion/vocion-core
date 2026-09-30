@@ -59,9 +59,12 @@ const baseConfig: NextConfig = {
   reactStrictMode: true,
   // CI type-checks core once, in the `static` job's `check:types`, and fails
   // the pull request there. Without this, `next build` ran the same check
-  // again inside every build job (#629). Only CI skips it: a deploy or a
-  // local build still refuses to produce an app with a type error in it.
-  typescript: { ignoreBuildErrors: !!process.env.CI },
+  // again inside every build job (#629). The deploy image skips it too
+  // (`VOCION_TYPES_CHECKED`, set in the Dockerfile): main only moves on a
+  // green `check:types`, and on the instance's 2-CPU runner the repeat check
+  // swapped for 25 minutes until the job timed out (2026-09-30, two deploys
+  // lost). A local build still refuses to produce an app with a type error.
+  typescript: { ignoreBuildErrors: !!process.env.CI || process.env.VOCION_TYPES_CHECKED === '1' },
   // Temporal's client breaks when bundled (seen under webpack before #670;
   // it stays external under Turbopack too): its gRPC/proto data files
   // don't ride into the bundle, so Connection.connect() throws at runtime
