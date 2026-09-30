@@ -20,7 +20,7 @@ import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { decideExecution } from '@/libs/actions/autoAccept';
-import { decidedByPerson } from '@/libs/actions/decider';
+import { decidedByMachine } from '@/libs/actions/decider';
 import { isManualAction } from '@/libs/actions/manual';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
@@ -243,14 +243,14 @@ async function findDecidedRunForKey(
     ))
     .orderBy(desc(actionRunSchema.id))
     .limit(20);
-  // A REJECTION STANDS ONLY WHEN A PERSON MADE IT. A seat withdrawing its own
+  // A MACHINE'S REJECTION DOES NOT STAND. A seat withdrawing its own
   // card, its budget retiring it, or a sweep expiring it says nothing about
   // the record, yet it used to bar the record for good: request #130
   // (2026-09-30) could never be planned again because the product manager had
   // withdrawn an old plan card for it, and every replan was refused as "a
   // person already decided this exact record". A machine-made `done` still
   // counts; the record it produced exists (`decisionStillStands` answers for it).
-  const row = cardKey ? rows.at(0) : rows.find(r => r.status !== 'rejected' || decidedByPerson(r.decidedBy));
+  const row = cardKey ? rows.at(0) : rows.find(r => r.status !== 'rejected' || !decidedByMachine(r.decidedBy));
   if (!row) {
     return undefined;
   }

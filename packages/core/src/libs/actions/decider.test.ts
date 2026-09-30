@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { decidedByPerson } from './decider';
+import { decidedByMachine } from './decider';
 
-describe('decidedByPerson', () => {
-  it('reads a user id or a token as a person', () => {
-    expect(decidedByPerson('user_2abcDEF')).toBe(true);
-    expect(decidedByPerson('token:ci-bot')).toBe(true);
+describe('decidedByMachine', () => {
+  it('reads a seat, a sweep or the trust ladder as a machine', () => {
+    for (const by of ['agent:product-manager', 'system:review-sweep', 'factory:send-engineer', 'trust-ladder']) {
+      expect(decidedByMachine(by)).toBe(true);
+    }
   });
 
-  it('reads a seat, a sweep, the trust ladder or no stamp as not a person', () => {
-    for (const by of ['agent:product-manager', 'system:review-sweep', 'factory:send-engineer', 'trust-ladder', '', null, undefined]) {
-      expect(decidedByPerson(by)).toBe(false);
+  it('reads a user id, a token or no stamp as not known to be a machine', () => {
+    for (const by of ['user_2abcDEF', 'token:ci-bot', '', null, undefined]) {
+      expect(decidedByMachine(by)).toBe(false);
     }
   });
 });

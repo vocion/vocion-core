@@ -11,13 +11,12 @@ const MACHINE_PREFIXES = ['agent:', 'system:', 'factory:', 'automation:', 'missi
 const MACHINE_STAMPS = new Set(['trust-ladder']);
 
 /**
- * True when a person decided the run, false for a machine or no stamp at all.
+ * True only when the stamp names a machine. No stamp is not known to be a
+ * machine: older runs and some review paths leave it empty, and those keep
+ * the standing a person's decision had before this existed.
  * @param decidedBy - The run's `decidedBy`.
  */
-export function decidedByPerson(decidedBy: string | null | undefined): boolean {
+export function decidedByMachine(decidedBy: string | null | undefined): boolean {
   const by = (decidedBy ?? '').trim();
-  if (by === '' || MACHINE_STAMPS.has(by)) {
-    return false;
-  }
-  return !MACHINE_PREFIXES.some(prefix => by.startsWith(prefix));
+  return MACHINE_STAMPS.has(by) || MACHINE_PREFIXES.some(prefix => by.startsWith(prefix));
 }
