@@ -21,7 +21,7 @@
  */
 
 import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, ReportAsk, ReportObject, ReportWorkerRun } from './featureReport';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
@@ -29,6 +29,7 @@ import { failedFireLines } from '@/services/automations/failedFires';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { assembleFeatureReport } from './featureReport';
+import { loadLiveMissionRuns, taskOfRun, toolCallNamedId } from './liveStatusData';
 
 type ObjectRow = { id: number; title: string; status: string | null; createdAt: Date | null; metadata: unknown; type?: { slug: string } | null };
 
@@ -64,13 +65,8 @@ function idOf(source: Record<string, unknown> | null | undefined, key: string): 
  * @param taskIds - The task ids.
  */
 function runIsForTask(input: Record<string, unknown>, taskIds: Set<number>): boolean {
-  const rec = input.record;
-  if (!rec || typeof rec !== 'object') {
-    return false;
-  }
-  const { type, id } = rec as Record<string, unknown>;
-  const n = typeof id === 'number' ? id : Number(id);
-  return type === 'engineering_task' && Number.isInteger(n) && taskIds.has(n);
+  const n = taskOfRun(input);
+  return n !== null && taskIds.has(n);
 }
 
 /**
@@ -267,8 +263,15 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     }
   }
 
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link: await recordLinkerForOrg(orgId) });
-  return { ...report, activity: await loadActivity(orgId, requestId, taskIds, workerRuns) };
+  // THE RUNS WORKING ON IT NOW — the planning run its fire started for it, a
+  // reviewer's run over its change (`liveStatusData.loadLiveMissionRuns`).
+  const [live, activity, link] = await Promise.all([
+    loadLiveMissionRuns(orgId, [{ recordId: requestId, childIds: [...taskIds] }], now),
+    loadActivity(orgId, requestId, taskIds, workerRuns),
+    recordLinkerForOrg(orgId),
+  ]);
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [] });
+  return { ...report, activity };
 }
 
 /**
@@ -288,7 +291,7 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
     .from(toolCallSchema)
     .where(and(
       eq(toolCallSchema.orgId, orgId),
-      inArray(sql<string>`coalesce(${toolCallSchema.input}->>'id', ${toolCallSchema.input}->>'object_id', ${toolCallSchema.input}#>>'{action_input,objectId}', ${toolCallSchema.input}#>>'{input,id}')`, ids),
+      inArray(toolCallNamedId, ids),
     ))
     .orderBy(desc(toolCallSchema.createdAt))
     .limit(400);
