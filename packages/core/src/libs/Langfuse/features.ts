@@ -36,6 +36,8 @@ export const FEATURES = {
   CHAT_CARDS: 'chat.cards',
   /** A thread's name, written by the classifier model after its first reply. */
   CHAT_TITLE: 'chat.title',
+  /** Which agent answers a conversation's first turn, read by the classifier (`services/agents/routeRead.ts`). */
+  CHAT_ROUTE: 'chat.route',
   /** OAuth token-refresh round-trips for Source plugins. */
   SOURCE_OAUTH: 'source.oauth',
   /** Native pgvector + Postgres FTS hybrid retrieval. */

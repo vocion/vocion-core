@@ -91,10 +91,10 @@ export async function POST(request: Request): Promise<Response> {
   // (agent-chat-surface.md §9.10), falling back to the first agent when no
   // lead is configured. 404 when zero agents authored.
   //
-  // `route: true` asks the workspace to choose: the router matches the message
-  // against what each agent `handles`, its description and its suggestions,
-  // and defaults to the lead when nothing convinces it
-  // (`services/agents/router.ts`). The decision is the turn's first frame and
+  // `route: true` asks the workspace to choose: a small model reads the
+  // message against the roster and what each seat owns, and the lead answers
+  // when it is unsure; the keyword scorer is only its fallback
+  // (`services/agents/router.ts`, conversation 397). The decision is the turn's first frame and
   // is written on the person's message, so "why did this agent answer" has an
   // answer a person can read. Sent by the composer when the person picked no
   // agent; absent, the lead answers as before.
@@ -112,7 +112,7 @@ export async function POST(request: Request): Promise<Response> {
     const { getWorkspaceLead } = await import('@/services/TeamService');
     const lead = await getWorkspaceLead(orgId);
     if (body.route === true && typeof message === 'string' && message.trim()) {
-      const { chooseAgent, followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow } = await import('@/services/agents/router');
+      const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn } = await import('@/services/agents/router');
       // A follow-up stays with the agent the thread is with; the router
       // picks only a conversation's first turn, or an agent the person names
       // (conversation 349: "Please file it now." left the product manager's
@@ -125,7 +125,10 @@ export async function POST(request: Request): Promise<Response> {
       const pageRecord = pageContext?.record?.objectType ? { objectType: pageContext.record.objectType, id: pageContext.record.id } : null;
       routing = followUpDecision({ agents: routable, message, threadAgent, surface: 'chat' })
         ?? pageOwnerDecision({ agents: routable, message, record: pageRecord, ownerSlug: pageRecord ? await recordOwnerSlug(orgId, pageRecord.objectType) : null, surface: 'chat' })
-        ?? chooseAgent({ agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
+        // Otherwise the first turn is read by a model against the roster and
+        // what each seat owns (conversation 397: "file it and build it" went
+        // to the wiki researcher on a keyword score).
+        ?? await routeFirstTurn({ orgId, agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
     }
     agentSlug = routing?.chosen
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);

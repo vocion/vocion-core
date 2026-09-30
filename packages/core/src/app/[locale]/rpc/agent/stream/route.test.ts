@@ -26,6 +26,11 @@ vi.mock('@/services/chat/autoPropose', async (importOriginal) => {
 // The thread's name is written in the background after a complete reply; the
 // route's only job is to ask for it, at the right moment.
 vi.mock('@/services/chat/conversationTitle', () => ({ scheduleConversationTitle: vi.fn() }));
+// The router's model read: unscripted it fails and the keyword fallback
+// decides, so no test here calls a model.
+vi.mock('@/services/agents/routeRead', () => ({ readRoute: vi.fn(async () => {
+  throw new Error('no model in this test');
+}) }));
 
 const { markStopped } = await import('@/libs/streams/buffer');
 const { TurnRefusedError } = await import('@/services/agents/turnRefusal');
@@ -441,10 +446,17 @@ describe('agent stream route — a follow-up stays in its thread (conversation 3
     expect(await routedTurn(conv.id, 'You said nothing was saved. Please file it now.')).toBe('product-manager');
   });
 
-  it('routes a first turn by the router, and switches when the person names an agent', async () => {
+  it('routes a first turn on the model\'s read, and switches when the person names an agent', async () => {
+    const { readRoute } = await import('@/services/agents/routeRead');
+    vi.mocked(readRoute).mockResolvedValueOnce({ chosen: 'product-manager', confidence: 0.9, reason: 'They want a request filed; the product manager owns requests.' });
     const fresh = await createConversation({ orgId: ORG, agentSlug: 'product-manager', createdBy: USER });
 
-    expect(await routedTurn(fresh.id, 'You said nothing was saved. Please file it now.')).toBe('change-reviewer');
+    expect(await routedTurn(fresh.id, 'You said nothing was saved. Please file it now.')).toBe('product-manager');
+
+    // The read failing leaves the keyword fallback to decide, as before.
+    const unread = await createConversation({ orgId: ORG, agentSlug: 'product-manager', createdBy: USER });
+
+    expect(await routedTurn(unread.id, 'You said nothing was saved. Please file it now.')).toBe('change-reviewer');
 
     const conv = await createConversation({ orgId: ORG, agentSlug: 'product-manager', createdBy: USER });
     const { appendMessage } = await import('@/services/ConversationService');

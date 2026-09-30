@@ -36,7 +36,7 @@ import { readModelPrefs } from '@/libs/llm/modelPrefs';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { actionRunSchema, conversationSchema } from '@/models/Schema';
 import { readInitiative } from '@/services/agents/initiative';
-import { chooseAgent, routableFromRow } from '@/services/agents/router';
+import { routableFromRow, routeFirstTurn } from '@/services/agents/router';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
 import { preflightCheck } from '@/services/BudgetService';
@@ -236,7 +236,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   } else if (input.agentSlug?.trim()) {
     agentSlug = input.agentSlug.trim();
   } else {
-    routing = chooseAgent({ agents: agents.map(routableFromRow), message, leadSlug: lead.leadAgentSlug, surface: 'mcp' });
+    routing = await routeFirstTurn({ orgId, agents: agents.map(routableFromRow), message, leadSlug: lead.leadAgentSlug, surface: 'mcp' });
     if (!routing) {
       throw new WorkspaceTurnError('NO_AGENTS', 'This workspace has no active agent to answer. Author one and apply the workspace.');
     }
