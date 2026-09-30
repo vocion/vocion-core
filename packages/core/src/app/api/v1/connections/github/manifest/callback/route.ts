@@ -11,7 +11,7 @@ import { connectionDoor } from '../../_route';
  * @param request - The request.
  */
 export async function GET(request: NextRequest) {
-  const door = connectionDoor(request, await authApi());
+  const door = connectionDoor(request, await authApi(request));
   if (door instanceof NextResponse) {
     return door;
   }

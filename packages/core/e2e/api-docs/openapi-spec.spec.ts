@@ -52,7 +52,15 @@ function seedFixtures(): SeedFixtures {
  * for its auth gate and left alone. Everything else in the sweep answers from
  * the database.
  */
-const OUTWARD_CALLING_PATHS = new Set(['/api/v1/vision/model']);
+const OUTWARD_CALLING_PATHS = new Set([
+  '/api/v1/vision/model',
+  // The GitHub App's browser round trips: each answers a signed-in person with
+  // a redirect to github.com or back to Connections, never a JSON body.
+  '/api/v1/connections/github/manifest',
+  '/api/v1/connections/github/manifest/callback',
+  '/api/v1/connections/github/install',
+  '/api/v1/connections/github/install/callback',
+]);
 
 let fixtures: SeedFixtures;
 
