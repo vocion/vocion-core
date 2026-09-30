@@ -166,7 +166,11 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.29.0
+# 2.30.0 — a UI request always owes its mockup, whatever reason was written
+#   at filing (#277 was skipped on "Mockup owed from the designer"), and an
+#   hourly sweep (`design-mockup-sweep`) asks again for open requests that
+#   never got one.
+version: 2.30.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

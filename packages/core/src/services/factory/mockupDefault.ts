@@ -223,3 +223,45 @@ export async function defaultMockupEnded(orgId: string, input: Record<string, un
   }
   return { recordId: id, did: 'gave-up', line: next.line };
 }
+
+/** At most this many drawings asked for in one sweep, so a backlog drains over hours, not at once. */
+const SWEEP_DRAWS = 3;
+/** Records read per sweep, newest first. */
+const SWEEP_SCAN = 40;
+
+/**
+ * THE SWEEP: an open record that owes a mockup and never got one is asked
+ * for again, on a schedule, so a record filed before the rule, or one a
+ * past decision skipped (#277, 2026-09-30), heals without anyone asking.
+ * Each record is judged by the same decision as the filing event; a drawing
+ * running or given up is left alone.
+ * @param orgId - Tenant.
+ * @param input - The automation's input: the rule, and `objectType`, the type it sweeps.
+ * @param now - The clock.
+ */
+export async function sweepDefaultMockups(orgId: string, input: Record<string, unknown>, now: Date = new Date()): Promise<{ scanned: number; requested: number[] }> {
+  const objectType = typeof input.objectType === 'string' ? input.objectType : null;
+  if (!objectType) {
+    return { scanned: 0, requested: [] };
+  }
+  const { and, desc, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const { getObjectTypeBySlug } = await import('@/services/BusinessObjectService');
+  const type = await getObjectTypeBySlug(orgId, objectType);
+  if (!type) {
+    return { scanned: 0, requested: [] };
+  }
+  const rows = await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.typeId, type.id))).orderBy(desc(businessObjectSchema.id)).limit(SWEEP_SCAN);
+  const requested: number[] = [];
+  for (const row of rows) {
+    if (requested.length >= SWEEP_DRAWS) {
+      break;
+    }
+    const out = await requestDefaultMockup(orgId, { ...input, objectId: row.id, objectType }, now).catch(() => null);
+    if (out?.did.startsWith('requested:')) {
+      requested.push(row.id);
+    }
+  }
+  return { scanned: rows.length, requested };
+}

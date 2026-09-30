@@ -16,7 +16,7 @@ const { automationRunSchema, automationSchema, businessObjectSchema, eventLogSch
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
 const { emitEvent } = await import('@/services/EventService');
-const { defaultMockupEnded, requestDefaultMockup } = await import('./mockupDefault');
+const { defaultMockupEnded, requestDefaultMockup, sweepDefaultMockups } = await import('./mockupDefault');
 
 const ORG = 'org_mockup_default';
 let typeId = 0;
@@ -159,5 +159,23 @@ describe('a mission check that throws says so', () => {
     const [event] = await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'automation_run.failed')));
 
     expect(event?.payload).toMatchObject({ slug: 'draws-nothing', kind: 'mission_check', error: expect.stringContaining('no-such-mission') });
+  });
+});
+
+describe('the hourly sweep', () => {
+  it('asks again for an open UI request that never got its mockup, even one filed with a reason for none (#277)', async () => {
+    const skippedAtFiling = await request({ surface: 'ui', kind: 'idea', visuals: { noVisualReason: 'Mockup owed from the designer before dispatch.' } }, 'Show when a room was last opened');
+    const noUi = await request({ surface: 'data', kind: 'idea' }, 'Export room reads nightly');
+
+    const out = await sweepDefaultMockups(ORG, { ...RULE, objectType: 'request' });
+
+    expect(out.requested).toContain(skippedAtFiling.id);
+    expect(out.requested).not.toContain(noUi.id);
+    expect((await asked(skippedAtFiling.id)).length).toBeGreaterThan(0);
+
+    // A second pass leaves the drawing it asked for alone.
+    const again = await sweepDefaultMockups(ORG, { ...RULE, objectType: 'request' });
+
+    expect(again.requested).not.toContain(skippedAtFiling.id);
   });
 });

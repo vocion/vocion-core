@@ -11,7 +11,8 @@ describe('who owes a mockup', () => {
     expect(mockupDecision({ surface: 'infra' }, RULE, NOW)).toEqual({ do: 'skip', why: 'no UI to draw: surface is infra' });
     expect(mockupDecision({ surface: 'ui', kind: 'bug' }, RULE, NOW)).toEqual({ do: 'skip', why: 'kind is bug' });
     expect(mockupDecision({ surface: 'ui', visuals: { mockupArtifactIds: [3] } }, RULE, NOW).do).toBe('skip');
-    expect(mockupDecision({ surface: 'ui', visuals: { noVisualReason: 'A copy change in an email.' } }, RULE, NOW)).toEqual({ do: 'skip', why: 'a reason for no visual is recorded' });
+    // A reason written at filing does not stand in for the mockup (#277).
+    expect(mockupDecision({ surface: 'ui', visuals: { noVisualReason: 'Mockup owed from the designer before dispatch.' } }, RULE, NOW)).toEqual({ do: 'draw', attempt: 1 });
   });
 
   it('reads dotted fields', () => {

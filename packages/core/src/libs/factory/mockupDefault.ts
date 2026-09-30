@@ -138,9 +138,12 @@ export function mockupDecision(meta: Meta, rule: MockupRule, now: Date, changed?
   if (hasMockups(meta)) {
     return { do: 'skip', why: 'it already has mockups' };
   }
-  if (fieldValue(meta, 'visuals.noVisualReason') !== null) {
-    return { do: 'skip', why: 'a reason for no visual is recorded' };
-  }
+  // A written reason for no visual does not stand in for the mockup on a UI
+  // surface: the filing gate asks for a visual or a reason, and request #277
+  // (2026-09-30) was filed with "Mockup owed from the designer before
+  // dispatch", which this read as "none needed" and skipped. Drawing never
+  // holds anything up; a change with truly nothing to show is the designer's
+  // to say when it tries.
   const draw = readMockupDraw(meta);
   if (draw?.state === 'drawing') {
     const age = now.getTime() - new Date(draw.at).getTime();

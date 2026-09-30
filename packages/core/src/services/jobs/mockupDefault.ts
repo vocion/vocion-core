@@ -11,10 +11,13 @@
 export const MOCKUP_DEFAULT_JOB = 'mockup-default';
 /** `automation_run.completed` / `.failed` of the drawing: drawn, once more, or written down. */
 export const MOCKUP_ENDED_JOB = 'mockup-ended';
+/** A schedule: open records that owe a mockup and have none are asked for again. */
+export const MOCKUP_SWEEP_JOB = 'mockup-sweep';
 
 type Job = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
 export const mockupDefaultJobs: Record<string, Job> = {
   [MOCKUP_DEFAULT_JOB]: async (orgId, input) => (await import('@/services/factory/mockupDefault')).requestDefaultMockup(orgId, input),
   [MOCKUP_ENDED_JOB]: async (orgId, input) => (await import('@/services/factory/mockupDefault')).defaultMockupEnded(orgId, input),
+  [MOCKUP_SWEEP_JOB]: async (orgId, input) => (await import('@/services/factory/mockupDefault')).sweepDefaultMockups(orgId, input),
 };
