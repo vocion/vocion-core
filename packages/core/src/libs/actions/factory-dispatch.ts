@@ -274,6 +274,15 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
   if (m.qa && typeof m.qa === 'object') {
     out.qa = m.qa;
   }
+  if (Array.isArray(m.checkCommands) && m.checkCommands.length > 0) {
+    out.checks = m.checkCommands;
+  }
+  if (list(m, 'humanOwned').length > 0) {
+    out.human_owned = list(m, 'humanOwned');
+  }
+  if (list(m, 'engineerRules').length > 0) {
+    out.engineer_rules = list(m, 'engineerRules');
+  }
   if (typeof m.tokenBudget === 'number') {
     out.token_budget_usd = m.tokenBudget;
   }
@@ -356,7 +365,64 @@ export function higherRisk(a: string, b: string | null): string {
  * @param input.note - What the person pressing Build (or the factory's recovery) asks of this attempt.
  * @param input.reported - What the person sent in the chat the request was filed from (`reported.reportedLinks`).
  */
-export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null; resume?: { id: number; meta: Meta } | null; note?: string; reported?: ReadonlyArray<{ title: string; url: string; file: string | null }> }): Meta {
+/** A product environment as the dispatch reads it: which surface it serves, at which stage, where. */
+export type ProductEnvironment = { surface: string | null; stage: string | null; url: string | null };
+
+/**
+ * The runner's `qa.surfaces` from the repo record's `surfaces` and the product's production
+ * environments (backlog 052). The record is camelCase; the contract is snake_case. A surface's live
+ * URL is the production environment serving it (`surfaces.<name>.environment`, else the surface's
+ * own name); none, and the before shot is recorded absent with that reason.
+ * @param repo - The repo record's metadata.
+ * @param environments - The product's environments.
+ */
+export function runnerSurfaces(repo: Meta, environments: readonly ProductEnvironment[]): Record<string, Meta> {
+  const declared = (repo.surfaces && typeof repo.surfaces === 'object' && !Array.isArray(repo.surfaces) ? repo.surfaces : {}) as Record<string, Meta>;
+  const out: Record<string, Meta> = {};
+  for (const [name, s] of Object.entries(declared)) {
+    if (!s || typeof s !== 'object') {
+      continue;
+    }
+    const serves = str(s, 'environment') ?? name;
+    const live = environments.find(e => (e.stage ?? 'production') === 'production' && e.surface === serves && e.url?.startsWith('https://'))?.url ?? null;
+    const b = (s.build && typeof s.build === 'object' ? s.build : null) as Meta | null;
+    const strings = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v as Meta).filter(([, x]) => typeof x === 'string')) as Record<string, string> : undefined);
+    const build = b && str(b, 'command') && str(b, 'dist')
+      ? {
+          command: str(b, 'command'),
+          dist: str(b, 'dist'),
+          ...(typeof b.port === 'number' ? { port: b.port } : {}),
+          ...(typeof b.spaFallback === 'boolean' ? { spa_fallback: b.spaFallback } : {}),
+          ...(strings(b.env) ? { env: strings(b.env) } : {}),
+          ...(strings(b.signedInEnv) ? { signed_in_env: strings(b.signedInEnv) } : {}),
+        }
+      : undefined;
+    out[name] = {
+      ...(live ? { live_url: live.replace(/\/+$/, '') } : {}),
+      ...(build ? { build } : {}),
+      ...(list(s, 'listRoutes').length > 0 ? { list_routes: list(s, 'listRoutes') } : {}),
+      ...(list(s, 'errorText').length > 0 ? { error_text: list(s, 'errorText') } : {}),
+      ...(str(s, 'previewNote') ? { preview_note: str(s, 'previewNote') } : {}),
+    };
+  }
+  return out;
+}
+
+/**
+ * The runner's `environment` from the repo record: its `services` (each a name, or an object with
+ * the url the repo's tests expect and the setup commands that prepare it) and `setup`, over the
+ * older `environment` block.
+ * @param repo - The repo record's metadata.
+ */
+export function runnerEnvironment(repo: Meta): Meta | undefined {
+  const base = (repo.environment && typeof repo.environment === 'object' ? repo.environment : {}) as Meta;
+  const services = Array.isArray(repo.services) ? repo.services : base.services;
+  const setup = list(repo, 'setup').length > 0 ? list(repo, 'setup') : base.setup;
+  const out: Meta = { ...base, ...(services !== undefined ? { services } : {}), ...(setup !== undefined ? { setup } : {}) };
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function deriveContract(input: { given: Meta; request: Meta & { title?: string } | null; plan: Meta | null; repo: Meta | null; previous?: { id: number; meta: Meta } | null; resume?: { id: number; meta: Meta } | null; note?: string; reported?: ReadonlyArray<{ title: string; url: string; file: string | null }>; environments?: readonly ProductEnvironment[] }): Meta {
   const g = input.given;
   const r = input.request ?? {};
   const p = input.plan ?? {};
@@ -492,12 +558,29 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // was 64 and the worker refused the whole contract before cloning (run 404,
   // 2026-09-28). Cut at a word, never mid-word.
   const flowName = fitName(typeof r.title === 'string' ? r.title : 'the change', 60);
-  const qa = g.qa ?? (visible ? { surface: str(repo, 'qaSurface') ?? 'app', flows: [{ name: flowName, path: qaPath, sign_in: true }] } : undefined);
-  const environment = g.environment ?? (repo.environment && typeof repo.environment === 'object' ? repo.environment : undefined);
+  // WHERE IT RUNS AND HOW IT BUILDS COME FROM THE RECORDS (backlog 052): the repo record's
+  // `surfaces` (the build, the preview mode, the error wording) and the product's production
+  // environments (the live URL), so the runner names no product.
+  const surfaces = runnerSurfaces(repo, input.environments ?? []);
+  const surfaceName = str(repo, 'qaSurface') ?? Object.keys(surfaces)[0] ?? 'app';
+  const givenQa = g.qa && typeof g.qa === 'object' ? g.qa as Meta : null;
+  const qa = givenQa
+    ? { ...givenQa, ...(givenQa.surfaces || Object.keys(surfaces).length === 0 ? {} : { surfaces }) }
+    : visible ? { surface: surfaceName, ...(Object.keys(surfaces).length > 0 ? { surfaces } : {}), flows: [{ name: flowName, path: qaPath, sign_in: true }] } : undefined;
+  const environment = g.environment ?? runnerEnvironment(repo);
+  // A check the repo record gives a command runs that command in the runner; the rest are built-ins.
+  const checkCommands = (Array.isArray(repo.checks) ? (repo.checks as Array<{ name?: string; command?: string }>) : [])
+    .filter(c => c.name && typeof c.command === 'string' && c.command.trim() && checks.includes(c.name))
+    .map(c => ({ name: c.name!, command: c.command!.trim() }));
+  const humanOwned = list(repo, 'humanOwned');
+  const engineerRules = list(repo, 'engineerRules');
   return {
     ...g,
     ...(qa ? { qa } : {}),
     ...(environment ? { environment } : {}),
+    ...(checkCommands.length > 0 ? { checkCommands } : {}),
+    ...(humanOwned.length > 0 ? { humanOwned } : {}),
+    ...(engineerRules.length > 0 ? { engineerRules } : {}),
     title: str(g, 'title') ?? (typeof r.title === 'string' ? r.title : null),
     objective: objective || null,
     ...(input.previous ? { previousTaskId: input.previous.id } : prev ? { previousTaskId: prev.id } : {}),
@@ -600,6 +683,24 @@ async function sentBackTask(orgId: string, requestId: number, planId: number | n
   return { latest: latest ? { id: latest.id, meta: latest.meta } : null, resume: pickResumeBase(all, planId, planApprovedAt) };
 }
 
+/**
+ * The product's environment records, as the dispatch reads them for the runner's live URLs.
+ * Empty when the product names none; a read that fails is no environment, never a refusal.
+ * @param orgId - The workspace.
+ * @param product - The product's slug.
+ */
+async function productEnvironments(orgId: string, product: string | null): Promise<ProductEnvironment[]> {
+  if (!product) {
+    return [];
+  }
+  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const rows = await listBusinessObjects(orgId, (await factoryTypes(orgId)).environment).catch(() => []) as Array<{ metadata: unknown }>;
+  return rows
+    .map(r => (r.metadata ?? {}) as Meta)
+    .filter(m => str(m, 'product') === product)
+    .map(m => ({ surface: str(m, 'surface'), stage: str(m, 'stage'), url: str(m, 'url') }));
+}
+
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
   const stored = input.taskId ? await readRecord(ctx.orgId, input.taskId) : null;
   const plan = input.planId ? await readRecord(ctx.orgId, input.planId) : null;
@@ -614,7 +715,8 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null, plan ? str(plan.meta, 'approvedAt') : null);
     const { reportedLinks } = await import('@/services/objects/reported');
     const reported = await reportedLinks(ctx.orgId, request.id).catch(() => []);
-    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note, reported });
+    const environments = await productEnvironments(ctx.orgId, str(request.meta, 'product'));
+    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note, reported, environments });
     task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: (await factoryTypes(ctx.orgId)).task, meta: { ...meta, requestId: request.id } };
   }
   return { task, plan, request, repo };

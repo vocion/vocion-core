@@ -215,7 +215,13 @@ name: Software factory
 #   environment, the release, the product and the repo; core reads them and
 #   names none in code. Work-row stages carry their own tones, so a page
 #   names only the tones it changes.
-version: 2.36.0
+# 2.37.0 — the runner is core's (backlog 052). The engine that builds a task is
+#   `packages/runner`, one image for every team, and what it needs to build a
+#   repository is on the repo record: `surfaces` (how each builds and serves,
+#   its preview mode), `services` and `setup`, `humanOwned`, `engineerRules`,
+#   and each check's `command`. The dispatch carries them into the contract with
+#   the product's production environments as the live URLs.
+version: 2.37.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

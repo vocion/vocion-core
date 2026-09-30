@@ -1,0 +1,14 @@
+{
+  "name": "@vocion/runner",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Vocion runner: claims an engineering worker_run, runs headless Claude Code under the guard hooks, verifies, lands a pull request or keeps the work, and captures QA evidence. One image; the deploy target decides only where the container starts.",
+  "engines": {
+    "node": ">=20.3"
+  },
+  "scripts": {
+    "start": "node src/runner.mjs",
+    "test": "node --test src/*.test.mjs"
+  }
+}

@@ -10,6 +10,7 @@
     "packages/core",
     "packages/sdk",
     "packages/agent-runtime",
+    "packages/runner",
     "packages/plugins/*"
   ],
   "scripts": {

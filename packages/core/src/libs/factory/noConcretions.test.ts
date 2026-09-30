@@ -15,6 +15,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFile
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { hashTerm, normalizeForScan } from '@/libs/fixtures/realDataGuard';
 import { fromRepoRoot } from '@/libs/repo-root';
 
 /** The code held to this, from the repo root. A directory is read whole; a file prefix matches by name. */
@@ -23,6 +24,24 @@ const FACTORY_CORE_SCOPE = [
   'packages/core/src/libs/factory/',
   'packages/core/src/libs/actions/factory',
   'packages/core/src/services/jobs/factoryCarry.ts',
+  // The engineering runner (backlog 052): the record type is the one the run names.
+  'packages/runner/src/',
+];
+
+/**
+ * THE RUNNER NAMES NO PRODUCT (backlog 052). It was extracted from one product's repository, and
+ * what was true of that product (its domains, its package names, its account) moved to the repo
+ * record and the contract. These are that product's names, hashed the way `realDataGuard.ts`
+ * hashes a banned name, so this file does not write them again: a one-word term is matched per
+ * word, a two-word term per pair of words, over every file under packages/runner.
+ */
+const PRODUCT_TERMS: ReadonlyArray<{ hash: string; words: 1 | 2 }> = [
+  { hash: '3ca746e495fb98f6', words: 1 }, // the product's company name
+  { hash: 'e0afcdbf6ad4adf5', words: 1 }, // the product's name
+  { hash: '288a7e6f13a22911', words: 1 }, // the product's domain
+  { hash: '7802622f1ebd7ce0', words: 1 }, // its earlier domain
+  { hash: '83bea22c73207a30', words: 2 }, // the GitHub owner of its repository
+  { hash: 'd942351ae1120ad1', words: 1 }, // its AWS account id
 ];
 
 /** Every object type slug a shipped plugin or sample workspace defines. */
@@ -206,5 +225,46 @@ describe('the factory core names no types', () => {
     const found = typeSlugFindings([tmp], known);
 
     expect(found.map(f => f.line)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+});
+
+/**
+ * Every file under a directory, node_modules left out.
+ * @param dir - Absolute path.
+ */
+function allFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    if (name === 'node_modules') {
+      continue;
+    }
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) {
+      out.push(...allFiles(p));
+    } else {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+describe('the runner names no product', () => {
+  it('finds none of the product terms in any runner file, tests and image included', () => {
+    const one = new Set(PRODUCT_TERMS.filter(t => t.words === 1).map(t => t.hash));
+    const two = new Set(PRODUCT_TERMS.filter(t => t.words === 2).map(t => t.hash));
+    const found: string[] = [];
+    const root = fromRepoRoot('packages/runner');
+    for (const file of allFiles(root)) {
+      const rel = relative(fromRepoRoot('.'), file);
+      [rel, ...readFileSync(file, 'utf8').split('\n')].forEach((line, i) => {
+        const words = normalizeForScan(line).split(' ').filter(Boolean);
+        const hit = words.some(w => one.has(hashTerm(w))) || words.slice(1).some((w, j) => two.has(hashTerm(`${words[j]} ${w}`)));
+        if (hit) {
+          found.push(i === 0 ? `${rel} (its path)` : `${rel}:${i}`);
+        }
+      });
+    }
+
+    expect(found).toEqual([]);
   });
 });

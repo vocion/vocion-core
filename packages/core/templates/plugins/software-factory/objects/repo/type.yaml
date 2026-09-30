@@ -91,6 +91,75 @@ schema:
       type: array
       description: The people who answer for this repository — who a reviewer's ask goes to and whose name is on a merge nobody else should make.
       items: {type: string}
+    # WHAT THE RUNNER NEEDS TO BUILD HERE (backlog 052). The runner (core's packages/runner)
+    # names no product: how this repository's surfaces build and serve, which services its
+    # tests need and the files its people own are written here, and the dispatch carries them
+    # into the task contract.
+    qaSurface:
+      x-display: {label: QA surface, format: mono, group: Runner}
+      type: string
+      description: The surface a change a person can see is screenshotted on, by its name under `surfaces`. Defaults to the first one.
+    surfaces:
+      x-display: {label: Surfaces, role: prose, format: steps, order: 5}
+      type: object
+      description: >-
+        Each surface a change can be seen on, by name (`app`, `marketing`): the product
+        environment that serves it live (`environment`, matched to an environment record's
+        `surface`, else the surface's own name), and how the branch builds it for the after
+        shot. `build.command` builds it from the repo root, `build.dist` is where the files land,
+        `build.spaFallback` serves index.html for an unknown path, `build.env` is the build's
+        environment and `build.signedInEnv` the repo's preview or mock mode for a flow that needs
+        an account, so no credential exists to leak. `listRoutes` are where a list of records
+        lives when a flow's path names a placeholder; `errorText` the phrases this surface's error
+        states show; `previewNote` what the engineer should know about the preview's data.
+      additionalProperties:
+        type: object
+        properties:
+          environment: {type: string}
+          build:
+            type: object
+            properties:
+              command: {type: string}
+              dist: {type: string}
+              port: {type: integer}
+              spaFallback: {type: boolean}
+              env: {type: object, additionalProperties: {type: string}}
+              signedInEnv: {type: object, additionalProperties: {type: string}}
+          listRoutes: {type: array, items: {type: string}}
+          errorText: {type: array, items: {type: string}}
+          previewNote: {type: string}
+    services:
+      x-display: {label: Services, role: prose, format: steps, order: 6}
+      type: array
+      description: >-
+        The services this repository's checks need beside the runner: `postgres` alone, or
+        `{name: postgres, url, env, setup}` naming the address its tests expect, the variables it
+        is exported as (default DATABASE_URL and TEST_DATABASE_URL) and the commands that prepare
+        it (its migrations). The deploy target provides the service; the runner waits for it.
+      items:
+        anyOf:
+          - {type: string}
+          - type: object
+            properties:
+              name: {type: string}
+              url: {type: string}
+              env: {type: array, items: {type: string}}
+              setup: {type: array, items: {type: string}}
+    setup:
+      x-display: {label: Setup, role: prose, format: steps, order: 7}
+      type: array
+      items: {type: string}
+      description: Commands run from the repo root after install and services, before the engineer starts (a generated client, say).
+    humanOwned:
+      x-display: {label: Owned by a person, role: prose, format: steps, order: 8}
+      type: array
+      items: {type: string}
+      description: Path globs a person owns in this repository beyond secrets, .git and CI workflows. The engineer may not change them and the runner never commits them.
+    engineerRules:
+      x-display: {label: Engineer rules, role: prose, format: steps, order: 9}
+      type: array
+      items: {type: string}
+      description: This repository's standing rules for the engineer, one line each (a house style a check enforces, a convention). Every build here carries them.
     notes:
       x-display: {label: Notes, role: prose, order: 3}
       type: string

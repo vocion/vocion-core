@@ -181,6 +181,25 @@ jobs:
       - name: Unit tests
         run: npm run test --workspace @vocion/agent-runtime
 
+  runner:
+    name: Check the runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js environment
+        uses: ./.github/actions/setup-project
+        with:
+          node-version: 22.x
+
+      # The engineering runner (packages/runner) is plain Node with no dependencies of its own, and
+      # its suite is node:test: the contract, the keep and plan decisions, the QA pass's pure parts
+      # and the image's module list. The capture pass's browser test skips where chromium is absent.
+      - name: Unit tests
+        run: npm run test --workspace @vocion/runner
+
   unit:
     strategy:
       # Same reason as the E2E shards: each shard reports its own failures.
