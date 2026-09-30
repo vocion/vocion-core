@@ -48,6 +48,57 @@ const ActivationSelectorSchema = z.object({
   playbooks: z.array(z.string()).default([]),
 }).partial();
 
+/**
+ * Who a declared notification goes to (backlog 048). `accountable` is the
+ * workspace's accountable human (`accountableUser`), falling back to its
+ * admins when none is named; `admins` and `members` are the people who can
+ * open the workspace; `{ user: email }` names one person; `{ field }` reads a
+ * user id or an email off the event's payload.
+ */
+export const NotificationWhoSchema = z.union([
+  z.enum(['accountable', 'admins', 'members']),
+  z.object({ user: z.string().email() }).strict(),
+  z.object({ field: z.string().min(1) }).strict(),
+]);
+
+/**
+ * One `notifications:` entry — in a plugin's `plugin.yaml` or the workspace's
+ * `workspace.yaml`. Nothing notifies unless an entry says so (Chris,
+ * 2026-09-30: few, declared, typed): an event type, an optional payload
+ * filter with the same `===` rule automations use, who hears it, the title
+ * and body as `{field}` templates over the payload, the record it is about
+ * (its page is where the notification opens, unless `link` names an app
+ * path) and what makes two events one notification (`dedupe`, default the
+ * record). A workspace entry with a plugin entry's `kind` replaces it whole;
+ * `status: disabled` turns a plugin's kind off.
+ */
+export const NotificationRuleManifestSchema = z.object({
+  kind: SlugSchema,
+  label: z.string().min(1).max(60),
+  description: z.string().max(300).optional(),
+  status: z.enum(['active', 'disabled']).default('active'),
+  event: z.string().min(1),
+  filter: z.record(z.string(), z.unknown()).optional(),
+  who: z.union([NotificationWhoSchema, z.array(NotificationWhoSchema).min(1)]).default('accountable'),
+  title: z.string().min(1).max(200),
+  body: z.string().max(1000).optional(),
+  link: z.string().regex(/^\/[^/]/, 'link must be an app path starting with / (e.g. /dashboard/p/feature/{requestId}), never an outside URL').optional(),
+  record: z.object({ type: z.string().min(1), id: z.string().min(1) }).strict().optional(),
+  dedupe: z.string().min(1).max(200).optional(),
+}).strict();
+export type NotificationRuleManifest = z.infer<typeof NotificationRuleManifestSchema>;
+
+/** A `notifications:` list: kinds unique within one layer. */
+const NotificationListSchema = z.array(NotificationRuleManifestSchema).default([]).superRefine((rules, ctx) => {
+  const seen = new Set<string>();
+  for (const [i, rule] of rules.entries()) {
+    if (seen.has(rule.kind)) {
+      ctx.addIssue({ code: 'custom', path: [i, 'kind'], message: `notification kind "${rule.kind}" is declared twice — a kind is one entry` });
+    }
+    seen.add(rule.kind);
+  }
+});
+
 export const WorkspaceManifestSchema = z.object({
   version: z.literal(1).describe('manifest format version'),
   orgId: z.string().min(1).describe('Clerk organization id'),
@@ -217,6 +268,12 @@ export const WorkspaceManifestSchema = z.object({
    * are pulled in automatically. Omit for none.
    */
   plugins: z.array(SlugSchema).default([]),
+  /**
+   * The workspace's own notification kinds, and its overrides of a plugin's
+   * (same `kind` replaces it; `status: disabled` turns it off). See
+   * {@link NotificationRuleManifestSchema}. Omit for none.
+   */
+  notifications: NotificationListSchema,
 });
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
 
@@ -257,6 +314,12 @@ export const PluginManifestSchema = z.object({
     when: z.array(z.string().min(1)).default([]),
     connectors: z.array(z.string().min(1)).default([]),
   }).default({ when: [], connectors: [] }),
+  /**
+   * The moments this plugin tells a person about — the only events that
+   * notify while it is on. Few on purpose: noise is the failure (backlog 048).
+   * See {@link NotificationRuleManifestSchema}.
+   */
+  notifications: NotificationListSchema,
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 

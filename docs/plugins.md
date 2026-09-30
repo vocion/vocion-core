@@ -165,6 +165,37 @@ present only with the plugin. The **proposals** plugin's `rows: artifacts where
 {kind: document, playbook: proposal, verified: true}` measure is what "verified
 clean" means on its team report.
 
+## Notifications — the few moments a person hears about
+
+Nothing notifies unless a plugin or the workspace says so. A `notifications:`
+block in `plugin.yaml` (or `workspace.yaml`) names each moment: the typed event,
+an optional payload filter (the automation `===` rule), who hears it, the title
+and body as `{field}` templates over the payload, the record it is about (its
+page is where the notification opens) and what makes two events one
+notification (`dedupe`, default the record).
+
+```yaml
+notifications:
+  - kind: needs-person
+    label: Needs a person
+    event: factory.stopped
+    who: accountable # accountable | admins | members | {user: email} | {field: payloadKey}
+    title: '{title} needs you'
+    body: '{why}. What would unblock it: {unblock}.'
+    record: {type: request, id: '{requestId}'}
+    dedupe: 'request:{requestId}:ask:{askId}'
+```
+
+The applier stores each kind (`notification_rule`); `emitEvent` matches it and
+calls one `notify()`, which writes one notification per person and one delivery
+per channel — in-app always, iPhone and Chrome for the devices the person
+registered, email and Slack when they turn those on — drained by one queue with
+retries (`services/notifications/`). A workspace entry with a plugin's `kind`
+replaces it; `status: disabled` turns it off. The software-factory plugin
+declares exactly two: a feature needs a person, and a feature was released.
+Each person chooses channels per kind, quiet hours and devices at
+`/dashboard/notifications/settings`, `/api/v1/notifications/preferences` or MCP.
+
 ## Measures and missions — a plugin that improves itself
 
 Every plugin ships a **team** with **measures**, so the team report grades it

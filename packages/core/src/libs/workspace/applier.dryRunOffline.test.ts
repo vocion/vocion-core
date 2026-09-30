@@ -85,7 +85,7 @@ describe('a dry-run with no database', () => {
     // because created-or-updated is a question only the database can answer.
     const authored = loaded.objectTypes.length + loaded.skills.length + loaded.teams.length + loaded.agents.length
       + loaded.workflows.length + loaded.missions.length + loaded.automations.length + loaded.playbooks.length
-      + loaded.learningSteps.length + loaded.evalDatasets.length + loaded.sources.length;
+      + loaded.learningSteps.length + loaded.evalDatasets.length + loaded.sources.length + loaded.notifications.length;
     const unknown = Object.values(result.counts).reduce((n, c) => n + (c.unknown ?? 0), 0);
     const classified = Object.values(result.counts).reduce((n, c) => n + c.created + c.updated + c.unchanged, 0);
 
