@@ -14,6 +14,7 @@ import { ARTIFACT_KIND_ICON } from '@/features/dashboard/artifacts/kinds';
 import { SharePicker } from '@/features/dashboard/artifacts/SharePicker';
 import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/agentSurface';
 import { RunStepList } from '@/features/dashboard/factory/RunDetail';
+import { RunGlanceView } from '@/features/dashboard/factory/RunGlanceView';
 import { LiveWorkStatus } from '@/features/dashboard/factory/WorkStatus';
 import { RecordHistory } from '@/features/dashboard/objects/RecordHistory';
 import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
@@ -229,6 +230,14 @@ function Body(props: { doc: PreviewDoc }) {
   }
   if (doc.unresolved) {
     return <CouldNotLoad label={doc.title} reason={doc.unresolved.reason} href={doc.href} reference={doc.unresolved.reference} />;
+  }
+  // An engineering run draws as its run page does: one header, one shape.
+  if (doc.run) {
+    return (
+      <div className="px-4 py-3">
+        <RunGlanceView key={doc.run.header.ref} initial={doc.run} />
+      </div>
+    );
   }
   return (
     <div className="px-4 py-3">

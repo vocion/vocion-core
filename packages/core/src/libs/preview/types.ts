@@ -51,6 +51,13 @@ export type PreviewDoc = {
    */
   steps?: RunStep[];
   /**
+   * An engineering run, drawn as its run page draws it: the header, why this
+   * attempt, the Now line and the steps without their logs (`RunGlanceView`,
+   * re-read while the run is live). When set, the pane draws this in place
+   * of the facts and the body.
+   */
+  run?: import('@/libs/worker/runLog').RunGlance;
+  /**
    * What is worth keeping and not worth leading with — a run's brief, the
    * Claude Code block — each a collapsed row after everything else.
    * Markdown.

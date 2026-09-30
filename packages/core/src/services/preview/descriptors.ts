@@ -480,8 +480,12 @@ registerPreview('worker_run', {
     const stoppedAt = typeof progress.phase === 'string' ? progress.phase : null;
     const failed = ['failed', 'lost', 'cancelled'].includes(run.status);
     // The Claude Code block a stopped run carries — the same one its run page prints.
-    const { workerRunAttach } = await import('@/services/runs/RunLogService');
+    const { readRunGlance, workerRunAttach } = await import('@/services/runs/RunLogService');
     const attach = await workerRunAttach(run);
+    // What the pane draws: the run page's own header, why-line, Now line and
+    // steps without their logs (`RunGlanceView`). The text below stays for a
+    // surface that reads a preview as text.
+    const glance = await readRunGlance(ctx.orgId, String(run.id)).catch(() => null);
     const text = [
       failed ? `**Stopped${stoppedAt ? ` at ${stoppedAt}` : ''}** — ${run.error ? run.error.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}` : null,
       input.task?.objective ? `**Objective** — ${input.task.objective}` : null,
@@ -495,11 +499,14 @@ registerPreview('worker_run', {
     ].filter(Boolean).join('\n\n');
     return {
       ref,
-      title: input.task?.task_id ?? `Engineering run ${run.id}`,
+      // The feature's name, as the run page's title — never the worker's task id.
+      title: glance?.header.title ?? input.task?.task_id ?? `Engineering run ${run.id}`,
       sourceLabel: 'Run',
       href: `/dashboard/p/runs/${run.id}`,
+      ...(glance ? { run: glance } : {}),
       facts: facts(
         { label: 'Run', value: `#${run.id}` },
+        input.task?.task_id && { label: 'Task', value: input.task.task_id },
         { label: 'Status', value: run.status },
         stoppedAt && { label: failed ? 'Stopped at' : 'Stage', value: stoppedAt },
         { label: 'Agent', value: run.agentSlug },

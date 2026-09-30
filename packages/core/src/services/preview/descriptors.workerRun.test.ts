@@ -21,6 +21,10 @@ describe('an engineering run\'s preview', () => {
     expect(doc.body).toMatch(new RegExp(`Vocion software factory run #${run!.id} failed \\(send-t194\\)`));
     expect(doc.body).toMatch(/Run: \S*\/dashboard\/p\/runs\/\d+/);
     expect(doc.body).toContain('Pull request: https://github.com/acme/app/pull/9');
+    // The pane draws the run page's own header and steps; the machine id is a fact, not the title.
+    expect(doc.title).not.toBe('send-t194');
+    expect(doc.run?.header.taskId).toBe('send-t194');
+    expect(doc.run?.steps.every(s => s.lines.length === 0)).toBe(true);
   });
 
   it('carries no Claude Code block while a run is healthy', async () => {

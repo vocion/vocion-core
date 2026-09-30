@@ -85,7 +85,6 @@ describe('the run page', () => {
     render(<RunDetail initial={live()} pollMs={60_000} />);
 
     await expect.element(page.getByRole('heading', { name: 'northwind-t12' })).toBeVisible();
-    await expect.element(page.getByText('Attempt 2')).toBeVisible();
     await expect.element(page.getByText('$1.84')).toBeVisible();
     await expect.element(page.getByRole('link', { name: 'Transcript' })).toHaveAttribute('href', '/dashboard/artifacts/91');
     await expect.element(stepRow('Set up')).toHaveAttribute('aria-expanded', 'false');
@@ -177,29 +176,45 @@ describe('the run page', () => {
 });
 
 describe('where the run belongs (Chris, 2026-09-29: "context of the implementation/plan/history")', () => {
+  const context = {
+    feature: { id: 41, title: 'Room PDF export', href: '/w/acme/dashboard/p/feature/41' },
+    plan: { id: 52, title: 'Render the room to PDF on the server', href: '/w/acme/dashboard/objects/52' },
+    task: { id: 60, href: '/w/acme/dashboard/objects/60' },
+    attempt: { n: 2, of: 3 },
+    others: [{ runId: 6, status: 'failed', href: '/dashboard/p/runs/6' }],
+    acceptance: {
+      count: 3,
+      href: '/w/acme/dashboard/p/feature/41#report-acceptance',
+      criteria: [
+        { text: 'A PDF downloads from the share menu', state: 'proven' as const },
+        { text: 'It keeps the room layout', state: 'open' as const },
+        { text: 'It names the room', state: 'proven' as const },
+      ],
+    },
+    branch: { name: 'factory/northwind-t12', href: 'https://github.com/example/northwind-portal/tree/factory/northwind-t12' },
+    why: null,
+  };
+
   it('names its feature, its plan, which attempt it is with the others one move away, and what it must prove', async () => {
     log.mockResolvedValue({ header: header(), events: [], tasks: [], calls: [], cursor: 0 });
-    await render(
-      <RunDetail
-        initial={live({
-          context: {
-            feature: { id: 41, title: 'Room PDF export', href: '/w/acme/dashboard/p/feature/41' },
-            plan: { id: 52, title: 'Render the room to PDF on the server', href: '/w/acme/dashboard/objects/52' },
-            attempt: { n: 2, of: 2, others: [{ runId: 6, status: 'failed', href: '/dashboard/p/runs/6' }] },
-            acceptance: { count: 4, href: '/w/acme/dashboard/p/feature/41#report-acceptance' },
-          },
-        })}
-        pollMs={60_000}
-      />,
-    );
+    await render(<RunDetail initial={live({ context })} pollMs={60_000} />);
 
     await expect.element(page.getByTestId('run-context-feature')).toHaveAttribute('href', '/w/acme/dashboard/p/feature/41');
     await expect.element(page.getByTestId('run-context-feature')).toHaveTextContent('#41 Room PDF export');
     await expect.element(page.getByTestId('run-context-plan')).toHaveTextContent('#52 Render the room to PDF on the server');
     await expect.element(page.getByRole('link', { name: 'Run #6 · failed' })).toHaveAttribute('href', '/dashboard/p/runs/6');
-    await expect.element(page.getByTestId('run-context-acceptance')).toHaveTextContent('4 criteria');
-    // Which attempt of the feature, not the worker's own counter.
-    await expect.element(page.getByText('Attempt 2 of 2')).toBeVisible();
+    await expect.element(page.getByTestId('run-criteria-toggle')).toHaveTextContent('3 criteria · 2 proven');
+    await expect.element(page.getByTestId('run-context-branch')).toHaveAttribute('href', 'https://github.com/example/northwind-portal/tree/factory/northwind-t12');
+  });
+
+  it('opens each criterion with its proven or open state', async () => {
+    await render(<RunDetail initial={live({ context })} pollMs={60_000} />);
+
+    await userEvent.click(page.getByTestId('run-criteria-toggle'));
+
+    const states = [...document.querySelectorAll('[data-testid="run-criteria"] li')].map(li => li.getAttribute('data-state'));
+
+    expect(states).toEqual(['proven', 'open', 'proven']);
   });
 
   it('a run whose records name no feature draws no context block', async () => {
