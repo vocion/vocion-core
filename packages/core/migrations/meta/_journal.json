@@ -1079,6 +1079,13 @@
       "when": 1790800560986,
       "tag": "0153_rest_many_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1790744948477,
+      "tag": "0154_app_login_many_credentials",
+      "breakpoints": true
     }
   ]
 }

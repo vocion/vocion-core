@@ -43,6 +43,8 @@ export type CredentialPlatformId
     | 'azure-openai'
     | 'aws'
     | 'custom'
+  // A sign-in to an app the workspace builds, for its QA (several per org).
+    | 'app-login'
   // Connector platforms. One per API-key connector, so a workspace types its
   // Jira or Strapi key once and every connector install can point at it.
     | 'apollo'
@@ -829,6 +831,47 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keyShapeHint: 'starts with "fc-" followed by at least 8 more characters',
     helpText: 'Your Firecrawl API key, from firecrawl.dev. Pages this workspace fetches through Firecrawl bill your Firecrawl account.',
     fields: singleKeyField('Firecrawl key', /^fc-[\w-]{8,}$/i, 'starts with "fc-" followed by at least 8 more characters'),
+  },
+  {
+    id: 'app-login',
+    label: 'App sign-in',
+    keySource: 'supplied',
+    // `many`: a workspace that builds products holds one sign-in per product
+    // environment it checks (2026-09-30: the factory's QA signs in to each
+    // product's production app to capture live evidence after a release). An
+    // environment record names the row it uses (`qaLoginCredentialId`).
+    credentialsPerOrg: 'many',
+    connectorSlugs: [],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a sign-in URL, an email and a password',
+    helpText: 'A sign-in to an app this workspace builds, for its QA to use: the sign-in page, the account email and its password. Use a dedicated QA account, never a person\'s own. Stored encrypted; only agents granted product_access can read it.',
+    fields: [
+      {
+        name: 'signInUrl',
+        label: 'Sign-in page',
+        pattern: /^https?:\/\/\S+$/i,
+        shapeHint: 'starts with http:// or https://',
+        secret: false,
+      },
+      {
+        name: 'email',
+        label: 'Account email',
+        pattern: /^\S[^\s@]*@\S+$/,
+        shapeHint: 'is an email address',
+        // Non-secret, so the credential list shows which account this is.
+        secret: false,
+      },
+      {
+        name: 'password',
+        label: 'Password',
+        pattern: null,
+        shapeHint: 'is any non-empty password',
+        secret: true,
+      },
+    ],
   },
   {
     id: 'custom',

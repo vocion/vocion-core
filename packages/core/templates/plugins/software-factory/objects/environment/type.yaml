@@ -101,6 +101,15 @@ schema:
       x-display: {label: Secrets, format: mono, group: Configuration}
       type: string
       description: Where its secrets are kept — a path, never a value. A worker never touches it; a person rotating a key starts here.
+    qaLoginCredentialId:
+      x-display: {label: QA sign-in, format: mono, group: Configuration}
+      type: string
+      description: >-
+        The stored sign-in QA uses on this environment: the id of an `App
+        sign-in` credential (Settings, Credentials), never the password
+        itself. The worker reads it when it captures the live product after a
+        release; QA and the PM see the sign-in page and account email through
+        product_access.
     observability:
       x-display: {label: Observability, role: prose, format: steps, order: 5}
       type: object

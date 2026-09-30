@@ -81,6 +81,10 @@
       "description": "Endpoints under /api/v1/personalization."
     },
     {
+      "name": "products",
+      "description": "Endpoints under /api/v1/products."
+    },
+    {
       "name": "reviews",
       "description": "Endpoints under /api/v1/reviews."
     },
@@ -4450,6 +4454,85 @@
           }
         },
         "description": "TEMPORARY — phase 2 deletes this file.\n\nDELETE /api/v1/personalization/queue — clear the personalization queue for\nthe caller's org. It exists only because `lead_brief_org_contact_idx` makes\na re-fire a no-op, so the flow cannot be tested twice without a way to\nempty the queue.\n\nThree gates, all of them structural: the route is absent unless\n`VOCION_ALLOW_QUEUE_RESET` is set, the caller must be an org admin, and the\ndelete is scoped to the session's org. It touches `lead_brief` only, so the\nHubSpot mirror survives and a re-test needs no re-sync."
+      }
+    },
+    "/api/v1/products/{slug}/access": {
+      "get": {
+        "operationId": "get_products_slug_access",
+        "summary": "a product's production environments and QA sign-in.",
+        "tags": [
+          "products"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "a product's production environments and\nQA sign-in. `?reveal=1` includes the password, for the worker signing in to\ncapture live evidence; it needs the `reveal_app_login` capability (or `*`).\n`?stage=` reads another stage.\n\n**Requires the `reveal_app_login` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reveal",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-required-capability": [
+          "reveal_app_login"
+        ]
       }
     },
     "/api/v1/reviews": {

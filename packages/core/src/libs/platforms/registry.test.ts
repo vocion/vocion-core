@@ -522,7 +522,7 @@ describe('connector platforms', () => {
 });
 
 /** The migration that last rebuilt `api_token_org_platform_live_idx`. */
-const LATEST_INDEX_MIGRATION = '0153_rest_many_credentials.sql';
+const LATEST_INDEX_MIGRATION = '0154_app_login_many_credentials.sql';
 
 /**
  * Read a repo file by path segments, relative to the package root.
@@ -565,7 +565,7 @@ describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
     // Apollo key at all, so the cap has never been in anyone's way. See the
     // `apollo` descriptor in registry.ts.
     expect([...MANY_CREDENTIAL_PLATFORM_IDS].sort()).toEqual(
-      ['google', 'granola', 'hubspot', 'jira', 'rest', 'slack', 'strapi', 'vocion', 'zoom'],
+      ['app-login', 'google', 'granola', 'hubspot', 'jira', 'rest', 'slack', 'strapi', 'vocion', 'zoom'],
     );
   });
 
