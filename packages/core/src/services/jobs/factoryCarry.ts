@@ -17,6 +17,7 @@ export const FACTORY_SWEEP_JOB = 'factory-sweep';
 export const FACTORY_CONTRACT_CHANGED_JOB = 'factory-contract-changed';
 export const FACTORY_PLANNING_ENDED_JOB = 'factory-planning-ended';
 export const FACTORY_CI_FAILED_JOB = 'factory-ci-failed';
+export const FACTORY_RECONCILE_JOB = 'factory-reconcile';
 
 type Job = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -27,6 +28,12 @@ export const factoryCarryJobs: Record<string, Job> = {
    * @param input
    */
   [FACTORY_CI_FAILED_JOB]: async (orgId, input) => (await import('@/services/factory/ciFailed')).ciFailed(orgId, input),
+  /**
+   * Every five minutes: read open factory pull requests back from GitHub and raise the events whose webhook never arrived; recheck pull requests a fixed base unblocked; start reviews that never started; ask about runs no worker picked up.
+   * @param orgId
+   * @param input
+   */
+  [FACTORY_RECONCILE_JOB]: async (orgId, input) => (await import('@/services/factory/reconcile')).reconcilePipeline(orgId, input),
   /**
    * `object.created` (request): start the fix a person asked for, or file the Build card.
    * @param orgId

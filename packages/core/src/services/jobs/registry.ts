@@ -20,7 +20,8 @@
  *     the window and raises `conversation.ended` for each, so a debrief can
  *     read the thread. Scheduled by the wiki plugin. `services/jobs/sweepIdleConversations.ts`.
  *   - `factory-intake`, `factory-plan-review`, `factory-plan-build`,
- *     `factory-recover`, `factory-recovery-answer`, `factory-sweep` — the
+ *     `factory-recover`, `factory-recovery-answer`, `factory-sweep`,
+ *     `factory-ci-failed`, `factory-reconcile` — the
  *     software factory carrying a request from filing to a build and through
  *     a failed run, in code. Subscribed by the software-factory plugin.
  *     `services/jobs/factoryCarry.ts`.
