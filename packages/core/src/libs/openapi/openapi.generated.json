@@ -65,6 +65,10 @@
       "description": "Endpoints under /api/v1/learnings."
     },
     {
+      "name": "live",
+      "description": "Endpoints under /api/v1/live."
+    },
+    {
       "name": "mission-runs",
       "description": "Endpoints under /api/v1/mission-runs."
     },
@@ -3247,6 +3251,102 @@
             "description": "The ruleId from the URL.",
             "schema": {
               "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/live": {
+      "get": {
+        "operationId": "get_live",
+        "summary": "The workspace live stream (backlog 050): Server-Sent Events carrying a small change notice — `{id, topics, ref, kind, at}` — whenever something the caller foll…",
+        "tags": [
+          "live"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. The body is `text/event-stream`, not JSON.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Error. Codes: `UNAVAILABLE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "The workspace live stream (backlog 050): Server-Sent Events carrying a\nsmall change notice — `{id, topics, ref, kind, at}` — whenever something\nthe caller follows changes, wherever it was written (this app, another\ncontainer, the worker). A notice never carries the change itself: re-read\nthe thing through its own read (`/objects/:id/status`, a card's status, an\nartifact), so shape and permission live in one place.\n\nTopics: `record:<id>`, `list:<type slug>`, `card:<id>`, `run:<id>`,\n`mission:<id>`, `ask:<id>`, `artifact:<id>`, `notification:<userId>`, and\nthe workspace feeds `cards`, `runs`, `asks`, `events`\n(`libs/live/topics.ts`). Each one is checked: a thing outside this\nworkspace, an artifact shared only with someone else, or another\nperson's notifications is refused and named in the first event.\n\nEvents: `ready` first (`{topics, refused, transport}`), then one `notice`\nper change with its ring id as the SSE id, a `reset` when the stream could\nnot replay what a reconnecting client missed (re-read everything shown),\nand a comment every 15s. A reconnect resumes from `Last-Event-ID`; a first\nconnection may pass `since` so changes made while the page loaded arrive.\nAuth: a signed-in session or a tenant API token (`Bearer vcn_live_…`).\n\nQuery parameters:\n- `topics` — comma-separated topics to follow (at most 400).\n- `after` — resume after this notice id, when the `Last-Event-ID` header cannot be sent.\n- `since` — epoch milliseconds; replay what changed since then (a first connection, up to two minutes back).",
+        "parameters": [
+          {
+            "name": "topics",
+            "in": "query",
+            "required": false,
+            "description": "comma-separated topics to follow (at most 400).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "description": "resume after this notice id, when the `Last-Event-ID` header cannot be sent.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "epoch milliseconds; replay what changed since then (a first connection, up to two minutes back).",
+            "schema": {
+              "type": "string"
             }
           }
         ]
