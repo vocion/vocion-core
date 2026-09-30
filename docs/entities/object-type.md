@@ -107,6 +107,29 @@ schema:
   x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
 ```
 
+## Connected records
+
+What a record is connected to is drawn in one **Related** block on its page and in its preview (`components/patterns/Related`), read by one call (`services/objects/related.relatedOf`). A type says what it is connected to with `x-related` on its schema, in terms of what the records already say. Core draws two relations for every record without being told: the chat that started it (`metadata.origin`, written when a record is filed from a conversation), which always comes first, and the artifacts attached to it. A type that declares nothing is connected to whatever its link fields (`x-display: {to: <type>}`) name.
+
+| `from` | reads |
+|---|---|
+| `links` | records named by this record's `field` (an id, a list of ids, or with `match` a value compared to the other record's metadata `match`, such as a slug) |
+| `backlinks` | records whose metadata `field` names this one (its id, or with `match` this record's metadata `match`) |
+| `runs` | engineering runs built for this record, or for the records of relation `of` |
+| `url` | an https link in `field`, on this record or on the records of relation `of`. It opens outside Vocion and has no preview. |
+| `artifacts` | artifacts attached to the record, optionally only one `role` |
+
+```yaml
+# objects/request/type.yaml
+schema:
+  type: object
+  x-related:
+    - {key: plans, label: Plan, from: backlinks, type: architecture_plan, field: requestId}
+    - {key: tasks, label: Engineering tasks, from: backlinks, type: engineering_task, field: requestId}
+    - {key: runs, label: Engineering runs, from: runs, of: tasks}
+    - {key: pulls, label: Pull requests, from: url, field: prUrl, of: tasks}
+```
+
 ## Rules
 
 - Slugs are unique across object types.
