@@ -6,8 +6,8 @@
  * apply time and sits in the Temporal worker's static import graph through
  * `MissionService`; if the schema lived next to the model code, validating a
  * manifest would drag LangChain and a Bedrock client into the worker. So this
- * file imports zod and nothing else, and `run.ts` stays behind a dynamic
- * import.
+ * file imports zod and the pure recurrence reader and nothing else, and
+ * `run.ts` stays behind a dynamic import.
  *
  * Everything here is configuration for rules that run in core. A tenant cannot
  * run code inside the processor, so each rule a tenant needs is expressed as a
@@ -20,6 +20,7 @@
  */
 
 import { z } from 'zod';
+import { READ_PARTS } from '@/libs/time/recurrence';
 
 /**
  * How long one DOCUMENT of this processor may take, end to end.
@@ -38,6 +39,12 @@ export const CANDIDATE_EXTRACTOR_DOCUMENT_TIMEOUT_MS = 270_000;
 
 /** The slug the registry holds this processor under, as a source manifest names it. */
 export const CANDIDATE_EXTRACTOR_SLUG = 'candidate-extractor';
+
+/** The most of an evidence quote that reaches a card. */
+export const RULE_EVIDENCE_CAP = 300;
+
+/** The parts a stated rule may use: what the expander reads, less COUNT, which counts from a first date the record is not. */
+export const STATED_RULE_PARTS = READ_PARTS.filter(part => part !== 'COUNT');
 
 /**
  * A field name on the object type being extracted.
@@ -92,6 +99,19 @@ export const candidateExtractorConfigSchema = z.object({
   minConfidence: z.number().min(0).max(1).default(0.5),
   /** How far ahead a recurring series is expanded, one record per occurrence. */
   recurrenceHorizonDays: z.number().int().positive().max(365).default(60),
+  /**
+   * Write a series' occurrences in core rather than asking the model for each.
+   * A record whose dates follow a rule the document states comes back once,
+   * with the rule in `repeats`, a split calendar entry brings its own, and one
+   * record per occurrence inside the horizon is written from it into these
+   * fields (`occurrences.ts`). Unset, the model writes every occurrence.
+   */
+  occurrenceFields: z.object({
+    /** The occurrence's calendar day, one of `dedupOn`. */
+    day: FieldName,
+    start: FieldName.optional(),
+    end: FieldName.optional(),
+  }).strict().optional(),
   /** Field holding the record's image URL. */
   imageFrom: FieldName.optional(),
   /** Fields holding a URL: kept only when the document published it, and never the document's own page. */

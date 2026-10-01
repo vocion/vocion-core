@@ -1042,6 +1042,15 @@ function icsRepeatsInUtc(lines: string[]): boolean {
 }
 
 /**
+ * Whether the component repeats on its own: a rule, an override that moves
+ * every later occurrence, or extra dates.
+ * @param lines - the component's lines, as written or as the model reads them.
+ */
+export function icsRepeats(lines: string[]): boolean {
+  return icsRepeatsInUtc(lines) || icsOwnValue(lines, 'RDATE') !== '';
+}
+
+/**
  * The component as the model reads it: every folded line joined back to the
  * line it continues, so a URL or a description arrives whole, and, when the
  * calendar declares a zone, UTC times on the wall clock of that zone. A
@@ -1064,7 +1073,7 @@ function icsModelLines(lines: string[], zone?: string): string[] {
  * @param zone - the calendar's declared zone, if any.
  */
 function icsEndsOn(block: string[], zone?: string): string | undefined {
-  if (icsRepeatsInUtc(block) || icsOwnValue(block, 'RDATE')) {
+  if (icsRepeats(block)) {
     return undefined;
   }
   const end = icsOwnValue(block, 'DTEND');
@@ -1086,16 +1095,34 @@ function icsEndsOn(block: string[], zone?: string): string | undefined {
   return end && !m[4] ? dayPlus(day, -1) : day;
 }
 
+/** How long each occurrence lasts: whole days on the series' clock, then exact milliseconds. */
+export type IcsDuration = { days: number; ms: number };
+
+/**
+ * A `DURATION` value, or undefined for a negative, empty or unreadable one.
+ * @param value - `P1W`, `P1DT2H`, `PT1H30M`, ...
+ */
+function icsDuration(value: string): IcsDuration | undefined {
+  const m = /^\+?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i.exec(value);
+  if (!m || /T$/i.test(value) || m.slice(1).every(part => part === undefined)) {
+    return undefined;
+  }
+  const [weeks, days, hours, minutes, seconds] = m.slice(1).map(part => Number(part ?? '0')) as [number, number, number, number, number];
+  return { days: weeks * 7 + days, ms: ((hours * 60 + minutes) * 60 + seconds) * 1000 };
+}
+
 /**
  * A repeating component's rule and anchor, for a caller that expands it.
  * Undefined when the component has no RRULE of its own, more than one, or an
  * EXRULE, or when its start or any EXDATE or RDATE line cannot be read, or is
  * a date where the start is a time (or the reverse): a cancelled date the
- * reader skipped would otherwise stay in the list as if it were certain.
+ * reader skipped would otherwise stay in the list as if it were certain. How
+ * long each occurrence lasts comes from `DTEND` or `DURATION`, and is left
+ * unknown when neither reads or the end is not after the start.
  * @param lines - the component's lines, as written or as the model reads them.
  * @param fallbackZone - the zone an all-day or floating start runs in.
  */
-export function icsRecurrence(lines: string[], fallbackZone = 'UTC'): { start: Date; anchorZone: string; rule: string; exdates: Date[]; rdates: Date[]; allDay: boolean } | undefined {
+export function icsRecurrence(lines: string[], fallbackZone = 'UTC'): { start: Date; anchorZone: string; rule: string; exdates: Date[]; rdates: Date[]; allDay: boolean; duration?: IcsDuration } | undefined {
   const rules = icsOwnValues(lines, 'RRULE');
   if (rules.length !== 1 || icsOwnValues(lines, 'EXRULE').length > 0) {
     return undefined;
@@ -1120,7 +1147,14 @@ export function icsRecurrence(lines: string[], fallbackZone = 'UTC'): { start: D
     }
     (name === 'EXDATE' ? exdates : rdates).push(...extra.instants);
   }
-  return { start: read.instants[0]!, anchorZone: read.anchorZone, rule, exdates, rdates, allDay: read.allDay };
+  const start = read.instants[0]!;
+  const endLine = unfolded.find(line => /^DTEND[;:]/i.test(line));
+  const ends = endLine ? icsInstants(endLine, fallbackZone) : undefined;
+  const lasts = ends?.instants.length === 1 && ends.allDay === read.allDay ? ends.instants[0]!.getTime() - start.getTime() : undefined;
+  const duration = lasts === undefined
+    ? (endLine ? undefined : icsDuration(icsOwnValue(lines, 'DURATION')))
+    : read.allDay ? { days: Math.round(lasts / 86_400_000), ms: 0 } : { days: 0, ms: lasts };
+  return { start, anchorZone: read.anchorZone, rule, exdates, rdates, allDay: read.allDay, ...(duration && (duration.days > 0 || duration.ms > 0) ? { duration } : {}) };
 }
 
 /**

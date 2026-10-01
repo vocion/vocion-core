@@ -154,6 +154,24 @@ export function startOfDay(day: string, tz: string): Date {
 }
 
 /**
+ * The last instant of a calendar day in a zone.
+ * @param day - `YYYY-MM-DD`.
+ * @param tz - The zone.
+ */
+export function endOfDay(day: string, tz: string): Date {
+  return new Date(startOfDay(dayPlus(day, 1), tz).getTime() - 1);
+}
+
+/**
+ * Whole days from one calendar day to another, the inverse of dayPlus.
+ * @param from - The starting day, `YYYY-MM-DD`.
+ * @param to - The day counted to, `YYYY-MM-DD`.
+ */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
  * The instant a zone's wall clock names, as UTC. Two passes so a time inside
  * a clock change still lands on the offset in force. A time the clocks skip
  * resolves to the offset after the jump; a time they show twice, to the first.

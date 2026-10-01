@@ -112,6 +112,39 @@ describe('processor cross-field validation', () => {
     }))).rejects.toThrow(/every dedupOn field in keepIdentityOnReread\.sameOn/);
   });
 
+  it('accepts occurrence fields whose day is the identity field a series differs on and a reread keeps', async () => {
+    const outcome = await apply(processorConfig({
+      occurrenceFields: { day: 'startDate', start: 'start', end: 'end' },
+      seriesLabel: { sameOn: ['title', 'venueName'], differsOn: 'startDate', flagField: 'seriesMatch' },
+      keepIdentityOnReread: { sameOn: ['title', 'startDate'] },
+    }));
+
+    expect(outcome.outcome).toBe('created');
+  });
+
+  it('refuses an occurrence day that is not part of the identity', async () => {
+    // Every occurrence written from one record would share one dedup key, so
+    // each would refresh the card the one before it filed.
+    await expect(apply(processorConfig({
+      occurrenceFields: { day: 'doorsAt' },
+    }))).rejects.toThrow(/doorsAt.*occurrenceFields\.day/);
+  });
+
+  it('refuses an occurrence day the reread does not hold the same', async () => {
+    await expect(apply(processorConfig({
+      occurrenceFields: { day: 'startDate' },
+      keepIdentityOnReread: { sameOn: ['title'] },
+    }))).rejects.toThrow(/startDate.*occurrenceFields\.day.*keepIdentityOnReread\.sameOn/);
+  });
+
+  it('refuses an occurrence day other than the field a series differs on', async () => {
+    await expect(apply(processorConfig({
+      dedupOn: ['title', 'startDate', 'venueName', 'doorsAt'],
+      occurrenceFields: { day: 'startDate' },
+      seriesLabel: { sameOn: ['title'], differsOn: 'doorsAt', flagField: 'seriesMatch' },
+    }))).rejects.toThrow(/startDate.*occurrenceFields\.day.*seriesLabel\.differsOn/);
+  });
+
   it('still refuses an unknown agent, which is the check this one was modelled on', async () => {
     await expect(apply(processorConfig({ agentSlug: 'nobody' }))).rejects.toThrow(/unknown agent/);
   });

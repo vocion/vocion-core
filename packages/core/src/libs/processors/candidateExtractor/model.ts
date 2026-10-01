@@ -92,7 +92,12 @@ export type ExtractedRecord = {
   scores?: Record<string, unknown>;
   /** The adopted rules the model says decided its verdict; `validate.ts` keeps only rules the call carried. */
   matchedRules?: MatchedRuleAnswer[];
+  /** The rule the record's dates follow, as the document states it; read only under `occurrenceFields` (`occurrences.ts`). */
+  repeats?: StatedRule;
 };
+
+/** A repeat as the model wrote it: an RRULE value, the days it skips, and the words that state it. */
+type StatedRule = { rule: string; except?: string[]; evidence?: string };
 
 export type MatchedRuleAnswer = { id: string; title?: string; evidence?: string };
 
@@ -206,6 +211,11 @@ function envelopeSchema(maxRecords: number) {
         // A list the model filled with nothing usable says nothing, not "no rule decided it".
         return entries && entries.length > 0 && kept?.length === 0 ? undefined : kept;
       }),
+      repeats: z.object({
+        rule: z.string().min(1),
+        except: z.array(z.unknown()).optional().catch(undefined).transform(days => days?.filter((day): day is string => typeof day === 'string')),
+        evidence: z.string().optional().catch(undefined),
+      }).optional().catch(undefined),
     })).max(maxRecords).default([]),
   });
 }
