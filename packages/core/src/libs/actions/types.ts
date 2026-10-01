@@ -19,6 +19,17 @@ export type ActionContext = {
   credentials?: Record<string, unknown>;
   /** `agent:<slug>` / `token:<id>` / user id — for provider audit fields. */
   invokedBy?: string;
+  /**
+   * WHOSE DECISION THIS IS, by the principal proposing it: `agent:<slug>` for
+   * an agent's own proposal — even one filed in a person's turn, where
+   * `invokedBy` names the person whose thread it was — and the person's id
+   * when they asked for it themselves (their tap, or their words read by
+   * `saidToDecide`). Present on `precheck` and `underway`. A check that lets a
+   * person through and holds an agent to its seat reads this, never
+   * `invokedBy` (action 5949, 2026-10-01: a product manager's revert card,
+   * filed in a person's turn, passed the pipeline-owner check as the person).
+   */
+  proposedBy?: string;
   /** The human who decided the run, when it came through the review queue. */
   reviewedBy?: string;
   /**

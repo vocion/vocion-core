@@ -1,0 +1,47 @@
+# Incidents. What production is doing wrong right now, then what it did
+# lately. Chris (2026-10-01): "I see product watch turned on, but it has no
+# visible pages. Should it?" Yes: one page, in its own section.
+#
+# A person opens it with three questions: is anything broken now, what broke
+# it, and is someone on it. So the open incidents come first, then the most
+# recent resolved ones; each row says which error (the tracker's short id,
+# linked) under the incident's own code, INC-<id>, where it hurts, how loud it is and when it was last seen, the
+# cause the watch read with its one-line why, and the on-call engineer's move.
+# A rejected filing is not an incident and is not shown.
+#
+# Empty, it says what the watch is watching (`error-watch`'s `projects`) and
+# when it last read, so a quiet production never reads the same as a watch
+# pointed at nothing, a paused one, or one whose last read failed.
+slug: incidents
+title: Incidents
+description: Production errors past the watch's threshold — open first, then the latest resolved.
+icon: siren
+nav: {section: Production Watch, order: 1}
+archetype: list
+source: {kind: objects, objectType: incident}
+filters: [{field: status, op: neq, value: rejected}]
+sort: {field: meta.lastSeen, dir: desc}
+groupBy: meta.status
+groupOrder:
+  - {value: open, label: Open}
+  - {value: resolved, label: Recently resolved, limit: 20}
+layout: block
+primary:
+  field: title
+  subtitle: [issue, product]
+fields:
+  - {key: title, label: Incident, from: title}
+  - {key: issue, label: Sentry issue, from: meta.url, format: link, labelFrom: meta.shortId}
+  - {key: product, label: Product, from: meta.product, format: link, to: product}
+  - {key: events, label: Events, from: meta.events}
+  - {key: lastSeen, label: Last seen, from: meta.lastSeen, format: relative}
+  - {key: cause, label: Cause, from: meta.cause, format: badge, tones: {deploy: bad, code: warn, unknown: muted}, caption: {from: meta.causeWhy}}
+  - {key: status, label: Status, from: meta.status, format: badge, tones: {open: bad, resolved: ok}}
+  - {key: action, label: On it, from: meta.action}
+rowLink: /dashboard/objects/{id}
+# The watch writes every ten minutes and the on-call engineer writes its move
+# when it answers; the page re-reads the moment either lands.
+live: {follow: ['list:incident'], every: 30}
+empty:
+  text: No incidents.
+  watch: {automation: error-watch, items: projects, itemLabel: project}

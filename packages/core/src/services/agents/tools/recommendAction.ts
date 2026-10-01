@@ -173,7 +173,11 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
       if (action_id && ctx.userId && !ctx.missionRunId) {
         const { personMessages } = await import('../owedDecision');
         const { saidToDecide } = await import('../turnJudge');
-        const consent = await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `${action_id}: ${label}` }).catch(() => ({ said: false }));
+        // Judged as the action, its target and its effect, not the label
+        // alone (action 5949: a revert put up where the person asked to defer).
+        const { consentDecision } = await import('../consentDecision');
+        const decision = await consentDecision(ctx.orgId, action_id, action_input ?? {}, label);
+        const consent = await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision }).catch(() => ({ said: false }));
         if (consent.said) {
           const { runProposal } = await import('./proposeAction');
           return runProposal(ctx, { actionId: action_id, input: action_input ?? {}, confidence: typeof confidence === 'number' ? confidence : 0.9, rationale: rationale?.trim() || label, suggestedDecision, suggestedDecisionReason }, { tool: 'recommend_action' });

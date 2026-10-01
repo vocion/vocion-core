@@ -11,9 +11,13 @@
 # the request type's filing tool, which exists only where the factory is on.
 #
 # 0.1.0 — the first version.
+# 0.2.0 — one page, Incidents, in its own section (Chris, 2026-10-01: "I see
+#   product watch turned on, but it has no visible pages. Should it?"). Open
+#   incidents first, then the latest resolved; empty, it says what the watch
+#   watches and when it last read. Incidents read INC-<id>.
 slug: production-watch
 name: Production Watch
-version: 0.1.0
+version: 0.2.0
 description: Production errors from Sentry become incidents — opened when an issue is new and busy or spiking, each with its cause (a deploy, the code, or unknown) read from the evidence — and an on-call engineer who reads the stack and says what to do; a person hears once per incident.
 depends: []
 surfaces: []

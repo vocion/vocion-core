@@ -13,6 +13,7 @@ import { PageFeed } from '@/features/dashboard/pages/PageFeed';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
+import { WatchEmpty } from '@/features/dashboard/pages/WatchEmpty';
 import { PausedAutomations } from '@/features/dashboard/plugins/PausedAutomations';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
@@ -25,7 +26,7 @@ import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
-import { activeQueryFilters, applyQueryFilters, groupTabKey, LIVE_FALLBACK_EVERY_S } from '@/libs/workspace/pageFields';
+import { activeQueryFilters, applyQueryFilters, groupTabKey, LIVE_FALLBACK_EVERY_S, orderGroups } from '@/libs/workspace/pageFields';
 import {
   applyFilter,
   applyWindow,
@@ -66,6 +67,7 @@ import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 import { loadObjectRows } from '@/services/workspace/objectRows';
 import { resolveRowImages } from '@/services/workspace/pageImages';
+import { loadWatchState } from '@/services/workspace/watchState';
 
 /**
  * Workspace page renderer — `/dashboard/p/<slug>`.
@@ -722,9 +724,16 @@ export default async function WorkspacePage(props: {
   }
   const series = (manifest.series ?? []).map(sr => computeSeries(windowed, sr, new Date(now)));
 
+  // A declared order puts the groups a person reads first first (open
+  // incidents above resolved ones), each under its label and limit.
   const groups: Array<{ label: string | null; rows: PageRow[] }> = manifest.groupBy
-    ? groupRows(windowed, manifest.groupBy)
+    ? orderGroups(groupRows(windowed, manifest.groupBy), manifest.groupOrder)
     : [{ label: null, rows: windowed }];
+  // A page with nothing to show says what is watching for it, and when it
+  // last read, rather than "Nothing here yet" (`empty.watch`).
+  const emptyState = manifest.empty && windowed.length === 0
+    ? { text: manifest.empty.text, watch: manifest.empty.watch ? await loadWatchState(orgId, manifest.empty.watch).catch(() => null) : null }
+    : null;
 
   // "Load more" pagination — the plain, ungrouped list only: a page with
   // lanes or tabs already shows each lane's own rows in full, and a cursor
@@ -964,7 +973,9 @@ export default async function WorkspacePage(props: {
         </p>
       )}
 
-      {manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && (() => {
+      {emptyState && <WatchEmpty text={emptyState.text} watch={emptyState.watch} now={now} />}
+
+      {!emptyState && manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && (() => {
         const Rows = manifest.layout === 'block' ? PageBlocks : PageTable;
         // A feed is the Ledger pattern: its own shape, so its own props.
         if (manifest.layout === 'feed') {

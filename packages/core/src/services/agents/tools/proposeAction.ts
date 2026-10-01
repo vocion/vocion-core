@@ -170,7 +170,11 @@ export async function runProposal(
     && (await (async () => {
       const { personMessages } = await import('../owedDecision');
       const { saidToDecide } = await import('../turnJudge');
-      return (await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `${action_id} ${JSON.stringify(action_input).slice(0, 400)} — ${rationale.slice(0, 200)}` })).said;
+      // The action, its target and its effect (`consentDecision`), so consent
+      // to one decision is never read as consent to another (action 5949).
+      const { consentDecision } = await import('../consentDecision');
+      const decision = await consentDecision(ctx.orgId, action_id, action_input as Record<string, unknown>, rationale.slice(0, 200));
+      return (await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision })).said;
     })().catch(() => false));
   try {
     const res = await proposeAction({

@@ -260,6 +260,13 @@ const FieldSchema = z.object({
    * tones it changes.
    */
   toneFrom: z.string().optional(),
+  /**
+   * For `format: link` with no `to` — the accessor the anchor reads as, so a
+   * URL is drawn under the name a person knows it by (the tracker's `NW-API-3`)
+   * rather than as its host and path. Absent, or empty on a row, the URL's
+   * short form is drawn as before.
+   */
+  labelFrom: z.string().optional(),
 });
 
 /**
@@ -797,6 +804,38 @@ export const PageManifestSchema = z.object({
    * reach it.
    */
   groupsAs: z.enum(['sections', 'tabs']).default('sections'),
+  /**
+   * The order {@link groupBy}'s groups are drawn in, each under its own
+   * label, and how many rows each keeps. Without it a group comes where its
+   * first row falls in the sort, so a resolved incident seen a minute ago
+   * would head the page above an open one. A group named here comes first,
+   * in this order; a value not named follows, as before. `limit` keeps the
+   * first rows of a group in the page's sort — "the twenty most recent".
+   */
+  groupOrder: z.array(z.object({
+    value: z.string().min(1),
+    label: z.string().min(1).optional(),
+    limit: z.number().int().positive().max(500).optional(),
+  })).min(1).optional(),
+  /**
+   * What the page says when it has no rows, in the workspace's words, and —
+   * when an automation fills it — what that automation watches and when it
+   * last read. A page fed by a watch that says only "Nothing here yet" cannot
+   * tell a quiet production from a watch pointed at nothing, or one that has
+   * not read since yesterday; this says which (`services/workspace/watchState.ts`).
+   *
+   * `watch.automation` is the automation's slug; `watch.items` the list in its
+   * `do.input` naming what it watches, each read by `watch.itemLabel` (a key
+   * of an object item, or the item itself when it is a string).
+   */
+  empty: z.object({
+    text: z.string().min(1),
+    watch: z.object({
+      automation: SlugSchema,
+      items: z.string().min(1).optional(),
+      itemLabel: z.string().min(1).optional(),
+    }).optional(),
+  }).optional(),
   sort: z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).default('desc') }).optional(),
   stats: z.array(StatSchema).optional(),
   /**
@@ -888,6 +927,7 @@ export const PageManifestSchema = z.object({
   .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
   .refine(m => m.layout === 'table' || m.archetype === 'list', { message: 'layout: block is for list pages, the ones with rows to draw', path: ['layout'] })
   .refine(m => m.groupsAs !== 'tabs' || !!m.groupBy, { message: 'groupsAs: tabs needs groupBy — tabs are the groups', path: ['groupsAs'] })
+  .refine(m => m.groupOrder === undefined || !!m.groupBy, { message: 'groupOrder orders groupBy\'s groups — it needs groupBy', path: ['groupOrder'] })
   .refine(m => m.layout === 'table' || m.fields === undefined || m.fields.every(f => !f.total), { message: 'a block layout has no column to total under', path: ['layout'] })
   .refine(m => m.derive === undefined || m.archetype === 'list', { message: 'derive is for list pages, the ones with rows to derive from', path: ['derive'] })
   .refine(
@@ -1614,6 +1654,28 @@ export function groupRows(rows: PageRow[], groupBy: string): Array<{ label: stri
     }
   }
   return [...groups].map(([label, rs]) => ({ label, rows: rs }));
+}
+
+/**
+ * Groups in the page's declared order, each under its label and kept to its
+ * limit; groups the order does not name follow in the order they came.
+ * @param groups - From {@link groupRows}, already in the page's sort.
+ * @param order - The page's `groupOrder`.
+ */
+export function orderGroups(
+  groups: Array<{ label: string; rows: PageRow[] }>,
+  order: PageManifest['groupOrder'],
+): Array<{ label: string; rows: PageRow[] }> {
+  if (!order || order.length === 0) {
+    return groups;
+  }
+  const byValue = new Map(groups.map(g => [g.label, g]));
+  const named = order.flatMap((o) => {
+    const g = byValue.get(o.value);
+    return g ? [{ label: o.label ?? g.label, rows: o.limit ? g.rows.slice(0, o.limit) : g.rows }] : [];
+  });
+  const rest = groups.filter(g => !order.some(o => o.value === g.label));
+  return [...named, ...rest];
 }
 
 export type ComputedSeries = {

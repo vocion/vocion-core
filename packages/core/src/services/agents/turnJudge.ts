@@ -138,7 +138,7 @@ export function stepLines(calls: ReadonlyArray<{ tool: string; output?: string }
 }
 
 export const SaidToDecideSchema = z.object({
-  said: z.boolean().describe('The person\'s own words (the latest message, or the one before it when the latest only confirms it) tell the agent to take exactly this decision.'),
+  said: z.boolean().describe('The person\'s own words (the latest message, or the one before it when the latest only confirms it) tell the agent to take exactly this decision — this action, on this target. Words about the same work that ask for a different action are not consent to this one.'),
   quote: z.string().max(300).nullable().describe('Their words that say it, quoted exactly; null when they did not.'),
 });
 
@@ -158,7 +158,7 @@ export async function saidToDecide(input: { orgId: string; messages: string[]; d
     return { said: false, quote: null };
   }
   try {
-    const out = await ask(model ?? await classifier(input.orgId), SaidToDecideSchema, 'report_consent', 'Report whether the person said to take this decision.', 'An agent is about to take a decision on a person\'s behalf. You decide from the person\'s own words only whether they told it to take exactly this decision. A question about it, a maybe, a different decision, or a decision about something else is not consent. Answer only through the tool.', [
+    const out = await ask(model ?? await classifier(input.orgId), SaidToDecideSchema, 'report_consent', 'Report whether the person said to take this decision.', 'An agent is about to take a decision on a person\'s behalf. You decide from the person\'s own words only whether they told it to take exactly this decision: this action, on this target, with this effect. A question about it, a maybe, a different decision, or a decision about something else is not consent. Consent to one action is never consent to another on the same work: a person who asked to defer, close, file or change a record has not asked for a revert, a merge, a deploy, a delete or any other change to production unless they named that action themselves. Answer only through the tool.', [
       `The decision: ${input.decision}`,
       `The person, latest message: ${input.messages[0]!.slice(0, 2_000)}`,
       input.messages[1] ? `The person, message before: ${input.messages[1].slice(0, 2_000)}` : '',

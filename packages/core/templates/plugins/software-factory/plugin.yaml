@@ -282,7 +282,7 @@ name: Software factory
 #   made: a remembered value, or {{setupPage}}.
 # 2.45.0 — every record reads by a short typed code (2026-10-01, Chris: "All
 #   these conflicting numbers are confusing"). Each type declares its `code:`
-#   — request FE, plan PL, task TK, release REL, environment ENV, product PRD,
+#   — request FE, plan PL, task TK, release REL, environment ENV, product PROD,
 #   repo REPO — so feature 294 reads FE-294 beside RUN-439 and ACT-5590, in the
 #   app and in chat. The number is the record's id; `#294` still resolves.
 # 2.46.0 — a deploy that broke production goes to the Release engineer
@@ -290,6 +290,8 @@ name: Software factory
 #   `incident.opened` with `cause: deploy` — raised by the production-watch
 #   plugin when it is on, never otherwise — and the product's Related lists
 #   the incidents that name it.
+# 2.47.0 — a product reads PROD-<id>, not PRD (Chris, 2026-10-01: "PRD is an
+#   industry term for Product Reqs Doc. Don't use it as a product short code").
 # 2.49.0 — a build is sent only to a repository a person stands behind
 #   (2026-10-01, FE-314/FE-318: a pending repo record for a GitHub 404 was
 #   built from three times, its clone URL made from its title). The repo
