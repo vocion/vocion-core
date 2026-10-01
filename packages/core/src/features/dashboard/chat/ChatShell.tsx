@@ -26,6 +26,7 @@ import { EmptyState, NoAgentsState } from './EmptyState';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
+import { startOnboardingConversation } from './onboardingStart';
 import { QuotedPassage } from './QuotedPassage';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
@@ -75,6 +76,8 @@ export type ChatShellProps = {
   conversationId?: number | null;
   /** `?new=1` — forget this browser session's thread and start fresh (⌘⇧O from a page with no surface). */
   startNew?: boolean;
+  /** First admin visit to a workspace with a lead and no setup yet: open the setup conversation (#1028). */
+  onboardingDue?: boolean;
 };
 
 /**
@@ -101,6 +104,7 @@ export type ChatShellProps = {
  * @param props.greeting - Empty-state greeting.
  * @param props.conversationId
  * @param props.startNew
+ * @param props.onboardingDue - Open the workspace setup conversation on mount.
  */
 export function ChatShell({
   agents,
@@ -110,6 +114,7 @@ export function ChatShell({
   greeting,
   conversationId = null,
   startNew = false,
+  onboardingDue = false,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -124,6 +129,7 @@ export function ChatShell({
       greeting={greeting}
       conversationId={conversationId}
       startNew={startNew}
+      onboardingDue={onboardingDue}
     />
   );
 }
@@ -155,6 +161,7 @@ function ChatShellInner({
   greeting,
   conversationId = null,
   startNew = false,
+  onboardingDue = false,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
   const router = useRouter();
@@ -187,6 +194,13 @@ function ChatShellInner({
       console.warn('card decision was not written to the conversation', err);
     });
   }, [session.conversationId]);
+  const onboardingOpened = useRef(false);
+  useEffect(() => {
+    if (onboardingDue && !onboardingOpened.current) {
+      onboardingOpened.current = true; // StrictMode runs effects twice in dev; the server claim is atomic regardless.
+      void startOnboardingConversation({ start: () => client.onboarding.start(), open: path => router.replace(path) });
+    }
+  }, [onboardingDue, router]);
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;

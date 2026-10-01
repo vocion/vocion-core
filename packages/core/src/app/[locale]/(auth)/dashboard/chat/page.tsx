@@ -3,10 +3,12 @@ import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { parseConversationParam } from '@/features/dashboard/chat/resumeRule';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { connectReturnPrompt } from '@/libs/connect/returnTo';
 import { listArtifactsByIds } from '@/services/ArtifactService';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
 import { buildWorkspaceChips } from '@/services/chat/suggestions';
 import { workspaceGreeting } from '@/services/chat/workspaceLabel';
+import { isOnboardingDue } from '@/services/OnboardingService';
 import { parseAttachParam } from '@/services/share/intake';
 
 /**
@@ -32,12 +34,15 @@ import { parseAttachParam } from '@/services/share/intake';
  */
 export default async function ChatPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string; new?: string; attach?: string }>;
+  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string; new?: string; attach?: string; connect?: string; reason?: string; source?: string }>;
 }) {
   const { locale } = await props.params;
-  const { prompt: seededPrompt, conversation, new: startNew, attach } = await props.searchParams;
+  const { prompt: seededPrompt, conversation, new: startNew, attach, connect, reason, source } = await props.searchParams;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, role } = await auth();
+  // Setup opens on a first admin visit, never over a thread the URL already names.
+  const resuming = Boolean(conversation) || startNew === '1' || Boolean(seededPrompt) || Boolean(source);
+  const onboardingDue = orgId ? await isOnboardingDue({ orgId, role: role ?? null, resuming }) : false;
 
   // Shared with the floating chat bubble — same ordering, same default agent.
   const { agents, coordinatorSlug, accountName, projectName } = orgId
@@ -74,7 +79,8 @@ export default async function ChatPage(props: {
         agents={agents}
         greeting={greeting}
         suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
-        initialComposerValue={seededPrompt}
+        initialComposerValue={seededPrompt ?? connectReturnPrompt({ connect, reason, source }) ?? undefined}
+        onboardingDue={onboardingDue}
         initialAttachments={initialAttachments.length > 0 ? initialAttachments : undefined}
         conversationId={parseConversationParam(conversation)}
         // `?new=1` — ⌘⇧O or the palette from a page with no chat surface: start

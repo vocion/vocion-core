@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { connectStartHref, safeReturnPath } from '@/libs/connect/returnTo';
+import { returnUrl } from '@/libs/connect/routes';
 import {
   buildConfigFromFields,
   configFieldsFor,
@@ -98,14 +100,30 @@ export function SourcesPanel() {
   // sent the person to (`?connect=ok|error&reason=…&source=…`) and then
   // cleared from the address bar so a reload does not repeat it.
   const [connectOutcome, setConnectOutcome] = useState<ConnectOutcome | null>(null);
+  // Where a chat connect card started (`?returnTo=`), so connecting lands back
+  // in the conversation instead of staying here (#1028).
+  const [returnTo, setReturnTo] = useState<string | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const back = safeReturnPath(params.get('returnTo'));
+    if (back) {
+      setReturnTo(back);
+    }
+    const add = params.get('add');
+    if (add) {
+      setAddingKind(add);
+    }
     const outcome = readConnectOutcome(window.location.search);
-    if (!outcome) {
+    if (!outcome && !add && !back) {
       return;
     }
-    setConnectOutcome(outcome);
+    if (outcome) {
+      setConnectOutcome(outcome);
+    }
     const url = new URL(window.location.href);
+    url.searchParams.delete('add');
+    url.searchParams.delete('returnTo');
     url.searchParams.delete('connect');
     url.searchParams.delete('reason');
     url.searchParams.delete('source');
@@ -304,9 +322,14 @@ export function SourcesPanel() {
         ? (
             <ConnectCredentialDialog
               source={connectingSource}
+              returnTo={returnTo}
               onClose={() => setConnectingSource(null)}
               onConnected={async () => {
                 setConnectingSource(null);
+                if (returnTo) {
+                  window.location.assign(returnUrl('', { ok: true }, connectingSource.slug, returnTo));
+                  return;
+                }
                 await refresh();
               }}
             />
@@ -600,11 +623,13 @@ export function initialCredentialChoice(
  * grants are still per-install.
  * @param props - Component props.
  * @param props.source - The source being connected.
+ * @param props.returnTo - Where the connect started in chat, when it did; the vendor flow lands there.
  * @param props.onClose - Called when the dialog is dismissed.
  * @param props.onConnected - Called after a credential is stored or picked.
  */
-function ConnectCredentialDialog({ source, onClose, onConnected }: {
+function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
   source: Source;
+  returnTo: string | null;
   onClose: () => void;
   onConnected: () => Promise<void> | void;
 }) {
@@ -708,7 +733,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                       and the credential is stored for this source. Nothing to paste.
                     </p>
                     <a
-                      href={`/api/connect/${connect.provider}/start?source=${encodeURIComponent(source.slug)}`}
+                      href={connectStartHref(connect.provider, source.slug, returnTo)}
                       className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
                     >
                       <KeyRound className="size-3" />
