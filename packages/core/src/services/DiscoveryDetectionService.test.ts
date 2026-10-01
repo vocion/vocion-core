@@ -30,6 +30,12 @@ function classifierReturns(obj: Record<string, unknown>) {
   invokeMock.mockResolvedValue({ content: JSON.stringify(obj) });
 }
 
+/** The human message of the first classifier call — the title plus the transcript it was given. */
+function promptSentToClassifier(): string {
+  const [messages] = invokeMock.mock.calls[0]!;
+  return String((messages as Array<{ content: unknown }>)[1]!.content);
+}
+
 async function seedSource(slug = 'zoom'): Promise<number> {
   const [s] = await db
     .insert(knowledgeSourceSchema)
@@ -436,6 +442,76 @@ describe('classifyTranscript', () => {
     // says "insufficient evidence" AND says the reason did not match.
     expect(c.reasonCode).toBe('insufficient-evidence');
     expect(c.reasonCodeFallback).toBe(true);
+  });
+
+  // vocion-core#280: the whole joined transcript used to go to the model in
+  // one prompt, however long the call ran.
+  describe('with a transcript longer than the budget', () => {
+    const OPENING = 'OPENING: we are looking to replace our current vendor. ';
+    const CLOSING = ' CLOSING: send the proposal by Friday.';
+    const longTranscript = `${OPENING}${'and then we talked about the weather at length. '.repeat(3000)}${CLOSING}`;
+
+    beforeEach(() => {
+      invokeMock.mockReset();
+      classifierReturns({
+        classification: 'discovery',
+        classification_confidence: 0.8,
+        proposal_readiness: 'proposal-ready',
+        proposal_readiness_confidence: 0.8,
+        reason_code: 'first-sales-conversation',
+        reason_summary: 'A first call that ended asking for a proposal.',
+        reasoning: 'needs and next steps both stated',
+      });
+    });
+
+    it('sends at most the budget, keeping how the call opened and how it closed', async () => {
+      expect(longTranscript.length).toBeGreaterThan(svc.CLASSIFIER_TRANSCRIPT_CHAR_BUDGET * 2);
+
+      await svc.classifyTranscript(longTranscript, { title: 'Long call' });
+      const sent = promptSentToClassifier();
+
+      expect(sent.length).toBeLessThan(svc.CLASSIFIER_TRANSCRIPT_CHAR_BUDGET + 500);
+      expect(sent).toContain(OPENING);
+      expect(sent).toContain(CLOSING);
+      expect(sent).toContain('characters from the middle of the call left out');
+    });
+
+    it('still classifies, and says in the reasoning that the middle was left out', async () => {
+      const c = await svc.classifyTranscript(longTranscript, { title: 'Long call' });
+
+      expect(c.classification).toBe('discovery');
+      expect(c.reasoning).toMatch(/^Classified from the start and end of a long transcript; [\d,]+ characters from the middle were left out\./);
+      expect(c.reasoning).toContain('needs and next steps both stated');
+    });
+
+    it('leaves a transcript within the budget exactly as it was', async () => {
+      const short = `${OPENING}${CLOSING}`;
+
+      const c = await svc.classifyTranscript(short, { title: 'Short call' });
+
+      expect(promptSentToClassifier()).toContain(short);
+      expect(promptSentToClassifier()).not.toContain('left out');
+      expect(c.reasoning).toBe('needs and next steps both stated');
+    });
+  });
+});
+
+describe('fitTranscriptToBudget', () => {
+  it('keeps both ends and counts exactly what it left out', () => {
+    const transcript = `${'a'.repeat(50)}${'#'.repeat(100)}${'z'.repeat(50)}`;
+
+    const fitted = svc.fitTranscriptToBudget(transcript, 100);
+
+    expect(fitted.omittedChars).toBe(100);
+    expect(fitted.text.startsWith('a'.repeat(50))).toBe(true);
+    expect(fitted.text.endsWith('z'.repeat(50))).toBe(true);
+    expect(fitted.text).not.toContain('#');
+  });
+
+  it('returns a transcript at exactly the budget untouched', () => {
+    const fitted = svc.fitTranscriptToBudget('x'.repeat(100), 100);
+
+    expect(fitted).toEqual({ text: 'x'.repeat(100), omittedChars: 0 });
   });
 });
 
