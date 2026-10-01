@@ -140,6 +140,14 @@ describe('the product overview', () => {
     expect(where.querySelector('[data-testid="product-environment-config"]')?.textContent).toContain('Deploys by .github/workflows/deploy.yml, step API · QA sign-in stored');
   });
 
+  it('says where each environment\'s errors are tracked, with a link to them', async () => {
+    await draw([row(41, 'send-api-production', { product: 'send', surface: 'api', stage: 'production', observability: { sentry: { org: 'northwind', project: 'northwind-api' } } })]);
+    const line = document.querySelector('[data-testid="product-environment-errors"]')!;
+
+    expect(line.textContent).toBe('Errors: northwind/northwind-api (production) · open issues not read · Sentry');
+    expect(line.querySelector('a')?.getAttribute('href')).toContain('https://northwind.sentry.io/issues/');
+  });
+
   it('previews each wiki page about the product, and keeps it out of Related', async () => {
     await draw([], [], [
       { key: 'wiki:page:5', relation: 'wiki', label: 'Wiki', title: 'Send standards', href: '/dashboard/artifacts/5', external: false, preview: { type: 'artifact', id: '5' }, kind: 'page', note: null, details: ['Every link opens in under a second.'], at: '2026-09-30T04:31:10Z' },

@@ -131,7 +131,21 @@ schema:
       type: object
       description: Where to look when it misbehaves — error tracking, analytics, the log group, a dashboard. Names and links, so the evidence is one tap away.
       properties:
-        errors: {type: string, description: 'Error tracking, e.g. the Sentry `org/project`.'}
+        sentry:
+          type: object
+          description: >-
+            The Sentry project this environment reports its errors to, read
+            live with the workspace's Sentry connection (Connections → Sentry):
+            the product page counts its open issues, the seats read its issues
+            and stack traces with sentry_issues and sentry_issue, and a deploy
+            is checked against it. Names only, never a DSN. `environment` is
+            the SDK's environment tag; left out, the record's `stage`.
+          properties:
+            org: {type: string, description: 'The Sentry organization slug, e.g. `northwind`.'}
+            project: {type: string, description: 'The Sentry project slug, e.g. `northwind-api`.'}
+            environment: {type: string, description: 'The SDK''s environment tag, e.g. `production`. Defaults to `stage`.'}
+          required: [org, project]
+        errors: {type: string, description: 'Error tracking in words, for a tracker with no structured field. Superseded by `sentry`; an `org/project` written here after the word Sentry is still read as one.'}
         analytics: {type: string}
         logs: {type: string, description: 'The log group or stream, e.g. `/send/production/api`.'}
         dashboard: {type: string}

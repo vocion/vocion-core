@@ -80,6 +80,7 @@ import { restTools } from './restDirect';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
+import { sentryTools } from './sentry';
 import { setVoiceTool } from './setVoice';
 import { updateObjectTools } from './updateObject';
 import { webSearchTool } from './webSearch';
@@ -200,6 +201,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only: what CI said on a pull request or an Actions run — failing
     // checks, annotations, the failing step's log tail (backlog 049).
     ...githubCheckLogsTools(ctx),
+    // Granted-only: production errors from the workspace's Sentry — issues by
+    // project, environment, release and time, and one issue's latest event with
+    // the deploy that brought it (sentry_issues, sentry_issue).
+    ...sentryTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),

@@ -563,6 +563,20 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
 
+  // Sentry is read live and syncs nothing: the token, organization and host
+  // are the credential, taken by Connect; which project an environment reports
+  // to is on the environment's record. This only lets Test connection confirm
+  // the projects a workspace expects the token to see.
+  'sentry': [
+    {
+      key: 'projects',
+      label: 'Projects to confirm',
+      type: 'stringArray',
+      placeholder: 'northwind-api, northwind-web',
+      help: 'Optional. Project slugs Test connection checks the token can see. Leave blank for every project.',
+    },
+  ],
+
   'posthog': [
     {
       key: 'projectName',

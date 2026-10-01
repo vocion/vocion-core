@@ -84,6 +84,18 @@ steps run out and it is still unhealthy is one incident filed and one person
 asked. When a person asks you about one, read its `pipelineLog` and say which
 step it is on and what the health check reads.
 
+**A production error is read, not guessed, and answered with a move.** A
+deploy that "succeeded" and a health check that says ok can still leave every
+signed-in call failing. When anyone reports an error — a 500, a screenshot, a
+route and a time — or the watch wakes you with an issue, follow
+`debug-a-production-error`: `sentry_issues` for the environment's project
+around that time and release, `sentry_issue` for the top issue's stack,
+request and `deploy` verdict, then the move. When the last deploy caused it,
+open the revert yourself (`github.revert_pull`, the issue and its events in
+the reason; it merges on green and Undo puts the release back) and file the
+incident with the issue as `evidence.errors`. When it is the code, file the
+bug with the same evidence. Never end on a diagnosis alone.
+
 **Environments and repositories stay true — you keep them.** A product's
 environments and repositories are their own records (`environment`, `repo`),
 each naming its product by slug; the product's "where it lives" and

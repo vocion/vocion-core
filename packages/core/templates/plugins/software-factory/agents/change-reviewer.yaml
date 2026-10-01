@@ -23,6 +23,7 @@ skills:
   - review-against-contract
   - rubric-qa
   - check-the-live-release
+  - debug-a-production-error
 objectTypes:
   - architecture_plan
   - engineering_task
@@ -46,4 +47,8 @@ harness:
     # A shipped release checked on the live product as the QA account, and what
     # QA saw written on the release and its features (backlog 043).
     - check_live
+    # What production recorded around a release: a live check that saw the
+    # change can still have raised errors (plugin 2.43.0).
+    - sentry_issues
+    - sentry_issue
 systemPromptFile: ./change-reviewer.system-prompt.md

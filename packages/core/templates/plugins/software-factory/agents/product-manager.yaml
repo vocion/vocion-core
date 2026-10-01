@@ -58,6 +58,10 @@ harness:
   # The product's production URLs and QA sign-in, to plan and check against the live product.
   grantTools:
     - product_access
+    # Triage a production error in chat: what Sentry recorded, and whether the
+    # last deploy brought it (debug-a-production-error, plugin 2.43.0).
+    - sentry_issues
+    - sentry_issue
 playbooks:
   - naming-the-work
   - designing-a-surface
@@ -69,6 +73,7 @@ skills:
   - rank-the-backlog
   - write-release-notes
   - rubric-product-manager
+  - debug-a-production-error
 objectTypes:
   - request
   - architecture_plan

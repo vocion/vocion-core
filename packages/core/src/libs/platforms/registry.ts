@@ -54,6 +54,7 @@ export type CredentialPlatformId
     | 'jira'
     | 'notion'
     | 'posthog'
+    | 'sentry'
     | 'strapi'
   // Any bearer-token REST API the workspace declares endpoints for
   // (`libs/sources/rest.ts`). One-live for the same reason as `apollo` — see
@@ -536,6 +537,49 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         // sentence at paste time.
         pattern: /^phx_[\w-]{8,}$/i,
         shapeHint: 'starts with "phx_" — a personal API key. A phc_ token is the public project token and cannot read anything',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'sentry',
+    label: 'Sentry',
+    keySource: 'supplied',
+    // `one-live`, for the reason Apollo, Notion and PostHog are: widening the
+    // cap means rebuilding `api_token_org_platform_live_idx`, and one token
+    // reads every project of the organization it was made in.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['sentry'],
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Sentry region host, the organization slug, and an auth token',
+    helpText: 'A Sentry auth token (Settings → Auth Tokens, or an internal integration) with org:read, project:read and event:read — read-only: Vocion never resolves, assigns or comments on an issue. The organization slug is the part of your Sentry address before .sentry.io; the host is your data region (https://us.sentry.io, https://de.sentry.io) or your own install. A DSN is NOT what goes here: it can only send events.',
+    fields: [
+      {
+        name: 'host',
+        label: 'Sentry host',
+        pattern: /^https?:\/\/[^\s/]+\/?$/i,
+        shapeHint: 'is an address such as https://us.sentry.io, https://de.sentry.io, or your own install',
+        // Where the token is spent; shown in full, and what tells a US
+        // organization apart from an EU one in the credential list.
+        secret: false,
+      },
+      {
+        name: 'org',
+        label: 'Organization slug',
+        pattern: /^[\w-]+$/,
+        shapeHint: 'is the organization slug: letters, digits and dashes, as in <slug>.sentry.io',
+        secret: false,
+      },
+      {
+        name: 'token',
+        label: 'Auth token',
+        // A DSN is a URL with a public key in it; refusing it here turns
+        // "every read is unauthorized" into a sentence at paste time.
+        pattern: /^(?!https?:\/\/)\S{16,}$/i,
+        shapeHint: 'is an auth token (sntrys_… or sntryu_…), not a DSN — a DSN is an https:// address that can only send events',
         secret: true,
       },
     ],

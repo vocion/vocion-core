@@ -2,6 +2,8 @@ import type { PageRow } from './pageFields';
 import type { HealthReading } from './productBoard';
 import type { RecordLinker } from './recordHref';
 import type { ReleaseLinked } from './releaseFeed';
+import { projectIssuesUrl } from '@/libs/sentry/client';
+import { sentryRefOf } from '@/libs/sentry/reference';
 import { groupTabKey } from './pageFields';
 import { dependencyLine, healthReading, latestRelease, lifecycleLabel, plural, productWork, releasesFor } from './productBoard';
 import { genericRecordLinker } from './recordHref';
@@ -98,6 +100,12 @@ export type OverviewEnvironment = {
   deploy: { workflow: string | null; step: string | null; url: string | null } | null;
   /** When its health was last checked. */
   checkedAt: Date | null;
+  /**
+   * Where its errors are tracked (`observability.sentry`): the project, its
+   * open issues in the last 24 hours (null when they could not be read, with
+   * why), and the tracker's own page for them.
+   */
+  errors: { label: string; environment: string | null; href: string; open24h: number | null; unread: string | null } | null;
   href: string;
 };
 
@@ -356,9 +364,19 @@ export function environmentsFor(slug: string, rows: PageRow[], record: RecordLin
         qaSignIn: 'qaLoginCredentialId' in m ? str(m.qaLoginCredentialId) !== null || typeof m.qaLoginCredentialId === 'number' : null,
         deploy: deployOf(m.deploy),
         checkedAt: toDate(m.lastHealthCheckedAt),
+        errors: errorsOf(m),
         href: record({ objectType, id: r.id }),
       };
     });
+}
+
+/**
+ * Where an environment's errors are tracked, before its count is read.
+ * @param m - Its metadata.
+ */
+function errorsOf(m: Record<string, unknown>): OverviewEnvironment['errors'] {
+  const ref = sentryRefOf(m);
+  return ref ? { label: `${ref.org}/${ref.project}`, environment: ref.environment, href: projectIssuesUrl(ref), open24h: null, unread: null } : null;
 }
 
 function deployOf(v: unknown): OverviewEnvironment['deploy'] {
@@ -577,6 +595,7 @@ export function pipelineOf(records: Array<{ row: PageRow; href: string }>): Over
  * @param input.releaseLinked - What each release names.
  * @param input.timeZone - The workspace's zone.
  * @param input.paused - How many of the plugin's automations are paused.
+ * @param input.errorCounts - Each environment's open error-tracking issues, read by the loader.
  * @param input.now - The clock.
  */
 export function buildProductOverview(input: {
@@ -596,6 +615,8 @@ export function buildProductOverview(input: {
   timeZone?: string;
   /** How many of the plugin's automations are paused. */
   paused?: number;
+  /** Each environment's open error-tracking issues in the last 24 hours, by record id, as the loader read them. */
+  errorCounts?: ReadonlyMap<string, { open24h: number | null; unread: string | null }>;
   now: Date;
 }): ProductOverview {
   const { product, now, links } = input;
@@ -671,7 +692,11 @@ export function buildProductOverview(input: {
     href: links.record({ objectType: T.release, id: r.id }),
   }));
 
-  const environments = slug ? environmentsFor(slug, input.environments ?? [], links.record, T.environment) : [];
+  const environments = (slug ? environmentsFor(slug, input.environments ?? [], links.record, T.environment) : [])
+    .map((e) => {
+      const read = input.errorCounts?.get(String(e.id));
+      return e.errors && read ? { ...e, errors: { ...e.errors, ...read } } : e;
+    });
 
   const liveStates = new Map([...readings].map(([id, r]) => [id, r.verification.live.state]));
   const mineRequests = slug ? input.requests.filter(r => str(meta(r).product) === slug) : [];

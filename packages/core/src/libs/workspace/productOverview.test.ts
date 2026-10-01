@@ -312,6 +312,16 @@ describe('how it ships, for the Release engineer', () => {
     expect(o.engineering.summary).toBe('1 environment · 1 repository · deploys by .github/workflows/deploy.yml');
   });
 
+  it('names where each environment\'s errors are tracked, with its open issues in the last 24 hours and a link', () => {
+    const api = row(53, 'send-api-production', { product: 'send', surface: 'api', stage: 'production', observability: { sentry: { org: 'northwind', project: 'northwind-api' } } });
+    const web = row(54, 'send-web-production', { product: 'send', surface: 'web', stage: 'production', observability: { errors: 'Sentry northwind/northwind-web' } });
+    const o = build({ environments: [api, web], errorCounts: new Map([['53', { open24h: 2, unread: null }], ['54', { open24h: null, unread: 'Sentry is not connected (Connections → Sentry)' }]]) });
+
+    expect(o.environments.find(e => e.id === 53)?.errors).toEqual({ label: 'northwind/northwind-api', environment: 'production', href: 'https://northwind.sentry.io/issues/?query=is%3Aunresolved+project%3Anorthwind-api&statsPeriod=24h&environment=production', open24h: 2, unread: null });
+    expect(o.environments.find(e => e.id === 54)?.errors).toMatchObject({ label: 'northwind/northwind-web', open24h: null, unread: 'Sentry is not connected (Connections → Sentry)' });
+    expect(build({ environments: [env] }).environments[0]?.errors).toBeNull();
+  });
+
   it('names each open pipeline change and each fix underway, with who has it', () => {
     const items = pipelineOf([
       { row: row(60, 'Acme/northwind-core', { pipelineChange: { url: 'https://github.com/Acme/northwind-core/pull/148', state: 'open', title: 'Fix the deploy step', by: 'agent:release-engineer' } }), href: '/dashboard/objects/60' },

@@ -538,11 +538,15 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const reported = (input.reported ?? []).length > 0
     ? `\n\nWhat the person reported (open each to see what they saw):\n${input.reported!.map(r => `- ${r.title}: ${r.file ?? r.url}${r.file ? ` (${r.url})` : ''}`).join('\n')}`
     : '';
+  // WHAT PRODUCTION SAID (2026-10-01): the error tracker's issues the request
+  // answers — the stack, the failing request, the release — so the engineer
+  // starts from the frame that threw, not from a description of a 500.
+  const observed = productionErrorsLine(r.evidence);
   const resumeProven = resume ? (resume.meta.verdict as { proven?: number; total?: number } | undefined) : undefined;
   const continued = resume
     ? `\n\nThis attempt continues branch ${String(resume.meta.branch)} (task #${resume.id}, ${resumeProven?.proven ?? 0} of ${resumeProven?.total ?? '?'} criteria proven). Keep what is proven; change only what the open criteria need.`
     : '';
-  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + reported + carried + continued + asked;
+  const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + reported + observed + carried + continued + asked;
   // A ui change is refused without a QA flow (the worker screenshots it
   // before and after). The request says where it lives; that page is the flow.
   const visuals = (r.visuals ?? {}) as Meta;
@@ -595,6 +599,34 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     riskClass: risk,
     repoSlug,
   };
+}
+
+/**
+ * The production errors a request carries (`evidence.errors`), as lines the
+ * engineer reads in the objective: each issue, its link, the failing request,
+ * the release it came in and the product's own frames. Empty when it has none.
+ * @param evidence - The request's `evidence`.
+ */
+export function productionErrorsLine(evidence: unknown): string {
+  const errors = evidence && typeof evidence === 'object' && Array.isArray((evidence as { errors?: unknown }).errors)
+    ? ((evidence as { errors: unknown[] }).errors.filter(e => e && typeof e === 'object') as Meta[]).slice(0, 3)
+    : [];
+  if (errors.length === 0) {
+    return '';
+  }
+  const lines = errors.map((e) => {
+    const head = [str(e, 'shortId'), str(e, 'title')].filter(Boolean).join(': ');
+    const where = [
+      str(e, 'culprit') ? `at ${str(e, 'culprit')}` : null,
+      str(e, 'request'),
+      str(e, 'release') ? `first seen in release ${str(e, 'release')!.slice(0, 12)}` : null,
+      typeof e.events === 'number' ? `${e.events} events` : null,
+      str(e, 'url'),
+    ].filter(Boolean).join('; ');
+    const frames = (Array.isArray(e.frames) ? e.frames : []).filter((f): f is string => typeof f === 'string').slice(-6);
+    return `- ${head}${where ? ` (${where})` : ''}${frames.length > 0 ? `\n  Stack (the product's frames, innermost last):\n${frames.map(f => `    ${f}`).join('\n')}` : ''}`;
+  });
+  return `\n\nWhat production recorded (start from the frame that threw):\n${lines.join('\n')}`;
 }
 
 /**

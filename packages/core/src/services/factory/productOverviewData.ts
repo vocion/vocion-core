@@ -81,11 +81,12 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
   const { loadPendingBuilds } = await import('./pendingBuilds');
   const { loadReleaseLinked } = await import('./releaseData');
   const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
-  const [live, pendingBuilds, releaseLinked, timeZone] = await Promise.all([
+  const [live, pendingBuilds, releaseLinked, timeZone, errorCounts] = await Promise.all([
     loadWorkLive(orgId, mine, tasks, now),
     loadPendingBuilds(orgId).catch(() => []),
     loadReleaseLinked(orgId, myReleases.slice(0, 60)).catch(() => undefined),
     workspaceTimeZone(orgId).catch(() => 'UTC'),
+    loadErrorCounts(orgId, slug ? environments.filter(e => e.meta.product === slug) : []).catch(() => undefined),
   ]);
   const email = typeof product.meta.accountableUser === 'string' ? product.meta.accountableUser : null;
   const links: OverviewLinks = {
@@ -107,8 +108,54 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
     releaseLinked,
     timeZone,
     paused: opts.paused,
+    errorCounts,
     now,
   });
+}
+
+/** How long the page waits for the error tracker before drawing without a count. */
+const ERROR_COUNT_TIMEOUT_MS = 4_000;
+
+/**
+ * Each environment's open error-tracking issues seen in the last 24 hours,
+ * read live (`observability.sentry`), by record id. One that cannot be read
+ * says why on its line rather than leaving a blank.
+ * @param orgId - The workspace.
+ * @param envs - This product's environments.
+ */
+export async function loadErrorCounts(orgId: string, envs: Array<{ id: string | number; meta: Record<string, unknown> }>): Promise<Map<string, { open24h: number | null; unread: string | null }>> {
+  const { sentryRefOf } = await import('@/libs/sentry/reference');
+  const tracked = envs.flatMap((e) => {
+    const ref = sentryRefOf(e.meta);
+    return ref ? [{ id: String(e.id), ref }] : [];
+  });
+  const out = new Map<string, { open24h: number | null; unread: string | null }>();
+  if (tracked.length === 0) {
+    return out;
+  }
+  const { sentryFor } = await import('@/services/sentry/access');
+  const access = await sentryFor(orgId);
+  if (!access.ok) {
+    for (const t of tracked) {
+      out.set(t.id, { open24h: null, unread: 'Sentry is not connected (Connections → Sentry)' });
+    }
+    return out;
+  }
+  const { listIssues } = await import('@/libs/sentry/client');
+  await Promise.all(tracked.map(async (t) => {
+    const read = await Promise.race([
+      listIssues({ ...access.credentials, org: t.ref.org }, { project: t.ref.project, environment: t.ref.environment, statsPeriod: '24h', limit: 100 }),
+      new Promise<null>(resolve => setTimeout(resolve, ERROR_COUNT_TIMEOUT_MS, null)),
+    ]).catch(() => null);
+    if (!read) {
+      out.set(t.id, { open24h: null, unread: 'Sentry did not answer in time' });
+    } else if (!read.ok) {
+      out.set(t.id, { open24h: null, unread: read.message.slice(0, 160) });
+    } else {
+      out.set(t.id, { open24h: read.hits ?? read.data.length, unread: null });
+    }
+  }));
+  return out;
 }
 
 /** How many in-flight records the overview reads a live status for. */

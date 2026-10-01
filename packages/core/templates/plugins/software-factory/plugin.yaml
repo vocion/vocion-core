@@ -259,7 +259,20 @@ name: Software factory
 #   Proposed with Build or Dismiss, its pictures, its wiki pages, then How it
 #   ships folded. `product` declares a `wiki` relation (its capabilitiesPage,
 #   and pages tagged with or named after its slug), and the page is `live`.
-version: 2.42.0
+#
+# 2.43.0 — a production error is read and answered (2026-10-01: a pipeline fix
+#   built an API for the wrong CPU, every signed-in call answered 500 for
+#   hours, Sentry counted 184 of them, and no seat could read one). An
+#   environment names its error tracking as `observability.sentry: {org,
+#   project, environment}` (the free-text `observability.errors` is still
+#   read); How it ships shows each one's open issues in the last 24 hours and
+#   a link. The Release engineer, the PM and QA hold `sentry_issues` and
+#   `sentry_issue` (core: the `sentry` connection) and the
+#   `debug-a-production-error` skill: find the environment, read the issue,
+#   map its stack, correlate its release with the deploy, then revert the
+#   deploy that caused it or file the bug with `evidence.errors`, which the
+#   engineer's contract carries.
+version: 2.43.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

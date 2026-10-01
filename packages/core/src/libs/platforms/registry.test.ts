@@ -495,6 +495,25 @@ describe('connector platforms', () => {
       .toThrow(/numeric project id/);
   });
 
+  it('keeps the Sentry host and organization with the token, shown in full, and refuses a DSN', () => {
+    // A token is spent against one region and one organization; both are
+    // identifiers, and the token is the only secret.
+    const secrecy = Object.fromEntries(getPlatform('sentry').fields.map(f => [f.name, f.secret]));
+
+    expect(secrecy).toEqual({ host: false, org: false, token: true });
+    expect(getPlatform('sentry').connectorSlugs).toEqual(['sentry']);
+    expect(credentialsAreShareable('sentry')).toBe(true);
+    expect(holdsManyCredentials('sentry')).toBe(false);
+    expect(getPlatform('sentry').helpText).toMatch(/read-only/);
+    expect(validatePlatformCredential('sentry', { host: 'https://us.sentry.io', org: 'northwind', token: 'sntrys_fixture_token_0001' }))
+      .toEqual({ host: 'https://us.sentry.io', org: 'northwind', token: 'sntrys_fixture_token_0001' });
+    // A DSN can only send events: refused at paste time, with the reason.
+    expect(() => validatePlatformCredential('sentry', { host: 'https://us.sentry.io', org: 'northwind', token: 'https://0000@o0.ingest.us.sentry.io/1' }))
+      .toThrow(/not a DSN/);
+    expect(() => validatePlatformCredential('sentry', { host: 'us.sentry.io', org: 'northwind', token: 'sntrys_fixture_token_0001' }))
+      .toThrow(/https:\/\/us\.sentry\.io/);
+  });
+
   it('shares one GitHub token across github sources and names the read-only permissions it needs', () => {
     // One token reads every repository it was granted; a source narrows by its
     // repository list, so a second source over the same account types nothing.

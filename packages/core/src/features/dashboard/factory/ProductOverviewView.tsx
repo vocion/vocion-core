@@ -461,6 +461,17 @@ function EnvironmentRow({ e, now }: { e: OverviewEnvironment; now: number }) {
           </>
         )}
       </p>
+      {/* Where its errors are tracked, and how many are open now (observability.sentry). */}
+      {e.errors && (
+        <p className="text-[12px] text-muted-foreground" data-testid="product-environment-errors">
+          {`Errors: ${e.errors.label}${e.errors.environment ? ` (${e.errors.environment})` : ''} · `}
+          {e.errors.open24h === null
+            ? (e.errors.unread ? `open issues could not be read: ${e.errors.unread}` : 'open issues not read')
+            : `${e.errors.open24h === 0 ? 'no' : e.errors.open24h} open ${e.errors.open24h === 1 ? 'issue' : 'issues'} seen in the last 24 h`}
+          {' · '}
+          <Out href={e.errors.href} testId="product-environment-errors-link">Sentry</Out>
+        </p>
+      )}
       {/* What the pipeline last did here, from the record (backlog 049). */}
       {e.line && <p className="text-[12px] text-muted-foreground" data-testid="product-environment-line">{e.line}</p>}
       {e.advice && <p className="text-[12px] text-muted-foreground" data-testid="product-environment-advice">{`Answers, but not as its record expects: ${e.advice}`}</p>}

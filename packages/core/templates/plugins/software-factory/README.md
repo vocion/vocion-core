@@ -134,3 +134,13 @@ branch (`deploy-run-failed`) is the Release engineer's incident. Every ten
 minutes `environment-health` reads each environment's health check; one down
 twice is recovered one step a pass (re-run, redeploy, roll back), and a person
 is asked once only when the steps run out.
+
+A production error is read where it was recorded. An environment names its
+error tracking as `observability.sentry: {org, project, environment}`, and the
+workspace connects Sentry once (Connections → Sentry: token, organization,
+region host). The Release engineer, the PM and QA hold `sentry_issues` and
+`sentry_issue`, and follow `debug-a-production-error`: the issue around the
+reported time and release, its stack mapped to the repository, its release
+correlated with the environment's last deploy, then a revert of the deploy
+that caused it (`github.revert_pull`, merged on green) or a bug filed with
+`evidence.errors`, which the engineer's contract carries.

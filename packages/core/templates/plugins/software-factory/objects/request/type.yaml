@@ -151,6 +151,29 @@ schema:
         urls: {type: array, items: {type: string}}
         videoUrl: {type: string}
         screenshotArtifactIds: {type: array, items: {type: integer}, description: 'Screenshots as core artifacts — versioned, previewable, one tap from the request.'}
+        errors:
+          type: array
+          description: >-
+            The production errors this request answers, as the error tracker
+            recorded them (sentry_issue): each issue's short id and link, what
+            it is, where it happens, the request that failed, the release it
+            came in, and the product's own stack frames. Carried into the
+            engineer's contract, so the fix starts from the stack, not a guess.
+          items:
+            type: object
+            properties:
+              source: {type: string, description: 'The tracker, e.g. `sentry`.'}
+              shortId: {type: string, description: 'The id a person says, e.g. `NW-API-3`.'}
+              url: {type: string}
+              title: {type: string, description: 'The exception and its message, first line.'}
+              culprit: {type: string, description: 'Where the tracker says it happens: a route or a function.'}
+              environment: {type: string}
+              release: {type: string, description: The release (commit) it was first seen in.}
+              firstSeen: {type: string, format: date-time}
+              lastSeen: {type: string, format: date-time}
+              events: {type: integer}
+              request: {type: string, description: 'The failing request, e.g. `GET https://api.example/v1/docs → 500`.'}
+              frames: {type: array, items: {type: string}, description: 'The product''s own frames, `file:line in function`, innermost last, mapped to the repository where they could be.'}
     gapCheck:
       x-display: {label: Is the gap still there, role: prose, group: Triage, order: 4}
       type: object

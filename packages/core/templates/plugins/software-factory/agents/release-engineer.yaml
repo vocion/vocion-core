@@ -31,6 +31,7 @@ playbooks:
   - house-voice
 skills:
   - rubric-release-engineer
+  - debug-a-production-error
 objectTypes:
   - engineering_task
   - request
@@ -63,4 +64,8 @@ harness:
     - github.open_pull
     - github.dispatch_workflow
     - github.revert_pull
+    # Production errors: issues by project, environment, release and time, and
+    # one issue's stack, request and the deploy that brought it (plugin 2.43.0).
+    - sentry_issues
+    - sentry_issue
 systemPromptFile: ./release-engineer.system-prompt.md
