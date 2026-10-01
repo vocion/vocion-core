@@ -459,6 +459,31 @@ export function addressOf(base, target) {
   return /^https?:\/\//i.test(t) ? t : `${String(base || '').replace(/\/+$/, '')}${t.startsWith('/') ? '' : '/'}${t}`;
 }
 
+/** How long `remember from url` waits for a page an earlier step moved to, in milliseconds. */
+export const URL_MOVE_TIMEOUT_MS = 15000;
+
+/**
+ * The page's address for `remember from url`. When an earlier step in this flow acted (an upload, a
+ * click, a fill) and the page is still where the flow started, it waits for the page to move; if it
+ * never does, the record the action was to make was not reached, and remembering the start page
+ * would send every later flow back to it (run 3, 2026-10-01: the upload failed on production, the
+ * setup remembered /new, and every check ran on the upload page).
+ * @param {object} page - The Playwright page.
+ * @param {object} ctx - The flow's context: `startUrl` (where it opened) and `acted`.
+ * @returns {Promise<string>} The address.
+ */
+async function urlAfterAction(page, ctx) {
+  const start = ctx.startUrl;
+  if (!ctx.acted || !start || page.url() !== start) {
+    return page.url();
+  }
+  const moved = await page.waitForURL(u => String(u) !== start, { timeout: ctx.urlMoveTimeoutMs ?? URL_MOVE_TIMEOUT_MS }).then(() => true).catch(() => false);
+  if (!moved) {
+    throw new Error(`the page never left ${new URL(start).pathname}, where this flow started, after its steps acted, so what they were to make was not reached`);
+  }
+  return page.url();
+}
+
 /** The longest `pause` a step may ask for, in seconds. */
 export const MAX_PAUSE_SECONDS = 30;
 
@@ -483,7 +508,7 @@ async function runStep(page, rawStep, shoot, ctx = {}) {
     const { name, from = step.remember.selector ? 'text' : 'url', selector } = step.remember;
     let value = '';
     if (from === 'url') {
-      value = page.url();
+      value = await urlAfterAction(page, ctx);
     } else {
       const el = locate(page, selector).first();
       await el.waitFor({ state: 'attached', timeout: 15000 });
@@ -703,7 +728,7 @@ export function viewportContextOptions(viewport) {
  * shoots where the page got, instead of trying the rest: on production a failed step means the
  * state is not there, and every later step would only wait out its own timeout.
  */
-export async function shootFlow({ browser, base, flow, viewport, side, outDir, record = false, log = () => {}, context: given = null, stopAtFailure = false, errorPatterns = ERROR_STATE_PATTERNS, vars = {}, allow = null, withText = false }) {
+export async function shootFlow({ browser, base, flow, viewport, side, outDir, record = false, log = () => {}, context: given = null, stopAtFailure = false, errorPatterns = ERROR_STATE_PATTERNS, vars = {}, allow = null, withText = false, urlMoveTimeoutMs = URL_MOVE_TIMEOUT_MS }) {
   const vp = VIEWPORTS[viewport];
   const context = given || await browser.newContext({
     ...viewportContextOptions(viewport),
@@ -736,9 +761,14 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
       absent = absentReason(response, page, flow.path);
     }
     if (!absent) {
+      // Where the flow opened, so `remember from url` can tell a page its steps moved to from the start.
+      const flowCtx = { vars, allow, base, startUrl: page.url(), acted: false, urlMoveTimeoutMs };
       for (const [index, step] of flow.steps.entries()) {
         try {
-          await runStep(page, step, shoot, { vars, allow, base });
+          await runStep(page, step, shoot, flowCtx);
+          if (step.upload || step.click || step.fill) {
+            flowCtx.acted = true;
+          }
         } catch (e) {
           const verb = Object.keys(step)[0];
           const failure = { index, verb, target: stepTarget(step), error: String(e.message || e).split('\n')[0].slice(0, 200) };

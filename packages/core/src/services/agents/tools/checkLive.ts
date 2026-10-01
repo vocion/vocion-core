@@ -25,7 +25,7 @@ const inputSchema = z.object({
     + 'surface, default the one with the QA sign-in); path (a path on it, or {{name}} an earlier step remembered); '
     + 'viewports (desktop | phone); steps, each exactly one of '
     + `${LIVE_STEP_VERBS.join(', ')} — click/wait_for take visible text or a selector; fill {selector, value}; `
-    + 'upload {selector, megabytes, name} uploads a real one-page PDF; goto opens a path or {{name}}; remember '
+    + 'upload {selector, megabytes, name} uploads a real one-page PDF; goto opens a path or {{name}} ({{setupPage}} is the page the last finished setup flow ended on); remember '
     + '{name, from: url|href|text|value, selector?} keeps a value for later steps as {{name}}; pause seconds; '
     + 'shoot "<what it shows>" takes the picture that proves the criterion.',
   ),

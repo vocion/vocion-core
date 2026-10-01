@@ -48,6 +48,12 @@ export const LIVE_VIEWPORTS = ['desktop', 'phone'] as const;
 /** At most this many flows, steps per flow, and flow-viewport runs in one check, and this long for all of it. */
 export const LIVE_LIMITS = { flows: 12, steps: 16, runs: 24, seconds: 480 } as const;
 
+/**
+ * The value a check and a cleanup read the page setup ended on by: `{{setupPage}}`, the full
+ * address the last setup flow that finished stood on. Anything setup `remember`ed carries too.
+ */
+export const SETUP_PAGE_VAR = 'setupPage';
+
 /** Attempts a release gets: the first, and the one retry carrying what the first learned. */
 export const LIVE_ATTEMPTS = 2;
 

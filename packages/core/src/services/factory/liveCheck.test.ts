@@ -117,6 +117,9 @@ describe('the live check, end to end in a real browser against a fictional produ
       if (url.pathname === '/new') {
         return send(`<label>Title <input id="t"></label><input type="file" onchange="fetch('/api/upload',{method:'POST'}).then(r=>r.text()).then(id=>location.href='/documents/'+id)">`);
       }
+      if (url.pathname === '/new-broken') {
+        return send('<input type="file"><p>Something went wrong on our end. Try again in a moment.</p>');
+      }
       if (url.pathname === '/api/upload') {
         const id = `d${docs.size + 1}`;
         docs.set(id, { views: 0 });
@@ -161,6 +164,39 @@ describe('the live check, end to end in a real browser against a fictional produ
   const deps = () => ({
     browser: async () => browser!,
     store: async (_org: string, png: Buffer) => ({ url: `/api/artifacts/files/live-${png.length}.png`, filename: `live-${png.length}.png`, bytes: png.length, contentType: 'image/png' }),
+  });
+
+  it('a check opens the page setup ended on as {{setupPage}} (run 3, 2026-10-01)', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_setup_page`;
+    const { releaseId } = await seed(org);
+    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
+
+    const out = await runLiveCheck(org, { releaseId, flows: flows([
+      { name: 'upload a document', phase: 'setup', path: '/new', steps: [{ upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'vocion-live-check.pdf' } }, { wait_for: 'Not opened yet' }] },
+      { name: 'Not opened line', phase: 'check', criterion: 'Under the title, a line says when the document was last opened.', path: '{{setupPage}}', steps: [{ wait_for: 'Not opened yet' }, { shoot: 'The line under the title' }] },
+      { name: 'delete it', phase: 'cleanup', path: '{{setupPage}}', steps: [{ click: 'Delete document' }, { wait_for: 'Nothing here yet' }] },
+    ]) }, { author }, deps());
+
+    expect(out.verdict).toMatchObject({ state: 'seen' });
+    expect(out.runs.find(r => r.phase === 'check')!.shots[0]!.at).toMatch(/^\/documents\/d\d+$/);
+    expect(docs.size).toBe(0);
+  });
+
+  it('a setup whose upload failed does not remember the upload page as the record, and no check runs on it (run 3)', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_setup_stuck`;
+    const { releaseId } = await seed(org);
+    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
+
+    const out = await runLiveCheck(org, { releaseId, flows: flows([
+      { name: 'upload a document', phase: 'setup', path: '/new-broken', steps: [{ upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'vocion-live-check.pdf' } }, { pause: 1 }, { remember: { name: 'recordUrl' } }] },
+      { name: 'Last opened line', phase: 'check', criterion: 'Under the title, a line says when the document was last opened.', path: '{{recordUrl}}', steps: [{ wait_for: 'Last opened' }, { shoot: 'Last opened line' }] },
+    ]) }, { author }, deps());
+
+    expect(out.verdict.state).toBe('not_seen');
+    expect(out.runs[0]).toMatchObject({ phase: 'setup', ok: false });
+    expect(out.runs[0]!.failure).toMatch(/the page never left \/new-broken, where this flow started/);
+    // The check never opened the upload page as if it were the record.
+    expect(out.runs[1]!.shots).toEqual([]);
   });
 
   it('prepares its own state as the QA account, sees the change, cleans up, and writes it on the release and the feature', { skip: !chromium, timeout: 120_000 }, async () => {

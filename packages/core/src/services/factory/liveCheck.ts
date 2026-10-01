@@ -28,7 +28,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage, stepReason } from '@/libs/factory/liveCheck';
+import { keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage, SETUP_PAGE_VAR, stepReason } from '@/libs/factory/liveCheck';
 import { businessObjectSchema } from '@/models/Schema';
 
 type Meta = Record<string, unknown>;
@@ -370,6 +370,12 @@ export async function runLiveCheck(
           report.failure = failure;
           if (flow.phase !== 'check') {
             const last = result.shots.at(-1);
+            // THE PAGE SETUP ENDED ON CARRIES ON (run 3, 2026-10-01): a check opens what setup
+            // made by naming it, as {{setupPage}} (the last setup flow that finished), beside
+            // anything setup remembered by its own name.
+            if (flow.phase === 'setup' && !failure && last?.at) {
+              vars[SETUP_PAGE_VAR] = `${new URL(String(env.url)).origin}${last.at}`;
+            }
             report.shots.push({ label: last?.label ?? '', at: last?.at ?? '', status: failure ? 'not_reached' : 'reached', reason: failure, artifactId: null, pageText: last?.text ?? '' });
             if (failure) {
               const { detail: _d, ...typed } = typedFailure(failure);

@@ -516,6 +516,9 @@ describe('a flow that prepares its own state (the live check, 2026-10-01)', asyn
       if (req.url === '/new') {
         return res.end('<input type="file" onchange="location.href=\'/documents/d1\'">');
       }
+      if (req.url === '/broken') {
+        return res.end('<input type="file"><p>Something went wrong on our end.</p>');
+      }
       if (req.url === '/documents/d1') {
         return res.end(`<h1>Q3 board deck</h1><p>${views.d1 ? 'Last opened just now' : 'Not opened yet'}</p><a href="/s/abc">Open as a viewer</a>`);
       }
@@ -549,6 +552,16 @@ describe('a flow that prepares its own state (the live check, 2026-10-01)', asyn
       assert.deepEqual(check.stepFailures, []);
       assert.equal(check.shots[0].label, 'Last opened line');
       assert.match(check.shots[0].text, /Last opened just now/);
+      // The upload failed on production and the page stayed put (run 3, 2026-10-01): the setup
+      // does not remember the upload page as the record, it fails and says why.
+      const stuckVars = {};
+      const stuck = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, vars: stuckVars, allow, stopAtFailure: true, urlMoveTimeoutMs: 500, flow: { name: 'setup', path: '/broken', steps: [
+        { upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'qa.pdf' } },
+        { remember: { name: 'documentUrl' } },
+      ] } });
+      assert.equal(stuck.stepFailures[0]?.verb, 'remember');
+      assert.match(stuck.stepFailures[0].error, /the page never left \/broken, where this flow started/);
+      assert.equal(stuckVars.documentUrl, undefined);
       const foreign = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, vars, allow, stopAtFailure: true, flow: { name: 'away', path: '/documents/d1', steps: [{ goto: 'http://169.254.169.254/latest' }] } });
       assert.match(foreign.stepFailures[0].error, /not one of the product's own addresses/);
     } finally {

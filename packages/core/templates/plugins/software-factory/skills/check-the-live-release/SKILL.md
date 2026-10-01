@@ -45,15 +45,24 @@ Three phases, run in this order. Values carry from one flow to the next.
   shared link — is its own setup flow with `signed_in: false` and `path:
   "{{shareUrl}}"`, with a `pause` of a few seconds when the product counts a
   visit by time.
+  After an `upload`, `click` or `fill`, `remember` the page only once the
+  product has moved to the record (a `wait_for` on something only the record's
+  page shows, e.g. its title): if the page never leaves where the flow
+  started, the remember fails with that reason instead of keeping the upload
+  page as the record. Read the setup run's `pageText`: an error the product
+  shows there ("Something went wrong") means nothing was made.
 - **check** — one flow per acceptance line a person can see: `request_id`, the
-  `criterion` in the request's own words, `path` (often `{{recordUrl}}`),
+  `criterion` in the request's own words, `path` naming what setup made:
+  `{{recordUrl}}` (or any name setup remembered), or `{{setupPage}}`, the page
+  the last finished setup flow ended on. Never the setup's own start page.
   `wait_for` the state, and a `shoot` naming what the picture shows. Prove what
   the live product can show. When a criterion depends on something production
   cannot have (a paid plan, a named viewer), shoot what it does show and say
   so in the shoot's words; do not fake it.
-- **cleanup** — remove everything setup made (open the record, delete it,
-  confirm). It always runs, even when the check failed. Prefer one standing
-  fixture over creating anew when `liveSetup` names one.
+- **cleanup** — remove everything setup made (open the record at the same
+  `{{recordUrl}}` or `{{setupPage}}`, delete it, confirm). It always runs,
+  even when the check failed. Prefer one standing fixture over creating anew
+  when `liveSetup` names one.
 
 Only the product's own addresses open. Never type a password: signing in is
 the check's, with the stored QA sign-in.
