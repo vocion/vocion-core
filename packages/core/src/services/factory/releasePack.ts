@@ -241,6 +241,9 @@ export async function linkRelease(orgId: string, releaseId: number, opts: { disp
   }
   const { requestIds, taskIds, evidence, reverted } = pack;
   await mergeMeta(orgId, releaseId, pack.releaseMeta);
+  await nameOnce(orgId, releaseId, evidence).catch((err: Error) => {
+    console.warn('[release] could not name the release', { releaseId, error: err.message });
+  });
   for (const r of pack.requestMeta) {
     await mergeMeta(orgId, r.id, r.set);
   }
@@ -250,6 +253,35 @@ export async function linkRelease(orgId: string, releaseId: number, opts: { disp
     console.warn('[release] could not raise release.linked', { releaseId, error: (err as Error).message });
   });
   return { requestIds, taskIds, evidence, reverted };
+}
+
+/**
+ * The release's short name, written once (`releaseName.ts`): from what it
+ * shipped, never over a name it already has.
+ * @param orgId - The workspace.
+ * @param releaseId - The release.
+ * @param evidence - What it shipped, each with its feature's words.
+ */
+async function nameOnce(orgId: string, releaseId: number, evidence: ReleaseEvidence[]): Promise<void> {
+  const { loadReleaseRow } = await import('./releaseData');
+  const row = await loadReleaseRow(orgId, releaseId);
+  if (!row || (typeof row.meta.name === 'string' && row.meta.name.trim())) {
+    return;
+  }
+  const seen = new Set<number>();
+  const features = evidence.flatMap((e) => {
+    const key = e.requestId ?? e.taskId;
+    if (seen.has(key)) {
+      return [];
+    }
+    seen.add(key);
+    return e.title ? [{ title: e.title, outcome: null }] : [];
+  });
+  const { nameRelease } = await import('./releaseName');
+  const name = await nameRelease({ orgId, features });
+  if (name) {
+    await mergeMeta(orgId, releaseId, { name });
+  }
 }
 
 /**

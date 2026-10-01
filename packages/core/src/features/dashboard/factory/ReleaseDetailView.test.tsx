@@ -109,7 +109,7 @@ describe('the release page, drawn', () => {
     const root = screen.container;
     const verification = root.querySelector('[data-testid="release-check-feature-acceptance"]')!;
 
-    expect(verification.textContent).toContain('QA approved, 2 of 2 acceptance criteria proven');
+    expect(verification.textContent).toContain('QA approved, 2 of 2 criteria proven');
 
     const rows = [...verification.querySelectorAll('[data-testid="release-proof-row"]')];
 

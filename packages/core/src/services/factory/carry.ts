@@ -931,6 +931,23 @@ export function unreadyBlocker(r: BuildReadiness, at: string): { what: string; o
 }
 
 /**
+ * Who approves a plan for this request, in words a person reads: the
+ * product's accountable owner, else the person who asked, else "a person".
+ * @param orgId - Tenant.
+ * @param request - The request.
+ */
+async function planApprover(orgId: string, request: FactoryRecord): Promise<string> {
+  const { readProduct } = await lib();
+  const product = await readProduct(orgId, typeof request.meta.product === 'string' ? request.meta.product : null).catch(() => null);
+  if (product?.owner) {
+    return product.owner;
+  }
+  const origin = request.meta.origin && typeof request.meta.origin === 'object' ? request.meta.origin as Meta : {};
+  const asker = typeof request.meta.askedBy === 'string' && request.meta.askedBy.trim() ? request.meta.askedBy.trim() : null;
+  return asker ?? (typeof origin.userId === 'string' ? 'the person who asked' : 'a person');
+}
+
+/**
  * A plan was filed: when the factory asked for it, its approval goes on the
  * trust bar (`factory.approve_plan`). A plan that answers what a plan must,
  * for work a revert can undo, is approved with Undo; anything else is one
@@ -979,7 +996,11 @@ export async function reviewFiledPlan(orgId: string, payload: Partial<ObjectCrea
   const line = !out.ok
     ? `Plan #${planId} written; its approval could not be filed: ${out.error}`
     : out.res.status === 'pending' ? `Plan #${planId} written; a person approves it (action #${out.res.runId})${content.length ? ` — missing ${content.join('; ')}` : ''}.` : `Plan #${planId} written and approved within the trust bar; Undo puts it back in review.`;
-  await updateRecovery(orgId, requestId, s => logLine(s.stage === 'planning' ? { ...s, line: out.ok && out.res.status === 'pending' ? `Planning — plan #${planId} is written and waiting for approval.` : s.line } : s, line, at));
+  // WAITING NAMES WHO (2026-10-01): the product's owner approves the plan, or
+  // the person who asked, or — said plainly — a person.
+  const approver = out.ok && out.res.status === 'pending' ? await planApprover(orgId, request) : null;
+  const waiting = approver ? `Planning — plan #${planId} is written and waiting for ${approver} to approve it.` : null;
+  await updateRecovery(orgId, requestId, s => logLine(s.stage === 'planning' ? { ...s, line: waiting ?? s.line, ...(waiting && approver ? { waitingOn: { who: approver, line: waiting, actionRunId: out.ok ? out.res.runId : null } } : {}) } : s, line, at));
   return { requestId, did: out.ok ? `approve_plan:${out.res.status}` : 'approve_plan:refused', line };
 }
 

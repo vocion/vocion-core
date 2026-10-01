@@ -29,6 +29,8 @@ export const FEATURES = {
   RECORD_DUPLICATE: 'record.duplicate',
   /** Which record a person's words name, read when a record is filed (`services/objects/referenceRead.ts`). */
   RECORD_REFERENCE: 'record.reference',
+  /** A release's short name, written once when it is linked (`services/factory/releaseName.ts`). */
+  RELEASE_NAME: 'release.name',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
   /**

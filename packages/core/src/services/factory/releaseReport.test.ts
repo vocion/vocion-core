@@ -107,7 +107,7 @@ describe('the release page', () => {
     expect(verification.acceptance).toEqual([{
       key: 'qa-41',
       title: 'Uploads that survive a bad connection',
-      line: 'QA approved, 8 of 8 acceptance criteria proven (change-reviewer)',
+      line: 'QA approved, 8 of 8 criteria proven (change-reviewer)',
       tone: 'ok',
       at: 'Mon, Sep 28, 2026, 7:58 AM UTC',
       href: '/dashboard/p/feature/41',
@@ -176,7 +176,7 @@ describe('the release page', () => {
 
   it('tells the activity in order, each line with its time', () => {
     expect(report().activity.map(a => a.line)).toEqual([
-      'QA approved, 8 of 8 acceptance criteria proven (change-reviewer): Uploads that survive a bad connection',
+      'QA approved, 8 of 8 criteria proven (change-reviewer): Uploads that survive a bad connection',
       'Deployed api + web at 930a23f',
       'Health check passed',
       'Result checked for Uploads that survive a bad connection: not enough evidence',
@@ -282,7 +282,7 @@ describe('the release page, per criterion', () => {
   it('keeps the summary line on top and lists each criterion under it, the plan risks as their own group', () => {
     const [feature] = page().verification.acceptance;
 
-    expect(feature!.line).toBe('QA approved, 2 of 2 acceptance criteria proven, 1 plan risk handled (change-reviewer)');
+    expect(feature!.line).toBe('QA approved, 3 of 3 criteria proven (2 acceptance, 1 plan risk) (change-reviewer)');
     expect(feature!.proof!.acceptance.map(r => [r.statement, r.state, r.kind])).toEqual([
       [CONTRACT[0], 'passed', 'screenshot'],
       [CONTRACT[1], 'passed', 'test'],
@@ -361,12 +361,17 @@ describe('the live check after the deploy (2026-09-30)', () => {
     const page = assembleReleaseReport(withLive({
       liveState: 'not_seen',
       liveSummary: 'Live check could not reach the change: setup "upload a document" (desktop) did not finish: step 2 failed',
+      liveReason: 'setup "upload a document" (desktop) did not finish: step 2 failed',
+      liveAttempts: 1,
       liveEvidence: [{ requestId: 41, flow: 'Last opened line', criterion: 'The line says when it was last opened.', artifactId: null, status: 'not_reached', reason: 'step 1 (wait_for "Last opened") failed' }],
     }), { linked: LINKED, artifacts: ARTIFACTS, now: NOW, timeZone: 'UTC' });
 
-    expect(page.verification.live).toMatchObject({ tone: 'bad', line: 'Live check could not reach the change: setup "upload a document" (desktop) did not finish: step 2 failed' });
+    // For a person: what could not be checked, why in the check's words, and what happens next.
+    const said = 'Not seen live: QA could not reach the change on the live product. Why: setup "upload a document" (desktop) did not finish: step 2 failed. Next: QA checks once more, carrying this reason.';
+
+    expect(page.verification.live).toMatchObject({ tone: 'bad', line: said });
     expect(page.status.verification).toEqual({ line: 'Issue detected', tone: 'bad' });
-    expect(page.attention).toContain('Live check could not reach the change: setup "upload a document" (desktop) did not finish: step 2 failed');
+    expect(page.attention).toContain(said);
   });
 
   it('shows each live state with its picture, and why one was not reached', () => {
@@ -382,7 +387,7 @@ describe('the live check after the deploy (2026-09-30)', () => {
     const live = page.verification.live!;
 
     // A check written before liveState is read from its rows: partly seen, and why not the rest.
-    expect(live).toMatchObject({ title: 'Live check', line: 'Partly seen live: 1 of 2 states reached; not reached: Step 3 (offline) could not run on production.', tone: 'warn', href: 'https://relay.example' });
+    expect(live).toMatchObject({ title: 'Live check', line: 'Partly seen live: 1 of 2 states reached. Not reached: Step 3 (offline) could not run on production. Next: nothing checks it again by itself. Check it by hand on the live product, or fix what stopped QA and the next release is checked.', tone: 'warn', href: 'https://relay.example' });
     expect(live.shots.map(s => [s.reached, s.imageUrl])).toEqual([[true, 'https://files.example/qa/relay/resume-live.png?sig=2'], [false, 'https://files.example/qa/relay/offline-live.png?sig=3']]);
     expect(live.shots[1]!.reason).toBe('Step 3 (offline) could not run on production.');
     expect(page.announcement.image?.url).toBe('https://files.example/qa/relay/resume-live.png?sig=2');

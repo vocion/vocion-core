@@ -639,6 +639,18 @@ describe('every row says what happened, and when (backlog 032)', () => {
     expect(workLine(planning, 'progress', NOW)).toBe('Planning — the change spans 2 packages (apps/api, apps/web). No action needed from you · today');
   });
 
+  it('a plan waiting on a person names who approves it, and never adds "no action needed" (2026-10-01, plan #276)', () => {
+    const line = 'Planning — plan #76 is written and waiting for dana@northwind.example to approve it.';
+    const waiting = row(65, 'Org scope', { state: 'building', recovery: { stage: 'planning', line, waitingOn: { who: 'dana@northwind.example', line, actionRunId: 12 }, log: [{ at: ago(0.1), text: 'Plan #76 written.', runId: null }] } });
+
+    expect(workLine(waiting, 'progress', NOW)).toBe(`${line.replace(/\.$/, '')} · today`);
+
+    // Once the stage's line moves on, the name it carried no longer speaks.
+    const moved = row(66, 'Org scope', { state: 'building', recovery: { stage: 'planning', line: 'Planning — the plan was sent back.', waitingOn: { who: 'dana@northwind.example', line, actionRunId: 12 }, log: [{ at: ago(0.1), text: 'Sent back.', runId: null }] } });
+
+    expect(workLine(moved, 'progress', NOW)).toBe('Planning — the plan was sent back. No action needed from you · today');
+  });
+
   it('dates a staged decision like a leading one', () => {
     const [, , , staged] = deriveWorkQueue([1, 2, 3, 4].map(i => row(70 + i, `d${i}`, { state: 'new', recommendationState: 'proposed', recommendedOutcome: 'build', recommendedAt: ago(i) })), { now: NOW, decideShown: 3 });
 

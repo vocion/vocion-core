@@ -51,12 +51,12 @@ describe('what the check concluded', () => {
     const v = liveVerdict([row('not_reached', { reason: 'step 1 (wait_for "Last opened") failed' })], ['setup "upload" (desktop) did not finish: step 2 (upload) failed']);
 
     expect(v).toMatchObject({ state: 'not_seen', reached: 0, total: 1 });
-    expect(v.line).toBe('Live check could not reach the change: setup "upload" (desktop) did not finish: step 2 (upload) failed');
-    expect(liveVerdict([], []).line).toBe('Live check could not reach the change: no check flow was run');
+    expect(v.line).toBe('Not seen live: QA could not reach the change on the live product. Why: setup "upload" (desktop) did not finish: step 2 (upload) failed');
+    expect(liveVerdict([], []).line).toBe('Not seen live: QA could not reach the change on the live product. Why: no check flow was run');
   });
 
   it('says partly seen, with what was not', () => {
-    expect(liveVerdict([row('reached'), row('not_reached', { reason: 'the page shows an app error' })]).line).toBe('Partly seen live: 1 of 2 states reached; not reached: the page shows an app error');
+    expect(liveVerdict([row('reached'), row('not_reached', { reason: 'the page shows an app error' })]).line).toBe('Partly seen live: 1 of 2 states reached. Not reached: the page shows an app error');
   });
 
   it('leads the announcement with the first reached shot of a criterion, desktop first', () => {

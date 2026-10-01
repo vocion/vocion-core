@@ -139,6 +139,13 @@ export type LiveMissionRunInput = {
   step: string | null;
   /** Found by the automation fire that names this record in its input — the run started FOR it. */
   forRecord: boolean;
+  /**
+   * The step in a person's words: the name of the automation that started the
+   * run for this record ("Draw the mockup a request owes"), read from the
+   * automation's own record. The run's title is the mission's charter line,
+   * which reads as plumbing on a Now line (2026-10-01, #294).
+   */
+  label?: string | null;
 };
 
 /** The stage the record is in, which says what a live agent run is doing. */
@@ -218,7 +225,7 @@ export function pickLive(input: { workerRuns: readonly LiveWorkerRunInput[]; mis
       ? 'Writing the plan'
       : kind === 'reviewing'
         ? `QA reviewing${input.context.reviewing?.pr ? ` ${input.context.reviewing.pr}` : ''}`
-        : agent.title;
+        : agent.label?.trim() || agent.title;
     return {
       kind,
       label,

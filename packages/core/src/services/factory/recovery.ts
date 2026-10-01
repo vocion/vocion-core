@@ -88,6 +88,13 @@ export type RecoveryState = {
   handledRunIds: number[];
   /** Newest last, bounded. */
   log: RecoveryLogLine[];
+  /**
+   * Who the stage is waiting on, while `line` is the line that said so: a
+   * plan on a person's card names its approver (2026-10-01: "plan #276 is
+   * written and waiting for approval. No action needed from you"). Stale the
+   * moment the line moves on.
+   */
+  waitingOn?: { who: string; line: string; actionRunId: number | null } | null;
 };
 
 const LOG_MAX = 30;
@@ -112,7 +119,18 @@ export function readRecovery(meta: Record<string, unknown> | null | undefined): 
     planRequestedAt: str(raw.planRequestedAt),
     handledRunIds: Array.isArray(raw.handledRunIds) ? (raw.handledRunIds as unknown[]).map(Number).filter(Number.isInteger) : [],
     log: Array.isArray(raw.log) ? (raw.log as RecoveryLogLine[]).filter(l => l && typeof l.text === 'string') : [],
+    ...(raw.waitingOn && typeof raw.waitingOn === 'object' && typeof (raw.waitingOn as Record<string, unknown>).who === 'string' ? { waitingOn: raw.waitingOn as RecoveryState['waitingOn'] } : {}),
   };
+}
+
+/**
+ * Who the carrying stage is waiting on, when the line that named them is
+ * still the stage's line. Null otherwise.
+ * @param meta - The request's metadata.
+ */
+export function waitingOnOf(meta: Record<string, unknown> | null | undefined): string | null {
+  const s = readRecovery(meta);
+  return s.waitingOn && s.line && s.waitingOn.line === s.line ? s.waitingOn.who : null;
 }
 
 /**

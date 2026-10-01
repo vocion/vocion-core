@@ -247,7 +247,7 @@ function verdictLine(v: FeatureVerdict | null): { line: string; tone: Tone } {
     return { line: 'Shipped without a QA verdict', tone: 'warn' };
   }
   // The count the feature's own page shows (`libs/workspace/featureProof.ts`).
-  const count = verdictCount(v, 'acceptance criteria');
+  const count = verdictCount(v);
   const counted = count ? `, ${count}` : '';
   const who = v.by ? ` (${v.by})` : '';
   if (v.value === 'approve') {

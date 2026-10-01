@@ -28,7 +28,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, orderedFlows, pickAnnouncementImage } from '@/libs/factory/liveCheck';
+import { keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage } from '@/libs/factory/liveCheck';
 import { businessObjectSchema } from '@/models/Schema';
 
 type Meta = Record<string, unknown>;
@@ -532,7 +532,7 @@ export async function liveCheckGaveUp(orgId: string, releaseId: number, reason: 
   if (live?.state === 'seen' || live?.state === 'partial') {
     return;
   }
-  const line = live?.line ?? `Live check could not reach the change: ${reason}`.slice(0, 500);
+  const line = live?.line ?? notSeenLine(reason).slice(0, 500);
   const checkedAt = now.toISOString();
   if (!live) {
     await mergeMeta(orgId, releaseId, { liveState: 'not_seen', liveSummary: line, liveReason: reason.slice(0, 400), liveCheckedAt: checkedAt, liveProblems: [reason.slice(0, 400)] });

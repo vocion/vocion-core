@@ -207,7 +207,7 @@ describe('the live check, end to end in a real browser against a fictional produ
     const out = await runLiveCheck(org, { releaseId, flows: theFlows() }, { author }, deps());
 
     expect(out.verdict.state).toBe('not_seen');
-    expect(out.verdict.line).toMatch(/^Live check could not reach the change: setup "upload a document" \(desktop\) did not finish: signing in to relay-web-production as the QA account failed: still on the sign-in page after submitting \("Wrong email or password"\)/);
+    expect(out.verdict.line).toMatch(/^Not seen live: QA could not reach the change on the live product\. Why: setup "upload a document" \(desktop\) did not finish: signing in to relay-web-production as the QA account failed: still on the sign-in page after submitting \("Wrong email or password"\)/);
     expect(JSON.stringify(out)).not.toContain('not-the-password');
     expect((await meta(releaseId)).liveState).toBe('not_seen');
     expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen' });
@@ -239,7 +239,7 @@ describe('without a product to check', () => {
 
     const out = await runLiveCheck(org, { releaseId, flows: flows([{ name: 'line', path: '/' }]) }, { author });
 
-    expect(out.verdict.line).toBe('Live check could not reach the change: no production environment is recorded for relay; an environment record names its product, stage, url and QA sign-in');
+    expect(out.verdict.line).toBe('Not seen live: QA could not reach the change on the live product. Why: no production environment is recorded for relay; an environment record names its product, stage, url and QA sign-in');
     expect((await meta(releaseId)).liveState).toBe('not_seen');
   });
 });
@@ -257,7 +257,7 @@ describe('when QA\'s fire ends', () => {
     const second = await liveCheckEnded(org, { automationRunId: await fire(2), attempts: 2 });
 
     expect(second).toEqual({ releaseId, did: 'gave-up', line: 'the agent stopped' });
-    expect(await meta(releaseId)).toMatchObject({ liveState: 'not_seen', liveSummary: 'Live check could not reach the change: the agent stopped' });
-    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen', line: 'Live check could not reach the change: the agent stopped', releaseId });
+    expect(await meta(releaseId)).toMatchObject({ liveState: 'not_seen', liveSummary: 'Not seen live: QA could not reach the change on the live product. Why: the agent stopped' });
+    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen', line: 'Not seen live: QA could not reach the change on the live product. Why: the agent stopped', releaseId });
   });
 });

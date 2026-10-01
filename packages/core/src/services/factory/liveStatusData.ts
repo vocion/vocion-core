@@ -5,7 +5,7 @@ import { db } from '@/libs/DB';
 import { readDelivery } from '@/libs/factory/delivery';
 import { pickLive, prLabel } from '@/libs/factory/liveStatus';
 import { laneOf } from '@/libs/workspace/workQueue';
-import { automationRunSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
+import { automationRunSchema, automationSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
 import { taskStatus } from './featureReport';
 import { recoveryStage } from './recovery';
 
@@ -55,6 +55,9 @@ export function taskOfRun(input: Record<string, unknown>, taskType: string): num
   return type === taskType && Number.isInteger(n) && n > 0 ? n : null;
 }
 
+/** The id core gives a mission check's single task (`MissionService`). */
+const SCHEDULED_CHECK_TASK = 'scheduled-check';
+
 /** One record and the records beneath it (its tasks), by id. */
 export type LiveSubject = { recordId: number; childIds: number[] };
 
@@ -63,9 +66,11 @@ export type LiveSubject = { recordId: number; childIds: number[] };
  * @param plan - `mission_run.plan`.
  */
 function stepOf(plan: unknown): string | null {
-  const tasks = (plan as { tasks?: Array<{ title?: string; status?: string }> } | null)?.tasks ?? [];
+  const tasks = (plan as { tasks?: Array<{ id?: string; title?: string; status?: string }> } | null)?.tasks ?? [];
   const on = tasks.find(t => t.status === 'running');
-  return on?.title?.trim() || null;
+  // A check's one built-in task ("Scheduled check: <charter>") is the run's
+  // own shape, not a step a person follows.
+  return on && on.id !== SCHEDULED_CHECK_TASK ? on.title?.trim() || null : null;
 }
 
 /**
@@ -97,8 +102,9 @@ export async function loadLiveMissionRuns(orgId: string, subjects: readonly Live
   }
   const [fires, calls] = await Promise.all([
     db
-      .select({ targetRunId: automationRunSchema.targetRunId, requestId: sql<string | null>`${automationRunSchema.input}->>'requestId'` })
+      .select({ targetRunId: automationRunSchema.targetRunId, requestId: sql<string | null>`${automationRunSchema.input}->>'requestId'`, name: automationSchema.name })
       .from(automationRunSchema)
+      .leftJoin(automationSchema, and(eq(automationSchema.orgId, automationRunSchema.orgId), eq(automationSchema.slug, automationRunSchema.slug)))
       .where(and(eq(automationRunSchema.orgId, orgId), isNotNull(automationRunSchema.targetRunId), inArray(automationRunSchema.targetRunId, runIds))),
     db
       .selectDistinct({ missionRunId: toolCallSchema.missionRunId, named: toolCallNamedId })
@@ -106,11 +112,15 @@ export async function loadLiveMissionRuns(orgId: string, subjects: readonly Live
       .where(and(eq(toolCallSchema.orgId, orgId), inArray(toolCallSchema.missionRunId, runIds), inArray(toolCallNamedId, [...ownerOf.keys()]))),
   ]);
   const forRecord = new Map<number, Set<number>>();
+  const labelOf = new Map<number, string>();
   const touched = new Map<number, Set<number>>();
   for (const f of fires) {
     const owner = f.requestId !== null && Number(f.requestId) > 0 ? out.has(Number(f.requestId)) ? Number(f.requestId) : null : null;
     if (owner !== null && f.targetRunId !== null) {
       forRecord.set(f.targetRunId, (forRecord.get(f.targetRunId) ?? new Set()).add(owner));
+      if (f.name?.trim()) {
+        labelOf.set(f.targetRunId, f.name.trim());
+      }
     }
   }
   for (const c of calls) {
@@ -122,7 +132,7 @@ export async function loadLiveMissionRuns(orgId: string, subjects: readonly Live
   for (const r of runs) {
     const owners = new Set([...(forRecord.get(r.id) ?? []), ...(touched.get(r.id) ?? [])]);
     for (const owner of owners) {
-      out.get(owner)!.push({ id: r.id, status: r.status, title: r.title, startedAt: r.createdAt, step: stepOf(r.plan), forRecord: forRecord.get(r.id)?.has(owner) === true });
+      out.get(owner)!.push({ id: r.id, status: r.status, title: r.title, startedAt: r.createdAt, step: stepOf(r.plan), forRecord: forRecord.get(r.id)?.has(owner) === true, label: labelOf.get(r.id) ?? null });
     }
   }
   return out;

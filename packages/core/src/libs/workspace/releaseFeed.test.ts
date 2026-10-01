@@ -125,6 +125,9 @@ describe('what a release is called', () => {
 
     expect(r.headline).toBe('Uploads that survive a bad connection');
     expect(r.versionShort).toBe('930a23f');
+
+    // Its own short name, once one is written, leads instead (release #280, 2026-10-01).
+    expect(readRelease({ ...FEATURE_RELEASE, meta: { ...FEATURE_RELEASE.meta, name: 'Resumable uploads' } }, { linked: linked([REQUEST, TASK]), now: NOW }).headline).toBe('Resumable uploads');
     expect(r.summary).toBe('Upload a large file on a phone, lose signal, and have it pick up where it stopped. Also 2 internal changes (worker).');
     expect(r.counts).toEqual({ improvements: 1, fixes: 0, internal: 2, reverted: 0 });
   });
@@ -219,7 +222,9 @@ describe('verification, said precisely', () => {
     const missed = readRelease(row(7, { ...FEATURE_RELEASE.meta, liveEvidence: rows, liveSummary: '0 of 6 live states reached' }), { linked: linked([REQUEST, TASK]), now: NOW });
 
     expect(missed.verification.live.state).toBe('not_seen');
-    expect(missed.verification.live.line).toMatch(/^Live check could not reach the change: step 1 \(wait_for/);
+    expect(missed.verification.live.line).toMatch(/^Not seen live: QA could not reach the change on the live product\. Why: step 1 \(wait_for/);
+    // What happens next is said, from how many checks it has had: none recorded, so nothing checks it again.
+    expect(missed.verification.live.line).toMatch(/Next: nothing checks it again by itself\. Check it by hand on the live product, or fix what stopped QA and the next release is checked\.$/);
     expect(missed.verification).toMatchObject({ state: 'issue', label: 'Issue detected' });
     expect(missed.attention).toContain(missed.verification.live.line);
 

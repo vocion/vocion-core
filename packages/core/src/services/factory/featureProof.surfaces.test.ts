@@ -157,7 +157,7 @@ describe('featureProof', () => {
 
 describe('the feature page and the release say the same count', () => {
   for (const [label, acceptance] of [['as the release pack marked it', markedAcceptance], ['with the pack\'s write missing', ACCEPTANCE.map(statement => ({ statement }))]] as const) {
-    it(`reads 6 of 6 and 2 plan risks handled on every surface, ${label}`, () => {
+    it(`reads 8 of 8 (6 acceptance, 2 plan risks) on every surface, ${label}`, () => {
       const { feature, reading, page } = surfaces([...acceptance]);
 
       // The feature page: acceptance section, the implementation fact, the drawers.
@@ -173,8 +173,8 @@ describe('the feature page and the release say the same count', () => {
 
       // The release row and the release page.
       expect(reading.features[0]!.verdict).toMatchObject({ value: 'approve', proven: 6, total: 6, risksHandled: 2, risksTotal: 2 });
-      expect(reading.verification.acceptance?.line).toBe('QA approved, 6 of 6 criteria proven, 2 plan risks handled');
-      expect(page.verification.acceptance[0]!.line).toBe('QA approved, 6 of 6 acceptance criteria proven, 2 plan risks handled (change-reviewer)');
+      expect(reading.verification.acceptance?.line).toBe('QA approved, 8 of 8 criteria proven (6 acceptance, 2 plan risks)');
+      expect(page.verification.acceptance[0]!.line).toBe('QA approved, 8 of 8 criteria proven (6 acceptance, 2 plan risks) (change-reviewer)');
     });
   }
 });

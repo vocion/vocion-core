@@ -19,6 +19,16 @@ schema:
     - {key: tasks, label: Engineering tasks, from: links, field: taskIds}
     - {key: pulls, label: Pull requests, from: url, field: prUrls}
   properties:
+    name:
+      x-display: {label: Name, group: What shipped}
+      type: string
+      maxLength: 60
+      description: >-
+        What shipped, as a short name a person would call it ("Last-opened line
+        on the document page"). Written once by the platform when the release
+        is linked (core: services/factory/releaseName.ts), never over a name
+        already here; the features keep their own titles, which are the
+        asker's words. The release's heading reads it.
     product:
       x-display: {label: Product, format: link, to: product, group: What shipped}
       type: string

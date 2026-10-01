@@ -158,3 +158,19 @@ describe('the unready blocker in words', () => {
     expect(carry.unreadyBlocker({ ready: false, cause: 'no_repo', gaps: ['repo'], product: null, repo: null }, 'x')).toMatchObject({ what: 'This request names no product with a repository, so it cannot be built', owner: null, next: 'set the product this request is for' });
   });
 });
+
+describe('waiting names who (2026-10-01, plan #276)', () => {
+  it('a plan on a person\'s card says the product\'s owner approves it', async () => {
+    const r = await request('harbor', { title: 'Harbor: a plan to approve', recovery: { stage: 'planning', line: 'Planning — the change spans 2 packages', attempts: [], log: [], limit: 3 } });
+    const [plan] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan for the page count', metadata: { requestId: r.id, status: 'in_review', approach: 'Read the count from the stored file.' } }).returning();
+
+    const out = await carry.reviewFiledPlan(ORG, { objectType: 'architecture_plan', objectId: plan!.id });
+
+    expect(out.did).toBe('approve_plan:pending');
+
+    const m = await meta(r.id);
+
+    expect(m.recovery.line).toBe(`Planning — plan #${plan!.id} is written and waiting for dana@northwind.example to approve it.`);
+    expect(m.recovery.waitingOn).toMatchObject({ who: 'dana@northwind.example', line: m.recovery.line });
+  });
+});

@@ -166,3 +166,13 @@ describe('blocked is a state you can see (2026-10-01, #294)', () => {
     expect((plannable.status.action as { disabledReason?: string }).disabledReason).toBeUndefined();
   });
 });
+
+describe('the Now line says the step in a person\'s words (2026-10-01)', () => {
+  it('an agent run an automation started for this record reads as the automation\'s name, not the mission\'s charter', () => {
+    const run: LiveMissionRunInput = { id: 6732, status: 'running', title: 'show-it-first: Every visible change is seen before it is decided', startedAt: T('2026-09-30T10:04:00Z'), step: null, forRecord: true, label: 'Draw the mockup a request owes' };
+    const live = pickLive({ workerRuns: [], missionRuns: [run], context: { planning: false, reviewing: null } });
+
+    expect(live).toMatchObject({ kind: 'working', label: 'Draw the mockup a request owes', step: null, runLabel: 'Agent run #6732' });
+    expect(pickLive({ workerRuns: [], missionRuns: [{ ...run, label: null }], context: { planning: false, reviewing: null } })!.label).toBe(run.title);
+  });
+});

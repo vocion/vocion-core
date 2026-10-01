@@ -3,7 +3,7 @@ import type { PageRow } from './pageFields';
 import type { LiveRun } from '@/libs/factory/liveStatus';
 import { nowLine } from '@/libs/factory/liveStatus';
 import { seatLabel } from '@/libs/gates/handoffGate';
-import { readRecovery, recoveryStage } from '@/services/factory/recovery';
+import { readRecovery, recoveryStage, waitingOnOf } from '@/services/factory/recovery';
 import { featureProof, shippedTaskIdsOf } from './featureProof';
 import { readReasons, reasonPhrase } from './reasonCodes';
 
@@ -737,9 +737,11 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
     const carrying = carryingLabel(row);
     if (carrying) {
       const line = said(firstSentence(carrying.line));
+      // A line that names who it waits on says it all: "no action needed
+      // from you" beside it would contradict the name.
       return carrying.stage === 'stopped'
         ? dated(`${line} A person decides next`, carriedAt(row), now)
-        : dated(`${line} ${stillOrFine(row, now)}`, carriedAt(row), now);
+        : waitingOnOf(meta(row)) ? dated(line, carriedAt(row), now) : dated(`${line} ${stillOrFine(row, now)}`, carriedAt(row), now);
     }
     const tasks = num(row, 'taskCount') ?? 0;
     const noun = tasks === 1 ? 'task' : 'tasks';

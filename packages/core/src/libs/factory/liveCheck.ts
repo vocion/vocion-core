@@ -168,9 +168,32 @@ export function liveVerdict(rows: readonly LiveRow[], problems: readonly string[
   }
   const reason = (problems[0] ?? firstMiss ?? (total === 0 ? 'no check flow was run' : 'no state was reached')).slice(0, 400);
   if (reached === 0) {
-    return { state: 'not_seen', line: `Live check could not reach the change: ${reason}`, reason, reached, total };
+    return { state: 'not_seen', line: notSeenLine(reason), reason, reached, total };
   }
-  return { state: 'partial', line: `Partly seen live: ${reached} of ${plural(total, 'state')} reached; not reached: ${reason}`, reason, reached, total };
+  return { state: 'partial', line: `Partly seen live: ${reached} of ${plural(total, 'state')} reached. Not reached: ${reason}`, reason, reached, total };
+}
+
+/**
+ * A check that saw nothing, for a person: what could not be checked, then
+ * why, in the check's own words (2026-10-01, release #280 led with "/documents/[id]
+ * names a placeholder no record on production resolved to").
+ * @param reason - Why, as the check said it.
+ */
+export function notSeenLine(reason: string): string {
+  return `Not seen live: QA could not reach the change on the live product. Why: ${reason.replace(/[.\s]+$/, '')}`;
+}
+
+/**
+ * What happens next to a release the live check did not fully see, from how
+ * many checks it has had: one more while an attempt is left, else nothing
+ * by itself, said plainly with what a person can do.
+ * @param attempts - Checks already written (`liveAttempts`), or null when unknown.
+ * @param limit - Checks in all.
+ */
+export function liveNext(attempts: number | null, limit: number = LIVE_ATTEMPTS): string {
+  return attempts !== null && attempts < limit
+    ? 'Next: QA checks once more, carrying this reason.'
+    : 'Next: nothing checks it again by itself. Check it by hand on the live product, or fix what stopped QA and the next release is checked.';
 }
 
 /**
@@ -213,8 +236,15 @@ function text(v: unknown): string | null {
 export function readReleaseLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null } | null {
   const state = meta.liveState === 'seen' || meta.liveState === 'partial' || meta.liveState === 'not_seen' ? meta.liveState : null;
   const summary = text(meta.liveSummary);
+  const attempts = Number.isInteger(meta.liveAttempts) ? Number(meta.liveAttempts) : null;
+  const next = (line: string) => `${line.replace(/[.\s]+$/, '')}. ${liveNext(attempts)}`;
   if (state) {
-    return { state, line: summary ?? (state === 'seen' ? 'Seen live' : 'Live check could not reach the change'), checkedAt: text(meta.liveCheckedAt) };
+    if (state === 'seen') {
+      return { state, line: summary ?? 'Seen live', checkedAt: text(meta.liveCheckedAt) };
+    }
+    const reason = text(meta.liveReason);
+    const line = state === 'not_seen' && reason ? notSeenLine(reason) : summary ?? notSeenLine(reason ?? 'no reason was recorded');
+    return { state, line: next(line), checkedAt: text(meta.liveCheckedAt) };
   }
   const rows = Array.isArray(meta.liveEvidence) ? meta.liveEvidence.map(bag) : [];
   if (rows.length === 0) {
@@ -230,7 +260,7 @@ export function readReleaseLive(meta: Meta): { state: LiveState; line: string; c
     ...(text(r.reason) ? { reason: text(r.reason)! } : {}),
     url: null,
   })), Array.isArray(meta.liveProblems) ? meta.liveProblems.filter((p): p is string => typeof p === 'string') : []);
-  return { state: verdict.state, line: verdict.line, checkedAt: text(meta.liveCheckedAt) };
+  return { state: verdict.state, line: verdict.state === 'seen' ? verdict.line : next(verdict.line), checkedAt: text(meta.liveCheckedAt) };
 }
 
 /**

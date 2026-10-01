@@ -3,7 +3,7 @@ import type { RecordLinker } from './recordHref';
 import { readReleaseLive } from '@/libs/factory/liveCheck';
 import { dayDistance, dayKey, formatDate, formatTime } from '@/libs/time/zone';
 import { relativeLabel } from '@/libs/timeAgo';
-import { featureProof, risksLine } from './featureProof';
+import { featureProof } from './featureProof';
 import { genericRecordLinker } from './recordHref';
 import { hoursLive, SOAK_HOURS } from './releaseOutcome';
 
@@ -393,16 +393,24 @@ function countedVerdict(feature: ReleaseFeature, linked: ReleaseLinked): Feature
 }
 
 /**
- * The count a release says for one feature: "6 of 6 criteria proven, 2 plan risks handled".
+ * The count a release says for one feature, as QA's verdict counts it: every
+ * line QA proved, the plan's risks with the acceptance — "8 of 8 criteria
+ * proven (6 acceptance, 2 plan risks)". QA said 8 of 8 on #277 while its
+ * release read "6 of 6 acceptance criteria proven" (2026-10-01); one number
+ * on both pages, with the split beside it.
  * @param v - The verdict.
- * @param noun - What the acceptance lines are called.
+ * @param noun - What the lines are called.
  */
 export function verdictCount(v: FeatureVerdict, noun = 'criteria'): string | null {
   if (v.total === null) {
     return null;
   }
-  const risks = v.risksTotal !== null && v.risksHandled !== null ? risksLine({ risksHandled: v.risksHandled, risksTotal: v.risksTotal }) : null;
-  return `${v.proven ?? 0} of ${v.total} ${noun} proven${risks ? `, ${risks}` : ''}`;
+  const proven = v.proven ?? 0;
+  if (v.risksTotal === null || v.risksHandled === null || v.risksTotal === 0) {
+    return `${proven} of ${v.total} ${noun} proven`;
+  }
+  const risks = `${v.risksTotal} plan risk${v.risksTotal === 1 ? '' : 's'}`;
+  return `${proven + v.risksHandled} of ${v.total + v.risksTotal} ${noun} proven (${v.total} acceptance, ${risks}${v.risksHandled === v.risksTotal ? '' : `, ${v.risksHandled} handled`})`;
 }
 
 /**
@@ -706,6 +714,10 @@ export function readRelease(row: PageRow, options: { linked?: ReleaseLinked; now
   let headline: string;
   if (kind === 'deployment') {
     headline = `${productName} ${surfaces[0]} deployment`;
+  } else if (str(meta.name) && changeTitles.length > 0) {
+    // The release's own short name, written once when it was linked
+    // (`services/factory/releaseName.ts`); the features keep their titles.
+    headline = str(meta.name)!;
   } else if (changeTitles.length === 1) {
     headline = changeTitles[0]!;
   } else if (changeTitles.length > 1) {
