@@ -614,6 +614,36 @@ describe('a write the answer claims is a write that ran (finding 23)', () => {
     expect(events.some(e => e.type === 'response_delta' && e.delta.includes(correction))).toBe(true);
   });
 
+  it('says nothing to the person when the correction pass finds none owed, and never shows its critique (run 3, 2026-10-01)', async () => {
+    const reply = 'I\'ll check what\'s there before filing.\n\nThe uploaded date is not shown yet. Filing it now.';
+    const events: AgentEvent[] = [];
+    const out = await applyTurnGuarantees({
+      ...base,
+      judge: async () => ({ ...NO_JUDGEMENT, claims_unrecorded_work: true, claim: 'Filing it now.' }),
+      answer: async () => '',
+      correct: async () => ({ owed: false, sentence: 'The opening line implied the filing had not happened yet when it had.' }),
+      response: reply,
+      toolCalls: [{ tool: 'file_request', output: 'objects.propose_candidate is DONE: filed as request #303' }],
+      emit: e => events.push(e),
+    });
+
+    expect(out).toBe(reply);
+    expect(events.some(e => e.type === 'response_delta')).toBe(false);
+  });
+
+  it('a correction owed is the agent\'s one sentence about the work', async () => {
+    const out = await applyTurnGuarantees({
+      ...base,
+      judge: async () => ({ ...NO_JUDGEMENT, claims_unrecorded_work: true, claim: 'Request recorded for Send.' }),
+      correct: async () => ({ owed: true, sentence: correction }),
+      response: claimed,
+      toolCalls: [{ tool: 'lookup_objects', output: 'request #126' }],
+      emit: () => {},
+    });
+
+    expect(out).toBe(`${claimed}\n\n${correction}`);
+  });
+
   it('says nothing when the judge finds the work behind the claim', async () => {
     const out = await applyTurnGuarantees({ ...base, judge: async () => NO_JUDGEMENT, response: claimed, toolCalls: [{ tool: 'update_object', output: '{"ok":true,"id":130}' }], emit: () => {} });
 

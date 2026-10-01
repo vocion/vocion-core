@@ -242,6 +242,8 @@ export type TurnGuaranteeInput = {
   answer?: AnswerComposer;
   /** The reply's judge (`agents/turnJudge.ts`); injected in tests. */
   judge?: typeof judgeAnswer;
+  /** The correction pass for a claim the steps do not show (`agents/correction.ts`); injected in tests. */
+  correct?: import('./agents/correction').CorrectionComposer;
   /** The conversation before this turn, so the answer pass reads what the turn could. */
   history?: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }>;
   /** The graph's own messages for the turn, for the answer pass to continue from. */
@@ -338,13 +340,25 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
         judged.claims_unrecorded_work ? `your reply says "${judged.claim ?? 'that something was done'}", and the steps you took do not show it done` : '',
         judged.hides_failure ? `a step failed and your reply does not say so: ${failed.join('; ')}` : '',
       ].filter(Boolean).join('; and ');
-      const correction = (await (input.answer ?? composeAnswerWithModel)({
+      // TYPED, NOT FREE TEXT (run 3, 2026-10-01): asked for "a sentence, or
+      // nothing", the model wrote a critique of its own reply's wording and
+      // the person read it. The pass says whether a correction is owed, read
+      // against the steps, and the sentence about the work; code routes on it.
+      const ask = {
         orgId: input.orgId,
-        system: `${input.systemPrompt ?? ''}\n\nThis turn, ${owed}. In one sentence, tell the person plainly what did not happen and what happens next. If your reply already says that plainly, answer with nothing at all. Do not repeat the rest of your reply.`.trim(),
+        system: `${input.systemPrompt ?? ''}\n\nA check of this turn found: ${owed}. Read your steps: if they show the work done, no correction is owed, whatever your reply's wording. If one is owed, write one sentence to the person about the work itself (what did not happen and what happens next), never about your reply or its wording. Answer only through the tool.`.trim(),
         human: `Steps you took:\n${stepLines(input.toolCalls).join('\n') || '(none)'}\n\nYour reply:\n${text.slice(-3_000)}`,
-      })).trim();
-      if (correction) {
-        append(correction);
+      };
+      const { composeCorrectionWithModel } = await import('./agents/correction');
+      const correct = input.correct ?? (input.answer
+        ? async (a: typeof ask) => {
+          const sentence = (await input.answer!(a)).trim();
+          return { owed: sentence.length > 0, sentence };
+        }
+        : composeCorrectionWithModel);
+      const correction = await correct(ask);
+      if (correction.owed && correction.sentence.trim()) {
+        append(correction.sentence.trim());
       }
     }
   } catch (err) {
