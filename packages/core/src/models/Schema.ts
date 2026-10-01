@@ -358,6 +358,10 @@ export const projectSchema = pgTable(
     pausedAt: timestamp('paused_at', { mode: 'date' }),
     pausedBy: text('paused_by'),
     pausedNote: text('paused_note'),
+    /** When the first-run setup conversation was opened (#1028). Auto-open fires only while this is null. */
+    onboardingStartedAt: timestamp('onboarding_started_at', { mode: 'date' }),
+    /** Who opened it: a user id, no FK, like `pausedBy`. */
+    onboardingStartedBy: text('onboarding_started_by'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
