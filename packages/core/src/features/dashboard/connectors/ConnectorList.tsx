@@ -432,6 +432,27 @@ function SyncRunLine({ sync }: { sync: Source['sync'] }) {
       </p>
     );
   }
+  // A run that read things and kept none of them, by rule, says so here, with
+  // the rule — otherwise the row reads "0 documents" over a green Connected
+  // and nothing says whether the source is empty or the filter dropped it all.
+  const skippedCount = sync.counts.skipped ?? 0;
+  const kept = (sync.counts.created ?? 0) + (sync.counts.updated ?? 0) + (sync.counts.unchanged ?? 0);
+  if (sync.status === 'completed' && skippedCount > 0 && kept === 0) {
+    const reason = sync.skipped?.[0]?.message;
+    return (
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500" data-testid="sync-skipped-line">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+        Last sync read
+        {' '}
+        {skippedCount.toLocaleString()}
+        {' '}
+        {skippedCount === 1 ? 'item' : 'items'}
+        {' '}
+        and kept none
+        {reason ? `: ${reason}` : '.'}
+      </p>
+    );
+  }
   return null;
 }
 

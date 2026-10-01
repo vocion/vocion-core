@@ -19,6 +19,11 @@ export type SourceSync = {
   completedAt: string | null;
   error: string | null;
   counts: Record<string, number>;
+  /**
+   * What the run read and did not keep, by rule, with the reason — a sample;
+   * `counts.skipped` is the total. Absent on cores older than 2026-10-01.
+   */
+  skipped?: Array<{ uri?: string; message: string; at: string }>;
 };
 
 /** One configured connector row as `/rpc/sources` returns it. */

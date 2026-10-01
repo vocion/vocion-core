@@ -109,6 +109,24 @@ describe('ConnectorList', () => {
     expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }));
   });
 
+  it('says on the row when the last run read items and kept none, with the rule that dropped them', async () => {
+    renderList([source({
+      slug: 'github',
+      config: { _connector: 'zoom' },
+      documentCount: 0,
+      sync: {
+        status: 'completed',
+        startedAt: '2026-09-30T21:20:00.000Z',
+        completedAt: '2026-09-30T21:20:30.000Z',
+        error: null,
+        counts: { created: 0, updated: 0, unchanged: 0, errors: 0, skipped: 12 },
+        skipped: [{ uri: 'https://github.com/The-NocoCompany/warranty-app/pull/58', message: 'branch fix-date-range-last-day is outside the factory/ prefix', at: '2026-09-30T21:20:10.000Z' }],
+      },
+    })]);
+
+    await expect.element(page.getByTestId('sync-skipped-line')).toHaveTextContent('Last sync read 12 items and kept none: branch fix-date-range-last-day is outside the factory/ prefix');
+  });
+
   it('shows a running sync\'s progress on the row without opening it', async () => {
     renderList([source({ sync: { status: 'running', startedAt: new Date(Date.now() - 120_000).toISOString(), completedAt: null, error: null, counts: { created: 40, updated: 2 } } })]);
 

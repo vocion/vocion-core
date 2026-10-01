@@ -306,8 +306,9 @@ describe('the document processor hook', () => {
 
     const checkpoint = await checkpointFor(sourceId);
 
-    // toEqual, so an extra key fails: the six a processor-less run has always
-    // written, and not one more. (Key ORDER is jsonb's business, not ours.)
+    // toEqual, so an extra key fails: the seven a processor-less run has always
+    // written (`skipped` since 2026-10-01, what the run read and set aside by
+    // rule), and not one more. (Key ORDER is jsonb's business, not ours.)
     expect(checkpoint?.counts).toEqual({
       created: 2,
       updated: 0,
@@ -315,6 +316,7 @@ describe('the document processor hook', () => {
       metadataRefreshed: 0,
       tombstoned: 2,
       errors: 0,
+      skipped: 0,
     });
     expect(processorLog.loads).toBe(0);
     expect(processorLog.ran).toEqual([]);

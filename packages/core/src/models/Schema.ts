@@ -3082,6 +3082,16 @@ export const sourceSyncCheckpointSchema = pgTable(
       .$type<{ scope: 'connector' | 'document' | 'processor'; uri?: string; message: string; at: string }[]>()
       .default([])
       .notNull(),
+    /**
+     * What a run read and deliberately did not keep, with the reason — a pull
+     * request outside the source's branch prefix, a document the connector
+     * yielded twice. Not a failure: the run saw it and the rule said no. Kept
+     * so a run that completes with zero documents can say why (Noco,
+     * 2026-09-30: twelve pull requests read, none on a factory/ branch, and
+     * the card said only "0 documents"). Capped when written; `counts.skipped`
+     * is the true total.
+     */
+    skipped: jsonb('skipped').$type<Array<{ uri?: string; message: string; at: string }>>().default([]).notNull(),
   },
   table => [
     uniqueIndex('source_sync_checkpoint_source_idx').on(table.sourceId),

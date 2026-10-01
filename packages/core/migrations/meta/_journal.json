@@ -1121,6 +1121,13 @@
       "when": 1790900240000,
       "tag": "0159_worker_target",
       "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1790900300000,
+      "tag": "0160_sync_checkpoint_skipped",
+      "breakpoints": true
     }
   ]
 }
