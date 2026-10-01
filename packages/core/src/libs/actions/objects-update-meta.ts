@@ -433,7 +433,7 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
         await emitEvent({
           orgId: ctx.orgId,
           type: OBJECT_UPDATED,
-          payload: { objectId: row.id, objectType: input.objectType, fields: changed.join(','), actor, byPerson: actor.startsWith('usr-'), orgId: ctx.orgId },
+          payload: { objectId: row.id, objectType: input.objectType, fields: changed.join(','), actor, byPerson: actor.startsWith('usr-'), orgId: ctx.orgId, ...(ctx.runId ? { runId: ctx.runId } : {}) },
           dedupeKey: `${OBJECT_UPDATED}:${row.id}:${ctx.runId ?? Date.now()}`,
           invokedBy: actor,
         });
@@ -472,10 +472,28 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (!row) {
       throw new Error(`No ${objectType?.label.toLowerCase() ?? input.objectType} #${input.id} in this workspace to restore.`);
     }
-    await writeMetadata(ctx.orgId, row.id, applySet(row.metadata, previous));
+    const restoredMeta = applySet(row.metadata, previous);
+    await writeMetadata(ctx.orgId, row.id, restoredMeta);
     // Undo is a write too, so it is a version: history never shows a record
     // saying something its body does not.
     const body = await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: `Undid run #${ctx.runId ?? '?'}: ${input.reason}`.slice(0, 500), written: Object.keys(previous).sort(), invokedBy: ctx.reviewedBy ?? ctx.invokedBy, runId: ctx.runId });
+    // Said like any write, naming the run it undid (`undoOf`), so whatever
+    // acted on that write can put back what it did (CHAT-423: undoing a
+    // contract write must give back the merge it held).
+    const restored = changedFields(row.metadata, restoredMeta, bookkeepingPaths(objectType!.schema), Object.keys(previous));
+    if (restored.length > 0 && ctx.runId) {
+      const actor = ctx.reviewedBy ?? ctx.invokedBy ?? 'system';
+      void (async () => {
+        const { emitEvent, OBJECT_UPDATED } = await import('@/services/EventService');
+        await emitEvent({
+          orgId: ctx.orgId,
+          type: OBJECT_UPDATED,
+          payload: { objectId: row.id, objectType: input.objectType, fields: restored.join(','), actor, byPerson: actor.startsWith('usr-'), orgId: ctx.orgId, undoOf: ctx.runId },
+          dedupeKey: `${OBJECT_UPDATED}:${row.id}:undo:${ctx.runId}`,
+          invokedBy: actor,
+        });
+      })().catch(err => console.warn('object.updated (undo) was not announced', { objectId: row.id, message: (err as Error).message }));
+    }
     return { restored: Object.keys(previous), restoredAt: new Date().toISOString(), ...(body.status === 'written' && body.version ? { bodyVersion: body.version, ...(body.artifactId ? { bodyArtifactId: body.artifactId, bodyFrom: body.version - 1 } : {}) } : {}) };
   },
 };

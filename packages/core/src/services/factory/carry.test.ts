@@ -894,7 +894,7 @@ describe('the contract changed after QA (#201)', () => {
     const [merge] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'pending', input: { taskId: task!.id, riskClass: 'logic', title: 'Merge', summary: 'x', recipe: 'merge', commitSha: 'a1b2c3d', rollback: 'revert the merge' } } as never).returning();
 
     const since = new Date(Date.now() - 1_000);
-    const out = await carry.reopenForContractChange(ORG, { objectId: r.id, objectType: 'request', fields: 'acceptance,outcome', actor: 'usr-chris' });
+    const out = await carry.reopenForContractChange(ORG, { objectId: r.id, objectType: 'request', fields: 'acceptance,outcome', actor: 'usr-chris', byPerson: true });
 
     expect(out.did).toBe('reopen');
     expect((await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, merge!.id)))[0]!.status).toBe('rejected');
@@ -907,6 +907,44 @@ describe('the contract changed after QA (#201)', () => {
     expect((next!.input as { recoveryClass?: string }).recoveryClass).toBe('contract_changed');
     // The write that changed the contract is told what it started, so the answer does not offer to dispatch.
     expect(await carry.contractChangeReceipt(ORG, r.id, since, 100)).toMatch(new RegExp(`merge ACT-${merge!.id} is held and the next attempt is (started|filed)`));
+  });
+
+  // CHAT-423 (2026-10-01): a question on FE-308's page became a story write by
+  // the product manager, and this job rejected QA's 7/7 merge in the person's
+  // name, abandoned the task and rebuilt.
+  it('an agent\'s write to the contract leaves the merge QA approved waiting, and says so on the request', async () => {
+    const r = await request({ product: 'rooms', title: 'Send rooms from the assistant', state: 'building' });
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.engineering_task!, title: 'Assistant send', status: 'accepted', metadata: { requestId: r.id, status: 'accepted', verdict: { value: 'approve', proven: 7, total: 7 } } }).returning();
+    const [merge] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'pending', input: { taskId: task!.id, riskClass: 'logic', title: 'Merge', summary: 'x', recipe: 'merge', commitSha: 'a1b2c3d', rollback: 'revert the merge' } } as never).returning();
+
+    const out = await carry.reopenForContractChange(ORG, { objectId: r.id, objectType: 'request', fields: 'story,mainRisk', actor: 'agent:product-manager', byPerson: false, runId: 7001 });
+
+    expect(out.did).toBe('kept merge');
+    expect((await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, merge!.id)))[0]!.status).toBe('pending');
+    expect(((await read(task!.id)).metadata as { status: string }).status).toBe('accepted');
+    expect(((await read(r.id)).metadata as { recovery: { log: Array<{ text: string }> } }).recovery.log.at(-1)!.text).toMatch(/written by agent:product-manager, not a person, while a merge waited: the merge QA approved stands/);
+  });
+
+  it('undoing the person\'s contract write puts the held merge and the task back, and withdraws the attempt it started', async () => {
+    const r = await request({ product: 'rooms', title: 'Rooms list their guests', state: 'building' });
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.engineering_task!, title: 'Guests', status: 'accepted', metadata: { requestId: r.id, status: 'accepted', verdict: { value: 'approve', proven: 5, total: 5 } } }).returning();
+    const [merge] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'pending', input: { taskId: task!.id, riskClass: 'logic', title: 'Merge', summary: 'x', recipe: 'merge', commitSha: 'a1b2c3d', rollback: 'revert the merge' } } as never).returning();
+
+    expect((await carry.reopenForContractChange(ORG, { objectId: r.id, objectType: 'request', fields: 'acceptance', actor: 'usr-chris', byPerson: true, runId: 7002 })).did).toBe('reopen');
+
+    const [attempt] = (await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.actionId, 'factory.dispatch_task'))))
+      .filter(a => Number((a.input as { requestId?: unknown }).requestId) === r.id);
+
+    expect((attempt!.input as { contractWriteRun?: number }).contractWriteRun).toBe(7002);
+
+    const out = await carry.reopenForContractChange(ORG, { objectId: r.id, objectType: 'request', fields: 'acceptance', actor: 'usr-chris', byPerson: true, undoOf: 7002 });
+
+    expect(out.did).toBe('restored');
+    expect((await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, merge!.id)))[0]!.status).toBe('pending');
+    expect((await read(task!.id)).status).toBe('accepted');
+    expect(((await read(task!.id)).metadata as { status: string; verdict: { value: string } })).toMatchObject({ status: 'accepted', verdict: { value: 'approve' } });
+    expect(['rejected', 'undone']).toContain((await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, attempt!.id)))[0]!.status);
+    expect(out.line).toMatch(new RegExp(`the merge ACT-${merge!.id} waits again`));
   });
 
   it('does nothing when no contract field changed, or no merge is waiting', async () => {

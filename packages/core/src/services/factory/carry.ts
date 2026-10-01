@@ -1833,6 +1833,11 @@ export async function reopenForContractChange(orgId: string, payload: Record<str
   if (!Number.isInteger(requestId) || requestId <= 0 || changed.length === 0) {
     return skip(Number.isInteger(requestId) ? requestId : null, 'no contract field changed');
   }
+  // UNDOING THE WRITE GIVES BACK WHAT IT TOOK (CHAT-423): the merge it held
+  // is waiting again, and the attempt it started is cancelled.
+  if (Number(payload.undoOf) > 0) {
+    return restoreForContractUndo(orgId, requestId, Number(payload.undoOf));
+  }
   const { and, eq, inArray } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { actionRunSchema } = await import('@/models/Schema');
@@ -1850,12 +1855,31 @@ export async function reopenForContractChange(orgId: string, payload: Record<str
     // No merge waiting: the next Build already builds to the new contract.
     return skip(requestId, 'no merge waiting');
   }
+  // ONLY A PERSON'S CONTRACT CHANGE TAKES BACK QA'S APPROVAL (CHAT-423,
+  // 2026-10-01: the product manager rewrote FE-308's story while answering a
+  // question, and this job rejected QA's 7/7 merge card in the person's name,
+  // abandoned the task and rebuilt). An agent's write to the contract is
+  // recorded where the person looks; the merge QA approved still waits.
+  if (payload.byPerson !== true) {
+    const line = `The contract (${changed.join(', ')}) was written by ${typeof payload.actor === 'string' && payload.actor ? payload.actor : 'an agent'}, not a person, while a merge waited: the merge QA approved stands. Change the contract yourself to send it back through plan, build and QA.`;
+    await updateRecovery(orgId, requestId, s => logLine(s, line, new Date().toISOString()));
+    return { requestId, did: 'kept merge', line };
+  }
   const by = typeof payload.actor === 'string' && payload.actor ? payload.actor : 'factory';
   const why = `The request's ${changed.join(', ')} changed after QA approved; it goes back for another attempt against the new contract.`;
   const { rejectAction, proposeAction } = await import('@/services/ActionService');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const writeRun = Number(payload.runId) > 0 ? Number(payload.runId) : null;
   for (const run of pending) {
+    // What the task said before the hold, so undoing the write can put it back.
+    const taskId = Number((run.input as { taskId?: unknown } | null)?.taskId);
+    const [task] = await db.select({ status: businessObjectSchema.status, meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, taskId))).limit(1);
     // Its onRejected holds the task (Changes asked) with this reason as the note.
     await rejectAction(run.id, orgId, why, { reviewedBy: by });
+    if (writeRun) {
+      const meta = (task?.meta ?? {}) as Record<string, unknown>;
+      await db.update(actionRunSchema).set({ result: { heldForContract: { writeRun, taskId, task: { status: task?.status ?? null, metaStatus: meta.status ?? null, verdict: meta.verdict ?? null } } } }).where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.id, run.id)));
+    }
   }
   const held = work.tasks.find(t => pending.some(r => Number((r.input as { taskId?: unknown }).taskId) === t.id));
   const planId = Number(held?.meta.planId);
@@ -1874,6 +1898,7 @@ export async function reopenForContractChange(orgId: string, payload: Record<str
       ...(Number(held?.meta.workerRunId) > 0 ? { recoveryOfRun: Number(held?.meta.workerRunId) } : {}),
       note: `The contract changed after QA approved (${changed.join(', ')}). Continue the branch: keep what is proven, meet the new acceptance, and prove every criterion again.`,
       reason: why,
+      ...(writeRun ? { contractWriteRun: writeRun } : {}),
     },
     principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
     invokedBy: 'factory:product-manager',
@@ -1883,6 +1908,61 @@ export async function reopenForContractChange(orgId: string, payload: Record<str
   const line = `Contract changed after QA (${changed.join(', ')}): held the merge and ${res.status === 'pending' ? `put the next attempt on a card (${nounCode('action', res.runId)})` : `started the next attempt (${nounCode('action', res.runId)})`}.`;
   await updateRecovery(orgId, requestId, s => logLine(s, line, new Date().toISOString()));
   return { requestId, did: 'reopen', line };
+}
+
+/**
+ * A contract write was undone: the merges it held wait again, with the task
+ * as it was, and the attempt it started is cancelled (Undo on that dispatch,
+ * which cancels it until a worker claims it). Each step is said on the
+ * request's log; one that cannot be put back says why.
+ * @param orgId - The workspace.
+ * @param requestId - The request.
+ * @param writeRun - The undone write's run.
+ */
+export async function restoreForContractUndo(orgId: string, requestId: number, writeRun: number): Promise<CarryResult> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema, businessObjectSchema } = await import('@/models/Schema');
+  const held = await db.select({ id: actionRunSchema.id, result: actionRunSchema.result }).from(actionRunSchema).where(and(
+    eq(actionRunSchema.orgId, orgId),
+    eq(actionRunSchema.actionId, 'git.merge'),
+    eq(actionRunSchema.status, 'rejected'),
+    sql`(${actionRunSchema.result}->'heldForContract'->>'writeRun')::int = ${writeRun}`,
+  ));
+  const dispatches = await db.select({ id: actionRunSchema.id, status: actionRunSchema.status }).from(actionRunSchema).where(and(
+    eq(actionRunSchema.orgId, orgId),
+    eq(actionRunSchema.actionId, 'factory.dispatch_task'),
+    sql`(${actionRunSchema.input}->>'contractWriteRun')::int = ${writeRun}`,
+  ));
+  if (held.length === 0 && dispatches.length === 0) {
+    return skip(requestId, 'the undone write held nothing');
+  }
+  const notes: string[] = [];
+  const { rejectAction, undoAction } = await import('@/services/ActionService');
+  for (const d of dispatches) {
+    if (d.status === 'pending') {
+      await rejectAction(d.id, orgId, 'The contract change it was for was undone.', { reviewedBy: 'factory' });
+      notes.push(`withdrew ${nounCode('action', d.id)}`);
+    } else if (d.status === 'done') {
+      await undoAction(d.id, orgId, { by: 'factory' }).then(
+        () => notes.push(`cancelled ${nounCode('action', d.id)}`),
+        (err: Error) => notes.push(`could not cancel ${nounCode('action', d.id)} (${err.message})`),
+      );
+    }
+  }
+  for (const m of held) {
+    const record = ((m.result ?? {}) as { heldForContract?: { taskId?: unknown; task?: { status?: string | null; metaStatus?: unknown; verdict?: unknown } } }).heldForContract;
+    await db.update(actionRunSchema).set({ status: 'pending', error: null, executedAt: null, decidedBy: null, decidedAt: null, result: null }).where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.id, m.id)));
+    const taskId = Number(record?.taskId);
+    if (Number.isInteger(taskId) && taskId > 0 && record?.task) {
+      const patch = { status: record.task.metaStatus ?? null, verdict: record.task.verdict ?? null };
+      await db.update(businessObjectSchema).set({ status: record.task.status ?? null, metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`, updatedAt: new Date() }).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, taskId)));
+    }
+    notes.push(`the merge ${nounCode('action', m.id)} waits again`);
+  }
+  const line = `The contract change (${nounCode('action', writeRun)}) was undone: ${notes.join('; ')}.`;
+  await updateRecovery(orgId, requestId, s => logLine(s, line, new Date().toISOString()));
+  return { requestId, did: 'restored', line };
 }
 
 /**

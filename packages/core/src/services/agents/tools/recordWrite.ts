@@ -99,6 +99,24 @@ export async function writeRecordAsAgent(ctx: RuntimeContext, input: { objectTyp
   // on their word, it runs as their own write, with undo; the agent's own
   // judgement calls still ride the trust ladder.
   const asPerson = input.onPersonsWord === true && Boolean(ctx.userId);
+  // AS THE PERSON ONLY ON THEIR WORD FOR THIS CHANGE (CHAT-423, 2026-10-01).
+  // Asked "how does this work without registering with OpenAI?" on FE-308's
+  // page, the turn's intent read "changes the page record", and the product
+  // manager rewrote FE-308's story and main risk, and FE-324's, in the
+  // person's name — which reopened a merge QA had approved 7/7. A write in a
+  // person's name is one their own words told the agent to make, read by a
+  // model for THIS change (`saidToDecide`); anything else goes back to the
+  // agent. A workspace token is the person's own client acting directly.
+  if (asPerson && !ctx.userId!.startsWith('token:')) {
+    const { personMessages } = await import('../owedDecision');
+    const { saidToDecide } = await import('../turnJudge');
+    const fields = Object.keys(set).sort().join(', ');
+    const decision = `change ${input.label ?? `${input.objectType.replace(/[_-]+/g, ' ')} #${input.id}`}: write ${fields} — ${input.reason.slice(0, 240)}`;
+    const said = await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision }).catch(() => ({ said: false, quote: null }));
+    if (!said.said) {
+      throw new ActionError('NOT_ASKED', `Nothing was written: the person did not tell you to change ${input.label ?? `${input.objectType.replace(/[_-]+/g, ' ')} #${input.id}`} (${fields}). They asked a question: answer it; propose the change in one line if it would help.`);
+    }
+  }
   const res = await proposeAction({
     orgId: ctx.orgId,
     actionId: 'objects.update_meta',

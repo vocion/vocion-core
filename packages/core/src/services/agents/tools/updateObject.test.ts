@@ -9,6 +9,17 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
+// Whether the person told the agent to make THIS change is a model's reading
+// of their words (`turnJudge.saidToDecide`); each test says what it is.
+const consent = vi.hoisted(() => ({ said: true, decisions: [] as string[] }));
+vi.mock('../turnJudge', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../turnJudge')>();
+  return { ...real, saidToDecide: vi.fn(async ({ decision }: { decision: string }) => {
+    consent.decisions.push(decision);
+    return { said: consent.said, quote: null };
+  }) };
+});
+
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
 const { forgetCachedObjectTypes } = await import('@/libs/actions/objects-propose-candidate');
@@ -40,6 +51,8 @@ function toolFor(objectTypeSlugs: string[]) {
 }
 
 beforeEach(async () => {
+  consent.said = true;
+  consent.decisions = [];
   forgetCachedObjectTypes();
   await db.delete(actionRunSchema);
   await db.delete(businessObjectSchema);
@@ -131,6 +144,19 @@ describe('the write', () => {
 
     expect(run!.invokedBy).toBe('usr-owner');
     expect(run!.status).toBe('done');
+  });
+
+  it('a question is not a change: nothing is written in the person\'s name when their words did not ask for it (CHAT-423)', async () => {
+    const { NO_INTENT } = await import('../turnJudge');
+    // The intent read "changes the page record" for a question on its page.
+    const ctx = { ...ctxFor(['request']), userId: 'usr-owner', turnMessage: 'how does this work without registering an app?', turnIntent: Promise.resolve({ ...NO_INTENT, changes_page_record: true }) } as RuntimeContext;
+    consent.said = false;
+
+    const out = await updateObjectTools(ctx)[0]!.invoke({ object_type: 'request', id: requestId, set: { priority: 40 }, reason: 'Capture what the person asked about.', confidence: 0.9 });
+
+    expect(out).toMatch(/Nothing was written: the person did not tell you to change request #\d+ \(priority\)\. They asked a question: answer it; propose the change in one line if it would help\./);
+    expect(consent.decisions[0]).toMatch(/^change request #\d+: write priority — Capture what the person asked about\./);
+    expect(await db.select().from(actionRunSchema)).toHaveLength(0);
   });
 
   it('a declared gate informs a change the person asked for, and the change lands (no hard stop)', async () => {

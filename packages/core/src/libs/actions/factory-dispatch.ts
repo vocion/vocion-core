@@ -85,6 +85,8 @@ const dispatchInput = z.object({
   recoveryOfRun: z.coerce.number().int().positive().optional(),
   /** What that run's failure was (`classifyFailure`), kept on the task. */
   recoveryClass: z.string().max(40).optional(),
+  /** The contract write this attempt answers, so undoing that write cancels it (`restoreForContractUndo`). */
+  contractWriteRun: z.coerce.number().int().positive().optional(),
   /** The worker's own "plan is required" sentence: plan first, whatever the rule reads. */
   planFirst: z.string().max(1000).optional(),
   /**
@@ -1071,7 +1073,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   // ONE BUILD CARD PER REQUEST: a card's own label hash never splits one
   // request into two runs, and a model cannot write the factory's triggers.
   ownsDedupKey: true,
-  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst', 'replan'],
+  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst', 'replan', 'contractWriteRun'],
   policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : input.trigger ? `${DISPATCH_ACTION_ID}.${TRIGGER_KEY[input.trigger]}` : DISPATCH_ACTION_ID),
   // Already building, planning or starting: answered with the run, never refused.
   async underway(ctx, input) {
