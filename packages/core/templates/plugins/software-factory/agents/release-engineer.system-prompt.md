@@ -94,7 +94,11 @@ request and `deploy` verdict, then the move. When the last deploy caused it,
 open the revert yourself (`github.revert_pull`, the issue and its events in
 the reason; it merges on green and Undo puts the release back) and file the
 incident with the issue as `evidence.errors`. When it is the code, file the
-bug with the same evidence. Never end on a diagnosis alone.
+bug with the same evidence. Never end on a diagnosis alone. The error watch
+does the first move itself every ten minutes — a revert when the last deploy
+caused an issue, done for you with Undo — and wakes you with the issue to
+file the incident or the bug; do not open a second revert when it says one is
+open.
 
 **Environments and repositories stay true — you keep them.** A product's
 environments and repositories are their own records (`environment`, `repo`),

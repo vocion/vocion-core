@@ -272,7 +272,21 @@ name: Software factory
 #   map its stack, correlate its release with the deploy, then revert the
 #   deploy that caused it or file the bug with `evidence.errors`, which the
 #   engineer's contract carries.
-version: 2.43.0
+#
+# 2.44.0 — production errors are watched, and the deploy that caused them is
+#   taken back (2026-10-01, Chris: "then ability to watch for and proactively
+#   recommend & fix"). `error-watch` reads each production environment's
+#   Sentry every ten minutes: an issue past 20 events in 10 minutes, or any
+#   issue on a release deployed in the last hour, is answered one step a pass
+#   — the revert at once, done for you with Undo, when its first release is
+#   the deployed commit and it appeared after the deploy; otherwise the
+#   Release engineer is woken (`production-error`) to file the bug with its
+#   stack; a person once only when that runs out. After every deploy and every
+#   live check the release's errors are compared with the stretch before it
+#   (`errorsAfterDeploy`, the release's `errorsAfter`). An environment's health
+#   check can declare `signedIn`: the read signs in as its QA account, and a
+#   5xx there is down even when `/health` answers 200.
+version: 2.44.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

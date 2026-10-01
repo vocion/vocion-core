@@ -21,6 +21,7 @@ export const FACTORY_RECONCILE_JOB = 'factory-reconcile';
 export const FACTORY_PIPELINE_FIX_ENDED_JOB = 'factory-pipeline-fix-ended';
 export const FACTORY_ENVIRONMENT_DEPLOYED_JOB = 'factory-environment-deployed';
 export const FACTORY_ENVIRONMENT_HEALTH_JOB = 'factory-environment-health';
+export const FACTORY_ERROR_WATCH_JOB = 'factory-error-watch';
 
 type Job = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -55,6 +56,12 @@ export const factoryCarryJobs: Record<string, Job> = {
    * @param input
    */
   [FACTORY_ENVIRONMENT_HEALTH_JOB]: async (orgId, input) => (await import('@/services/factory/environmentHealth')).watchEnvironments(orgId, input),
+  /**
+   * Every ten minutes: read each production environment's error tracking, and answer an issue past the threshold or on the release just deployed — revert the deploy that caused it, or wake the pipeline's owner — before asking a person once.
+   * @param orgId
+   * @param input
+   */
+  [FACTORY_ERROR_WATCH_JOB]: async (orgId, input) => (await import('@/services/factory/errorWatch')).watchErrors(orgId, input),
   /**
    * `object.created` (request): start the fix a person asked for, or file the Build card.
    * @param orgId

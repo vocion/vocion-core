@@ -1,0 +1,50 @@
+# A PRODUCTION ERROR WAKES THE SEAT THAT OWNS THE PIPELINE (2026-10-01). Core
+# raises `production.error` from the error watch (`error-watch`,
+# services/factory/errorWatch.ts) with the issue, what caused it and, when the
+# last deploy did, the revert it already opened. The Release engineer follows
+# debug-a-production-error to the end: the incident or the bug filed with the
+# issue as evidence, so the engineer's contract carries the stack.
+slug: production-error
+name: A production error is filed with its evidence
+description: >-
+  When the error watch finds a new or busy issue in production, the Release
+  engineer reads it, files the incident (when the deploy that caused it is
+  already being reverted) or the bug with its stack as evidence, and
+  recommends the fix.
+status: active
+agent: release-engineer
+when:
+  event: production.error
+  maxFiresPer10m: 6
+do:
+  checkMission: keep-the-pipeline-answered
+  prompt: >-
+    Production is failing: {{shortId}} "{{title}}" on {{environment}} (record
+    #{{environmentId}}, product {{product}}, repository {{repo}}),
+    {{events}} events in {{windowMinutes}} minutes. {{issueUrl}}
+    What the facts say: {{why}} (verdict {{verdict}}). The pull request behind
+    its first release: {{pull}}. Revert already opened: action
+    #{{revertActionRunId}} (0 means none). Release #{{releaseId}} (0 means none
+    recorded).
+
+    Follow debug-a-production-error from step 3: read it with sentry_issue
+    ({{shortId}}, environment from the record), quote the line of the message
+    that settles what broke, and map the app frames to the repository.
+
+    - A revert is already open (action number above 0): do not open another.
+      File one request of kind incident, severity p1 when signed-in use is
+      broken, for {{product}}, with evidence.errors (the issue's shortId, url,
+      title, culprit, environment, release, firstSeen, lastSeen, events, the
+      failing request, and the app frames mapped to repository paths), so the
+      root cause is fixed after production is back.
+    - No revert, and the verdict is last-deploy or the stack points at what
+      the pull request above changed: open it yourself with propose_action
+      github.revert_pull (url {{pull}}, recordId {{environmentId}}, the issue
+      and the settling line in the reason), then file the incident as above.
+    - Otherwise it is the code: file one request of kind bug with the same
+      evidence.errors, and recommend the fix in one line (the file, the line,
+      the change).
+
+    If a request for {{shortId}} is already open, add the new evidence to it
+    instead of filing a second. Report in three lines: what broke (with its
+    link), why, and what you did (with its link).

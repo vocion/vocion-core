@@ -97,6 +97,16 @@ schema:
       properties:
         url: {type: string}
         expect: {type: string, description: 'What the response must contain, e.g. `{"status":"ok","env":"production"}` or `title contains Send`.'}
+        signedIn:
+          type: string
+          description: >-
+            An authenticated route the health read also opens, signed in as
+            this environment's QA account (`qaLoginCredentialId`): a path on
+            it (`/documents`), or an address on another of the product's
+            environments (the web page that calls this API). A 5xx from the
+            page, or from any call the product's own addresses answer while it
+            loads, reads as down even when `url` answers 200 — a `/health`
+            that answers is not a product that works.
     rollback:
       x-display: {label: Rollback, role: prose, order: 4}
       type: string
@@ -158,6 +168,32 @@ schema:
       type: string
       format: date-time
       description: When the last deploy finished. WRITTEN BY THE DEPLOY.
+    previousDeployedSha:
+      x-display: {label: Deployed before, format: mono, group: Last deploy}
+      type: string
+      description: The commit this environment ran before its last deploy. WRITTEN BY THE DEPLOY; what a release's errors are compared against.
+    errorsAfterDeploy:
+      x-display: {label: Errors after the deploy, group: Last deploy}
+      type: object
+      description: >-
+        What the error tracking (`observability.sentry`) recorded on the
+        deployed release against the same stretch before it: `clean`, `new`
+        (an issue first seen in this release), `spiking` (one firing at least
+        twice as often) or `unread` (and why), with the issues and a line.
+        WRITTEN BY THE PIPELINE after the deploy and the live check.
+      properties:
+        state: {type: string, enum: [clean, new, spiking, unread]}
+        line: {type: string}
+        sha: {type: string}
+        checkedAt: {type: string, format: date-time}
+    errorWatch:
+      x-display: {label: Error watch, group: Last deploy}
+      type: object
+      description: >-
+        The ten-minute error watch's own account (`error-watch`): each issue it
+        acted on, by short id, with what caused it and each step of its
+        recovery (revert, the Release engineer woken, a person asked).
+        WRITTEN BY THE PIPELINE, never by hand.
     lastDeployRunUrl:
       x-display: {label: Deploy run, format: link, group: Last deploy}
       type: string

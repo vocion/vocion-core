@@ -15,7 +15,7 @@ const { db } = await import('@/libs/DB');
 const { businessObjectSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { eq } = await import('drizzle-orm');
-const { bareWhy, deployedBy, deploysWith, healthFields, readHealth, recordDeploy, triggersOf, watchMissedDeploys } = await import('./environments');
+const { bareWhy, deployedBy, deploysWith, healthFields, readHealth, recordDeploy, signedInVerdict, triggersOf, watchMissedDeploys } = await import('./environments');
 
 const ORG = 'org_environments';
 const REPO = 'Acme/northwind-core';
@@ -67,7 +67,12 @@ describe('a deploy is written on its environments', () => {
     const site = await anEnvironment('rooms-marketing-production', { workflow: '.github/workflows/deploy.yml', step: 'Marketing site' });
     const health = vi.fn(async () => ({ health: 'ok' as const, status: 200, detail: 'https://rooms-web-production.northwind.example answered HTTP 200', url: 'u', checkedAt: '2026-09-30T12:40:00Z', bodyHash: 'h1' }));
 
-    const out = await recordDeploy(ORG, { repo: REPO, runId: 36001, runNumber: 51, name: 'Deploy', path: '.github/workflows/deploy.yml', headSha: 'c0ffee1234567', conclusion: 'success', url: `https://github.com/${REPO}/actions/runs/36001`, completedAt: '2026-09-30T12:39:00Z' }, { runJobs: async () => JOBS, health });
+    const releaseErrors = vi.fn(async () => null);
+    const out = await recordDeploy(ORG, { repo: REPO, runId: 36001, runNumber: 51, name: 'Deploy', path: '.github/workflows/deploy.yml', headSha: 'c0ffee1234567', conclusion: 'success', url: `https://github.com/${REPO}/actions/runs/36001`, completedAt: '2026-09-30T12:39:00Z' }, { runJobs: async () => JOBS, health, releaseErrors });
+
+    // The release's errors are compared on the environment it deployed, as deployed.
+    expect(releaseErrors).toHaveBeenCalledTimes(1);
+    expect(releaseErrors).toHaveBeenCalledWith(ORG, expect.objectContaining({ id: web.id, meta: expect.objectContaining({ lastDeployedSha: 'c0ffee1234567', lastDeployedAt: '2026-09-30T12:39:00Z' }) }));
 
     expect(await read(web.id)).toMatchObject({ lastDeployedSha: 'c0ffee1234567', lastDeployedAt: '2026-09-30T12:39:00Z', lastDeployRunUrl: `https://github.com/${REPO}/actions/runs/36001`, lastHealth: 'ok', lastHealthCheckedAt: '2026-09-30T12:40:00Z', lastPipelineLine: expect.stringMatching(/^Deployed c0ffee1 to rooms-web-production \(run #51\); healthy/) });
     expect((await read(api.id)).lastDeployedSha).toBe('old0000000000');
@@ -79,6 +84,38 @@ describe('a deploy is written on its environments', () => {
 
     expect(again.find(o => o.recordId === web.id)?.did).toBe('already recorded');
     expect(health).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the signed-in health read', () => {
+  // 2026-10-01: `/health` answered 200 for hours while every signed-in call answered 500.
+  const ENV = { url: 'https://api.northwind.example', healthCheck: { url: 'https://api.northwind.example/health', signedIn: 'https://app.northwind.example/documents' }, qaLoginCredentialId: 7 };
+  const ok = async () => ({ status: 200, body: '{"status":"ok"}' });
+
+  it('is down when a call the product answers while the signed-in page loads says 5xx, even with /health at 200', async () => {
+    const r = await readHealth(ORG, ENV, new Date(), { fetch: ok, signedIn: async () => ({ url: 'https://app.northwind.example/documents', status: 200, failures: [{ method: 'GET', url: 'https://api.northwind.example/v1/documents', status: 500 }, { method: 'GET', url: 'https://api.northwind.example/v1/orgs', status: 500 }], error: '' }) });
+
+    expect(r).toMatchObject({ health: 'down', status: 200 });
+    expect(r!.detail).toBe('https://api.northwind.example/health answered HTTP 200, but signed in as QA, https://app.northwind.example/documents loaded but GET https://api.northwind.example/v1/documents answered HTTP 500 (and 1 more)');
+  });
+
+  it('is ok, and says so, when the signed-in page loads with no server error; a sign-in it could not make is advice', async () => {
+    const clean = await readHealth(ORG, ENV, new Date(), { fetch: ok, signedIn: async () => ({ url: 'https://app.northwind.example/documents', status: 200, failures: [], error: '' }) });
+
+    expect(clean).toMatchObject({ health: 'ok' });
+    expect(clean!.detail).toContain('signed in as QA, https://app.northwind.example/documents answered HTTP 200 with no server error');
+
+    const noSignIn = await readHealth(ORG, ENV, new Date(), { fetch: ok, signedIn: async () => ({ url: 'x', status: null, failures: [], error: 'still on the sign-in page after submitting' }) });
+
+    expect(noSignIn).toMatchObject({ health: 'ok', advice: 'the signed-in check could not run: still on the sign-in page after submitting' });
+  });
+
+  it('reads nothing signed in when the record declares no route', async () => {
+    const probe = vi.fn();
+    await readHealth(ORG, { url: 'https://api.northwind.example' }, new Date(), { fetch: ok, signedIn: probe });
+
+    expect(probe).not.toHaveBeenCalled();
+    expect(signedInVerdict({ url: 'u', status: 502, failures: [], error: '' })).toMatchObject({ health: 'down', detail: 'signed in as QA, u answered HTTP 502' });
   });
 });
 

@@ -69,6 +69,8 @@ export type LiveCheckDeps = {
   qa: () => Promise<RunnerQa>;
   store: (orgId: string, png: Buffer) => Promise<{ url: string; filename: string; bytes: number; contentType: string }>;
   now: () => Date;
+  /** The release's errors after it shipped, written on it; empty when nothing tracks them. */
+  releaseErrors?: (orgId: string, releaseId: number, product: string, meta: Meta) => Promise<Array<{ environment: string; state: string; line: string }>>;
 };
 
 const defaultDeps: LiveCheckDeps = {
@@ -105,6 +107,8 @@ export type LiveCheckResult = {
   problems: string[];
   /** What was written, in one line, or why nothing was. */
   written: string;
+  /** What the error tracker recorded on this release, per environment, as written on it (`errorWatch`). */
+  errors?: Array<{ environment: string; state: string; line: string }>;
 };
 
 const short = (e: unknown, n = 240) => String((e as Error)?.message ?? e ?? '').split('\n')[0]!.slice(0, n);
@@ -411,6 +415,10 @@ export async function runLiveCheck(
     ...(pick ? { announcementImageArtifactId: pick } : {}),
   });
   await markFeatures(orgId, input.releaseId, requestIds, { rows, blocking, flows, checkedAt, attempt });
+  // WHAT PRODUCTION RECORDED WHILE IT WAS CHECKED (2026-10-01): a change QA
+  // saw can still have left the API answering 500. The release's errors
+  // against the stretch before it, written on the release and the environment.
+  const errors = await (deps.releaseErrors ?? releaseErrors)(orgId, input.releaseId, product, release.meta).catch(() => []);
   return {
     ok: verdict.state === 'seen',
     releaseId: input.releaseId,
@@ -420,8 +428,36 @@ export async function runLiveCheck(
     verdict,
     runs,
     problems,
-    written: `release #${input.releaseId}: ${verdict.line}${pick ? `; the announcement leads with artifact #${pick}` : ''}`,
+    written: `release #${input.releaseId}: ${verdict.line}${pick ? `; the announcement leads with artifact #${pick}` : ''}${errors.filter(e => e.state !== 'clean').map(e => `; ${e.line}`).join('')}`,
+    ...(errors.length > 0 ? { errors } : {}),
   };
+}
+
+/**
+ * The release's errors on each production environment of its product that
+ * names its error tracking, written on the release and the environment.
+ * @param orgId - The workspace.
+ * @param releaseId - The release.
+ * @param product - Its product's slug.
+ * @param meta - The release's metadata (`commitSha`).
+ */
+async function releaseErrors(orgId: string, releaseId: number, product: string, meta: Meta): Promise<Array<{ environment: string; state: string; line: string }>> {
+  const { sentryRefOf } = await import('@/libs/sentry/reference');
+  const { sameCommit } = await import('./errorCause');
+  const { environmentRows } = await import('./environments');
+  const commit = typeof meta.commitSha === 'string' ? meta.commitSha : null;
+  const envs = (await environmentRows(orgId)).filter(e => e.meta.product === product && e.meta.stage === 'production' && sentryRefOf(e.meta)
+    && (!commit || sameCommit(typeof e.meta.lastDeployedSha === 'string' ? e.meta.lastDeployedSha : null, commit)));
+  const { compareRelease, recordReleaseErrors } = await import('./errorWatch');
+  const out: Array<{ environment: string; state: string; line: string }> = [];
+  for (const env of envs) {
+    const found = await compareRelease(orgId, env).catch(() => null);
+    if (found) {
+      await recordReleaseErrors(orgId, env, found, releaseId);
+      out.push({ environment: String(env.meta.slug ?? env.title), state: found.state, line: found.line });
+    }
+  }
+  return out;
 }
 
 /**
@@ -619,4 +655,87 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
   }
   await liveCheckGaveUp(orgId, releaseId, next.reason, now);
   return { releaseId, did: 'gave-up', line: next.reason };
+}
+
+/** What a signed-in health read saw: the page's own answer and every 5xx the product's addresses gave. */
+export type SignedInProbe = {
+  url: string;
+  status: number | null;
+  /** Responses from the product's own addresses that answered 5xx, first ones first. */
+  failures: Array<{ method: string; url: string; status: number }>;
+  /** Why it could not sign in or open the page, or ''. */
+  error: string;
+};
+
+/** How long the signed-in read waits for the page to settle. */
+const PROBE_SETTLE_MS = 10_000;
+
+/**
+ * A SIGNED-IN HEALTH READ (2026-10-01: `/health` answered 200 for hours while
+ * every signed-in call answered 500). Sign in as the environment's QA account
+ * (`qaLoginCredentialId`), open its declared authenticated route
+ * (`healthCheck.signedIn`: a path on the environment, or an address on one of
+ * its product's environments), and keep every 5xx the product's own
+ * addresses answered while it loaded. Null when the record declares no
+ * route or no sign-in. The password goes to the browser and nowhere else.
+ * @param orgId - The workspace.
+ * @param env - The environment's metadata.
+ * @param deps - The browser and the runner's module, injected in tests.
+ */
+export async function probeSignedIn(orgId: string, env: Meta, deps: Partial<Pick<LiveCheckDeps, 'browser' | 'qa'>> = {}): Promise<SignedInProbe | null> {
+  const check = env.healthCheck && typeof env.healthCheck === 'object' ? env.healthCheck as Meta : {};
+  const route = typeof check.signedIn === 'string' && check.signedIn.trim() ? check.signedIn.trim() : null;
+  const product = typeof env.product === 'string' ? env.product : null;
+  const slug = typeof env.slug === 'string' ? env.slug : null;
+  if (!route || !product || !slug || env.qaLoginCredentialId === undefined || env.qaLoginCredentialId === null || env.qaLoginCredentialId === '') {
+    return null;
+  }
+  const { productAccess } = await import('@/services/factory/productAccess');
+  const stage = typeof env.stage === 'string' ? env.stage : 'production';
+  const access = await productAccess(orgId, product, { reveal: true, stage });
+  const me = access.environments.find(e => e.slug === slug);
+  const base = String(me?.url ?? env.url ?? '').replace(/\/+$/, '');
+  let target = route;
+  try {
+    target = new URL(route, `${base}/`).toString();
+  } catch {
+    return { url: route, status: null, failures: [], error: `the signed-in route ${route} is not an address on ${slug}` };
+  }
+  if (!me) {
+    return { url: target, status: null, failures: [], error: `${slug} has no production access record` };
+  }
+  const problem = signInProblem(me);
+  if (problem) {
+    return { url: target, status: null, failures: [], error: problem };
+  }
+  const origins = allowedOrigins(access.environments);
+  if (!origins.has(new URL(target).origin)) {
+    return { url: target, status: null, failures: [], error: `${target} is not one of ${product}'s own addresses` };
+  }
+  const d = { ...defaultDeps, ...deps };
+  const qa = await d.qa();
+  const browser = await d.browser();
+  const context = await browser.newContext(qa.viewportContextOptions('desktop'));
+  const failures: SignedInProbe['failures'] = [];
+  context.on('response', (res) => {
+    try {
+      if (res.status() >= 500 && origins.has(new URL(res.url()).origin) && failures.length < 10) {
+        failures.push({ method: res.request().method(), url: res.url().split('?')[0]!, status: res.status() });
+      }
+    } catch { /* a response with no address */ }
+  });
+  try {
+    const failed = await signIn(context, me, qa);
+    if (failed) {
+      return { url: target, status: null, failures, error: `signing in as the QA account failed: ${failed}` };
+    }
+    const page = await context.newPage();
+    const res = await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForLoadState('networkidle', { timeout: PROBE_SETTLE_MS }).catch(() => {});
+    return { url: target, status: res?.status() ?? null, failures, error: '' };
+  } catch (e) {
+    return { url: target, status: null, failures, error: short(e) };
+  } finally {
+    await context.close().catch(() => {});
+  }
 }

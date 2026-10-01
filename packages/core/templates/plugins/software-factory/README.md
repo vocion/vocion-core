@@ -144,3 +144,14 @@ reported time and release, its stack mapped to the repository, its release
 correlated with the environment's last deploy, then a revert of the deploy
 that caused it (`github.revert_pull`, merged on green) or a bug filed with
 `evidence.errors`, which the engineer's contract carries.
+
+Errors are also watched. Every ten minutes `error-watch` reads each production
+environment's Sentry: an issue past the threshold (20 events in 10 minutes), or
+any issue on a release deployed in the last hour, is answered one step a pass —
+the revert at once, done for you with Undo, when its first release is the
+deployed commit and it appeared after the deploy; otherwise `production-error`
+wakes the Release engineer to file the bug with its stack; a person once only
+when that runs out. After each deploy and live check, the release's errors are
+compared with the stretch before it and written on the environment and the
+release. A health check that declares `signedIn` also reads that route as the
+environment's QA account, and a 5xx there is down even when `/health` is 200.

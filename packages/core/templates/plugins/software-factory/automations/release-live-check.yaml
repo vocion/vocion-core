@@ -57,4 +57,9 @@ do:
     Then run check_live without explore. If it did not see the change, read
     what each page showed and the first failure, fix the flows, and run it
     once more. Do not change any record yourself: check_live writes the
-    release and the features. Report in one line what was seen live.
+    release and the features. check_live also compares what the error
+    tracker recorded on this release with the stretch before it (`errors`)
+    and writes it on the release: when it names a new or spiking issue, read
+    it with sentry_issue and say it in your line with its link — the change
+    can be seen and still have broken something else. Report in one line
+    what was seen live.

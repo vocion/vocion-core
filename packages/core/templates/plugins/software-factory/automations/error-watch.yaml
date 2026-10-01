@@ -1,0 +1,36 @@
+# PRODUCTION ERRORS ARE WATCHED, AND A DEPLOY THAT CAUSED THEM IS TAKEN BACK
+# (Chris, 2026-10-01: "build the mechanism that creates ability to fix in
+# Vocion, then ability to watch for and proactively recommend & fix"). An API
+# answered 500 to every signed-in call for hours while its deploy read
+# "succeeded" and its health check read ok; Sentry counted 184 errors.
+# Deterministic: a built-in job acting as the seat that owns the pipeline
+# (services/factory/errorWatch.ts). Every ten minutes, each production
+# environment that names its error tracking (`observability.sentry`) is read:
+# an issue past the threshold, or any issue on a release deployed in the last
+# hour, starts its recovery. Caused by the last deploy (its first release is
+# the deployed commit, first seen after it): the revert opens at once, done
+# for you, with Undo (`github.revert_pull`). Otherwise the Release engineer is
+# woken with it (`production-error`) to file the bug and recommend the fix.
+# Still firing an hour after the last step: one person, once. Every step is a
+# line on the environment and the release. Off here, nothing watches errors;
+# an environment with no `observability.sentry` is never read.
+slug: error-watch
+name: Production errors are answered
+description: >-
+  Every ten minutes, read each production environment's error tracking; a new
+  or busy issue on the release just deployed is reverted when that deploy
+  caused it, or handed to the Release engineer to file and fix, and a person
+  is asked once only when that runs out.
+status: active
+agent: release-engineer
+when:
+  schedule: '*/10 * * * *'
+do:
+  job: factory-error-watch
+  input:
+    # The seat whose moves the recovery makes.
+    owner: release-engineer
+    # An issue with this many events in the window is acted on; any issue on a
+    # release deployed in the last hour is, whatever its count.
+    threshold: 20
+    windowMinutes: 10

@@ -97,6 +97,20 @@ schema:
       type: string
       description: What the post-deploy check said — the black-box e2e and the curl of the deployed URL against this version. `unknown` until the check has run; a release whose health stays `unknown` past the check window is treated as `degraded` by the board.
       enum: [ok, degraded, down, unknown]
+    errorsAfter:
+      x-display: {label: Errors after it shipped, group: After the deploy}
+      type: object
+      description: >-
+        What the error tracking recorded on this release against the stretch
+        before it, per environment: `clean`, `new` (an issue first seen in
+        it), `spiking` or `unread`, with the issues and one line. WRITTEN BY
+        THE PIPELINE after the deploy and the live check, and the ten-minute
+        error watch writes each step it takes on a line here.
+      properties:
+        state: {type: string, enum: [clean, new, spiking, unread]}
+        line: {type: string}
+        environment: {type: string}
+        checkedAt: {type: string, format: date-time}
     healthCheckedAt:
       x-display: {label: Health checked}
       type: string

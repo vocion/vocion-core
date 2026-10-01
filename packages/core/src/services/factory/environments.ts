@@ -159,7 +159,31 @@ export function deployedBy(deploy: Meta | null, conclusion: string | null, jobs:
 export type HealthDeps = {
   fetch: (url: string) => Promise<{ status: number; body: string }>;
   meets: (o: { orgId: string; expect: string; status: number; body: string }) => Promise<{ meets: boolean; why: string } | null>;
+  /** The signed-in read (`liveCheck.probeSignedIn`); null when the record declares none. */
+  signedIn: (orgId: string, env: Meta) => Promise<import('./liveCheck').SignedInProbe | null>;
 };
+
+/**
+ * What a signed-in read says about health: down when the page, or any call
+ * the product's own addresses answered while it loaded, said 5xx. Null when
+ * it found nothing wrong; a sign-in that could not be made is advice, not a
+ * verdict, unless a 5xx came with it.
+ * @param p - The probe.
+ */
+export function signedInVerdict(p: import('./liveCheck').SignedInProbe): { health: Health | null; detail: string; advice: string | null } {
+  const first = p.failures[0];
+  if (p.status !== null && p.status >= 500) {
+    return { health: 'down', detail: `signed in as QA, ${p.url} answered HTTP ${p.status}`, advice: null };
+  }
+  if (first) {
+    const more = p.failures.length > 1 ? ` (and ${p.failures.length - 1} more)` : '';
+    return { health: 'down', detail: `signed in as QA, ${p.url} loaded but ${first.method} ${first.url} answered HTTP ${first.status}${more}`, advice: null };
+  }
+  if (p.error) {
+    return { health: null, detail: '', advice: `the signed-in check could not run: ${p.error}` };
+  }
+  return { health: null, detail: `signed in as QA, ${p.url} answered${p.status ? ` HTTP ${p.status}` : ''} with no server error`, advice: null };
+}
 
 async function publicFetch(url: string): Promise<{ status: number; body: string }> {
   const { resolvesPublicly } = await import('@/libs/net/publicUrl');
@@ -241,6 +265,58 @@ export async function readHealth(orgId: string, env: Meta, now: Date = new Date(
     return { health: 'down', status: null, detail: `${url} did not answer: ${(err as Error).message}`.slice(0, 300), url, checkedAt, bodyHash: null };
   }
   const bodyHash = createHash('sha256').update(`${res.status}\n${res.body}`).digest('hex').slice(0, 16);
+  // SIGNED IN, TOO (2026-10-01): an answering `/health` is not a product
+  // that works. When the record declares an authenticated route and a QA
+  // sign-in, a 5xx there is down, whatever the public read said.
+  const signed = await signedInRead(orgId, env, deps);
+  if (signed?.health === 'down' && res.status < 500) {
+    return { health: 'down', status: res.status, detail: `${url} answered HTTP ${res.status}, but ${signed.detail}`.slice(0, 300), url, checkedAt, bodyHash };
+  }
+  const reading = await publicReading(orgId, env, { url, res, checkedAt, bodyHash }, deps);
+  if (!signed || reading.health !== 'ok') {
+    return reading;
+  }
+  return signed.advice
+    ? { ...reading, advice: [reading.advice, signed.advice].filter(Boolean).join('; ') }
+    : { ...reading, detail: `${reading.detail}; ${signed.detail}`.slice(0, 300) };
+}
+
+/**
+ * The signed-in read and its verdict, or null when the record declares none
+ * or it threw (said in the log; the public read still stands).
+ * @param orgId - The workspace.
+ * @param env - The environment's metadata.
+ * @param deps - Injected in tests.
+ */
+async function signedInRead(orgId: string, env: Meta, deps?: Partial<HealthDeps>): Promise<ReturnType<typeof signedInVerdict> | null> {
+  if (!str(obj(env.healthCheck)?.signedIn)) {
+    return null;
+  }
+  try {
+    const probe = await (deps?.signedIn ?? (async (o, m) => (await import('./liveCheck')).probeSignedIn(o, m)))(orgId, env);
+    return probe ? signedInVerdict(probe) : null;
+  } catch (err) {
+    console.warn('health read: the signed-in check failed', { orgId, message: (err as Error).message });
+    return { health: null, detail: '', advice: `the signed-in check could not run: ${(err as Error).message.slice(0, 160)}` };
+  }
+}
+
+/**
+ * The public read's verdict on one answer.
+ * @param orgId - The workspace.
+ * @param env - The environment's metadata.
+ * @param a - The answer.
+ * @param a.url - Where it was read.
+ * @param a.res - What it said.
+ * @param a.res.status
+ * @param a.res.body
+ * @param a.checkedAt - When.
+ * @param a.bodyHash - Its hash.
+ * @param deps - Injected in tests.
+ */
+async function publicReading(orgId: string, env: Meta, a: { url: string; res: { status: number; body: string }; checkedAt: string; bodyHash: string }, deps?: Partial<HealthDeps>): Promise<HealthReading> {
+  const { url, res, checkedAt, bodyHash } = a;
+  const check = obj(env.healthCheck);
   if (res.status >= 500) {
     return { health: 'down', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash };
   }
@@ -297,6 +373,8 @@ export function healthFields(r: HealthReading, expect?: string | null): Meta {
 export type DeployDeps = {
   runJobs: (orgId: string, repo: string, runId: number) => Promise<Array<{ name: string; steps: Array<{ name: string; conclusion: string | null }> }>>;
   health: (orgId: string, env: Meta) => Promise<HealthReading | null>;
+  /** The release's errors against the stretch before it (`errorWatch.checkReleaseErrors`). */
+  releaseErrors: (orgId: string, env: EnvironmentRow) => Promise<unknown>;
 };
 
 /**
@@ -342,11 +420,16 @@ export async function recordDeploy(orgId: string, payload: Meta, deps?: Partial<
       out.push({ recordId: env.id, did: 'already recorded', line: null });
       continue;
     }
-    const set: Meta = { lastDeployedSha: sha, lastDeployedAt: at, lastDeployRunUrl: url };
+    const prior = str(env.meta.lastDeployedSha);
+    const set: Meta = { lastDeployedSha: sha, lastDeployedAt: at, lastDeployRunUrl: url, ...(prior && prior !== sha ? { previousDeployedSha: prior } : {}) };
     const health = await (deps?.health ?? ((o, m) => readHealth(o, m)))(orgId, { ...env.meta, ...set }).catch(() => null);
     await writeMeta(orgId, env.id, { ...set, ...(health ? healthFields(health, str(obj(env.meta.healthCheck)?.expect)) : {}), ...(health?.health === 'ok' && sha ? { lastHealthySha: sha } : {}) });
     const line = `Deployed ${sha?.slice(0, 7) ?? '?'} to ${name} (run #${payload.runNumber ?? runId})${health ? `; ${health.health === 'ok' ? 'healthy' : health.health}: ${health.detail}` : '; no health check is recorded'}.`;
     await noteOnRecord(orgId, env.id, line, { url, at });
+    // ITS ERRORS AFTER, against the stretch before (2026-10-01: a deploy that
+    // "succeeded" answered 500 to every signed-in call). A finding is a line on
+    // the environment and its release; the ten-minute watch acts on it.
+    await (deps?.releaseErrors ?? (async (o, e) => (await import('./errorWatch')).checkReleaseErrors(o, e)))(orgId, { ...env, meta: { ...env.meta, ...set } }).catch(() => null);
     out.push({ recordId: env.id, did: `deployed: ${health?.health ?? 'unchecked'}`, line });
   }
   return out;
