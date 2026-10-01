@@ -13,6 +13,7 @@ import { loadFeatureReport } from '@/services/factory/featureReportData';
 import { withDuplicateFact } from '@/services/objects/duplicateCheck';
 import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordHref } from '@/services/objects/recordHref';
+import { withReferenceFact } from '@/services/objects/referenceRead';
 import { relatedOf, relatedWrites } from '@/services/objects/related';
 import { readPageForOrg } from '@/services/PluginService';
 
@@ -147,7 +148,7 @@ export default async function WorkspaceReportPage(props: {
   // The three lines, with the record's own page as their base — the same
   // read the API, the pane and the chat draw (`services/objects/recordStatus.ts`).
   const status = report
-    ? await withDuplicateFact(orgId, featureStatusOf(report, { objectType: manifest.report.subject, href: await recordHref(orgId, { objectType: manifest.report.subject, id: recordId }) }, now))
+    ? await withReferenceFact(orgId, await withDuplicateFact(orgId, featureStatusOf(report, { objectType: manifest.report.subject, href: await recordHref(orgId, { objectType: manifest.report.subject, id: recordId }) }, now)))
     : undefined;
   // The record's version closes the metadata line, and carries the page's
   // re-read while anything runs (one chip, not a History row and a live row).

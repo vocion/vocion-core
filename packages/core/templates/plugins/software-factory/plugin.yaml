@@ -235,7 +235,15 @@ name: Software factory
 #   writes "Live check could not reach the change: <reason>". A release is
 #   verified when the change was seen live, not on an HTTP 200; an
 #   environment's `liveSetup` says how its QA account's state is prepared.
-version: 2.39.0
+#
+# 2.40.0 — the product is read from the person's words (2026-10-01, #294:
+#   asked about Stamp's document page, filed under another product, refused
+#   for want of a repo). `request` declares `x-reference-read` on `product`:
+#   at intake a model reads the person's messages against every product's
+#   name, names it goes by, tagline and new `aliases` field, and a confident
+#   read that disagrees with the filing wins, done for you with Undo, in one
+#   line on the request.
+version: 2.40.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

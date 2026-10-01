@@ -27,6 +27,8 @@ export const FEATURES = {
   FEEDBACK_DEDUPE: 'feedback.dedupe',
   /** Whether a record just filed repeats one on file (`services/objects/duplicateCheck.ts`). */
   RECORD_DUPLICATE: 'record.duplicate',
+  /** Which record a person's words name, read when a record is filed (`services/objects/referenceRead.ts`). */
+  RECORD_REFERENCE: 'record.reference',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
   /**

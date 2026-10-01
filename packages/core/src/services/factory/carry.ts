@@ -697,7 +697,13 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   if (work.tasks.length > 0 || work.waiting) {
     return skip(id, 'work already exists for it');
   }
-  const decision = intakeDecision({ meta: request.meta, origin: { conversationId: typeof payload.conversationId === 'number' ? payload.conversationId : null, byPerson: payload.byPerson === true } });
+  // THE PRODUCT IS READ, NOT GUESSED (2026-10-01, #294: asked about Stamp's
+  // document page, filed under Slate). A model reads the person's words
+  // against the records the type names (`x-reference-read`); a confident read
+  // that disagrees wins, done for you with Undo, before anything is built.
+  const reread = await correctReference(orgId, request, payload);
+  const filed = reread ?? request;
+  const decision = intakeDecision({ meta: filed.meta, origin: { conversationId: typeof payload.conversationId === 'number' ? payload.conversationId : null, byPerson: payload.byPerson === true } });
   if (decision.do === 'skip') {
     return skip(id, `left to triage: ${decision.why}`);
   }
@@ -710,7 +716,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   let readiness: BuildReadiness | null = null;
   // Who filed it, kept on the mark, so a retry by the sweep runs as the same person.
   const from: IntakeMark['from'] = { conversationId: typeof payload.conversationId === 'number' ? payload.conversationId : null, byPerson: payload.byPerson === true, actor: typeof payload.actor === 'string' ? payload.actor : null };
-  const mark = (m: Omit<IntakeMark, 'tries' | 'from'>) => markIntake(orgId, request, { ...m, from });
+  const mark = (m: Omit<IntakeMark, 'tries' | 'from'>) => markIntake(orgId, filed, { ...m, from });
   // A PERSON'S REQUEST BUILDS BY DEFAULT (Chris, 2026-09-30: "do i have to
   // say 'file it and build it'? Should it not get intent? Should that not be
   // the default assumption for anything that isn't high risk?"). Asking for it
@@ -724,7 +730,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   const person = payload.byPerson === true ? await filingPerson(orgId, conversationId, payload.actor) : null;
   if (person) {
     const held = conversationId !== null
-      ? await personSaidTo(orgId, conversationId, `hold request #${id} "${request.title}": only file it, and do not start building it yet`).catch(() => null)
+      ? await personSaidTo(orgId, conversationId, `hold request #${id} "${filed.title}": only file it, and do not start building it yet`).catch(() => null)
       : null;
     if (held) {
       await updateRecovery(orgId, id, s => logLine(s, 'Filed and held, as you asked: the Build card waits for you.', at));
@@ -732,7 +738,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
     } else {
       readiness = await readinessOf(orgId, id, plan?.id ?? null);
       if (!readiness.ready) {
-        return await routeUnready(orgId, request, readiness, { at, plan: !!plan, by: person, mayPlan: true, from });
+        return await routeUnready(orgId, filed, readiness, { at, plan: !!plan, by: person, mayPlan: true, from });
       }
       const started = await proposeAsPerson(orgId, person, conversationId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), trigger: 'request', reason: 'A person asked for it.' }, {
         confidence: 0.9,
@@ -757,7 +763,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   if (!readiness.ready) {
     // A person's request was answered above; what reaches here is the
     // factory's own start or a card, so planning is only for a fix it starts.
-    return await routeUnready(orgId, request, readiness, { at, plan: !!plan, by: null, mayPlan: decision.do === 'start', from });
+    return await routeUnready(orgId, filed, readiness, { at, plan: !!plan, by: null, mayPlan: decision.do === 'start', from });
   }
   if (decision.do === 'start') {
     const out = await propose(orgId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), trigger: 'request', reason: `Started on its own: ${decision.why}.` }, {
@@ -785,13 +791,36 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
     await mark({ at, outcome: 'refused', why: out.error });
     return { requestId: id, did: 'card:refused', line };
   }
-  if (!request.meta.recommendationState) {
+  if (!filed.meta.recommendationState) {
     await writeMeta(orgId, id, { recommendationState: 'proposed', recommendedAt: at, recommendedOutcome: 'build' });
   }
   const line = `Filed; the Build card is waiting on a person (action #${out.res.runId}).`;
   await updateRecovery(orgId, id, s => logLine(s, line, at));
   await mark({ at, outcome: 'card' });
   return { requestId: id, did: `card:${out.res.status}`, line };
+}
+
+/**
+ * The reference read on a filed request (`services/objects/referenceRead.ts`):
+ * when it corrected a field, the line goes on the request's account and the
+ * request is read fresh. Null when nothing changed.
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param payload - Where it was filed from.
+ */
+async function correctReference(orgId: string, request: FactoryRecord, payload: Partial<ObjectCreatedPayload>): Promise<FactoryRecord | null> {
+  const { readReference } = await import('@/services/objects/referenceRead');
+  const read = await readReference(orgId, payload);
+  if (!read.line) {
+    return null;
+  }
+  const line = read.line;
+  await updateRecovery(orgId, request.id, s => logLine(s, line, new Date().toISOString(), read.runId));
+  if (!read.corrected) {
+    return null;
+  }
+  const { readRecord } = await lib();
+  return readRecord(orgId, request.id);
 }
 
 /** What intake did with a request last, typed, so the sweep can carry on one it could not start. */
@@ -1547,6 +1576,9 @@ async function carryStalledIntake(orgId: string, request: FactoryRecord, planned
   const from = mark?.from ?? { conversationId: typeof origin?.conversationId === 'number' ? origin.conversationId : null, byPerson: typeof origin?.userId === 'string', actor: typeof origin?.userId === 'string' ? origin.userId : null };
   const payload = { objectId: id, objectType: (await factoryTypes(orgId)).request, conversationId: from.conversationId, byPerson: from.byPerson, ...(from.actor ? { actor: from.actor } : {}) } as Partial<ObjectCreatedPayload>;
   if (mark?.outcome === 'blocked' && blocker && typeof blocker.cause === 'string') {
+    // Filed under the wrong record is the commonest reason for "no repo":
+    // the person's words are read again before the records are.
+    await correctReference(orgId, request, payload);
     const readiness = await readinessOf(orgId, id, null);
     if (!readiness.ready && readiness.cause === blocker.cause) {
       return { requestId: id, did: 'still blocked', line: null };

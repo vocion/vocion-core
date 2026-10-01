@@ -41,5 +41,6 @@ export async function loadRecordStatus(orgId: string, id: number, now: Date = ne
   }
   // A duplicate reads as one (`x-duplicate-check`): the record it repeats, with Undo.
   const { withDuplicateFact } = await import('./duplicateCheck');
-  return { ok: true, status: await withDuplicateFact(orgId, featureStatusOf(report, { objectType, href: recordHrefFrom(links, { objectType, id }) }, now)) };
+  const { withReferenceFact } = await import('./referenceRead');
+  return { ok: true, status: await withReferenceFact(orgId, await withDuplicateFact(orgId, featureStatusOf(report, { objectType, href: recordHrefFrom(links, { objectType, id }) }, now))) };
 }

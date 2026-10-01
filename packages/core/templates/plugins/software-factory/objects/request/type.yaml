@@ -37,6 +37,16 @@ schema:
   # at the bar, links it with `duplicateOf`, done for you with Undo; the
   # intake starts nothing for it. Below the bar nothing is written or said.
   x-duplicate-check: {field: duplicateOf, within: [product], compare: [outcome, story, body], bar: 0.8, settledDays: 14}
+  # THE PRODUCT IS READ, NOT GUESSED (core: services/objects/referenceRead.ts).
+  # 2026-10-01, #294: asked "On Stamp's document page, show how many pages…",
+  # the PM filed it under another product without looking products up, and
+  # the build was refused because that product has no repo. Now, when a
+  # request is filed, a model reads the person's own words against every
+  # product (its name, names it goes by, tagline, aliases) and returns which
+  # one they meant, with a confidence and their words. Sure at the bar and
+  # different from the filing, the product is corrected, done for you with
+  # Undo, and the request says so in one line. Title and story are not edited.
+  x-reference-read: {field: product, type: product, key: slug, describe: [name, launchName, workingName, aliases, tagline], bar: 0.8}
   # WHO ANSWERS ON ITS PAGE (core: services/agents/router.ts pageOwnerDecision).
   # A chat opened on a request's page is the product manager's, whatever the
   # message's keywords score, unless the person names another agent

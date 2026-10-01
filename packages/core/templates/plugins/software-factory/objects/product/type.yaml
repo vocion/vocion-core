@@ -62,6 +62,16 @@ schema:
       x-display: {label: Working name, group: Product}
       type: string
       description: The name used while building, before launch. Kept beside `launchName` so a repository or a file named after the working name still resolves to this product.
+    aliases:
+      x-display: {label: Also called, group: Product}
+      type: array
+      items: {type: string}
+      description: >-
+        Other names people use for it in their own words: a short form, an old
+        name, its domain ("Stamp", "Send", "stampsend.com"). The request
+        intake reads a person's words against these, with the name and the
+        tagline, to know which product they meant (`x-reference-read` on
+        request).
     launchName:
       x-display: {label: Launch name, group: Product}
       type: string

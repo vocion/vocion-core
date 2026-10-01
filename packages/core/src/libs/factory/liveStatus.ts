@@ -110,6 +110,12 @@ export type RecordStatus = {
     confidence: number | null;
     undoRunId: number | null;
   } | null;
+  /**
+   * A reference the person's words corrected when it was filed
+   * (`x-reference-read`, `services/objects/referenceRead.ts`): the line it
+   * says ("Filed under StampSend, not Slate: you said …") and its Undo.
+   */
+  corrected?: { line: string; undoRunId: number } | null;
 };
 
 /** A worker run, narrowed to what the Now line reads. */

@@ -210,6 +210,13 @@ export function WorkStatus({ status, youAction, className, hideStage }: { status
         </p>
       )}
       {status.duplicate && <DuplicateLine status={{ ...status, duplicate: status.duplicate }} />}
+      {/* A reference the person's words corrected at filing, said once, with Undo. */}
+      {status.corrected && (
+        <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-muted-foreground" data-testid="work-status-corrected">
+          <span>{status.corrected.line}</span>
+          <UndoRun recordId={status.record.id} runId={status.corrected.undoRunId} testId="work-status-corrected-undo" />
+        </p>
+      )}
       <div className={row}>
         <span className={key}>You</span>
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" data-testid="work-status-you">
