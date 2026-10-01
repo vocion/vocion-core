@@ -438,8 +438,14 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
   const failures = opts.failures?.length
     ? [...run.failures, ...opts.failures.map(f => ({ ...f, at: now.toISOString() }))].slice(-MAX_FAILURES)
     : run.failures;
+  // A PERSON'S CANCEL IS FINAL (2026-10-01, RUN-449: cancelled from the
+  // kill switch, the worker reported it as a failure, and recovery built
+  // FE-308 twice more after the next deploy). A run that was asked to stop
+  // settles cancelled, as `completeWorkerRun` does, and is announced the
+  // same way, so nothing that heals failures picks it up.
+  const cancelled = run.stopRequested;
   const [updated] = await db.update(workerRunSchema).set({
-    status: 'failed',
+    status: cancelled ? 'cancelled' : 'failed',
     error: opts.error,
     failures,
     // What a failed run kept — its draft PR, and the links to its transcript
@@ -453,7 +459,7 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
   // A failed attempt still cost money, and the record's actual is the honest
   // sum over every attempt it took.
   await writeBackRunCost(updated!, now);
-  await announceEnded(updated!, 'worker_run.failed', opts.error);
+  await announceEnded(updated!, cancelled ? 'worker_run.completed' : 'worker_run.failed', opts.error);
   return updated!;
 }
 
