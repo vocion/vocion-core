@@ -155,8 +155,15 @@ function issueTool(ctx: RuntimeContext): StructuredToolInterface {
         }
         const event = await client.latestEvent(c, issue.data.id, args.environment ?? null);
         const latest = event.ok ? event.data : null;
+        // IS IT STILL HAPPENING, as facts, before anyone acts on it: when it
+        // was last seen against now, and the releases since (2026-10-01: a P1
+        // was filed for an outage a revert had fixed hours before).
+        const { stillHappening } = await import('@/libs/sentry/stillHappening');
+        const releases = issue.data.project ? await client.listReleases(c, issue.data.project, 10) : null;
+        const now = stillHappening(issue.data, releases?.ok ? releases.data : [], new Date());
         return JSON.stringify({
           ok: true,
+          stillHappening: now,
           issue: issue.data,
           latestEvent: latest
             ? {
@@ -166,7 +173,7 @@ function issueTool(ctx: RuntimeContext): StructuredToolInterface {
               }
             : null,
           latestEventError: event.ok ? null : event.message,
-          note: 'Map each app frame to the repository: drop the container root (e.g. /app/) and read a built path (dist/…js) back to its source (src/…ts). Compare firstRelease and firstSeen with what was deployed, and when, to say whether a deploy brought it.',
+          note: `${now.line} Map each app frame to the repository: drop the container root (e.g. /app/) and read a built path (dist/…js) back to its source (src/…ts). Compare firstRelease and firstSeen with what was deployed, and when, to say whether a deploy brought it.`,
         });
       } catch (err) {
         return JSON.stringify({ ok: false, error: 'sentry_error', message: (err as Error).message });
@@ -174,7 +181,7 @@ function issueTool(ctx: RuntimeContext): StructuredToolInterface {
     },
     {
       name: SENTRY_ISSUE_TOOL,
-      description: 'One Sentry issue, read live: its short id, title, culprit, events, first and last seen, the release it was first and last seen in, and its link; its latest event (exception type and message, stack frames with file, line and function, the app\'s own frames listed, breadcrumbs, the request\'s method, URL and status, tags, release). Read it before saying why production is failing.',
+      description: 'One Sentry issue, read live: whether it is still happening (`stillHappening`: last seen against now, minutes quiet, and the releases since — read it before acting), its short id, title, culprit, events, first and last seen, the release it was first and last seen in, and its link; its latest event (exception type and message, stack frames with file, line and function, the app\'s own frames listed, breadcrumbs, the request\'s method, URL and status, tags, release). Read it before saying why production is failing.',
       schema: z.object({
         id: z.string().describe('The issue\'s short id (NW-API-3) or numeric id, from sentry_issues or a Sentry link.'),
         environment: z.string().optional().describe('Read the latest event from this environment, e.g. production.'),

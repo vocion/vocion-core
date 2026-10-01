@@ -37,7 +37,7 @@ describe('the production-watch plugin', () => {
   it('stands alone: the watch runs the core job on a schedule, the seat holds the Sentry reads, a person hears once per incident', () => {
     const ws = loadWorkspace(workspace('production-watch'));
 
-    expect(ws.sha).toContain('+production-watch@0.2.0');
+    expect(ws.sha).toContain('+production-watch@0.3.0');
     expect(ws.automations.find(a => a.slug === 'error-watch')).toMatchObject({ status: 'active', when: { schedule: '*/10 * * * *' }, do: { job: 'error-watch', input: { recordType: 'incident', events: { opened: 'incident.opened', updated: 'incident.updated' }, threshold: 20, windowMinutes: 10 } } });
     expect(ws.agents.find(a => a.slug === 'on-call-engineer')?.harness?.grantTools).toEqual(['sentry_issues', 'sentry_issue']);
     expect(ws.notifications).toEqual([expect.objectContaining({ kind: 'incident', event: 'incident.opened', dedupe: 'incident:{incidentId}', source: 'plugin:production-watch' })]);
@@ -78,5 +78,24 @@ describe('the Incidents page', () => {
     const ws = loadWorkspace(workspace('production-watch'));
 
     expect(ws.objectTypes.find(t => t.slug === 'incident')?.code).toBe('INC');
+  });
+});
+
+describe('an error answered as it stands now', () => {
+  it('an incident the on-call engineer opens is done for you, with Undo', () => {
+    const ws = loadWorkspace(workspace('production-watch'));
+
+    expect(pluginContents(loadPlugin('production-watch')).hasTrust).toBe(true);
+    expect(ws.trust?.rules.find(r => r.action === 'objects.propose_candidate.incident')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', autoApproveAbove: 0.5 });
+  });
+
+  it('the debugging skill asks whether it is still happening before any move', () => {
+    const ws = loadWorkspace(workspace('production-watch'));
+    const skill = ws.skills.find(s => s.slug === 'debug-a-production-error');
+    const body = skill?.body ?? '';
+
+    expect(body.indexOf('## 3. Is it still happening?')).toBeGreaterThan(0);
+    expect(body.indexOf('## 3. Is it still happening?')).toBeLessThan(body.indexOf('## 5. Decide and move (only while it is still happening)'));
+    expect(body).toContain('File no request, open no incident, raise no alert');
   });
 });

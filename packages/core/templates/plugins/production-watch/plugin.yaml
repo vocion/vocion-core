@@ -15,9 +15,15 @@
 #   product watch turned on, but it has no visible pages. Should it?"). Open
 #   incidents first, then the latest resolved; empty, it says what the watch
 #   watches and when it last read. Incidents read INC-<id>.
+# 0.3.0 — an error is answered as it stands now (2026-10-01: a P1, an
+#   incident card and a P1 alert for an outage a revert had fixed hours
+#   before). debug-a-production-error reads whether it is still happening
+#   first (`sentry_issue`'s `stillHappening`); a stopped one gets a summary and
+#   at most one suggested follow-up. An incident the on-call engineer opens is
+#   done for you, with Undo (trust.yaml), not a card in Review.
 slug: production-watch
 name: Production Watch
-version: 0.2.0
+version: 0.3.0
 description: Production errors from Sentry become incidents — opened when an issue is new and busy or spiking, each with its cause (a deploy, the code, or unknown) read from the evidence — and an on-call engineer who reads the stack and says what to do; a person hears once per incident.
 depends: []
 surfaces: []
