@@ -1,23 +1,18 @@
 /**
- * WHAT THE PERSON MEANT, AND HOW THE TURN ENDED — read by a model, never by
- * matching words (Chris, 2026-09-29: "we should be using LLM to determine or
- * route based on intent. NEVER HARD CODE WORD MATCHES … ANYWHERE.").
+ * WHAT THE PERSON MEANT — read by a model, never by matching words (Chris,
+ * 2026-09-29: "we should be using LLM to determine or route based on intent.
+ * NEVER HARD CODE WORD MATCHES … ANYWHERE.").
  *
- * The turn loop used to decide from regexes whether a message asked for a
- * change ("expand the scope" matched no verb, conversation 382), whether a
- * reply was only a promise, claimed a write, or wrote a tool call as text.
- * Each of those is a question about meaning. Here each is asked of a small
- * model once, bound to one tool whose schema is the typed answer, and the
- * loop routes on the fields:
+ * Two readings, each one call to a small model bound to one tool whose
+ * schema is the typed answer:
  *
- *   - `readIntent` — before the turn runs: one of answer, change, file,
+ *   - `readIntent` — once, before the turn runs: answer, change, file,
  *     decide or work. An answer turn is read-only (`turnScope.ts`).
- *   - `judgeAnswer` — when a pass ends: did it answer, or end on a promise;
- *     does it say it did something the tool log does not show; did it write
- *     a call out as text; did it stop mid-thought?
+ *   - `saidToDecide` — before a decide tool acts on one item for a person:
+ *     did their own words say to take exactly that decision?
  *
- * A reader that fails returns "no signal" (every flag false), so the turn is
- * never held up by its own judge; the log says it failed.
+ * A reader that fails returns "no signal", so the turn is never held up by
+ * its own judge, and a failed intent read never makes a turn read-only.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { z } from 'zod';
