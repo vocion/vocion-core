@@ -59,6 +59,7 @@ import { z } from 'zod';
 import { resolveIncludeTarget } from '@/libs/actions/objects-propose-candidate';
 import { gatesOf, sourceKey } from '@/libs/gates/handoffGate';
 import { noteTurnRead, readsThisTurn } from '@/services/gates/turnReads';
+import { readBeforeFiling, referenceReadOf } from '@/services/objects/referenceRead';
 import { renderWikiPageBody } from '@/services/wiki/WikiService';
 import { persistToolCall } from '../toolCallRecord';
 import { filingOnPersonsWord, runProposal } from './proposeAction';
@@ -276,10 +277,13 @@ function markRequired(properties: Record<string, JsonSchema>, required: Set<stri
  * @param type.description - Its description.
  * @param type.schema - Its stored schema (gates inside, as `x-gates`).
  * @param references - Record slugs by type slug, for `x-display.to` fields.
+ * @param names - What each of those records is called, by type then slug, so a filer reads
+ *   "send (StampSend, also Stamp)" rather than guessing from a bare slug.
  */
 export function filingTypeOf(
   type: { slug: string; label: string; description?: string | null; schema: JsonSchema | null },
   references: Record<string, string[]> = {},
+  names: Record<string, Record<string, string>> = {},
 ): FilingType | null {
   const cfg = agentFileConfig(type.schema);
   if (!cfg) {
@@ -297,7 +301,8 @@ export function filingTypeOf(
     const slugs = to ? (references[to] ?? []) : [];
     if (to && slugs.length > 0 && slugs.length <= MAX_REFERENCE_ENUM) {
       prop.enum = slugs;
-      prop.description = `${typeof prop.description === 'string' ? `${prop.description} ` : ''}One of this workspace's ${to} records, by slug: ${slugs.join(', ')}.`;
+      const named = slugs.map(v => (names[to]?.[v] ? `${v} (${names[to][v]})` : v));
+      prop.description = `${typeof prop.description === 'string' ? `${prop.description} ` : ''}One of this workspace's ${to} records, by slug: ${named.join(', ')}.`;
     }
     properties[name] = prop;
   }
@@ -542,6 +547,41 @@ export async function wrongFilingForRun(ctx: RuntimeContext, toolName: string): 
   return `Not filed: this run ("${slug}") exists to call ${required}, and ${toolName} files a different record. File what this run is for with ${required}; if you found separate work, say so in your report and a person decides.`;
 }
 
+/** The filings told, this turn, that the person meant another record: told once, then filed as written. */
+const toldThisTurn = new WeakMap<RuntimeContext, Set<string>>();
+
+/**
+ * BORN UNDER THE RIGHT RECORD (2026-10-01, run 2). FE-294 and FE-298 were
+ * filed under Slate when the person said "Stamp's document page"; the read
+ * after filing moved the product, but the story stayed "shared via Slate".
+ * So before the record is written, the type's reference read
+ * (`x-reference-read`, `services/objects/referenceRead.ts`) reads the person's
+ * words against the records the field can name. When it confidently names
+ * another one, nothing is filed yet and the filer is told which, with the
+ * person's words, so it writes the record (title and story included) for the
+ * right one. Told once per turn: a second call files as written, and the read
+ * after filing stays the backstop. The filer's words are never edited.
+ * @param ctx - The turn.
+ * @param spec - The filing type.
+ * @param fields - The fields as they will be filed.
+ * @returns What to tell the filer, or undefined to file.
+ */
+async function referenceToCorrect(ctx: RuntimeContext, spec: FilingType, fields: Record<string, unknown>): Promise<string | undefined> {
+  const told = toldThisTurn.get(ctx) ?? new Set<string>();
+  if (told.has(spec.toolName)) {
+    return undefined;
+  }
+  const read = await readBeforeFiling(ctx.orgId, { schema: spec.schema, fields, conversationId: ctx.conversationId });
+  if (!read) {
+    return undefined;
+  }
+  told.add(spec.toolName);
+  toldThisTurn.set(ctx, told);
+  const from = read.from ? ` not ${read.fromTitle ?? read.from} (${read.from}),` : '';
+  const said = read.quote ? ` They said: "${read.quote}".` : '';
+  return `Not filed yet: the person's words name ${read.toTitle} (${read.field}: ${read.to}),${from} as the one this is for.${said} Call ${spec.toolName} again with ${read.field}: ${read.to}, and write the title and story for ${read.toTitle}. If you are sure they meant another, call it again as it was and it is filed.`;
+}
+
 /**
  * The typed filing tool for one type.
  * @param ctx - The turn.
@@ -558,6 +598,10 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
         return offJob;
       }
       const { title, fields } = filingInputOf(spec, args);
+      const meant = await referenceToCorrect(ctx, spec, fields);
+      if (meant) {
+        return meant;
+      }
       const toCheck = await capabilitiesToCheck(ctx, spec, fields);
       // On the person's word it files anyway, and what already ships goes
       // back as advice on the filed record (`filingOnPersonsWord`).
@@ -627,8 +671,9 @@ export async function loadFilingTypes(orgId: string, objectTypeSlugs: readonly s
   if (opted.length === 0) {
     return [];
   }
-  const references = await recordSlugsByType(orgId, [...new Set(opted.flatMap(r => referenceTypesOf(r.schema)))]);
-  return opted.map(r => filingTypeOf(r, references)).filter((t): t is FilingType => t !== null);
+  const describe = [...new Set(opted.flatMap(r => referenceReadOf(r.schema)?.describe ?? []))];
+  const { slugs, names } = await recordSlugsByType(orgId, [...new Set(opted.flatMap(r => referenceTypesOf(r.schema)))], describe);
+  return opted.map(r => filingTypeOf(r, slugs, names)).filter((t): t is FilingType => t !== null);
 }
 
 /**
@@ -637,16 +682,17 @@ export async function loadFilingTypes(orgId: string, objectTypeSlugs: readonly s
  * or no longer, things a record can belong to.
  * @param orgId - The workspace.
  * @param typeSlugs - The referenced types.
+ * @param describe - The fields that name a record (its type's reference read describes it by), beside its title.
  */
-async function recordSlugsByType(orgId: string, typeSlugs: string[]): Promise<Record<string, string[]>> {
+async function recordSlugsByType(orgId: string, typeSlugs: string[], describe: string[] = []): Promise<{ slugs: Record<string, string[]>; names: Record<string, Record<string, string>> }> {
   if (typeSlugs.length === 0) {
-    return {};
+    return { slugs: {}, names: {} };
   }
   const { and, eq, inArray, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
   const rows = await db
-    .select({ type: businessObjectTypeSchema.slug, slug: sql<string | null>`${businessObjectSchema.metadata}->>'slug'` })
+    .select({ type: businessObjectTypeSchema.slug, slug: sql<string | null>`${businessObjectSchema.metadata}->>'slug'`, title: businessObjectSchema.title, metadata: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(
@@ -656,16 +702,54 @@ async function recordSlugsByType(orgId: string, typeSlugs: string[]): Promise<Re
     ))
     .limit(1000);
   const out: Record<string, string[]> = {};
+  const names: Record<string, Record<string, string>> = {};
   for (const row of rows) {
     if (typeof row.slug === 'string' && row.slug.trim()) {
       const list = (out[row.type] ??= []);
       if (!list.includes(row.slug)) {
         list.push(row.slug);
+        const called = namesOf(row.slug, row.title, (row.metadata ?? {}) as Record<string, unknown>, describe);
+        if (called) {
+          (names[row.type] ??= {})[row.slug] = called;
+        }
       }
     }
   }
   for (const list of Object.values(out)) {
     list.sort();
   }
-  return out;
+  return { slugs: out, names };
+}
+
+/** A name longer than this is a description, not something a person calls it. */
+const MAX_NAME = 60;
+
+/**
+ * What a record is called, beside its slug: its title, then the short names
+ * its type's reference read describes it by (aliases, a working name),
+ * each once. Null when it is called only its slug.
+ * @param slug - The record's slug.
+ * @param title - Its title.
+ * @param meta - Its fields.
+ * @param describe - The fields that name it.
+ */
+export function namesOf(slug: string, title: string, meta: Record<string, unknown>, describe: readonly string[]): string | null {
+  const seen = new Set([slug.toLowerCase()]);
+  const out: string[] = [];
+  const add = (v: unknown) => {
+    if (typeof v === 'string' && v.trim() && v.trim().length <= MAX_NAME && !seen.has(v.trim().toLowerCase())) {
+      seen.add(v.trim().toLowerCase());
+      out.push(v.trim());
+    }
+  };
+  add(title);
+  for (const field of describe) {
+    const v = meta[field];
+    (Array.isArray(v) ? v : [v]).forEach(add);
+  }
+  if (out.length === 0) {
+    return null;
+  }
+  const [first, ...rest] = out;
+  return rest.length > 0 ? `${first}, also ${rest.join(', ')}` : first!;
 }

@@ -275,6 +275,73 @@ export async function readReference(orgId: string, payload: { objectId?: unknown
   }
 }
 
+/** What the read before filing found: the person meant another record than the one about to be filed. */
+export type FilingReference = {
+  field: string;
+  /** The value the filer named, and its record's title. */
+  from: string | null;
+  fromTitle: string | null;
+  /** The value the person's words name, and its record's title. */
+  to: string;
+  toTitle: string;
+  confidence: number;
+  quote: string | null;
+};
+
+/**
+ * THE READ BEFORE FILING (2026-10-01, run 2): FE-294 and FE-298 were both
+ * filed under Slate and corrected after the fact, but the PM's story was
+ * already written for Slate ("As someone who shared a document via Slate").
+ * So the filing tool asks the same question before anything is written: when
+ * the person's words confidently name another record than the filer's value,
+ * the filer is told before the record exists and writes it, story and all,
+ * under the right one. Null when the type asks for no read, the words do not
+ * settle it, the read agrees, it is below the bar, or anything fails: the
+ * filing goes ahead as written, and the after-the-fact read stays the backstop.
+ * @param orgId - Tenant.
+ * @param input - The filing.
+ * @param input.schema - The filed type's schema (its `x-reference-read`).
+ * @param input.fields - The fields as they will be filed.
+ * @param input.conversationId - The conversation it is filed from.
+ * @param opts - Options.
+ * @param opts.model - The judge's model, injected in tests.
+ * @param opts.words - The person's words, injected in tests.
+ */
+export async function readBeforeFiling(orgId: string, input: { schema: unknown; fields: Meta; conversationId: number | null | undefined }, opts: { model?: Model; words?: string[] } = {}): Promise<FilingReference | null> {
+  try {
+    const spec = referenceReadOf(input.schema);
+    if (!spec) {
+      return null;
+    }
+    const words = opts.words ?? (typeof input.conversationId === 'number' ? await personWords(orgId, input.conversationId) : []);
+    if (words.length === 0) {
+      return null;
+    }
+    const { label, candidates } = await candidatesFor(orgId, spec);
+    if (candidates.length < 2) {
+      return null;
+    }
+    const verdict = await judgeReference({ orgId, label, words, candidates }, opts.model);
+    const match = verdict?.match ? candidates.find(c => c.value === verdict.match) ?? null : null;
+    const filed = text(input.fields[spec.field]);
+    if (!verdict || !match || match.value === filed || verdict.confidence < spec.bar) {
+      return null;
+    }
+    return {
+      field: spec.field,
+      from: filed,
+      fromTitle: candidates.find(c => c.value === filed)?.title ?? null,
+      to: match.value,
+      toTitle: match.title,
+      confidence: verdict.confidence,
+      quote: text(verdict.quote),
+    };
+  } catch (err) {
+    console.warn('reference read before filing failed; filing as written', { orgId, message: (err as Error).message });
+    return null;
+  }
+}
+
 async function personWords(orgId: string, conversationId: number): Promise<string[]> {
   const { and, desc, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
