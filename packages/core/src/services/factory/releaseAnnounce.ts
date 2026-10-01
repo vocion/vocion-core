@@ -1,10 +1,11 @@
 import type { ChatImage } from '@/libs/surfaces/types';
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { slackToken } from '@/libs/notifications/slack';
 import { isExternalHttpUrl } from '@/libs/tools/artifacts/url';
 import { announcementText } from '@/libs/workspace/releaseFeed';
-import { artifactSchema, businessObjectSchema, chatChannelBindingSchema } from '@/models/Schema';
+import { artifactSchema, businessObjectSchema } from '@/models/Schema';
+import { boundSlackChannel } from '@/services/chat/boundChannel';
 
 /**
  * PUBLISHING A RELEASE'S ANNOUNCEMENT, WITH ITS PICTURE (backlog 043).
@@ -38,20 +39,13 @@ type Binding = { channelId: string; teamId: string | null };
 /**
  * The Slack channel this workspace's announcements go to: the deployment
  * holds a Slack app (`SLACK_BOT_TOKEN`) and the workspace has bound a
- * channel. The first bound channel, the one notifications post to.
+ * channel. The first bound channel, the one notifications post to — one
+ * lookup shared with `slack.post_message` (`services/chat/boundChannel.ts`).
  * @param orgId - The workspace.
  */
 export async function slackAnnounceChannel(orgId: string): Promise<Binding | null> {
-  if (!slackToken()) {
-    return null;
-  }
-  const [binding] = await db
-    .select({ channelId: chatChannelBindingSchema.channelId, teamId: chatChannelBindingSchema.teamId })
-    .from(chatChannelBindingSchema)
-    .where(and(eq(chatChannelBindingSchema.orgId, orgId), eq(chatChannelBindingSchema.surface, 'slack'), ne(chatChannelBindingSchema.channelId, '*')))
-    .orderBy(asc(chatChannelBindingSchema.id))
-    .limit(1);
-  return binding ? { channelId: binding.channelId, teamId: binding.teamId ?? null } : null;
+  const channel = await boundSlackChannel(orgId);
+  return channel ? { channelId: channel.channelId, teamId: channel.teamId } : null;
 }
 
 /**

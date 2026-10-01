@@ -25,6 +25,7 @@ import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
 import { restRequestAction } from './rest';
+import { slackPostMessageAction } from './slack-post-message';
 import { teamHireAgentAction } from './team-hire-agent';
 import { wikiWritePageAction } from './wiki-write-page';
 import { workspaceWriteOperatingIntentAction } from './workspace-operating-intent';
@@ -50,6 +51,9 @@ registerAction(hubspotUpdateAction);
 // A write to any `rest` source through an endpoint it declares — external,
 // not reversible, keyed per endpoint on the ladder (`rest.request.<source>.<action>`).
 registerAction(restRequestAction);
+// A message to a Slack channel the workspace bound — external, Undo deletes
+// the post, the words editable on the card (`libs/actions/slack-post-message.ts`).
+registerAction(slackPostMessageAction);
 registerAction(discoveryReviewProposalAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);

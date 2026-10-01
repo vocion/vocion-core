@@ -71,11 +71,17 @@ export function stepOf(contentId: string | undefined): number | undefined {
 /**
  * The copy a content item currently carries, as the record stores it.
  *
- * Only kinds that HAVE copy a reviewer approves answer here — an email does, a
- * document preview and an image do not, and recording an empty body for those
+ * Only kinds that HAVE copy a reviewer approves answer here — an email and a
+ * message do, a document preview and an image do not, and recording an empty body for those
  * would put an approved revision on the audit with nothing in it.
  * @param item - The card's content item.
  */
 export function copyOf(item: ReviewContent): { subject?: string; body: string } | null {
-  return item.kind === 'email' ? { subject: item.subject, body: item.body } : null;
+  if (item.kind === 'email') {
+    return { subject: item.subject, body: item.body };
+  }
+  if (item.kind === 'message') {
+    return { body: item.body };
+  }
+  return null;
 }

@@ -95,6 +95,9 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   ...SELF_UPDATE_RISK,
   'hubspot.update': 'low',
   'gmail.send': 'medium',
+  // A post to a channel the workspace bound: read by people who did not ask,
+  // but taken back by Undo. Medium, beside the email.
+  'slack.post_message': 'medium',
   'personalization.enroll': 'medium',
   'discovery.review_proposal': 'low',
   'objects.propose_candidate': 'medium',

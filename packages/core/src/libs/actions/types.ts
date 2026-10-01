@@ -186,6 +186,20 @@ export type ReviewContent
   }
   | {
     /**
+     * A message a person will read where it is posted — a Slack post, a
+     * channel notice. Editable (edit-then-approve), like `email`, because
+     * the words are copy a reviewer vouches for; unlike `email` it has no
+     * subject line and renders as the plain text the channel will show.
+     */
+    kind: 'message';
+    id: string;
+    label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
+    body: string;
+  }
+  | {
+    /**
      * A block of text the reviewer reads as written — a recipe of commands,
      * a release note, a config excerpt. Read-only: nothing here is copy a
      * person vouches for line by line, so it never joins the walk.

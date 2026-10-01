@@ -187,6 +187,32 @@ is recorded, so a reply to it resolves without a history scope. The channel
 must already be bound to an agent in the caller's org; this authorises nothing
 in Slack.
 
+## Posting from a proposal: `slack.post_message`
+
+An agent that wants to tell a channel something proposes it, the way it
+proposes an email: `propose_action` with `action_id: slack.post_message` and
+`action_input: { text, title?, channelId?, about? }`. The card on Needs you
+shows the words as a message a reviewer can edit before approving; approving
+posts them to the channel under the app's name or the channel's persona;
+**Undo** deletes the post.
+
+- **Where it goes.** `channelId` names a channel **this workspace bound**
+  (step 4). Left out, the post goes to the workspace's first bound channel —
+  the same one announcements and notifications use. A channel the workspace
+  did not bind is not a target however it is named: the proposal is refused
+  at filing, with the binding step, rather than queued to fail on approval.
+- **One card per thing.** `about` is a stable reference to the record the
+  post is about (`project:…`). Two pending posts about the same thing in the
+  same channel collapse into one card; a post with no `about` stands alone.
+- **On the ladder.** `medium` by default (`DEFAULT_RISK_TIER`), so it waits
+  for a person until a workspace's `trust.yaml` says otherwise:
+
+  ```yaml
+  - action: slack.post_message
+    rung: execute-with-approval
+    risk: high
+  ```
+
 ## What happens when the bot is invited to a channel
 
 `member_joined_channel` for the bot's own user id is the discovery signal, and Vocion answers it

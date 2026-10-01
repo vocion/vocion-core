@@ -11,7 +11,8 @@ import { RichEmailBody } from './RichEmailBody';
  * Content-kind renderers for the review surface — kinds register here the way
  * actions register presenters, so a new object type lands by registering a
  * renderer and the shell never changes. `email` reads as an email and is
- * editable (edit-then-approve); `document` renders as summary + preview +
+ * editable (edit-then-approve); `message` is a post's plain text, editable the
+ * same way; `document` renders as summary + preview +
  * open-side-by-side with a version stamp so nobody decides on a stale render.
  *
  * Each item now owns a TAB of its own, so a renderer draws the pane and
@@ -186,6 +187,44 @@ function EmailContent({ item, edit, onEdit, disabled, changed }: ContentRenderPr
   );
 }
 
+/**
+ * A message as the channel will show it — plain text, kept line for line. At
+ * rest it reads as the post; with an editor it is the post's text, growing to
+ * what it holds, with no subject line and no field chrome (`patterns.md`).
+ * @param props - The item, the reviewer's working edit and the editor hooks.
+ * @param props.item - The `message` content item.
+ * @param props.edit - The reviewer's working copy, when editing.
+ * @param props.onEdit - Present when the shell lets this reviewer edit.
+ * @param props.disabled - Read-only while a decision is in flight.
+ * @param props.changed - True for a moment after a rewrite landed here.
+ */
+function MessageContent({ item, edit, onEdit, disabled, changed }: ContentRenderProps) {
+  if (item.kind !== 'message') {
+    return null;
+  }
+  const body = edit?.body ?? item.body;
+  return (
+    <div
+      data-changed={changed ? 'true' : undefined}
+      data-testid={`message-pane-${item.id}`}
+      className={cn('rounded-sm transition-colors duration-[2000ms]', changed && 'bg-brand-amber-tint duration-0')}
+    >
+      {!onEdit && <p className="mt-2 text-sm leading-relaxed whitespace-pre-line text-foreground/85">{body}</p>}
+      {onEdit && (
+        <div className="mt-1">
+          <AutoGrow
+            value={body}
+            onChange={next => onEdit({ body: next })}
+            className={`${inlineFieldClass} text-sm leading-relaxed`}
+            disabled={disabled}
+            label={`${item.label} body`}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocumentContent({ item }: ContentRenderProps) {
   if (item.kind !== 'document') {
     return null;
@@ -347,6 +386,7 @@ function StepsContent({ item }: ContentRenderProps) {
 }
 
 registerContentKind('email', EmailContent, { editable: true });
+registerContentKind('message', MessageContent, { editable: true });
 registerContentKind('text', TextContent);
 registerContentKind('steps', StepsContent);
 registerContentKind('document', DocumentContent);
