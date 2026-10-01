@@ -82,6 +82,7 @@ import { restTools } from './restDirect';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
+import { sentryTools } from './sentry';
 import { setVoiceTool } from './setVoice';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
@@ -200,6 +201,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only: a shipped release checked on the live product as the QA
     // account, and what QA saw written on the release and its features.
     ...checkLiveTools(ctx),
+    // Granted-only: production errors from the workspace's Sentry — issues by
+    // project, environment, release and time, and one issue's latest event
+    // (sentry_issues, sentry_issue).
+    ...sentryTools(ctx),
     // The code host (`libs/connectors/families.ts`): a pull request, its diff
     // and a file at a ref for any agent with a repo source in scope; the
     // checks' logs and the pipeline runs granted-only (backlog 049).

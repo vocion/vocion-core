@@ -171,6 +171,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'Jira',
       'Notion',
       'PostHog',
+      'Sentry',
       'Strapi',
       'REST API (bearer token)',
       'Google',
