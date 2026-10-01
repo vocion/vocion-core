@@ -50,7 +50,7 @@ const HEADERS = {
  * @param token - An installation token.
  * @param baseUrl - API host.
  */
-async function installationRepositories(token: string, baseUrl: string): Promise<string[]> {
+export async function installationRepositories(token: string, baseUrl: string): Promise<string[]> {
   const names: string[] = [];
   let url: string | null = `${baseUrl}/installation/repositories?per_page=100`;
   for (let page = 0; url && page < 20; page += 1) {

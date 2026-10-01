@@ -33,6 +33,7 @@ import { crmTools } from './crm';
 import { dataRoomTools } from './dataRooms';
 import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
+import { describeSourcesTool } from './describeSources';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
 import { drawMockupTools } from './drawMockup';
@@ -168,6 +169,12 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // What the workspace could turn on — plugins and connectors, on or off —
     // so a gap becomes a recommendation instead of a workaround. Read-only.
     listCapabilitiesTool(ctx),
+    // What the agent's connected sources actually reach — the repositories,
+    // project keys and channels in scope, checked live against the grant
+    // where the vendor can be asked (a GitHub App installation). "Which
+    // repositories do you have access to?" is this call, not a search of the
+    // index or a guess from the operating intent (Noco, 2026-09-30).
+    describeSourcesTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
     // A mockup is the real screen with only the change drawn in, filed on the

@@ -30,6 +30,7 @@ const KNOWN: Record<string, StepLabels> = {
   fetch_image: { running: 'Fetching the image…', done: 'Fetched the image' },
   crawl_site: { running: 'Crawling the site…', done: 'Crawled the site' },
   lookup_objects: { running: 'Looking up records…', done: 'Looked up records' },
+  describe_sources: { running: 'Checking what the sources reach…', done: 'Checked what the sources reach' },
   read_object: { running: 'Reading the record…', done: 'Read the record' },
   render_markdown: { running: 'Writing the document…', done: 'Wrote the document' },
   render_document: { running: 'Rendering the document…', done: 'Rendered the document' },

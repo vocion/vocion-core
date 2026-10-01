@@ -210,6 +210,18 @@ Installing on an organization you do not own files a **request** to its
 owners; the callback says so and stores nothing until an owner approves and
 GitHub sends them to the Setup URL.
 
+## Asking an agent what it reaches
+
+"Which repositories do you have access to?" is answered by the `describe_sources`
+tool, on for every agent: the repositories the source lists, each checked
+against what GitHub says the installation grants — asked of GitHub at the time
+of the question, not read from a snapshot or the operating intent — plus the
+branch filter, the deploy branch, whose account the installation is on, the
+last run and how many documents the index holds. A repository the source lists
+that the app was not granted is named as such; so is one the app was granted
+that the source does not list. The same tool describes a `jira` or `slack`
+source from its config and grant. Nothing secret is read into the answer.
+
 ## The webhook — the same events, sooner
 
 `POST /api/webhooks/github` receives GitHub's deliveries and emits the same
