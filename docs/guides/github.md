@@ -161,7 +161,9 @@ when: {event: run.failed} # any failed deploy run on the deploy branch
      repos:
        - acme/api
        - acme/web
-     branchPrefix: factory/
+     # Omit `branchPrefix` (or write `*`) to watch every branch. Set it to
+     # narrow the poll to one, e.g. `factory/` for only what the factory
+     # pushed.
      deployBranch: main
    schedule: '*/5 * * * *'
    reconcileSchedule: false
@@ -194,17 +196,34 @@ behalf mints an installation token from the app's private key
 (`libs/github/app.ts`), good for an hour and cached in memory until five
 minutes before it expires, so a poll over ten repositories mints once.
 
-The source's `config.repos` still bounds what is read, and must be a subset
-of what the installation was granted — the list is the factory's scope, the
-installation is GitHub's. **Test connection** reports any repository listed
-in the source that the installation does not include, by name, so the fix
-is one click on GitHub's installation page or one line in the YAML.
+**With an installation, `config.repos` is optional.** Omit it and the source
+syncs every repository the installation was granted, read from GitHub on each
+poll. The installation page is already an explicit, admin-only choice of
+repositories, so restating it in YAML was bookkeeping that could only drift:
+add a repository on GitHub and the source picks it up next poll.
+
+List them anyway and the list still bounds what is read, as an explicit subset
+of the grant — the list is the factory's scope, the installation is GitHub's.
+**Test connection** reports any repository listed in the source that the
+installation does not include, by name, so the fix is one click on GitHub's
+installation page or one line in the YAML.
+
+A pasted token has no repository list to read, so a token source must still
+say which repositories it watches.
+
+The grant is read live rather than from the list stored at connect time: that
+snapshot goes stale the moment someone changes the installation. A read that
+fails raises the sync's error rather than returning an empty list, so a failed
+call can never be mistaken for a grant of nothing and quietly sync none.
 
 The app's webhook uses the same `GITHUB_WEBHOOK_SECRET` as a repository
 hook would: the secret authenticates GitHub, and the workspace is found from
 the delivery. A delivery from the app carries `installation.id`; a source
 whose credential is a different installation is skipped, and a
-pasted-token source listing the same repository still receives it.
+pasted-token source listing the same repository still receives it. A source
+that lists no repositories is reached only when the delivery names its
+installation: the installation is the only thing tying it to the repository,
+so a delivery without one cannot reach it.
 
 Installing on an organization you do not own files a **request** to its
 owners; the callback says so and stores nothing until an owner approves and

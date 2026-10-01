@@ -22,7 +22,7 @@ vi.mock('@/libs/github/app', () => ({
 
 const { emitEvent } = await import('@/services/EventService');
 const { platformForConnectorSlug } = await import('@/libs/platforms/registry');
-const { githubConnector, pollWindowStart, pullRequestDoc } = await import('@/libs/sources/github');
+const { githubConnector, pollWindowStart, pullRequestDoc, resolveRepos } = await import('@/libs/sources/github');
 const { getConnector } = await import('@/libs/sources/registry');
 
 const REPO = 'northwind/orders-api';
@@ -277,13 +277,78 @@ describe('githubConnector', () => {
   });
 });
 
+describe('resolveRepos — scope from the installation when the config names none', () => {
+  const GRANTED = '/installation/repositories';
+
+  it('uses the configured list when there is one, without asking GitHub', async () => {
+    const calls = stubGithub({ [GRANTED]: () => res({ repositories: [{ full_name: 'other/repo' }] }) });
+
+    await expect(resolveRepos({ repos: [REPO], baseUrl: 'https://api.github.com' }, { installationId: '42' }, 't')).resolves.toEqual([REPO]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('derives every granted repository when the config names none, walking pages', async () => {
+    stubGithub({
+      [GRANTED]: (url) => {
+        const page2 = url.searchParams.get('page') === '2';
+        return page2
+          ? res({ repositories: [{ full_name: 'northwind/billing' }] })
+          : res({ repositories: [{ full_name: REPO }] }, 200, { link: '<https://api.github.com/installation/repositories?page=2>; rel="next"' });
+      },
+    });
+
+    await expect(resolveRepos({ baseUrl: 'https://api.github.com' }, { installationId: '42' }, 't'))
+      .resolves
+      .toEqual([REPO, 'northwind/billing']);
+  });
+
+  it('refuses a pasted token with no list, because a token carries no repositories', async () => {
+    await expect(resolveRepos({ baseUrl: 'https://api.github.com' }, { token: 'github_pat_x' }, 't'))
+      .rejects
+      .toThrow(/does not carry a repository list/);
+  });
+
+  it('refuses an installation that grants nothing rather than syncing nothing', async () => {
+    stubGithub({ [GRANTED]: () => res({ repositories: [] }) });
+
+    await expect(resolveRepos({ baseUrl: 'https://api.github.com' }, { installationId: '42' }, 't'))
+      .rejects
+      .toThrow(/grants no repositories/);
+  });
+
+  // The one that matters: a failed read must not read as a grant of nothing.
+  // Returning [] here would make the sync walk no repositories and report
+  // success, which is how a scope silently empties itself.
+  it('throws when the grant cannot be read, never treating the failure as an empty grant', async () => {
+    stubGithub({ [GRANTED]: () => res({ message: 'Bad credentials' }, 401) });
+
+    await expect(resolveRepos({ baseUrl: 'https://api.github.com' }, { installationId: '42' }, 't'))
+      .rejects
+      .toThrow(/could not be listed/);
+  });
+
+  it('syncs the granted repositories when the config lists none', async () => {
+    stubRepo([pr()], { [GRANTED]: () => res({ repositories: [{ full_name: REPO }] }) });
+
+    const docs = await collect(githubConnector.sync(ctx({
+      config: { branchPrefix: 'factory/' },
+      credentials: { installationId: '42' },
+    })));
+
+    expect(docs.map(d => d.externalId)).toEqual([`pr:${REPO}#3`]);
+  });
+});
+
 describe('githubConnector.inspect', () => {
   const inspect = (config: Record<string, unknown>, credentials: Record<string, unknown>) =>
     githubConnector.inspect!({ config, credentials, options: {} }) as Promise<{ reachable: boolean; authorized: boolean; checks: Array<{ key: string; ok: boolean; detail: string | null }>; note: string | null; error: string | null }>;
 
-  it('refuses without a token or without repositories, in the operator\'s words', async () => {
+  it('refuses without a token, and without repositories a pasted token cannot supply', async () => {
     await expect(inspect({ repos: [REPO] }, {})).rejects.toThrow(/access token is required/);
-    await expect(inspect({ repos: [] }, { token: 't' })).rejects.toThrow(/at least one repository/);
+    // A pasted token carries no repository list, so an empty one leaves
+    // nothing to sync and the refusal says where the list can come from.
+    await expect(inspect({ repos: [] }, { token: 't' })).rejects.toThrow(/List the repositories to watch/);
+    await expect(inspect({}, { token: 't' })).rejects.toThrow(/does not carry a repository list/);
   });
 
   it('names a malformed repository entry as its own failed check, without calling GitHub for it', async () => {

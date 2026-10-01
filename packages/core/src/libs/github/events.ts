@@ -222,14 +222,20 @@ export function prDedupeKey(repo: string, number: number, kind: GithubEventType,
 }
 
 /**
- * Whether a head branch is one the source watches. No prefix means every
- * branch; `factory/` keeps the poller to what the factory pushed.
+ * Whether a head branch is one the source watches. Every branch is the
+ * default: no prefix, or `*`, watches them all; `factory/` narrows the poller
+ * to what the factory pushed.
+ *
+ * `*` is spelled out because it is what someone writes when they mean "all",
+ * and a literal prefix match on it would watch nothing at all: branches named
+ * `*…` do not exist. Silently syncing none is the worst reading of that
+ * input, so it gets the obvious one.
  * @param branch - The pull request's head ref.
  * @param prefix - The configured prefix, if any.
  */
 export function matchesBranchPrefix(branch: string, prefix: string | undefined | null): boolean {
   const wanted = prefix?.trim();
-  return !wanted || branch.startsWith(wanted);
+  return !wanted || wanted === '*' || branch.startsWith(wanted);
 }
 
 function basePayload(repo: string, pr: GithubPullRequest, dedupeKey: string): PullRequestEventPayload {

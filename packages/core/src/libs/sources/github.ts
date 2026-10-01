@@ -37,7 +37,8 @@ import type { GithubClient } from '@/libs/github/client';
 import type { GithubEvent, GithubPullRequest, GithubWorkflowRun } from '@/libs/github/events';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
-import { createGithubClient, GITHUB_API_URL, resolveGithubToken, splitRepo } from '@/libs/github/client';
+import { installationIdFrom } from '@/libs/github/app';
+import { createGithubClient, GITHUB_API_URL, installationRepositories, resolveGithubToken, splitRepo } from '@/libs/github/client';
 import {
   checksCompletedEvent,
   matchesBranchPrefix,
@@ -53,8 +54,15 @@ export const githubConfigSchema = z.object({
    * The repositories to watch, `owner/name`. The shape is checked per entry
    * by `splitRepo` when a repository is read, so Test connection can name the
    * one entry that is malformed rather than refusing the whole list.
+   *
+   * OMITTED means every repository the GitHub App installation was granted,
+   * read from GitHub each poll. The installation page is already an explicit,
+   * admin-only choice of repositories; restating it here was bookkeeping that
+   * could only drift. Listing them still works and still narrows: the list is
+   * then an explicit subset of the grant. A pasted token has no repository
+   * list to read, so it must still say which.
    */
-  repos: z.array(z.string().trim().min(1)).min(1, 'list at least one repository'),
+  repos: z.array(z.string().trim().min(1)).optional(),
   /** Only pull requests whose head branch starts with this are watched. Empty means every branch. */
   branchPrefix: z.string().trim().optional(),
   /** The branch whose failed GitHub Actions runs become `run.failed` — the deploy pipeline. */
@@ -66,6 +74,37 @@ export const githubConfigSchema = z.object({
 });
 
 export type GithubConfig = z.infer<typeof githubConfigSchema>;
+
+/**
+ * The repositories this run syncs: what the config lists, or, when it lists
+ * none, every repository the installation was granted.
+ *
+ * Deriving scope from the grant is read LIVE rather than from the list stored
+ * at connect time, because that snapshot goes stale the moment someone adds a
+ * repository on GitHub, and a stale scope silently stops syncing the new one.
+ * The read throws rather than returning empty, so a failed call can never be
+ * mistaken for a grant of nothing and quietly sync none of them.
+ * @param cfg - The parsed config.
+ * @param credentials - The decrypted credential bag.
+ * @param token - The resolved access token.
+ */
+export async function resolveRepos(
+  cfg: Pick<GithubConfig, 'repos' | 'baseUrl'>,
+  credentials: Record<string, unknown> | undefined,
+  token: string,
+): Promise<string[]> {
+  if (cfg.repos && cfg.repos.length > 0) {
+    return cfg.repos;
+  }
+  if (!installationIdFrom(credentials)) {
+    throw new Error('List the repositories to watch in `repos`, or connect this source with the GitHub App, whose installation says which repositories it may see. A pasted token does not carry a repository list.');
+  }
+  const granted = await installationRepositories(token, cfg.baseUrl);
+  if (granted.length === 0) {
+    throw new Error('The GitHub App installation grants no repositories. Add them under the installation\'s repository access on GitHub, or list them in `repos`.');
+  }
+  return granted;
+}
 
 /** How many pages of pull requests one repository may walk per sync. 100 per page. */
 const MAX_PR_PAGES = 5;
@@ -349,13 +388,22 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
       throw new InspectInputError('A GitHub access token is required — a fine-grained personal access token from github.com/settings/personal-access-tokens, or a GitHub App installation token.');
     }
     const parsed = githubConfigSchema.pick({ repos: true, baseUrl: true }).safeParse({
-      repos: Array.isArray(config.repos) ? config.repos : [],
+      ...(Array.isArray(config.repos) ? { repos: config.repos } : {}),
       ...(typeof config.baseUrl === 'string' && config.baseUrl.trim() !== '' ? { baseUrl: config.baseUrl.trim() } : {}),
     });
     if (!parsed.success) {
       throw new InspectInputError(parsed.error.issues[0]?.message ?? 'Repositories are written owner/name, one or more.');
     }
-    const inspection = await inspectGithubToken({ token, repos: parsed.data.repos, baseUrl: parsed.data.baseUrl });
+    // Test connection probes what a sync would actually walk, so an omitted
+    // list is resolved here the same way the poll resolves it. A failure is
+    // the operator's answer, phrased as the input error it is.
+    let repos: string[];
+    try {
+      repos = await resolveRepos(parsed.data, credentials, token);
+    } catch (err) {
+      throw new InspectInputError(err instanceof Error ? err.message : String(err));
+    }
+    const inspection = await inspectGithubToken({ token, repos, baseUrl: parsed.data.baseUrl });
     // An installation grants a fixed set of repositories; a repo listed here
     // but not granted there reads as GitHub's 404 above, which says nothing
     // about why. Name it. Not when the installation covers every repository,
@@ -363,7 +411,9 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
     // best effort, and an empty one is a failed read, not a grant of nothing.
     const stored = Array.isArray(credentials?.repositories) ? (credentials.repositories as unknown[]).filter((r): r is string => typeof r === 'string').map(r => r.toLowerCase()) : [];
     const granted = credentials?.repositorySelection !== 'all' && stored.length > 0 ? stored : null;
-    if (granted) {
+    // Only when the source named them. A derived list IS the grant, so
+    // comparing it to the grant can only ever agree.
+    if (granted && parsed.data.repos && parsed.data.repos.length > 0) {
       for (const repo of parsed.data.repos) {
         if (!granted.includes(repo.toLowerCase())) {
           inspection.checks.push(check(`granted:${repo}`, `${repo} granted to the installation`, false, 'The GitHub App installation does not include this repository. Add it under the installation\'s repository access on GitHub, or remove it from the source.'));
@@ -381,8 +431,9 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
     }
     const client = createGithubClient({ token, baseUrl: cfg.baseUrl });
     const since = pollWindowStart(ctx.since, cfg.lookbackDays);
+    const repos = await resolveRepos(cfg, ctx.credentials, token);
 
-    for (const repo of cfg.repos) {
+    for (const repo of repos) {
       let poll: RepoPoll;
       try {
         poll = await pollRepository(client, repo, cfg, since, (uri, message) => ctx.onProgress?.({ kind: 'skipped', uri, message }));

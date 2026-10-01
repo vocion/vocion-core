@@ -249,6 +249,14 @@ describe('matchesBranchPrefix', () => {
     expect(matchesBranchPrefix('factory/task-1', 'factory/')).toBe(true);
     expect(matchesBranchPrefix('feature/x', 'factory/')).toBe(false);
   });
+
+  // Read literally, `*` is a prefix no branch starts with, so it would watch
+  // nothing at all — the opposite of what anyone writing it means.
+  it('reads `*` as every branch, not as a prefix that matches none', () => {
+    expect(matchesBranchPrefix('feature/x', '*')).toBe(true);
+    expect(matchesBranchPrefix('main', '*')).toBe(true);
+    expect(matchesBranchPrefix('factory/task-1', ' * ')).toBe(true);
+  });
 });
 
 describe('verifyGithubSignature', () => {
