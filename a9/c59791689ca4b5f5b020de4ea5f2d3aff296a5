@@ -1,0 +1,35 @@
+docs/guides/github.md
+  s_7a356f16059660::t_9d6fab502256a4 164-166,199-217,223-226
+packages/core/src/libs/connect/providers/github.ts
+  s_7a356f16059660::t_d865a54133d46e 27,153-155
+packages/core/src/libs/github/client.ts
+  s_7a356f16059660::t_f83c4e674db6f4 161-192
+packages/core/src/libs/github/events.test.ts
+  s_7a356f16059660::t_f23ccd84375f6e 252-259
+packages/core/src/libs/github/events.ts
+  s_7a356f16059660::t_7d7e0ee80033b5 225-232,238
+packages/core/src/libs/sources/github.test.ts
+  s_7a356f16059660::t_17c1fa84eee839 25,280-341,346,348-351
+packages/core/src/libs/sources/github.ts
+  s_7a356f16059660::t_d543b44f2f5889 40-41,57-63,65,78-108,391,397-406,414-416,434,436
+packages/core/src/services/GithubWebhookService.test.ts
+  s_7a356f16059660::t_44810774eddedb 53,198-219
+packages/core/src/services/GithubWebhookService.ts
+  s_7a356f16059660::t_5e357226966202 68-83,92,94,99,130-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a9c59791689ca4b5f5b020de4ea5f2d3aff296a5",
+  "prompts": {},
+  "sessions": {
+    "s_7a356f16059660": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c34c0e17-e72f-40cc-bc79-f68b99f76d61",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
