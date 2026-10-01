@@ -85,6 +85,20 @@ describe('who may open a pipeline change', () => {
     expect(run!.result).toMatchObject({ opened: true, objectId: fix.id });
   });
 
+  it('opened with no record named, it lands on the repository\'s own record, so it still merges itself (squatch-core #148)', async () => {
+    const [repo] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.environment!, title: REPO, metadata: {} }).returning();
+
+    const res = await proposeAction({ orgId: ORG, actionId: 'github.open_pull', input: INPUT, principal: { kind: 'agent', id: `agent:${OWNER}`, scope: { orgId: ORG }, grants: ['*'], autonomy: 2 }, invokedBy: `agent:${OWNER}`, proposal: { confidence: 0.9 } } as never) as { status: string; runId: number };
+
+    expect(res.status).toBe('done');
+    expect((await read(repo!.id)).metadata).toMatchObject({ pipelineChange: { state: 'open', riskClass: 'pipeline' } });
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, res.runId));
+
+    expect(run!.result).toMatchObject({ opened: true, objectId: repo!.id });
+    expect(String((run!.result as { line?: string }).line)).toMatch(/merges itself when its checks are green/);
+  });
+
   it('undo closes the change, or reverts it once merged', async () => {
     const discard = vi.fn(async () => ({ closed: true, branchDeleted: true, revertUrl: null, state: 'closed' }));
     const mod = await import('./githubChange');
@@ -123,6 +137,27 @@ describe('a pipeline change is carried to its merge', () => {
     expect(proposeMerge.mock.calls.filter(c => (c as unknown[])[1] && ((c as unknown[])[1] as { recordId: number }).recordId === fix.id)).toHaveLength(1);
     expect(proposeMerge).toHaveBeenCalledWith(ORG, expect.objectContaining({ url: 'https://github.com/Acme/northwind-core/pull/501', headSha: 'c0ffee000001', riskClass: 'pipeline', owner: OWNER, recordId: fix.id }));
     expect(log((await read(fix.id)).metadata).some(l => l.includes('it was merged (action #77, Undo opens the revert)'))).toBe(true);
+  });
+
+  it('a green pipeline change nothing tracks is adopted onto its repository record and merged (squatch-core #148)', async () => {
+    const ORG2 = 'org_pipeline_adopt';
+    const [t] = await createObjectType({ slug: 'repo', label: 'repo' }, ORG2);
+    const [repo] = await db.insert(businessObjectSchema).values({ orgId: ORG2, typeId: t!.id, title: 'Acme/kestrel-web', metadata: { checks: [{ name: 'test', command: 'npm test' }] } }).returning();
+    const url = 'https://github.com/Acme/kestrel-web/pull/148';
+    const listPipelinePulls = vi.fn(async () => [{ url, branch: 'vocion/pipeline-202610011241-build-natively', base: 'main', headSha: 'c0ffee000148', title: 'fix(pipeline): build natively', createdAt: '2026-10-01T12:41:00Z' }]);
+    const proposeMerge = vi.fn(async () => ({ runId: 88, status: 'done' }));
+    const deps = { readPull: async () => ({ repo: 'Acme/kestrel-web', pr: pull({ html_url: url, head: { ref: 'vocion/pipeline-202610011241-build-natively', sha: 'c0ffee000148' } }), checkRuns: runs('success') }), proposeMerge, listPipelinePulls };
+
+    const out = await reconcileChanges(ORG2, new Date('2026-10-01T13:00:00Z'), OWNER, deps as never);
+
+    expect(out.some(r => r.requestId === repo!.id && r.did === 'adopted')).toBe(true);
+    expect((await read(repo!.id)).metadata).toMatchObject({ pipelineChange: { url, state: expect.any(String) } });
+    expect(proposeMerge).toHaveBeenCalledWith(ORG2, expect.objectContaining({ url, recordId: repo!.id }));
+
+    // A second pass adopts nothing new.
+    const again = await reconcileChanges(ORG2, new Date('2026-10-01T13:05:00Z'), OWNER, deps as never);
+
+    expect(again.some(r => r.did === 'adopted')).toBe(false);
   });
 
   it('no checks yet on a fresh change: it waits', async () => {

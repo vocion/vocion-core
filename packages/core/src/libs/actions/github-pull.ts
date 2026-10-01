@@ -50,6 +50,20 @@ export async function mayOpenPipelinePull(orgId: string, invokedBy: string | und
 }
 
 /**
+ * The repository's own record: the one titled with its owner/name, the way a
+ * repo record is filed. Null when the workspace keeps none.
+ * @param orgId - The workspace.
+ * @param repo - owner/name.
+ */
+async function repositoryRecordId(orgId: string, repo: string): Promise<number | null> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), sql`lower(${businessObjectSchema.title}) = ${repo.toLowerCase()}`)).limit(1);
+  return row?.id ?? null;
+}
+
+/**
  * Whether the proposer may take one of the pipeline's own actions: a person,
  * or an agent whose harness grants that action by its id.
  * @param orgId - The workspace.
@@ -132,9 +146,18 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
     const { openChangePull } = await import('@/services/factory/githubChange');
     const opened = await openChangePull(ctx.orgId, { repo: input.repo, title: input.title, body: input.body, files: input.files, base: input.base ?? null, branch: input.branch ?? null });
     const at = new Date().toISOString();
-    const line = `${opened.created ? 'Opened' : 'Added a commit to'} ${opened.url.replace('https://github.com/', '')} (${opened.paths.join(', ')}): ${input.title}. It merges itself when its checks are green.`;
-    if (input.recordId) {
-      await stampChange(ctx.orgId, input.recordId, {
+    // EVERY CHANGE IS TRACKED. Named record or not, the change lands on a record
+    // the pipeline reconcile reads, or it never merges: squatch-core #148
+    // (2026-10-01) was opened from chat with no recordId, went green, and sat,
+    // while the reply said it "merges itself when its checks are green".
+    // With no record named, it is the repository's own record (titled owner/name).
+    const recordId = input.recordId ?? await repositoryRecordId(ctx.orgId, opened.repo);
+    const short = opened.url.replace('https://github.com/', '');
+    const line = recordId
+      ? `${opened.created ? 'Opened' : 'Added a commit to'} ${short} (${opened.paths.join(', ')}): ${input.title}. It merges itself when its checks are green.`
+      : `${opened.created ? 'Opened' : 'Added a commit to'} ${short} (${opened.paths.join(', ')}): ${input.title}. No record tracks it (name the request or environment it answers), so it will not merge itself.`;
+    if (recordId) {
+      await stampChange(ctx.orgId, recordId, {
         url: opened.url,
         repo: opened.repo,
         branch: opened.branch,
@@ -150,9 +173,9 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
         actionRunId: ctx.runId ?? null,
       });
       const { noteOnRequest } = await import('@/services/factory/carry');
-      await noteOnRequest(ctx.orgId, input.recordId, line, ctx.runId ?? null).catch(() => undefined);
+      await noteOnRequest(ctx.orgId, recordId, line, ctx.runId ?? null).catch(() => undefined);
     }
-    return { opened: true, ...opened, ...(input.recordId ? { objectId: input.recordId } : {}), line };
+    return { opened: true, ...opened, ...(recordId ? { objectId: recordId } : {}), line };
   },
   async undo(ctx, input, result) {
     const url = typeof result?.url === 'string' ? result.url : null;
@@ -162,8 +185,9 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
     }
     const { discardChange } = await import('@/services/factory/githubChange');
     const out = await discardChange(ctx.orgId, { url, repo: input.repo, branch });
-    if (input.recordId) {
-      await stampChange(ctx.orgId, input.recordId, { url, state: out.state === 'merged' ? 'reverting' : 'withdrawn', revertUrl: out.revertUrl, undoneAt: new Date().toISOString() });
+    const recordId = input.recordId ?? (typeof result?.objectId === 'number' ? result.objectId : null);
+    if (recordId) {
+      await stampChange(ctx.orgId, recordId, { url, state: out.state === 'merged' ? 'reverting' : 'withdrawn', revertUrl: out.revertUrl, undoneAt: new Date().toISOString() });
     }
     return { ...out, note: out.revertUrl ? `It had merged; the revert is open at ${out.revertUrl}.` : 'The pull request is closed and its branch deleted.' };
   },

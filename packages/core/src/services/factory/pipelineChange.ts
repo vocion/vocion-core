@@ -313,9 +313,14 @@ export async function watchUnanswered(orgId: string, now: Date, owner: string | 
   return out;
 }
 
+/** The branch every pipeline change Vocion opens is on (`githubChange.branchFor`). */
+const PIPELINE_BRANCH_PREFIX = 'vocion/pipeline-';
+
 /** Where the change reconciler acts on the world, injected in tests. */
 export type ChangeDeps = {
   readPull: (orgId: string, url: string) => Promise<{ repo: string; pr: GithubPullRequest; checkRuns: GithubCheckRun[] }>;
+  /** Open pull requests on a repository whose branch is one of Vocion's pipeline changes. */
+  listPipelinePulls?: (orgId: string, repo: string) => Promise<Array<{ url: string; branch: string; base: string; headSha: string; title: string; createdAt: string }>>;
   proposeMerge: (orgId: string, o: { url: string; title: string; headSha: string; riskClass: string; owner: string | null; why: string; recordId: number }) => Promise<{ runId: number; status: string; error?: string }>;
 };
 
@@ -323,6 +328,19 @@ async function defaultChangeDeps(): Promise<ChangeDeps> {
   const gh = await import('./githubChecks');
   return {
     readPull: gh.readPull,
+    listPipelinePulls: async (orgId, repo) => {
+      const { tokenForRepo } = await import('@/services/agents/tools/githubPullRead');
+      const token = await tokenForRepo(orgId, repo);
+      if (!token) {
+        return [];
+      }
+      const res = await fetch(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=50`, { headers: { 'authorization': `Bearer ${token}`, 'accept': 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'vocion' }, signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) {
+        return [];
+      }
+      const pulls = await res.json() as Array<{ html_url: string; title: string; created_at: string; head: { ref: string; sha: string }; base: { ref: string } }>;
+      return pulls.filter(p => p.head.ref.startsWith(PIPELINE_BRANCH_PREFIX)).map(p => ({ url: p.html_url, branch: p.head.ref, base: p.base.ref, headSha: p.head.sha, title: p.title, createdAt: p.created_at }));
+    },
     proposeMerge: async (orgId, o) => {
       const { proposeAction } = await import('@/services/ActionService');
       const { MERGE_ACTION_ID } = await import('@/libs/actions/mergeAction');
@@ -351,6 +369,41 @@ async function defaultChangeDeps(): Promise<ChangeDeps> {
 }
 
 /**
+ * A PIPELINE CHANGE NOTHING TRACKS IS ADOPTED. Every open pull request on a
+ * Vocion pipeline branch, on a repository the workspace keeps a record for
+ * (titled owner/name, carrying its checks or product paths), is written on
+ * that record when no record tracks it, so the reconcile below merges it on
+ * green like any other. squatch-core #148 (2026-10-01) was opened from chat
+ * with no record named and sat green, while the reply said it merges itself.
+ * @param orgId - Tenant.
+ * @param now - The clock.
+ * @param list - Reads a repository's open pipeline pull requests.
+ */
+export async function adoptUntrackedChanges(orgId: string, now: Date, list: NonNullable<ChangeDeps['listPipelinePulls']>): Promise<Result[]> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const { writeMeta } = await import('@/libs/actions/factory-dispatch');
+  const repos = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), sql`${businessObjectSchema.title} ~ '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'`, sql`(${businessObjectSchema.metadata} ? 'checks' or ${businessObjectSchema.metadata} ? 'productPaths')`)).limit(20);
+  const out: Result[] = [];
+  for (const repo of repos) {
+    const pulls = await list(orgId, repo.title).catch(() => []);
+    for (const pull of pulls) {
+      const [tracked] = await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), sql`${businessObjectSchema.metadata} -> 'pipelineChange' ->> 'url' = ${pull.url}`)).limit(1);
+      const current = obj((repo.meta as Meta | null)?.pipelineChange);
+      if (tracked || (current && str(current.state) === 'open')) {
+        continue;
+      }
+      await writeMeta(orgId, repo.id, { pipelineChange: { url: pull.url, repo: repo.title, branch: pull.branch, base: pull.base, headSha: pull.headSha, title: pull.title, riskClass: 'pipeline', state: 'open', openedAt: pull.createdAt, pushedAt: pull.createdAt, by: null, adopted: now.toISOString() } });
+      await noteLine(orgId, repo.id, `${pull.url.replace('https://github.com/', '')} was open with nothing tracking it; it is tracked here now and merges itself when its checks are green.`);
+      out.push({ requestId: repo.id, did: 'adopted', line: null });
+      break;
+    }
+  }
+  return out;
+}
+
+/**
  * Every open pipeline change, read back from GitHub: green merges, red goes
  * back to its seat, merged and closed are written down.
  * @param orgId - The workspace.
@@ -363,16 +416,17 @@ export async function reconcileChanges(orgId: string, now: Date, owner: string |
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
   const { writeMeta } = await import('@/libs/actions/factory-dispatch');
+  const d = deps ?? await defaultChangeDeps();
+  const adopted = d.listPipelinePulls ? await adoptUntrackedChanges(orgId, now, d.listPipelinePulls).catch(() => []) : [];
   const rows = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .where(and(eq(businessObjectSchema.orgId, orgId), sql`${businessObjectSchema.metadata} -> 'pipelineChange' ->> 'state' = 'open'`))
     .limit(25);
   if (rows.length === 0) {
-    return [];
+    return adopted;
   }
-  const d = deps ?? await defaultChangeDeps();
   const { checksAllowMerge } = await import('./githubMerge');
-  const out: Result[] = [];
+  const out: Result[] = [...adopted];
   for (const row of rows) {
     const meta = (row.meta ?? {}) as Meta;
     const change = obj(meta.pipelineChange)!;
