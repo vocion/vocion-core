@@ -297,9 +297,12 @@ export function RecordMicrocard({ record }: { record: TurnRecord }) {
         <span className="flex min-w-0 items-center gap-1.5 px-2 py-1">
           <StatusDot tone={live ? 'amber' : status ? TONE[status.stage.tone] : 'neutral'} pulse={live !== null} label={<span className="text-foreground/70 tabular-nums">{`#${record.id}`}</span>} />
           <span className="min-w-0 truncate font-medium text-foreground">{record.title}</span>
-          {live
-            ? <span className="shrink-0 text-muted-foreground" data-testid="record-microcard-now">{`· ${live.label} · ${liveClock(live, now)}`}</span>
-            : status && <span className="shrink-0 text-muted-foreground" data-testid="record-microcard-stage">{`· ${status.stage.label}`}</span>}
+          {/* The record's stage (Planning, Building, Deploying, Live), never the run's own
+              name: a live check's mission title read as the request's state (run 2,
+              2026-10-01). While something runs, its clock follows; the Now line on the
+              record's page says which run. */}
+          {status && live && <span className="shrink-0 text-muted-foreground" data-testid="record-microcard-now">{`· ${status.stage.label} · ${liveClock(live, now)}`}</span>}
+          {status && !live && <span className="shrink-0 text-muted-foreground" data-testid="record-microcard-stage">{`· ${status.stage.label}`}</span>}
           {!changed && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
         </span>
       </PreviewOpen>

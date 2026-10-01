@@ -45,13 +45,13 @@ afterEach(() => {
 });
 
 describe('the record microcard under a chat turn', () => {
-  it('is one line: the number, the title and what is running, with a live dot, and opens the record in the pane', async () => {
+  it('is one line: the number, the title and its stage while it runs, with a live dot, and opens the record in the pane', async () => {
     fetchMock.mockResolvedValue(answer(planning));
     await render(<RecordMicrocard record={filed} />);
 
     const card = page.getByTestId('record-microcard');
 
-    await expect.element(page.getByTestId('record-microcard-now')).toHaveTextContent('· Writing the plan · 1 min');
+    await expect.element(page.getByTestId('record-microcard-now')).toHaveTextContent('· Planning · 1 min');
     await expect.element(card).toHaveTextContent('#265');
     await expect.element(card).toHaveTextContent('Fix the header overflow');
     expect(card.element().getAttribute('data-live')).toBe('true');
@@ -60,6 +60,19 @@ describe('the record microcard under a chat turn', () => {
     await page.getByTestId('record-microcard-open').click();
 
     expect(new URLSearchParams(window.location.search).get('preview')).toBe('object:265');
+  });
+
+  it('shows the record\'s stage, never the running agent\'s mission title (run 2, 2026-10-01)', async () => {
+    const checking: RecordStatus = {
+      ...planning,
+      stage: { key: 'live', label: 'Live', tone: 'ok' },
+      live: { ...planning.live!, kind: 'working', label: 'release-live-check: Every criterion is proven on the live product' },
+    };
+    fetchMock.mockResolvedValue(answer(checking));
+    await render(<RecordMicrocard record={filed} />);
+
+    await expect.element(page.getByTestId('record-microcard-now')).toHaveTextContent('· Live · 1 min');
+    await expect.element(page.getByTestId('record-microcard')).not.toHaveTextContent('release-live-check');
   });
 
   it('keeps re-reading while something runs, and stops once nothing does', async () => {

@@ -251,7 +251,12 @@ export async function runProposal(
       if (href) {
         ctx.emit({ type: 'record_created', record: { type: 'object', id: String(created.id), label: created.title ? `${name} — ${created.title}` : name, href } });
       }
-      return withAdvice(`${action_id} is DONE: filed as ${name} (run #${res.runId}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.`);
+      // WHAT FILING STARTED (run 2, 2026-10-01): a person's request builds by
+      // default, and the agent that never heard offered "the dispatch card".
+      // The factory's intake is waited on briefly and said here.
+      const { filingReceipt } = await import('@/services/factory/carry');
+      const started = await filingReceipt(ctx.orgId, { objectType: created.objectType, id: Number(created.id) }).catch(() => null);
+      return withAdvice(`${action_id} is DONE: filed as ${name} (run #${res.runId}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.${started ? `\n\n${started}` : ''}`);
     }
     // The record it moved, linked, so the person can follow it there.
     // The action names the record it moved (`result.record`); core names no type.

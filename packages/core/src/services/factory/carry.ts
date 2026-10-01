@@ -1930,3 +1930,80 @@ export async function contractChangeReceipt(orgId: string, requestId: number, si
   }
   return null;
 }
+
+/**
+ * Whether filing this type starts the factory's intake here: an active
+ * automation runs the intake job on `object.created` for it.
+ * @param orgId - The workspace.
+ * @param objectType - The filed record's type slug.
+ */
+async function intakeHeard(orgId: string, objectType: string): Promise<boolean> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { automationSchema } = await import('@/models/Schema');
+  const { matchesFilter } = await import('@/services/eventFilter');
+  const { FACTORY_INTAKE_JOB } = await import('@/services/jobs/factoryCarry');
+  const rows = await db.select({ whenConfig: automationSchema.whenConfig }).from(automationSchema).where(and(
+    eq(automationSchema.orgId, orgId),
+    eq(automationSchema.status, 'active'),
+    sql`${automationSchema.doConfig} ->> 'job' = ${FACTORY_INTAKE_JOB}`,
+  ));
+  return rows.some(r => matchesFilter({ objectType }, r.whenConfig.filter));
+}
+
+/**
+ * WHAT FILING STARTED, for the filing's own answer (run 2, 2026-10-01). A
+ * person's request builds by default: intake started FE-298's build as the
+ * person's action 1.7 s after it was filed, and the PM, which never heard,
+ * answered "Here's the dispatch card" about a card that did not exist. The
+ * filing tool now waits briefly for intake's typed mark (`readIntake`) and
+ * says what it did, so the answer describes what happened rather than
+ * offering to do it. The agent's words are its own; this is what it is told.
+ *
+ * Null at once when the type has no intake here, and null when intake has
+ * not marked the record within `waitMs`: the filing's own receipt stands.
+ * @param orgId - The workspace.
+ * @param record - The record just filed.
+ * @param record.objectType - Its type slug.
+ * @param record.id - Its id.
+ * @param waitMs - How long to wait for intake.
+ * @param settleMs - How long to wait after the mark for the lines it writes next (planning first, the dispatch).
+ */
+export async function filingReceipt(orgId: string, record: { objectType: string; id: number }, waitMs = 8_000, settleMs = 1_500): Promise<string | null> {
+  if (record.objectType !== (await factoryTypes(orgId)).request || !(await intakeHeard(orgId, record.objectType))) {
+    return null;
+  }
+  const { readRecord } = await lib();
+  const deadline = Date.now() + waitMs;
+  let mark: IntakeMark | null = null;
+  while (Date.now() < deadline) {
+    mark = readIntake((await readRecord(orgId, record.id))?.meta ?? {});
+    if (mark) {
+      break;
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (!mark) {
+    return null;
+  }
+  if (mark.outcome === 'started' || mark.outcome === 'planning') {
+    await new Promise(r => setTimeout(r, settleMs));
+  }
+  const fresh = await readRecord(orgId, record.id);
+  const lines = readRecovery(fresh?.meta ?? {}).log.map(l => l.text.trim()).filter(Boolean).slice(-4);
+  const said = lines.length > 0 ? ` What the request says: ${lines.map(l => `"${l}"`).join(' ')}` : '';
+  switch (mark.outcome) {
+    case 'started':
+    case 'planning':
+      return `The factory already acted on it: the build started as the person's own action, because they asked for it (Undo on the request cancels it until a worker claims it).${said} There is no card and nothing is left to dispatch or confirm: say it has started and what happens next, and link the request.`;
+    case 'card':
+      return `The build did not start on its own: a Build card is waiting for a person to approve.${said} Say that in one line, with the request's link.`;
+    case 'held':
+      return `Held, as the person asked: nothing is building, and the Build card waits for them.${said} Say that in one line.`;
+    case 'blocked':
+    case 'refused':
+      return `The build could not start yet${mark.why ? `: ${mark.why}` : ''}.${said} Say what holds it and who it waits on, in one line, with the request's link.`;
+    default:
+      return null;
+  }
+}
