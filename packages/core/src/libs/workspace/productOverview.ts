@@ -72,6 +72,10 @@ export type OverviewEnvironment = {
   runUrl: string | null;
   /** The last thing the pipeline did here, in one line, or null. */
   line: string | null;
+  /** Not answering its health check, in plain words: what, what was tried, who has it. Null while healthy. */
+  alert: string | null;
+  /** What its answer did not say against its record's `expect` — a note, never the health. */
+  advice: string | null;
   href: string;
 };
 
@@ -88,6 +92,8 @@ export type ProductOverview = {
   attention: {
     decisions: OverviewDecision[];
     blocked: Array<{ id: string | number; title: string; blocker: string | null; href: string | null }>;
+    /** Environments not answering their health check, each one line (`healthAlert`). */
+    alerts: Array<{ id: string | number; line: string; href: string }>;
     /** What the page cannot see and a person could fix. */
     gaps: string[];
     /** Where every decision for this product is, filtered. */
@@ -245,9 +251,36 @@ export function environmentsFor(slug: string, rows: PageRow[], record: RecordLin
         health,
         runUrl: str(m.lastDeployRunUrl),
         line: str(m.lastPipelineLine),
+        alert: healthAlert(name, m),
+        advice: str(m.lastHealthAdvice),
         href: record({ objectType: 'environment', id: r.id }),
       };
     });
+}
+
+const STEP_WORDS: Record<string, string> = { rerun: 're-ran its failed deploy', redeploy: 'redeployed it', rollback: 'rolled back its last release' };
+
+/**
+ * AN UNHEALTHY ENVIRONMENT IS AN ALERT WHERE AN OPERATOR LOOKS (2026-10-01:
+ * the health watch's incidents sat on Work as "Stopped after 0 attempts").
+ * The line says what is wrong, what its own recovery did, and who has it now.
+ * @param name - How the overview names it.
+ * @param m - Its metadata (`lastHealth`, `healthRecovery`).
+ */
+export function healthAlert(name: string, m: Record<string, unknown>): string | null {
+  const health = str(m.lastHealth);
+  if (health !== 'down' && health !== 'degraded') {
+    return null;
+  }
+  const rec = (m.healthRecovery && typeof m.healthRecovery === 'object' ? m.healthRecovery : {}) as { attempts?: Array<{ kind?: string }>; stoppedAt?: string | null; closedAt?: string | null; askId?: number | null };
+  const open = !rec.closedAt;
+  const tried = open ? (rec.attempts ?? []).map(a => STEP_WORDS[String(a.kind)] ?? String(a.kind)) : [];
+  const what = `${name} is ${health === 'down' ? 'down' : 'answering with errors'}`;
+  const did = tried.length > 0 ? `; its own recovery ${tried.join(', then ')}` : '';
+  if (open && rec.stoppedAt) {
+    return `${what}${did}, and it is still not back. ${rec.askId ? `Ask #${rec.askId} is with a person` : 'A person decides what happens next'}.`;
+  }
+  return `${what}${did}. It is checked again on the next pass, and recovers by itself before anyone is asked.`;
 }
 
 /**
@@ -397,6 +430,7 @@ export function buildProductOverview(input: {
     attention: {
       decisions,
       blocked,
+      alerts: environments.flatMap(e => (e.alert ? [{ id: e.id, line: e.alert, href: e.href }] : [])),
       gaps,
       reviewHref: workBase ? `${workBase}#${groupTabKey('Proposed')}` : null,
     },

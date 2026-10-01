@@ -62,7 +62,7 @@ const at = (min: number) => new Date(Date.parse('2026-09-30T12:00:00Z') + min * 
 const kinds = (p: ReturnType<typeof vi.fn>, id: number) => p.mock.calls.filter(c => ((c as unknown[])[1] as { input: { recordId?: number } }).input.recordId === id).map(c => ((c as unknown[])[1] as { actionId: string }).actionId);
 
 describe('a down environment is brought back, step by step', () => {
-  it('re-run, redeploy, roll back — each given time to work — then one incident, one ask, one stop', async () => {
+  it('re-run, redeploy, roll back — each given time to work — then one ask and one stop, on the environment', async () => {
     const env = await anEnvironment('rooms-api-production');
     const { d, propose } = deps();
 
@@ -91,24 +91,27 @@ describe('a down environment is brought back, step by step', () => {
     expect(propose.mock.calls.at(-1)![1]).toMatchObject({ input: { url: `https://github.com/${REPO}/pull/140`, recordId: env.id, reason: expect.stringContaining('it was healthy on good000 before bad0000 deployed') } });
     expect((await meta(env.id)).healthRecovery.attempts.map((a: { kind: string; actionRunId: number }) => [a.kind, a.actionRunId])).toEqual([['rerun', 11], ['redeploy', 12], ['rollback', 13]]);
 
-    // Out of steps and still down: one incident, one ask, the needs-person stop.
+    // Out of steps and still down: one ask, the needs-person stop, on the environment.
+    // No request is filed: an incident is not work for Work's In progress.
     const stopped = await watchEnvironments(ORG, { owner: 'release-engineer' }, at(200), d);
 
     expect(stopped.acted.find(a => a.recordId === env.id)?.did).toBe('stopped');
 
     const rec = (await meta(env.id)).healthRecovery;
-    const [incident] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, rec.incidentId));
 
-    expect(incident!.metadata).toMatchObject({ kind: 'incident', severity: 'p1', environmentId: env.id, product: 'rooms' });
+    expect(rec.incidentId).toBeUndefined();
+    expect(await db.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, ORG), eq(businessObjectSchema.typeId, types.request!)))).toHaveLength(0);
+    expect((await meta(env.id)).recovery).toBeUndefined();
 
     const [ask] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, ORG), eq(askSchema.id, rec.askId)));
 
     expect(ask!.sourceRef).toBe(`pipeline-stop:${env.id}:health:${rec.since}`);
     expect(ask!.body).toContain('rerun (action #11): done');
+    expect(ask!.contextUrl).toBe(`/dashboard/objects/${env.id}`);
 
-    const [event] = await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.dedupeKey, `factory.stopped:${incident!.id}:${ask!.id}`)));
+    const [event] = await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.dedupeKey, `factory.stopped:${env.id}:${ask!.id}`)));
 
-    expect(event!.payload).toMatchObject({ requestId: incident!.id, askId: ask!.id, why: expect.stringContaining('rooms-api-production is down (answered HTTP 503) after rerun, redeploy, rollback') });
+    expect(event!.payload).toMatchObject({ requestId: env.id, askId: ask!.id, why: expect.stringContaining('rooms-api-production is down (answered HTTP 503) after rerun, redeploy, rollback') });
 
     // Stopped: the next pass says nothing more.
     await watchEnvironments(ORG, { owner: 'release-engineer' }, at(260), d);
@@ -128,6 +131,19 @@ describe('a down environment is brought back, step by step', () => {
 
     expect(out.acted.find(a => a.recordId === env.id)).toMatchObject({ did: 'healthy again', line: 'rooms-web-production is healthy again after rerun.' });
     expect((await meta(env.id))).toMatchObject({ lastHealth: 'ok', lastHealthySha: 'bad0000000000', healthRecovery: { closedAt: at(20).toISOString() }, lastPipelineLine: 'rooms-web-production is healthy again after rerun.' });
+  });
+
+  it('healthy again closes an incident request an earlier version filed, so it leaves Work by itself', async () => {
+    const [incident] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.request!, title: 'rooms-site-production is degraded', metadata: { kind: 'incident', state: 'new', recovery: { stage: 'stopped', line: 'Stopped: rooms-site-production is degraded.', attempts: [], log: [], limit: 3, since: null, askId: null, planRequestedAt: null, handledRunIds: [] } } }).returning();
+    const env = await anEnvironment('rooms-site-production', { lastHealth: 'degraded', healthRecovery: { since: at(-60).toISOString(), badReads: 30, attempts: [{ n: 1, kind: 'redeploy', at: at(-50).toISOString(), actionRunId: 12, status: 'done', url: null }], stoppedAt: at(-30).toISOString(), incidentId: incident!.id } });
+    const { d, set } = deps();
+    set('ok');
+
+    await watchEnvironments(ORG, {}, at(0), d);
+
+    expect((await meta(env.id)).healthRecovery.closedAt).toBe(at(0).toISOString());
+    expect(await meta(incident!.id)).toMatchObject({ state: 'answered', recovery: { stage: null, line: null } });
+    expect((await meta(incident!.id)).recovery.log.at(-1).text).toBe('Closed: rooms-site-production is healthy again after redeploy.');
   });
 
   it('a step that does not apply is not taken: a deploy that passed, a workflow no one can start, a release that was never healthy', async () => {

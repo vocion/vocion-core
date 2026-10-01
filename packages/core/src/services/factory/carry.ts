@@ -218,6 +218,17 @@ export async function noteOnRequest(orgId: string, requestId: number, line: stri
  * @param line - What happened, in a sentence.
  */
 export async function settleOnMerge(orgId: string, requestId: number, line: string): Promise<void> {
+  await settleOnRequest(orgId, requestId, line);
+}
+
+/**
+ * The factory stops carrying a request, and its account says why: the stage
+ * and its line clear, one line is logged.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param line - What happened, in a sentence.
+ */
+export async function settleOnRequest(orgId: string, requestId: number, line: string): Promise<void> {
   await updateRecovery(orgId, requestId, s => ({ ...logLine(s, line, new Date().toISOString(), null), stage: null, line: null }));
 }
 

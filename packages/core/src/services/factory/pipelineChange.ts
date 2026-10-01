@@ -140,7 +140,7 @@ export async function raisePipelineFix(orgId: string, o: { recordId: number; req
  * @param orgId - The workspace.
  * @param o - The stop.
  * @param o.recordId - The record the fix answered.
- * @param o.requestId - The request the stop goes on.
+ * @param o.requestId - The request the stop goes on (or the record itself, when it is not a request).
  * @param o.why - Why it stopped.
  * @param o.unblock - What would unblock it.
  * @param o.owner - The seat that owns the pipeline.
@@ -148,8 +148,9 @@ export async function raisePipelineFix(orgId: string, o: { recordId: number; req
  * @param o.now - When.
  * @param o.key - What makes this stop its own ask; the record's attempt when omitted.
  * @param o.tried - What was tried, when the caller kept its own account of it.
+ * @param o.contextUrl - Where the ask opens; the request's feature page when omitted.
  */
-export async function escalatePipeline(orgId: string, o: { recordId: number; requestId: number; why: string; unblock: string; owner: string | null; evidenceUrl?: string | null; now?: string; key?: string; tried?: string[] }): Promise<{ askId: number; line: string }> {
+export async function escalatePipeline(orgId: string, o: { recordId: number; requestId: number; why: string; unblock: string; owner: string | null; evidenceUrl?: string | null; now?: string; key?: string; tried?: string[]; contextUrl?: string }): Promise<{ askId: number; line: string }> {
   const { readRecord, writeMeta } = await import('@/libs/actions/factory-dispatch');
   const { upsertAsk } = await import('@/services/AskService');
   const request = await readRecord(orgId, o.requestId);
@@ -180,16 +181,20 @@ export async function escalatePipeline(orgId: string, o: { recordId: number; req
         { id: 'approve', label: 'It is fixed, check again', description: rerunnable ? 'Re-run the failed jobs now.' : 'The next pass reads it again.', recommended: true, ...(rerunnable ? { action: { id: 'github.rerun_failed_jobs', input: { url: rerunnable, reason: `After a person fixed it: ${o.why}`.slice(0, 500) } } } : {}) },
         { id: 'reject', label: 'Leave it', description: 'Nothing runs again.' },
       ],
-      objectRefs: [{ type: types.request, id: String(o.requestId) }, ...(o.recordId !== o.requestId ? [{ type: record?.typeSlug ?? 'record', id: String(o.recordId) }] : [])],
+      objectRefs: [{ type: request?.typeSlug ?? types.request, id: String(o.requestId) }, ...(o.recordId !== o.requestId ? [{ type: record?.typeSlug ?? 'record', id: String(o.recordId) }] : [])],
       decisionCost: 5,
-      contextUrl: `/dashboard/p/feature/${o.requestId}`,
+      contextUrl: o.contextUrl ?? `/dashboard/p/feature/${o.requestId}`,
     },
   });
   if (work) {
     await writeMeta(orgId, o.recordId, { pipelineWork: { ...work, stoppedAt: at, askId: ask.id } });
   }
-  const { stopOnRequest } = await import('./carry');
-  await stopOnRequest(orgId, o.requestId, `${line} Ask #${ask.id} is with a person.`, ask.id);
+  // Only a request carries a stop as its stage: a record that is not one (an
+  // environment, whose own account and product page say it) is not made into work.
+  if (request?.typeSlug === types.request) {
+    const { stopOnRequest } = await import('./carry');
+    await stopOnRequest(orgId, o.requestId, `${line} Ask #${ask.id} is with a person.`, ask.id);
+  }
   const { emitEvent, FACTORY_STOPPED } = await import('@/services/EventService');
   const payload: import('@/services/EventService').FactoryStoppedPayload = {
     requestId: o.requestId,

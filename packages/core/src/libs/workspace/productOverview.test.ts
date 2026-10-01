@@ -211,4 +211,13 @@ describe('where it runs', () => {
   it('is empty, not a list of blanks, when none is recorded', () => {
     expect(build().environments).toEqual([]);
   });
+
+  it('an environment its own recovery could not bring back is an alert on the product, saying what was tried and who has it', () => {
+    const down = row(34, 'send-docs-production', { slug: 'send-docs-production', product: 'send', surface: 'docs', stage: 'production', lastHealth: 'down', healthRecovery: { since: '2026-09-24T09:00:00Z', badReads: 6, attempts: [{ n: 1, kind: 'rerun' }, { n: 2, kind: 'redeploy' }], stoppedAt: '2026-09-24T10:00:00Z', askId: 41 } });
+    const advised = row(35, 'send-site-production', { slug: 'send-site-production', product: 'send', surface: 'marketing', stage: 'production', lastHealth: 'ok', lastHealthAdvice: 'the title is not Northwind' });
+    const o = build({ environments: [...ENVS, down, advised] });
+
+    expect(o.attention.alerts).toEqual([{ id: 34, line: 'Docs · production is down; its own recovery re-ran its failed deploy, then redeployed it, and it is still not back. Ask #41 is with a person.', href: '/dashboard/objects/34' }]);
+    expect(o.environments.find(e => e.id === 35)).toMatchObject({ health: 'ok', alert: null, advice: 'the title is not Northwind' });
+  });
 });

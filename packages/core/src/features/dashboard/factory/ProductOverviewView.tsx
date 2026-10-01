@@ -51,7 +51,7 @@ function Empty({ children }: { children: ReactNode }) {
 export function ProductOverviewView({ overview: o, page, now, related = [], writes = [] }: { overview: ProductOverview; page: { slug: string; title: string }; now: number; related?: readonly RelatedItem[]; writes?: readonly RelatedWrite[] }) {
   const back = `/dashboard/p/${page.slug}`;
   const ago = (d: Date | null) => (d ? relativeLabel(d, now) : null);
-  const attentionCount = o.attention.decisions.length + o.attention.blocked.length;
+  const attentionCount = o.attention.decisions.length + o.attention.blocked.length + o.attention.alerts.length;
 
   return (
     <DetailPage
@@ -119,6 +119,16 @@ export function ProductOverviewView({ overview: o, page, now, related = [], writ
                     Review
                   </Link>
                 )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* An environment not answering its health check: an alert here, not a work item. */}
+        {o.attention.alerts.length > 0 && (
+          <ul className="mt-2 divide-y divide-rule" data-testid="product-alerts">
+            {o.attention.alerts.map(a => (
+              <li key={a.id} className="py-2 text-sm">
+                <StatusDot tone="fail" label={<Title href={a.href}>{a.line}</Title>} />
               </li>
             ))}
           </ul>
@@ -229,6 +239,7 @@ export function ProductOverviewView({ overview: o, page, now, related = [], writ
                 )}
                 {/* What the pipeline last did here, from the record (backlog 049). */}
                 {e.line && <p className="basis-full text-[12px] text-muted-foreground" data-testid="product-environment-line">{e.line}</p>}
+                {e.advice && <p className="basis-full text-[12px] text-muted-foreground" data-testid="product-environment-advice">{`Answers, but not as its record expects: ${e.advice}`}</p>}
               </li>
             ))}
           </ul>

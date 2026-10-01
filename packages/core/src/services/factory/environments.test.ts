@@ -15,7 +15,7 @@ const { db } = await import('@/libs/DB');
 const { businessObjectSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { eq } = await import('drizzle-orm');
-const { deployedBy, deploysWith, readHealth, recordDeploy, triggersOf, watchMissedDeploys } = await import('./environments');
+const { bareWhy, deployedBy, deploysWith, healthFields, readHealth, recordDeploy, triggersOf, watchMissedDeploys } = await import('./environments');
 
 const ORG = 'org_environments';
 const REPO = 'Acme/northwind-core';
@@ -83,25 +83,38 @@ describe('a deploy is written on its environments', () => {
 });
 
 describe('the health read', () => {
-  it('down when it does not answer or answers 5xx; degraded when the answer does not say what it must, read once per answer', async () => {
+  it('down when it does not answer or answers 5xx, degraded on 4xx; an answer that does not say what it must is advice, read once per answer', async () => {
     const meets = vi.fn(async () => ({ meets: false, why: 'the page is the maintenance notice' }));
 
     expect(await readHealth(ORG, { url: 'https://rooms.northwind.example' }, new Date(), { fetch: async () => {
       throw new Error('connect ETIMEDOUT');
     } })).toMatchObject({ health: 'down', status: null });
     expect(await readHealth(ORG, { url: 'https://rooms.northwind.example' }, new Date(), { fetch: async () => ({ status: 503, body: 'Service Unavailable' }) })).toMatchObject({ health: 'down', status: 503 });
+    expect(await readHealth(ORG, { healthCheck: { url: 'https://rooms.northwind.example/health', expect: '"status":"ok"' } }, new Date(), { fetch: async () => ({ status: 404, body: 'Not Found' }), meets })).toMatchObject({ health: 'degraded', status: 404 });
     expect(await readHealth(ORG, { healthCheck: { url: 'https://rooms.northwind.example/health', expect: '"status":"ok"' } }, new Date(), { fetch: async () => ({ status: 200, body: '{"status":"ok"}' }), meets })).toMatchObject({ health: 'ok' });
     expect(meets).not.toHaveBeenCalled();
 
+    // A 2xx is never degraded (2026-10-01: two sites answering 200 were filed as
+    // incidents because their expectation described redirects on other hosts).
     const first = await readHealth(ORG, { healthCheck: { url: 'https://rooms.northwind.example', expect: 'the title names Rooms' } }, new Date(), { fetch: async () => ({ status: 200, body: '<title>Down for maintenance</title>' }), meets });
 
-    expect(first).toMatchObject({ health: 'degraded', detail: expect.stringContaining('the page is the maintenance notice') });
+    expect(first).toMatchObject({ health: 'ok', advice: 'the page is the maintenance notice', read: { meets: false, why: 'the page is the maintenance notice' } });
 
-    // The same answer again is the same verdict, without asking the model.
-    await readHealth(ORG, { healthCheck: { url: 'https://rooms.northwind.example', expect: 'the title names Rooms' }, lastHealthRead: { bodyHash: first!.bodyHash, expect: 'the title names Rooms', meets: false, why: 'the page is the maintenance notice' } }, new Date(), { fetch: async () => ({ status: 200, body: '<title>Down for maintenance</title>' }), meets });
+    // The same answer again is the same read, without asking the model.
+    const again = await readHealth(ORG, { healthCheck: { url: 'https://rooms.northwind.example', expect: 'the title names Rooms' }, lastHealthRead: { bodyHash: first!.bodyHash, expect: 'the title names Rooms', meets: false, why: 'the page is the maintenance notice' } }, new Date(), { fetch: async () => ({ status: 200, body: '<title>Down for maintenance</title>' }), meets });
 
     expect(meets).toHaveBeenCalledTimes(1);
+    expect(again).toMatchObject({ health: 'ok', advice: 'the page is the maintenance notice' });
     expect(await readHealth(ORG, { stage: 'local' })).toBeNull();
+  });
+
+  it('keeps the model\'s own reason, never the detail wrapped again on every pass', async () => {
+    const reading = await readHealth(ORG, { healthCheck: { url: 'https://rooms.northwind.example', expect: 'the title names Rooms' } }, new Date(), { fetch: async () => ({ status: 200, body: '<title>Maintenance</title>' }), meets: async () => ({ meets: false, why: 'the title is Maintenance' }) });
+    const fields = healthFields(reading!, 'the title names Rooms');
+
+    expect(fields.lastHealthRead).toMatchObject({ meets: false, why: 'the title is Maintenance' });
+    expect(fields.lastHealthAdvice).toBe('the title is Maintenance');
+    expect(bareWhy('https://a.example answered HTTP 200: https://a.example answered HTTP 200: the title is Maintenance')).toBe('the title is Maintenance');
   });
 });
 

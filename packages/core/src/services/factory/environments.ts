@@ -11,11 +11,11 @@
  *                      run's commit, time and URL, and its health is read.
  *   readHealth         the environment's `healthCheck` (its URL, and what the
  *                      answer must say): an address that does not answer or
- *                      answers 5xx is down; an answer that does not say what
- *                      `expect` asks is degraded. Whether it says so is the
- *                      text itself, or — when the words are not there
- *                      verbatim — a classifier's typed read, never a match
- *                      over prose.
+ *                      answers 5xx is down, 4xx is degraded, and one that
+ *                      answers is ok. Whether the answer says what `expect`
+ *                      asks (the text itself, or a classifier's typed read,
+ *                      never a match over prose) is advice on the record for
+ *                      an operator, never the verdict.
  *   watchMissedDeploys a merge on the deploy branch with no run of its deploy
  *                      workflow after MISSED_DEPLOY_MS: the workflow is started
  *                      (`github.dispatch_workflow`, done for you) once per
@@ -44,7 +44,12 @@ const LOG_MAX = 20;
 const BODY_MAX = 20_000;
 
 export type Health = 'ok' | 'degraded' | 'down';
-export type HealthReading = { health: Health; status: number | null; detail: string; url: string; checkedAt: string; bodyHash: string | null };
+/**
+ * One health read. `read` is the classifier's verdict on `expect`, when it
+ * was asked; `advice` is what the answer did not say, a note for an operator
+ * that never changes `health`.
+ */
+export type HealthReading = { health: Health; status: number | null; detail: string; url: string; checkedAt: string; bodyHash: string | null; read?: { meets: boolean; why: string }; advice?: string };
 
 /** One environment with the repository it is deployed from, resolved to `owner/name`. */
 export type EnvironmentRow = { id: number; title: string; meta: Meta; repo: string | null };
@@ -197,7 +202,7 @@ export async function expectationMet(o: { orgId: string; expect: string; status:
     const model = await buildChatModelForOrg('classifier', o.orgId, { temperature: 0, streaming: false, maxTokens: 200 }) as unknown as { bindTools: (tools: unknown[], opts: unknown) => { invoke: (m: unknown[]) => Promise<{ tool_calls?: Array<{ name: string; args: unknown }> }> } };
     const report = tool(async () => 'recorded', { name: 'report_health', description: 'Report whether the health response meets the expectation.', schema: schema as never });
     const res = await model.bindTools([report], { tool_choice: 'report_health' }).invoke([
-      new SystemMessage('You check a service\'s health response against what its record says the response must say. Judge only from the response. Answer only through the tool.'),
+      new SystemMessage('You check a service\'s health response against what its record says the response must say. Judge only from the response, and only the parts of the expectation one response from this URL can show: what it says about other hosts, other paths or redirects elsewhere is not shown here and is not held against it. Answer only through the tool.'),
       new HumanMessage(`Expectation: ${o.expect}\n\nHTTP ${o.status}\n\nResponse (first ${BODY_MAX} characters):\n${o.body.slice(0, 8_000)}`),
     ]);
     const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
@@ -239,26 +244,37 @@ export async function readHealth(orgId: string, env: Meta, now: Date = new Date(
   if (res.status >= 500) {
     return { health: 'down', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash };
   }
+  if (res.status >= 400) {
+    return { health: 'degraded', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash };
+  }
+  // AN ADDRESS THAT ANSWERS IS UP (2026-10-01: two production sites answering
+  // HTTP 200 were filed as degraded incidents, because their `expect` also
+  // described redirects on other hosts, which one answer cannot show). What
+  // the answer says against `expect` is advice on the record, never the
+  // verdict, so it cannot start a recovery or file an incident.
   const expect = str(check?.expect);
-  if (!expect) {
-    return res.status < 400
-      ? { health: 'ok', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash }
-      : { health: 'degraded', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash };
+  const answered = `${url} answered HTTP ${res.status}`;
+  if (!expect || res.body.includes(expect)) {
+    return { health: 'ok', status: res.status, detail: expect ? `${answered} and says ${expect.slice(0, 80)}` : answered, url, checkedAt, bodyHash };
   }
-  if (res.status < 400 && res.body.includes(expect)) {
-    return { health: 'ok', status: res.status, detail: `${url} answered HTTP ${res.status} and says ${expect.slice(0, 80)}`, url, checkedAt, bodyHash };
-  }
-  // The same answer as last time is the same verdict: the model reads each answer once.
+  // The same answer as last time is the same read: the model reads each answer once.
   const last = obj(env.lastHealthRead);
-  if (last && last.bodyHash === bodyHash && last.expect === expect && typeof last.meets === 'boolean') {
-    return { health: last.meets ? 'ok' : 'degraded', status: res.status, detail: `${url} answered HTTP ${res.status}: ${str(last.why) ?? ''}`.trim(), url, checkedAt, bodyHash };
-  }
-  const read = await (deps?.meets ?? expectationMet)({ orgId, expect, status: res.status, body: res.body });
+  const read = last && last.bodyHash === bodyHash && last.expect === expect && typeof last.meets === 'boolean'
+    ? { meets: last.meets, why: bareWhy(str(last.why) ?? '') }
+    : await (deps?.meets ?? expectationMet)({ orgId, expect, status: res.status, body: res.body });
   if (!read) {
-    // Not read is not a finding about the environment: the status alone speaks.
-    return { health: res.status < 400 ? 'ok' : 'degraded', status: res.status, detail: `${url} answered HTTP ${res.status}; whether it says "${expect.slice(0, 60)}" could not be read`, url, checkedAt, bodyHash };
+    return { health: 'ok', status: res.status, detail: `${answered}; whether it says "${expect.slice(0, 60)}" could not be read`, url, checkedAt, bodyHash };
   }
-  return { health: read.meets ? 'ok' : 'degraded', status: res.status, detail: `${url} answered HTTP ${res.status}: ${read.why}`, url, checkedAt, bodyHash };
+  return { health: 'ok', status: res.status, detail: read.meets ? `${answered}: ${read.why}` : answered, url, checkedAt, bodyHash, read, ...(read.meets ? {} : { advice: read.why }) };
+}
+
+/**
+ * The model's own sentence, without the "<url> answered HTTP <n>:" prefixes
+ * an earlier version stored with it and then wrapped again on every pass.
+ * @param why - The stored reason.
+ */
+export function bareWhy(why: string): string {
+  return why.replace(/^(?:\S+ answered HTTP \d{3}:\s*)+/, '').trim();
 }
 
 /**
@@ -272,7 +288,8 @@ export function healthFields(r: HealthReading, expect?: string | null): Meta {
     lastHealth: r.health,
     lastHealthCheckedAt: r.checkedAt,
     lastHealthDetail: r.detail,
-    ...(expect && r.bodyHash ? { lastHealthRead: { bodyHash: r.bodyHash, expect, meets: r.health === 'ok', why: r.detail } } : {}),
+    lastHealthAdvice: r.advice ?? null,
+    ...(expect && r.bodyHash && r.read ? { lastHealthRead: { bodyHash: r.bodyHash, expect, meets: r.read.meets, why: r.read.why } } : {}),
   };
 }
 

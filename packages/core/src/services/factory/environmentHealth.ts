@@ -21,9 +21,10 @@
  * Each step is an action on the rail — done for you, its Undo on it — and a
  * line on the environment's own account. A step that does not apply is not
  * taken. Healthy again, the recovery closes and says after what. Out of steps
- * and still unhealthy: one incident request and one ask
+ * and still unhealthy: one ask on the environment
  * (`pipelineChange.escalatePipeline`), the needs-person notification, and the
- * next pass says nothing more until a person answers or it is healthy.
+ * next pass says nothing more until a person answers or it is healthy. No
+ * request is filed: the environment and its product page carry the alert.
  *
  * Nothing here names a product, stage or surface: the records say how each
  * environment deploys and what its health check must read.
@@ -152,28 +153,29 @@ export async function nextStep(orgId: string, env: EnvironmentRow, rec: HealthRe
   return null;
 }
 
-async function fileIncident(orgId: string, env: EnvironmentRow, reading: HealthReading, tried: string[], owner: string | null): Promise<number> {
-  const { createBusinessObject } = await import('@/services/BusinessObjectService');
-  const types = await (await import('@/libs/factory/types')).factoryTypes(orgId);
-  const name = str(env.meta.slug) ?? env.title;
-  const row = await createBusinessObject({
-    typeSlug: types.request,
-    title: `${name} is ${reading.health}`.slice(0, 140),
-    metadata: {
-      kind: 'incident',
-      severity: str(env.meta.stage) === 'production' ? 'p1' : 'p2',
-      channel: 'pipeline',
-      state: 'new',
-      ...(str(env.meta.product) ? { product: str(env.meta.product) } : {}),
-      environment: name,
-      environmentId: env.id,
-      outcome: `${name} answers its health check again.`,
-      story: `${name} is ${reading.health}: ${reading.detail}. The pipeline's own recovery did not bring it back.`,
-      body: [`Health: ${reading.detail}`, tried.length > 0 ? `Tried:\n${tried.map((t, i) => `${i + 1}. ${t}`).join('\n')}` : 'No recovery step applied.'].join('\n\n').slice(0, 4000),
-      evidence: [{ label: 'Health check', url: reading.url }, ...(str(env.meta.lastDeployRunUrl) ? [{ label: 'Last deploy run', url: str(env.meta.lastDeployRunUrl)! }] : [])],
-    },
-  }, orgId, `agent:${owner ?? 'system'}`, { source: 'service', actor: `agent:${owner ?? 'system'}` });
-  return row!.id;
+/**
+ * An incident request an earlier version filed for this environment closes
+ * once it is healthy again, and says why on its own account, so it leaves
+ * Work by itself (#285 and #286 on 2026-10-01 were filed for sites answering
+ * HTTP 200). The system cleans up what it filed; nobody closes it by hand.
+ * @param orgId - The workspace.
+ * @param incidentId - The request.
+ * @param line - Why: healthy again, after what.
+ */
+async function closeIncident(orgId: string, incidentId: number, line: string): Promise<void> {
+  try {
+    const { readRecord, writeMeta } = await import('@/libs/actions/factory-dispatch');
+    const { CLOSED_REQUEST_STATES, RESOLVED_REQUEST_STATE } = await import('@/libs/factory/requestStates');
+    const incident = await readRecord(orgId, incidentId);
+    if (!incident || CLOSED_REQUEST_STATES.has(String(incident.meta.state ?? ''))) {
+      return;
+    }
+    await writeMeta(orgId, incidentId, { state: RESOLVED_REQUEST_STATE });
+    const { settleOnRequest } = await import('./carry');
+    await settleOnRequest(orgId, incidentId, `Closed: ${line}`);
+  } catch (err) {
+    console.warn('environment health: could not close the incident', { orgId, incidentId, message: (err as Error).message });
+  }
 }
 
 /**
@@ -231,8 +233,7 @@ async function watchOne(orgId: string, env: EnvironmentRow, now: Date, owner: st
         await supersedeAsk(orgId, rec.askId, line).catch(() => undefined);
       }
       if (rec.incidentId) {
-        const { noteOnRequest } = await import('./carry');
-        await noteOnRequest(orgId, rec.incidentId, line).catch(() => undefined);
+        await closeIncident(orgId, rec.incidentId, line);
       }
       return { recordId: env.id, did: 'healthy again', line };
     }
@@ -282,14 +283,18 @@ async function watchOne(orgId: string, env: EnvironmentRow, now: Date, owner: st
     return { recordId: env.id, did: `recovery: ${step.kind} ${res.status}`, line };
   }
 
-  // Out of steps and still unhealthy: one incident, one ask, one notification.
+  // Out of steps and still unhealthy: one ask and one notification, on the
+  // environment itself. No request is filed: an incident is not work for the
+  // factory to build, and a request made of it sat on Work as "Stopped after 0
+  // attempts" (2026-10-01). The environment's own account and its product's
+  // page say it, where an operator looks (`healthAlert`).
   const tried = rec.attempts.map(a => `${a.kind}${a.actionRunId ? ` (action #${a.actionRunId})` : ''}: ${a.status}${a.error ? ` — ${a.error}` : ''}`);
-  const incidentId = rec.incidentId ?? await fileIncident(orgId, env, reading, tried, owner);
   const { escalatePipeline } = await import('./pipelineChange');
+  const { rawRecordPath } = await import('@/libs/workspace/recordHref');
   const why = `${name} is ${reading.health} (${reading.detail})${rec.attempts.length > 0 ? ` after ${rec.attempts.map(a => a.kind).join(', ')}` : ', and no recovery step applied to it'}`;
-  const { askId, line } = await escalatePipeline(orgId, { recordId: env.id, requestId: incidentId, why, unblock: 'bring it back up (its hosting, its config, a service it needs), then approve to read its health again', owner, evidenceUrl: str(env.meta.lastDeployRunUrl), key: `health:${rec.since}`, tried, now: at });
-  rec = { ...rec, stoppedAt: at, askId, incidentId };
+  const { askId, line } = await escalatePipeline(orgId, { recordId: env.id, requestId: env.id, why, unblock: 'bring it back up (its hosting, its config, a service it needs), then approve to read its health again', owner, evidenceUrl: str(env.meta.lastDeployRunUrl), key: `health:${rec.since}`, tried, now: at, contextUrl: rawRecordPath(env.id) });
+  rec = { ...rec, stoppedAt: at, askId };
   await quiet(orgId, env.id, { ...set, healthRecovery: rec });
-  await lib.noteOnRecord(orgId, env.id, `${line} Incident #${incidentId}, ask #${askId}.`, { at });
+  await lib.noteOnRecord(orgId, env.id, `${line} Ask #${askId}.`, { at });
   return { recordId: env.id, did: 'stopped', line };
 }
