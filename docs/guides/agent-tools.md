@@ -46,6 +46,7 @@ agents that hold each tool, so what the page says an agent has is what the agent
 | `propose_action` with `chat.reply_in_thread` | `chat.reply_in_thread`, or `.<kind>` | A reply in the thread the ask came from; Undo deletes it. | every agent with the family in scope | medium; a kind reads the parent's rule unless given its own |
 | `propose_action` with `chat.add_reaction` | `chat.add_reaction` | A reaction on a message; Undo removes it. | every agent with the family in scope | low → done for you at 0.8 |
 | `workspace_setup` | — (read) | Nothing: where the workspace's setup stands (description, connected tools, plugins on) and the one next step (#1028). | every agent | — |
+| `offer_connection` | — (read) | A link card in chat that opens the Sources connect flow for one connector and returns to the conversation; no Approve (#1028). | every agent | — |
 | `lookup_person` | — (read) | Nothing: one person's chat user, tracker account and code-host login, found by email across the families the agent reaches. | agents with any of the three families in scope | — |
 
 The `repo`, `tracker` and `chat` rows are the three **connector families**

@@ -330,6 +330,12 @@ export async function POST(request: Request): Promise<Response> {
           }));
           return;
         }
+        if (event.type === 'card') {
+          // A tool's own card (offer_connection, #1028): on the ledger and the
+          // wire like a recommendation. It names no action, so nothing is filed.
+          pending.push(surfaceCard(event.card, { write: writeEvent, collector, where: { conversationId, agentSlug } }));
+          return;
+        }
         writeEvent(event);
       };
 

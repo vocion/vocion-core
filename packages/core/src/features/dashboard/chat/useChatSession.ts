@@ -787,7 +787,7 @@ export function useChatSession({
         } else if (typeof c.title === 'string' && c.title.trim()) {
           // A recommendation with nothing to press (its action was refused,
           // finding 20): still the agent's recommendation, read not pressed.
-          rec = { id: c.id, actionId: '', input: {}, label: c.title, ...(c.rationale ? { rationale: c.rationale } : {}), ...(c.source?.agentSlug ? { agentSlug: c.source.agentSlug } : {}), state: c.state ?? 'proposed' };
+          rec = { id: c.id, actionId: '', input: {}, label: c.title, ...link, ...(c.rationale ? { rationale: c.rationale } : {}), ...(c.source?.agentSlug ? { agentSlug: c.source.agentSlug } : {}), state: c.state ?? 'proposed' };
         } else {
           return;
         }

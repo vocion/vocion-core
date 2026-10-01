@@ -10,7 +10,7 @@ import type { RecommendedActionPayload } from '@/services/agents/types';
  *
  * Kinds are registered by descriptor — a schema for the payload and the name
  * of a renderer — so a plugin adds a kind without touching this file. Core
- * ships `action` (today's recommendation), `decision`, `ask` and `record`.
+ * ships `action` (today's recommendation), `decision`, `ask`, `record` and `link`.
  * A card is emitted INTO this contract by exactly three producers: the
  * `recommend_action`/`put_card` tool, a tool's result-to-card descriptor, and
  * the gated backstop. Tools are the door, not the feature.
@@ -101,6 +101,7 @@ registerCardKind({ kind: 'action', renderer: 'action', refine: c => (c.actions.l
 registerCardKind({ kind: 'decision', renderer: 'decision', refine: c => (c.actions.length < 2 ? 'a decision card offers at least two ways to decide' : null) });
 registerCardKind({ kind: 'ask', renderer: 'ask' });
 registerCardKind({ kind: 'record', renderer: 'record' });
+registerCardKind({ kind: 'link', renderer: 'link', refine: c => (c.href ? null : 'a link card names where it opens (href)') });
 
 export type CardCheck = { ok: true; card: Card } | { ok: false; reason: string };
 
