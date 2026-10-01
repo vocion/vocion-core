@@ -157,7 +157,7 @@ export async function requestDefaultMockup(orgId: string, input: Record<string, 
  * @param missionRunId - The run.
  * @param tool - The tool the drawing had to call.
  */
-async function lastToolAnswer(orgId: string, missionRunId: number, tool: string): Promise<{ called: boolean; answer: string | null }> {
+export async function lastToolAnswer(orgId: string, missionRunId: number, tool: string): Promise<{ called: boolean; answer: string | null }> {
   const { and, desc, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { toolCallSchema } = await import('@/models/Schema');

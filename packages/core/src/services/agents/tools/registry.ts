@@ -26,6 +26,7 @@ import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { calendarTools } from './calendarEvents';
 import { listCapabilitiesTool } from './capabilities';
+import { checkLiveTools } from './checkLive';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
@@ -186,6 +187,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only: a product's production URLs and QA sign-in (never the
     // password, which only the worker reads, over the API).
     ...productAccessTools(ctx),
+    // Granted-only: a shipped release checked on the live product as the QA
+    // account, and what QA saw written on the release and its features.
+    ...checkLiveTools(ctx),
     // Granted-only: what CI said on a pull request or an Actions run — failing
     // checks, annotations, the failing step's log tail (backlog 049).
     ...githubCheckLogsTools(ctx),

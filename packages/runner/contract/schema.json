@@ -243,6 +243,47 @@
                     "offline": {
                       "type": "boolean",
                       "description": "true drops the page's network, false restores it: the state a bad connection puts the page in."
+                    },
+                    "goto": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Open this path (or an address on the same product) in the same page, e.g. a record an earlier step remembered: {\"goto\": \"{{documentUrl}}\"}."
+                    },
+                    "remember": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z][\\w-]{0,40}$",
+                          "description": "The name later steps read it by, as {{name}} in a path, target or value."
+                        },
+                        "from": {
+                          "type": "string",
+                          "enum": [
+                            "url",
+                            "href",
+                            "text",
+                            "value"
+                          ],
+                          "description": "url: the page's address (the default without a selector); href: a link's address; text: what an element says (the default with a selector); value: a field's value."
+                        },
+                        "selector": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The element to read, as click and wait_for name one."
+                        }
+                      },
+                      "description": "Keep a value the page shows, so a later step or flow can use it: the record a step just made, the link it shares."
+                    },
+                    "pause": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 30,
+                      "description": "Wait this many seconds: time a visitor spends on a page before the product counts the visit."
                     }
                   }
                 }

@@ -420,8 +420,92 @@ export async function detectErrorState(page, patterns = ERROR_STATE_PATTERNS) {
 
 // ---------- driving a page ----------
 
-/** One step of the declarative vocabulary. Unknown verbs never reach here; the contract refuses them. */
-async function runStep(page, step, shoot) {
+// ---------- values a flow carries from one step to the next ----------
+//
+// A flow on a live product prepares its own state (Chris, 2026-10-01: the live check reached 0 of 6
+// states because the QA account had none of the mock build's records). Preparing it means carrying
+// what one step made into the next: the page a just-uploaded record landed on, the link it shares.
+// `remember` keeps a value under a name, and `{{name}}` in any later path, target or value reads it.
+
+/** `{{name}}` in a flow's strings: a value an earlier `remember` kept. */
+export const VAR_RE = /\{\{\s*([a-z][\w-]{0,40})\s*\}\}/gi;
+
+/**
+ * `value` with every `{{name}}` read from `vars`; strings inside objects and arrays too. A name
+ * nothing remembered is an error that says which: a step pointed at a value that does not exist
+ * would otherwise load or click the literal braces.
+ */
+export function fillVars(value, vars = {}) {
+  if (typeof value === 'string') {
+    return value.replace(VAR_RE, (_, name) => {
+      if (vars[name] === undefined || vars[name] === null || vars[name] === '') {
+        throw new Error(`{{${name}}} was never remembered by an earlier step`);
+      }
+      return String(vars[name]);
+    });
+  }
+  if (Array.isArray(value)) {
+    return value.map(v => fillVars(v, vars));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillVars(v, vars)]));
+  }
+  return value;
+}
+
+/** Where a flow's path or a `goto` points: an absolute address as it is, a path on `base`. */
+export function addressOf(base, target) {
+  const t = String(target || '');
+  return /^https?:\/\//i.test(t) ? t : `${String(base || '').replace(/\/+$/, '')}${t.startsWith('/') ? '' : '/'}${t}`;
+}
+
+/** The longest `pause` a step may ask for, in seconds. */
+export const MAX_PAUSE_SECONDS = 30;
+
+/**
+ * One step of the declarative vocabulary. Unknown verbs never reach here; the contract refuses them.
+ * `ctx.vars` holds what `remember` kept; `ctx.allow(url)` says whether an address may be opened
+ * (the live check allows only the product's own origins).
+ */
+async function runStep(page, rawStep, shoot, ctx = {}) {
+  const vars = ctx.vars || {};
+  const step = fillVars(rawStep, vars);
+  if (step.goto) {
+    const url = addressOf(ctx.base || page.url(), step.goto);
+    if (ctx.allow && !ctx.allow(url)) {
+      throw new Error(`${new URL(url).origin} is not one of the product's own addresses, so it was not opened`);
+    }
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    return;
+  }
+  if (step.remember) {
+    const { name, from = step.remember.selector ? 'text' : 'url', selector } = step.remember;
+    let value = '';
+    if (from === 'url') {
+      value = page.url();
+    } else {
+      const el = locate(page, selector).first();
+      await el.waitFor({ state: 'attached', timeout: 15000 });
+      value = from === 'href'
+        ? await el.evaluate(n => n.href || n.getAttribute('href') || '')
+        : from === 'value'
+          ? await el.inputValue()
+          // What the element shows a person, as rendered.
+          // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+          : await el.innerText();
+    }
+    value = String(value || '').trim();
+    if (!value) {
+      throw new Error(`nothing to remember as ${name}: the ${from}${selector ? ` of ${JSON.stringify(selector).slice(0, 80)}` : ''} is empty`);
+    }
+    vars[name] = value;
+    return;
+  }
+  if (step.pause !== undefined) {
+    await page.waitForTimeout(Math.min(MAX_PAUSE_SECONDS, Math.max(0, Number(step.pause) || 0)) * 1000);
+    return;
+  }
   if (step.wait_for) {
     await locate(page, step.wait_for).first().waitFor({ state: 'visible', timeout: 15000 });
     return;
@@ -452,11 +536,45 @@ async function runStep(page, step, shoot) {
   }
 }
 
-/** A PDF-shaped buffer of about `bytes`: a header, padding, and an end marker. */
-export function samplePdf(bytes) {
-  const head = Buffer.from('%PDF-1.4\n% sample file for a QA flow\n');
-  const tail = Buffer.from('\n%%EOF\n');
-  return Buffer.concat([head, Buffer.alloc(Math.max(0, bytes - head.length - tail.length), 0x20), tail]);
+/**
+ * A real one-page PDF of `bytes` (or the smallest one, when that is fewer): a catalog, a page that
+ * says it is a QA sample, and a cross-reference table, padded with a comment after the header. A
+ * product that opens what it is given (a live upload renders its pages) needs a PDF a reader can
+ * open; a padded header and an end marker was refused.
+ */
+export function samplePdf(bytes, text = 'Sample file for a QA flow') {
+  const words = String(text).replace(/[()\\\r\n]/g, ' ').slice(0, 80);
+  const stream = `BT /F1 24 Tf 72 700 Td (${words}) Tj ET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  const build = (padding) => {
+    let out = `%PDF-1.4\n${padding}`;
+    const offsets = [];
+    objects.forEach((o, i) => {
+      offsets.push(out.length);
+      out += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    });
+    const xref = out.length;
+    out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+    out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return out;
+  };
+  const bare = build('');
+  const room = Math.max(0, Math.floor(bytes) - bare.length);
+  // A comment line is "%", the filler, "\n"; startxref's digits may grow by the padding's own length.
+  if (room < 2) {
+    return Buffer.from(bare, 'latin1');
+  }
+  let padding = `%${' '.repeat(room - 2)}\n`;
+  let out = build(padding);
+  padding = `%${' '.repeat(Math.max(0, room - 2 - (out.length - bare.length - room)))}\n`;
+  out = build(padding);
+  return Buffer.from(out, 'latin1');
 }
 
 /** A Playwright selector engine prefix: `text=Remind`, `role=switch`, `css=...`, `data-testid=...`. */
@@ -560,6 +678,17 @@ async function screenshotWithUrl(page, file) {
   }
 }
 
+/** The words the page shows a person, first `max` characters: what a reader of the shot needs to steer the next try. */
+export async function pageText(page, max = 900) {
+  try {
+    // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+    const text = await page.evaluate(() => document.body?.innerText || '');
+    return String(text).replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim().slice(0, max);
+  } catch {
+    return '';
+  }
+}
+
 /** The browser context options for one viewport: its size, scale and touch. */
 export function viewportContextOptions(viewport) {
   const vp = VIEWPORTS[viewport];
@@ -574,7 +703,7 @@ export function viewportContextOptions(viewport) {
  * shoots where the page got, instead of trying the rest: on production a failed step means the
  * state is not there, and every later step would only wait out its own timeout.
  */
-export async function shootFlow({ browser, base, flow, viewport, side, outDir, record = false, log = () => {}, context: given = null, stopAtFailure = false, errorPatterns = ERROR_STATE_PATTERNS }) {
+export async function shootFlow({ browser, base, flow, viewport, side, outDir, record = false, log = () => {}, context: given = null, stopAtFailure = false, errorPatterns = ERROR_STATE_PATTERNS, vars = {}, allow = null, withText = false }) {
   const vp = VIEWPORTS[viewport];
   const context = given || await browser.newContext({
     ...viewportContextOptions(viewport),
@@ -589,12 +718,16 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
   const shoot = async (label) => {
     const file = path.join(outDir, `${slug(flow.name)}-${viewport}-${side}-${slug(label, 24)}-${shots.length}.png`);
     await screenshotWithUrl(page, file);
-    shots.push({ file, label, at: pageAt(page), errorState: await detectErrorState(page, errorPatterns), ...(shortOf() ? { shortOf: shortOf() } : {}) });
+    shots.push({ file, label, at: pageAt(page), errorState: await detectErrorState(page, errorPatterns), ...(shortOf() ? { shortOf: shortOf() } : {}), ...(withText ? { text: await pageText(page) } : {}) });
   };
   let absent = '';
   let video = null;
   try {
-    const response = await page.goto(`${base}${flow.path}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const target = addressOf(base, fillVars(flow.path, vars));
+    if (allow && !allow(target)) {
+      throw new Error(`${new URL(target).origin} is not one of the product's own addresses, so it was not opened`);
+    }
+    const response = await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
     if (side === 'before') {
       absent = absentReason(response, page, flow.path);
@@ -602,7 +735,7 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
     if (!absent) {
       for (const [index, step] of flow.steps.entries()) {
         try {
-          await runStep(page, step, shoot);
+          await runStep(page, step, shoot, { vars, allow, base });
         } catch (e) {
           const verb = Object.keys(step)[0];
           const failure = { index, verb, target: stepTarget(step), error: String(e.message || e).split('\n')[0].slice(0, 200) };
@@ -615,7 +748,7 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
       }
       const file = path.join(outDir, `${slug(flow.name)}-${viewport}-${side}.png`);
       await screenshotWithUrl(page, file);
-      shots.push({ file, label: '', at: pageAt(page), errorState: await detectErrorState(page, errorPatterns), ...(shortOf() ? { shortOf: shortOf() } : {}) });
+      shots.push({ file, label: '', at: pageAt(page), errorState: await detectErrorState(page, errorPatterns), ...(shortOf() ? { shortOf: shortOf() } : {}), ...(withText ? { text: await pageText(page) } : {}) });
     }
   } finally {
     video = record ? page.video() : null;

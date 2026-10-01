@@ -83,7 +83,12 @@ describe('the release page', () => {
     expect(r.title).toBe('Uploads that survive a bad connection');
     expect(r.subtitle).toBe('Relay · 930a23f');
     expect(r.releasedAt).toBe('Mon, Sep 28, 2026, 8:12 AM UTC');
-    expect(r.status).toEqual({ deploy: { line: 'Live on relay.example', tone: 'ok' }, verification: { line: 'Verified', tone: 'ok' } });
+    // Deployed and healthy, and nobody has seen the change live yet: not verified.
+    expect(r.status).toEqual({ deploy: { line: 'Live on relay.example', tone: 'ok' }, verification: { line: 'Verification missing', tone: 'warn' } });
+
+    const seen = report({ ...RELEASE, meta: { ...RELEASE.meta, liveState: 'seen', liveSummary: 'Seen live: 2 of 2 states reached' } });
+
+    expect(seen.status.verification).toEqual({ line: 'Verified', tone: 'ok' });
   });
 
   it('says what changed in plain language, with the machinery labelled as machinery', () => {
@@ -346,9 +351,22 @@ describe('the live check after the deploy (2026-09-30)', () => {
   ];
   const withLive = (extra: Record<string, unknown>): PageRow => ({ ...RELEASE, meta: { ...RELEASE.meta, ...extra } });
 
-  it('is absent until a live check ran', () => {
-    expect(report().verification.live).toBeNull();
+  it('says the change is not yet seen live until a live check ran, and leads the announcement with nothing', () => {
+    expect(report().verification.live).toMatchObject({ title: 'Live check', tone: 'warn', shots: [] });
+    expect(report().verification.live!.line).toMatch(/^Not yet seen live: /);
     expect(report().announcement.image).toBeNull();
+  });
+
+  it('says a check that reached nothing is a failure, with its reason, never a pass (release #280)', () => {
+    const page = assembleReleaseReport(withLive({
+      liveState: 'not_seen',
+      liveSummary: 'Live check could not reach the change: setup "upload a document" (desktop) did not finish: step 2 failed',
+      liveEvidence: [{ requestId: 41, flow: 'Last opened line', criterion: 'The line says when it was last opened.', artifactId: null, status: 'not_reached', reason: 'step 1 (wait_for "Last opened") failed' }],
+    }), { linked: LINKED, artifacts: ARTIFACTS, now: NOW, timeZone: 'UTC' });
+
+    expect(page.verification.live).toMatchObject({ tone: 'bad', line: 'Live check could not reach the change: setup "upload a document" (desktop) did not finish: step 2 failed' });
+    expect(page.status.verification).toEqual({ line: 'Issue detected', tone: 'bad' });
+    expect(page.attention).toContain('Live check could not reach the change: setup "upload a document" (desktop) did not finish: step 2 failed');
   });
 
   it('shows each live state with its picture, and why one was not reached', () => {
@@ -363,7 +381,8 @@ describe('the live check after the deploy (2026-09-30)', () => {
     }), { linked: LINKED, artifacts: LIVE_ART, now: NOW, timeZone: 'UTC' });
     const live = page.verification.live!;
 
-    expect(live).toMatchObject({ title: 'Live check', line: '1 of 2 live states reached', tone: 'warn', href: 'https://relay.example' });
+    // A check written before liveState is read from its rows: partly seen, and why not the rest.
+    expect(live).toMatchObject({ title: 'Live check', line: 'Partly seen live: 1 of 2 states reached; not reached: Step 3 (offline) could not run on production.', tone: 'warn', href: 'https://relay.example' });
     expect(live.shots.map(s => [s.reached, s.imageUrl])).toEqual([[true, 'https://files.example/qa/relay/resume-live.png?sig=2'], [false, 'https://files.example/qa/relay/offline-live.png?sig=3']]);
     expect(live.shots[1]!.reason).toBe('Step 3 (offline) could not run on production.');
     expect(page.announcement.image?.url).toBe('https://files.example/qa/relay/resume-live.png?sig=2');

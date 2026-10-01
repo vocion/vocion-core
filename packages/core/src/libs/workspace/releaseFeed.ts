@@ -1,5 +1,6 @@
 import type { PageRow } from './pageFields';
 import type { RecordLinker } from './recordHref';
+import { readReleaseLive } from '@/libs/factory/liveCheck';
 import { dayDistance, dayKey, formatDate, formatTime } from '@/libs/time/zone';
 import { relativeLabel } from '@/libs/timeAgo';
 import { featureProof, risksLine } from './featureProof';
@@ -126,6 +127,13 @@ export type ReleaseVerification = {
   acceptance: { state: 'passed' | 'failed' | 'missing'; line: string } | null;
   /** Post-deploy verification: did the deploy work. */
   health: { value: 'ok' | 'degraded' | 'down' | 'unknown' | null; line: string; tone: Tone; checkedAt: Date | null; freshness: string | null };
+  /**
+   * The live check: did QA see the change on the live product, as its QA
+   * account (`libs/factory/liveCheck.ts`). `pending` is a release people use
+   * that no live check has looked at yet; `none` is one with nothing to see.
+   * A health check's 200 never stands in for it.
+   */
+  live: { state: 'seen' | 'partial' | 'not_seen' | 'pending' | 'none'; line: string; tone: Tone };
   /** Product impact: did the change work. A different, later question. */
   impact: { state: 'helped' | 'regressed' | 'inconclusive' | 'pending' | 'unchecked' | 'none'; line: string; tone: Tone };
   /** The one line a feed row carries. */
@@ -488,6 +496,22 @@ function healthOf(meta: Record<string, unknown>, now: Date): ReleaseVerification
   }
 }
 
+/**
+ * What the live check saw, or that it has not looked yet — for a release
+ * that shipped something people use.
+ * @param meta - The release's metadata.
+ * @param userFacing - Whether anything people use changed.
+ */
+function liveOf(meta: Record<string, unknown>, userFacing: boolean): ReleaseVerification['live'] {
+  const live = readReleaseLive(meta);
+  if (live) {
+    return { state: live.state, line: live.line, tone: live.state === 'seen' ? 'ok' : live.state === 'partial' ? 'warn' : 'bad' };
+  }
+  return userFacing
+    ? { state: 'pending', line: 'Not yet seen live', tone: 'warn' }
+    : { state: 'none', line: 'Nothing to check live', tone: 'muted' };
+}
+
 function impactOf(row: PageRow, features: ReleaseFeature[], linked: ReleaseLinked, userFacing: boolean, now: Date, tz: string): ReleaseVerification['impact'] {
   const outcome = obj(row.meta.outcome);
   const verdict = str(outcome.verdict);
@@ -722,18 +746,23 @@ export function readRelease(row: PageRow, options: { linked?: ReleaseLinked; now
 
   const acceptance = acceptanceOf(features);
   const health = healthOf(meta, now);
+  const live = liveOf(meta, userFacing);
   const impact = impactOf(row, features, linked, userFacing, now, tz);
-  const issue = health.tone === 'bad' || acceptance?.state === 'failed' || impact.state === 'regressed';
-  const missing = !issue && (health.value !== 'ok' || acceptance?.state === 'missing');
+  // A release is verified when the change was SEEN on the live product, not
+  // when the deploy answered 200 (release #280, 2026-09-30: health ok, 0 of 6
+  // live states reached).
+  const issue = health.tone === 'bad' || acceptance?.state === 'failed' || impact.state === 'regressed' || live.state === 'not_seen';
+  const missing = !issue && (health.value !== 'ok' || acceptance?.state === 'missing' || live.state === 'pending' || live.state === 'partial');
   const verification: ReleaseVerification = {
     state: issue ? 'issue' : missing ? 'missing' : 'verified',
     label: issue ? 'Issue detected' : missing ? 'Verification missing' : 'Verified',
     acceptance,
     health,
+    live,
     impact,
     // A health check that did not pass is said once, as what needs a person
     // (the attention line), not a second time as evidence beside it.
-    line: [acceptance?.line, health.value === 'ok' ? health.line : null, health.value === 'ok' ? health.freshness : null].filter((s): s is string => Boolean(s)).join(' · '),
+    line: [acceptance?.line, live.state === 'seen' ? live.line : null, health.value === 'ok' ? health.line : null, health.value === 'ok' ? health.freshness : null].filter((s): s is string => Boolean(s)).join(' · '),
   };
 
   const notNeeded = reverted.length > 0 && internal.length === 0
@@ -759,6 +788,9 @@ export function readRelease(row: PageRow, options: { linked?: ReleaseLinked; now
   }
   if (acceptance?.state === 'failed' || acceptance?.state === 'missing') {
     attention.push(acceptance.line);
+  }
+  if (live.state === 'not_seen' || live.state === 'partial') {
+    attention.push(live.line);
   }
   if (impact.state === 'regressed') {
     attention.push(impact.line);

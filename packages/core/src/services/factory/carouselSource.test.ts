@@ -45,6 +45,12 @@ describe('every carousel picture says what it is and who made it', () => {
     expect(sourceOf({ artifact: art({ id: 812, recordRole: null, author: 'Designer' }), section: CAROUSEL_SECTIONS.live, runs: [], releases: [release] })).toEqual({ text: 'Captured by Designer · release 3.2.0 · Sep 25', ref: { type: 'object', id: '88' } });
   });
 
+  it('a shot from QA\'s live check names the check, its release and the page — linked to the release', () => {
+    const shot = art({ id: 930, recordRole: 'live-screenshot', recordId: '88', spec: { capturedFrom: 'https://app.northwind.example/documents/d1', provenance: { releaseId: 88, liveCheck: true } } });
+
+    expect(sourceOf({ artifact: shot, section: CAROUSEL_SECTIONS.live, runs: [], releases: [release] })).toEqual({ text: 'QA · live check · release 3.2.0 · app.northwind.example/documents/d1 · Sep 25', ref: { type: 'object', id: '88' } });
+  });
+
   it('a picture sent in chat: the person and the conversation', () => {
     const sent = art({ id: 901, recordRole: 'reported', author: 'Dana Okafor', conversationId: 397 });
 

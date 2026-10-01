@@ -118,6 +118,14 @@ schema:
         itself. The worker reads it when it captures the live product after a
         release; QA and the PM see the sign-in page and account email through
         product_access.
+    liveSetup:
+      x-display: {label: Live check setup, role: prose, group: Configuration}
+      type: string
+      description: >-
+        How QA prepares state on this environment for a live check, in plain
+        words: what its QA account may create and how to remove it, or the one
+        standing fixture it keeps (a record, a link) a check reuses. QA reads
+        it through product_access and writes its live flows by it.
     observability:
       x-display: {label: Observability, role: prose, format: steps, order: 5}
       type: object

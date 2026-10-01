@@ -396,6 +396,14 @@ schema:
       x-display: {label: Source, format: link}
       type: string
       description: Who filed it, when it was not the asker on a channel. `product-manager` marks an idea from the weekly ideas pass, so the Recommendations page can count "ideas of ours" and the ranking can weigh an agent's idea as one source and zero askers.
+    liveCheck:
+      type: object
+      description: >-
+        What QA saw of this feature on the live product after its release
+        (`check_live`): `state` (seen, partial, not_seen), the `line` the page
+        reads, `releaseId`, `checkedAt`, `attempt`, and `flows` — the live QA
+        flow that checked it (setup, check, cleanup), reused and amended the
+        next time. Shipped and not yet seen live reads as such.
     releaseId:
       x-display: {label: Shipped in, format: link, to: release}
       type: integer

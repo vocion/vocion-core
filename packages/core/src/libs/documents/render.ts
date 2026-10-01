@@ -121,6 +121,15 @@ async function browser(): Promise<Browser> {
   return browserPromise;
 }
 
+/**
+ * The process's one Chromium, for a caller that drives its own contexts —
+ * the live check (`services/factory/liveCheck.ts`) opens the live product in
+ * it. Each caller opens and closes its own contexts and never the browser.
+ */
+export function sharedBrowser(): Promise<Browser> {
+  return browser();
+}
+
 /** Whether a Chromium this process can launch exists — checked once, cached. */
 let availability: Promise<{ ok: true } | { ok: false; reason: string }> | null = null;
 export function renderAvailable(): Promise<{ ok: true } | { ok: false; reason: string }> {

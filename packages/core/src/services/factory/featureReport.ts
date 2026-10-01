@@ -74,6 +74,7 @@ import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { deliveryStage, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
+import { readRequestLive } from '@/libs/factory/liveCheck';
 import { pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
@@ -632,6 +633,12 @@ export type ReportReleaseSummary = {
   state: 'live' | 'unverified' | 'not_released';
   label: 'Live' | 'Release not verified' | 'Not released';
   sentence: string;
+  /**
+   * Whether QA saw it on the live product after the release (its request's
+   * `liveCheck`): seen, partly, not, or `pending` while no live check has
+   * looked. Null before it is live. Shipped is not the same as seen.
+   */
+  seen: { state: 'seen' | 'partial' | 'not_seen' | 'pending'; line: string } | null;
   at: Date | null;
   /** Where to open it: the running product, else the release record. */
   href: string | null;
@@ -3245,22 +3252,25 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
     .sort((a, b) => a.at.getTime() - b.at.getTime())[0];
   if (shipped) {
     const name = [str(shipped.r.meta, 'product'), str(shipped.r.meta, 'version')].filter(Boolean).join(' ') || shipped.r.title;
+    const live = readRequestLive(input.request.meta);
+    const seen = live ? { state: live.state, line: live.line } : { state: 'pending' as const, line: 'Not yet seen live' };
     return {
       state: 'live',
       label: 'Live',
-      sentence: `Live since ${formatStamp(shipped.at)}, in ${name}.`,
+      sentence: `Live since ${formatStamp(shipped.at)}, in ${name}. ${seen.line}${/[.!?]$/.test(seen.line) ? '' : '.'}`,
+      seen,
       at: shipped.at,
       href: surfaceUrl ?? (input.link ?? genericRecordLinker)({ objectType: shipped.r.type, id: shipped.r.id }),
     };
   }
   if (input.releases.length > 0) {
-    return { state: 'unverified', label: 'Release not verified', sentence: 'A release record names this work and carries no shipped time.', at: null, href: (input.link ?? genericRecordLinker)({ objectType: input.releases[0]!.type, id: input.releases[0]!.id }) };
+    return { state: 'unverified', label: 'Release not verified', sentence: 'A release record names this work and carries no shipped time.', seen: null, at: null, href: (input.link ?? genericRecordLinker)({ objectType: input.releases[0]!.type, id: input.releases[0]!.id }) };
   }
   const mergedSomething = input.tasks.some(t => str(t.meta, 'commitSha') !== null || taskStatus(t) === 'accepted') || [...mergedPrs].length > 0;
   if (mergedSomething || str(input.request.meta, 'state') === 'shipped') {
-    return { state: 'unverified', label: 'Release not verified', sentence: 'Nothing records this change reaching people.', at: null, href: surfaceUrl };
+    return { state: 'unverified', label: 'Release not verified', sentence: 'Nothing records this change reaching people.', seen: null, at: null, href: surfaceUrl };
   }
-  return { state: 'not_released', label: 'Not released', sentence: 'Nothing has merged yet, so nothing can be live.', at: null, href: null };
+  return { state: 'not_released', label: 'Not released', sentence: 'Nothing has merged yet, so nothing can be live.', seen: null, at: null, href: null };
 }
 
 /**
@@ -3379,7 +3389,9 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
     case 'released':
       return release.state === 'live'
         ? {
-            tone: 'ok',
+            // Shipped is not seen: until QA has seen it on the live product
+            // it reads Live with "Not yet seen live", in amber.
+            tone: release.seen?.state === 'seen' ? 'ok' : 'warn',
             headline: 'Live',
             sentence: `${release.sentence} ${state.detail.includes('helped') ? `It ${state.detail.replace(/^live, and it /, '')}.` : 'Whether it helped has not been checked yet.'}`,
             action: ctx.surfaceUrl ? { kind: 'link', label: 'Open feature', href: ctx.surfaceUrl } : { kind: 'drawer', label: 'Open feature', drawer: 'release' },

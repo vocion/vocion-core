@@ -206,7 +206,7 @@ describe('the qa block', () => {
   });
 
   it('knows the six step verbs and refuses a step that names two of them or none', () => {
-    assert.deepEqual(QA_STEP_VERBS, ['click', 'fill', 'wait_for', 'shoot', 'upload', 'offline']);
+    assert.deepEqual(QA_STEP_VERBS, ['click', 'fill', 'wait_for', 'shoot', 'upload', 'offline', 'goto', 'remember', 'pause']);
     const two = validateContract({ ...ui, qa: { flows: [{ name: 'x', path: '/x', steps: [{ click: 'Share', shoot: 'after' }] }] } });
     assert.ok(two.errors.some(e => /steps\[0\] names 2 verbs \(click, shoot\); a step names exactly one/.test(e)), two.errors.join('; '));
     const none = validateContract({ ...ui, qa: { flows: [{ name: 'x', path: '/x', steps: [{}] }] } });

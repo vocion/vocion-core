@@ -99,8 +99,11 @@ const baseConfig: NextConfig = {
     // README.md), which the tracer cannot follow — on 2026-09-18 the image
     // shipped each plugin's agents/ and skills/ only, so the Plugins page and
     // the chat saw an empty catalogue in production.
-    '/': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
-    '/**': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
+    // ../runner/src/qa.mjs: the live check drives the live product with the
+    // runner's own capture code (`services/factory/liveCheck.ts`), loaded by a
+    // path only known at runtime.
+    '/': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*', '../runner/src/qa.mjs'],
+    '/**': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*', '../runner/src/qa.mjs'],
   },
   // Code that reads a file at a path only known at runtime (the workspace
   // mount, the docs, the artifacts folder) marks the call with

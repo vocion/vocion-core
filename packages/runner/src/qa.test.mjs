@@ -476,3 +476,85 @@ describe('building the branch, with the build the contract names', () => {
     assert.equal(ran, false);
   });
 });
+
+describe('a flow that prepares its own state (the live check, 2026-10-01)', async () => {
+  const { addressOf, fillVars, samplePdf, shootFlow } = await import('./qa.mjs');
+
+  it('reads {{name}} from what an earlier step remembered, inside objects too, and names one never kept', () => {
+    assert.deepEqual(fillVars({ goto: '{{documentUrl}}', fill: { selector: '#t', value: 'Hi {{ who }}' } }, { documentUrl: '/documents/d1', who: 'Lee' }), { goto: '/documents/d1', fill: { selector: '#t', value: 'Hi Lee' } });
+    assert.throws(() => fillVars('{{shareUrl}}', {}), /\{\{shareUrl\}\} was never remembered by an earlier step/);
+    assert.equal(fillVars(3, {}), 3);
+  });
+
+  it('opens a path on the product and an absolute address as it is', () => {
+    assert.equal(addressOf('https://app.acme.example/', '/new'), 'https://app.acme.example/new');
+    assert.equal(addressOf('https://app.acme.example', 'https://app.acme.example/d/abc'), 'https://app.acme.example/d/abc');
+  });
+
+  it('writes a real one-page PDF of the size asked for, its cross-references pointing at its objects', () => {
+    for (const size of [700, 4096, 2 * 1024 * 1024]) {
+      const pdf = samplePdf(size).toString('latin1');
+      assert.equal(pdf.length, size);
+      const xref = Number(/startxref\n(\d+)/.exec(pdf)[1]);
+      assert.equal(pdf.slice(xref, xref + 4), 'xref');
+      const first = Number(/0000000000 65535 f \n(\d{10})/.exec(pdf)[1]);
+      assert.equal(pdf.slice(first, first + 7), '1 0 obj');
+    }
+  });
+
+  let chromiumOk = false;
+  try {
+    const pw = await import('playwright'); const b = await pw.chromium.launch(); await b.close(); chromiumOk = true;
+  } catch {
+    chromiumOk = false;
+  }
+
+  it('uploads, remembers where the record landed and the link it shares, opens it, and refuses a foreign address', { skip: chromiumOk ? false : 'playwright chromium is not installed here', timeout: 90000 }, async () => {
+    const views = { d1: 0 };
+    const server = http.createServer((req, res) => {
+      res.setHeader('content-type', 'text/html');
+      if (req.url === '/new') {
+        return res.end('<input type="file" onchange="location.href=\'/documents/d1\'">');
+      }
+      if (req.url === '/documents/d1') {
+        return res.end(`<h1>Q3 board deck</h1><p>${views.d1 ? 'Last opened just now' : 'Not opened yet'}</p><a href="/s/abc">Open as a viewer</a>`);
+      }
+      if (req.url === '/s/abc') {
+        views.d1 += 1;
+        return res.end('<p>Page 1 of 1</p>');
+      }
+      res.statusCode = 404;
+      return res.end('not here');
+    });
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const pw = await import('playwright');
+    const browser = await pw.chromium.launch();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-live-'));
+    const vars = {};
+    const allow = url => new URL(url).origin === base;
+    try {
+      const setup = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, vars, allow, withText: true, stopAtFailure: true, flow: { name: 'setup', path: '/new', steps: [
+        { upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'qa.pdf' } },
+        { wait_for: 'Not opened yet' },
+        { remember: { name: 'documentUrl' } },
+        { remember: { name: 'shareUrl', from: 'href', selector: 'Open as a viewer' } },
+      ] } });
+      assert.deepEqual(setup.stepFailures, []);
+      assert.equal(vars.documentUrl, `${base}/documents/d1`);
+      assert.equal(vars.shareUrl, `${base}/s/abc`);
+      const visit = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, vars, allow, flow: { name: 'visitor', path: '{{shareUrl}}', steps: [{ pause: 0 }] } });
+      assert.deepEqual(visit.stepFailures, []);
+      const check = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, vars, allow, withText: true, stopAtFailure: true, flow: { name: 'check', path: '/', steps: [{ goto: '{{documentUrl}}' }, { wait_for: 'Last opened' }, { shoot: 'Last opened line' }] } });
+      assert.deepEqual(check.stepFailures, []);
+      assert.equal(check.shots[0].label, 'Last opened line');
+      assert.match(check.shots[0].text, /Last opened just now/);
+      const foreign = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, vars, allow, stopAtFailure: true, flow: { name: 'away', path: '/documents/d1', steps: [{ goto: 'http://169.254.169.254/latest' }] } });
+      assert.match(foreign.stepFailures[0].error, /not one of the product's own addresses/);
+    } finally {
+      await browser.close();
+      server.close();
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+});

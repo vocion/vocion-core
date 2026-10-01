@@ -1437,6 +1437,22 @@ describe('the release, read honestly', () => {
     expect(assembleFeatureReport(input()).release).toMatchObject({ state: 'live', label: 'Live' });
   });
 
+  it('says shipped is not seen: "Not yet seen live" until QA saw it on the live product, then what QA saw', () => {
+    const unseen = assembleFeatureReport(input()).release;
+
+    expect(unseen.seen).toEqual({ state: 'pending', line: 'Not yet seen live' });
+    expect(unseen.sentence).toMatch(/ Not yet seen live\.$/);
+
+    const missed = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'not_seen', line: 'Live check could not reach the change: step 1 (wait_for "Last opened") failed', releaseId: 88 } } } })).release;
+
+    expect(missed.seen?.state).toBe('not_seen');
+    expect(missed.sentence).toContain('Live check could not reach the change: step 1 (wait_for "Last opened") failed.');
+
+    const seen = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'seen', line: 'Seen live: 1 of 1 state reached', releaseId: 88 } } } })).release;
+
+    expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached' });
+  });
+
   it('is Release not verified — never Not released — when the change merged and nothing records a release', () => {
     expect(assembleFeatureReport(input({ releases: [] })).release).toMatchObject({ state: 'unverified', label: 'Release not verified' });
   });

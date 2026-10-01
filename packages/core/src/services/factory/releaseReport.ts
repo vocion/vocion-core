@@ -82,15 +82,20 @@ function announceFailure(meta: Record<string, unknown>, tz: string): string | nu
 
 /**
  * The post-deploy live check, from what the check wrote on the release
- * (`liveEvidence`, `liveSummary`, `liveCheckedAt`), or null before one ran.
+ * (`liveEvidence`, `liveSummary`, `liveState`, `liveCheckedAt`); before one
+ * ran, "Not yet seen live" for a release people use, else null.
  * @param meta - The release's metadata.
  * @param artifacts - The artifacts the page loaded.
  * @param tz - The workspace's zone.
+ * @param live - The release reading's live check (`releaseFeed.ts`).
  */
-function liveCheck(meta: Record<string, unknown>, artifacts: ReleaseArtifact[], tz: string): (ReleaseCheck & { shots: ReleaseLiveShot[] }) | null {
+function liveCheck(meta: Record<string, unknown>, artifacts: ReleaseArtifact[], tz: string, live: ReleaseReading['verification']['live']): (ReleaseCheck & { shots: ReleaseLiveShot[] }) | null {
   const rows = Array.isArray(meta.liveEvidence) ? meta.liveEvidence as Array<Record<string, unknown>> : [];
-  if (rows.length === 0 && !str(meta.liveSummary)) {
+  if (live.state === 'none') {
     return null;
+  }
+  if (live.state === 'pending') {
+    return { key: 'live', title: 'Live check', line: `${live.line}: QA checks it on the live product, signed in as the product's QA account`, tone: 'warn', at: null, href: str(meta.url), shots: [] };
   }
   const byId = new Map(artifacts.map(a => [a.id, a]));
   const shots = rows.map((e, i): ReleaseLiveShot => {
@@ -104,12 +109,11 @@ function liveCheck(meta: Record<string, unknown>, artifacts: ReleaseArtifact[], 
       href: art ? artifactHref(art.id) : str(e.url),
     };
   });
-  const reached = shots.filter(s => s.reached).length;
   return {
     key: 'live',
     title: 'Live check',
-    line: str(meta.liveSummary) ?? `${reached} of ${shots.length} live states reached`,
-    tone: shots.length > 0 && reached === shots.length ? 'ok' : reached > 0 ? 'warn' : 'bad',
+    line: live.line,
+    tone: live.tone,
     at: when(meta.liveCheckedAt, tz),
     href: str(meta.url),
     shots,
@@ -566,7 +570,7 @@ export function assembleReleaseReport(row: PageRow, options: { linked?: ReleaseL
     attention: r.attention,
     changes,
     notes: releaseNotes(meta, r),
-    verification: { acceptance, deployCheck, live: liveCheck(meta, options.artifacts ?? [], tz), impact },
+    verification: { acceptance, deployCheck, live: liveCheck(meta, options.artifacts ?? [], tz, r.verification.live), impact },
     announcement: { ...announcement, image: announcementImage(meta, options.artifacts ?? []) },
     included,
     activity,

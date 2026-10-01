@@ -19,6 +19,7 @@
  */
 
 import type { ReportArtifact, ReportObject, ReportWorkerRun } from './featureReport';
+import { LIVE_ROLE } from '@/libs/factory/liveCheck';
 
 /** Where a picture sits in the story. One word each, the carousel's label. */
 export const CAROUSEL_SECTIONS = {
@@ -148,6 +149,16 @@ export function sourceOf(input: SourceInput): EvidenceSource {
     const how = prov.drawnFrom === 'screen' || base ? `drawn on screenshot #${base ?? '?'}` : a.spec.source ? 'drawn from the request' : 'filed on the request';
     const ref: SourceRef = missionRunId ? { type: 'mission_run', id: String(missionRunId) } : conversationId ? { type: 'conversation', id: String(conversationId) } : artifactRef;
     return { text: line(by ?? 'Designer', how, when), ref };
+  }
+  // QA's live check after a release: which release it checked, linked to it.
+  if (a.recordRole === LIVE_ROLE) {
+    const releaseId = num(prov.releaseId) ?? num(a.recordId);
+    const release = input.releases.find(r => r.id === releaseId);
+    const version = release ? text(release.meta.version) : null;
+    return {
+      text: line('QA', 'live check', releaseId ? `release ${version ?? `#${releaseId}`}` : null, capturedFrom ? pageLabel(capturedFrom) : null, when),
+      ref: releaseId ? { type: 'object', id: String(releaseId) } : artifactRef,
+    };
   }
   if (capturedFrom) {
     return { text: line('Live app capture', pageLabel(capturedFrom), when), ref: artifactRef };

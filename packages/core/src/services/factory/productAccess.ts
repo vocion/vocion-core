@@ -20,6 +20,12 @@ export type EnvironmentAccess = {
   surface: string | null;
   url: string | null;
   login: { signInUrl: string | null; email: string | null; password?: string; stored: boolean; problem?: string } | null;
+  /**
+   * How QA prepares state on this environment for a live check, in the
+   * product's words (`environment.liveSetup`): a standing fixture the QA
+   * account keeps, what a check may create and how to remove it.
+   */
+  liveSetup: string | null;
 };
 
 export type ProductAccess = { product: string; environments: EnvironmentAccess[] };
@@ -55,7 +61,7 @@ export async function productAccess(orgId: string, product: string, opts: { reve
         login = { signInUrl: null, email: null, stored: false, problem: `the sign-in it names is ${resolved.status}` };
       }
     }
-    environments.push({ slug: str(m, 'slug') ?? 'environment', surface: str(m, 'surface'), url: str(m, 'url'), login });
+    environments.push({ slug: str(m, 'slug') ?? 'environment', surface: str(m, 'surface'), url: str(m, 'url'), login, liveSetup: str(m, 'liveSetup') });
   }
   return { product, environments };
 }

@@ -8,6 +8,7 @@ const { createObjectType } = await import('@/services/BusinessObjectService');
 const { storePlatformKey } = await import('@/services/ApiTokenService');
 const { productAccess } = await import('./productAccess');
 const { productAccessTools } = await import('@/services/agents/tools/productAccess');
+const { checkLiveTools } = await import('@/services/agents/tools/checkLive');
 
 const ORG = 'org_product_access';
 const LOGIN = { signInUrl: 'https://app.northwind.example/sign-in', email: 'qa@northwind.example', password: 'a-long-qa-passphrase' };
@@ -16,7 +17,7 @@ beforeAll(async () => {
   const [envType] = await createObjectType({ slug: 'environment', label: 'Environment' }, ORG);
   const login = await storePlatformKey({ orgId: ORG, name: 'Northwind QA', platform: 'app-login', values: LOGIN });
   await db.insert(businessObjectSchema).values([
-    { orgId: ORG, typeId: envType!.id, title: 'Northwind web (production)', metadata: { slug: 'northwind-web-production', product: 'northwind', stage: 'production', surface: 'web', url: 'https://app.northwind.example', qaLoginCredentialId: login.id } },
+    { orgId: ORG, typeId: envType!.id, title: 'Northwind web (production)', metadata: { slug: 'northwind-web-production', product: 'northwind', stage: 'production', surface: 'web', url: 'https://app.northwind.example', qaLoginCredentialId: login.id, liveSetup: 'The QA account keeps no documents; a check uploads its own and deletes it.' } },
     { orgId: ORG, typeId: envType!.id, title: 'Northwind API (production)', metadata: { slug: 'northwind-api-production', product: 'northwind', stage: 'production', surface: 'api', url: 'https://api.northwind.example' } },
     { orgId: ORG, typeId: envType!.id, title: 'Kestrel web (production)', metadata: { slug: 'kestrel-web-production', product: 'kestrel', stage: 'production', surface: 'web', url: 'https://app.kestrel.example' } },
   ]);
@@ -37,6 +38,8 @@ describe('production access lives with the product (2026-09-30)', () => {
 
     expect(web).toMatchObject({ url: 'https://app.northwind.example', login: { signInUrl: LOGIN.signInUrl, email: LOGIN.email, stored: true } });
     expect(web.login).not.toHaveProperty('password');
+    // How QA prepares state on it, in the product's words.
+    expect(web.liveSetup).toBe('The QA account keeps no documents; a check uploads its own and deletes it.');
 
     const revealed = await productAccess(ORG, 'northwind', { reveal: true });
 
@@ -51,5 +54,10 @@ describe('production access lives with the product (2026-09-30)', () => {
     expect(out).toContain(LOGIN.email);
     expect(out).not.toContain(LOGIN.password);
     expect(productAccessTools({ orgId: ORG, harnessConfig: {} } as never)).toEqual([]);
+  });
+
+  it('grants check_live only to a seat that names it', () => {
+    expect(checkLiveTools({ orgId: ORG, harnessConfig: {} } as never)).toEqual([]);
+    expect(checkLiveTools({ orgId: ORG, harnessConfig: { grantTools: ['check_live'] } } as never).map(t => t.name)).toEqual(['check_live']);
   });
 });

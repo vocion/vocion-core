@@ -341,6 +341,28 @@ export type ReleaseLinkedPayload = {
   liveVerb: 'is live' | 'are live';
 };
 
+/**
+ * A release's live check is wanted again (`services/factory/liveCheck.ts`
+ * `liveCheckEnded`): the first QA fire on `release.linked` did not see the
+ * change, so the plugin's QA checks once more, carrying why. Same scalars as
+ * `release.linked` so one subscriber filter serves both.
+ */
+export const RELEASE_LIVE_CHECK_REQUESTED = 'release.live_check.requested';
+
+/** Payload of `release.live_check.requested`. */
+export type ReleaseLiveCheckRequestedPayload = {
+  releaseId: number;
+  product: string | null;
+  /** Always true: only a release people use is checked live. */
+  userFacing: true;
+  /** 2 on the one retry. */
+  attempt: number;
+  /** Why the last attempt did not see the change. */
+  lastFailure: string;
+  requestIds: number[];
+  taskIds: number[];
+};
+
 export const LEAD_REPLIED = 'lead.replied';
 export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
 

@@ -29,6 +29,9 @@
  *     drawn hands-off, and a drawing that drew nothing is tried once more or
  *     written down. Subscribed by the software-factory plugin.
  *     `services/jobs/mockupDefault.ts`.
+ *   - `live-check-ended` — QA's live check of a release ended: seen, checked
+ *     once more carrying why, or "could not reach the change" written on the
+ *     release and its features. `services/jobs/liveCheck.ts`.
  *
  * (Discovery-call detection, the job that used to live here, became
  * agent-driven — an hourly `checkMission` automation.)
@@ -37,6 +40,7 @@
 import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport';
 import { factoryCarryJobs } from './factoryCarry';
 import { INDEX_ARTIFACT_JOB, runIndexArtifactJob } from './indexArtifact';
+import { liveCheckJobs } from './liveCheck';
 import { mockupDefaultJobs } from './mockupDefault';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
 import { REFRESH_EVALS_JOB, runRefreshEvalsJob } from './refreshEvals';
@@ -52,6 +56,7 @@ const JOBS: Record<string, BuiltInJob> = {
   [SWEEP_IDLE_CONVERSATIONS_JOB]: (orgId, input) => runSweepIdleConversationsJob(orgId, input),
   ...factoryCarryJobs,
   ...mockupDefaultJobs,
+  ...liveCheckJobs,
 };
 
 export function builtInJobNames(): string[] {
