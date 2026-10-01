@@ -280,12 +280,16 @@ name: Software factory
 #   remember the record's page only once the product has moved to it, to read
 #   setup's pageText for an error, and that checks and cleanup name what setup
 #   made: a remembered value, or {{setupPage}}.
+# 2.46.0 — products are filed through their own tool (#1028). `product` opts
+#   into x-agent-file, and the PM's `products-from-repos` skill proposes a
+#   workspace's first products and repos when setup hands it a connected
+#   code host. Every one is a person's approval.
 # 2.45.0 — every record reads by a short typed code (2026-10-01, Chris: "All
 #   these conflicting numbers are confusing"). Each type declares its `code:`
 #   — request FE, plan PL, task TK, release REL, environment ENV, product PRD,
 #   repo REPO — so feature 294 reads FE-294 beside RUN-439 and ACT-5590, in the
 #   app and in chat. The number is the record's id; `#294` still resolves.
-version: 2.45.0
+version: 2.46.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

@@ -73,6 +73,7 @@ skills:
   - intake-from-the-tracker
   - mirror-the-tracker
   - tell-the-requester
+  - products-from-repos
 objectTypes:
   - request
   - architecture_plan

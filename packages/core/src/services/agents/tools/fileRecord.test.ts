@@ -128,6 +128,22 @@ describe('the architecture plan\'s filing tool (#201, 2026-09-28: a free-form pl
   });
 });
 
+describe('file_product (#1028): a product is filed with what a person would say, never derived counters', () => {
+  const spec = filingTypeOf(storedRequestType('product'), {})!;
+
+  it('is file_product, deduped by slug', () => {
+    expect(spec.toolName).toBe('file_product');
+    expect(spec.dedupOn).toEqual(['slug']);
+  });
+
+  it('files only the person-level fields', () => {
+    expect(Object.keys(spec.properties).sort()).toEqual(['accountableUser', 'aliases', 'icon', 'name', 'notes', 'slug', 'stage', 'tagline']);
+    expect(spec.properties.repos).toBeUndefined();
+    expect(spec.properties.urls).toBeUndefined();
+    expect(JSON.stringify(toJsonSchema(filingSchema(spec) as never))).not.toMatch(/"x-/);
+  });
+});
+
 describe('the filing types an agent gets', () => {
   it('resolves reference enums from live records only, and skips types that do not opt in', async () => {
     const req = storedRequestType();

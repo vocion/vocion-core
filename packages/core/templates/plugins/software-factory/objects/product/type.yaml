@@ -12,6 +12,14 @@ icon: package
 code: PRD
 schema:
   type: object
+  # FILED THROUGH ITS OWN TOOL (core: services/agents/tools/fileRecord.ts),
+  # like repo. Workspace setup (#1028) files a workspace's first products
+  # from the repos a person just connected. `urls`, `repos` and the counters
+  # are derived or agent-maintained, and `currentFocus` is a person's: none
+  # is filed. Moderated: a new product is a person's approval in Review.
+  x-agent-file:
+    dedupOn: [slug]
+    fields: [slug, name, tagline, aliases, stage, icon, accountableUser, notes]
   # RELATED (core: libs/workspace/related.ts): what a product is connected to.
   # Its environments and repositories are THEIR records, written by the deploy
   # and the Release engineer; the product names none of them itself (Chris,

@@ -56,7 +56,7 @@ describe('the shipped catalogue', () => {
     // pipeline's owner (backlog 049). The planner's work is the PM's; Design
     // has an agent instead of an empty-seat comment.
     expect(factory.agents).toEqual(['change-reviewer', 'designer', 'product-manager', 'release-engineer', 'task-engineer']);
-    expect(factory.skills).toEqual(['check-the-live-release', 'close-with-the-after-shot', 'design-the-change', 'draw-from-the-ask', 'explain-a-red-check', 'incident-update', 'intake-from-chat', 'intake-from-the-tracker', 'judge-the-checks', 'mirror-the-tracker', 'rank-the-backlog', 'read-the-ask-whole', 'report-on-the-pull', 'review-against-contract', 'review-on-the-pull', 'rubric-designer', 'rubric-engineer', 'rubric-product-manager', 'rubric-qa', 'rubric-release-engineer', 'surface-an-ask-as-a-card', 'tell-the-requester', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
+    expect(factory.skills).toEqual(['check-the-live-release', 'close-with-the-after-shot', 'design-the-change', 'draw-from-the-ask', 'explain-a-red-check', 'incident-update', 'intake-from-chat', 'intake-from-the-tracker', 'judge-the-checks', 'mirror-the-tracker', 'products-from-repos', 'rank-the-backlog', 'read-the-ask-whole', 'report-on-the-pull', 'review-against-contract', 'review-on-the-pull', 'rubric-designer', 'rubric-engineer', 'rubric-product-manager', 'rubric-qa', 'rubric-release-engineer', 'surface-an-ask-as-a-card', 'tell-the-requester', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['designing-a-surface', 'house-voice', 'naming-the-work', 'verify-against-reality']);
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'environment', 'product', 'release', 'repo', 'request']);
     // Five missions carry the loop — the designer's `show-it-first` draws a
@@ -314,7 +314,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.45.0');
+    expect(ws.sha).toContain('+software-factory@2.46.0');
     // A re-run of a red CI's failed jobs is done for you: it changes no code (backlog 049).
     expect(ws.trust?.rules.find(r => r.action === 'repo.rerun_failed_checks')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
     // The pipeline's owner opens its own fix, and it merges on green (plugin 2.33.0).
@@ -401,7 +401,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(pm?.team).toBe('software-factory');
     expect(ws.teams.find(t => t.slug === 'software-factory')?.lead).toBe('product-manager');
     expect(pm?.harness?.runsOn).toBeUndefined();
-    expect(pm?.skills).toEqual(['surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-task-contract', 'rank-the-backlog', 'write-release-notes', 'rubric-product-manager', 'intake-from-chat', 'intake-from-the-tracker', 'mirror-the-tracker', 'tell-the-requester']);
+    expect(pm?.skills).toEqual(['surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-task-contract', 'rank-the-backlog', 'write-release-notes', 'rubric-product-manager', 'intake-from-chat', 'intake-from-the-tracker', 'mirror-the-tracker', 'tell-the-requester', 'products-from-repos']);
     expect(pm?.objectTypes).toEqual(['request', 'architecture_plan', 'engineering_task', 'release', 'product', 'repo', 'environment']);
     // The loop is named in the prompt, in the order a person sees it.
     expect(pm?.resolvedSystemPrompt).toContain('asked → decided → planned → building → QA → released');
