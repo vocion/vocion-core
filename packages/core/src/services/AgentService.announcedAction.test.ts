@@ -16,13 +16,17 @@ vi.mock('@/libs/DB');
 
 // What the person wants and how each pass ended are a model's reading
 // (`agents/turnJudge.ts`); each test says what that reading is.
-const judge = vi.hoisted(() => ({ intent: {} as Record<string, unknown>, readings: [] as Array<Record<string, unknown>> }));
+const judge = vi.hoisted(() => ({ intent: {} as Record<string, unknown>, readings: [] as Array<Record<string, unknown>>, consent: false, decisions: [] as string[] }));
 vi.mock('@/services/agents/turnJudge', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/services/agents/turnJudge')>();
   return {
     ...real,
     readIntent: vi.fn(async () => ({ ...real.NO_INTENT, ...judge.intent })),
     judgeAnswer: vi.fn(async () => ({ ...real.NO_JUDGEMENT, ...(judge.readings.shift() ?? {}) })),
+    saidToDecide: vi.fn(async ({ decision }: { decision: string }) => {
+      judge.decisions.push(decision);
+      return { said: judge.consent, quote: null };
+    }),
   };
 });
 
@@ -83,6 +87,8 @@ async function run(message: string, pageContext?: unknown) {
 beforeEach(async () => {
   judge.intent = {};
   judge.readings = [];
+  judge.consent = false;
+  judge.decisions = [];
   await db.delete(agentSchema);
   await db.insert(agentSchema).values({ orgId: ORG, slug: 'product-manager', name: 'Product manager', systemPrompt: 'Be useful.', harnessConfig: {} } as never);
 });
@@ -142,6 +148,39 @@ describe('a reply that claims work it did not do goes back and does it (conversa
     expect(nudge).toContain('hand it to that seat');
     expect(nudge).toContain('Never say that something still needs to happen');
     expect(result.response).toContain('incident #412');
+  });
+});
+
+describe('an offer to do what the person already said to do (conversation 417, 2026-10-01)', () => {
+  const OFFERED = 'The 404 is confirmed and repo #27 is the right one. I can mark #312 retired and point the task at #27.';
+
+  it('goes back and does it when the person\'s words already told it to', async () => {
+    const inputs = passes([say(OFFERED)], [toolEnd('close_record', 'objects.close is DONE (ACT-9, as the person asked)'), say('Retired #312; the task now points at #27.')]);
+    judge.intent = { wants_action: true };
+    judge.consent = true;
+    judge.readings = [{ offers_instead: true, offer: 'I can mark #312 retired and point the task at #27.' }];
+
+    const { result } = await run('Remove #312 so builds use repo #27');
+
+    expect(judge.decisions).toEqual(['I can mark #312 retired and point the task at #27.']);
+    expect(inputs).toHaveLength(2);
+
+    const nudge = String(inputs[1]!.messages.at(-1)!.content);
+
+    expect(nudge).toContain('You ended on an offer — "I can mark #312 retired');
+    expect(nudge).toContain('the person already told you to');
+    expect(result.response).toContain('Retired #312');
+  });
+
+  it('leaves the offer standing when the person had not asked for that', async () => {
+    const inputs = passes([say(OFFERED)]);
+    judge.intent = { wants_action: true };
+    judge.consent = false;
+    judge.readings = [{ offers_instead: true, offer: 'I can mark #312 retired and point the task at #27.' }];
+
+    await run('why did the build fail?');
+
+    expect(inputs).toHaveLength(1);
   });
 });
 

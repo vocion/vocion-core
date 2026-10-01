@@ -28,6 +28,7 @@ import { calendarTools } from './calendarEvents';
 import { listCapabilitiesTool } from './capabilities';
 import { chatTools } from './chatTools';
 import { checkLiveTools } from './checkLive';
+import { closeRecordTools } from './closeRecord';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
@@ -192,6 +193,8 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // an agent with no object types.
     ...readObjectTools(ctx),
     ...updateObjectTools(ctx),
+    // Closing or retiring a record, for a reason its type declares (`x-close`).
+    ...closeRecordTools(ctx),
     // Granted-only: QA's verdict on a pull request, bound to its head, and the
     // merge card on approve — one call, so the review cannot end unrecorded.
     ...recordVerdictTools(ctx),

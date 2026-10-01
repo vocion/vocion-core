@@ -179,6 +179,13 @@ describe('the shape the model sends (backlog 006, 2026-09-25)', () => {
     expect(out).toMatch(/updated — priority written/);
   });
 
+  it('says `set` was cut-off text, not a refused field, when the JSON does not parse (conversation 422)', async () => {
+    const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: '{"state": "in_scope", "priority": "Duplicate of another req', reason: 'r', confidence: 0.9 });
+
+    expect(out).toMatch(/not a complete JSON object .*no field was refused/);
+    expect(await db.select().from(actionRunSchema)).toHaveLength(0);
+  });
+
   it('takes a write with no reason or confidence instead of throwing, and lets the ladder judge it', async () => {
     const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { priority: 40 } } as never);
 

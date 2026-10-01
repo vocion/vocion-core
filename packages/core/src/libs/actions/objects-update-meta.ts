@@ -38,6 +38,7 @@ import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { evaluateGates, gateRefusal, gatesOf } from '@/libs/gates/handoffGate';
 import { bookkeepingPaths, changedFields } from '@/libs/workspace/bookkeeping';
+import { closeDefinitionOf, describeCloseReasons } from './objects-close';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
 
 const UPDATE_ACTION_ID = 'objects.update_meta';
@@ -244,7 +245,12 @@ async function refuseWrite(schema: Record<string, unknown> | null, typeSlug: str
   const keys = Object.keys(set).sort();
   const reserved = keys.filter(k => RESERVED_OBJECT_KEYS.has(k));
   if (reserved.length > 0) {
-    return `${reserved.join(', ')} ${reserved.length === 1 ? 'is' : 'are'} not a field of the record but the row itself and cannot be written here. Fields on "${typeSlug}": ${declared.join(', ')}.`;
+    // Conversation 417: "status is not a field" and nothing more, so the agent
+    // offered to "mark it retired" and stopped. The row's lifecycle has its
+    // own path, named here with the reasons the type closes for.
+    const close = closeDefinitionOf(schema);
+    const path = close ? ` To close or retire the record, call close_record with one of: ${describeCloseReasons(close)}.` : '';
+    return `${reserved.join(', ')} ${reserved.length === 1 ? 'is' : 'are'} not a field of the record but the row itself and cannot be written here.${path} Fields on "${typeSlug}": ${declared.join(', ')}.`;
   }
   const unknown = keys.filter(k => !(k in properties));
   if (unknown.length > 0) {
@@ -325,7 +331,11 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
         returnedTo: failure.gate.producedBy,
         gate: { name: failure.gate.name, to: failure.to, failed: failure.failed, at: new Date().toISOString() },
       }).catch(() => undefined);
-      return gateRefusal(failure, objectType.label);
+      // A record closing without the work this gate checks (conversation
+      // 420: "Close FE-318 as already fixed" became `state: shipped`) has its
+      // own path, said beside the refusal.
+      const close = closeDefinitionOf(objectType.schema);
+      return `${gateRefusal(failure, objectType.label)}${close ? ` If the person asked to close it without this work, call close_record instead, with one of: ${describeCloseReasons(close)}.` : ''}`;
     }
     return undefined;
   },

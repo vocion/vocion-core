@@ -263,7 +263,7 @@ export async function checkProposalBudget(opts: { orgId: string; agentSlug: stri
  * @param opts.reason
  * @param opts.supersededBy - The id of the run or ask that replaces it, when one does.
  */
-export async function withdrawProposal(opts: { orgId: string; agentSlug: string; kind: 'run' | 'ask'; id: number; reason: string; supersededBy?: string | null }): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function withdrawProposal(opts: { orgId: string; agentSlug: string; kind: 'run' | 'ask'; id: number; reason: string; supersededBy?: string | null }): Promise<{ ok: true } | { ok: false; message: string; notOwned?: boolean }> {
   const note = `Withdrawn by ${opts.agentSlug}: ${opts.reason.trim()}${opts.supersededBy ? ` — superseded by ${opts.supersededBy}` : ''}`;
   if (opts.kind === 'run') {
     const [row] = await db
@@ -288,7 +288,7 @@ export async function withdrawProposal(opts: { orgId: string; agentSlug: string;
     // to take back.
     const recommendedBy = (row.proposal as { agentSlug?: unknown } | null)?.agentSlug;
     if (!seatInvokedBy(opts.agentSlug).includes(row.invokedBy ?? '') && recommendedBy !== opts.agentSlug) {
-      return { ok: false, message: `Proposal #${opts.id} is not yours to withdraw.` };
+      return { ok: false, message: `Proposal #${opts.id} is not yours to withdraw.`, notOwned: true };
     }
     const { rejectAction } = await import('@/services/ActionService');
     await rejectAction(opts.id, opts.orgId, note, { reviewedBy: `agent:${opts.agentSlug}` });
@@ -300,7 +300,7 @@ export async function withdrawProposal(opts: { orgId: string; agentSlug: string;
     return { ok: false, message: `No ask #${opts.id}.` };
   }
   if (ask.agentSlug !== opts.agentSlug) {
-    return { ok: false, message: `Ask #${opts.id} is not yours to withdraw.` };
+    return { ok: false, message: `Ask #${opts.id} is not yours to withdraw.`, notOwned: true };
   }
   if (ask.status !== 'open') {
     return { ok: false, message: `Ask #${opts.id} is already ${ask.status}.` };

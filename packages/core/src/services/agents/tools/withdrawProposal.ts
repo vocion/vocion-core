@@ -19,6 +19,18 @@ export function withdrawProposalTool(ctx: RuntimeContext) {
         return 'Only an agent withdraws its own proposals.';
       }
       const res = await withdrawProposal({ orgId: ctx.orgId, agentSlug: ctx.agentSlug, kind: kind === 'ask' ? 'ask' : 'run', id, reason, supersededBy: superseded_by ?? null });
+      if (!res.ok && res.notOwned && kind !== 'ask') {
+        // ANOTHER SEAT'S CARD, ON THE PERSON'S WORD (conversation 420: "drop the
+        // incident card" — the card was the on-call engineer's, and every path
+        // the agent had answered "not yours"). An agent never takes back
+        // another's card on its own; a person may reject any card, and when
+        // their words say to, it is their decision (`decideAsPerson`).
+        const { decideAsPerson } = await import('./decideProposal');
+        const asPerson = await decideAsPerson(ctx, { id, decision: 'reject', note: reason });
+        return asPerson.ok
+          ? `${asPerson.message} It was another seat's card, so it was rejected as the person's decision, with their reason.`
+          : `${res.message} If the person told you to drop it, their word decides any card: call decide_proposal with reject.`;
+      }
       if (!res.ok) {
         return res.message;
       }
@@ -27,7 +39,7 @@ export function withdrawProposalTool(ctx: RuntimeContext) {
     },
     {
       name: 'withdraw_proposal',
-      description: 'Take back ONE of your own undecided items in Review — a pending proposal (an action card) or an open ask — because a better idea supersedes it or what it asked about went away. Use it when propose_action or file_ask refused you for holding too many undecided items. You can only withdraw what you filed; a person\'s or another agent\'s items are not yours.',
+      description: 'Take back ONE of your own undecided items in Review — a pending proposal (an action card) or an open ask — because a better idea supersedes it or what it asked about went away. Use it when propose_action or file_ask refused you for holding too many undecided items. You withdraw what you filed; another seat\'s card is rejected as the person\'s decision only when the person told you to drop it.',
       schema: z.object({
         kind: z.enum(['proposal', 'ask']).describe('"proposal" for a pending action card, "ask" for an open ask'),
         id: z.number().int().positive().describe('The id, as the refusal listed it'),

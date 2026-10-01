@@ -290,7 +290,14 @@ name: Software factory
 #   `incident.opened` with `cause: deploy` — raised by the production-watch
 #   plugin when it is on, never otherwise — and the product's Related lists
 #   the incidents that name it.
-version: 2.46.0
+# 2.48.0 — a person's word closes a request or retires a repository
+#   (2026-10-01, conversations 417–422: "retire REPO-312", "Close FE-318 as
+#   already fixed", "Defer FE-318: it duplicates FE-314" — none had a path).
+#   Each type declares how it closes (`x-close`): a request as fixed
+#   elsewhere, duplicate, deferred, out of scope or answered; a repository as
+#   retired. The `close_record` tool runs it as the person's action with Undo;
+#   an agent's own close waits on `objects.close.<type>`.
+version: 2.48.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

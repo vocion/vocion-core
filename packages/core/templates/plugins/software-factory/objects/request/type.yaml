@@ -39,6 +39,21 @@ schema:
   # at the bar, links it with `duplicateOf`, done for you with Undo; the
   # intake starts nothing for it. Below the bar nothing is written or said.
   x-duplicate-check: {field: duplicateOf, within: [product], compare: [outcome, story, body], bar: 0.8, settledDays: 14}
+  # HOW A REQUEST CLOSES WHEN THE FACTORY DID NOT SHIP IT (core:
+  # libs/actions/objects-close.ts, the `close_record` tool). 2026-10-01: told
+  # "Close FE-318 as already fixed" (a revert outside the factory fixed it),
+  # the PM reached for `state: shipped`, whose gate rightly asks QA's
+  # evidence, and was refused. A person's word closes a request through one
+  # of these reasons, with Undo; `shipped` stays the factory's own.
+  x-close:
+    field: closedAs
+    note: closedNote
+    reasons:
+      fixed_elsewhere: {label: Already fixed outside the factory, set: {state: answered}}
+      duplicate: {label: Duplicate of another request, ref: duplicateOf}
+      deferred: {label: Not now, set: {state: deferred}, note: deferReason}
+      out_of_scope: {label: Will not be built, set: {state: out_of_scope}}
+      answered: {label: Answered, set: {state: answered}}
   # THE PRODUCT IS READ, NOT GUESSED (core: services/objects/referenceRead.ts).
   # 2026-10-01, #294: asked "On Stamp's document page, show how many pages…",
   # the PM filed it under another product without looking products up, and
@@ -384,6 +399,15 @@ schema:
       type: string
       format: date-time
       description: When the rolled-up figures above were last recomputed. Empty means no task for this request has had a run end yet.
+    closedAs:
+      x-display: {label: Closed as, format: badge, group: Triage, tones: {fixed_elsewhere: ok, duplicate: muted, deferred: muted, out_of_scope: muted, answered: muted}}
+      type: string
+      enum: [fixed_elsewhere, duplicate, deferred, out_of_scope, answered]
+      description: Why it closed without the factory shipping it, when a person closed it (`x-close`). `fixed_elsewhere` — the outcome is already true by a change made outside the factory.
+    closedNote:
+      x-display: {label: Why it closed, role: prose, group: Triage}
+      type: string
+      description: The person's reason for closing it, in their words.
     duplicateOf:
       x-display: {label: Duplicate of, format: link, to: request}
       type: integer

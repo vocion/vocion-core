@@ -27,13 +27,13 @@ import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agen
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
-import { DECIDE_TOOLS, decidedInTurn, decideOwed, describeOpenDecisions, mergeDecisions, openDecisionsOn, pendingCards } from './agents/owedDecision';
+import { DECIDE_TOOLS, decidedInTurn, decideOwed, describeOpenDecisions, mergeDecisions, openDecisionsOn, pendingCards, personMessages } from './agents/owedDecision';
 import { answerNamesFiled, attemptedChange, changedInTurn, changeOwedRecord, fileOwedWrite, owedChangeTarget, owedWriteTool } from './agents/owedWriteBackstop';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
-import { judgeAnswer, NO_INTENT, NO_JUDGEMENT, readIntent, stepLines } from './agents/turnJudge';
+import { judgeAnswer, NO_INTENT, NO_JUDGEMENT, readIntent, saidToDecide, stepLines } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
 import { writeLanded, wroteInTurn } from './agents/writeClaim';
 
@@ -344,7 +344,44 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
   // claim and the steps, not a line core appends (Chris, 2026-09-29).
   try {
     const failed = input.failedDelegations.map(f => `the hand-off to ${f.name} did not complete${f.message.trim() ? ` (${f.message.trim()})` : ''}`);
-    const judged = await (input.judge ?? judgeAnswer)({ orgId: input.orgId, message: input.request, reply: text, steps: stepLines(input.toolCalls), cards: input.cardsShown ?? 0, failed });
+    const judgeNow = (cards: number) => (input.judge ?? judgeAnswer)({ orgId: input.orgId, message: input.request, reply: text, steps: stepLines(input.toolCalls), cards, failed });
+    let cards = input.cardsShown ?? 0;
+    let judged = await judgeNow(cards);
+    // THE CLAIMED WORK IS DONE BEFORE ANYTHING IS CONFESSED (CHAT-421,
+    // 2026-10-01 19:57: "closing ask #273 … and dispatching a fresh attempt"
+    // ended "those two actions still need to happen" — and the cards for both
+    // went up seconds later from the card backstop, under that line). With the
+    // agent's card tools in hand, one pass carries the claim out (a call, or
+    // the card for the person to press), the reply is judged again against
+    // the steps as they now stand, and a correction is written only for what
+    // is still not done. Decided from the steps that ran, not the wording.
+    if (judged.claims_unrecorded_work && input.cardTools && input.cardTools.length > 0 && input.onToolCall) {
+      const before = input.toolCalls.length;
+      try {
+        let opened = false;
+        await (input.answer ?? composeAnswerWithModel)({
+          orgId: input.orgId,
+          system: `${input.systemPrompt ?? ''}\n\n${owedWorkNudge(judged.claim ?? 'that something was done', input.request)}`.trim(),
+          human: `The person said:\n${input.request.trim()}\n\nDo the work your reply claims now, with your tools, then say in one sentence what you did.`,
+          ...(input.messages ? { messages: input.messages } : {}),
+          tools: input.cardTools,
+          onToolCall: input.onToolCall,
+          onDelta: (delta) => {
+            const lead = opened ? delta : `${text.trim().length > 0 ? '\n\n' : ''}${delta.trimStart()}`;
+            opened = true;
+            text = `${text}${lead}`;
+            input.emit({ type: 'response_delta', delta: lead });
+          },
+        });
+      } catch (err) {
+        console.warn(`owed-work pass failed for org ${input.orgId} agent ${input.agentSlug}: ${(err as Error).message}`);
+      }
+      const made = input.toolCalls.length - before;
+      if (made > 0) {
+        cards += made;
+        judged = await judgeNow(cards);
+      }
+    }
     if (judged.claims_unrecorded_work || judged.hides_failure) {
       console.warn(`turn reply needs a correction for org ${input.orgId} agent ${input.agentSlug}`, { claim: judged.claim, hidesFailure: judged.hides_failure });
       const owed = [
@@ -1246,9 +1283,22 @@ export async function runAgentDeep(opts: {
       // they need to happen now"). The judge's typed reading that the reply
       // claims work the steps do not show sends the agent back to do it.
       const unrecorded = !empty && !narratedName && !announced && judged.claims_unrecorded_work ? (judged.claim ?? soFar.slice(-200)) : null;
-      const continued = empty || !judged.answered || judged.ends_on_promise || narratedName !== null || unrecorded !== null;
+      // AN OFFER TO DO WHAT THE PERSON ALREADY SAID TO DO (conversation 417,
+      // 2026-10-01: "Remove #312 so builds use squatch-core" was answered "I
+      // can mark #312 retired and update the task contract", and nothing was
+      // done). The judge reads that the reply ends on an offer; whether the
+      // person already told it to do exactly that is their consent, read by a
+      // model (`saidToDecide`), and then the turn goes back and does it.
+      const offered = !empty && !narratedName && !announced && !unrecorded && judged.offers_instead && intent.wants_action
+        ? await (async () => {
+            const offer = judged.offer ?? soFar.slice(-200);
+            const messages = await personMessages({ orgId: opts.orgId, conversationId: opts.conversationId, turnMessage: opts.message }).catch(() => [opts.message]);
+            return (await saidToDecide({ orgId: opts.orgId, messages, decision: offer })).said ? offer : null;
+          })().catch(() => null)
+        : null;
+      const continued = empty || !judged.answered || judged.ends_on_promise || narratedName !== null || unrecorded !== null || offered !== null;
       if (continued) {
-        const why = empty ? 'returned nothing' : narratedName ? `wrote the ${narratedName} call out as text` : announced ? 'announced an action it did not take' : unrecorded ? 'claimed work it did not do' : !judged.answered ? 'did not answer' : 'ended on a promise';
+        const why = empty ? 'returned nothing' : narratedName ? `wrote the ${narratedName} call out as text` : announced ? 'announced an action it did not take' : unrecorded ? 'claimed work it did not do' : offered ? 'offered what the person had already asked for' : !judged.answered ? 'did not answer' : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80), judged });
         emit({ type: 'status', label: narratedName ? `Making the ${narratedName} call it described` : toolCallLog.length > 0 ? `Reading what ${toolCallLog.length} step${toolCallLog.length === 1 ? '' : 's'} found` : 'Looking up what it needs' });
         if (narratedName) {
@@ -1266,11 +1316,13 @@ export async function runAgentDeep(opts: {
             ? `You ended your turn on "${announced}" — an announcement, not the action — and the person told you what to do: "${opts.message.slice(0, 300)}". Do it now, with your tools: make the calls it takes${waiting.length > 0 ? `; what is waiting on them, and the call that decides each:\n${describeOpenDecisions(waiting)}\n` : '. '}Then say what you did and what it started. Do not repeat that sentence, and never write a tool call as text.`
             : unrecorded
               ? owedWorkNudge(unrecorded, opts.message)
-              : narratedName
-                ? `Your last message wrote a ${narratedName} call out as text instead of calling it, so nothing happened. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
-                : judged.ends_on_promise
-                  ? `You ended your turn on "${judged.promise ?? soFar.slice(-200)}" — a promise, not an answer. Do what you said, with your tools, and answer now. Do not repeat that sentence.`
-                  : 'That was not an answer to the person. Answer them now: run the lookups you need, then reply.';
+              : offered
+                ? `You ended on an offer — "${offered.slice(0, 300)}" — and the person already told you to: "${opts.message.slice(0, 300)}". Do it now, with your tools (close_record closes or retires a record; decide_proposal decides any card), then say what you did with its link. Do not ask again, and never write a tool call as text.`
+                : narratedName
+                  ? `Your last message wrote a ${narratedName} call out as text instead of calling it, so nothing happened. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
+                  : judged.ends_on_promise
+                    ? `You ended your turn on "${judged.promise ?? soFar.slice(-200)}" — a promise, not an answer. Do what you said, with your tools, and answer now. Do not repeat that sentence.`
+                    : 'That was not an answer to the person. Answer them now: run the lookups you need, then reply.';
         await runGraph({
           ...input,
           messages: continueWith(nudge, [...input.messages, ...(empty ? [] : [{ role: 'assistant', content: soFar }])]),

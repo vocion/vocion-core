@@ -61,7 +61,12 @@ export function updateObjectTool(ctx: RuntimeContext) {
       // so the trust ladder decides whether a person reviews it.
       const parsedSet = parseJsonObject(args.set);
       if (!parsedSet || typeof parsedSet !== 'object' || Array.isArray(parsedSet)) {
-        return 'Update refused: `set` must be an object of field: value — e.g. { "priority": 82 }.';
+        // Conversation 422: `set` arrived as JSON text cut off mid-string, the
+        // refusal did not say so, and the agent told the person the field "isn't
+        // writable". Say what was wrong with what it sent.
+        return typeof args.set === 'string'
+          ? `Update refused: \`set\` arrived as text that is not a complete JSON object (it ends: "${args.set.slice(-60)}"), so nothing was written — no field was refused. Send \`set\` as an object, e.g. { "priority": 82 }, and keep long text short.`
+          : 'Update refused: `set` must be an object of field: value — e.g. { "priority": 82 }.';
       }
       const set = parsedSet as Record<string, unknown>;
       const reason = typeof args.reason === 'string' && args.reason.trim() ? args.reason.trim() : 'No reason given by the agent.';

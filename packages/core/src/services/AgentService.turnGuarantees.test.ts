@@ -644,6 +644,40 @@ describe('a write the answer claims is a write that ran (finding 23)', () => {
     expect(out).toBe(`${claimed}\n\n${correction}`);
   });
 
+  it('does the claimed work with its card tools before confessing anything, and says nothing once the steps show it (CHAT-421)', async () => {
+    const reply = 'Here is what I am doing right now: closing ask #273 and dispatching a fresh attempt.';
+    const toolCalls: Array<{ tool: string; output?: string }> = [{ tool: 'lookup_objects', output: 'repo #27' }];
+    const readings = [
+      { ...NO_JUDGEMENT, claims_unrecorded_work: true, claim: 'closing ask #273 and dispatching a fresh attempt' },
+      NO_JUDGEMENT,
+    ];
+    const corrected = vi.fn(async () => ({ owed: true, sentence: 'Those two actions still need to happen.' }));
+    const out = await applyTurnGuarantees({
+      ...base,
+      request: 'can we unblock and get this done?',
+      response: reply,
+      toolCalls,
+      judge: async () => readings.shift() ?? NO_JUDGEMENT,
+      cardTools: [{ name: 'recommend_action' } as never],
+      onToolCall: async (call) => {
+        toolCalls.push({ tool: call.name, output: 'Surfaced a one-tap recommendation to the user' });
+      },
+      answer: async ({ onToolCall, onDelta, system }) => {
+        expect(system).toContain('Never say that something still needs to happen');
+
+        await onToolCall!({ id: 'c1', name: 'recommend_action', args: { action_id: 'ask.withdraw' } });
+        onDelta?.('The card to close ask #273 is up for you.');
+        return 'The card to close ask #273 is up for you.';
+      },
+      correct: corrected,
+      emit: () => {},
+    });
+
+    expect(toolCalls.map(c => c.tool)).toEqual(['lookup_objects', 'recommend_action']);
+    expect(out).toBe(`${reply}\n\nThe card to close ask #273 is up for you.`);
+    expect(corrected).not.toHaveBeenCalled();
+  });
+
   it('says nothing when the judge finds the work behind the claim', async () => {
     const out = await applyTurnGuarantees({ ...base, judge: async () => NO_JUDGEMENT, response: claimed, toolCalls: [{ tool: 'update_object', output: '{"ok":true,"id":130}' }], emit: () => {} });
 

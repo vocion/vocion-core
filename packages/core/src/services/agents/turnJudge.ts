@@ -48,10 +48,12 @@ export const AnswerJudgementSchema = z.object({
   wrote_call_as_text: z.string().max(80).nullable().describe('The name of a tool the reply wrote out as text (its name, or a block of its arguments) instead of calling; null when none.'),
   cut_off: z.boolean().describe('The reply stops mid-sentence or mid-thought.'),
   hides_failure: z.boolean().describe('A step listed as failed is one the reply does not tell the person about.'),
+  offers_instead: z.boolean().describe('The reply ends by offering to do something it could do itself ("I can mark it retired", "want me to close it?") instead of doing it.'),
+  offer: z.string().max(300).nullable().describe('That offer, quoted exactly; null when there is none.'),
 });
 export type AnswerJudgement = z.infer<typeof AnswerJudgementSchema>;
 
-export const NO_JUDGEMENT: AnswerJudgement = { answered: true, ends_on_promise: false, promise: null, claims_unrecorded_work: false, claim: null, wrote_call_as_text: null, cut_off: false, hides_failure: false };
+export const NO_JUDGEMENT: AnswerJudgement = { answered: true, ends_on_promise: false, promise: null, claims_unrecorded_work: false, claim: null, wrote_call_as_text: null, cut_off: false, hides_failure: false, offers_instead: false, offer: null };
 
 type Model = Pick<BaseChatModel, 'bindTools'>;
 

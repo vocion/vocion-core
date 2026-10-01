@@ -22,6 +22,7 @@ import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { missionUpdateNotesAction } from './mission-update-notes';
+import { objectsCloseAction } from './objects-close';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { objectsRenameAction } from './objects-rename';
 import { objectsUpdateMetaAction } from './objects-update-meta';
@@ -107,6 +108,7 @@ registerAction(objectProposeCandidateAction);
 // record's write history is these runs.
 registerAction(objectsUpdateMetaAction);
 registerAction(objectsRenameAction);
+registerAction(objectsCloseAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
 registerAction(factoryDispatchAction);
 registerAction(factoryApprovePlanAction);

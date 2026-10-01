@@ -21,6 +21,20 @@ rules:
     enabled: false
     rung: execute-with-approval
     risk: medium
+  # CLOSING A REQUEST OR RETIRING A REPOSITORY (objects.close, 2.48.0). On a
+  # person's word it runs as theirs with Undo and no card; an agent closing
+  # one on its own is a product decision, so it waits for a person, like
+  # the decision key above.
+  - action: objects.close.request
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  - action: objects.close.repo
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
   # Filing a request: done for you. It lands on Work under Proposed, where
   # Dismiss is the undo and Build is the person's decision.
   - action: objects.propose_candidate.request

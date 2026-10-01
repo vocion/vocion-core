@@ -20,11 +20,28 @@ schema:
   # runs, so a new one is a person's approval.
   x-agent-file:
     dedupOn: [slug]
+  # RETIRED, NOT DELETED (2026-10-01: "retire REPO-312", a record for a
+  # repository that does not exist). Retiring sets the row's status, so no
+  # contract resolves to it, and keeps the record and its history; Undo puts
+  # it back (core: libs/actions/objects-close.ts). A candidate nobody approved
+  # is retired by rejecting its card.
+  x-close:
+    field: closedAs
+    note: closedNote
+    reasons:
+      retired: {label: Retired — no build uses it, status: retired}
   properties:
     slug:
       x-display: {label: Slug, format: mono, group: Repository}
       type: string
       description: The handle a task's `repoSlug` uses. Short, stable, lowercase.
+    closedAs:
+      x-display: {label: Closed as, format: badge, group: Repository, tones: {retired: muted}}
+      type: string
+      enum: [retired]
+    closedNote:
+      x-display: {label: Why it was retired, role: prose, group: Repository}
+      type: string
     url:
       x-display: {label: Repository, format: link}
       type: string

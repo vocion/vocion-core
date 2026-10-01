@@ -79,6 +79,11 @@ export function doneSummary(run: { actionId: string; input: Meta | null; result:
     const title = typeof input.title === 'string' ? input.title.trim() : '';
     return id !== null && title ? `renamed #${id} to "${title.slice(0, 80)}"` : null;
   }
+  if (run.actionId === 'objects.close') {
+    const id = positiveInt(input.id) ?? made?.id ?? null;
+    const as = typeof input.closeAs === 'string' ? words(input.closeAs) : '';
+    return id !== null ? `closed #${id}${as ? ` as ${as}` : ''}` : null;
+  }
   if (run.actionId === 'factory.dispatch_task') {
     const requestId = positiveInt(result.requestId) ?? positiveInt(input.requestId);
     const of = requestId !== null ? ` of feature #${requestId}` : '';

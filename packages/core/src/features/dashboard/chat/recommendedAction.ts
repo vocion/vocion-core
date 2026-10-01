@@ -114,6 +114,7 @@ const ACTION_EFFECT: Record<string, string> = {
   'objects.propose_candidate': 'Files a request on Work',
   'objects.update_meta': 'Changes the record',
   'objects.rename': 'Renames the record',
+  'objects.close': 'Closes the record',
   'factory.dispatch_task': 'Starts the build',
   'ask.file': 'Asks you to rule',
   'ask.withdraw': 'Withdraws the ask',
