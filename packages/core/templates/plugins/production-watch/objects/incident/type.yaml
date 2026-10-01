@@ -7,6 +7,8 @@ description: >-
   (`error-watch`), one per issue; the on-call engineer writes what it found
   and the move it made.
 icon: siren
+# Its records read INC-<id> in the app and in chat (core: libs/codes.ts).
+code: INC
 schema:
   type: object
   x-moderation: none
