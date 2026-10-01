@@ -39,6 +39,7 @@ import { checkAllowedPaths, pathsMissingFailure } from './preflight.mjs';
 import { captureEvidence, containerCredentials, productionBase, publishArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
 import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
 import { checkPlan, serviceSpec } from './services.mjs';
+import { withUsage } from './usage.mjs';
 
 // ---------- configuration ----------
 
@@ -264,8 +265,13 @@ async function heartbeat() {
     progress: { phase: state.phase, note: state.note, elapsed_s: Math.round((Date.now() - startedAt) / 1000), model: state.model || undefined },
     counts: Object.keys(state.counts).length ? state.counts : undefined,
   };
-  if (state.pendingUsage) {
-    body.usage = state.pendingUsage;
+  // Taken before the post, not cleared after it: a heartbeat already in flight (the interval's
+  // and the flush before the terminal call) carried the same usage twice, and the run's cents
+  // read double the worker's own total (core, run 2, 2026-10-01). Put back if it did not land.
+  const usage = state.pendingUsage;
+  state.pendingUsage = null;
+  if (usage) {
+    body.usage = usage;
   }
   if (batch.length) {
     body.events = batch;
@@ -274,10 +280,10 @@ async function heartbeat() {
   try {
     r = await vocion.post(`/worker-runs/${state.runId}/heartbeat`, body);
   } catch (e) {
+    state.pendingUsage = withUsage(state.pendingUsage, usage);
     log('heartbeat.error', { error: String(e.message || e) }); return;
   }
   if (r.ok) {
-    state.pendingUsage = null; // charged once, never double-reported
     if (batch.length) {
       eventLog.ack(batch, r.json?.eventsAccepted);
     }
@@ -294,13 +300,15 @@ async function heartbeat() {
     try {
       r2 = await vocion.post(`/worker-runs/${state.runId}/heartbeat`, { ...body, events: undefined });
     } catch (e) {
+      state.pendingUsage = withUsage(state.pendingUsage, usage);
       log('heartbeat.error', { error: String(e.message || e) }); return;
     }
     if (r2.ok) {
-      state.pendingUsage = null; applyHeartbeatReply(r2); return;
+      applyHeartbeatReply(r2); return;
     }
     r = r2;
   }
+  state.pendingUsage = withUsage(state.pendingUsage, usage);
   log('heartbeat.rejected', { status: r.status, error: r.json?.error });
   if (r.status === 403 || r.status === 409 || r.status === 404) {
     // Another worker holds the lease, or the run is terminal. Nothing we report will land; stop working.

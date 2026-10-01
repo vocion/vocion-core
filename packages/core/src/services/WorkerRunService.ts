@@ -3,6 +3,7 @@ import type { WORKER_RUN_COMPLETED, WORKER_RUN_FAILED, WorkerRunEndedPayload } f
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { boundProgress } from '@/libs/worker/progress';
+import { reportedRunCents } from '@/libs/worker/runCost';
 import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
@@ -402,8 +403,12 @@ export async function completeWorkerRun(opts: { orgId: string; id: number; worke
   const run = await mustGet(opts.orgId, opts.id);
   mustHoldLease(run, opts.workerId);
   const now = new Date();
+  // The worker's final account is the run's cost: the heartbeats' sum can
+  // count one report twice (`libs/worker/runCost.ts`).
+  const final = reportedRunCents(opts.result);
   const [updated] = await db.update(workerRunSchema).set({
     status: run.stopRequested ? 'cancelled' : 'completed',
+    ...(final === null ? {} : { cents: final }),
     result: opts.result ?? null,
     summary: opts.summary ?? run.summary,
     counts: opts.counts ? { ...run.counts, ...opts.counts } : run.counts,
@@ -440,6 +445,7 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
     // What a failed run kept — its draft PR, and the links to its transcript
     // and full logs the run page reads — merged over anything already there.
     result: opts.result ? { ...(run.result ?? {}), ...opts.result } : run.result,
+    ...(reportedRunCents(opts.result) === null ? {} : { cents: reportedRunCents(opts.result)! }),
     completedAt: now,
     heartbeatAt: now,
     updatedAt: now,

@@ -27,6 +27,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { collapseActivity } from '@/libs/factory/activityRows';
 import { factoryTypes } from '@/libs/factory/types';
+import { runCostCents } from '@/libs/worker/runCost';
 import { actionRunSchema, agentSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { failedFireLines } from '@/services/automations/failedFires';
@@ -166,7 +167,8 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
       kind: r.kind,
       status: r.status,
       attempt: r.attempt ?? null,
-      cents: r.cents ?? null,
+      // One figure: the worker's final account over the heartbeats' sum (`runCost.ts`).
+      cents: runCostCents(r),
       model: r.model ?? null,
       summary: r.summary ?? null,
       error: r.error ?? null,
