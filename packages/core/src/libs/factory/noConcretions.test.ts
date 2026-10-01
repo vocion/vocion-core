@@ -135,7 +135,8 @@ const TYPE_POSITIONS: RegExp[] = [
   // An org-scoped read handed a literal type: listBusinessObjects(orgId, 'x').
   /\b(?:listBusinessObjects|listRequests|objectsOfType|loadObjectRows|getObjectTypeBySlug)\(\s*[\w.]+\s*,\s*['"]([a-z][\w-]*)['"]/g,
   // A record's type compared or assigned.
-  /\b(?:typeSlug|objectType)\s*(?:===|!==|:)\s*['"]([a-z][\w-]*)['"]/g,
+  // (`typeof input.objectType === 'string'` checks a JS type, not a record's.)
+  /(?<!typeof\s+(?:\w+\.)*)\b(?:typeSlug|objectType)\s*(?:===|!==|:)\s*['"]([a-z][\w-]*)['"]/g,
   // The type table filtered by slug: eq(businessObjectTypeSchema.slug, 'x').
   /TypeSchema\.slug\s*,\s*['"]([a-z][\w-]*)['"]/g,
   // SQL over a run's record ref: input -> 'record' ->> 'type' = 'x'.
@@ -200,7 +201,7 @@ describe('the factory core names no types', () => {
     ];
     const known = new Set(['engineering_task', 'request', 'architecture_plan', 'repo']);
     const tmp = join(mkdtempSync(join(tmpdir(), 'no-concretions-')), 'sample.ts');
-    writeFileSync(tmp, `${shapes.join('\n')}\n// listBusinessObjects(orgId, 'request') in a comment\nconst field = str(meta, 'product');\n`);
+    writeFileSync(tmp, `${shapes.join('\n')}\n// listBusinessObjects(orgId, 'request') in a comment\nconst field = str(meta, 'product');\nif (typeof input.objectType === 'string') {}\n`);
 
     const found = typeSlugFindings([tmp], known);
 

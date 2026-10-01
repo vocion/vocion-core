@@ -154,9 +154,10 @@ export async function nextStep(orgId: string, env: EnvironmentRow, rec: HealthRe
 
 async function fileIncident(orgId: string, env: EnvironmentRow, reading: HealthReading, tried: string[], owner: string | null): Promise<number> {
   const { createBusinessObject } = await import('@/services/BusinessObjectService');
+  const types = await (await import('@/libs/factory/types')).factoryTypes(orgId);
   const name = str(env.meta.slug) ?? env.title;
   const row = await createBusinessObject({
-    typeSlug: 'request',
+    typeSlug: types.request,
     title: `${name} is ${reading.health}`.slice(0, 140),
     metadata: {
       kind: 'incident',

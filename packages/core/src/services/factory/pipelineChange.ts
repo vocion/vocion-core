@@ -154,6 +154,7 @@ export async function escalatePipeline(orgId: string, o: { recordId: number; req
   const { upsertAsk } = await import('@/services/AskService');
   const request = await readRecord(orgId, o.requestId);
   const record = o.recordId === o.requestId ? request : await readRecord(orgId, o.recordId);
+  const types = await (await import('@/libs/factory/types')).factoryTypes(orgId);
   const work = record ? readWork(record.meta) : null;
   const attempts = o.tried ?? await movesSince(orgId, o.owner, work?.raisedAt ? new Date(Date.parse(work.raisedAt) - 6 * 3_600_000) : new Date(0), o.recordId);
   const at = o.now ?? new Date().toISOString();
@@ -179,7 +180,7 @@ export async function escalatePipeline(orgId: string, o: { recordId: number; req
         { id: 'approve', label: 'It is fixed, check again', description: rerunnable ? 'Re-run the failed jobs now.' : 'The next pass reads it again.', recommended: true, ...(rerunnable ? { action: { id: 'github.rerun_failed_jobs', input: { url: rerunnable, reason: `After a person fixed it: ${o.why}`.slice(0, 500) } } } : {}) },
         { id: 'reject', label: 'Leave it', description: 'Nothing runs again.' },
       ],
-      objectRefs: [{ type: 'request', id: String(o.requestId) }, ...(o.recordId !== o.requestId ? [{ type: record?.typeSlug ?? 'record', id: String(o.recordId) }] : [])],
+      objectRefs: [{ type: types.request, id: String(o.requestId) }, ...(o.recordId !== o.requestId ? [{ type: record?.typeSlug ?? 'record', id: String(o.recordId) }] : [])],
       decisionCost: 5,
       contextUrl: `/dashboard/p/feature/${o.requestId}`,
     },

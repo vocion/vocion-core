@@ -93,9 +93,10 @@ export function fullNameOf(v: unknown): string | null {
  */
 export async function environmentRows(orgId: string): Promise<EnvironmentRow[]> {
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const types = await (await import('@/libs/factory/types')).factoryTypes(orgId);
   const [envs, repos] = await Promise.all([
-    listBusinessObjects(orgId, 'environment').catch(() => []) as Promise<Array<{ id: number; title: string; metadata: unknown }>>,
-    listBusinessObjects(orgId, 'repo').catch(() => []) as Promise<Array<{ id: number; title: string; metadata: unknown }>>,
+    listBusinessObjects(orgId, types.environment).catch(() => []) as Promise<Array<{ id: number; title: string; metadata: unknown }>>,
+    listBusinessObjects(orgId, types.repo).catch(() => []) as Promise<Array<{ id: number; title: string; metadata: unknown }>>,
   ]);
   const bySlug = new Map(repos.map((r) => {
     const m = (r.metadata ?? {}) as Meta;
