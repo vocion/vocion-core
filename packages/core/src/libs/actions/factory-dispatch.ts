@@ -22,6 +22,7 @@ import { nounCode } from '@/libs/codes';
 import { REOPENABLE_REQUEST_STATES } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
 import { codesForRecords } from '@/services/codes';
+import { USABLE_RECORD_STATUSES } from './objects-propose-candidate';
 
 export const DISPATCH_ACTION_ID = 'factory.dispatch_task';
 
@@ -193,6 +194,84 @@ const list = (m: Meta, k: string): string[] => (Array.isArray(m[k])
   ? (m[k] as unknown[]).map(v => (typeof v === 'string' ? v : (v && typeof v === 'object' && typeof (v as Meta).statement === 'string' ? (v as Meta).statement as string : ''))).filter(Boolean)
   : []);
 
+/** `owner/name`, the only free text a repository may be named by. */
+const OWNER_NAME = /^[\w.-]+\/[\w.-]+$/;
+/** The worker's own rule for a clone URL (factory/contracts/schema.json). */
+const CLONE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[\w./-]+$/;
+
+/**
+ * THE REPOSITORY A REPO RECORD NAMES, as `owner/name` (2026-10-01, runs 443–445:
+ * a candidate record titled "Stamp (send) monorepo" became the contract's repo
+ * `https://github.com/Stamp (send) monorepo.git`, and the worker refused it three
+ * times). Read from the record's `cloneUrl` or `url`, else a title that is itself
+ * `owner/name`; never from free text. Null when the record names none.
+ * @param repo - The repo record's metadata, with its `title`.
+ */
+export function repoFullName(repo: Meta | null): string | null {
+  return repoNameSource(repo)?.name ?? null;
+}
+
+/**
+ * {@link repoFullName}, with the record field it was read from.
+ * @param repo - The repo record's metadata, with its `title`.
+ */
+function repoNameSource(repo: Meta | null): { name: string; field: 'cloneUrl' | 'url' | 'title' } | null {
+  if (!repo) {
+    return null;
+  }
+  for (const key of ['cloneUrl', 'url'] as const) {
+    const v = str(repo, key);
+    const m = v ? /^https:\/\/[A-Za-z0-9.-]+\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(v) : null;
+    if (m) {
+      return { name: `${m[1]}/${m[2]}`, field: key };
+    }
+  }
+  const title = str(repo, 'title');
+  return title && OWNER_NAME.test(title) ? { name: title, field: 'title' } : null;
+}
+
+/**
+ * The URL the worker clones, from the repo record: its `cloneUrl`, its `url`
+ * (with `.git`), else `github.com/<owner>/<name>` from {@link repoFullName}.
+ * Null when the record names no repository a worker could clone.
+ * @param repo - The repo record's metadata, with its `title`.
+ */
+export function repoCloneUrl(repo: Meta | null): string | null {
+  if (!repo) {
+    return null;
+  }
+  const clone = str(repo, 'cloneUrl');
+  if (clone && CLONE_URL.test(clone)) {
+    return clone;
+  }
+  const url = str(repo, 'url')?.replace(/\/+$/, '') ?? null;
+  if (url && CLONE_URL.test(url)) {
+    return url.endsWith('.git') ? url : `${url}.git`;
+  }
+  const name = repoFullName(repo);
+  return name ? `https://github.com/${name}.git` : null;
+}
+
+/**
+ * The repo as a card says it: the repository and the record field it came from.
+ * @param m - The contract as task metadata.
+ */
+function repoLine(m: Meta): string {
+  const named = str(m, 'repoSlug') ?? str(m, 'repo');
+  const from = str((m.contractSources ?? {}) as Meta, 'repo');
+  return named ? `${named}${from ? ` (from ${from})` : ''}` : from ?? 'not named';
+}
+
+/**
+ * Whether a contract's repo names one a worker can clone: a clone URL, or `owner/name`.
+ * @param meta - The contract as task metadata.
+ */
+function namesRepo(meta: Meta): boolean {
+  const url = str(meta, 'repo');
+  const slug = str(meta, 'repoSlug');
+  return Boolean((url && CLONE_URL.test(url)) || (slug && OWNER_NAME.test(slug)));
+}
+
 /**
  * What the contract is missing, in the words the worker would refuse it with.
  * @param meta
@@ -214,7 +293,7 @@ export function contractGaps(meta: Meta): string[] {
   if (!str(meta, 'riskClass')) {
     gaps.push('riskClass');
   }
-  if (!str(meta, 'repo') && !str(meta, 'repoSlug')) {
+  if (!namesRepo(meta)) {
     gaps.push('repo');
   }
   const qa = (meta.qa ?? {}) as Meta;
@@ -242,8 +321,10 @@ export function contractGaps(meta: Meta): string[] {
  */
 export function contractFromTask(task: { id: number; title: string; meta: Meta }, opts: { product: string | null; plan?: { id: number; approach: string | null; approvedBy: string; approvedAt: string }; modelPolicy?: { model: string; effort?: string } | null }): Record<string, unknown> {
   const m = task.meta;
+  // Only a clone URL or `owner/name` becomes the repo: a free-text name never does.
   const repoSlug = str(m, 'repoSlug');
-  const repo = str(m, 'repo') ?? (repoSlug ? `https://github.com/${repoSlug}.git` : null);
+  const given = str(m, 'repo');
+  const repo = (given && CLONE_URL.test(given) ? given : null) ?? (repoSlug && OWNER_NAME.test(repoSlug) ? `https://github.com/${repoSlug}.git` : null);
   const product = str(m, 'productSlug') ?? opts.product ?? 'product';
   const out: Record<string, unknown> = {
     task_id: str(m, 'taskId') ?? `${product}-t${task.id}`,
@@ -501,7 +582,11 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     roots.add(root);
   }
   const paths = [...new Set([...basePaths, ...uiSrc, ...uiApps.map(root => `${root}/src/**`), ...[...roots].map(r => `${r}/tests/**`)])];
-  const givenChecks = list(g, 'requiredChecks').filter(c => repoChecks.length === 0 ? /^[\w:.-]+$/.test(c) : repoChecks.includes(c));
+  // A CHECK IS ONE THE REPO RECORD DECLARES (2026-10-01, run 443: "unit" was
+  // required and the repository has no such check). A name the record does not
+  // declare is dropped and said on the contract (`checksDropped`), never sent.
+  const givenChecks = list(g, 'requiredChecks').filter(c => repoChecks.includes(c));
+  const checksDropped = list(g, 'requiredChecks').filter(c => !repoChecks.includes(c));
   const checks = givenChecks.length > 0 ? givenChecks : repoChecks;
   const givenRisk = str(g, 'riskClass');
   const risk = givenRisk && (WORKER_RISK as readonly string[]).includes(givenRisk)
@@ -510,8 +595,12 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // AN OWNER IN THE SLUG (#130 run 416, 2026-09-29: plan #136 named its repo
   // "squatch-core", and the worker cloned https://github.com/squatch-core.git).
   // A bare name is qualified from the repo record's title (owner/name).
+  // THE REPO IS THE RECORD'S, NEVER ITS TITLE (2026-10-01, runs 443–445): the
+  // name is read from the record's url (`repoFullName`), and with no approved
+  // record there is no repo, so the dispatch refuses with that reason.
   const planRepo = Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null;
-  const repoTitle = str(repo, 'title');
+  const repoTitle = repoFullName(input.repo);
+  const cloneUrl = repoCloneUrl(input.repo);
   const qualified = (s: string | null) => (s && !s.includes('/') && repoTitle?.includes('/') && repoTitle.split('/').pop() === s ? repoTitle : s);
   // THE REPO RECORD IS THE REPO (#201 runs 426–427, 2026-09-30: plan #254
   // named its repo "apps/stamp-api", a folder, and the worker cloned
@@ -521,7 +610,7 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const known = (s: string | null) => (s && repoTitle && qualified(s) === repoTitle ? repoTitle : null);
   const repoSlug = repoTitle
     ? known(str(g, 'repoSlug')) ?? known(planRepo) ?? repoTitle
-    : qualified(str(g, 'repoSlug')) ?? qualified(planRepo);
+    : null;
   // THE LAST ATTEMPT'S VERDICT IS THIS ATTEMPT'S BRIEF. QA sent #157 back
   // with "0 of 8 proven" and a line per criterion saying what would settle it
   // (2026-09-26); a rebuild that starts from the request alone repeats the
@@ -576,6 +665,26 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     .map(c => ({ name: c.name!, command: c.command!.trim() }));
   const humanOwned = list(repo, 'humanOwned');
   const engineerRules = list(repo, 'engineerRules');
+  // WHERE EACH FIELD CAME FROM (FE-314, 2026-10-01: the PM said "the repo
+  // record is fine… the broken URL is in the contract the factory wrote", and
+  // could not see the repo had come from a candidate record's title). One read
+  // of the task says which record and field each part of the contract is from.
+  const repoRef = str(repo, 'recordCode') ?? 'the repo record';
+  const nameFrom = repoNameSource(input.repo);
+  const contractSources: Record<string, string> = {
+    repo: !input.repo
+      ? 'none: no approved repo record names this product\'s repository'
+      : !repoSlug
+          ? `none: ${repoRef} has no url, and its title is not owner/name`
+          : `${repoRef} ${nameFrom?.field ?? 'url'}`,
+    requiredChecks: givenChecks.length > 0
+      ? `the card, as declared by ${repoRef} checks`
+      : repoChecks.length > 0 ? `${repoRef} checks` : `none: ${input.repo ? `${repoRef} declares no checks` : 'no repo record'}`,
+    allowedPaths: givenPaths.length > 0 ? 'the card' : componentPaths.length > 0 ? 'the plan\'s components' : productPaths.length > 0 ? `${repoRef} productPaths` : 'none',
+    riskClass: givenRisk && (WORKER_RISK as readonly string[]).includes(givenRisk) ? 'the card' : riskFromPaths(paths, riskMap) ? `${repoRef} riskDefaults` : 'the default (logic)',
+    acceptanceContract: list(g, 'acceptanceContract').length > 0 ? 'the card' : riskLines.length > 0 ? 'the request\'s acceptance and the plan\'s risks' : 'the request\'s acceptance',
+    objective: str(g, 'objective') ? 'the card' : 'the request\'s outcome and the plan\'s approach',
+  };
   return {
     ...g,
     ...(qa ? { qa } : {}),
@@ -596,6 +705,9 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     requiredChecks: checks,
     riskClass: risk,
     repoSlug,
+    repo: repoSlug ? cloneUrl : null,
+    ...(checksDropped.length > 0 ? { checksDropped } : {}),
+    contractSources,
   };
 }
 
@@ -618,14 +730,17 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
   if (!slug && !product) {
     return null;
   }
-  const { and, eq } = await import('drizzle-orm');
+  const { and, eq, inArray } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  // ONLY A REPO A PERSON STANDS BEHIND (2026-10-01, FE-314/FE-318): a pending
+  // candidate for a repository that does not exist was read by product, and
+  // three builds were sent to it. Candidates and rejected records are never read.
   const rows = await db
-    .select({ title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).repo)));
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).repo), inArray(businessObjectSchema.status, [...USABLE_RECORD_STATUSES])));
   // By its title (owner/name), its short slug, then the product it builds,
   // then the repos the product record lists (#959: a product names its repos;
   // a repo record need not name the product back).
@@ -633,7 +748,12 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
   const hit = (slug ? named(slug) : undefined)
     ?? rows.find(x => product && (x.meta as Meta).product === product)
     ?? (product ? (await productRepoNames(orgId, product)).map(named).find(Boolean) : undefined);
-  return hit ? { ...(hit.meta as Meta), title: hit.title } : null;
+  if (!hit) {
+    return null;
+  }
+  // Its code rides along, so a contract says which record each field came from.
+  const code = (await codesForRecords(orgId, [hit.id]).catch(() => new Map<number, string>())).get(hit.id) ?? `#${hit.id}`;
+  return { ...(hit.meta as Meta), title: hit.title, recordId: hit.id, recordCode: code };
 }
 
 /**
@@ -1107,7 +1227,9 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     if (gaps.length > 0) {
       return task.id > 0
         ? `Engineering task #${task.id} is not ready to build: it has no ${gaps.join(', ')}. Fill them on the task, then start it.`
-        : `This request is not ready to build: nothing says its ${gaps.join(', ')}. Approve a plan that names the files, or give the repo record productPaths for ${str(task.meta, 'product') ?? 'this product'}.`;
+        : gaps.includes('repo')
+          ? `This request is not ready to build: no approved repo record names its repository (a pending or rejected record is never built from, and a record is read by its url, never its title). Approve or add the repo record for ${str(task.meta, 'product') ?? 'this product'} with its url${gaps.length > 1 ? `; it also has no ${gaps.filter(g => g !== 'repo').join(', ')}` : ''}.`
+          : `This request is not ready to build: nothing says its ${gaps.join(', ')}. Approve a plan that names the files, or give the repo record productPaths for ${str(task.meta, 'product') ?? 'this product'}.`;
     }
     if (input.planId && (!plan || plan.typeSlug !== types.plan)) {
       return `No architecture plan #${input.planId} in this workspace.`;
@@ -1142,7 +1264,8 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         { label: 'Change', value: str(m, 'objective') ?? '' },
         { label: 'Paths', value: list(m, 'allowedPaths').join(', ') },
         { label: 'Checks', value: list(m, 'requiredChecks').join(', ') },
-        { label: 'Repo', value: str(m, 'repoSlug') ?? str(m, 'repo') ?? 'not named' },
+        ...(list(m, 'checksDropped').length > 0 ? [{ label: 'Checks left out', value: `${list(m, 'checksDropped').join(', ')}: the repo record does not declare ${list(m, 'checksDropped').length === 1 ? 'it' : 'them'}` }] : []),
+        { label: 'Repo', value: repoLine(m) },
         { label: 'Budget', value: budget },
         { label: 'Done when', value: `${list(m, 'acceptanceContract').length} criteria` },
       ],

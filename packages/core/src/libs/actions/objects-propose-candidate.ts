@@ -177,6 +177,13 @@ export const CANDIDATE_STATUS = {
   rejected: 'rejected',
 } as const;
 
+/**
+ * The statuses of a record a person stands behind: made directly (`active`, the
+ * default) or a candidate a person approved. A pending candidate or a rejected
+ * one is a proposal, and nothing acts on it as if it were the record.
+ */
+export const USABLE_RECORD_STATUSES = ['active', CANDIDATE_STATUS.approved] as const;
+
 export const candidateInputShape = z.object({
   /** Slug of an object type in this org's registry, e.g. `event-candidate`. */
   objectType: z.string().min(1).max(200),
@@ -1017,6 +1024,14 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
     const objectType = await loadObjectType(ctx.orgId, input.objectType);
     if (!objectType) {
       return `No object type "${input.objectType}" in this workspace. Propose against a type the workspace defines, or have the type added first.`;
+    }
+    // A REPOSITORY THAT IS NOT THERE IS NEVER PROPOSED (2026-10-01: a repo
+    // record for a GitHub 404 sat pending and three builds were sent to it). A
+    // field the type marks `x-verify: repository` is read on GitHub first.
+    const { missingRepositoryRefusal } = await import('@/services/repo/repositoryExists');
+    const missingRepo = await missingRepositoryRefusal(ctx.orgId, objectType.schema, input.fields, input.title);
+    if (missingRepo) {
+      return missingRepo;
     }
     // A GATE ON BECOMING A CANDIDATE runs here, at the door (Chris,
     // 2026-09-27: "the 6 ideas in proposed are great; codify this quality").

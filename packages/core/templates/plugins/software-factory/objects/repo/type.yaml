@@ -27,6 +27,10 @@ schema:
       description: The handle a task's `repoSlug` uses. Short, stable, lowercase.
     url:
       x-display: {label: Repository, format: link}
+      # Read on GitHub before a proposal is accepted (core:
+      # services/repo/repositoryExists.ts): a repository that is not there is
+      # refused with that reason, never left pending for a build to find.
+      x-verify: repository
       type: string
       description: Where the repository lives. The worker clones this; a person clicks it.
     defaultBranch:

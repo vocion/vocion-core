@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, repoCloneUrl, repoFullName, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -395,5 +395,80 @@ describe('a start of something already running is answered, not refused (convers
     expect(underwayNow(building)).toEqual({ line: 'RUN-432 (started by ACT-5381) is queued', workerRunId: 432 });
     expect(underwayRefusal(building)).toBe('already building: RUN-432 (started by ACT-5381) is queued. Nothing new was started — follow that run.');
     expect(underwayNow([])).toBeNull();
+  });
+});
+
+describe('the repo is the record\'s url, never its title (runs 443–445, 2026-10-01)', () => {
+  const request = { title: 'Fix the image build', product: 'northwind', acceptance: ['The image builds.'] };
+  const plan = { repoSlugs: ['apps/northwind-api'], components: ['apps/northwind-api — build'] };
+
+  it('reads owner/name from the url, a clone url from cloneUrl or url', () => {
+    expect(repoFullName({ title: 'Northwind (portal) monorepo', url: 'https://github.com/Acme/northwind-core' })).toBe('Acme/northwind-core');
+    expect(repoFullName({ title: 'Acme/northwind-core' })).toBe('Acme/northwind-core');
+    expect(repoFullName({ title: 'Northwind (portal) monorepo' })).toBeNull();
+    expect(repoCloneUrl({ title: 'x', url: 'https://github.com/Acme/northwind-core/' })).toBe('https://github.com/Acme/northwind-core.git');
+    expect(repoCloneUrl({ title: 'x', cloneUrl: 'https://git.example.test/acme/core.git', url: 'https://github.com/Acme/other' })).toBe('https://git.example.test/acme/core.git');
+    expect(repoCloneUrl({ title: 'Northwind (portal) monorepo' })).toBeNull();
+  });
+
+  it('a record titled in prose builds from its url', () => {
+    const c = deriveContract({ given: {}, request, plan, repo: { title: 'Northwind (portal) monorepo', url: 'https://github.com/Acme/northwind-core', checks: [{ name: 'test' }] } });
+
+    expect(c.repoSlug).toBe('Acme/northwind-core');
+    expect(c.repo).toBe('https://github.com/Acme/northwind-core.git');
+    expect(contractFromTask({ id: 1, title: 't', meta: c }, { product: 'northwind' }).repo).toBe('https://github.com/Acme/northwind-core.git');
+  });
+
+  it('a record with no url and a prose title names no repo, so the dispatch refuses before a worker sees it', () => {
+    const c = deriveContract({ given: {}, request, plan, repo: { title: 'Northwind (portal) monorepo', checks: [{ name: 'test' }] } });
+
+    expect(c.repoSlug).toBeNull();
+    expect(contractGaps(c)).toContain('repo');
+    expect(contractFromTask({ id: 1, title: 't', meta: { ...c, repoSlug: 'Northwind (portal) monorepo' } }, { product: 'northwind' }).repo).toBeNull();
+  });
+
+  it('with no repo record, a plan\'s guess is not a repo', () => {
+    const c = deriveContract({ given: { repoSlug: 'Acme/guess' }, request, plan: { ...plan, repoSlugs: ['Acme/guess'] }, repo: null });
+
+    expect(c.repoSlug).toBeNull();
+    expect(contractGaps(c)).toContain('repo');
+  });
+
+  it('a required check the record does not declare is left out, and said', () => {
+    const c = deriveContract({ given: { requiredChecks: ['unit', 'test'] }, request, plan, repo: { title: 'Acme/northwind-core', checks: [{ name: 'test' }, { name: 'lint' }] } });
+
+    expect(c.requiredChecks).toEqual(['test']);
+    expect(c.checksDropped).toEqual(['unit']);
+  });
+
+  it('a record that declares no checks makes up none', () => {
+    const c = deriveContract({ given: { requiredChecks: ['unit'] }, request, plan, repo: { title: 'Acme/northwind-core' } });
+
+    expect(c.requiredChecks).toEqual([]);
+    expect(contractGaps(c)).toContain('requiredChecks');
+  });
+});
+
+describe('the contract says where each field came from (FE-314, 2026-10-01)', () => {
+  it('names the record and field of the repo and checks, and the plan for the paths', () => {
+    const c = deriveContract({
+      given: {},
+      request: { title: 'Fix the image build', product: 'northwind', acceptance: ['The image builds.'] },
+      plan: { components: ['apps/northwind-api — build'] },
+      repo: { title: 'Northwind (portal) monorepo', recordCode: 'REPO-27', url: 'https://github.com/Acme/northwind-core', checks: [{ name: 'test' }], riskDefaults: { 'apps/northwind-api/**': 'infra' } },
+    });
+
+    expect(c.contractSources).toMatchObject({
+      repo: 'REPO-27 url',
+      requiredChecks: 'REPO-27 checks',
+      allowedPaths: 'the plan\'s components',
+      riskClass: 'REPO-27 riskDefaults',
+      acceptanceContract: 'the request\'s acceptance',
+    });
+  });
+
+  it('says why there is no repo', () => {
+    expect((deriveContract({ given: {}, request: { title: 'x' }, plan: null, repo: null }).contractSources as Record<string, string>).repo).toMatch(/^none: no approved repo record/);
+    expect((deriveContract({ given: {}, request: { title: 'x' }, plan: null, repo: { title: 'Northwind (portal) monorepo', recordCode: 'REPO-12' } }).contractSources as Record<string, string>).repo).toBe('none: REPO-12 has no url, and its title is not owner/name');
   });
 });
