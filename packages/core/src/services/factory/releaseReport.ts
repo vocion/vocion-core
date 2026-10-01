@@ -3,6 +3,7 @@ import type { CriterionEvidence } from '@/libs/workspace/criterionEvidence';
 import type { ProofState } from '@/libs/workspace/featureProof';
 import type { PageRow } from '@/libs/workspace/pageFields';
 import type { FeatureVerdict, LinkedRecord, ReleaseCommit, ReleaseFeature, ReleaseLinked, ReleaseNotes, ReleaseReading, Tone } from '@/libs/workspace/releaseFeed';
+import { liveReasonSentence, readLiveReason } from '@/libs/factory/liveCheck';
 import { formatDateTime } from '@/libs/time/zone';
 import { criterionEvidence, shotParts } from '@/libs/workspace/criterionEvidence';
 import { featureProof, isPlanRiskLine, PLAN_RISK_PREFIX } from '@/libs/workspace/featureProof';
@@ -35,10 +36,19 @@ export type ReleaseChange = {
   href: string | null;
 };
 
-export type ReleaseCheck = { key: string; title: string; line: string; tone: Tone; at: string | null; href: string | null };
+export type ReleaseCheck = {
+  key: string;
+  title: string;
+  line: string;
+  tone: Tone;
+  at: string | null;
+  href: string | null;
+  /** What the check itself reported, for whoever fixes it: one click away, under the line. */
+  detail?: string | null;
+};
 
 /** One state captured on the live product after the deploy. */
-export type ReleaseLiveShot = { key: string; criterion: string; reached: boolean; reason: string | null; imageUrl: string | null; href: string | null };
+export type ReleaseLiveShot = { key: string; criterion: string; reached: boolean; reason: string | null; detail?: string | null; imageUrl: string | null; href: string | null };
 
 /**
  * The live shot the announcement leads with (`announcementImageArtifactId`,
@@ -100,11 +110,14 @@ function liveCheck(meta: Record<string, unknown>, artifacts: ReleaseArtifact[], 
   const byId = new Map(artifacts.map(a => [a.id, a]));
   const shots = rows.map((e, i): ReleaseLiveShot => {
     const art = byId.get(Number(e.artifactId));
+    // Why, in a sentence, from the reason typed where it happened; the check's words beneath.
+    const why = readLiveReason(e.why);
     return {
       key: `live-${i}`,
       criterion: str(e.criterion) ?? str(e.flow) ?? 'A live state',
       reached: e.status === 'reached',
-      reason: str(e.reason),
+      reason: why ? liveReasonSentence(why) : str(e.reason),
+      ...(why ? { detail: why.detail } : {}),
       imageUrl: art?.url && art.kind !== 'markdown' ? art.url : null,
       href: art ? artifactHref(art.id) : str(e.url),
     };
@@ -116,6 +129,7 @@ function liveCheck(meta: Record<string, unknown>, artifacts: ReleaseArtifact[], 
     tone: live.tone,
     at: when(meta.liveCheckedAt, tz),
     href: str(meta.url),
+    detail: live.state === 'seen' ? null : live.detail ?? null,
     shots,
   };
 }

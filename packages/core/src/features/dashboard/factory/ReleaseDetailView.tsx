@@ -89,12 +89,28 @@ function ProofRow({ row }: { row: ReleaseProofRow }) {
  * @param props
  * @param props.check - The live check.
  */
+/**
+ * What a check itself reported, one click under the sentence that says it: for whoever fixes it.
+ * @param props
+ * @param props.detail - The check's own words.
+ * @param props.testId - The test id.
+ */
+function CheckDetail({ detail, testId }: { detail: string; testId: string }) {
+  return (
+    <details className="mt-1 ml-3 text-[12px] text-muted-foreground" data-testid={testId}>
+      <summary className="cursor-pointer select-none hover:text-foreground">Details</summary>
+      <p className="mt-1 font-mono break-words whitespace-pre-wrap">{detail}</p>
+    </details>
+  );
+}
+
 function LiveCheck({ check }: { check: ReleaseCheck & { shots: ReleaseLiveShot[] } }) {
   return (
     <div className="py-2" data-testid="release-check-live">
       <h4 className="text-[13px] font-medium text-foreground">Live check</h4>
       <div className="mt-1.5 text-sm"><StatusDot tone={DOT[check.tone]} label={<Line href={check.href}>{check.line}</Line>} /></div>
       {check.at && <div className="ml-3 text-[12px] text-muted-foreground">{check.at}</div>}
+      {check.detail && <CheckDetail detail={check.detail} testId="release-check-live-detail" />}
       {check.shots.length > 0 && (
         <ul className="mt-1 divide-y divide-rule">
           {check.shots.map(shot => (
@@ -105,6 +121,7 @@ function LiveCheck({ check }: { check: ReleaseCheck & { shots: ReleaseLiveShot[]
               <div className="min-w-0 flex-1">
                 <p className="text-[14px] leading-relaxed break-words text-foreground">{shot.criterion}</p>
                 {shot.reason && <p className="mt-0.5 text-[12px] break-words text-muted-foreground">{shot.reason}</p>}
+                {shot.detail && <CheckDetail detail={shot.detail} testId="release-live-shot-detail" />}
               </div>
               {shot.imageUrl && shot.href && (
                 <Line href={shot.href}>

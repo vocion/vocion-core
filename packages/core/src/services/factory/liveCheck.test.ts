@@ -207,7 +207,11 @@ describe('the live check, end to end in a real browser against a fictional produ
     const out = await runLiveCheck(org, { releaseId, flows: theFlows() }, { author }, deps());
 
     expect(out.verdict.state).toBe('not_seen');
-    expect(out.verdict.line).toMatch(/^Not seen live: QA could not reach the change on the live product\. Why: setup "upload a document" \(desktop\) did not finish: signing in to relay-web-production as the QA account failed: still on the sign-in page after submitting \("Wrong email or password"\)/);
+    // Said in a sentence from the reason's kind; the check's own words are the detail, one click away.
+    expect(out.verdict.line).toBe('Not seen live: QA could not sign in to the live product as its QA account');
+    expect(out.verdict.why).toMatchObject({ kind: 'sign_in_failed', flow: 'upload a document' });
+    expect(out.verdict.reason).toMatch(/^setup "upload a document" \(desktop\) did not finish: signing in to relay-web-production as the QA account failed: still on the sign-in page after submitting \("Wrong email or password"\)/);
+    expect((await meta(releaseId)).liveWhy).toMatchObject({ kind: 'sign_in_failed' });
     expect(JSON.stringify(out)).not.toContain('not-the-password');
     expect((await meta(releaseId)).liveState).toBe('not_seen');
     expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen' });

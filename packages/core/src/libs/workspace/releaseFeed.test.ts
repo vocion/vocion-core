@@ -204,7 +204,7 @@ describe('verification, said precisely', () => {
 
     expect(r.verification.acceptance).toEqual({ state: 'passed', line: 'QA approved, 8 of 8 criteria proven' });
     expect(r.verification.health).toMatchObject({ value: 'ok', line: 'Health check passed', freshness: 'checked 4h ago' });
-    expect(r.verification.live).toEqual({ state: 'seen', line: 'Seen live: 2 of 2 states reached', tone: 'ok' });
+    expect(r.verification.live).toEqual({ state: 'seen', line: 'Seen live: 2 of 2 states reached', tone: 'ok', detail: null });
     // "watching" became a statement a person can act on.
     expect(r.verification.impact.line).toBe('Too early to judge: live for 4 hours; an outcome is read after 24 hours');
     expect(r.verification).toMatchObject({ state: 'verified', label: 'Verified' });

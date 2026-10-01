@@ -1450,7 +1450,7 @@ describe('the release, read honestly', () => {
 
     const seen = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'seen', line: 'Seen live: 1 of 1 state reached', releaseId: 88 } } } })).release;
 
-    expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached' });
+    expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', detail: null });
   });
 
   it('is Release not verified — never Not released — when the change merged and nothing records a release', () => {

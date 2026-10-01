@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fromRepoRoot } from '@/libs/repo-root';
-import { keptShots, LIVE_STEP_VERBS, liveAfterRun, LiveFlowSchema, liveVerdict, orderedFlows, pickAnnouncementImage, readReleaseLive, readRequestLive, shotStatus } from './liveCheck';
+import { keptShots, LIVE_STEP_VERBS, liveAfterRun, LiveFlowSchema, liveReasonSentence, liveVerdict, orderedFlows, pickAnnouncementImage, readLiveReason, readReleaseLive, readRequestLive, shotStatus, stepReason } from './liveCheck';
 
 const row = (status: 'reached' | 'not_reached', extra: Record<string, unknown> = {}) => ({ requestId: 41, flow: 'Last opened line', criterion: 'The line says when it was last opened.', viewport: 'desktop', artifactId: null, status, url: null, ...extra });
 
@@ -27,8 +27,8 @@ describe('the live flow', () => {
 
 describe('what one shot shows', () => {
   it('is not reached when a step failed, when production sent it to sign-in, or when the page shows an app error', () => {
-    expect(shotStatus('/documents/d1', { file: 'a.png', label: 'line', at: '/documents/d1', shortOf: 'step 2 (wait_for "Last opened") failed' })).toEqual({ status: 'not_reached', reason: 'step 2 (wait_for "Last opened") failed' });
-    expect(shotStatus('/documents/d1', { file: 'a.png', label: '', at: '/sign-in?next=%2F' })).toEqual({ status: 'not_reached', reason: 'production sent the page to sign-in (/sign-in)' });
+    expect(shotStatus('/documents/d1', { file: 'a.png', label: 'line', at: '/documents/d1', shortOf: 'step 2 (wait_for "Last opened") failed' })).toEqual({ status: 'not_reached', reason: 'step 2 (wait_for "Last opened") failed', kind: 'not_visible' });
+    expect(shotStatus('/documents/d1', { file: 'a.png', label: '', at: '/sign-in?next=%2F' })).toEqual({ status: 'not_reached', reason: 'production sent the page to sign-in (/sign-in)', kind: 'sign_in_failed' });
     expect(shotStatus('/documents/d1', { file: 'a.png', label: '', at: '/documents/d1', errorState: true }).status).toBe('not_reached');
     expect(shotStatus('/documents/d1', { file: 'a.png', label: 'line', at: '/documents/d1' })).toEqual({ status: 'reached' });
   });
@@ -71,7 +71,7 @@ describe('reading it back', () => {
 
     expect(readReleaseLive({ liveEvidence: rows, liveSummary: '0 of 6 live states reached' })).toMatchObject({ state: 'not_seen' });
     expect(readReleaseLive({})).toBeNull();
-    expect(readReleaseLive({ liveState: 'seen', liveSummary: 'Seen live: 1 of 1 state reached', liveCheckedAt: '2026-10-01T10:00:00Z' })).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', checkedAt: '2026-10-01T10:00:00Z' });
+    expect(readReleaseLive({ liveState: 'seen', liveSummary: 'Seen live: 1 of 1 state reached', liveCheckedAt: '2026-10-01T10:00:00Z' })).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', checkedAt: '2026-10-01T10:00:00Z', detail: null });
   });
 
   it('reads a feature\'s own mark', () => {
@@ -101,5 +101,44 @@ describe('when QA\'s fire ends', () => {
     expect(liveAfterRun({ liveState: 'not_seen', liveCheckedAt: after, liveAttempts: 2, liveReason: 'r' }, { startedAt, reason: null })).toEqual({ do: 'give-up', reason: 'r' });
     expect(liveAfterRun({ liveState: 'seen', liveCheckedAt: '2026-09-30T10:00:00Z' }, { startedAt, reason: null }).do).toBe('retry');
     expect(liveAfterRun({ liveState: 'partial', liveCheckedAt: after, liveAttempts: 2 }, { startedAt, reason: null }).do).toBe('done');
+  });
+});
+
+describe('why it was not seen, said in a sentence (run 2, 2026-10-01: "locator.setInputFiles: Timeout 15000ms exceeded")', () => {
+  const RAW = 'setup "Setup upload doc" (desktop) did not finish: step 2 (upload "input[type=file]") failed: locator.setInputFiles: Timeout 15000ms exceeded';
+
+  it('says which setup step could not make the test data, with the raw words kept as the detail', () => {
+    const why = stepReason('setup', 'Setup upload doc', { index: 1, verb: 'upload', target: 'input[type=file]', error: 'locator.setInputFiles: Timeout 15000ms exceeded' }, RAW);
+
+    expect(why).toMatchObject({ kind: 'setup_failed', flow: 'Setup upload doc', step: { n: 2, verb: 'upload' }, detail: RAW });
+    expect(liveReasonSentence(why)).toBe('QA could not set up the test data it needed: it stopped at uploading a test file (step 2 of "Setup upload doc")');
+
+    const verdict = liveVerdict([row('not_reached', { reason: RAW, why })], [why]);
+
+    expect(verdict.line).toBe('Not seen live: QA could not set up the test data it needed: it stopped at uploading a test file (step 2 of "Setup upload doc")');
+    expect(verdict.line).not.toContain('locator');
+    expect(verdict.reason).toBe(RAW);
+    expect(verdict.why).toMatchObject({ kind: 'setup_failed' });
+  });
+
+  it('a check step says the page was not there, or the change was not visible', () => {
+    expect(liveReasonSentence(stepReason('check', 'C1', { index: 0, verb: 'goto', target: '/d/abc', error: 'net::ERR' }, 'x'))).toBe('The page QA opened was not there on the live product (/d/abc)');
+    expect(liveReasonSentence(stepReason('check', 'C1', { index: 2, verb: 'wait_for', target: 'Viewed', error: 'Timeout' }, 'x'))).toBe('QA reached the page, but the change was not visible: it waited for "Viewed" and it never appeared');
+    expect(liveReasonSentence({ kind: 'sign_in_failed', detail: 'x' })).toBe('QA could not sign in to the live product as its QA account');
+    expect(liveReasonSentence({ kind: 'app_error', detail: 'x' })).toBe('The page showed an error instead of the change');
+  });
+
+  it('reads back from the release and the feature: the sentence on the line, the raw words as the detail', () => {
+    const why = { kind: 'setup_failed', flow: 'Setup upload doc', step: { n: 2, verb: 'upload', target: 'input[type=file]' }, detail: RAW };
+
+    expect(readLiveReason(why)).toMatchObject({ kind: 'setup_failed', step: { n: 2 } });
+    expect(readLiveReason({ kind: 'nonsense', detail: 'x' })).toBeNull();
+    expect(readReleaseLive({ liveState: 'not_seen', liveReason: RAW, liveWhy: why, liveAttempts: 2 })).toMatchObject({
+      line: expect.stringMatching(/^Not seen live: QA could not set up the test data it needed: it stopped at uploading a test file/),
+      detail: RAW,
+    });
+    expect(readRequestLive({ liveCheck: { state: 'not_seen', line: 'Not seen live: QA could not set up the test data it needed', releaseId: 302, why } })).toMatchObject({ detail: RAW });
+    // A release checked before reasons were typed still reads in the check's own words.
+    expect(readReleaseLive({ liveState: 'not_seen', liveReason: 'no state was reached' })?.line).toMatch(/^Not seen live: QA could not reach the change on the live product\. Why: no state was reached/);
   });
 });

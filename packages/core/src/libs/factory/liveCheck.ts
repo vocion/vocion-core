@@ -51,6 +51,118 @@ export const LIVE_LIMITS = { flows: 12, steps: 16, runs: 24, seconds: 480 } as c
 /** Attempts a release gets: the first, and the one retry carrying what the first learned. */
 export const LIVE_ATTEMPTS = 2;
 
+/**
+ * WHY A LIVE CHECK DID NOT SEE THE CHANGE, typed where it happened (run 2,
+ * 2026-10-01): release REL-302 read "setup "Setup upload doc" (desktop) did not
+ * finish: step 2 (upload "input[type=file]") failed: locator.setInputFiles:
+ * Timeout 15000ms exceeded". A person reads what could not be checked and why,
+ * in a sentence ({@link liveReasonSentence}), from the kind the check set at
+ * the place it failed, never read back out of the message; the message itself
+ * is the `detail`, one click away.
+ */
+export const LIVE_REASON_KINDS = ['sign_in_failed', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run'] as const;
+export type LiveReasonKind = typeof LIVE_REASON_KINDS[number];
+
+/** One reason, typed: its kind, the flow and step it stopped at, and the check's own words. */
+export type LiveReason = {
+  kind: LiveReasonKind;
+  /** The flow it stopped in. */
+  flow?: string | null;
+  /** The step it stopped at: 1-based, its verb and what it named. */
+  step?: { n: number; verb: string; target: string } | null;
+  /** The page, for a page that was not there. */
+  path?: string | null;
+  /** The check's own words, kept whole for whoever fixes it. */
+  detail: string;
+};
+
+/** A step failure as the runner reports it (`shootFlow`'s `stepFailures`). */
+export type RunnerStepFailure = { index: number; verb: string; target: string; error: string };
+
+const quoteTarget = (t: string) => (t ? `"${t.slice(0, 60)}"` : '');
+
+/**
+ * What a step was doing, in words.
+ * @param verb - The step's verb.
+ * @param target - What it named.
+ */
+function stepDoing(verb: string, target: string): string {
+  switch (verb) {
+    case 'upload':
+      return 'uploading a test file';
+    case 'click':
+      return `clicking ${quoteTarget(target) || 'a control'}`;
+    case 'fill':
+      return `filling ${quoteTarget(target) || 'a field'}`;
+    case 'wait_for':
+      return `waiting for ${quoteTarget(target) || 'the page'}`;
+    case 'goto':
+      return `opening ${quoteTarget(target) || 'a page'}`;
+    case 'remember':
+      return 'reading a value off the page';
+    default:
+      return verb;
+  }
+}
+
+/**
+ * A step that failed, typed by where it ran: in setup it is the test data
+ * that could not be made; in a check, a page that would not open is a page not
+ * there, and anything else is the change not visible.
+ * @param phase - The flow's phase.
+ * @param flow - The flow's name.
+ * @param f - The runner's step failure.
+ * @param detail - The check's own words for it.
+ */
+export function stepReason(phase: LivePhase, flow: string, f: RunnerStepFailure, detail: string): LiveReason {
+  const step = { n: f.index + 1, verb: f.verb, target: String(f.target ?? '') };
+  if (phase !== 'check') {
+    return { kind: 'setup_failed', flow, step, detail };
+  }
+  return { kind: f.verb === 'goto' ? 'page_not_found' : 'not_visible', flow, step, ...(f.verb === 'goto' ? { path: step.target } : {}), detail };
+}
+
+/**
+ * What could not be checked and why, in one sentence a person reads.
+ * @param r - The reason.
+ */
+export function liveReasonSentence(r: LiveReason): string {
+  const at = r.step ? `${stepDoing(r.step.verb, r.step.target)} (step ${r.step.n}${r.flow ? ` of "${r.flow}"` : ''})` : null;
+  switch (r.kind) {
+    case 'sign_in_failed':
+      return 'QA could not sign in to the live product as its QA account';
+    case 'setup_failed':
+      return `QA could not set up the test data it needed${at ? `: it stopped at ${at}` : r.flow ? ` ("${r.flow}")` : ''}`;
+    case 'page_not_found':
+      return `The page QA opened was not there on the live product${r.path ? ` (${r.path})` : ''}`;
+    case 'not_visible':
+      return `QA reached the page, but the change was not visible${r.step?.verb === 'wait_for' && r.step.target ? `: it waited for ${quoteTarget(r.step.target)} and it never appeared` : at ? `: it stopped at ${at}` : ''}`;
+    case 'app_error':
+      return 'The page showed an error instead of the change';
+    default:
+      return `The live check could not run: ${r.detail.replace(/[.\s]+$/, '')}`;
+  }
+}
+
+/**
+ * A reason read back from a record, or null.
+ * @param v - What was stored.
+ */
+export function readLiveReason(v: unknown): LiveReason | null {
+  const r = v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;
+  if (!r || !(LIVE_REASON_KINDS as readonly string[]).includes(String(r.kind)) || typeof r.detail !== 'string') {
+    return null;
+  }
+  const step = r.step && typeof r.step === 'object' ? r.step as Record<string, unknown> : null;
+  return {
+    kind: r.kind as LiveReasonKind,
+    flow: typeof r.flow === 'string' ? r.flow : null,
+    step: step && Number.isInteger(step.n) && typeof step.verb === 'string' ? { n: Number(step.n), verb: step.verb, target: String(step.target ?? '') } : null,
+    path: typeof r.path === 'string' ? r.path : null,
+    detail: r.detail,
+  };
+}
+
 const stepSchema = z.record(z.string(), z.unknown()).superRefine((step, ctx) => {
   const keys = Object.keys(step);
   if (keys.length !== 1 || !(LIVE_STEP_VERBS as readonly string[]).includes(keys[0]!)) {
@@ -103,16 +215,16 @@ export function isSignInPath(pathname: string): boolean {
  * @param flowPath - The flow's own path (a flow written for the sign-in page may land there).
  * @param shot - The shot.
  */
-export function shotStatus(flowPath: string, shot: RunnerShot): { status: 'reached' | 'not_reached'; reason?: string } {
+export function shotStatus(flowPath: string, shot: RunnerShot): { status: 'reached' | 'not_reached'; reason?: string; kind?: LiveReasonKind } {
   if (shot.shortOf) {
-    return { status: 'not_reached', reason: shot.shortOf };
+    return { status: 'not_reached', reason: shot.shortOf, kind: 'not_visible' };
   }
   const at = String(shot.at || '').split(/[?#]/)[0] ?? '';
   if (at && isSignInPath(at) && !isSignInPath(flowPath)) {
-    return { status: 'not_reached', reason: `production sent the page to sign-in (${at})` };
+    return { status: 'not_reached', reason: `production sent the page to sign-in (${at})`, kind: 'sign_in_failed' };
   }
   if (shot.errorState) {
-    return { status: 'not_reached', reason: 'the page shows an app error' };
+    return { status: 'not_reached', reason: 'the page shows an app error', kind: 'app_error' };
   }
   return { status: 'reached' };
 }
@@ -126,7 +238,7 @@ export function shotStatus(flowPath: string, shot: RunnerShot): { status: 'reach
  * @param result.shots - Its shots.
  * @param result.stepFailures - The steps that failed.
  */
-export function keptShots(flowPath: string, result: { shots: RunnerShot[]; stepFailures: unknown[] }): Array<{ shot: RunnerShot; status: 'reached' | 'not_reached'; reason?: string }> {
+export function keptShots(flowPath: string, result: { shots: RunnerShot[]; stepFailures: unknown[] }): Array<{ shot: RunnerShot; status: 'reached' | 'not_reached'; reason?: string; kind?: LiveReasonKind }> {
   const failed = result.stepFailures.length > 0;
   const labeled = result.shots.some(s => s.label);
   return result.shots.filter(s => s.label || failed || !labeled).map(shot => ({ shot, ...shotStatus(flowPath, shot) }));
@@ -141,6 +253,8 @@ export type LiveRow = {
   artifactId: number | null;
   status: 'reached' | 'not_reached';
   reason?: string;
+  /** The reason, typed where it happened. */
+  why?: LiveReason;
   url: string | null;
   /** The shot's own label, when the flow named it. */
   label?: string;
@@ -149,7 +263,16 @@ export type LiveRow = {
 export type LiveState = 'seen' | 'partial' | 'not_seen';
 
 /** What a live check concluded, said once: on the release, the feature and the tool's answer. */
-export type LiveVerdict = { state: LiveState; line: string; reason: string | null; reached: number; total: number };
+export type LiveVerdict = {
+  state: LiveState;
+  line: string;
+  /** The check's own words for why, for whoever fixes the flows. */
+  reason: string | null;
+  /** Why, typed, for a person: the line says it in a sentence, and `detail` is `reason`. */
+  why: LiveReason | null;
+  reached: number;
+  total: number;
+};
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -159,27 +282,34 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
  * @param rows - The check flows' states.
  * @param problems - What stopped a flow from running at all (setup, sign-in, the browser).
  */
-export function liveVerdict(rows: readonly LiveRow[], problems: readonly string[] = []): LiveVerdict {
+export function liveVerdict(rows: readonly LiveRow[], problems: readonly (string | LiveReason)[] = []): LiveVerdict {
   const total = rows.length;
   const reached = rows.filter(r => r.status === 'reached').length;
-  const firstMiss = rows.find(r => r.status === 'not_reached')?.reason ?? null;
+  const miss = rows.find(r => r.status === 'not_reached');
   if (total > 0 && reached === total) {
-    return { state: 'seen', line: `Seen live: ${reached} of ${plural(total, 'state')} reached`, reason: null, reached, total };
+    return { state: 'seen', line: `Seen live: ${reached} of ${plural(total, 'state')} reached`, reason: null, why: null, reached, total };
   }
-  const reason = (problems[0] ?? firstMiss ?? (total === 0 ? 'no check flow was run' : 'no state was reached')).slice(0, 400);
+  // Typed where it happened, said as a sentence; a reason only in words (recorded before it was
+  // typed) is said in its own words, as it was.
+  const first: string | LiveReason = problems[0] ?? miss?.why ?? miss?.reason ?? (total === 0 ? 'no check flow was run' : 'no state was reached');
+  const why = typeof first === 'string' ? null : { ...first, detail: first.detail.slice(0, 400) };
+  const reason = (why?.detail ?? (first as string)).slice(0, 400);
   if (reached === 0) {
-    return { state: 'not_seen', line: notSeenLine(reason), reason, reached, total };
+    return { state: 'not_seen', line: notSeenLine(why ?? reason), reason, why, reached, total };
   }
-  return { state: 'partial', line: `Partly seen live: ${reached} of ${plural(total, 'state')} reached. Not reached: ${reason}`, reason, reached, total };
+  return { state: 'partial', line: `Partly seen live: ${reached} of ${plural(total, 'state')} reached. Not reached: ${why ? liveReasonSentence(why) : reason}`, reason, why, reached, total };
 }
 
 /**
  * A check that saw nothing, for a person: what could not be checked, then
  * why, in the check's own words (2026-10-01, release #280 led with "/documents/[id]
  * names a placeholder no record on production resolved to").
- * @param reason - Why, as the check said it.
+ * @param reason - Why: typed, said as a sentence; or the check's own words, for a reason recorded before it was typed.
  */
-export function notSeenLine(reason: string): string {
+export function notSeenLine(reason: string | LiveReason): string {
+  if (typeof reason !== 'string') {
+    return `Not seen live: ${liveReasonSentence(reason).replace(/[.\s]+$/, '')}`;
+  }
   return `Not seen live: QA could not reach the change on the live product. Why: ${reason.replace(/[.\s]+$/, '')}`;
 }
 
@@ -215,6 +345,8 @@ export type RequestLiveMark = {
   attempt: number;
   /** The flows that checked it — the feature's live QA flow, reused and amended next time. */
   flows: LiveFlow[];
+  /** Why it was not seen, typed; its `detail` is the check's own words. */
+  why?: LiveReason | null;
 };
 
 type Meta = Record<string, unknown>;
@@ -233,18 +365,19 @@ function text(v: unknown): string | null {
  * `liveState` existed, its rows (`liveEvidence`). Null when none ran.
  * @param meta - The release's metadata.
  */
-export function readReleaseLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null } | null {
+export function readReleaseLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null; detail: string | null } | null {
   const state = meta.liveState === 'seen' || meta.liveState === 'partial' || meta.liveState === 'not_seen' ? meta.liveState : null;
   const summary = text(meta.liveSummary);
   const attempts = Number.isInteger(meta.liveAttempts) ? Number(meta.liveAttempts) : null;
   const next = (line: string) => `${line.replace(/[.\s]+$/, '')}. ${liveNext(attempts)}`;
   if (state) {
     if (state === 'seen') {
-      return { state, line: summary ?? 'Seen live', checkedAt: text(meta.liveCheckedAt) };
+      return { state, line: summary ?? 'Seen live', checkedAt: text(meta.liveCheckedAt), detail: null };
     }
     const reason = text(meta.liveReason);
-    const line = state === 'not_seen' && reason ? notSeenLine(reason) : summary ?? notSeenLine(reason ?? 'no reason was recorded');
-    return { state, line: next(line), checkedAt: text(meta.liveCheckedAt) };
+    const why = readLiveReason(meta.liveWhy);
+    const line = state === 'not_seen' && (why ?? reason) ? notSeenLine(why ?? reason!) : summary ?? notSeenLine(reason ?? 'no reason was recorded');
+    return { state, line: next(line), checkedAt: text(meta.liveCheckedAt), detail: why?.detail ?? reason };
   }
   const rows = Array.isArray(meta.liveEvidence) ? meta.liveEvidence.map(bag) : [];
   if (rows.length === 0) {
@@ -260,7 +393,7 @@ export function readReleaseLive(meta: Meta): { state: LiveState; line: string; c
     ...(text(r.reason) ? { reason: text(r.reason)! } : {}),
     url: null,
   })), Array.isArray(meta.liveProblems) ? meta.liveProblems.filter((p): p is string => typeof p === 'string') : []);
-  return { state: verdict.state, line: verdict.state === 'seen' ? verdict.line : next(verdict.line), checkedAt: text(meta.liveCheckedAt) };
+  return { state: verdict.state, line: verdict.state === 'seen' ? verdict.line : next(verdict.line), checkedAt: text(meta.liveCheckedAt), detail: verdict.reason };
 }
 
 /**
@@ -268,14 +401,15 @@ export function readReleaseLive(meta: Meta): { state: LiveState; line: string; c
  * `liveCheck`. Null when no live check has looked at it.
  * @param meta - The request's metadata.
  */
-export function readRequestLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null; releaseId: number | null } | null {
+export function readRequestLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null; releaseId: number | null; detail: string | null } | null {
   const m = bag(meta.liveCheck);
   const state = m.state === 'seen' || m.state === 'partial' || m.state === 'not_seen' ? m.state : null;
   if (!state) {
     return null;
   }
   const releaseId = Number(m.releaseId);
-  return { state, line: text(m.line) ?? (state === 'seen' ? 'Seen live' : 'Not yet seen live'), checkedAt: text(m.checkedAt), releaseId: Number.isSafeInteger(releaseId) && releaseId > 0 ? releaseId : null };
+  const why = state === 'seen' ? null : readLiveReason(m.why);
+  return { state, line: text(m.line) ?? (state === 'seen' ? 'Seen live' : 'Not yet seen live'), checkedAt: text(m.checkedAt), releaseId: Number.isSafeInteger(releaseId) && releaseId > 0 ? releaseId : null, detail: why?.detail ?? null };
 }
 
 /** What the live-check fire's end decides: done, once more with the reason, or written down. */

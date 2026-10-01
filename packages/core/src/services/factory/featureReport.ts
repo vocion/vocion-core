@@ -640,7 +640,7 @@ export type ReportReleaseSummary = {
    * `liveCheck`): seen, partly, not, or `pending` while no live check has
    * looked. Null before it is live. Shipped is not the same as seen.
    */
-  seen: { state: 'seen' | 'partial' | 'not_seen' | 'pending'; line: string } | null;
+  seen: { state: 'seen' | 'partial' | 'not_seen' | 'pending'; line: string; detail?: string | null } | null;
   at: Date | null;
   /** Where to open it: the running product, else the release record. */
   href: string | null;
@@ -3276,7 +3276,7 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
   if (shipped) {
     const name = [str(shipped.r.meta, 'product'), str(shipped.r.meta, 'version')].filter(Boolean).join(' ') || shipped.r.title;
     const live = readRequestLive(input.request.meta);
-    const seen = live ? { state: live.state, line: live.line } : { state: 'pending' as const, line: 'Not yet seen live' };
+    const seen = live ? { state: live.state, line: live.line, detail: live.detail } : { state: 'pending' as const, line: 'Not yet seen live' };
     return {
       state: 'live',
       label: 'Live',

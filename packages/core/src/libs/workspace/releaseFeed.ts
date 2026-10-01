@@ -133,7 +133,7 @@ export type ReleaseVerification = {
    * that no live check has looked at yet; `none` is one with nothing to see.
    * A health check's 200 never stands in for it.
    */
-  live: { state: 'seen' | 'partial' | 'not_seen' | 'pending' | 'none'; line: string; tone: Tone };
+  live: { state: 'seen' | 'partial' | 'not_seen' | 'pending' | 'none'; line: string; tone: Tone; detail?: string | null };
   /** Product impact: did the change work. A different, later question. */
   impact: { state: 'helped' | 'regressed' | 'inconclusive' | 'pending' | 'unchecked' | 'none'; line: string; tone: Tone };
   /** The one line a feed row carries. */
@@ -513,7 +513,7 @@ function healthOf(meta: Record<string, unknown>, now: Date): ReleaseVerification
 function liveOf(meta: Record<string, unknown>, userFacing: boolean): ReleaseVerification['live'] {
   const live = readReleaseLive(meta);
   if (live) {
-    return { state: live.state, line: live.line, tone: live.state === 'seen' ? 'ok' : live.state === 'partial' ? 'warn' : 'bad' };
+    return { state: live.state, line: live.line, tone: live.state === 'seen' ? 'ok' : live.state === 'partial' ? 'warn' : 'bad', detail: live.detail };
   }
   return userFacing
     ? { state: 'pending', line: 'Not yet seen live', tone: 'warn' }

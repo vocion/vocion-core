@@ -722,12 +722,15 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
   };
   let absent = '';
   let video = null;
+  // What production answered for the flow's page, so a live check can say "page not found".
+  let httpStatus = null;
   try {
     const target = addressOf(base, fillVars(flow.path, vars));
     if (allow && !allow(target)) {
       throw new Error(`${new URL(target).origin} is not one of the product's own addresses, so it was not opened`);
     }
     const response = await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    httpStatus = response ? response.status() : null;
     await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
     if (side === 'before') {
       absent = absentReason(response, page, flow.path);
@@ -760,7 +763,7 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
   }
   // The webm is written when the context closes; a video that never materialized is no video.
   const videoPath = video ? await video.path().catch(() => null) : null;
-  return { shots, absent, stepFailures, videoPath };
+  return { shots, absent, stepFailures, videoPath, httpStatus };
 }
 
 /** What a step pointed at, for a failure a person can read: the selector, the text, the file. */

@@ -374,6 +374,24 @@ describe('the live check after the deploy (2026-09-30)', () => {
     expect(page.attention).toContain(said);
   });
 
+  it('a typed reason reads as a sentence on the check and each state, with the check\'s own words one click away (run 2, 2026-10-01)', () => {
+    const raw = 'setup "upload a document" (desktop) did not finish: step 2 (upload "input[type=file]") failed: locator.setInputFiles: Timeout 15000ms exceeded';
+    const why = { kind: 'setup_failed', flow: 'upload a document', step: { n: 2, verb: 'upload', target: 'input[type=file]' }, detail: raw };
+    const page = assembleReleaseReport(withLive({
+      liveState: 'not_seen',
+      liveReason: raw,
+      liveWhy: why,
+      liveAttempts: 2,
+      liveEvidence: [{ requestId: 41, flow: 'Last opened line', criterion: 'The line says when it was last opened.', artifactId: null, status: 'not_reached', reason: raw, why }],
+    }), { linked: LINKED, artifacts: ARTIFACTS, now: NOW, timeZone: 'UTC' });
+    const live = page.verification.live!;
+
+    expect(live.line).toMatch(/^Not seen live: QA could not set up the test data it needed: it stopped at uploading a test file \(step 2 of "upload a document"\)\. Next: /);
+    expect(live.line).not.toContain('locator');
+    expect(live.detail).toBe(raw);
+    expect(live.shots[0]).toMatchObject({ reason: 'QA could not set up the test data it needed: it stopped at uploading a test file (step 2 of "upload a document")', detail: raw });
+  });
+
   it('shows each live state with its picture, and why one was not reached', () => {
     const page = assembleReleaseReport(withLive({
       liveCheckedAt: '2026-09-28T08:20:00Z',

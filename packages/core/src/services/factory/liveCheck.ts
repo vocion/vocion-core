@@ -19,7 +19,7 @@
 
 import type { Buffer } from 'node:buffer';
 import type { Browser, BrowserContext } from 'playwright';
-import type { LiveFlow, LiveRow, LiveVerdict, RunnerShot } from '@/libs/factory/liveCheck';
+import type { LiveFlow, LiveReason, LiveRow, LiveVerdict, RunnerShot } from '@/libs/factory/liveCheck';
 import type { Author } from '@/services/ArtifactService';
 import type { EnvironmentAccess } from '@/services/factory/productAccess';
 import fs from 'node:fs';
@@ -28,7 +28,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage } from '@/libs/factory/liveCheck';
+import { keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage, stepReason } from '@/libs/factory/liveCheck';
 import { businessObjectSchema } from '@/models/Schema';
 
 type Meta = Record<string, unknown>;
@@ -47,7 +47,7 @@ export type RunnerQa = {
     vars: Record<string, string>;
     allow: (url: string) => boolean;
     withText: boolean;
-  }) => Promise<{ shots: RunnerShot[]; stepFailures: Array<{ index: number; verb: string; target: string; error: string }> }>;
+  }) => Promise<{ shots: RunnerShot[]; stepFailures: Array<{ index: number; verb: string; target: string; error: string }>; httpStatus?: number | null }>;
   stepFailureText: (f: { index: number; verb: string; target: string; error: string }) => string;
   viewportContextOptions: (viewport: string) => Record<string, unknown>;
   isSignInPath: (pathname: string) => boolean;
@@ -246,7 +246,8 @@ export async function runLiveCheck(
   const runs: LiveRunReport[] = [];
   const rows: LiveRow[] = [];
   const problems: string[] = [];
-  const blocking: string[] = [];
+  // What stopped flows from running, typed where it happened (`LiveReason`).
+  const blocking: Array<string | LiveReason> = [];
   const fail = (why: string): LiveCheckResult => {
     const verdict = liveVerdict([], [why]);
     return { ok: false, releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems: [why], written: `nothing written: ${why}` };
@@ -275,6 +276,7 @@ export async function runLiveCheck(
   const started = d.now().getTime();
   let runsLeft = LIVE_LIMITS.runs;
   let setupFailed = '';
+  let setupWhy: LiveReason | null = null;
 
   if (envs.length === 0) {
     problems.push(`no production environment is recorded for ${product}; an environment record names its product, stage, url and QA sign-in`);
@@ -323,16 +325,20 @@ export async function runLiveCheck(
         const report: LiveRunReport = { phase: flow.phase, flow: flow.name, viewport, ok: false, failure: null, shots: [] };
         runs.push(report);
         const requestId = flow.request_id ?? onlyRequest;
-        const missRow = (reason: string) => rows.push({ requestId, flow: flow.name, criterion: flow.criterion ?? null, viewport, artifactId: null, status: 'not_reached', reason: reason.slice(0, 400), url: null });
-        const note = (why: string) => {
+        const missRow = (reason: string, why: LiveReason) => rows.push({ requestId, flow: flow.name, criterion: flow.criterion ?? null, viewport, artifactId: null, status: 'not_reached', reason: reason.slice(0, 400), why: { ...why, detail: why.detail.slice(0, 400) }, url: null });
+        // Typed where it happened; a bare reason is a check that could not run.
+        const note = (why: string, typed: Omit<LiveReason, 'detail'> = { kind: 'could_not_run' }) => {
           report.failure = why;
           if (flow.phase === 'check') {
-            missRow(setupFailed ? `${why} (setup did not finish: ${setupFailed})` : why);
+            const reason = setupFailed ? `${why} (setup did not finish: ${setupFailed})` : why;
+            missRow(reason, setupWhy ?? { ...typed, flow: flow.name, detail: reason });
           } else if (flow.phase === 'setup') {
             setupFailed ||= `"${flow.name}": ${why}`;
             const p = `setup "${flow.name}" (${viewport}) did not finish: ${why}`;
+            const t: LiveReason = { ...typed, kind: typed.kind === 'sign_in_failed' ? 'sign_in_failed' : 'setup_failed', flow: flow.name, detail: p };
+            setupWhy ??= t;
             problems.push(p);
-            blocking.push(p);
+            blocking.push(t);
           } else {
             problems.push(`cleanup "${flow.name}" (${viewport}) did not finish: ${why}; what setup made may still be on ${env?.slug ?? 'production'}`);
           }
@@ -350,24 +356,33 @@ export async function runLiveCheck(
         try {
           const { context, error } = await contextFor(env, viewport, flow.signed_in);
           if (error) {
-            note(error);
+            note(error, { kind: 'sign_in_failed' });
             continue;
           }
           const result = await qa!.shootFlow({ browser: browser!, base: String(env.url).replace(/\/+$/, ''), flow: { name: flow.name, path: flow.path, steps: flow.steps }, viewport, side: 'live', outDir, context, stopAtFailure: true, vars, allow, withText: true });
           const failure = result.stepFailures[0] ? qa!.stepFailureText(result.stepFailures[0]) : null;
+          // The page itself was not there: production answered 404 for the flow's path.
+          const missing = result.httpStatus === 404 ? { kind: 'page_not_found' as const, flow: flow.name, path: flow.path } : null;
+          const typedFailure = (detail: string): LiveReason => (missing
+            ? { ...missing, detail }
+            : result.stepFailures[0] ? stepReason(flow.phase, flow.name, result.stepFailures[0], detail) : { kind: 'could_not_run', flow: flow.name, detail });
           report.ok = !failure;
           report.failure = failure;
           if (flow.phase !== 'check') {
             const last = result.shots.at(-1);
             report.shots.push({ label: last?.label ?? '', at: last?.at ?? '', status: failure ? 'not_reached' : 'reached', reason: failure, artifactId: null, pageText: last?.text ?? '' });
             if (failure) {
-              note(failure);
+              const { detail: _d, ...typed } = typedFailure(failure);
+              note(failure, typed);
             }
             continue;
           }
-          for (const { shot, status, reason } of keptShots(flow.path, result)) {
+          for (const { shot, status, reason, kind } of keptShots(flow.path, result)) {
             let artifactId: number | null = null;
             const why = reason && status !== 'reached' && setupFailed ? `${reason} (setup did not finish: ${setupFailed})` : reason;
+            const typed: LiveReason | null = !why || status === 'reached'
+              ? null
+              : setupWhy ?? (kind === 'not_visible' || missing ? typedFailure(why) : { kind: kind ?? 'could_not_run', flow: flow.name, detail: why });
             const pageUrl = `${new URL(String(env.url)).origin}${shot.at || ''}`;
             if (!explore) {
               artifactId = await attachShot(orgId, input.releaseId, d, { file: shot.file, flow, viewport, label: shot.label, status, reason: why ?? null, pageUrl, author: opts.author, provenance: opts.provenance }).catch((e) => {
@@ -378,7 +393,7 @@ export async function runLiveCheck(
                 return null;
               });
             }
-            rows.push({ requestId, flow: flow.name, criterion: flow.criterion ?? null, viewport, artifactId, status, ...(why ? { reason: why.slice(0, 400) } : {}), url: pageUrl, ...(shot.label ? { label: shot.label } : {}) });
+            rows.push({ requestId, flow: flow.name, criterion: flow.criterion ?? null, viewport, artifactId, status, ...(why ? { reason: why.slice(0, 400) } : {}), ...(typed ? { why: { ...typed, detail: typed.detail.slice(0, 400) } } : {}), url: pageUrl, ...(shot.label ? { label: shot.label } : {}) });
             report.shots.push({ label: shot.label, at: shot.at, status, reason: why ?? null, artifactId, pageText: shot.text ?? '' });
           }
         } catch (e) {
@@ -407,6 +422,7 @@ export async function runLiveCheck(
     liveCheckedAt: checkedAt,
     liveState: verdict.state,
     liveReason: verdict.reason,
+    liveWhy: verdict.why,
     liveAttempts: attempt,
     ...(pick ? { announcementImageArtifactId: pick } : {}),
   });
@@ -486,7 +502,7 @@ async function attachShot(orgId: string, releaseId: number, d: LiveCheckDeps, s:
  * @param w.checkedAt - When.
  * @param w.attempt - Which attempt.
  */
-async function markFeatures(orgId: string, releaseId: number, requestIds: number[], w: { rows: LiveRow[]; blocking: string[]; flows: LiveFlow[]; checkedAt: string; attempt: number }): Promise<void> {
+async function markFeatures(orgId: string, releaseId: number, requestIds: number[], w: { rows: LiveRow[]; blocking: Array<string | LiveReason>; flows: LiveFlow[]; checkedAt: string; attempt: number }): Promise<void> {
   for (const requestId of requestIds) {
     const request = await readMeta(orgId, requestId);
     if (!request) {
@@ -505,6 +521,7 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
         checkedAt: w.checkedAt,
         attempt: w.attempt,
         flows: w.flows.filter(f => f.request_id === undefined || f.request_id === requestId),
+        why: verdict.why,
       },
       ...(shots.length > 0 ? { visuals: { ...visuals, afterArtifactIds: after } } : {}),
     });

@@ -342,6 +342,8 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
         subtitle: r.sentence,
         body: [
           r.href ? `[${r.state === 'live' ? 'Open it where it runs' : 'Open the release record'}](${r.href})` : '',
+          // What the live check itself reported, for whoever fixes the flow: the line above says it in a sentence.
+          r.seen?.detail ? `**What the live check reported**\n\n\`\`\`\n${r.seen.detail}\n\`\`\`` : '',
           sectionMd(section('release'), { heading: false, absence: false }),
           sectionMd(section('result')),
         ].filter(Boolean).join('\n\n'),

@@ -85,6 +85,20 @@ describe('the release page, drawn', () => {
     expect(root.querySelector('a[href="/dashboard/artifacts/1254"]')?.textContent).toBe('QA screenshot: Uploads · desktop · after');
   });
 
+  it('says why the live check saw nothing in a sentence, with what the check reported folded under Details (run 2, 2026-10-01)', async () => {
+    const raw = 'setup "upload a document" (desktop) did not finish: step 2 (upload "input[type=file]") failed: locator.setInputFiles: Timeout 15000ms exceeded';
+    const why = { kind: 'setup_failed', flow: 'upload a document', step: { n: 2, verb: 'upload', target: 'input[type=file]' }, detail: raw };
+    const row = { ...ROW, meta: { ...ROW.meta, requestIds: [41], liveState: 'not_seen', liveReason: raw, liveWhy: why, liveAttempts: 2, liveCheckedAt: '2026-09-28T09:00:00Z' } };
+    const report = assembleReleaseReport(row, { linked: LINKED, artifacts: [], now: NOW, timeZone: 'UTC' });
+    const screen = await render(<ReleaseDetailView report={report} recordPage={DETAIL} backHref="/dashboard/p/releases" />);
+    const live = screen.container.querySelector('[data-testid="release-check-live"]')!;
+    const detail = live.querySelector('[data-testid="release-check-live-detail"]') as HTMLDetailsElement;
+
+    expect(live.textContent).toContain('QA could not set up the test data it needed: it stopped at uploading a test file (step 2 of "upload a document")');
+    expect(detail.open).toBe(false);
+    expect(detail.textContent).toContain('locator.setInputFiles: Timeout 15000ms exceeded');
+  });
+
   it('shows each criterion with its proof under the summary line, and notes written for a person', async () => {
     const shot = 'https://files.example/qa/relay/resume-banner-desktop-after.png';
     const contract = ['A banner reads "Resuming upload" while it picks up.', 'A dropped upload resumes from the last acknowledged chunk.'];
