@@ -1,13 +1,9 @@
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { ListRow, ListRows, Subline } from '@/components/patterns';
 import { StatusPill } from '@/components/ui/status-pill';
 import { AutomationPauseControl } from '@/features/dashboard/AutomationPauseControl';
-import { db } from '@/libs/DB';
 import { pausedSince } from '@/libs/factory/delivery';
-import { listPluginSlugs, loadPlugin, pluginContents } from '@/libs/workspace/plugins';
-import { automationSchema } from '@/models/Schema';
 import { pausesFor } from '@/services/AutomationService';
-import { enabledPluginsForOrg } from '@/services/PluginService';
+import { pausedAutomationsOf } from './pausedAutomationsOf';
 
 /**
  * PAUSED IS VISIBLE WHERE THE WORK IS (2026-10-01, #294). The automation that
@@ -19,22 +15,12 @@ import { enabledPluginsForOrg } from '@/services/PluginService';
  * automations a person has paused, with who paused it, since when, the note
  * they left, and Resume — the same control the automation's own page has.
  * Renders nothing when none is paused, so a surface mounts it unconditionally.
- * @param props
+ * @param props - Props.
  * @param props.orgId - The project.
  * @param props.slug - The plugin whose automations these are.
  */
 export async function PausedAutomations({ orgId, slug }: { orgId: string; slug: string }) {
-  if (!listPluginSlugs().includes(slug) || !(await enabledPluginsForOrg(orgId)).includes(slug)) {
-    return null;
-  }
-  const slugs = pluginContents(loadPlugin(slug)).automations;
-  if (slugs.length === 0) {
-    return null;
-  }
-  const rows = await db
-    .select({ slug: automationSchema.slug, name: automationSchema.name, description: automationSchema.description, pausedAt: automationSchema.pausedAt, pausedBy: automationSchema.pausedBy, pausedNote: automationSchema.pausedNote })
-    .from(automationSchema)
-    .where(and(eq(automationSchema.orgId, orgId), eq(automationSchema.status, 'active'), inArray(automationSchema.slug, slugs), isNotNull(automationSchema.pausedAt)));
+  const rows = await pausedAutomationsOf(orgId, slug);
   if (rows.length === 0) {
     return null;
   }

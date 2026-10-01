@@ -87,26 +87,52 @@ export default async function WorkspaceReportPage(props: {
   // A product's OVERVIEW — what a Products card's name opens. Keyed on the
   // page's derivation rather than its slug: a page that derives a product
   // board is the products page, whatever a workspace called it.
-  if (manifest?.derive === 'productBoard') {
-    const { loadProductOverview } = await import('@/services/factory/productOverviewData');
+  if (manifest?.derive === 'productBoard' || manifest?.recordPage?.kind === 'product') {
+    const { loadProductOverview, loadProductSlides, loadWorkStatuses } = await import('@/services/factory/productOverviewData');
     const { ProductOverviewView } = await import('@/features/dashboard/factory/ProductOverviewView');
+    const { pausedAutomationsOf } = await import('@/features/dashboard/plugins/pausedAutomationsOf');
+    const { LiveRefresh } = await import('@/features/dashboard/LiveRefresh');
+    const { LIVE_FALLBACK_EVERY_S } = await import('@/libs/workspace/pageFields');
+    const { factoryTypes } = await import('@/libs/factory/types');
     const now = new Date();
-    const overview = await loadProductOverview(orgId, id, now);
-    const related = overview ? await relatedOf(orgId, Number(id)).catch(() => []) : [];
-    const writes = overview ? await relatedWrites(orgId, Number(id)).catch(() => []) : [];
+    const plugin = pagePlugin(manifest);
+    const paused = plugin ? await pausedAutomationsOf(orgId, plugin).catch(() => []) : [];
+    const overview = await loadProductOverview(orgId, id, now, { paused: paused.length });
+    if (!overview) {
+      return notFound();
+    }
+    const [related, writes, statuses, slides, types] = await Promise.all([
+      relatedOf(orgId, Number(id)).catch(() => []),
+      relatedWrites(orgId, Number(id)).catch(() => []),
+      loadWorkStatuses(orgId, overview.work.inProgress.map(w => w.id), now).catch(() => new Map()),
+      loadProductSlides(orgId, overview.pictures).catch(() => []),
+      factoryTypes(orgId),
+    ]);
+    const layout = manifest.recordPage?.kind === 'product' ? manifest.recordPage : null;
     // EVERY RECORD PAGE FOLLOWS ITS RECORD, the feature page's way (Chris,
     // 2026-09-30, product #25: renamed from the docked chat, the header kept
     // the old name until a hard refresh). A change to the product — its title
-    // included — re-reads the page in place.
-    return overview
-      ? (
-          <>
-            <VersionWatch refs={[{ type: 'object', id: String(Number(id)) }]} />
-            {pagePlugin(manifest) && <PausedAutomations orgId={orgId} slug={pagePlugin(manifest)!} />}
-            <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} related={related} writes={writes} />
-          </>
-        )
-      : notFound();
+    // included — re-reads the page in place, and the page's own `live` follows
+    // its requests, releases and environments on the shared stream.
+    return (
+      <>
+        <VersionWatch refs={[{ type: 'object', id: String(Number(id)) }]} />
+        <ProductOverviewView
+          overview={overview}
+          page={{ slug: manifest.slug, title: manifest.title }}
+          now={now.getTime()}
+          related={related}
+          writes={writes}
+          statuses={[...statuses.values()]}
+          slides={slides}
+          sections={layout?.sections}
+          folded={layout?.folded}
+          paused={plugin && paused.length > 0 ? <PausedAutomations orgId={orgId} slug={plugin} /> : undefined}
+          live={manifest.live ? <LiveRefresh everyMs={(manifest.live.every ?? LIVE_FALLBACK_EVERY_S) * 1000} follow={manifest.live.follow} /> : undefined}
+          requestType={types.request}
+        />
+      </>
+    );
   }
   // A release's own page (the Releases feed's row link): what changed for
   // people, whether it verified, and who hears about it — not the generic

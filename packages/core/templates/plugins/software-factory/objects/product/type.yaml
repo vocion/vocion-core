@@ -43,6 +43,10 @@ schema:
         - {field: productPaths, pick: slug, label: paths}
         - {field: url, format: present, present: connected, absent: no repository URL}
     - {key: plans, label: Plans, from: backlinks, type: architecture_plan, field: productSlug, match: slug, limit: 5}
+    # The wiki pages about it: the one its capabilitiesPage names, then every
+    # page tagged with its slug or named <slug>-… (send-standards for send).
+    # The product page previews each; the Related block links them.
+    - {key: wiki, label: Wiki, from: wiki, field: capabilitiesPage, match: slug, limit: 6}
   # DERIVED (core: libs/workspace/related.ts): `urls` and `repos` are read
   # from those records at read time — the page and read_object show these —
   # and a stored value that disagrees is shown as drift, never preferred.

@@ -25,11 +25,11 @@ import { listArtifactsByIds } from '@/services/ArtifactService';
 
 /**
  * Where an artifact row keeps something an `<img>` can load.
- * @param row
- * @param row.url
- * @param row.spec
+ * @param row - An artifact.
+ * @param row.url - Its stored URL.
+ * @param row.spec - Its spec, which may carry the URL.
  */
-function imageUrlOf(row: { url: string | null; spec: unknown }): string | null {
+export function imageUrlOf(row: { url: string | null; spec: unknown }): string | null {
   const url = row.url ?? (typeof row.spec === 'object' && row.spec !== null ? (row.spec as Record<string, unknown>).url : null);
   return typeof url === 'string' && url !== '' ? artifactHref(url) : null;
 }

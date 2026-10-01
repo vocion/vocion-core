@@ -1,4 +1,5 @@
 import type { PageRow } from './pageFields';
+import type { WorkQueueOptions } from './workQueue';
 import { groupTabKey } from './pageFields';
 import { deriveWorkQueue, isWaitingOnPerson } from './workQueue';
 
@@ -172,8 +173,9 @@ export function releasesFor(product: PageRow, releases: PageRow[]): PageRow[] {
  * @param product - The product.
  * @param context - Requests and releases, when loaded.
  * @param now - The clock.
+ * @param extra - The work queue's live reads, when the caller has them.
  */
-export function productWork(product: PageRow, context: ProductBoardContext, now: Date): ProductWork {
+export function productWork(product: PageRow, context: ProductBoardContext, now: Date, extra: Pick<WorkQueueOptions, 'tasks' | 'live' | 'pendingBuilds'> = {}): ProductWork {
   if (!context.requests) {
     const inProgress = num(product, 'inFlight');
     const open = num(product, 'openRequests');
@@ -187,7 +189,7 @@ export function productWork(product: PageRow, context: ProductBoardContext, now:
     };
   }
   const mine = requestsFor(product, context.requests);
-  const rows = deriveWorkQueue(mine, { now, proposedShown: Number.POSITIVE_INFINITY, doneShown: Number.POSITIVE_INFINITY, decideShown: Number.POSITIVE_INFINITY });
+  const rows = deriveWorkQueue(mine, { ...extra, now, proposedShown: Number.POSITIVE_INFINITY, doneShown: Number.POSITIVE_INFINITY, decideShown: Number.POSITIVE_INFINITY });
   const lane = (r: PageRow) => r.meta.laneKey;
   const proposed = rows.filter(r => lane(r) === 'proposed');
   const progress = rows.filter(r => lane(r) === 'progress');

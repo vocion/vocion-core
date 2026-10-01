@@ -34,11 +34,17 @@ import { z } from 'zod';
  *   url        an https link held in `field`, on this record or on the
  *              records of relation `of` (a pull request); opens outside
  *   artifacts  artifacts attached to the record (optionally one `role`)
+ *   wiki       wiki pages about the record: the page slugs THIS record's
+ *              `field` names (a slug or a list), and — with `match` — the
+ *              pages tagged with this record's metadata `match` (a product's
+ *              slug), or whose slug is that value followed by a dash
+ *              (`send-standards` for `send`). A wiki page is not a record, so
+ *              it has no key naming the record; these are what it carries.
  */
 export const RelationSchema = z.object({
   key: z.string().regex(/^[a-z][\w-]{0,39}$/i),
   label: z.string().min(1).max(40),
-  from: z.enum(['origin', 'links', 'backlinks', 'runs', 'url', 'artifacts']),
+  from: z.enum(['origin', 'links', 'backlinks', 'runs', 'url', 'artifacts', 'wiki']),
   field: z.string().min(1).max(60).optional(),
   /** The other side's key, for a relation matched on a value rather than an id. */
   match: z.string().min(1).max(60).optional(),
@@ -223,8 +229,11 @@ export type RelatedItem = {
   external: boolean;
   /** What the preview pane opens, when it can show it. */
   preview: { type: RecordType; id: string } | null;
-  /** `drift`: a stored value disagreeing with the records this relation reads (`x-derived`), shown under the row. */
-  kind: 'record' | 'artifact' | 'run' | 'conversation' | 'link' | 'drift';
+  /**
+   * `drift`: a stored value disagreeing with the records this relation reads (`x-derived`), shown under the row.
+   * `page`: a wiki page (an artifact), whose `details` are its first lines and `at` its last update.
+   */
+  kind: 'record' | 'artifact' | 'run' | 'conversation' | 'link' | 'drift' | 'page';
   /** A few words after the link: a status, a role. */
   note: string | null;
   /** What the record says under its link (its declared `details`), each a short phrase. */

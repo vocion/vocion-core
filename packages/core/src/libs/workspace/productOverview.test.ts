@@ -2,7 +2,7 @@ import type { PageRow } from './pageFields';
 import type { OverviewLinks } from './productOverview';
 import { describe, expect, it } from 'vitest';
 import { subtitleLines } from './pageFields';
-import { buildProductOverview } from './productOverview';
+import { buildProductOverview, changeOf, liveHealthOf, measuresOf, pipelineOf } from './productOverview';
 import { recordLinker, recordLinksOf } from './recordHref';
 
 const NOW = new Date('2026-09-24T12:00:00Z');
@@ -219,5 +219,109 @@ describe('where it runs', () => {
 
     expect(o.attention.alerts).toEqual([{ id: 34, line: 'Docs · production is down; its own recovery re-ran its failed deploy, then redeployed it, and it is still not back. Ask #41 is with a person.', href: '/dashboard/objects/34' }]);
     expect(o.environments.find(e => e.id === 35)).toMatchObject({ health: 'ok', alert: null, advice: 'the title is not Northwind' });
+  });
+});
+
+describe('how it is doing: every figure carries its direction', () => {
+  const day = (d: string) => `2026-09-${d}T00:00:00Z`;
+  const rel = (id: number, at: string) => row(id, `r${id}`, { product: 'send', releasedAt: at });
+
+  it('counts the last 30 days against the 30 before, and colours the arrow by which way is good', () => {
+    const releases = [rel(1, day('20')), rel(2, day('10')), rel(3, day('01')), rel(4, '2026-08-15T00:00:00Z')];
+    const requests = [
+      { ...row(5, 'a', { product: 'send', shippedAt: day('22') }), createdAt: new Date(day('20')) },
+      { ...row(6, 'b', { product: 'send', shippedAt: '2026-08-20T00:00:00Z' }), createdAt: new Date('2026-08-10T00:00:00Z') },
+    ];
+    const m = measuresOf({ releases, requests, live: new Map([['1', 'seen'], ['2', 'not_seen']]), now: NOW });
+    const by = (k: string) => m.find(x => x.key === k)!;
+
+    expect(by('releases')).toMatchObject({ value: '3', change: { line: '↑ 2 vs prior 30 days', tone: 'ok' } });
+    expect(by('shipped')).toMatchObject({ value: '1', change: { line: 'same as prior 30 days', tone: 'muted' } });
+    // Faster is better: 2 days against 10 is a good arrow pointing down.
+    expect(by('days')).toMatchObject({ value: '2d', change: { line: '↓ 8d vs prior 30 days', tone: 'ok' } });
+    expect(by('live')).toMatchObject({ value: '1 of 2', change: null });
+  });
+
+  it('says a rise is bad when down is what is wanted', () => {
+    expect(changeOf(5, 3, 'down', 'd')).toEqual({ line: '↑ 2d vs prior 30 days', tone: 'bad' });
+  });
+
+  it('draws the figures on the overview only for a product the factory tracks', () => {
+    expect(build().measures.map(x => x.key)).toEqual(expect.arrayContaining(['releases', 'shipped']));
+    expect(build({ product: row(3, 'Slate', { slug: 'slate' }), requests: [], releases: [] }).measures).toEqual([]);
+  });
+});
+
+describe('live health is one line, from the environments\' own checks', () => {
+  const env = (id: number, surface: string, health: string) => row(id, `e${id}`, { product: 'send', surface, stage: 'production', url: `https://${surface}.northwind.example`, lastHealth: health, lastHealthCheckedAt: '2026-09-24T11:50:00Z' });
+
+  it('all answering, with when it was checked', () => {
+    const o = build({ environments: [env(40, 'api', 'ok'), env(41, 'web', 'ok')] });
+
+    expect(o.liveHealth).toEqual({ tone: 'ok', line: 'All 2 live surfaces answering · checked 10m ago' });
+  });
+
+  it('names what is down', () => {
+    const o = build({ environments: [env(40, 'api', 'ok'), env(41, 'web', 'down')] });
+
+    expect(o.liveHealth).toMatchObject({ tone: 'bad', line: 'Web app · production down · checked 10m ago' });
+  });
+
+  it('falls back to the product\'s reading when no environment is checked', () => {
+    expect(liveHealthOf([], build().health, NOW).line).toBe(build().health.label);
+  });
+});
+
+describe('what needs you is one line each, with the move', () => {
+  it('says the proposals once, as a count with Decide, and each blocked piece of work with Unblock', () => {
+    const o = build();
+    const lines = o.needs.map(n => [n.key, n.line, n.action?.label]);
+
+    expect(lines).toContainEqual(['proposals', '1 proposal waiting for your decision', 'Decide']);
+    expect(lines).toContainEqual(['blocked:12', 'Stuck build is blocked on a missing API key', 'Unblock']);
+    expect(o.needs.find(n => n.key === 'proposals')?.action?.href).toBe('#proposed');
+  });
+
+  it('says paused automations, and a missing owner, as needs with their move', () => {
+    const o = build({ paused: 2, product: { ...SEND, meta: { ...SEND.meta, accountableUser: undefined } } });
+
+    expect(o.needs.find(n => n.key === 'paused')).toMatchObject({ line: '2 automations paused: what they do is not happening', action: { label: 'See', href: '#engineering' } });
+    expect(o.needs.find(n => n.key === 'owner')?.action?.label).toBe('Set owner');
+  });
+});
+
+describe('proposals are compact: name, why, Build or Dismiss', () => {
+  it('lists each waiting decision with its one-line why and the Build card already up', () => {
+    const o = build({ work: { pendingBuilds: [{ requestId: 10, runId: 4945, at: null }] } });
+
+    expect(o.proposals.shown).toEqual([expect.objectContaining({ id: 10, title: 'Resume interrupted uploads', href: '/dashboard/p/feature/10', pendingRunId: 4945, blocked: null })]);
+    expect(o.proposals.href).toBe('/dashboard/p/work?product=send#proposed');
+  });
+});
+
+describe('how it ships, for the Release engineer', () => {
+  const repo = row(50, 'Acme/northwind-core', { product: 'send', url: 'https://github.com/Acme/northwind-core', defaultBranch: 'main', checks: [{ name: 'typecheck' }, { name: 'test' }], productPaths: { send: ['apps/send-web/**'], slate: ['apps/slate/**'] } });
+  const env = row(51, 'send-api-production', { product: 'send', surface: 'api', stage: 'production', qaLoginCredentialId: 7, deploy: { workflow: '.github/workflows/deploy.yml', step: 'API', workflowUrl: 'https://github.com/Acme/northwind-core/actions/workflows/deploy.yml' } });
+
+  it('reads each repository\'s checks and this product\'s paths, and each environment\'s deploy and QA sign-in (never the secret)', () => {
+    const o = build({ repos: [repo, row(52, 'Acme/other', { product: 'slate' })], environments: [env] });
+
+    expect(o.engineering.repos).toEqual([{ id: 50, name: 'Acme/northwind-core', url: 'https://github.com/Acme/northwind-core', branch: 'main', checks: ['typecheck', 'test'], paths: ['apps/send-web/**'], href: '/dashboard/objects/50' }]);
+    expect(o.environments[0]).toMatchObject({ qaSignIn: true, deploy: { workflow: '.github/workflows/deploy.yml', step: 'API', url: 'https://github.com/Acme/northwind-core/actions/workflows/deploy.yml' } });
+    expect(JSON.stringify(o.environments)).not.toContain('"7"');
+    expect(o.engineering.summary).toBe('1 environment · 1 repository · deploys by .github/workflows/deploy.yml');
+  });
+
+  it('names each open pipeline change and each fix underway, with who has it', () => {
+    const items = pipelineOf([
+      { row: row(60, 'Acme/northwind-core', { pipelineChange: { url: 'https://github.com/Acme/northwind-core/pull/148', state: 'open', title: 'Fix the deploy step', by: 'agent:release-engineer' } }), href: '/dashboard/objects/60' },
+      { row: row(61, 'send-web-production', { pipelineWork: { attempt: 2, owner: 'release-engineer', stoppedAt: '2026-09-24T10:00:00Z', askId: 41 } }), href: '/dashboard/objects/61' },
+      { row: row(62, 'merged one', { pipelineChange: { url: 'https://github.com/Acme/northwind-core/pull/147', state: 'merged' } }), href: '/dashboard/objects/62' },
+    ]);
+
+    expect(items.map(i => [i.line, i.tone, i.href])).toEqual([
+      ['Pipeline change open for Acme/northwind-core: Fix the deploy step · by release-engineer · merges itself on green', 'warn', 'https://github.com/Acme/northwind-core/pull/148'],
+      ['send-web-production: the pipeline fix stopped after 2 attempts; ask #41 is with a person', 'bad', '/dashboard/objects/61'],
+    ]);
   });
 });

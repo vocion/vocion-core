@@ -123,6 +123,36 @@ describe('what a product is connected to', () => {
   });
 });
 
+describe('the wiki pages about a product (Chris, 2026-10-01)', () => {
+  it('the page its field names, then pages tagged with its slug or named after it, each with its first lines and date', async () => {
+    const t = await types({ product: { 'x-related': [{ key: 'wiki', label: 'Wiki', from: 'wiki', field: 'capabilitiesPage', match: 'slug' }] } });
+    await db.insert(businessObjectSchema).values({ id: 330, orgId: ORG, typeId: t.product!, title: 'Northwind Portal', metadata: { slug: 'portal', capabilitiesPage: 'what-portal-does' } });
+    // Wiki pages as the wiki stores them: markdown artifacts in its folder, newest first.
+    const page = (slug: string, title: string, md: string, at: string, tags?: string[]) => ({ orgId: ORG, kind: 'markdown', title, recordType: 'wiki', recordId: slug, recordRole: 'page', spec: { md, title, ...(tags ? { seed: { tags } } : {}) }, updatedAt: new Date(at), createdAt: new Date(at) });
+    await db.insert(artifactSchema).values([
+      page('what-portal-does', 'What the portal already does', 'Clients sign in and see their invoices.', '2026-09-20T00:00:00Z'),
+      page('portal-standards', 'Portal standards', 'Every page loads in under a second.', '2026-09-22T00:00:00Z'),
+      page('how-it-ships', 'How the portal ships', 'Merges deploy on green.', '2026-09-23T00:00:00Z', ['Portal', 'deploy']),
+      page('voice', 'Voice', 'Plain words.', '2026-09-24T00:00:00Z'),
+      page('portalish', 'Not about it', 'A different thing.', '2026-09-25T00:00:00Z'),
+    ]);
+
+    const items = await relatedOf(ORG, 330);
+
+    expect(items.map(i => [i.relation, i.kind, i.title])).toEqual([
+      ['wiki', 'page', 'What the portal already does'],
+      ['wiki', 'page', 'How the portal ships'],
+      ['wiki', 'page', 'Portal standards'],
+    ]);
+
+    const first = items[0]!;
+
+    expect(first.details).toEqual(['Clients sign in and see their invoices.']);
+    expect(first.preview?.type).toBe('artifact');
+    expect(first.at).toBe('2026-09-20T00:00:00.000Z');
+  });
+});
+
 describe('a relation a plugin declares', () => {
   it('shows with no core change: the type names it, core reads it', async () => {
     const t = await types({

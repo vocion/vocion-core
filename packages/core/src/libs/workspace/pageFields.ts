@@ -597,6 +597,15 @@ export const ConfigureBlocksSchema = z.object({
 });
 export type ConfigureBlocks = z.infer<typeof ConfigureBlocksSchema>;
 
+/**
+ * A product overview's sections (`recordPage.kind: product`), in the order a
+ * product manager asks: how it is doing, what needs me, what is moving, what
+ * shipped, what is proposed, what it looks like, what is written about it,
+ * what it is, how it ships, what happened, and what it is connected to.
+ */
+export const PRODUCT_SECTIONS = ['doing', 'needs', 'moving', 'shipped', 'proposed', 'look', 'wiki', 'about', 'engineering', 'activity', 'related'] as const;
+export type ProductSection = typeof PRODUCT_SECTIONS[number];
+
 export const PageManifestSchema = z.object({
   slug: SlugSchema,
   title: z.string(),
@@ -743,7 +752,15 @@ export const PageManifestSchema = z.object({
    * none is offered where its words are not declared.
    */
   recordPage: z.object({
-    kind: z.enum(['release']),
+    kind: z.enum(['release', 'product']),
+    /**
+     * `product`: the overview's sections, in the order they are drawn. A
+     * section not named is not drawn; absent, every section in the order
+     * {@link PRODUCT_SECTIONS} lists. `folded` sections are drawn closed, one
+     * line saying what is inside (the Release engineer's `engineering`).
+     */
+    sections: z.array(z.enum(PRODUCT_SECTIONS)).min(1).optional(),
+    folded: z.array(z.enum(PRODUCT_SECTIONS)).optional(),
     actions: z.object({
       draft: z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() }).optional(),
       review: z.object({ label: z.string().min(1).max(40), prompt: z.string().min(1), agent: z.string().optional() }).optional(),

@@ -256,10 +256,11 @@ export function WorkStatus({ status, youAction, className, hideStage }: { status
  * @param props.recordId - The record.
  * @param props.initial - A status already read, or null.
  * @param props.className - Extra classes.
+ * @param props.hideStage - A row that already names the stage beside its title.
  */
-export function LiveWorkStatus({ recordId, initial, className }: { recordId: number; initial: RecordStatus | null; className?: string }) {
+export function LiveWorkStatus({ recordId, initial, className, hideStage }: { recordId: number; initial: RecordStatus | null; className?: string; hideStage?: boolean }) {
   const status = useRecordStatus(recordId, initial, { poll: true });
-  return status ? <WorkStatus status={status} className={className} /> : null;
+  return status ? <WorkStatus status={status} className={className} hideStage={hideStage} /> : null;
 }
 
 /**

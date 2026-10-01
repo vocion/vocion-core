@@ -158,8 +158,9 @@ describe('plugin pages', () => {
     // Only the per-record work item stays off the nav: it is reached from the
     // row that names it.
     expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);
-    // Work is the one live page: states move as workers claim and finish.
-    expect(mine.filter(p => p.live).map(p => p.slug).sort()).toEqual(['runs', 'work']);
+    // The live pages: Work's states move as workers claim and finish, and a
+    // product's overview follows its requests, releases and environments.
+    expect(mine.filter(p => p.live).map(p => p.slug).sort()).toEqual(['products', 'runs', 'work']);
 
     // The pages that were merged or cut away are gone, not hidden.
     for (const slug of ['activity', 'factory', 'guide', 'performance', 'backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {
@@ -266,6 +267,12 @@ describe('plugin pages', () => {
     expect(releases.stats!.map(s => s.label)).toEqual(['Releases, last 30 days', 'Issues detected, last 30 days', 'Verification missing, last 30 days']);
     expect(releases.queryFilters).toEqual([{ param: 'product', field: 'meta.product', label: 'Product', picker: { labelFrom: 'meta.productName' } }]);
     expect(releases.recordPage?.kind).toBe('release');
+
+    // The product overview's layout is the page's own declaration.
+    const products = readWorkspacePages().pages.find(p => p.slug === 'products')!;
+
+    expect(products.recordPage).toMatchObject({ kind: 'product', folded: ['engineering'] });
+    expect(products.recordPage?.kind === 'product' && products.recordPage.sections?.slice(0, 3)).toEqual(['doing', 'needs', 'moving']);
     expect(Object.keys(releases.recordPage!.actions).sort()).toEqual(['draft', 'publish', 'review']);
   });
 

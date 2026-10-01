@@ -348,6 +348,34 @@ async function readRelated(orgId: string, objectId: number, opts: { relations?: 
         })));
         break;
       }
+      case 'wiki': {
+        // Pages this record names by slug, then pages tagged with (or named
+        // after) its `match` value — newest first, each once.
+        const named = rel.field ? sources(rel).flatMap(s => values(s.meta[rel.field!])) : [];
+        const keys = rel.match ? sources(rel).flatMap(s => values(s.meta[rel.match!])).map(v => v.toLowerCase()) : [];
+        if (named.length === 0 && keys.length === 0) {
+          break;
+        }
+        const { listWikiPages, wikiSlug } = await import('@/services/wiki/WikiService');
+        const pages = await listWikiPages(orgId);
+        const want = new Set(named.map(wikiSlug));
+        const about = (p: { slug: string; tags: string[] }) => keys.some(k => p.tags.some(t => t.toLowerCase() === k) || p.slug.startsWith(`${k}-`));
+        const hits = [...pages.filter(p => want.has(p.slug)), ...pages.filter(p => !want.has(p.slug) && about(p))].slice(0, rel.limit);
+        items.push(...hits.map(p => ({
+          key: `${rel.key}:page:${p.id}`,
+          relation: rel.key,
+          label: rel.label,
+          title: p.title,
+          href: describeRef({ type: 'artifact', id: String(p.id) }).href ?? null,
+          external: false,
+          preview: { type: 'artifact' as const, id: String(p.id) },
+          kind: 'page' as const,
+          note: null,
+          ...(p.summary ? { details: [p.summary] } : {}),
+          at: p.updatedAt.toISOString(),
+        })));
+        break;
+      }
     }
   }
   return { items, found, meta, schema: self.schema as Record<string, unknown> | null, relations };

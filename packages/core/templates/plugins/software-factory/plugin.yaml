@@ -248,7 +248,18 @@ name: Software factory
 #   titled with its request's whole sentence). `release.name` is written once
 #   by the platform when the release is linked, read from what shipped, and
 #   never over a name already there; the request titles stay the asker's words.
-version: 2.41.0
+#
+# 2.42.0 — the product page is for the person who runs it (2026-10-01, Chris:
+#   "make it better for a PM ... explorability into release engineer needs and
+#   configs there, but that shouldn't be primary. If that product has Wiki
+#   pages I should have a preview and link too"). The products page declares
+#   its overview (`recordPage: {kind: product, sections, folded}`): how it is
+#   doing with every figure's direction, what needs you one line each, In
+#   progress with You/Now/Next, Shipped with whether it was seen live,
+#   Proposed with Build or Dismiss, its pictures, its wiki pages, then How it
+#   ships folded. `product` declares a `wiki` relation (its capabilitiesPage,
+#   and pages tagged with or named after its slug), and the page is `live`.
+version: 2.42.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
