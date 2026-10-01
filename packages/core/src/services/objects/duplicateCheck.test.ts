@@ -26,12 +26,16 @@ const SCHEMA = {
 };
 let typeId = 0;
 let plainTypeId = 0;
+let jobTypeId = 0;
 
 beforeAll(async () => {
   const [t] = await createObjectType({ slug: 'ask', label: 'Ask', schema: SCHEMA } as never, ORG);
   typeId = t!.id;
   const [p] = await createObjectType({ slug: 'note', label: 'Note', schema: { type: 'object', properties: {} } } as never, ORG);
   plainTypeId = p!.id;
+  // A record of another type that serves an ask, by its declared link.
+  const [j] = await createObjectType({ slug: 'job', label: 'Job', schema: { 'type': 'object', 'x-related': [{ key: 'ask', label: 'Ask', from: 'links', field: 'askId' }], 'properties': { askId: { type: 'integer' } } } } as never, ORG);
+  jobTypeId = j!.id;
 });
 
 async function record(title: string, meta: Record<string, unknown>, extra: { status?: string; updatedAt?: Date; typeId?: number } = {}) {
@@ -178,5 +182,41 @@ describe('checkNewRecordForDuplicate', () => {
 
     expect((await dup.checkNewRecordForDuplicate(ORG, { objectId: lonely.id }, { model: m })).did).toBe('nothing on file to compare');
     expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('the same fault, and work on a record, are that record\'s work (2026-10-01)', () => {
+  it('links an outage reported by its symptom to the record fixing its cause', async () => {
+    const fix = await record('Fix the rooms image build so the engine matches the runtime', { product: 'rooms', outcome: 'The rooms image builds and ships the right engine.' });
+    const outage = await record('Every signed-in call returns 500: engine missing for the runtime', { product: 'rooms', outcome: 'Signed-in calls succeed.' });
+    const { m } = model({ duplicateOf: fix.id, relation: 'same_fault', confidence: 0.9, reason: 'The 500s are the engine the build ships; fixing the build fixes them.' });
+
+    const out = await dup.checkNewRecordForDuplicate(ORG, { objectId: outage.id }, { model: m });
+
+    expect(out).toMatchObject({ linked: true, duplicateOf: fix.id, relation: 'same_fault' });
+    expect(out.line).toMatch(new RegExp(`^The same fault as #${fix.id} .*so it was linked as its duplicate and the work stays there`));
+  });
+
+  it('reads a record the new one names through its own job, even under another product, and links work on it', async () => {
+    const build = await record('Fix the rooms image build', { product: 'rooms', outcome: 'The image builds.' });
+    const [job] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: jobTypeId, title: 'Build attempt', metadata: { askId: build.id } }).returning();
+    const contract = await record('Write a corrected contract with the right repository', { product: 'factory', outcome: `The next attempt reaches a worker. The job /dashboard/objects/${job!.id} failed on the contract.` });
+    const { m, seen } = model({ duplicateOf: build.id, relation: 'work_on', confidence: 0.92, reason: 'It asks for another attempt at that build with a fixed contract.' });
+
+    const out = await dup.checkNewRecordForDuplicate(ORG, { objectId: contract.id }, { model: m });
+
+    // Under another product, `within` alone would never have shown it.
+    expect(seen[0]).toContain(`#${build.id} (open)`);
+    expect(out).toMatchObject({ linked: true, duplicateOf: build.id, relation: 'work_on' });
+    expect(out.line).toMatch(new RegExp(`^Work on #${build.id} `));
+  });
+
+  it('links nothing when the judge reads them as different, whatever number it names', async () => {
+    const a = await record('Export a room as a PDF', { product: 'rooms', outcome: 'A PDF of the room.' });
+    const b = await record('Export a room as a spreadsheet', { product: 'rooms', outcome: 'A spreadsheet of the room.' });
+
+    const out = await dup.checkNewRecordForDuplicate(ORG, { objectId: b.id }, { model: model({ duplicateOf: a.id, relation: 'different', confidence: 0.9, reason: 'Another format.' }).m });
+
+    expect(out).toMatchObject({ checked: true, linked: false, duplicateOf: null, relation: 'different', did: 'not a duplicate' });
   });
 });

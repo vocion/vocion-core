@@ -56,7 +56,51 @@ type Row = { id: number; title: string; status: string | null; meta: Meta; creat
 type RunRow = { id: number; status: string; kind: string; error: string | null; failures: Array<{ scope?: string; message?: string }>; input: Meta; result: Meta | null; updatedAt: Date; createdAt: Date; workerVersion?: string | null };
 
 /** What a factory step did, for the job's result and the automation log. */
-export type CarryResult = { requestId: number | null; did: string; line: string | null };
+export type CarryResult = {
+  requestId: number | null;
+  did: string;
+  line: string | null;
+  /** What the duplicate check read, when it judged: kept on the run's result. */
+  duplicate?: { of: number | null; relation: string | null; confidence: number | null; reason: string | null; did: string };
+};
+
+/**
+ * The duplicate check's finding, as a run's result keeps it.
+ * @param f - The finding.
+ */
+function findingOf(f: import('@/services/objects/duplicateCheck').DuplicateFinding): NonNullable<CarryResult['duplicate']> {
+  return { of: f.duplicateOf, relation: f.relation, confidence: f.confidence, reason: f.reason, did: f.did };
+}
+
+/**
+ * The request a new filing was work on, built again with the filing's words
+ * as the note: the person's own start when a person filed it (Undo until a
+ * worker claims it), the Build card otherwise. Already running is said, not
+ * started twice (`factory.dispatch_task`'s own underway check).
+ * @param orgId - Tenant.
+ * @param targetId - The request the work belongs to.
+ * @param filing - The record filed for it.
+ * @param payload - Where it was filed from.
+ */
+async function buildAgain(orgId: string, targetId: number, filing: FactoryRecord, payload: Partial<ObjectCreatedPayload>): Promise<{ did: string; line: string | null }> {
+  const conversationId = typeof payload.conversationId === 'number' ? payload.conversationId : null;
+  const person = payload.byPerson === true ? await filingPerson(orgId, conversationId, payload.actor) : null;
+  const words = [filing.title, typeof filing.meta.body === 'string' ? filing.meta.body : null].filter(Boolean).join(' — ').slice(0, 3_900);
+  const [from, to] = await Promise.all([codeForRecord(orgId, filing.id).catch(() => null), codeForRecord(orgId, targetId).catch(() => null)]);
+  const target = to ?? `#${targetId}`;
+  const input = { requestId: targetId, note: words, reason: `Asked for in ${from ?? `#${filing.id}`}: build ${target} again.`.slice(0, 500) };
+  const env = { confidence: 0.9, rationale: `${filing.title} is work on ${target}, so it is ${target}'s build again.`, reason: 'The work belongs to the request it names; Undo cancels it until a worker claims it.' };
+  const out = person ? await proposeAsPerson(orgId, person, conversationId, DISPATCH, input, env) : await propose(orgId, DISPATCH, input, env);
+  if (!out.ok) {
+    return { did: 'refused', line: `Building ${target} again could not start: ${out.error}` };
+  }
+  if (out.res.outcome === 'already_underway') {
+    return { did: 'underway', line: `${target}'s build is already under way.` };
+  }
+  return out.res.status === 'pending'
+    ? { did: 'card', line: `Building ${target} again is on a card (${nounCode('action', out.res.runId)}).` }
+    : { did: out.res.status, line: `Building ${target} again, with this as its note.` };
+}
 
 const skip = (requestId: number | null, did: string): CarryResult => ({ requestId, did, line: null });
 
@@ -102,7 +146,7 @@ async function propose(orgId: string, actionId: string, input: Meta, env: { conf
 /**
  * The same proposal, as the person: their own action, so it runs with Undo
  * and puts no card in front of them. Only for a step the person told the
- * factory to take in their own words (`personSaidTo`).
+ * factory to take in their own words (`askedOf`).
  * @param orgId - Tenant.
  * @param userId - The person whose word it is.
  * @param conversationId - Where they said it.
@@ -132,28 +176,19 @@ async function proposeAsPerson(orgId: string, userId: string, conversationId: nu
 }
 
 /**
- * Whether the person who filed this in a conversation told the factory, in
- * their own words, to take this step, read by a model (`saidToDecide`),
- * never matched. Conversation 398 (2026-09-30): "Please file it and build it."
- * filed #277 and then put its Build card in front of the same person.
+ * What the person a record was filed from asked for, read by a model from
+ * their own words (`readAsked`), never matched: work, an answer, or work
+ * held. Null when it cannot be read, and the caller keeps its default.
+ * Conversation 398 (2026-09-30): "Please file it and build it." is work.
+ * CHAT-423 (2026-10-01): "how does FE-308 work without …?" is an answer.
  * @param orgId - Tenant.
  * @param conversationId - The conversation the record was filed from.
- * @param decision - The step, in words the read can check their message against.
+ * @param filed - What was filed, as a person reads it.
  */
-async function personSaidTo(orgId: string, conversationId: number, decision: string): Promise<{ userId: string; quote: string | null } | null> {
-  const { and, eq } = await import('drizzle-orm');
-  const { db } = await import('@/libs/DB');
-  const { conversationSchema } = await import('@/models/Schema');
-  const [conversation] = await db.select({ createdBy: conversationSchema.createdBy }).from(conversationSchema).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId))).limit(1);
-  const userId = conversation?.createdBy?.trim();
-  const { decidedByMachine } = await import('@/libs/actions/decider');
-  if (!userId || decidedByMachine(userId)) {
-    return null;
-  }
+async function askedOf(orgId: string, conversationId: number, filed: string): Promise<import('@/services/agents/turnJudge').Asked | null> {
   const { personMessages } = await import('@/services/agents/owedDecision');
-  const { saidToDecide } = await import('@/services/agents/turnJudge');
-  const said = await saidToDecide({ orgId, messages: await personMessages({ orgId, conversationId }), decision });
-  return said.said ? { userId, quote: said.quote } : null;
+  const { readAsked } = await import('@/services/agents/turnJudge');
+  return readAsked({ orgId, messages: await personMessages({ orgId, conversationId }), filed });
 }
 
 /**
@@ -754,11 +789,23 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   // nothing starts; below the bar nothing is said and intake carries on.
   const { checkNewRecordForDuplicate } = await import('@/services/objects/duplicateCheck');
   const duplicate = opts.retry ? null : await checkNewRecordForDuplicate(orgId, payload);
-  if (duplicate?.linked && duplicate.line) {
+  if (duplicate?.linked && duplicate.line && duplicate.duplicateOf) {
     const line = duplicate.line;
     await updateRecovery(orgId, id, s => logLine(s, line, new Date().toISOString()));
-    return { requestId: id, did: `duplicate:${duplicate.did}`, line: duplicate.line };
+    // WORK ON A RECORD STAYS ON IT (FE-322, 2026-10-01: "write a corrected
+    // contract" was filed as a new request when the work was another attempt
+    // at FE-314's own build). Linked as work on the other request, what it
+    // asked for is that request's build again, carrying its words as the note:
+    // as the person's own start when a person asked for it, else on a card.
+    if (duplicate.relation === 'work_on') {
+      const again = await buildAgain(orgId, duplicate.duplicateOf, request, payload);
+      return { requestId: id, did: `duplicate:${duplicate.did}:work_on:${again.did}`, line: again.line ? `${line} ${again.line}` : line, duplicate: findingOf(duplicate) };
+    }
+    return { requestId: id, did: `duplicate:${duplicate.did}`, line: duplicate.line, duplicate: findingOf(duplicate) };
   }
+  // What the check found rides the result, so a duplicate it did not link
+  // can be read back from the run (#964 left none: FE-318 beside FE-314).
+  const checked = duplicate?.checked ? findingOf(duplicate) : undefined;
   const work = await workFor(orgId, id);
   if (work.tasks.length > 0 || work.waiting) {
     return skip(id, 'work already exists for it');
@@ -795,10 +842,20 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   const conversationId = typeof payload.conversationId === 'number' ? payload.conversationId : null;
   const person = payload.byPerson === true ? await filingPerson(orgId, conversationId, payload.actor) : null;
   if (person) {
-    const held = conversationId !== null
-      ? await personSaidTo(orgId, conversationId, `hold request #${id} "${filed.title}": only file it, and do not start building it yet`).catch(() => null)
+    // A QUESTION NEVER STARTS A BUILD (CHAT-423): one typed read of the
+    // person's words — work, an answer, or work held — and code routes on it.
+    // No words to read, or a read that fails, is the default: the person's
+    // filing is work.
+    const asked = conversationId !== null
+      ? await askedOf(orgId, conversationId, `request ${await codeForRecord(orgId, id).catch(() => null) ?? `#${id}`}: ${filed.title}`).catch(() => null)
       : null;
-    if (held) {
+    if (asked?.asked === 'answer') {
+      const line = `Filed, not started: you asked a question${asked.quote ? ` ("${asked.quote.slice(0, 120)}")` : ''}, so nothing is built until someone asks for the work. Build starts it.`;
+      await updateRecovery(orgId, id, s => logLine(s, line, at));
+      await mark({ at, outcome: 'held', why: 'asked a question' });
+      return { requestId: id, did: 'question:not-started', line, ...(checked ? { duplicate: checked } : {}) };
+    }
+    if (asked?.asked === 'hold') {
       await updateRecovery(orgId, id, s => logLine(s, 'Filed and held, as you asked: the Build card waits for you.', at));
       await mark({ at, outcome: 'held' });
     } else {
@@ -815,7 +872,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
         const line = 'Filed and started: you asked for it. Undo cancels it until a worker claims it.';
         await updateRecovery(orgId, id, s => logLine(s, line, at));
         await mark({ at, outcome: 'started' });
-        return { requestId: id, did: `start:${started.res.status}:person`, line };
+        return { requestId: id, did: `start:${started.res.status}:person`, line, ...(checked ? { duplicate: checked } : {}) };
       }
       // Refused or held by the action itself: said here, and the card carries it.
       await updateRecovery(orgId, id, s => logLine(s, `Filed; the build could not start on its own: ${started.ok ? `it is waiting on a card (${nounCode('action', started.res.runId)})` : started.error}`, at));
@@ -842,7 +899,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
       : out.res.status === 'pending' ? `Filed; the build is on a card for a person (${nounCode('action', out.res.runId)}): ${decision.why}.` : `Filed and started on its own: ${decision.why}.`;
     await updateRecovery(orgId, id, s => logLine(s, line, at));
     await mark({ at, outcome: !out.ok ? 'refused' : out.res.status === 'pending' ? 'card' : 'started', ...(out.ok ? {} : { why: out.error }) });
-    return { requestId: id, did: out.ok ? `start:${out.res.status}` : 'start:refused', line };
+    return { requestId: id, did: out.ok ? `start:${out.res.status}` : 'start:refused', line, ...(checked ? { duplicate: checked } : {}) };
   }
   const out = await propose(orgId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), reason: `Ready to build: ${decision.why}.` }, {
     confidence: 0.5,
@@ -863,7 +920,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   const line = `Filed; the Build card is waiting on a person (${nounCode('action', out.res.runId)}).`;
   await updateRecovery(orgId, id, s => logLine(s, line, at));
   await mark({ at, outcome: 'card' });
-  return { requestId: id, did: `card:${out.res.status}`, line };
+  return { requestId: id, did: `card:${out.res.status}`, line, ...(checked ? { duplicate: checked } : {}) };
 }
 
 /**

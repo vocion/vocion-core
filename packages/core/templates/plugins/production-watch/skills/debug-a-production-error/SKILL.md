@@ -5,8 +5,9 @@ description: >-
   Given an incident or a reported production error — a 500, a screenshot, a
   route, a time — read what Sentry recorded, map the stack to the
   repository, say what caused it from the evidence, and end with a move
-  written on the incident. Never ends in prose alone.
-version: 1
+  written on the incident — first saying whether it is still happening, so a
+  fixed outage gets a summary, not a P1. Never ends in prose alone.
+version: 2
 ---
 
 # Debug a production error
@@ -36,7 +37,27 @@ say what caused it, and leave a move on the incident — in this turn.
 - the failing request (method, URL, status) and the breadcrumbs before it;
 - `firstRelease` and `firstSeen`.
 
-## 3. Say what caused it
+## 3. Is it still happening?
+
+`sentry_issue` answers this first, as facts: `stillHappening.state`, the last
+event against now, the minutes it has been quiet, and the releases that went
+out since. Read it before you decide anything — an error a person asks about
+is often one that is already over (2026-10-01: asked about an error at 14:45,
+the answer filed a P1, queued an incident and drafted a P1 alert for an
+outage a revert had fixed at 16:14; the last event was 15:47).
+
+- **ongoing** — go on: what caused it, then the move (4).
+- **stopped** — it is over. Say what it was, when it started and stopped,
+  what caused it, and what fixed it (the release that went out after its
+  last event, by name). File no request, open no incident, raise no alert,
+  and put up no card for it. At most, suggest one follow-up in a line — a
+  lasting fix the stopped one does not cover, or a check that would have
+  caught it — and file it only when the person asks for it. If an open
+  incident or request is about it, write that it is resolved and by what.
+- **unknown** — count its events over the last hour (`sentry_issues` with
+  `period: 1h`) before you act.
+
+## 4. Say what caused it
 
 - **deploy** — it first appeared in a release, soon after that release went
   out, and the stack or the message is about what the release changed (the
@@ -45,7 +66,7 @@ say what caused it, and leave a move on the incident — in this turn.
   release.
 - **unknown** — the evidence does not settle it; say what would.
 
-## 4. Decide and move
+## 5. Decide and move (only while it is still happening)
 
 - **deploy**: write it on the incident. With the software factory on, its
   Release engineer is woken by the incident and owns the revert.
@@ -62,7 +83,7 @@ say what caused it, and leave a move on the incident — in this turn.
 - **code, minor** or **no factory**: write the recommended fix on the incident
   (the file, the line, the change).
 
-## 5. End with the record, the move and a link
+## 6. End with the record, the move and a link
 
 Update the incident (`update_object`): `action` in one line with its link,
 and `cause`/`causeWhy` when you read it differently from the watch. Then

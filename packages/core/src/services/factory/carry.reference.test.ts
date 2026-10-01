@@ -10,6 +10,7 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/agents/turnJudge', async original => ({
   ...(await original<typeof import('@/services/agents/turnJudge')>()),
   saidToDecide: vi.fn(async () => ({ said: false, quote: null })),
+  readAsked: vi.fn(async () => null),
 }));
 const judged = vi.hoisted(() => ({ calls: 0 }));
 vi.mock('@/libs/llm', async original => ({

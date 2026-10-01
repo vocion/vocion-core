@@ -169,3 +169,39 @@ export async function saidToDecide(input: { orgId: string; messages: string[]; d
     return { said: false, quote: null };
   }
 }
+
+export const AskedSchema = z.object({
+  asked: z.enum(['work', 'answer', 'hold']).describe('What the person asked for, from their own words: work — they tell the agent or the team to build, change or fix something, now; answer — they ask a question and want it answered: how something works, why, what was built, how to use or test it, or what they themselves need to do — not work started, even when the answer may later lead to work; hold — written down, but not started yet.'),
+  quote: z.string().max(300).nullable().describe('Their words that say it, quoted exactly; null when there are none.'),
+});
+export type Asked = z.infer<typeof AskedSchema>;
+
+/**
+ * A QUESTION NEVER STARTS A BUILD (2026-10-01, CHAT-423: "how does FE-308 work
+ * without manually registering an app with OpenAI?" was filed as a request,
+ * and intake started a plan, a task and a run for it, because the only thing
+ * it asked of the person's words was whether they said "hold"). What the
+ * person asked for — work, an answer, or work held — is read by a model from
+ * their own words, typed, and code routes on it. Null when the read fails or
+ * there are no words, so a caller keeps its own default.
+ * @param input - The person's words and what was filed.
+ * @param input.orgId - The workspace.
+ * @param input.messages - The person's recent messages, newest first.
+ * @param input.filed - What was filed from them, as a person reads it ("request FE-324: Explain how …").
+ * @param model - Injected in tests.
+ */
+export async function readAsked(input: { orgId: string; messages: string[]; filed?: string }, model?: Model): Promise<Asked | null> {
+  if (input.messages.length === 0) {
+    return null;
+  }
+  try {
+    return await ask(model ?? await classifier(input.orgId), AskedSchema, 'report_asked', 'Report what the person asked for.', 'You read what a person said to an agent in a work app and report, as typed fields, whether they asked for work, for an answer, or for work to be written down and held. Judge the meaning, not the wording: a question is a request for an answer unless they also tell someone to build, change or fix something. Asking what they should do, or how to build, use or test something themselves, is a question. Answer only through the tool.', [
+      input.filed ? `What the agent filed from it: ${input.filed.slice(0, 400)}` : '',
+      `The person, latest message: ${input.messages[0]!.slice(0, 2_000)}`,
+      input.messages[1] ? `The person, message before: ${input.messages[1].slice(0, 2_000)}` : '',
+    ].filter(Boolean).join('\n\n'));
+  } catch (err) {
+    console.warn('turn judge: asked read failed', { orgId: input.orgId, message: (err as Error).message });
+    return null;
+  }
+}

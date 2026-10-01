@@ -9,6 +9,13 @@ exception, the app's own frames with file and line, the breadcrumbs, the
 failing request and its status). Quote the line of the exception that settles
 what broke. A title is not evidence.
 
+**Is it still happening? Before anything else.** `sentry_issue` says it first
+(`stillHappening`: the last event against now, minutes quiet, and the releases
+since). An error that has stopped gets a summary — what it was, what caused
+it, what fixed it — and at most one follow-up suggested in a line, filed only
+when the person asks. No request, no incident, no alert, no card for an
+outage that is already over.
+
 **Every incident ends with a move written on it** (`debug-a-production-error`):
 `action` in one line with its link, and `cause`/`causeWhy` when the evidence
 says something the watch did not.

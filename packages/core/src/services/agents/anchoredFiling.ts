@@ -115,11 +115,46 @@ export async function anchoredFilingCheck(ctx: RuntimeContext, input: Record<str
       const row = await getBusinessObject(target.id, ctx.orgId);
       anchor = { id: target.id, objectType: (row as { type?: { slug?: string } } | null)?.type?.slug ?? null };
     }
-    return anchoredFilingRefusal({ message, intent: await intentOf(ctx, message), objectType, anchor });
+    const intent = await intentOf(ctx, message);
+    return anchoredFilingRefusal({ message, intent, objectType, anchor }) ?? await questionFilingRefusal(ctx, input, objectType, intent);
   } catch (err) {
     console.warn('anchored filing check failed', { orgId: ctx.orgId, message: (err as Error).message });
     return null;
   }
+}
+
+/**
+ * A QUESTION IS ANSWERED, NOT FILED AS WORK (2026-10-01, CHAT-423: "how does
+ * FE-308 work without manually registering an app with OpenAI?" became
+ * request FE-324, and its build started). A type that asks for work when
+ * filed (`x-asks-for-work: true` on its schema, so core names no type) is
+ * refused back to the agent, with what to do instead, when a model reading of
+ * the person's words says they asked for an answer — unless they asked for a
+ * new record. A read that fails files as before.
+ * @param ctx - The turn.
+ * @param input - The filing's `objects.propose_candidate` input.
+ * @param objectType - The type being filed.
+ * @param intent - The turn's intent read.
+ */
+async function questionFilingRefusal(ctx: RuntimeContext, input: Record<string, unknown>, objectType: string, intent: TurnIntent): Promise<string | null> {
+  if (intent.files_new_record) {
+    return null;
+  }
+  const { loadObjectType } = await import('@/libs/actions/objects-propose-candidate');
+  const type = await loadObjectType(ctx.orgId, objectType);
+  if ((type?.schema as Record<string, unknown> | null | undefined)?.['x-asks-for-work'] !== true) {
+    return null;
+  }
+  const { personMessages } = await import('./owedDecision');
+  const { readAsked } = await import('./turnJudge');
+  const fields = (input.fields ?? {}) as Record<string, unknown>;
+  const title = typeof input.title === 'string' ? input.title : typeof fields.title === 'string' ? fields.title : '';
+  const asked = await readAsked({ orgId: ctx.orgId, messages: await personMessages(ctx), filed: `${objectType.replace(/[_-]+/g, ' ')}: ${title}` });
+  if (asked?.asked !== 'answer') {
+    return null;
+  }
+  const kind = objectType.replace(/[_-]+/g, ' ');
+  return `Not filed: the person asked a question${asked.quote ? ` ("${asked.quote.slice(0, 160)}")` : ''}, so what they want is the answer, not a new ${kind} that starts work. Answer it in this turn from what you can read: the record, its build and pull request, the code, and current documentation. File a ${kind} only when they ask for the work.`;
 }
 
 /**

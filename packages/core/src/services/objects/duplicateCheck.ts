@@ -111,8 +111,9 @@ export function comparedText(meta: Meta, compare: readonly string[]): string {
  * @param record.text - Its compared fields.
  * @param candidates - Existing records, newest first.
  * @param limit - At most this many.
+ * @param first - Records the new one names, read before anything else.
  */
-export function shortlistDuplicates(record: { title: string; text: string }, candidates: readonly DuplicateCandidate[], limit = DUPLICATE_SHORTLIST): DuplicateCandidate[] {
+export function shortlistDuplicates(record: { title: string; text: string }, candidates: readonly DuplicateCandidate[], limit = DUPLICATE_SHORTLIST, first: readonly number[] = []): DuplicateCandidate[] {
   const probe = `${record.title} ${record.text}`;
   const close = candidates
     .map(c => ({ c, score: Math.max(similarity(record.title, c.title), similarity(probe, `${c.title} ${c.text}`)) }))
@@ -120,7 +121,7 @@ export function shortlistDuplicates(record: { title: string; text: string }, can
     .sort((a, b) => b.score - a.score)
     .map(x => x.c);
   const picked = new Map<number, DuplicateCandidate>();
-  for (const c of [...close, ...candidates.filter(c => c.settled === null), ...candidates]) {
+  for (const c of [...candidates.filter(c => first.includes(c.id)), ...close, ...candidates.filter(c => c.settled === null), ...candidates]) {
     if (picked.size >= limit) {
       break;
     }
@@ -129,16 +130,36 @@ export function shortlistDuplicates(record: { title: string; text: string }, can
   return [...picked.values()];
 }
 
+/**
+ * How the new record stands to the one it names. Three of them mean its work
+ * is that record's, and it is linked as that record's duplicate:
+ *
+ *   same_ask    the same outcome in other words — delivering one delivers the other;
+ *   same_fault  the same fault from the other side — an outage reported as its
+ *               symptom beside the fix for its cause (FE-318 "every signed-in
+ *               call returns 500" beside FE-314 "fix the arm64 image build",
+ *               2026-10-01): fixing one fixes the other;
+ *   work_on     work on that record itself — its build again, another attempt,
+ *               its contract or its plan (FE-322 "write a corrected contract",
+ *               filed for FE-314's own failed build).
+ *
+ * `different` is everything else, and nothing is linked.
+ */
+export const DUPLICATE_RELATIONS = ['same_ask', 'same_fault', 'work_on', 'different'] as const;
+export type DuplicateRelation = typeof DUPLICATE_RELATIONS[number];
+
 export const DuplicateJudgementSchema = z.object({
-  duplicateOf: z.number().int().nullable().describe('The number (#id) of the listed existing record that asks for the same outcome as the new one — delivering one would deliver the other. null when none does. Only a number from the list.'),
+  duplicateOf: z.number().int().nullable().describe('The number (#id) of the listed existing record whose work this new one is — the same ask, the same fault, or work on that record itself. null when none is. Only a number from the list.'),
+  relation: z.enum(DUPLICATE_RELATIONS).default('same_ask').describe('How the new record stands to that one: same_ask — the same outcome in other words; same_fault — the same fault from the other side (an outage reported as its symptom, beside the fix for its cause), so fixing one fixes the other; work_on — it asks for work on that record itself: its build again, another attempt, its contract or its plan; different — none of these.'),
   confidence: z.number().min(0).max(1).describe('How sure you are, from 0 to 1, that the new record and that one are the same ask. 0.9+ means the same outcome in other words; 0.5 means they overlap but one asks for more or for something else. With duplicateOf null, how sure you are that none is the same.'),
   reason: z.string().max(240).describe('One line a person reads: what makes them the same ask, or why none is.'),
 });
 export type DuplicateJudgement = z.infer<typeof DuplicateJudgementSchema>;
 
 const SYSTEM = [
-  'You decide whether a record just filed in a work app asks for the same thing as one already on file.',
-  'Two records are the same when doing one would satisfy the other: the same outcome for the same people, however it is worded. A record that asks for more, for less, for a different surface or for a different situation is NOT the same, even when it shares words. A later report of the same fault is the same.',
+  'You decide whether a record just filed in a work app is work that already belongs to one on file.',
+  'It does when doing that one would satisfy it: the same outcome for the same people, however it is worded (same_ask); the same fault seen from the other side, such as an outage reported by its symptom beside a record that fixes its cause, so fixing one fixes the other (same_fault); or work on that record itself, such as building it again, another attempt, its contract or its plan (work_on). A later report of the same fault is the same.',
+  'A record that asks for more, for less, for a different surface or for a different situation is NOT the same, even when it shares words: answer different.',
   'Answer only through the tool.',
 ].join(' ');
 
@@ -204,6 +225,8 @@ export type DuplicateFinding = {
   /** Why it was not, or what it found, in a few words. */
   did: string;
   duplicateOf: number | null;
+  /** How it stands to that record, as the judge read it. */
+  relation: DuplicateRelation | null;
   confidence: number | null;
   reason: string | null;
   /** The link was written (done for you) — the record is now closed as a duplicate. */
@@ -214,7 +237,7 @@ export type DuplicateFinding = {
   line: string | null;
 };
 
-const none = (did: string, extra: Partial<DuplicateFinding> = {}): DuplicateFinding => ({ checked: false, did, duplicateOf: null, confidence: null, reason: null, linked: false, runId: null, line: null, ...extra });
+const none = (did: string, extra: Partial<DuplicateFinding> = {}): DuplicateFinding => ({ checked: false, did, duplicateOf: null, relation: null, confidence: null, reason: null, linked: false, runId: null, line: null, ...extra });
 
 type Row = { id: number; typeId: number; title: string; status: string | null; metadata: Meta; updatedAt: Date };
 type TypeRow = { id: number; slug: string; label: string; schema: unknown };
@@ -267,6 +290,79 @@ async function candidatesFor(orgId: string, row: Row, spec: DuplicateCheckSpec, 
     if (DISMISSED_STATUSES.has(String(r.status ?? '')) || Number(m[spec.field] ?? 0) > 0 || !same(m)) {
       return [];
     }
+    const value = settled && settled.in.includes(String(m[settled.field] ?? '')) ? String(m[settled.field]) : null;
+    if (value !== null && r.updatedAt.getTime() < since) {
+      return [];
+    }
+    return [{ id: r.id, title: r.title, text: comparedText(m, spec.compare), settled: value }];
+  });
+}
+
+/** How many records a new one names are followed. */
+const NAMED_LIMIT = 10;
+/** A code a person reads (`FE-314`, `TK-317`) or a record's page (`/objects/316`) — an identifier, not a meaning. */
+const CODE = /\b[A-Z]{2,5}-\d{1,9}\b/g;
+const RECORD_PAGE = /\/objects\/(\d{1,9})\b/g;
+
+/**
+ * The records of the new one's type that it NAMES: by code or by page in its
+ * own fields, directly, or through a record it names that links to one (a
+ * task naming its request). Candidates whatever their `within` fields say —
+ * a record that names another is the likeliest to be its work. Filtered like
+ * {@link candidatesFor}: not dismissed, not a duplicate itself, not long settled.
+ * @param orgId - Tenant.
+ * @param row - The new record.
+ * @param spec - The type's check.
+ * @param schema - The type's schema (for `x-settled`).
+ * @param now - The clock.
+ */
+async function namedCandidates(orgId: string, row: Row, spec: DuplicateCheckSpec, schema: unknown, now: Date): Promise<DuplicateCandidate[]> {
+  const text = JSON.stringify(row.metadata ?? {});
+  const ids = new Set<number>();
+  const { resolveCode } = await import('@/services/codes');
+  for (const code of new Set([...text.matchAll(CODE)].map(m => m[0]))) {
+    if (ids.size >= NAMED_LIMIT) {
+      break;
+    }
+    const hit = await resolveCode(orgId, code).catch(() => null);
+    if (hit?.kind === 'record') {
+      ids.add(hit.id);
+    }
+  }
+  for (const m of text.matchAll(RECORD_PAGE)) {
+    ids.add(Number(m[1]));
+  }
+  ids.delete(row.id);
+  if (ids.size === 0) {
+    return [];
+  }
+  const { and, eq, inArray } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const { relationsOf } = await import('@/libs/workspace/related');
+  const read = (wanted: number[]) => db
+    .select({ id: businessObjectSchema.id, typeId: businessObjectSchema.typeId, title: businessObjectSchema.title, status: businessObjectSchema.status, metadata: businessObjectSchema.metadata, updatedAt: businessObjectSchema.updatedAt, typeSchema: businessObjectTypeSchema.schema })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, wanted)));
+  const direct = await read([...ids].slice(0, NAMED_LIMIT));
+  // A named record of another type points on to the record it serves, by its
+  // own declared links (`x-related`, `from: links`).
+  const onward = direct.filter(r => r.typeId !== row.typeId).flatMap(r => relationsOf(r.typeSchema as Record<string, unknown>)
+    .filter(rel => rel.from === 'links' && rel.field)
+    .map(rel => Number((r.metadata as Meta | null)?.[rel.field!]))
+    .filter(n => Number.isInteger(n) && n > 0 && n !== row.id));
+  const linked = onward.length > 0 ? await read([...new Set(onward)].slice(0, NAMED_LIMIT)) : [];
+  const { settledDescriptor } = await import('@/services/proposals/ReviewTruthService');
+  const settled = settledDescriptor(schema);
+  const since = now.getTime() - spec.settledDays * 24 * 60 * 60_000;
+  const seen = new Set<number>();
+  return [...direct, ...linked].flatMap((r) => {
+    const m = (r.metadata ?? {}) as Meta;
+    if (r.typeId !== row.typeId || r.id >= row.id || seen.has(r.id) || DISMISSED_STATUSES.has(String(r.status ?? '')) || Number(m[spec.field] ?? 0) > 0) {
+      return [];
+    }
+    seen.add(r.id);
     const value = settled && settled.in.includes(String(m[settled.field] ?? '')) ? String(m[settled.field]) : null;
     if (value !== null && r.updatedAt.getTime() < since) {
       return [];
@@ -332,21 +428,26 @@ export async function checkNewRecordForDuplicate(orgId: string, payload: { objec
     if (await linkWasUndone(orgId, key)) {
       return none('a person undid this link before');
     }
-    const candidates = await candidatesFor(orgId, read.row, spec, read.type.schema, opts.now ?? new Date());
+    const now = opts.now ?? new Date();
+    // What it names comes first, whatever its fields say: FE-322 named
+    // FE-314's own tasks and sat under another product, so `within` alone
+    // never showed the judge the record it was work on.
+    const named = await namedCandidates(orgId, read.row, spec, read.type.schema, now).catch(() => []);
+    const candidates = [...named, ...(await candidatesFor(orgId, read.row, spec, read.type.schema, now)).filter(c => !named.some(n => n.id === c.id))];
     if (candidates.length === 0) {
       return none('nothing on file to compare');
     }
     const record = { id, title: read.row.title, text: comparedText(read.row.metadata, spec.compare) };
-    const shortlist = shortlistDuplicates(record, candidates);
+    const shortlist = shortlistDuplicates(record, candidates, DUPLICATE_SHORTLIST, named.map(c => c.id));
     const verdict = await judgeDuplicate({ orgId, label: read.type.label, record, shortlist }, opts.model);
     if (!verdict) {
       return none('the read failed');
     }
     // An id the judge was never shown is not an answer.
-    const match = verdict.duplicateOf === null ? null : shortlist.find(c => c.id === verdict.duplicateOf) ?? null;
-    const judged = { checked: true, duplicateOf: match?.id ?? null, confidence: verdict.confidence, reason: verdict.reason };
+    const match = verdict.duplicateOf === null || verdict.relation === 'different' ? null : shortlist.find(c => c.id === verdict.duplicateOf) ?? null;
+    const judged = { checked: true, duplicateOf: match?.id ?? null, relation: match ? verdict.relation : 'different' as const, confidence: verdict.confidence, reason: verdict.reason };
     if (!match) {
-      return { ...judged, did: verdict.duplicateOf === null ? 'not a duplicate' : 'named a record it was not shown', linked: false, runId: null, line: null };
+      return { ...judged, did: verdict.duplicateOf === null || verdict.relation === 'different' ? 'not a duplicate' : 'named a record it was not shown', linked: false, runId: null, line: null };
     }
     if (verdict.confidence < spec.bar) {
       // Below the bar nothing is written and nothing is said: a guess is not
@@ -381,7 +482,8 @@ async function link(orgId: string, a: { type: TypeRow; id: number; title: string
   // The seat that answers for the type (`x-owner`), when it names one.
   const owner = typeof (a.type.schema as Meta | null)?.['x-owner'] === 'string' ? String((a.type.schema as Meta)['x-owner']) : null;
   const conversationId = typeof a.origin.conversationId === 'number' ? a.origin.conversationId : null;
-  const reason = `Same as #${a.match.id} (${a.match.title}): ${a.verdict.reason}`.slice(0, 500);
+  const as = a.verdict.relation === 'work_on' ? 'Work on' : a.verdict.relation === 'same_fault' ? 'The same fault as' : 'Same as';
+  const reason = `${as} #${a.match.id} (${a.match.title}): ${a.verdict.reason}`.slice(0, 500);
   const res = await proposeAction({
     orgId,
     actionId: 'objects.update_meta',
@@ -399,12 +501,13 @@ async function link(orgId: string, a: { type: TypeRow; id: number; title: string
     checked: true,
     did: done ? 'linked' : `link ${res.status}`,
     duplicateOf: a.match.id,
+    relation: a.verdict.relation,
     confidence: a.verdict.confidence,
     reason: a.verdict.reason,
     linked: done,
     runId: res.runId ?? null,
     line: done
-      ? `Same as #${a.match.id} (${a.match.title}), so it was linked as its duplicate: ${a.verdict.reason} Undo on #${a.id} reopens it.`
+      ? `${as} #${a.match.id} (${a.match.title}), so it was linked as its duplicate and the work stays there: ${a.verdict.reason} Undo on #${a.id} reopens it.`
       : `Looks like #${a.match.id} (${a.match.title}): ${a.verdict.reason} Linking it is on a card (action #${res.runId}).`,
   };
 }

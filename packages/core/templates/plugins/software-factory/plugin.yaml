@@ -290,7 +290,12 @@ name: Software factory
 #   `incident.opened` with `cause: deploy` — raised by the production-watch
 #   plugin when it is on, never otherwise — and the product's Related lists
 #   the incidents that name it.
-version: 2.46.0
+# 2.50.0 — a question is answered, not built (2026-10-01, CHAT-423), and work
+#   on a request stays on it (FE-322 filed for FE-314's own build). Requests
+#   declare `x-asks-for-work`: a filing from a question goes back to the agent,
+#   and intake reads work / answer / hold from the person's words. The
+#   duplicate check reads the same fault and work on a record as its own.
+version: 2.50.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

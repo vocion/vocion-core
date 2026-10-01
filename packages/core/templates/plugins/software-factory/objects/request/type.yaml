@@ -55,6 +55,12 @@ schema:
   # (conversation 362: "Three changes to this request…" went to
   # change-reviewer on "changes", and nothing was written).
   x-owner: product-manager
+  # A REQUEST ASKS FOR WORK (core: services/agents/anchoredFiling.ts). Filed
+  # from a person's question — read by a model as asking for an answer, not
+  # for work — it is refused back to the agent to answer, and intake never
+  # starts a build for one (2026-10-01, CHAT-423: "how does FE-308 work
+  # without manually registering an app?" became FE-324 and started a build).
+  x-asks-for-work: true
   # FILED THROUGH ITS OWN TOOL (core: services/agents/tools/fileRecord.ts).
   # An agent that works with requests gets `file_request`, whose arguments ARE
   # these fields: the proposal-ready bar below marked required, `product` as

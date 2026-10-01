@@ -12,9 +12,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 // The consent read is a model's; each test says what it found.
 const consent = vi.hoisted(() => ({ said: false }));
+// What the person asked for is a model's read too; null is "could not read", the default.
+const asked = vi.hoisted(() => ({ value: null as null | 'work' | 'answer' | 'hold', seen: [] as string[][] }));
 vi.mock('@/services/agents/turnJudge', async original => ({
   ...(await original<typeof import('@/services/agents/turnJudge')>()),
   saidToDecide: vi.fn(async () => ({ said: consent.said, quote: consent.said ? 'Please file it and build it.' : null })),
+  readAsked: vi.fn(async (input: { messages: string[] }) => {
+    asked.seen.push(input.messages);
+    return asked.value ? { asked: asked.value, quote: input.messages[0] ?? null } : null;
+  }),
 }));
 
 const { db } = await import('@/libs/DB');
@@ -147,12 +153,34 @@ describe('filing starts the work', () => {
     const r = await request({ kind: 'feature', severity: undefined, product: 'rooms', title: 'Show who last opened a room' });
     const [conversation] = await db.insert(conversationSchema).values({ orgId: ORG, agentSlug: 'product-manager', title: 'who opened', createdBy: 'user-dana' } as never).returning();
     await db.insert(conversationMessageSchema).values({ conversationId: conversation!.id, role: 'user', content: 'Just file this, do not build it yet.' } as never);
-    consent.said = true;
+    asked.value = 'hold';
 
     const out = await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: conversation!.id, byPerson: true });
-    consent.said = false;
+    asked.value = null;
 
     expect(out.did).toBe('card:pending');
+  });
+
+  it('never starts a build for a question (CHAT-423, replayed with invented names)', async () => {
+    // The three things the person said, newest last, each a question.
+    const said = [
+      'how does this work without me manually registering an app with the assistant vendor?',
+      'how do we implement this so it\'s a globally available assistant plugin? and not require manual intervention for every Northwind user?',
+      'i\'m also here, and don\'t understand how to manually add. your instructions. what do I need to do to manually build and test this?',
+    ];
+    const [conversation] = await db.insert(conversationSchema).values({ orgId: ORG, agentSlug: 'product-manager', title: 'how does it work', createdBy: 'user-dana' } as never).returning();
+    for (const [i, content] of said.entries()) {
+      await db.insert(conversationMessageSchema).values({ conversationId: conversation!.id, role: 'user', content } as never);
+      const r = await request({ kind: 'question', severity: undefined, product: 'rooms', title: `Explain the assistant integration, part ${i + 1}` });
+      asked.value = 'answer';
+
+      const out = await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: conversation!.id, byPerson: true });
+
+      expect(out).toMatchObject({ did: 'question:not-started', line: expect.stringMatching(/^Filed, not started: you asked a question \(".+"\), so nothing is built until someone asks for the work\. Build starts it\.$/) });
+      expect(await runsFor(r.id)).toHaveLength(0);
+      expect(asked.seen.at(-1)![0]).toBe(content);
+    }
+    asked.value = null;
   });
 
   it('files the Build card for an idea a machine filed on its own', async () => {
