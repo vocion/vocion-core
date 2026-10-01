@@ -6,6 +6,7 @@ import { newCardId } from '@/libs/cards/card';
 import { connectorOfSource } from '@/libs/sources/connectorOf';
 import { getConnector } from '@/libs/sources/registry';
 import { listSources } from '@/services/SourceSyncService';
+import { memberWorkspace } from '@/services/WorkspaceAccessService';
 
 /**
  * The existing Sources add flow for one connector, carrying a way back to
@@ -24,7 +25,7 @@ export function connectHref(connectorSlug: string, conversationId: number | unde
  * @param ctx - The turn's runtime context.
  * @param input - The connector slug and one sentence on why.
  * @param input.connector - Connector slug.
- * @param input.why - Shown as the card's body.
+ * @param input.why - Shown on the card as its rationale line.
  * @returns The text the model reads.
  */
 async function offerConnection(ctx: RuntimeContext, input: { connector: string; why: string }): Promise<string> {
@@ -33,11 +34,18 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     return `Refused: there is no connector "${input.connector}". Call list_capabilities for the connector slugs.`;
   }
   const name = connector.name ?? connector.slug;
+  // The OAuth start route is admin-only (403 otherwise), so a card for anyone
+  // else is a button that cannot work. Same account role the route reads;
+  // no user or no membership fails safe to the refusal.
+  const membership = ctx.userId ? await memberWorkspace(ctx.userId, ctx.orgId) : null;
+  if (membership?.accountRole !== 'admin') {
+    return `Only a workspace admin can connect ${name}. Ask an admin to connect it from Sources.`;
+  }
   if ((await listSources(ctx.orgId)).some(s => connectorOfSource(s) === connector.slug)) {
     return `${name} is already connected; nothing to offer.`;
   }
   const href = connectHref(connector.slug, ctx.conversationId);
-  const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, body: input.why, actions: [], source: { agentSlug: ctx.agentSlug, tool: 'offer_connection' }, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
+  const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, rationale: input.why, actions: [], source: { agentSlug: ctx.agentSlug, tool: 'offer_connection' }, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
   ctx.emit({ type: 'card', card });
   return `Showed a "Connect ${name}" card (${href}). After connecting, the person lands back in this conversation. Do not claim it is connected until they say so or workspace_setup shows it.`;
 }

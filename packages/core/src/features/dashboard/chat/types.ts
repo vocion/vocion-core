@@ -46,7 +46,7 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number }; href?: string; hrefLabel?: string; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; href?: string; hrefLabel?: string; draft?: { prompt: string; missing: string } }
     /** A person's decision on a card, written as a user turn. */
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 

@@ -110,7 +110,7 @@ export class RunCollector {
     this.mentionLinks.push(...links);
   }
 
-  onCard(card: { id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; href?: string; hrefLabel?: string; draft?: { prompt: string; missing: string } }): void {
+  onCard(card: { id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; rationale?: string; href?: string; hrefLabel?: string; draft?: { prompt: string; missing: string } }): void {
     // Written once: the route tees a card when it is first seen AND again
     // when the auto-filed copy is written to the stream (finding 18).
     if (this.hasCard(card.label, card.actionId)) {
@@ -120,7 +120,7 @@ export class RunCollector {
       return;
     }
     this.flushText();
-    this.runs.push({ type: 'card', ...(card.id ? { id: card.id } : {}), ...(card.kind ? { kind: card.kind } : {}), label: card.label, actionId: card.actionId, input: card.input, runId: card.runId, ...(card.state ? { state: card.state } : {}), ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}), ...(card.draft ? { draft: card.draft } : {}) });
+    this.runs.push({ type: 'card', ...(card.id ? { id: card.id } : {}), ...(card.kind ? { kind: card.kind } : {}), label: card.label, actionId: card.actionId, input: card.input, runId: card.runId, ...(card.state ? { state: card.state } : {}), ...(card.rationale ? { rationale: card.rationale } : {}), ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}), ...(card.draft ? { draft: card.draft } : {}) });
   }
 
   /**

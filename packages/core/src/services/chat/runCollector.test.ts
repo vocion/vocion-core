@@ -84,4 +84,11 @@ describe('RunCollector', () => {
     // Finalised twice (the done event, then the write): the same text.
     expect(c.finalise().text).toBe(text);
   });
+
+  it('stores a card\'s rationale so a reload can show why (#1028)', () => {
+    const c = new RunCollector();
+    c.onCard({ label: 'Connect GitHub', actionId: '', rationale: 'So the factory can read the repos.', href: '/dashboard/connectors?add=github' });
+
+    expect(c.finalise().runs.find(r => r.type === 'card')).toMatchObject({ rationale: 'So the factory can read the repos.' });
+  });
 });
