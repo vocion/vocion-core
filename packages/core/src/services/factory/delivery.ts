@@ -71,9 +71,18 @@ async function attemptsFor(orgId: string, url: string): Promise<Array<{ id: numb
     .filter(r => Number.isSafeInteger(r.requestId) && r.requestId > 0);
 }
 
+/** What a merge Vocion made says beside it, instead of the token's owner. */
+export const VOCION_MERGED = 'Vocion';
+
 /**
  * Who merged it, by name: the person who decided the merge card for one of
- * these attempts, when a person did; else GitHub's own login.
+ * these attempts, when a person did; Vocion and who approved it, when Vocion
+ * merged it on its own (an agent seat's merge, or a trust rule); else
+ * GitHub's own login.
+ *
+ * MERGED BY VOCION (run 2, 2026-10-01): a merge Vocion made on the person's
+ * token read "Merged by chrisfitkin", as if the person had clicked it. GitHub's
+ * `merged_by` is the token's identity; the merge run says who decided it.
  * @param orgId - Tenant.
  * @param attemptIds - The attempts that carried the pull request.
  * @param login - GitHub's `merged_by`, or the pull request's author.
@@ -81,24 +90,40 @@ async function attemptsFor(orgId: string, url: string): Promise<Array<{ id: numb
 async function mergedByName(orgId: string, attemptIds: number[], login: string | null): Promise<string | null> {
   const { and, desc, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
-  const { actionRunSchema, userSchema } = await import('@/models/Schema');
+  const { actionRunSchema, agentSchema, userSchema } = await import('@/models/Schema');
   const { decidedByMachine } = await import('@/libs/actions/decider');
-  if (attemptIds.length > 0) {
-    const cards = await db.select({ decidedBy: actionRunSchema.decidedBy, input: actionRunSchema.input }).from(actionRunSchema).where(and(
-      eq(actionRunSchema.orgId, orgId),
-      eq(actionRunSchema.status, 'done'),
-      sql`(${actionRunSchema.input} ->> 'taskId') in (${sql.join(attemptIds.map(id => sql`${String(id)}`), sql`, `)})`,
-      sql`${actionRunSchema.decidedBy} is not null`,
-    )).orderBy(desc(actionRunSchema.decidedAt)).limit(5);
-    const person = cards.map(c => c.decidedBy!).find(by => !decidedByMachine(by));
-    if (person) {
-      const [u] = await db.select({ name: userSchema.name, email: userSchema.email }).from(userSchema).where(eq(userSchema.id, person)).limit(1);
-      if (u) {
-        return u.name?.trim() || u.email;
-      }
+  const { MERGE_ACTION_ID } = await import('@/libs/actions/mergeAction');
+  if (attemptIds.length === 0) {
+    return login;
+  }
+  const cards = await db.select({ actionId: actionRunSchema.actionId, decidedBy: actionRunSchema.decidedBy, invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal }).from(actionRunSchema).where(and(
+    eq(actionRunSchema.orgId, orgId),
+    eq(actionRunSchema.status, 'done'),
+    sql`(${actionRunSchema.input} ->> 'taskId') in (${sql.join(attemptIds.map(id => sql`${String(id)}`), sql`, `)})`,
+    sql`${actionRunSchema.decidedBy} is not null`,
+  )).orderBy(desc(actionRunSchema.decidedAt)).limit(5);
+  const person = cards.map(c => c.decidedBy!).find(by => !decidedByMachine(by));
+  if (person) {
+    const [u] = await db.select({ name: userSchema.name, email: userSchema.email }).from(userSchema).where(eq(userSchema.id, person)).limit(1);
+    if (u) {
+      return u.name?.trim() || u.email;
     }
   }
-  return login;
+  const machine = cards.find(c => c.actionId === MERGE_ACTION_ID && decidedByMachine(c.decidedBy));
+  if (!machine) {
+    return login;
+  }
+  const proposal = (machine.proposal ?? {}) as Meta;
+  const seat = str(proposal.agentSlug) ?? [machine.invokedBy, machine.decidedBy].map(by => /^agent:(.+)$/.exec(by ?? '')?.[1]).find(Boolean) ?? null;
+  const [agent] = seat
+    ? await db.select({ name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, seat))).limit(1)
+    : [];
+  const approver = agent?.name?.trim() || seat;
+  if (approver) {
+    return `${VOCION_MERGED} · ${approver} approved`;
+  }
+  const rule = str(proposal.autoApprovedReason);
+  return rule ? `${VOCION_MERGED} · ${rule}` : VOCION_MERGED;
 }
 
 /**

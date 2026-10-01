@@ -12,7 +12,7 @@ vi.mock('@/libs/DB');
  */
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, businessObjectSchema, businessObjectTypeSchema, eventLogSchema, userSchema } = await import('@/models/Schema');
+const { actionRunSchema, agentSchema, businessObjectSchema, businessObjectTypeSchema, eventLogSchema, userSchema } = await import('@/models/Schema');
 const { recordMerge, refreshDeliveries } = await import('./delivery');
 
 const ORG = 'org_delivery_northwind';
@@ -72,6 +72,25 @@ describe('recordMerge', () => {
     await recordMerge(ORG, merged, deps, NOW);
 
     expect((await meta(requestId)).delivery).toMatchObject({ mergedBy: 'Dana Reyes' });
+  });
+
+  it('a merge Vocion made says Vocion and the seat that approved it, never the token\'s owner (run 2, 2026-10-01)', async () => {
+    await db.insert(agentSchema).values({ orgId: ORG, slug: 'change-reviewer', name: 'QA', systemPrompt: 'x' } as never).onConflictDoNothing();
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'done', input: { taskId }, invokedBy: 'agent:change-reviewer', decidedBy: 'agent:change-reviewer', decidedAt: new Date(), proposal: { agentSlug: 'change-reviewer', autoApproved: true, autoApprovedBy: 'trust-rule', autoApprovedReason: 'trust rule: 90% ≥ 85%' } } as never);
+
+    await recordMerge(ORG, { ...merged, mergedBy: 'token-owner' }, deps, NOW);
+    const m = await meta(requestId);
+
+    expect(m.delivery).toMatchObject({ mergedBy: 'Vocion · QA approved' });
+    expect(((m.recovery as { log: Array<{ text: string }> }).log.at(-1))?.text).toBe('Merged PR #41 by Vocion · QA approved; the runs it started on GitHub carry it to the release.');
+  });
+
+  it('a merge a trust rule released with no seat behind it names the rule', async () => {
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'done', input: { taskId }, invokedBy: 'system:reconcile', decidedBy: 'trust-ladder', decidedAt: new Date(), proposal: { autoApproved: true, autoApprovedReason: 'trust rule: 90% ≥ 85%' } } as never);
+
+    await recordMerge(ORG, { ...merged, mergedBy: 'token-owner' }, deps, NOW);
+
+    expect((await meta(requestId)).delivery).toMatchObject({ mergedBy: 'Vocion · trust rule: 90% ≥ 85%' });
   });
 
   it('a pull request no attempt carried writes nothing', async () => {
