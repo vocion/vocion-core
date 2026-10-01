@@ -24,7 +24,7 @@
 
 import type { ConnectProvider } from '../provider';
 import { appJwt, GITHUB_APP_ENV, githubAppConfig, installationToken } from '@/libs/github/app';
-import { GITHUB_API_URL, nextPageUrl } from '@/libs/github/client';
+import { GITHUB_API_URL, installationRepositories, nextPageUrl } from '@/libs/github/client';
 
 type Installation = {
   id: number;
@@ -34,7 +34,6 @@ type Installation = {
   suspended_at?: string | null;
 };
 
-type RepositoryPage = { repositories?: Array<{ full_name: string }> };
 type UserInstallationsPage = { installations?: Array<{ id: number }> };
 
 const HEADERS = {
@@ -42,28 +41,6 @@ const HEADERS = {
   'x-github-api-version': '2022-11-28',
   'user-agent': 'vocion-github-app',
 };
-
-/**
- * Every repository the installation was granted, by full name, walking pages
- * of 100. A failure returns what was read so far rather than nothing: the
- * list is informational (Test connection compares it to `config.repos`).
- * @param token - An installation token.
- * @param baseUrl - API host.
- */
-async function installationRepositories(token: string, baseUrl: string): Promise<string[]> {
-  const names: string[] = [];
-  let url: string | null = `${baseUrl}/installation/repositories?per_page=100`;
-  for (let page = 0; url && page < 20; page += 1) {
-    const res = await fetch(url, { headers: { ...HEADERS, authorization: `Bearer ${token}` } });
-    if (!res.ok) {
-      break;
-    }
-    const body = (await res.json()) as RepositoryPage;
-    names.push(...(body.repositories ?? []).map(repo => repo.full_name));
-    url = nextPageUrl(res.headers.get('link'));
-  }
-  return names;
-}
 
 /**
  * The `code` GitHub appended to the Setup URL, as a user access token. Null
@@ -173,7 +150,9 @@ export const githubProvider: ConnectProvider = {
     try {
       repositories = await installationRepositories(await installationToken(installationId, { baseUrl }), baseUrl);
     } catch {
-      // The installation is real; the repository list is a convenience.
+      // The installation is real; this list is for display only. What the
+      // source syncs is resolved from GitHub at poll time, so a failure here
+      // cannot shrink anyone's scope.
     }
     return {
       ok: true,

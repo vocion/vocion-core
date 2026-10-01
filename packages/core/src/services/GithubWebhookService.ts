@@ -65,14 +65,22 @@ export type GithubWebhookOutcome = {
 };
 
 /**
- * Among the sources listing a repository, the ones a delivery from the app
- * is for. A source whose credential is a DIFFERENT installation is dropped:
- * it connected another organization's copy of the app and this delivery is
- * not its business, whatever repository it lists. A source holding no
- * installation (a pasted token) is kept: its scope is the repository list
- * alone. Without an installation id on the delivery there is nothing to
- * decide and no credential is read.
- * @param refs - Sources listing the repository.
+ * Among the sources that could want a repository, the ones a delivery is
+ * actually for. A source whose credential is a DIFFERENT installation is
+ * dropped: it connected another organization's copy of the app and this
+ * delivery is not its business, whatever repository it lists.
+ *
+ * Which sources are kept depends on where their scope comes from:
+ *
+ * - **Listed** (`repos` names the repository). Today's rule: kept unless it
+ *   holds a different installation. One holding none is a pasted token, whose
+ *   scope is the list alone, so it is kept.
+ * - **Derived** (`repos` omitted, scope IS the installation's grant). Kept
+ *   ONLY on a matching installation. There is no list to vouch for it, so
+ *   without that match nothing ties the source to the repository, and keeping
+ *   it would hand one workspace another's deliveries. A delivery carrying no
+ *   installation id cannot make that match and so cannot reach it.
+ * @param refs - Candidate sources for the repository.
  * @param installationId - The delivery's `installation.id`, when it carried one.
  * @param installationOf - The installation id a source's credential holds, if any.
  */
@@ -81,13 +89,14 @@ export async function preferInstalled(
   installationId: string | undefined,
   installationOf: (ref: GithubSourceRef) => Promise<string | undefined>,
 ): Promise<GithubSourceRef[]> {
+  const derived = (ref: GithubSourceRef): boolean => !ref.config.repos || ref.config.repos.length === 0;
   if (!installationId) {
-    return refs;
+    return refs.filter(ref => !derived(ref));
   }
   const kept: GithubSourceRef[] = [];
   for (const ref of refs) {
     const held = await installationOf(ref);
-    if (held === undefined || held === installationId) {
+    if (held === installationId || (held === undefined && !derived(ref))) {
       kept.push(ref);
     }
   }
@@ -118,7 +127,15 @@ async function defaultDeps(): Promise<GithubWebhookDeps> {
           continue;
         }
         const parsed = githubConfigSchema.safeParse(row.configJson);
-        if (parsed.success && parsed.data.repos.some(r => r.toLowerCase() === wanted)) {
+        if (!parsed.success) {
+          continue;
+        }
+        // A source that lists repositories must list THIS one. A source that
+        // lists none takes its scope from the installation, so it is only a
+        // candidate here; preferInstalled is what decides it, on the
+        // delivery's installation id.
+        const listed = parsed.data.repos ?? [];
+        if (listed.length === 0 || listed.some(r => r.toLowerCase() === wanted)) {
           refs.push({ orgId: row.orgId, sourceId: row.id, apiTokenId: row.apiTokenId, config: parsed.data });
         }
       }

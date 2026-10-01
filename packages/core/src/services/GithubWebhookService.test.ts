@@ -50,7 +50,7 @@ function deliver(event: string, body: unknown, opts: { secret?: string | undefin
 function fakeDeps(sources: GithubSourceRef[], token?: string) {
   const emitted: Array<{ orgId: string; sourceId: number; event: GithubEvent }> = [];
   const deps: GithubWebhookDeps = {
-    sourcesForRepo: vi.fn(async (repo: string) => sources.filter(s => s.config.repos.includes(repo))),
+    sourcesForRepo: vi.fn(async (repo: string) => sources.filter(s => (s.config.repos ?? []).includes(repo))),
     tokenFor: vi.fn(async () => token),
     emit: vi.fn(async (orgId, sourceId, event) => {
       emitted.push({ orgId, sourceId, event });
@@ -194,5 +194,27 @@ describe('preferInstalled', () => {
 
     expect(await preferInstalled([a, b], undefined, decrypts)).toEqual([a, b]);
     expect(decrypts).not.toHaveBeenCalled();
+  });
+
+  // A source listing no repositories takes its scope from the installation,
+  // so the installation is the ONLY thing tying it to a repository. Without a
+  // match there is nothing to vouch for it, and keeping it would hand one
+  // workspace another's deliveries.
+  describe('a source whose scope is derived from its installation', () => {
+    const derived = source('org_b', { repos: undefined });
+
+    it('is kept only when the delivery names its installation', async () => {
+      expect(await preferInstalled([derived], '777', holds({ org_b: '777' }))).toEqual([derived]);
+      expect(await preferInstalled([derived], '777', holds({ org_b: '1' }))).toEqual([]);
+    });
+
+    it('is dropped when it holds no installation at all, where a listed source would be kept', async () => {
+      expect(await preferInstalled([derived], '777', holds({ org_b: undefined }))).toEqual([]);
+      expect(await preferInstalled([a], '777', holds({ org_a: undefined }))).toEqual([a]);
+    });
+
+    it('cannot be reached by a delivery that names no installation', async () => {
+      expect(await preferInstalled([a, derived], undefined, holds({}))).toEqual([a]);
+    });
   });
 });

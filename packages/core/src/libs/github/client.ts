@@ -159,6 +159,38 @@ export function nextPageUrl(link: string | null): string | null {
 }
 
 /**
+ * Every repository an installation was granted, by full name, walking pages of
+ * 100.
+ *
+ * THROWS when a page cannot be read. The caller decides what that costs: the
+ * connect callback stores the list for display and prefers a partial one to
+ * none, while source scope derives what it syncs from this and must not read a
+ * failed call as "granted nothing" and then sync nothing silently.
+ * @param token - An installation token.
+ * @param baseUrl - API host.
+ */
+export async function installationRepositories(token: string, baseUrl: string = GITHUB_API_URL): Promise<string[]> {
+  const names: string[] = [];
+  let url: string | null = `${baseUrl}/installation/repositories?per_page=100`;
+  for (let page = 0; url && page < 20; page += 1) {
+    const res = await fetchRetryingRateLimits(url, {
+      headers: {
+        'accept': 'application/vnd.github+json',
+        'x-github-api-version': GITHUB_API_VERSION,
+        'authorization': `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`the installation's repositories could not be listed — ${messageFor(res.status, await res.text().catch(() => ''))}`);
+    }
+    const body = (await res.json()) as { repositories?: Array<{ full_name: string }> };
+    names.push(...(body.repositories ?? []).map(repo => repo.full_name));
+    url = nextPageUrl(res.headers.get('link'));
+  }
+  return names;
+}
+
+/**
  * A client bound to one token and one API host.
  * @param opts - Token and host.
  * @param opts.token - The access token, sent as a Bearer header.
