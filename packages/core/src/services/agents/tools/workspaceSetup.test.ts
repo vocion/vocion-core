@@ -29,5 +29,7 @@ describe('workspace_setup tells the model the ONE next step', () => {
     expect(text).toMatch(/Setup is complete/);
     expect(text).toContain('Connected: github');
     expect(text).toContain('plugin.enable');
+    expect(text).toContain('the task tool');
+    expect(text).toContain('one at a time');
   });
 });

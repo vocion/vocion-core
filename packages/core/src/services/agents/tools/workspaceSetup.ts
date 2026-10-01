@@ -11,7 +11,7 @@ import { nextOnboardingStep, onboardingStatus } from '@/services/OnboardingServi
 const STEP_GUIDE: Record<OnboardingStep, string> = {
   describe: 'NEXT: ask what this workspace is for: which client or team, and the outcome it should help with. When they answer, save it with propose_action, action workspace.describe, input {"description": "<their words, tidied>"}.',
   connect: 'NEXT: call list_capabilities, pick the plugins whose "Helps when" fits the description, and call offer_connection once for each connector they "work best with" that is not connected. Offer at most three, the most useful first.',
-  grow: 'NEXT: offer to turn on the plugins whose "Helps when" fits (recommend_action, action plugin.enable, input {"slug": "<slug>"}), call offer_connection for any connector they still need, then hand each enabled plugin\'s team lead the description with task and ask what it needs to start.',
+  grow: 'NEXT: offer to turn on the plugins whose "Helps when" fits (recommend_action, action plugin.enable, input {"slug": "<slug>"}), call offer_connection for any connector they still need, then hand each enabled plugin\'s team lead the description with the task tool and ask what it needs to start. Do these one at a time, waiting for the person\'s answer before the next.',
 };
 
 /**
