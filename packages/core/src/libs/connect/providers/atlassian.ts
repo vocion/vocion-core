@@ -8,6 +8,7 @@
  */
 
 import type { ConnectProvider } from '../provider';
+import type { AtlassianSite } from '@/libs/atlassian/oauth';
 import {
   ATLASSIAN_AUTHORIZE_URL,
   ATLASSIAN_ENV,
@@ -83,6 +84,27 @@ export const atlassianProvider: ConnectProvider = {
         ...(single ? { cloudId: single.id } : {}),
       },
       displayName: single ? `Atlassian — ${single.name}` : `Atlassian — ${sites.length} sites`,
+    };
+  },
+  summarize: (credentials) => {
+    if (typeof credentials.refreshToken !== 'string' || !Array.isArray(credentials.sites)) {
+      return null;
+    }
+    const sites = credentials.sites
+      .map((site) => {
+        const s = site as Partial<AtlassianSite> | null;
+        return s && typeof s.url === 'string' && s.url ? s.url.replace(/^https?:\/\//, '') : null;
+      })
+      .filter((url): url is string => url !== null);
+    if (sites.length === 0) {
+      return null;
+    }
+    const chosen = typeof credentials.cloudId === 'string'
+      ? (credentials.sites as Array<Partial<AtlassianSite>>).find(site => site.id === credentials.cloudId)?.url?.replace(/^https?:\/\//, '')
+      : undefined;
+    return {
+      account: chosen ?? sites[0]!,
+      ...(sites.length > 1 ? { granted: { label: 'Sites', items: sites } } : {}),
     };
   },
 };

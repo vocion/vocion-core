@@ -20,6 +20,17 @@ server is missing, so the reason is never a mystery. After the vendor sends the
 person back, the sources page says in one line whether it worked, and if not,
 what to do.
 
+Once connected, the connector's card says what the grant is on under
+**Connected to**: the GitHub organization and the repositories the installation
+covers, the Slack workspace, the Atlassian site. Where the source has its own
+list (a `github` source's `repos`), each listed repository is marked against the
+grant — read, or **not granted to the app** — and a repository the installation
+covers that the source does not list is shown muted. A green card over a sync
+that reads nothing was the failure this answers (Noco, 2026-09-30: the source
+listed three repositories, the card said Connected, and nothing said which
+repositories the installation actually held). Only names cross to the browser;
+the token, installation id and secrets stay in the vault.
+
 ## How it works
 
 ```
@@ -87,9 +98,11 @@ until then their entries answer "not configured".
 
 One file under `packages/core/src/libs/connect/providers/`, exporting a
 `ConnectProvider` (`libs/connect/provider.ts`): its id, the connector slugs it
-serves, the env it needs, `authorizeUrl` and `exchange`. Register it in
-`libs/connect/registry.ts`. The routes, the state, the storage and the dialog
-need no change. A provider never logs the state, the code or a token, and its
+serves, the env it needs, `authorizeUrl`, `exchange` and `summarize` — the
+last reads the bag `exchange` stored and returns the account it is on and what
+it granted, by name, for the card's **Connected to**; null for a bag it did not
+store, never a token. Register it in `libs/connect/registry.ts`. The routes,
+the state, the storage and the dialog need no change. A provider never logs the state, the code or a token, and its
 refusal reasons are short codes a person can be shown.
 
 ## What it does not do, yet

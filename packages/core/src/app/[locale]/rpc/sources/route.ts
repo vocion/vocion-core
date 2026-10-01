@@ -11,6 +11,7 @@
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
+import { grantSummaryForSource } from '@/libs/connect/summary';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
@@ -31,13 +32,21 @@ export async function GET() {
   // credential is stored, the object type it pulls, and how many documents it
   // has ingested — so the Sources page shows what each connector actually
   // pulled without a second round-trip. `authKind: 'none'` (e.g. web) needs no credential.
-  const withStatus = sources.map((s) => {
+  const withStatus = await Promise.all(sources.map(async (s) => {
     const connectorSlug = (s.config?._connector as string | undefined) ?? s.slug;
     const authKind = connectorBySlug.get(connectorSlug)?.authKind ?? 'none';
     // This row's own stored credential first, then the org's OAuth grant for
     // the connector. A connector naming a credential is the only one whose
     // status is per-row; a grant's status is the same for every row of a kind.
     const st = credStatus.bySourceId[s.id] ?? credStatus.byConnectorSlug[connectorSlug];
+    const connected = authKind === 'none' ? true : (st?.connected ?? false);
+    // Whose account the grant is on and what it granted, by name — only for a
+    // row a vendor flow connected, and only once it is connected. The card
+    // shows it so a listed repository the installation never covered is
+    // visible without a Test connection.
+    const grant = authKind === 'oauth' && connected
+      ? await grantSummaryForSource({ orgId, sourceSlug: s.slug, connectorSlug })
+      : null;
     return {
       ...s,
       authKind,
@@ -46,8 +55,9 @@ export async function GET() {
       // Size in retrieval terms: a document count says little when one PDF is
       // 400 chunks. Shown in the connected row's detail.
       chunkCount: chunkCounts[s.id] ?? 0,
-      credentialConnected: authKind === 'none' ? true : (st?.connected ?? false),
+      credentialConnected: connected,
       credentialUpdatedAt: st?.updatedAt ?? null,
+      grant,
       // Why a credential cannot be used, when there is one that cannot. The
       // page needs this to tell "nobody has connected this yet" apart from
       // "somebody revoked the key this connector points at".
@@ -66,7 +76,7 @@ export async function GET() {
       // another tab's, the scheduler's, or one still going after a reload.
       sync: syncState[s.id] ?? null,
     };
-  });
+  }));
   const connectors = listConnectors().map(c => ({
     slug: c.slug,
     name: c.name,

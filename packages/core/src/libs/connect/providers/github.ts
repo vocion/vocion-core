@@ -188,4 +188,25 @@ export const githubProvider: ConnectProvider = {
       displayName: `GitHub — ${account}`,
     };
   },
+  summarize: (credentials) => {
+    const account = typeof credentials.account === 'string' ? credentials.account.trim() : '';
+    if (!account || typeof credentials.installationId !== 'string') {
+      return null;
+    }
+    const kind = typeof credentials.accountType === 'string' ? credentials.accountType.toLowerCase() : '';
+    const repositories = Array.isArray(credentials.repositories)
+      ? credentials.repositories.filter((r): r is string => typeof r === 'string' && r.length > 0)
+      : [];
+    const everything = credentials.repositorySelection === 'all';
+    return {
+      account: kind === 'organization' || kind === 'user' ? `${account} (${kind})` : account,
+      granted: {
+        label: 'Repositories',
+        items: repositories,
+        note: everything
+          ? 'The app was granted every repository on the account, now and later; this list is what it saw when it connected.'
+          : undefined,
+      },
+    };
+  },
 };
