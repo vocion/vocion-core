@@ -104,7 +104,7 @@ rules:
     enabled: true
     rung: execute-within-bounds
     risk: low
-  # The pipeline's owner opens its own fix (plugin 2.30.0, backlog 049): the
+  # The pipeline's owner opens its own fix (plugin 2.33.0, backlog 049): the
   # files as one commit on a vocion/pipeline-… branch and its pull request.
   # Opening one deploys nothing; Undo closes it and deletes the branch. Only a
   # seat whose harness grants github.open_pull may propose it.
@@ -114,7 +114,7 @@ rules:
     rung: execute-within-bounds
     risk: medium
   # A deploy that should have run and did not, or a redeploy of what is
-  # already merged, started with workflow_dispatch (plugin 2.31.0). The merge
+  # already merged, started with workflow_dispatch (plugin 2.34.0). The merge
   # was the decision; Undo cancels the run while it runs. Only a seat whose
   # harness grants it may start one.
   - action: github.dispatch_workflow
@@ -122,7 +122,7 @@ rules:
     enabled: true
     rung: execute-within-bounds
     risk: medium
-  # A release an environment went down on, rolled back (plugin 2.32.0): GitHub's
+  # A release an environment went down on, rolled back (plugin 2.35.0): GitHub's
   # revert of its pull request, opened by the environment's own recovery after a
   # re-run and a redeploy did not bring it back. Undo closes the revert, or
   # reverts it once merged.

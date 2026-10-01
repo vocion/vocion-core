@@ -51,7 +51,7 @@ suggestions:
 # (`github.rerun_failed_jobs`, done for you on the trust ladder); a rollback is
 # the merge action's Undo, which a person presses.
 #
-# `github.open_pull` is the pipeline's own door (plugin 2.30.0): the action
+# `github.open_pull` is the pipeline's own door (plugin 2.33.0): the action
 # refuses any seat whose harness does not grant it, so the engineer's worker,
 # walled off from `.github/workflows`, gains no way around the wall. This seat
 # owns CI, so it holds the grant.
