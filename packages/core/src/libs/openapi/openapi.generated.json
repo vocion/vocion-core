@@ -868,7 +868,7 @@
             }
           }
         },
-        "description": "every automation, with its state.\n\nWhat an operator needs before deciding which one to stop: each\nautomation's `status` (the authored one), `paused` (a person's hold — who,\nwhen, the note — or null), `when` and `do`, its `lastFire` (the most recent\nreal fire: id, kind, status, when it started and finished — a pause or a\nrefused match is not a fire), and `skips` — what the guards refused in the\nlast ten minutes, so a rate-limited automation is visible from the list."
+        "description": "every automation, with its state.\n\nWhat an operator needs before deciding which one to stop: each\nautomation's `state` (what it is doing now: `paused` while a person holds\nit, else its status — #294 was answered by nothing for two hours while\n`status` read `active` over a pause), `status` (the authored one), `paused` (a person's hold — who,\nwhen, the note — or null), `when` and `do`, its `lastFire` (the most recent\nreal fire: id, kind, status, when it started and finished — a pause or a\nrefused match is not a fire), and `skips` — what the guards refused in the\nlast ten minutes, so a rate-limited automation is visible from the list."
       }
     },
     "/api/v1/automations/runs": {

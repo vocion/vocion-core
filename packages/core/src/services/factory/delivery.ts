@@ -30,12 +30,17 @@ const SECOND_READ_MS = 8_000;
 /** Where a delivery acts on the world, injected in tests. */
 export type DeliveryDeps = {
   runsOn: (orgId: string, repo: string, sha: string) => Promise<Parameters<typeof deliveryRunsOf>[0]>;
+  /** A failed run's jobs, for the step that failed; absent, the step is not read. */
+  jobs?: (orgId: string, repo: string, runId: number) => Promise<Array<{ name: string; failedStep: string | null }>>;
 };
 
 async function defaultDeps(): Promise<DeliveryDeps> {
-  const { workflowRunsOn } = await import('./githubChecks');
-  return { runsOn: workflowRunsOn };
+  const { runJobs, workflowRunsOn } = await import('./githubChecks');
+  return { runsOn: workflowRunsOn, jobs: runJobs };
 }
+
+/** Conclusions that are not a failure of the work, as `libs/factory/delivery.ts` reads them. */
+const NOT_FAILED = new Set(['success', 'skipped', 'neutral', 'cancelled']);
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
@@ -109,7 +114,22 @@ async function readRuns(orgId: string, d: Delivery, deps: DeliveryDeps, now: Dat
     return d;
   }
   try {
-    const runs = deliveryRunsOf(await deps.runsOn(orgId, d.repo, d.mergeSha), d.mergeSha);
+    const fresh = deliveryRunsOf(await deps.runsOn(orgId, d.repo, d.mergeSha), d.mergeSha);
+    // THE STEP THAT FAILED, read once per failed run (2026-10-01, #294: "Deploy
+    // run #59 failed" said nothing of which surface; the API image build had).
+    const runs = await Promise.all(fresh.map(async (r) => {
+      const failed = r.status === 'completed' && !NOT_FAILED.has(r.conclusion ?? '');
+      if (!failed) {
+        return r;
+      }
+      const known = d.runs.find(k => k.runId === r.runId && k.failedStep);
+      if (known) {
+        return { ...r, failedStep: known.failedStep };
+      }
+      const jobs = deps.jobs ? await deps.jobs(orgId, d.repo!, r.runId).catch(() => []) : [];
+      const step = jobs.find(j => j.failedStep)?.failedStep ?? null;
+      return step ? { ...r, failedStep: step } : r;
+    }));
     return { ...d, runs, runsReadAt: now.toISOString() };
   } catch (err) {
     console.warn('[delivery] the runs on a merge could not be read', { orgId, repo: d.repo, sha: d.mergeSha, message: (err as Error).message });
@@ -232,7 +252,9 @@ export async function refreshDeliveries(orgId: string, now: Date = new Date(), d
     }
   }
 
-  // 2. Deliveries whose runs have not finished, or were never read.
+  // 2. Deliveries whose runs have not finished, were never read, or failed —
+  // a failed run is read again, because the answer to it is a re-run of the
+  // same run (2026-10-01, #294), and a re-run that passes is the deploy.
   const open = await db.select({ id: businessObjectSchema.id, meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(
     eq(businessObjectSchema.orgId, orgId),
     sql`${businessObjectSchema.metadata} ? 'delivery'`,
@@ -241,7 +263,7 @@ export async function refreshDeliveries(orgId: string, now: Date = new Date(), d
   )).limit(25);
   for (const row of open) {
     const delivery = readDelivery((row.meta ?? {}) as Meta);
-    if (!delivery || !['deploying', 'unread'].includes(deliveryStage(delivery))) {
+    if (!delivery || !['deploying', 'unread', 'failed'].includes(deliveryStage(delivery))) {
       continue;
     }
     if (await refreshOne(orgId, row.id, d, now)) {

@@ -25,6 +25,11 @@
  *     nothing answered is a stop, with its reason (`watchUnanswered`).
  *   - MISSED DEPLOYS: a merge on the deploy branch its deploy workflow never
  *     ran for is started once, done for you (`environments.watchMissedDeploys`).
+ *   - FAILED DEPLOYS NOBODY ANSWERED: a failed run of a deploy workflow in the
+ *     last day with no answer from the automations that answer `run.failed`
+ *     is handed to them now, once per run; one held by a paused automation is
+ *     said on the environment and the feature, with Resume
+ *     (`deployFailures.answerFailedDeploys`, #294).
  *
  * The heavier sweep (`carry.sweepStuckRequests`) stays hourly.
  */
@@ -53,6 +58,8 @@ export type ReconcileDeps = {
   emit: (orgId: string, event: GithubEvent) => Promise<{ deduped: boolean }>;
   /** GitHub's runs on a merge commit (`delivery.ts`); absent, the workspace's own token. */
   deliveries?: import('./delivery').DeliveryDeps;
+  /** The deploy workflows' runs and the fires that answer them (`deployFailures.ts`); absent, the real ones. */
+  failedDeploys?: import('./deployFailures').DeployFailureDeps;
 };
 
 async function defaultDeps(): Promise<ReconcileDeps> {
@@ -353,5 +360,6 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the unanswered pipeline fixes', async () => (await import('./pipelineChange')).watchUnanswered(orgId, now, owner));
   await step('the closed requests', () => settleClosedRequests(orgId, now));
   await step('the missed deploys', async () => (await import('./environments')).watchMissedDeploys(orgId, now, owner).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));
+  await step('the unanswered failed deploys', async () => (await import('./deployFailures')).answerFailedDeploys(orgId, now, d.failedDeploys).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));
   return { acted };
 }

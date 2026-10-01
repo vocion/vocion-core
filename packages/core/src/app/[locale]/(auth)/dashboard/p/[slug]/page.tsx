@@ -15,6 +15,7 @@ import { PageFeed } from '@/features/dashboard/pages/PageFeed';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
+import { PausedAutomations } from '@/features/dashboard/plugins/PausedAutomations';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -806,6 +807,10 @@ export default async function WorkspacePage(props: {
       {/* A page a plugin shipped carries that plugin's outcome panel — the
           same one the Proposals and Data rooms surfaces carry, decided by
           where the YAML came from rather than by the page's slug. */}
+      {/* What a person paused is said above the work it holds (#294): who,
+          since when, why, and Resume. Nothing when none is paused. */}
+      {ownedBy && <PausedAutomations orgId={orgId} slug={ownedBy} />}
+
       {!rowsLead && pluginPanel}
 
       {content && manifest.archetype === 'markdown' && (

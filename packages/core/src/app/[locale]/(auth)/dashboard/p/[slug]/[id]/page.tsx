@@ -2,12 +2,14 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
 import { FeatureReportView, ReportContextLine, reportLiveRefresh } from '@/features/dashboard/factory/FeatureReportView';
 import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
+import { PausedAutomations } from '@/features/dashboard/plugins/PausedAutomations';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { VersionChip } from '@/features/dashboard/versions/VersionChip';
 import { VersionWatch } from '@/features/dashboard/versions/VersionWatch';
 import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { pagePlugin } from '@/libs/workspace/pages';
 import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
 import { withDuplicateFact } from '@/services/objects/duplicateCheck';
@@ -100,6 +102,7 @@ export default async function WorkspaceReportPage(props: {
       ? (
           <>
             <VersionWatch refs={[{ type: 'object', id: String(Number(id)) }]} />
+            {pagePlugin(manifest) && <PausedAutomations orgId={orgId} slug={pagePlugin(manifest)!} />}
             <ProductOverviewView overview={overview} page={{ slug: manifest.slug, title: manifest.title }} now={now.getTime()} related={related} writes={writes} />
           </>
         )

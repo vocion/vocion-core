@@ -67,7 +67,7 @@ export default async function AutomationPage(props: {
   const agentNameBySlug = new Map(agents.map(ag => [ag.slug, ag.name]));
 
   const rows = await listAutomations(orgId);
-  const pauses = await pausesFor(rows);
+  const pauses = await pausesFor(rows, orgId);
   const automations = await Promise.all(
     rows.map(async (a) => {
       const live = a.whenConfig.schedule ? await describeAutomationSchedule(orgId, a.slug) : null;

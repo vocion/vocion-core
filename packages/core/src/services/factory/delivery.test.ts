@@ -97,3 +97,30 @@ describe('refreshDeliveries (the reconcile)', () => {
     expect(deps.runsOn).not.toHaveBeenCalled();
   });
 });
+
+describe('a failed deploy on the merge (#294)', () => {
+  it('names the step that failed, once, and keeps reading the run so a re-run that passes is the deploy', async () => {
+    await db.insert(eventLogSchema).values({ orgId: ORG, type: 'pr.merged', payload: merged, dedupeKey: 'github:northwind/share#41:pr.merged:f00e' });
+    listed = [{ ...listed[0]!, status: 'completed', conclusion: 'failure' }];
+    const jobs = vi.fn(async () => [{ name: 'changes', failedStep: null }, { name: 'deploy', failedStep: 'API' }]);
+
+    await refreshDeliveries(ORG, NOW, { ...deps, jobs });
+
+    expect((await meta(requestId)).delivery).toMatchObject({ runs: [{ runId: 9001, conclusion: 'failure', failedStep: 'API' }] });
+
+    // Read again while it stands failed: the step is not read twice.
+    await refreshDeliveries(ORG, NOW, { ...deps, jobs });
+
+    expect(jobs).toHaveBeenCalledTimes(1);
+
+    // The re-run: the same run is going again, then passes.
+    listed = [{ ...listed[0]!, status: 'in_progress', conclusion: null }];
+
+    expect(await refreshDeliveries(ORG, NOW, { ...deps, jobs })).toEqual([{ requestId, did: 'runs read again' }]);
+
+    listed = [{ ...listed[0]!, status: 'completed', conclusion: 'success' }];
+    await refreshDeliveries(ORG, NOW, { ...deps, jobs });
+
+    expect((await meta(requestId)).delivery).toMatchObject({ runs: [{ status: 'completed', conclusion: 'success' }] });
+  });
+});

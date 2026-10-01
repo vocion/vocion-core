@@ -79,7 +79,7 @@ export default async function AutomationDetailPage(props: {
       since: new Date(now.getTime() - STRIP_DAYS * 24 * 3_600_000),
       limit: 500,
     }),
-    pausesFor([automation]),
+    pausesFor([automation], orgId),
     recentSkipsBySlug(orgId, now),
   ]);
   const pause = pauses.get(slug) ?? null;

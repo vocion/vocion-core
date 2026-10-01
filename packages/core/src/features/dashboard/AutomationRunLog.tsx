@@ -14,6 +14,15 @@ import { controlResultOf, formatDuration, invokedByLabel, skipResultOf, summariz
 
 const CELL = 'px-3 py-2 align-top';
 
+/** Why a match was refused, in a word or two; the row's detail says the rest. */
+const SKIP_LABEL: Record<string, string> = {
+  rate_limited: 'rate limit',
+  self_trigger: 'own run',
+  workspace_paused: 'workspace paused',
+  automation_paused: 'paused',
+  fire_failed: 'could not start',
+};
+
 /**
  * One page of runs.
  * @param props
@@ -66,7 +75,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
                     <Link href={`/dashboard/automation/${run.slug}`} className="font-medium hover:underline">{run.slug}</Link>
                   </td>
                 )}
-                <td className={`${CELL} text-muted-foreground`}>{control ? `control · ${control.action}` : skip ? `skipped · ${skip.reason === 'rate_limited' ? 'rate limit' : 'own run'}` : run.kind}</td>
+                <td className={`${CELL} text-muted-foreground`}>{control ? `control · ${control.action}` : skip ? `skipped · ${SKIP_LABEL[skip.reason] ?? skip.reason}` : run.kind}</td>
                 <td className={`${CELL} font-mono whitespace-nowrap`}>{duration ?? (run.status === 'running' ? 'in flight' : '—')}</td>
                 <td className={`${CELL} whitespace-nowrap text-muted-foreground`} title={run.invokedBy ?? undefined}>
                   {invokedByLabel(run.invokedBy)}

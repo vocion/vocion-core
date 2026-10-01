@@ -85,3 +85,38 @@ describe('merged: who, when, the run carrying it, and who is watching', () => {
     expect(report.state.key).toBe('released');
   });
 });
+
+describe('a failed deploy says which step, and who is on it — or the pause that holds it (#294)', () => {
+  const failedRun = { ...deploying.runs[0], status: 'completed', conclusion: 'failure', runNumber: 59, failedStep: 'API' };
+
+  it('answered: the step and the seat on it', () => {
+    const report = assembleFeatureReport(input({ request: request({ ...deploying, runs: [failedRun], answer: { runId: 9001, automation: 'A failed deploy is an incident', slug: 'deploy-run-failed', by: 'Release engineer', automationRunId: 7001, at: '2026-09-30T22:50:00Z', paused: null } }) }));
+
+    expect(report.status).toMatchObject({ headline: 'Deploy failed', tone: 'warn', action: { label: 'Open the failed run' } });
+    expect(report.status.sentence).toBe('Merged 30 Sep 2026, 22:38 UTC by Dana Reyes (PR #41). Deploy run #59 failed on GitHub (step API). Release engineer is on it (automation run #7001).');
+    expect(report.you.needsYou).toBe(false);
+  });
+
+  it('paused: Blocked on the person who paused it, with Resume as the move', () => {
+    const report = assembleFeatureReport(input({ request: request({ ...deploying, runs: [failedRun], answer: { runId: 9001, automation: 'A failed deploy is an incident', slug: 'deploy-run-failed', by: null, automationRunId: null, at: '2026-09-30T22:50:00Z', paused: { since: '2026-09-21T13:01:46Z', by: 'Dana Reyes', note: 'Hold the factory' } } }) }));
+
+    expect(report.status).toMatchObject({ headline: 'Deploy failed', tone: 'bad', action: { kind: 'link', label: 'Resume', href: '/dashboard/automation/deploy-run-failed' }, secondary: { label: 'Open the failed run' } });
+    expect(report.status.sentence).toContain('Deploy run #59 failed on GitHub (step API). Deploy failed and its automation "A failed deploy is an incident" is paused (since 21 Sep 13:01 UTC, by Dana Reyes: "Hold the factory"): Resume');
+    expect(report.you).toMatchObject({ needsYou: true, line: 'Blocked: Dana Reyes to resume "A failed deploy is an incident"' });
+  });
+
+  it('never reads "building" after the merge: the Work row says the deploy', async () => {
+    const { laneOf, workLine, workStateOf } = await import('@/libs/workspace/workQueue');
+    // Two attempts, one replaced: the row used to read "Awaiting dispatch · 2 tasks written, none sent".
+    const row = { id: 269, title: 'x', status: 'approved', createdAt: T('2026-09-30T05:56:00Z'), meta: { state: 'building', taskCount: 2, acceptedTaskCount: 1, delivery: { ...deploying, runs: [failedRun], answer: { runId: 9001, automation: 'A failed deploy is an incident', slug: 'deploy-run-failed', by: 'Release engineer', automationRunId: 7001, at: '2026-09-30T22:50:00Z', paused: null } } } } as never;
+    const lane = laneOf(row);
+
+    expect(workStateOf(row, lane, { now: NOW })).toEqual({ label: 'Deploy failed', tone: 'warn' });
+    expect(workLine(row, lane, NOW)).toBe('Merged 22:38 UTC → Deploy run #59 failed (step API) · Release engineer is on it');
+
+    const paused = { ...row as object, meta: { ...(row as { meta: Record<string, unknown> }).meta, delivery: { ...deploying, runs: [failedRun], answer: { runId: 9001, automation: 'A failed deploy is an incident', slug: 'deploy-run-failed', by: null, automationRunId: null, at: '2026-09-30T22:50:00Z', paused: { since: '2026-09-21T13:01:46Z', by: 'Dana Reyes', note: null } } } } } as never;
+
+    expect(workStateOf(paused, lane, { now: NOW })).toEqual({ label: 'Deploy failed', tone: 'bad' });
+    expect(workLine(paused, lane, NOW)).toBe('Merged 22:38 UTC → Deploy run #59 failed (step API) · Deploy failed and its automation "A failed deploy is an incident" is paused (since 21 Sep 13:01 UTC, by Dana Reyes): Resume');
+  });
+});

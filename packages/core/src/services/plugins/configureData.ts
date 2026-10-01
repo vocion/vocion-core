@@ -34,7 +34,7 @@ import {
   workerRunSchema,
   workspaceVersionSchema,
 } from '@/models/Schema';
-import { CONTROL_RUN_KIND, SKIPPED_RUN_KIND, userNamesById } from '@/services/AutomationService';
+import { CONTROL_RUN_KIND, pausesFor, SKIPPED_RUN_KIND, userNamesById } from '@/services/AutomationService';
 import { effectivePolicies } from '@/services/autonomy/AutonomyService';
 import { isRung, RUNG_LABEL, rungAutomates, rungFromTrustRule } from '@/services/autonomy/rungs';
 import { agentBudgetStatuses } from '@/services/BudgetService';
@@ -335,10 +335,12 @@ export async function loadConfigure(orgId: string, pluginSlug: string, now: Date
     }
   }
 
-  // Pausers are named on the row, not by id.
+  // Pausers are named on the row, not by id — a person by name, an API token
+  // by its name (#294's pause read `token:ece37501…`).
+  const pauses = await pausesFor(automationRows, orgId);
   for (const a of automations) {
     if (a.paused?.by) {
-      a.paused.by = names.get(a.paused.by) ?? null;
+      a.paused.by = pauses.get(a.slug)?.by.name ?? names.get(a.paused.by) ?? null;
     }
   }
 

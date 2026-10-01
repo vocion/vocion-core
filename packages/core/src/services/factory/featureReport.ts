@@ -73,7 +73,7 @@ import type { PullSignals, WorkFacts } from '@/libs/factory/workFacts';
 import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
-import { deliveryStage, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
+import { deliveryStage, failedRun, pausedAnswerLine, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
 import { readRequestLive } from '@/libs/factory/liveCheck';
 import { blockedYou, pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
@@ -2371,6 +2371,15 @@ function buildState(input: FeatureReportInput, live: LiveRun | null = null, merg
       const d = readDelivery(input.request.meta);
       const stage = d ? deliveryStage(d) : 'unread';
       const label = stage === 'deploying' ? 'Deploying' : stage === 'deployed' ? 'Deployed' : stage === 'failed' ? 'Deploy failed' : 'Merged';
+      // A FAILED DEPLOY THAT A PAUSE HOLDS IS BLOCKED, with Resume as the move
+      // (2026-10-01, #294: two hours of "Nothing needs you" over a failed
+      // deploy whose answering automation had been paused for ten days).
+      const failed = d && stage === 'failed' ? failedRun(d) : null;
+      const held = failed && d?.answer?.runId === failed.runId && d.answer.paused ? d.answer : null;
+      if (held) {
+        const what = pausedAnswerLine(held);
+        return { key: 'merge', label, blocker: { what, owner: held.paused?.by ?? null, next: `resume "${held.automation}"`, cause: 'automation_paused' }, detail: `${held.paused?.by ?? 'a person'} to resume "${held.automation}"`, needsYou: true, question: what, action: { label: 'Resume', href: `/dashboard/automation/${held.slug}` }, decision: null };
+      }
       return { key: 'merge', label, detail: 'merged; the release is recorded once it is live', needsYou: false, question: null, action: { label: 'See the change', href: '#report-change' }, decision: null };
     }
     if (input.mergeRule?.runsItself === true) {
@@ -3327,7 +3336,7 @@ function afterMergeStatus(input: FeatureReportInput, impl: ReportImplementation,
   }
   const merged = `Merged ${formatStamp(new Date(d.mergedAt))}${d.mergedBy ? ` by ${d.mergedBy}` : ''}${d.pr ? ` (${d.pr})` : ''}.`;
   const going = runningRun(d);
-  const failed = d.runs.find(r => r.status === 'completed' && !['success', 'skipped', 'neutral', 'cancelled'].includes(r.conclusion ?? ''));
+  const failed = failedRun(d);
   switch (deliveryStage(d)) {
     case 'deploying':
       return {
@@ -3340,8 +3349,19 @@ function afterMergeStatus(input: FeatureReportInput, impl: ReportImplementation,
       };
     case 'deployed':
       return { tone: 'ok', headline: 'Deployed', sentence: `${merged} Every run the merge started finished on GitHub; the release is recorded once the product reports it live.${watching} ${verifiedLine}`.replace(/\s+/g, ' ').trim(), action: change, secondary: null, next: 'The release is recorded, then checked live.' };
-    case 'failed':
-      return { tone: 'warn', headline: 'Deploy failed', sentence: `${merged} ${failed ? `${runName(failed)} failed on GitHub.` : 'A run the merge started failed on GitHub.'}${watching}`.replace(/\s+/g, ' ').trim(), action: failed ? { kind: 'link', label: 'Open the failed run', href: failed.url } : change, secondary: null, next: 'The pipeline is fixed and the deploy runs again; the release follows.' };
+    case 'failed': {
+      // WHICH STEP, AND WHO IS ON IT — or the pause that stops anyone being
+      // on it (2026-10-01, #294). `delivery.answer` is the reconcile's read of
+      // the automation runs that answer the failed run (`deployFailures.ts`).
+      const what = failed ? `${runName(failed)} failed on GitHub${failed.failedStep ? ` (step ${failed.failedStep})` : ''}.` : 'A run the merge started failed on GitHub.';
+      const answer = failed && d.answer?.runId === failed.runId ? d.answer : null;
+      const open: ReportAction = failed ? { kind: 'link', label: 'Open the failed run', href: failed.url } : change;
+      if (answer?.paused) {
+        return { tone: 'bad', headline: 'Deploy failed', sentence: `${merged} ${what} ${pausedAnswerLine(answer)}: nothing re-runs or fixes it until it is resumed.`.replace(/\s+/g, ' ').trim(), action: { kind: 'link', label: 'Resume', href: `/dashboard/automation/${answer.slug}` }, secondary: open, next: `Once "${answer.automation}" is resumed, the failure is read within five minutes: a flaky run is re-run, anything else is fixed or escalated, and the release follows the deploy.` };
+      }
+      const onIt = answer ? ` ${answer.by ?? `"${answer.automation}"`} is on it${answer.automationRunId ? ` (automation run #${answer.automationRunId})` : ''}.` : watching;
+      return { tone: 'warn', headline: 'Deploy failed', sentence: `${merged} ${what}${onIt}`.replace(/\s+/g, ' ').trim(), action: open, secondary: null, next: 'A flaky or infrastructure failure is re-run; anything else is fixed or escalated. The release follows the deploy.' };
+    }
     default:
       return { tone: 'ok', headline: 'Merged', sentence: `${merged} The runs it started on GitHub have not been read yet.${watching} ${verifiedLine}`.replace(/\s+/g, ' ').trim(), action: change, secondary: null, next: 'The deploy the merge started is read next; the release follows it.' };
   }
@@ -3647,7 +3667,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     planId,
     status,
     live,
-    you: state.key === 'blocked' && state.blocker
+    you: state.blocker && (state.key === 'blocked' || state.needsYou)
       ? blockedYou(state.blocker.what, state.blocker.owner, state.blocker.next)
       : youOf(state.needsYou, state.needsYou ? status.action?.label ?? null : null, state.question ?? state.detail),
     notices,

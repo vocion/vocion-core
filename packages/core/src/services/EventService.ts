@@ -705,10 +705,23 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   // once per event and only when an automation is actually a debrief.
   let lowInitiative: Set<string> | null = null;
   for (const a of automations) {
-    // A paused automation is skipped the way a disabled one is — silently,
-    // not as a refused-fire row per event, which would bury the log while a
-    // busy event type is held. The pause itself is already on the record.
-    if (a.status !== 'active' || a.pausedAt || !subscribesTo(a.whenConfig.event, input.type) || !matchesFilter(payload, a.whenConfig.filter)) {
+    if (a.status !== 'active' || !subscribesTo(a.whenConfig.event, input.type) || !matchesFilter(payload, a.whenConfig.filter)) {
+      continue;
+    }
+    // A PAUSED AUTOMATION IS NOT SKIPPED SILENTLY (2026-10-01, #294: the
+    // automation that answers a failed deploy had been paused for ten days,
+    // the deploy failed, and nothing anywhere said that nothing would answer
+    // it). The pause is a person's choice and is honoured; the match is
+    // written as a `skipped` row and said on the records the event is about —
+    // "would have …, but <automation> is paused" — with the move that resumes it.
+    if (a.pausedAt) {
+      if (!workspacePause) {
+        const { recordPausedMatch } = await import('@/services/factory/pausedMatch');
+        const paused = await recordPausedMatch(input.orgId, { slug: a.slug, name: a.name, pausedAt: a.pausedAt, pausedBy: a.pausedBy, pausedNote: a.pausedNote }, { event: input.type, payload, causedBy });
+        if (paused.automationRunId !== null) {
+          skipped.push({ slug: a.slug, automationRunId: paused.automationRunId, reason: 'automation_paused' });
+        }
+      }
       continue;
     }
     if (workspacePause) {

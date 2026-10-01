@@ -34,6 +34,33 @@ export type DeliveryRun = {
   conclusion: string | null;
   /** ISO — when it started. */
   startedAt: string | null;
+  /** The step that failed, read from the run's jobs once it failed ("API"); null when none is known. */
+  failedStep?: string | null;
+};
+
+/**
+ * WHO ANSWERED A FAILED DEPLOY (2026-10-01, #294: the deploy failed at 10:23
+ * and nothing answered it for two hours, because the automation that answers
+ * a failed deploy had been paused since 21 September and nothing said so).
+ * Written by the five-minute reconcile (`services/factory/deployFailures.ts`)
+ * from the automation runs that answer the failed run: the seat on it, or the
+ * pause that stops anyone being on it.
+ */
+export type DeliveryAnswer = {
+  /** The failed run it answers. */
+  runId: number;
+  /** The automation that answers it, by its name. */
+  automation: string;
+  /** Its slug, for the Resume link. */
+  slug: string;
+  /** The seat working it, by name, when one is. */
+  by: string | null;
+  /** The automation run that answered it, when one did. */
+  automationRunId: number | null;
+  /** ISO — when it was answered, or when the pause was found. */
+  at: string;
+  /** Set when the automation is paused, so nobody is on it: since when, by whom, why. */
+  paused: { since: string; by: string | null; note: string | null } | null;
 };
 
 /** `request.metadata.delivery`. */
@@ -51,6 +78,8 @@ export type Delivery = {
   runs: DeliveryRun[];
   /** ISO — when the runs were last read from GitHub; null when they never were. */
   runsReadAt: string | null;
+  /** Who answered the failed run, or the pause that stops it being answered. */
+  answer?: DeliveryAnswer | null;
 };
 
 /** Where the runs on the merge stand. */
@@ -83,9 +112,40 @@ export function readDelivery(meta: Record<string, unknown> | null | undefined): 
       status: str(r.status),
       conclusion: str(r.conclusion),
       startedAt: str(r.startedAt),
+      // Only when known: a run read back from GitHub carries no such key, and
+      // the reconcile compares the two to decide whether anything moved.
+      ...(str(r.failedStep) ? { failedStep: str(r.failedStep) } : {}),
     }))
     .filter(r => Number.isInteger(r.runId) && r.runId > 0);
-  return { prUrl, pr: str(d.pr), repo: str(d.repo), mergedAt, mergedBy: str(d.mergedBy), mergeSha: str(d.mergeSha), runs, runsReadAt: str(d.runsReadAt) };
+  return { prUrl, pr: str(d.pr), repo: str(d.repo), mergedAt, mergedBy: str(d.mergedBy), mergeSha: str(d.mergeSha), runs, runsReadAt: str(d.runsReadAt), answer: readAnswer(d.answer) };
+}
+
+/**
+ * The answer a delivery carries, or null.
+ * @param raw - `delivery.answer`.
+ */
+function readAnswer(raw: unknown): DeliveryAnswer | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+  const a = raw as Record<string, unknown>;
+  const runId = Number(a.runId);
+  const slug = str(a.slug);
+  const at = str(a.at);
+  if (!Number.isInteger(runId) || runId <= 0 || !slug || !at) {
+    return null;
+  }
+  const p = a.paused && typeof a.paused === 'object' && !Array.isArray(a.paused) ? a.paused as Record<string, unknown> : null;
+  const since = p ? str(p.since) : null;
+  return {
+    runId,
+    automation: str(a.automation) ?? slug,
+    slug,
+    by: str(a.by),
+    automationRunId: Number.isInteger(Number(a.automationRunId)) && Number(a.automationRunId) > 0 ? Number(a.automationRunId) : null,
+    at,
+    paused: p && since ? { since, by: str(p.by), note: str(p.note) } : null,
+  };
 }
 
 /** Conclusions that are not a failure of the work (a run nobody needed, or one superseded). */
@@ -114,6 +174,89 @@ export function deliveryStage(d: Delivery): DeliveryStage {
 export function runningRun(d: Delivery): DeliveryRun | null {
   const going = d.runs.filter(r => r.status !== 'completed');
   return [...going].sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''))[0] ?? null;
+}
+
+/**
+ * The run the merge started that failed, newest first, or null.
+ * @param d - The delivery.
+ */
+export function failedRun(d: Delivery): DeliveryRun | null {
+  return d.runs.find(r => r.status === 'completed' && !NOT_FAILED.has(r.conclusion ?? '')) ?? null;
+}
+
+/**
+ * "10:21 UTC" — the clock time a line says, in UTC so every surface agrees.
+ * @param iso - The moment.
+ */
+function clock(iso: string): string {
+  const t = new Date(iso);
+  return Number.isNaN(t.getTime()) ? iso : `${t.toISOString().slice(11, 16)} UTC`;
+}
+
+/** Month names, fixed: a locale's own short form differs between runtimes ("Sep", "Sept"). */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * "25 Sep 13:01 UTC" — a date a pause carries.
+ * @param iso - The moment.
+ */
+export function pausedSince(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) {
+    return iso;
+  }
+  return `${t.getUTCDate()} ${MONTHS[t.getUTCMonth()]} ${t.toISOString().slice(11, 16)} UTC`;
+}
+
+/**
+ * The pause that stops a failed deploy being answered, in one sentence:
+ * "Deploy failed and its automation is paused (since 21 Sep 13:01 UTC, by
+ * Dana: "hold the factory"): Resume."
+ * @param a - The answer, with its pause.
+ * @param a.automation - The automation's name.
+ * @param a.paused - The pause.
+ */
+export function pausedAnswerLine(a: Pick<DeliveryAnswer, 'automation' | 'paused'>): string {
+  const p = a.paused;
+  if (!p) {
+    return '';
+  }
+  const who = p.by ? `, by ${p.by}` : '';
+  const note = p.note ? `: "${p.note}"` : '';
+  return `Deploy failed and its automation "${a.automation}" is paused (since ${pausedSince(p.since)}${who}${note}): Resume`;
+}
+
+/**
+ * THE AFTER-MERGE LINE, the one sentence every surface draws (2026-10-01,
+ * #294 read "Awaiting dispatch · 2 tasks written, none sent" two hours after
+ * its deploy failed): "Merged 10:21 UTC → Deploy run #59 failed (step API) ·
+ * Release engineer is on it", or the pause that holds it.
+ * @param d - The delivery.
+ */
+export function deliveryLine(d: Delivery): string {
+  const merged = `Merged ${clock(d.mergedAt)}`;
+  switch (deliveryStage(d)) {
+    case 'deploying': {
+      const going = runningRun(d);
+      return going ? `${merged} → ${runName(going)} running` : `${merged} → deploying`;
+    }
+    case 'deployed':
+      return `${merged} → every run finished; the release is recorded once it is live`;
+    case 'failed': {
+      const failed = failedRun(d);
+      const head = failed ? `${merged} → ${runName(failed)} failed${failed.failedStep ? ` (step ${failed.failedStep})` : ''}` : `${merged} → a run it started failed`;
+      const answer = failed && d.answer?.runId === failed.runId ? d.answer : null;
+      if (answer?.paused) {
+        return `${head} · ${pausedAnswerLine(answer)}`;
+      }
+      if (answer) {
+        return `${head} · ${answer.by ?? answer.automation} is on it`;
+      }
+      return `${head} · nobody has answered it yet`;
+    }
+    default:
+      return `${merged} → the runs it started are read next`;
+  }
 }
 
 /**

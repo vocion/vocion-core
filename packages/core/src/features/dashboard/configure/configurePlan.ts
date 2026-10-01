@@ -1,5 +1,6 @@
 import type { ConfigureAsideKind, ConfigureBlocks, ConfigureTabKind } from '@/libs/workspace/pageFields';
 import { measureValue } from '@/features/dashboard/team-report/format';
+import { pausedSince } from '@/libs/factory/delivery';
 import { ageLabel } from '@/libs/timeAgo';
 import { CONFIGURE_ASIDE_KINDS, CONFIGURE_TAB_KINDS } from '@/libs/workspace/pageFields';
 
@@ -140,6 +141,8 @@ export type ConfigureRow = {
   href: string;
   /** Opens in the preview pane on a plain click; the row stays a link. */
   preview: { type: 'agent'; id: string } | null;
+  /** A paused automation's Resume control: who paused it, when, and why, already in words. */
+  resume?: { slug: string; byName: string; when: string; note: string | null } | null;
 };
 
 export type ConfigureTab = {
@@ -358,12 +361,15 @@ function automationRows(input: ConfigureInput, now: number): ConfigureRow[] {
     facts: [
       a.trigger,
       a.last?.status === 'error' && a.last.error ? a.last.error.split('\n')[0]!.slice(0, 160) : a.does,
-      a.paused ? `paused${a.paused.by ? ` by ${a.paused.by}` : ''}${a.paused.note ? `: ${a.paused.note}` : ''}` : '',
+      // WHO, WHEN AND WHY, on the row (2026-10-01, #294: a pause from ten days
+      // before read only "Paused", and nothing it would have done was seen).
+      a.paused ? `paused${a.paused.by ? ` by ${a.paused.by}` : ''} since ${pausedSince(a.paused.at.toISOString())}${a.paused.note ? `: ${a.paused.note}` : ''}` : '',
     ],
     figure: a.last ? ageLabel(a.last.at, now) : 'Never fired',
     chip: automationChip(a),
     href: `/dashboard/automation/${a.slug}`,
     preview: null,
+    resume: a.paused ? { slug: a.slug, byName: a.paused.by ?? 'someone', when: pausedSince(a.paused.at.toISOString()), note: a.paused.note } : null,
   }));
 }
 

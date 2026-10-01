@@ -1,6 +1,7 @@
 import type { ProofRecord } from './featureProof';
 import type { PageRow } from './pageFields';
 import type { LiveRun } from '@/libs/factory/liveStatus';
+import { deliveryLine, deliveryStage, failedRun, readDelivery } from '@/libs/factory/delivery';
 import { nowLine } from '@/libs/factory/liveStatus';
 import { seatLabel } from '@/libs/gates/handoffGate';
 import { readRecovery, recoveryStage, waitingOnOf } from '@/services/factory/recovery';
@@ -480,6 +481,10 @@ export function workStateOf(row: PageRow, lane: WorkLane, opts: { staged?: boole
     return { label: `Returned to ${seatLabel(returnedTo)}`, tone: 'warn' };
   }
   if (lane === 'progress') {
+    const merged = mergedState(row);
+    if (merged) {
+      return merged;
+    }
     const carrying = carryingLabel(row);
     if (carrying) {
       return { label: carrying.label, tone: carrying.tone };
@@ -515,6 +520,33 @@ export function workStateOf(row: PageRow, lane: WorkLane, opts: { staged?: boole
     return opts.staged ? STATE.staged! : STATE.decide!;
   }
   return PROPOSED_STATE[str(row, 'state') ?? ''] ?? STATE.queued!;
+}
+
+/**
+ * AFTER THE MERGE, THE ROW SAYS WHAT IS CARRYING IT (2026-10-01, #294: merged
+ * at 10:21, its deploy failed at 10:23, and the row read "Awaiting dispatch ·
+ * 2 tasks written, none sent to a worker" — the attempt the merge replaced
+ * was still counted). A request whose merge is recorded (`delivery`) and that
+ * has not shipped reads as its deploy: Deploying, Deployed, Deploy failed.
+ * @param row - The row.
+ */
+function mergedState(row: PageRow): WorkState | null {
+  const d = readDelivery(meta(row));
+  if (!d) {
+    return null;
+  }
+  switch (deliveryStage(d)) {
+    case 'deploying':
+      return { label: 'Deploying', tone: 'info' };
+    case 'deployed':
+      return { label: 'Deployed', tone: 'ok' };
+    case 'failed': {
+      const failed = failedRun(d);
+      return { label: 'Deploy failed', tone: failed && d.answer?.runId === failed.runId && d.answer.paused ? 'bad' : 'warn' };
+    }
+    default:
+      return { label: 'Merged', tone: 'info' };
+  }
 }
 
 /**
@@ -734,6 +766,10 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
     return dated(head, at, now);
   }
   if (lane === 'progress') {
+    const delivery = readDelivery(meta(row));
+    if (delivery) {
+      return deliveryLine(delivery);
+    }
     const carrying = carryingLabel(row);
     if (carrying) {
       const line = said(firstSentence(carrying.line));

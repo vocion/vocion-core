@@ -208,19 +208,33 @@ describe('resumeAutomation', () => {
   });
 });
 
+describe('who paused it, by name', () => {
+  it('an API token is named as one, never left as a bare id', async () => {
+    const pauses = await pausesFor([{ slug: 'x', pausedAt: new Date('2026-09-21T13:01:00Z'), pausedBy: 'token:abc123', pausedNote: null }], ORG);
+
+    expect(pauses.get('x')!.by).toEqual({ id: 'token:abc123', name: 'API token abc123' });
+  });
+});
+
 describe('a paused automation does not fire', () => {
-  it('is skipped by the event matcher — silently, not as a refused row per event', async () => {
+  it('is skipped by the event matcher, and the match is written down — never silently (#294)', async () => {
     await seed('on-reply', { event: 'prospect.reply' });
-    await pauseAutomation(ORG, 'on-reply', { by: CHRIS });
+    await pauseAutomation(ORG, 'on-reply', { by: CHRIS, note: 'holding the replies' });
 
     const res = await emitEvent({ orgId: ORG, type: 'prospect.reply', payload: { dealId: 1 } });
 
     expect(res.triggered).toEqual([]);
     expect(vi.mocked(startWorkflow)).not.toHaveBeenCalled();
+    expect(res.skipped).toEqual([expect.objectContaining({ slug: 'on-reply', reason: 'automation_paused' })]);
 
     const { runs } = await listAutomationRuns(ORG, { slug: 'on-reply' });
 
-    expect(runs.map(r => r.kind)).toEqual([CONTROL_RUN_KIND]);
+    expect(runs.map(r => r.kind).sort()).toEqual([CONTROL_RUN_KIND, 'skipped'].sort());
+
+    const skip = runs.find(r => r.kind === 'skipped')!.result as { reason: string; detail: string };
+
+    expect(skip.reason).toBe('automation_paused');
+    expect(skip.detail).toMatch(/^Would have run "on-reply", but "on-reply" is paused \(since .*, by usr-chris: "holding the replies"\)\. Resume it at \/dashboard\/automation\/on-reply/);
   });
 
   it('refuses a fire that reaches it anyway, and records the refusal', async () => {

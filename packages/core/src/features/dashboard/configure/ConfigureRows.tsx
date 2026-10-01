@@ -5,6 +5,7 @@ import type { ColumnKind } from '@/components/patterns';
 import { useMemo } from 'react';
 import { Column, ListEmpty, ListRow, ListRows, Subline } from '@/components/patterns';
 import { StatusPill } from '@/components/ui/status-pill';
+import { AutomationPauseControl } from '@/features/dashboard/AutomationPauseControl';
 import { toneToStatus } from '@/features/dashboard/pages/FieldValue';
 import { usePreviewList } from '@/features/preview/usePreviewList';
 
@@ -51,6 +52,10 @@ export function ConfigureRows(props: { rows: ConfigureRow[]; empty: string; figu
             subline={<Subline segments={row.facts} separator="·" />}
             columns={row.figure !== null ? <Column kind={props.figure} always={props.figureAlways}>{row.figure}</Column> : undefined}
             chip={row.chip ? <StatusPill status={toneToStatus(row.chip.tone)} label={row.chip.label} size="sm" /> : undefined}
+            // A paused automation carries its Resume on the row: the pause is
+            // a person's, and lifting it is one move from where it is seen.
+            actions={row.resume ? <AutomationPauseControl slug={row.resume.slug} paused={{ byName: row.resume.byName, when: row.resume.when, note: row.resume.note }} compact /> : undefined}
+            actionsAlways={row.resume ? true : undefined}
           />
         );
       })}

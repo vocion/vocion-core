@@ -25,7 +25,7 @@ import {
   getTemporalClient,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
-import { automationRunSchema, automationSchema, knowledgeSourceSchema, missionRunSchema, toolCallSchema, userSchema } from '@/models/Schema';
+import { apiTokenSchema, automationRunSchema, automationSchema, knowledgeSourceSchema, missionRunSchema, toolCallSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
 import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
@@ -69,6 +69,8 @@ export type AutomationSkipResult = {
   coalesce?: 'scheduled' | 'pending' | 'unreachable';
   /** On `rate_limited`: the `automation_run` of the coalesced fire that covered it, once it ran. */
   coalescedInto?: number | null;
+  /** On `automation_paused`: the person's pause that refused it. */
+  paused?: { since: string; by: string | null; note: string | null };
 };
 
 /** Every kind that is a fire — not a person's control, not a refused match. */
@@ -1148,17 +1150,41 @@ export async function resumeAutomation(
  * The pause on each automation row, with the person's name resolved — one
  * user lookup for the whole list. Rows that are not paused are absent.
  * @param rows - Automation rows, as `listAutomations` returns them.
+ * @param orgId
  */
 export async function pausesFor(
   rows: Array<{ slug: string; pausedAt: Date | null; pausedBy: string | null; pausedNote: string | null }>,
+  orgId?: string,
 ): Promise<Map<string, AutomationPause>> {
   const paused = rows.filter(r => r.pausedAt !== null);
-  const names = await userNamesById(paused.map(r => r.pausedBy).filter((id): id is string => !!id));
+  const ids = paused.map(r => r.pausedBy).filter((id): id is string => !!id);
+  const [names, tokens] = await Promise.all([userNamesById(ids), tokenNamesById(ids, orgId)]);
   return new Map(paused.map(r => [r.slug, {
-    by: { id: r.pausedBy ?? '', name: r.pausedBy ? names.get(r.pausedBy) ?? null : null },
+    by: { id: r.pausedBy ?? '', name: r.pausedBy ? names.get(r.pausedBy) ?? tokens.get(r.pausedBy) ?? null : null },
     at: r.pausedAt!,
     note: r.pausedNote,
   }]));
+}
+
+/**
+ * Names for the API tokens among a set of actor ids (`token:<id>`): "API
+ * token "factory-writer"". A pause made through the API was shown as
+ * `token:ece37501…`, which names nothing a person can find (2026-10-01).
+ * @param ids - Actor ids.
+ * @param orgId - Tenant, when known: a token is read only in its own workspace.
+ */
+async function tokenNamesById(ids: string[], orgId?: string): Promise<Map<string, string>> {
+  const tokens = [...new Set(ids.filter(id => id.startsWith('token:')))];
+  if (tokens.length === 0) {
+    return new Map();
+  }
+  const rows = await db
+    .select({ id: apiTokenSchema.id, name: apiTokenSchema.name })
+    .from(apiTokenSchema)
+    .where(and(inArray(apiTokenSchema.id, tokens.map(t => t.slice('token:'.length))), ...(orgId ? [eq(apiTokenSchema.orgId, orgId)] : [])))
+    .catch(() => [] as Array<{ id: string; name: string }>);
+  const named = new Map(rows.map(r => [`token:${r.id}`, `API token "${r.name}"`]));
+  return new Map(tokens.map(t => [t, named.get(t) ?? `API token ${t.slice('token:'.length)}`]));
 }
 
 /**
