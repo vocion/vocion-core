@@ -1,6 +1,7 @@
 import type { ObjectOrigin } from '@/services/objects/objectCreated';
 import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeInput, UpdateBusinessObjectInput } from '@/validations/BusinessObjectValidation';
 import { and, eq } from 'drizzle-orm';
+import { assignTypeCodes, TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { businessObjectSchema, businessObjectTypeSchema, objectDocumentLinkSchema } from '@/models/Schema';
 import { announceObjectCreated, originMeta } from '@/services/objects/objectCreated';
@@ -25,10 +26,26 @@ export const getObjectTypeBySlug = (orgId: string, slug: string) => {
   });
 };
 
+/** A type's code clashes with another type's or a core noun's; the message names both. */
+export class ObjectTypeCodeError extends Error {}
+
 export const createObjectType = async (input: CreateObjectTypeInput, orgId: string) => {
+  // The type's code (`libs/codes.ts`) is settled against the org's other
+  // types, as the applier settles a workspace's: a declared one that another
+  // type already has is refused, saying which; a derived one is widened apart.
+  const { code, ...rest } = input;
+  const existing = await listObjectTypes(orgId);
+  const { codes, problems } = assignTypeCodes([
+    ...existing.map(t => ({ slug: t.slug, code: typeCodeOf(t) })),
+    { slug: input.slug, code: code ?? null },
+  ]);
+  const settled = codes.get(input.slug);
+  if (!settled) {
+    throw new ObjectTypeCodeError(problems.find(p => p.includes(`"${input.slug}"`)) ?? `object type "${input.slug}" has no code`);
+  }
   const created = await db
     .insert(businessObjectTypeSchema)
-    .values({ ...input, orgId })
+    .values({ ...rest, schema: { ...(rest.schema ?? {}), [TYPE_CODE_SCHEMA_KEY]: settled }, orgId })
     .returning();
   // Review cards remember types for a few seconds; a type written now should
   // be the one the next card renders from.

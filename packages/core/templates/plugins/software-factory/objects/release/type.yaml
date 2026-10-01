@@ -10,6 +10,8 @@ description: >-
   once the check has run. A task that merged but never shipped is not a
   release, and a release nobody was told about is not finished.
 icon: rocket
+# Its records read REL-<id> in the app and in chat (core: libs/codes.ts).
+code: REL
 schema:
   type: object
   # RELATED (core: libs/workspace/related.ts): what a release is connected to.

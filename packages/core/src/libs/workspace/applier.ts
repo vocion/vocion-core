@@ -2,6 +2,7 @@ import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningSt
 import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
 import { readFileSync } from 'node:fs';
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
@@ -673,7 +674,13 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: Apply
     icon: ot.icon ?? null,
     // Gates ride inside the stored schema (`x-gates`, beside `x-display`), so
     // the write path that already loads the schema sees them with no second read.
-    schema: gates.length > 0 ? { ...(ot.schema ?? {}), 'x-gates': gates } : (ot.schema ?? null),
+    // The type's code rides the same way (`x-code`, `libs/codes.ts`): settled
+    // once across the workspace by the loader, read by every surface after.
+    schema: {
+      ...(ot.schema ?? {}),
+      ...(gates.length > 0 ? { 'x-gates': gates } : {}),
+      [TYPE_CODE_SCHEMA_KEY]: ot.resolvedCode ?? typeCodeOf(ot),
+    },
     sourceRelevance: ot.sourceRelevance ?? null,
     classificationPrompt: ot.resolvedClassificationPrompt,
     fewShotExamples: ot.fewShotExamples.length > 0 ? ot.fewShotExamples : null,

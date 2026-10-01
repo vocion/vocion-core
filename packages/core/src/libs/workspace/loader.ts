@@ -9,6 +9,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { isSurfaceId, SURFACE_IDS } from '@/features/navigation/surfaces';
+import { assignTypeCodes } from '@/libs/codes';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { composeKind, resolveActivation } from './compose';
 import { assertEvalCheckPaths } from './evalCheckPaths';
@@ -51,7 +52,8 @@ export type LoadedAgent = AgentManifest & {
   /** Provenance: base default, workspace resource, or a merge of the two. */
   origin: Origin;
 };
-export type LoadedObjectType = ObjectTypeManifest & { resolvedClassificationPrompt: string | null; sourceFile: string; origin: Origin };
+/** `resolvedCode` is the code this type's records read by, settled across the workspace (`libs/codes.ts`). */
+export type LoadedObjectType = ObjectTypeManifest & { resolvedClassificationPrompt: string | null; sourceFile: string; origin: Origin; resolvedCode?: string };
 export type LoadedWorkflow = WorkflowManifest & { sourceFile: string };
 export type LoadedMission = MissionManifest & { sourceFile: string; origin: Origin };
 export type LoadedAutomation = AutomationManifest & { sourceFile: string };
@@ -247,7 +249,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   }
   const skills = composeFolders('skill', join(abs, 'skills'), layer?.active.skills, layer?.full.skills, files);
 
-  const objectTypes = composeEntries('object type', join(abs, 'objects'), isObjectFile, layer?.full.objectTypes, layer?.active.objectTypes, files)
+  const objectTypes: LoadedObjectType[] = composeEntries('object type', join(abs, 'objects'), isObjectFile, layer?.full.objectTypes, layer?.active.objectTypes, files)
     .map((entry) => {
       const parsed = validateOrThrow(ObjectTypeManifestSchema, entry.raw, entry.sourceFile, 'objectType');
       const resolvedClassificationPrompt = parsed.classificationPromptFile || parsed.classificationPrompt
@@ -388,6 +390,10 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   assertTeams(agents, teams, manifest);
   assertUniqueSlugs(skills, 'skill');
   assertUniqueSlugs(objectTypes, 'object type');
+  const objectTypeCodes = assertTypeCodes(objectTypes);
+  for (const ot of objectTypes) {
+    ot.resolvedCode = objectTypeCodes.get(ot.slug);
+  }
   assertNamedRefs(agents, skills, playbooks);
   assertUniqueSlugs(workflows, 'workflow');
   assertUniqueSlugs(missions, 'mission');
@@ -1085,6 +1091,22 @@ function walkDir(dir: string): string[] {
     }
     throw err;
   }
+}
+
+/**
+ * Every object type reads its records by a code (FE-294, `libs/codes.ts`), and
+ * a code names one type in a workspace: two types declaring the same code, or
+ * one taking a core noun's (RUN, ACT…), is refused here with both named. A
+ * type that declares none gets one derived from its slug, widened past any
+ * clash. Returns slug → code, which the applier stores on each type row.
+ * @param objectTypes - Every object type the workspace loads, plugins' included.
+ */
+function assertTypeCodes(objectTypes: ReadonlyArray<{ slug: string; code?: string }>): Map<string, string> {
+  const { codes, problems } = assignTypeCodes(objectTypes);
+  if (problems.length > 0) {
+    throw new Error(`object type codes clash:\n  - ${problems.join('\n  - ')}`);
+  }
+  return codes;
 }
 
 function assertUniqueSlugs<T extends { slug: string }>(items: T[], kind: string): void {

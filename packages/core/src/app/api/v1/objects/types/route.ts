@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server';
 import { AuthzDeniedError, enforce } from '@/services/authz';
-import { createObjectType, getObjectTypeBySlug, listObjectTypes } from '@/services/BusinessObjectService';
+import { createObjectType, getObjectTypeBySlug, listObjectTypes, ObjectTypeCodeError } from '@/services/BusinessObjectService';
+import { typeCodesOfRows } from '@/services/codes';
 import { CreateObjectTypeValidation } from '@/validations/BusinessObjectValidation';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../_shared';
 
 /**
  * GET /api/v1/objects/types
  *
- * The record shapes registered for this org — slug, label, description, icon
+ * The record shapes registered for this org — slug, label, code (the prefix
+ * its records read by, FE-294), description, icon
  * and the per-source relevance map. These are what an agent may propose
  * candidates against; POST to this same path registers a new one.
  * @param req
@@ -18,10 +20,12 @@ export async function GET(req: Request) {
     return auth;
   }
   const types = await listObjectTypes(auth.orgId);
+  const codes = typeCodesOfRows(types);
   return NextResponse.json({
     types: types.map(t => ({
       slug: t.slug,
       label: t.label,
+      code: codes.get(t.slug) ?? null,
       description: t.description,
       icon: t.icon,
       sourceRelevance: t.sourceRelevance ?? {},
@@ -73,6 +77,14 @@ export async function POST(req: Request) {
     return jsonError('ALREADY_EXISTS', `Object type "${parsed.data.slug}" is already registered`, 409);
   }
 
-  const [created] = await createObjectType(parsed.data, auth.orgId);
+  let created;
+  try {
+    [created] = await createObjectType(parsed.data, auth.orgId);
+  } catch (error) {
+    if (error instanceof ObjectTypeCodeError) {
+      return jsonError('CODE_TAKEN', error.message, 409);
+    }
+    throw error;
+  }
   return NextResponse.json({ type: created }, { status: 201 });
 }

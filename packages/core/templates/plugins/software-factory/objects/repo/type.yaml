@@ -9,6 +9,8 @@ description: >-
   per repository the factory may open a pull request in; a repository with no
   record is one the factory does not touch.
 icon: git-branch
+# Its records read REPO-<id> in the app and in chat (core: libs/codes.ts).
+code: REPO
 schema:
   type: object
   # KEPT TRUE BY THE RELEASE ENGINEER (Chris, 2026-09-30): a repository that

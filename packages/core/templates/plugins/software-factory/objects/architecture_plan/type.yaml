@@ -15,6 +15,8 @@ description: >-
   on the task. It is deliberately short. A plan nobody reads is worse than none,
   because it manufactures the appearance of review.
 icon: compass
+# Its records read PL-<id> in the app and in chat (core: libs/codes.ts).
+code: PL
 schema:
   type: object
   # Filing a plan is not approving it (backlog 038). The record lands done for

@@ -11,6 +11,8 @@ description: >-
   artifacts, what it could not establish — lands on the same record, so the
   contract, its result and the evidence behind it are read in one place.
 icon: hammer
+# Its records read TK-<id> in the app and in chat (core: libs/codes.ts).
+code: TK
 schema:
   type: object
   # A Review item about a task closes itself once the task ends (backlog 039).

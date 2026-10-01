@@ -10,6 +10,8 @@ description: >-
   the merge ask, the reply) hangs off this record by id, which is what makes
   "nobody asked for this" a checkable claim rather than a feeling.
 icon: inbox
+# Its records read FE-<id> in the app and in chat (core: libs/codes.ts).
+code: FE
 schema:
   type: object
   # Internal work, not an extracted record: nothing about it is published

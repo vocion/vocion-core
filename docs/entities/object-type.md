@@ -23,6 +23,7 @@ only the definition is authored.
 | `label` | string | required | Display name. |
 | `description` | string | — | One-line summary. |
 | `icon` | string | — | Lucide icon name. |
+| `code` | 2–5 uppercase letters | derived from the slug | The prefix its records are read by — `code: FE` makes record 294 read **FE-294** in the app and in chat. See *Codes*. |
 | `schema` | JSON Schema | — | The shape of the record's `metadata`. |
 | `sourceRelevance` | `{source: number}` | — | Per-source weight when retrieving for this type — higher is more relevant. |
 | `classificationPromptFile` | path | — | Markdown prompt used to classify material into this type, relative to `type.yaml`. |
@@ -32,6 +33,48 @@ only the definition is authored.
 
 `classificationPromptFile` and `classificationPrompt` are both optional; when
 either is present the loader resolves it into the type's effective prompt.
+
+## Codes
+
+Every record, in every workspace, is read by a short typed code: `<CODE>-<id>`.
+A feature is FE-294, its plan PL-295, the worker run that built it RUN-439,
+the action that merged it ACT-5590. Bare numbers side by side (#294, #295,
+run 439, action #5590) said nothing about which was which; the code does.
+
+- **The prefix is the type's `code:`.** Two to five uppercase letters. A type
+  that declares none gets one derived from its slug — the initials of a
+  multi-word slug (`data_room` → DR, `follow_up` → FU), a short word whole
+  (`deal` → DEAL), else a longer word's first three letters (`contact` → CON).
+  A derived code that would clash with another type's is widened until it does
+  not (`proposal` → PRO, then `product` → PROD); a slug too short to widen
+  takes a letter on the end (`ask` → ASKA). Only a declared code is ever refused.
+- **The number is the record's id.** Nothing is renumbered, ids stay unique
+  across types, and an old `#294` still resolves.
+- **A code names one type in a workspace.** `workspace:check` and
+  `workspace:apply` refuse two types declaring the same code, and a type
+  declaring a core noun's, naming both. A plugin's type declares its code;
+  the workspace overrides it the way it overrides any field (`extends: core`).
+- **Core nouns have core's codes**, from one definition (`CORE_NOUN_CODES` in
+  `packages/core/src/libs/codes.ts`): `RUN` (worker and agent runs), `ACT`
+  (action runs), `ASK` (asks), `CHAT` (conversations), `ART` (artifacts —
+  documents, wiki pages, mockups), `AUTO` (automation runs). No type may take
+  one.
+- **Things outside Vocion keep their own names.** A GitHub pull request stays
+  `<repo>#<n>` (`squatch-core#147`), so what is external looks external.
+
+The applier stores the settled code on the type row (`schema['x-code']`).
+`services/codes.ts` resolves a code to its row and a row to its code, and is
+what search, links and tool inputs use, case-insensitively: `read_object FE-294`
+and ⌘K `fe-294` find the same record. A code whose prefix does not match the
+record's type (FE-295 when 295 is a plan) resolves to nothing and says what
+the record's code is.
+
+```yaml
+# objects/request/type.yaml
+slug: request
+label: Request
+code: FE
+```
 
 ## Rollups
 

@@ -1,6 +1,7 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
 import { VoiceSchema } from '@/libs/agents/voice';
+import { TYPE_CODE_PATTERN } from '@/libs/codes';
 import { agentSkillsNameError } from '@/libs/skills/name';
 import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
@@ -1537,6 +1538,13 @@ export const ObjectTypeManifestSchema = z.object({
   label: z.string(),
   description: z.string().optional(),
   icon: z.string().optional(),
+  /**
+   * The prefix a person reads this type's records by: `code: FE` makes record
+   * 294 read FE-294 in the app and in chat (`libs/codes.ts`). 2–5 uppercase
+   * letters, unique within the workspace, never a core noun's (RUN, ACT, ASK,
+   * CHAT, ART, AUTO). Absent, one is derived from the slug.
+   */
+  code: z.string().regex(TYPE_CODE_PATTERN, 'a code is 2–5 uppercase letters, e.g. FE').optional(),
   schema: z.record(z.string(), z.unknown()).optional().describe('JSON Schema for metadata shape'),
   sourceRelevance: z.record(z.string(), z.number()).optional(),
   classificationPromptFile: z.string().optional(),

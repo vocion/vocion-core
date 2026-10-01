@@ -4181,7 +4181,7 @@
     "/api/v1/objects/types": {
       "get": {
         "operationId": "get_objects_types",
-        "summary": "The record shapes registered for this org — slug, label, description, icon and the per-source relevance map.",
+        "summary": "The record shapes registered for this org — slug, label, code (the prefix its records read by, FE-294), description, icon and the per-source relevance map.",
         "tags": [
           "objects"
         ],
@@ -4212,7 +4212,7 @@
             }
           }
         },
-        "description": "The record shapes registered for this org — slug, label, description, icon\nand the per-source relevance map. These are what an agent may propose\ncandidates against; POST to this same path registers a new one."
+        "description": "The record shapes registered for this org — slug, label, code (the prefix\nits records read by, FE-294), description, icon\nand the per-source relevance map. These are what an agent may propose\ncandidates against; POST to this same path registers a new one."
       },
       "post": {
         "operationId": "post_objects_types",
@@ -4267,7 +4267,7 @@
             }
           },
           "409": {
-            "description": "The record is in a state that does not allow this. Codes: `ALREADY_EXISTS`.",
+            "description": "The record is in a state that does not allow this. Codes: `ALREADY_EXISTS`, `CODE_TAKEN`.",
             "content": {
               "application/json": {
                 "schema": {
