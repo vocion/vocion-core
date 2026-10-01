@@ -285,7 +285,12 @@ name: Software factory
 #   — request FE, plan PL, task TK, release REL, environment ENV, product PRD,
 #   repo REPO — so feature 294 reads FE-294 beside RUN-439 and ACT-5590, in the
 #   app and in chat. The number is the record's id; `#294` still resolves.
-version: 2.45.0
+# 2.46.0 — a deploy that broke production goes to the Release engineer
+#   (2026-10-01). One automation, `incident-deploy-caused`, on
+#   `incident.opened` with `cause: deploy` — raised by the production-watch
+#   plugin when it is on, never otherwise — and the product's Related lists
+#   the incidents that name it.
+version: 2.46.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

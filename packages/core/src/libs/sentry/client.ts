@@ -407,6 +407,19 @@ export async function listProjects(c: SentryCredentials, doFetch?: SentryFetch):
 }
 
 /**
+ * A project's latest releases, newest first, with when each was created —
+ * for an SDK that names its release by the deployed commit, when it went out.
+ * @param c - Where and as whom.
+ * @param project - Project slug.
+ * @param limit - How many.
+ * @param doFetch - The network, injected in tests.
+ */
+export async function listReleases(c: SentryCredentials, project: string, limit = 5, doFetch?: SentryFetch): Promise<SentryResult<Array<{ version: string; createdAt: string | null }>>> {
+  const res = await sentryGet<Array<{ version?: unknown; dateCreated?: unknown }>>(c, `/projects/${c.org}/${encodeURIComponent(project)}/releases/`, { per_page: limit }, doFetch);
+  return res.ok ? { ok: true, data: (Array.isArray(res.data) ? res.data : []).map(r => ({ version: String(r.version ?? ''), createdAt: s(r.dateCreated) })).filter(r => r.version) } : res;
+}
+
+/**
  * Where a project's issues open in Sentry, for a person: the organization's
  * own address, filtered to the project and environment.
  * @param ref - The project.

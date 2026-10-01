@@ -1,0 +1,88 @@
+slug: incident
+label: Incident
+description: >-
+  One production error that crossed the watch's threshold, as the error
+  tracker recorded it: which issue, where, since when, how often, what caused
+  it, and what was done about it. Opened and kept current by the watch
+  (`error-watch`), one per issue; the on-call engineer writes what it found
+  and the move it made.
+icon: siren
+schema:
+  type: object
+  x-moderation: none
+  x-related:
+    - {key: product, label: Product, from: links, field: product, type: product, match: slug}
+  properties:
+    shortId:
+      x-display: {label: Issue, format: mono, group: The error}
+      type: string
+      description: The tracker's short id, e.g. `NW-API-3`.
+    url:
+      x-display: {label: Link, format: link, group: The error}
+      type: string
+    project:
+      x-display: {label: Project, group: The error}
+      type: string
+    environment:
+      x-display: {label: Environment, format: badge, group: The error}
+      type: string
+    product:
+      x-display: {label: Product, format: link, to: product, group: The error}
+      type: string
+      description: The slug of the product it hurts, from the watch list.
+    release:
+      x-display: {label: First seen in release, format: mono, group: The error}
+      type: string
+      description: The release (usually the deployed commit) the issue first appeared in.
+    culprit:
+      x-display: {label: Where, group: The error}
+      type: string
+    exception:
+      x-display: {label: Exception, group: The error}
+      type: string
+    request:
+      x-display: {label: Failing request, format: mono, group: The error}
+      type: string
+    frames:
+      x-display: {label: Stack, role: prose, format: steps}
+      type: array
+      items: {type: string}
+      description: The product's own frames, `file:line in function`, innermost last.
+    firstSeen:
+      x-display: {label: First seen, group: When}
+      type: string
+      format: date-time
+    lastSeen:
+      x-display: {label: Last seen, group: When}
+      type: string
+      format: date-time
+    events:
+      x-display: {label: Events, group: When}
+      type: integer
+      description: Events in the issue's life, as the tracker counts them.
+    eventsLastHour:
+      x-display: {label: Events in the last hour, group: When}
+      type: integer
+    cause:
+      x-display: {label: Cause, format: badge, tones: {deploy: bad, code: warn, unknown: muted}}
+      type: string
+      enum: [deploy, code, unknown]
+      description: >-
+        What caused it, read by a model from the evidence: `deploy` — a release
+        that went out brought it; `code` — an existing path fails; `unknown` —
+        the evidence does not settle it.
+    causeWhy:
+      x-display: {label: Why}
+      type: string
+    status:
+      x-display: {label: Status, format: badge, tones: {open: bad, resolved: ok}}
+      type: string
+      enum: [open, resolved]
+    action:
+      x-display: {label: What was done, role: prose}
+      type: string
+      description: The move the on-call engineer (or the factory) made, in one line with its link — a revert, a filed request, or why none.
+    requestId:
+      x-display: {label: Factory request, format: link, to: request}
+      type: integer
+      description: The factory request filed for the fix, when there is one.

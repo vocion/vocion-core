@@ -1,0 +1,37 @@
+# Production Watch — production errors become incidents a person and an agent
+# can act on (2026-10-01: an API answered 500 to every signed-in call for
+# hours, Sentry counted 184 of them, and nothing in the workspace knew). Kept
+# small on purpose (Chris: "don't overbuild it. start simple"): one seat, one
+# skill, one record, one watch, one notification.
+#
+# It stands alone. With the software factory on, it couples loosely, by events
+# and existing tools only: `incident.opened` carries the typed `cause`, and the
+# factory's own automation wakes its Release engineer for a deploy-caused one;
+# the on-call engineer files a factory `request` for a major code bug through
+# the request type's filing tool, which exists only where the factory is on.
+#
+# 0.1.0 — the first version.
+slug: production-watch
+name: Production Watch
+version: 0.1.0
+description: Production errors from Sentry become incidents — opened when an issue is new and busy or spiking, each with its cause (a deploy, the code, or unknown) read from the evidence — and an on-call engineer who reads the stack and says what to do; a person hears once per incident.
+depends: []
+surfaces: []
+recommend:
+  when:
+    - a person pastes a production error, a 500 or a stack trace and asks what broke
+    - a deploy "succeeded" but people say the product is broken
+    - the workspace connects Sentry
+  connectors: [sentry]
+notifications:
+  # Its own kind: `needs-person` belongs to the software factory, and a kind
+  # belongs to one plugin. One notification per incident, when it opens.
+  - kind: incident
+    label: Production incident
+    description: An error in production crossed the watch's threshold and an incident was opened.
+    event: incident.opened
+    who: accountable
+    title: 'Incident: {title}'
+    body: '{events} events in the last hour on {project}. Cause: {cause} — {why}'
+    record: {type: incident, id: '{incidentId}'}
+    dedupe: 'incident:{incidentId}'

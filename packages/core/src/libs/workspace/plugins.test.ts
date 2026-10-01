@@ -29,7 +29,7 @@ afterEach(() => {
 
 describe('the shipped catalogue', () => {
   it('ships wiki, data-rooms, proposals and software-factory, each with a valid manifest', () => {
-    expect(listPluginSlugs()).toEqual(expect.arrayContaining(['data-rooms', 'growth-loop', 'proposals', 'software-factory', 'wiki']));
+    expect(listPluginSlugs()).toEqual(expect.arrayContaining(['data-rooms', 'growth-loop', 'production-watch', 'proposals', 'software-factory', 'wiki']));
 
     for (const p of listPlugins()) {
       expect(p.manifest.slug).toBe(p.sourcePath.split('/').pop());
@@ -63,14 +63,14 @@ describe('the shipped catalogue', () => {
     // ui or flow request's mockup the moment it is filed (2.29.0); the eight
     // reporting and hygiene missions are gone.
     expect(factory.missions).toEqual(['close-the-gap', 'keep-the-pipeline-answered', 'prove-the-contract', 'show-it-first', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-daily-plan', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-result-check', 'factory-run-failed', 'pipeline-fix', 'pipeline-fix-ended', 'product-debrief', 'release-announcement-draft', 'release-live-check', 'release-live-check-ended', 'standard-from-shipped', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-daily-plan', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-result-check', 'factory-run-failed', 'incident-deploy-caused', 'pipeline-fix', 'pipeline-fix-ended', 'product-debrief', 'release-announcement-draft', 'release-live-check', 'release-live-check-ended', 'standard-from-shipped', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: data-rooms, growth-loop, proposals, software-factory, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: data-rooms, growth-loop, production-watch, proposals, software-factory, wiki/);
   });
 
   it('counts what the growth loop ships', () => {
@@ -314,7 +314,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.45.0');
+    expect(ws.sha).toContain('+software-factory@2.46.0');
     // A re-run of a red CI's failed jobs is done for you: it changes no code (backlog 049).
     expect(ws.trust?.rules.find(r => r.action === 'repo.rerun_failed_checks')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
     // The pipeline's owner opens its own fix, and it merges on green (plugin 2.33.0).
@@ -430,7 +430,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(release?.harness?.grantTools).toEqual(['product_access', 'repo_read_check_logs', 'repo_read_pipeline_runs', 'repo.open_pull', 'repo.dispatch_pipeline', 'repo.revert_pull', 'repo.rerun_failed_checks', 'repo.cancel_pipeline_run']);
     expect(release?.skills).toEqual(['rubric-release-engineer', 'explain-a-red-check', 'incident-update']);
     expect(ws.missions.find(m => m.slug === 'keep-the-pipeline-answered')?.agent).toBe('release-engineer');
-    expect(ws.automations.filter(a => a.agent === 'release-engineer').map(a => a.slug).sort()).toEqual(['deploy-run-failed', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-reconcile', 'pipeline-fix', 'pipeline-fix-ended']);
+    expect(ws.automations.filter(a => a.agent === 'release-engineer').map(a => a.slug).sort()).toEqual(['deploy-run-failed', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-reconcile', 'incident-deploy-caused', 'pipeline-fix', 'pipeline-fix-ended']);
     expect(ws.automations.find(a => a.slug === 'environment-health')).toMatchObject({ when: { schedule: '*/10 * * * *' }, do: { job: 'factory-environment-health', input: { owner: 'release-engineer' } } });
     expect(ws.trust?.rules.find(r => r.action === 'git.merge.rollback')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', autoApproveAbove: 0.85 });
     expect(ws.automations.find(a => a.slug === 'environment-deployed')).toMatchObject({ when: { event: ['run.succeeded', 'run.failed'] }, do: { job: 'factory-environment-deployed' } });
