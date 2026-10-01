@@ -145,4 +145,29 @@ describe('atlassianProvider', () => {
     expect(out.reason).not.toContain('c-secret');
     expect(out.reason).not.toContain('csecret');
   });
+
+  it('summarizes a grant as the site it reads, listing the sites when the account reaches several', () => {
+    const one = atlassianProvider.summarize({
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresAt: '2026-10-01T00:00:00.000Z',
+      scope: 'read:jira-work',
+      sites: [{ id: 'c1', url: 'https://metacto.atlassian.net', name: 'metacto' }],
+      cloudId: 'c1',
+    });
+
+    expect(one).toEqual({ account: 'metacto.atlassian.net' });
+
+    const two = atlassianProvider.summarize({
+      accessToken: 'a',
+      refreshToken: 'r',
+      scope: 'read:jira-work',
+      sites: [{ id: 'c1', url: 'https://metacto.atlassian.net', name: 'metacto' }, { id: 'c2', url: 'https://noco.atlassian.net', name: 'noco' }],
+    });
+
+    expect(two).toEqual({ account: 'metacto.atlassian.net', granted: { label: 'Sites', items: ['metacto.atlassian.net', 'noco.atlassian.net'] } });
+
+    // A pasted API token has no sites recorded.
+    expect(atlassianProvider.summarize({ email: 'a@b.c', apiToken: 't' })).toBeNull();
+  });
 });

@@ -3,10 +3,12 @@
 import type { LucideIcon } from 'lucide-react';
 import type { RefObject } from 'react';
 import type { ConnectorRow, Source } from './connectorRows';
+import type { GrantSummary } from '@/libs/connect/provider';
 import {
   AlertTriangle,
   BarChart3,
   Calendar,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -580,6 +582,7 @@ function SourceDetail({ source, row, onConnect }: { source: Source; row: Connect
             )
           : <p className="text-muted-foreground">Never synced.</p>}
       </dl>
+      {source.grant && <GrantDetail source={source} grant={source.grant} />}
       {scopes.length > 0 && (
         <div className="sm:col-span-2" data-testid="connector-scopes">
           <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Scopes this connector needs</div>
@@ -614,6 +617,88 @@ function SourceDetail({ source, row, onConnect }: { source: Source; row: Connect
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Whose account the grant is on and what it granted — the installation's
+ * organization and repositories, the Slack workspace, the Atlassian site —
+ * read against the source's own list where the source has one. A repository
+ * the source lists that the installation never covered is the one fact a
+ * green card used to hide; it is named here, in place, before a sync runs.
+ * @param props
+ * @param props.source
+ * @param props.grant
+ */
+function GrantDetail({ source, grant }: { source: Source; grant: GrantSummary }) {
+  const granted = grant.granted;
+  const listed = Array.isArray(source.config.repos)
+    ? (source.config.repos as unknown[]).filter((r): r is string => typeof r === 'string' && r.length > 0)
+    : [];
+  const grantedSet = new Set((granted?.items ?? []).map(name => name.toLowerCase()));
+  const listedSet = new Set(listed.map(name => name.toLowerCase()));
+  // The source's list first, each marked against the grant; then what the
+  // grant covers that the source does not read. Without a list, the grant alone.
+  const rows: Array<{ name: string; state: 'read' | 'not-granted' | 'not-listed' }> = granted
+    ? [
+        ...listed.map(name => ({ name, state: grantedSet.has(name.toLowerCase()) ? 'read' as const : 'not-granted' as const })),
+        ...granted.items.filter(name => !listedSet.has(name.toLowerCase())).map(name => ({ name, state: listed.length > 0 ? 'not-listed' as const : 'read' as const })),
+      ]
+    : [];
+  const missing = rows.filter(r => r.state === 'not-granted').length;
+  return (
+    <div className="sm:col-span-2" data-testid="connector-grant">
+      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Connected to</div>
+      <dl className="mt-1 space-y-1 text-[13px]">
+        <div>
+          <dt className="inline text-muted-foreground">Account: </dt>
+          <dd className="inline">{grant.account}</dd>
+        </div>
+        {granted && (
+          <div>
+            <dt className="text-muted-foreground">
+              {granted.label}
+              {rows.length > 0 ? ` (${rows.length})` : ''}
+              :
+            </dt>
+            <dd className="mt-1">
+              {rows.length === 0
+                ? <span className="text-muted-foreground">none granted yet</span>
+                : (
+                    <ul className="flex flex-col gap-0.5 font-mono text-xs">
+                      {rows.map(row => (
+                        <li key={row.name} className="flex items-center gap-1.5" data-grant-state={row.state}>
+                          {row.state === 'not-granted'
+                            ? <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-hidden />
+                            : <Check className={`size-3.5 shrink-0 ${row.state === 'not-listed' ? 'text-muted-foreground/60' : 'text-emerald-600 dark:text-emerald-500'}`} aria-hidden />}
+                          <span className={row.state === 'not-listed' ? 'text-muted-foreground' : ''}>{row.name}</span>
+                          {row.state === 'not-granted' && <span className="font-sans text-destructive">not granted to the app</span>}
+                          {row.state === 'not-listed' && <span className="font-sans text-muted-foreground">granted, not in this source's list</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+              {granted.note && <p className="mt-1 text-xs text-muted-foreground">{granted.note}</p>}
+              {missing > 0 && (
+                <p className="mt-1 text-xs text-destructive">
+                  {missing === 1 ? 'A repository this source lists is not' : `${missing} repositories this source lists are not`}
+                  {' '}
+                  in the installation, so the sync cannot read
+                  {missing === 1 ? ' it' : ' them'}
+                  . Add
+                  {missing === 1 ? ' it' : ' them'}
+                  {' '}
+                  on the installation's page at the vendor, or take
+                  {missing === 1 ? ' it' : ' them'}
+                  {' '}
+                  out of the source.
+                </p>
+              )}
+            </dd>
+          </div>
+        )}
+      </dl>
     </div>
   );
 }

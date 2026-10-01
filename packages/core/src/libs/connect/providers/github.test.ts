@@ -162,4 +162,25 @@ describe('githubProvider', () => {
     expect(await githubProvider.exchange({ query: { setup_action: 'install', code: 'c' }, redirectUri: REDIRECT })).toEqual({ ok: false, reason: 'missing_installation' });
     expect(await githubProvider.exchange({ query: { ...CALLBACK, installation_id: '999' }, redirectUri: REDIRECT })).toEqual({ ok: false, reason: 'installation_not_found' });
   });
+
+  it('summarizes a stored installation as its account and repositories, and nothing for a pasted token', () => {
+    expect(githubProvider.summarize({
+      installationId: '777',
+      account: 'The-NocoCompany',
+      accountType: 'Organization',
+      repositorySelection: 'selected',
+      repositories: ['The-NocoCompany/warranty-app', 'The-NocoCompany/noco-sales'],
+      permissions: { pull_requests: 'read' },
+    })).toEqual({
+      account: 'The-NocoCompany (organization)',
+      granted: { label: 'Repositories', items: ['The-NocoCompany/warranty-app', 'The-NocoCompany/noco-sales'], note: undefined },
+    });
+
+    // An installation over every repository says so: the stored list is a snapshot.
+    expect(githubProvider.summarize({ installationId: '1', account: 'acme', accountType: 'User', repositorySelection: 'all', repositories: [] })?.granted?.note)
+      .toMatch(/every repository/);
+
+    // A fine-grained token recorded no account, so there is nothing to show.
+    expect(githubProvider.summarize({ token: 'github_pat_x' })).toBeNull();
+  });
 });

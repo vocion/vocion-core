@@ -109,6 +109,35 @@ describe('ConnectorList', () => {
     expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }));
   });
 
+  it('names the account a grant is on and marks each listed repository against what it granted', async () => {
+    const GITHUB = tile('github', 'GitHub');
+    const rows = buildConnectorRows([GITHUB], [source({
+      id: 9,
+      slug: 'github',
+      kind: 'github',
+      config: { repos: ['The-NocoCompany/warranty-app', 'The-NocoCompany/noco-sales'] },
+      grant: {
+        account: 'The-NocoCompany (organization)',
+        granted: { label: 'Repositories', items: ['The-NocoCompany/warranty-app', 'The-NocoCompany/amazon-ads-reporting'] },
+      },
+    })]);
+    const noop = () => {};
+    render(<ConnectorList rows={rows} syncingId={null} onConnectNew={noop} onSync={noop} onTest={noop} onEdit={noop} onDelete={noop} onConnect={noop} />);
+
+    await userEvent.click(page.getByRole('button', { name: /GitHub/ }).first());
+
+    const grant = page.getByTestId('connector-grant');
+
+    await expect.element(grant).toBeVisible();
+    await expect.element(grant.getByText('The-NocoCompany (organization)')).toBeVisible();
+    // Listed and granted: read. Listed, not granted: the one fact a green card hid.
+    expect(grant.getByText('The-NocoCompany/warranty-app').element().closest('li')?.getAttribute('data-grant-state')).toBe('read');
+    expect(grant.getByText('The-NocoCompany/noco-sales').element().closest('li')?.getAttribute('data-grant-state')).toBe('not-granted');
+    await expect.element(grant.getByText(/A repository this source lists is not in the installation/)).toBeVisible();
+    // Granted but not listed: shown, muted, so the person sees what the source leaves unread.
+    expect(grant.getByText('The-NocoCompany/amazon-ads-reporting').element().closest('li')?.getAttribute('data-grant-state')).toBe('not-listed');
+  });
+
   it('shows a running sync\'s progress on the row without opening it', async () => {
     renderList([source({ sync: { status: 'running', startedAt: new Date(Date.now() - 120_000).toISOString(), completedAt: null, error: null, counts: { created: 40, updated: 2 } } })]);
 

@@ -85,4 +85,11 @@ export const slackProvider: ConnectProvider = {
       displayName: `Slack — ${teamName}`,
     };
   },
+  summarize: (credentials) => {
+    const teamName = typeof credentials.teamName === 'string' ? credentials.teamName.trim() : '';
+    if (!teamName || typeof credentials.token !== 'string') {
+      return null;
+    }
+    return { account: `${teamName} (Slack workspace)` };
+  },
 };
