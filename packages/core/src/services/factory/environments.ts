@@ -18,7 +18,7 @@
  *                      an operator, never the verdict.
  *   watchMissedDeploys a merge on the deploy branch with no run of its deploy
  *                      workflow after MISSED_DEPLOY_MS: the workflow is started
- *                      (`github.dispatch_workflow`, done for you) once per
+ *                      (`repo.dispatch_pipeline`, done for you) once per
  *                      commit — only for a workflow the branch's pushes always
  *                      start, read from its own `on:` block.
  *

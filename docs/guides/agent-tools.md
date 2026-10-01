@@ -34,6 +34,26 @@ agents that hold each tool, so what the page says an agent has is what the agent
 | `file_feedback` | — proposes a rule for a person | A suggested rule on Needs you. | every agent | always a person |
 | `propose_action` with `rest.request` (after reading `<prefix>_list_actions`) | `rest.request` | An endpoint a [`rest` source](./rest.md) declares under `actions[]` — a write to the workspace's own API. | agents with a REST source in `connectorSources:` | external, not reversible → always asks, until `trust.yaml` promotes one endpoint (`rest.request.<source>.<action>`) |
 | `apollo_add_to_list`, `apollo_remove_from_list` | Apollo, direct | A prospect list that can feed a live cadence. | agents granted them (`harness.grantTools`) with an Apollo source | the grant is the gate |
+| `repo_read_pull`, `repo_read_diff`, `repo_read_file` | — (reads) | Nothing: a pull request, a diff (with the files outside a task's `allowedPaths`), a file at a ref, read live from the connected code host with the workspace's own connection. | agents with a code-host source (`github` today) in `connectorSources` | — |
+| `repo_read_check_logs`, `repo_read_pipeline_runs` | — (reads) | Nothing: a red check's failing step and log tail; a pipeline's runs with their jobs. Former names `github_read_check_logs`, `github_read_workflow_runs`. | agents granted them (`harness.grantTools`) | the grant is the gate |
+| `propose_action` with `repo.comment_pull`, `repo.submit_review`, `repo.cancel_pipeline_run` | the same ids | A comment on a pull request (Undo deletes it); a review with inline findings (Undo dismisses it); a pipeline run stopped (Undo starts it again). | every agent with the family in scope | low / medium / low → done for you at 0.8 |
+| `propose_action` with `repo.rerun_failed_checks`, `repo.open_pull`, `repo.dispatch_pipeline`, `repo.revert_pull` | the same ids (formerly `github.rerun_failed_jobs`, `github.open_pull`, `github.dispatch_workflow`, `github.revert_pull`) | The failed jobs re-run; a pipeline fix opened as a pull request; a pipeline started; a merged pull request reverted. Each with Undo. | the pipeline's owner — a seat whose harness grants the id — or a person | the software-factory plugin's trust.yaml: done for you at 0.8 |
+| `tracker_read_issue`, `tracker_search_issues`, `tracker_read_attachment` | — (reads) | Nothing: an issue live with its comments, attachments and transitions; a search in the tracker's own language bounded to the configured projects; an attachment (an image becomes an artifact). | agents with a tracker source (`jira` today) in `connectorSources` | — |
+| `propose_action` with `tracker.create_issue`, `tracker.transition_issue`, `tracker.update_issue`, `tracker.attach_file` | the same ids | An issue filed from a request; its status moved; its priority, labels, version or remote link; a file attached. Each with Undo. | every agent with the family in scope | medium / low / low / low → done for you at 0.8 |
+| `propose_action` with `tracker.comment` | `tracker.comment`, or `tracker.comment.<kind>` | A comment the asker reads on their issue. Undo deletes it. | every agent with the family in scope | medium; the plugin holds it at a person's approval like `notify.requester` |
+| `chat_read_thread`, `chat_read_file` | — (reads) | Nothing: a thread read live with the chat's own token (the workspace's `slack` source first, the deployment's app second); a file on a message (an image becomes an artifact). | agents with a chat source (`slack` today) in `connectorSources` | — |
+| `propose_action` with `chat.post_message` (formerly `slack.post_message`) | `chat.post_message` | A post in a channel the workspace bound; Undo deletes it. | every agent | medium → a person approves until promoted |
+| `propose_action` with `chat.reply_in_thread` | `chat.reply_in_thread`, or `.<kind>` | A reply in the thread the ask came from; Undo deletes it. | every agent with the family in scope | medium; a kind reads the parent's rule unless given its own |
+| `propose_action` with `chat.add_reaction` | `chat.add_reaction` | A reaction on a message; Undo removes it. | every agent with the family in scope | low → done for you at 0.8 |
+| `lookup_person` | — (read) | Nothing: one person's chat user, tracker account and code-host login, found by email across the families the agent reaches. | agents with any of the three families in scope | — |
+
+The `repo`, `tracker` and `chat` rows are the three **connector families**
+(`libs/connectors/families.ts`): tools and actions named for the construct —
+a pull request, an issue, a thread — never for the vendor. GitHub, Jira and
+Slack are the first provider of each; the source a workspace connected decides
+which answers. An action renamed from its vendor's id keeps the old id as an
+alias (`Action.aliases`), so a run, a trust rule or a grant written against
+`github.open_pull` still resolves to `repo.open_pull`.
 
 Data-room filing (`file_to_data_room`, `unfile_from_data_room`) and artifact editing
 (`update_artifact`, `edit_document`) write inside the workspace and the conversation and are not

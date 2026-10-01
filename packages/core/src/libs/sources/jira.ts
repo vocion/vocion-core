@@ -92,7 +92,7 @@ type JiraSearchPage = { issues?: JiraIssue[]; nextPageToken?: string; isLast?: b
  * Quote a value for JQL, escaping backslashes and double quotes.
  * @param value
  */
-function jqlQuote(value: string): string {
+export function jqlQuote(value: string): string {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', String.raw`\"`)}"`;
 }
 
@@ -155,7 +155,7 @@ export function buildJql(opts: {
  * documents link to, the headers for the current token, and — for a grant —
  * the refresh that keeps the token alive.
  */
-type JiraAuth = {
+export type JiraAuth = {
   /** Where the REST calls go: the site itself, or api.atlassian.com for a grant. */
   apiBase: string;
   /** The site's own URL, for `/browse/` links on every document. */
@@ -173,7 +173,7 @@ type JiraAuth = {
  * What the OAuth path does with a rotated token. The sync persists it; an
  * inspection cannot (it has no org to write under), so it refuses to refresh.
  */
-type GrantPersistence
+export type GrantPersistence
   = | { kind: 'persist'; orgId: string; warn: (message: string) => void }
     | { kind: 'never' };
 
@@ -297,7 +297,12 @@ function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPer
 }
 
 /**
- * Fetch with Jira-appropriate failure handling: exact `Retry-After` on 429
+ * Fetch with Jira-appropriate failure handling. Exported, with `JiraAuth`,
+ * `GrantPersistence` and `jqlQuote`, for the tracker family's Jira provider
+ * (`services/tracker/providers/jira.ts`), which reads and writes issues with
+ * the same auth and the same 401/429 handling as the sync.
+ *
+ * Jira-appropriate failure handling: exact `Retry-After` on 429
  * (retrying early extends the penalty, so the shared helper honours the wait
  * Jira asked for); one retry on 401 when the auth path can mint a fresh
  * token; and an actionable error on 401/403 otherwise — the admin must
@@ -306,7 +311,7 @@ function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPer
  * @param path - Path under the API base, starting with `/rest/`.
  * @param init - Method and body; headers come from `auth`.
  */
-async function jiraFetch(auth: JiraAuth, path: string, init: RequestInit = {}): Promise<Response> {
+export async function jiraFetch(auth: JiraAuth, path: string, init: RequestInit = {}): Promise<Response> {
   await auth.ensureFresh();
   let res = await fetchRetryingRateLimits(`${auth.apiBase}${path}`, { ...init, headers: auth.headers() }, { maxRetries: MAX_RETRIES });
   if (res.status === 401 && await auth.onUnauthorized()) {

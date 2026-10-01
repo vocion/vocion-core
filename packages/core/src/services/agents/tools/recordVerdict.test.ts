@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable, sendBackRoute } from './recordVerdict';
+import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable, reviewMirrorInput, sendBackRoute } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -164,5 +164,22 @@ describe('sendBackRoute — a send-back goes to the engineer or back to planning
 
   it('a repeat under a different plan is a new plan\'s first try, not a repeat', () => {
     expect(sendBackRoute({ criteria: [c('A', 'unproven')], planId: 236, previous: { planId: 136, criteria: [c('A', 'unproven')] } }).to).toBe('engineer');
+  });
+});
+
+describe('reviewMirrorInput — the verdict as a review on the pull request', () => {
+  const base = { url: 'https://github.com/acme/app/pull/12', note: 'Accept it; the one risk is the cache.', proven: 4, total: 6, taskId: 41 };
+
+  it('approve approves; changes and reject both request changes; the body carries the count, the note and every finding keyed to what it is against', () => {
+    const findings = [{ against: 'criterion' as const, ref: 'C2', severity: 'block' as const, what: 'The filter is not applied.', closeBy: 'Apply it in query.ts.' }];
+    const changes = reviewMirrorInput({ ...base, value: 'changes', findings });
+
+    expect(changes).toMatchObject({ url: base.url, event: 'request_changes', taskId: 41, recordId: 41 });
+    expect(changes.body).toContain('**QA verdict: changes** — 4 of 6 criteria proven.');
+    expect(changes.body).toContain(base.note);
+    expect(changes.body).toContain('- [block] against criterion `C2`: The filter is not applied. Close by: Apply it in query.ts.');
+    expect(changes.body).toContain('task #41');
+    expect(reviewMirrorInput({ ...base, value: 'reject', findings: [] }).event).toBe('request_changes');
+    expect(reviewMirrorInput({ ...base, value: 'approve', findings: [] }).event).toBe('approve');
   });
 });

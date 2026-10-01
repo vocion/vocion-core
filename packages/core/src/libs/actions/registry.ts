@@ -8,6 +8,8 @@ import type { Action } from './types';
 import { agentRevisePromptAction } from './agent-revise-prompt';
 import { askFileAction } from './ask-file';
 import { askWithdrawAction } from './ask-withdraw';
+import { chatAddReactionAction } from './chat-add-reaction';
+import { chatReplyInThreadAction } from './chat-reply-in-thread';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
 import { factoryApprovePlanAction } from './factory-approve-plan';
@@ -27,21 +29,57 @@ import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
+import { repoCancelPipelineRunAction } from './repo-cancel-pipeline-run';
+import { repoCommentPullAction } from './repo-comment-pull';
+import { repoSubmitReviewAction } from './repo-submit-review';
 import { restRequestAction } from './rest';
 import { slackPostMessageAction } from './slack-post-message';
 import { teamHireAgentAction } from './team-hire-agent';
+import { trackerAttachFileAction } from './tracker-attach-file';
+import { trackerCommentAction } from './tracker-comment';
+import { trackerCreateIssueAction } from './tracker-create-issue';
+import { trackerTransitionIssueAction } from './tracker-transition-issue';
+import { trackerUpdateIssueAction } from './tracker-update-issue';
 import { wikiWritePageAction } from './wiki-write-page';
 import { workspaceWriteOperatingIntentAction } from './workspace-operating-intent';
 import { workspaceWriteMissionAction, workspaceWritePlaybookAction } from './workspace-source';
 
 const registry = new Map<string, Action>();
+/** A former id → the id it is registered under now (`Action.aliases`). */
+const aliases = new Map<string, string>();
 
 export function registerAction(action: Action): void {
   registry.set(action.id, action);
+  for (const alias of action.aliases ?? []) {
+    aliases.set(alias, action.id);
+  }
 }
 
+/**
+ * The action behind an id — its own, or one it used to carry. A run stored
+ * under a former id, a rule a workspace wrote against it and a grant that
+ * names it all resolve to the same action.
+ * @param id - An action id, current or former.
+ */
 export function getAction(id: string): Action | undefined {
-  return registry.get(id);
+  return registry.get(id) ?? registry.get(aliases.get(id) ?? '');
+}
+
+/**
+ * The id an action is registered under now, for an id that may be a former one.
+ * @param id - An action id, current or former.
+ */
+export function canonicalActionId(id: string): string {
+  return registry.has(id) ? id : (aliases.get(id) ?? id);
+}
+
+/**
+ * The former ids of an action, for a reader that matches rules or grants by
+ * name and must accept what a workspace wrote before the rename.
+ * @param id - An action id, current or former.
+ */
+export function aliasesOf(id: string): readonly string[] {
+  return getAction(id)?.aliases ?? [];
 }
 
 export function listActions(): Action[] {
@@ -57,6 +95,10 @@ registerAction(restRequestAction);
 // A message to a Slack channel the workspace bound — external, Undo deletes
 // the post, the words editable on the card (`libs/actions/slack-post-message.ts`).
 registerAction(slackPostMessageAction);
+// A reply in the thread an ask came from, and a reaction on its message — the
+// chat family's other two writes; both reversible (`libs/actions/chat-*.ts`).
+registerAction(chatReplyInThreadAction);
+registerAction(chatAddReactionAction);
 registerAction(discoveryReviewProposalAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);
@@ -81,6 +123,23 @@ registerAction(githubDispatchWorkflowAction);
 // A release that took an environment down, reverted and merged on green
 // (git.merge.rollback); Undo puts it back (backlog 049).
 registerAction(githubRevertPullAction);
+// A comment on a pull request — the run report, why a check is red — on the
+// connected code host; Undo deletes it (`libs/actions/repo-comment-pull.ts`).
+registerAction(repoCommentPullAction);
+// QA's verdict mirrored as a review on the pull request, findings inline;
+// Undo dismisses it (`libs/actions/repo-submit-review.ts`).
+registerAction(repoSubmitReviewAction);
+// A pipeline run that should not be running, stopped; Undo starts it again
+// (`libs/actions/repo-cancel-pipeline-run.ts`).
+registerAction(repoCancelPipelineRunAction);
+// The tracker family's writes on the connected issue tracker (Jira first):
+// an issue filed from a request, a status transition, fields, a comment and an
+// attachment — each with its Undo (`services/tracker/provider.ts`).
+registerAction(trackerCreateIssueAction);
+registerAction(trackerTransitionIssueAction);
+registerAction(trackerUpdateIssueAction);
+registerAction(trackerCommentAction);
+registerAction(trackerAttachFileAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.

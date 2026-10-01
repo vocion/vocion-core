@@ -23,6 +23,8 @@ skills:
   - review-against-contract
   - rubric-qa
   - check-the-live-release
+  - review-on-the-pull
+  - judge-the-checks
 objectTypes:
   - architecture_plan
   - engineering_task
@@ -46,4 +48,7 @@ harness:
     # A shipped release checked on the live product as the QA account, and what
     # QA saw written on the release and its features (backlog 043).
     - check_live
+    # The check output the verdict is judged on, read from the code host
+    # rather than from the engineer's report (plugin 2.43.0).
+    - repo_read_check_logs
 systemPromptFile: ./change-reviewer.system-prompt.md

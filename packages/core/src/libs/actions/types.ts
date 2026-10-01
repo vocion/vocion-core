@@ -245,6 +245,14 @@ export type ReviewContentEdit = { id: string; subject?: string; body?: string };
 export type Action<S extends z.ZodType = z.ZodType> = {
   /** Stable id, e.g. `gmail.send`. */
   id: string;
+  /**
+   * Ids this action used to be registered under, still accepted by
+   * `getAction` and by a trust rule or a grant that names one of them. An
+   * action renamed from its vendor's name to its family's (`github.open_pull`
+   * → `repo.open_pull`) keeps the runs, rules and ledgers written under the
+   * old id; a new run is always recorded under `id`.
+   */
+  aliases?: readonly string[];
   name: string;
   description: string;
   /** Validates the action input at propose-time. */

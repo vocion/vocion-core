@@ -124,7 +124,7 @@ const ACTION_EFFECT: Record<string, string> = {
   'release.announce': 'Announces the release',
   'notify.requester': 'Answers the person who asked',
   'gmail.send': 'Sends the email',
-  'slack.post_message': 'Posts the Slack message',
+  'chat.post_message': 'Posts the chat message',
   'hubspot.update': 'Updates the HubSpot record',
   'wiki.write_page': 'Writes the wiki page',
   'playbook.write': 'Writes the playbook',

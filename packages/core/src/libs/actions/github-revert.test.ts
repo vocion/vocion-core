@@ -1,5 +1,5 @@
 /**
- * `github.revert_pull` (backlog 049): a release an environment went down on is
+ * `repo.revert_pull` (backlog 049): a release an environment went down on is
  * rolled back by the pipeline's owner, the revert merges itself on green, and
  * Undo puts it back. GitHub is mocked; the repository is invented.
  */
@@ -21,7 +21,7 @@ let envId = 0;
 
 beforeAll(async () => {
   await db.insert(agentSchema).values([
-    { orgId: ORG, slug: 'release-engineer', name: 'Release engineer', systemPrompt: 'x', harnessConfig: { grantTools: ['github.revert_pull'] } },
+    { orgId: ORG, slug: 'release-engineer', name: 'Release engineer', systemPrompt: 'x', harnessConfig: { grantTools: ['repo.revert_pull'] } },
     { orgId: ORG, slug: 'task-engineer', name: 'Engineer', systemPrompt: 'x', harnessConfig: {} },
   ] as never);
   const [t] = await createObjectType({ slug: 'environment', label: 'environment' }, ORG);
@@ -31,7 +31,7 @@ beforeAll(async () => {
 
 const input = () => ({ url: 'https://github.com/Acme/northwind-core/pull/140', recordId: envId, reason: 'rooms-api-production is down since bad0000 deployed; a re-run and a redeploy did not bring it back.' });
 
-describe('github.revert_pull', () => {
+describe('repo.revert_pull', () => {
   it('is the pipeline owner\'s move, or a person\'s, never the engineer\'s', async () => {
     expect(await action.precheck!({ orgId: ORG, invokedBy: 'agent:release-engineer' }, input())).toBeUndefined();
     expect(await action.precheck!({ orgId: ORG, invokedBy: 'agent:task-engineer' }, input())).toContain('the seat that owns the pipeline (release-engineer)');

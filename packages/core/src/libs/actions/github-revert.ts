@@ -1,5 +1,6 @@
 /**
- * `github.revert_pull` — A RELEASE THAT TOOK AN ENVIRONMENT DOWN, TAKEN BACK
+ * `repo.revert_pull` (formerly `github.revert_pull`) — A RELEASE THAT TOOK AN
+ * ENVIRONMENT DOWN, TAKEN BACK
  * OUT (backlog 049; Chris, 2026-09-30: "An unhealthy one raises one
  * needs-person notification only after the Release engineer's own recovery
  * (re-run, redeploy, revert of the last release) has been tried and failed").
@@ -18,7 +19,7 @@ import type { Action } from './types';
 import { z } from 'zod';
 import { mayActOnPipeline } from './github-pull';
 
-export const REVERT_PULL_ACTION_ID = 'github.revert_pull';
+export const REVERT_PULL_ACTION_ID = 'repo.revert_pull';
 
 const revertInput = z.object({
   url: z.string().url().describe('The merged pull request whose change to take back out.'),
@@ -30,6 +31,7 @@ type RevertInput = z.infer<typeof revertInput>;
 
 export const githubRevertPullAction: Action<typeof revertInput> = {
   id: REVERT_PULL_ACTION_ID,
+  aliases: ['github.revert_pull'],
   name: 'Roll a release back',
   description: 'Open GitHub\'s revert of a merged pull request, with the workspace\'s GitHub token, for a release that took an environment down; it merges itself when its checks are green (git.merge.rollback) and deploys what was live before. Undo closes the revert, or reverts it once merged.',
   inputSchema: revertInput,

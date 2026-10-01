@@ -53,7 +53,12 @@ export type SlackThreadMessage = {
   user?: string;
   botId?: string;
   threadTs?: string;
+  /** Files attached to the message, as Slack lists them; read with `files.info` + `url_private_download`. */
+  files?: SlackMessageFile[];
 };
+
+/** One file on a message, named so a reader can decide whether to fetch it. */
+export type SlackMessageFile = { id: string; name: string; mimeType: string; size: number | null };
 
 /**
  * The channel's human name. Costs `channels:read` / `groups:read`.
@@ -83,7 +88,7 @@ export async function conversationInfo(channelId: string, token: string | undefi
  * @param fetchImpl - Injectable for tests.
  */
 export async function conversationReplies(opts: { channelId: string; threadTs: string; limit?: number }, token: string | undefined, baseUrl = SLACK_API_BASE, fetchImpl: typeof fetch = fetch): Promise<Scoped<SlackThreadMessage[]>> {
-  const res = await slackApi<{ messages?: { ts?: string; text?: string; user?: string; bot_id?: string; thread_ts?: string }[] }>(
+  const res = await slackApi<{ messages?: { ts?: string; text?: string; user?: string; bot_id?: string; thread_ts?: string; files?: { id?: string; name?: string; title?: string; mimetype?: string; size?: number }[] }[] }>(
     'conversations.replies',
     { channel: opts.channelId, ts: opts.threadTs, limit: opts.limit ?? 30 },
     token,
@@ -95,7 +100,14 @@ export async function conversationReplies(opts: { channelId: string; threadTs: s
   }
   const messages = (res.body.messages ?? [])
     .filter(m => typeof m.ts === 'string')
-    .map(m => ({ ts: m.ts!, text: m.text ?? '', ...(m.user ? { user: m.user } : {}), ...(m.bot_id ? { botId: m.bot_id } : {}), ...(m.thread_ts ? { threadTs: m.thread_ts } : {}) }));
+    .map(m => ({
+      ts: m.ts!,
+      text: m.text ?? '',
+      ...(m.user ? { user: m.user } : {}),
+      ...(m.bot_id ? { botId: m.bot_id } : {}),
+      ...(m.thread_ts ? { threadTs: m.thread_ts } : {}),
+      ...(m.files?.length ? { files: m.files.filter(f => typeof f.id === 'string').map(f => ({ id: f.id!, name: f.name ?? f.title ?? f.id!, mimeType: f.mimetype ?? 'application/octet-stream', size: typeof f.size === 'number' ? f.size : null })) } : {}),
+    }));
   return { ok: true, value: messages };
 }
 

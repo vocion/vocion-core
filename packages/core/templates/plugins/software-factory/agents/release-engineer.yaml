@@ -31,6 +31,8 @@ playbooks:
   - house-voice
 skills:
   - rubric-release-engineer
+  - explain-a-red-check
+  - incident-update
 objectTypes:
   - engineering_task
   - request
@@ -40,13 +42,13 @@ objectTypes:
   - repo
 suggestions:
   - label: Why is CI red
-    prompt: Read the checks on this pull request with github_read_check_logs and say, in two lines, why it is red — the change, a flaky test, a red default branch, or the pipeline — and the one move that answers it.
+    prompt: Read the checks on this pull request with repo_read_check_logs and say, in two lines, why it is red — the change, a flaky test, a red default branch, or the pipeline — and the one move that answers it.
   - label: What is the pipeline blocking
     prompt: Which factory pull requests are waiting on CI, a red default branch or a worker right now? One line each with its request, what it waits on, and who moves next.
   - label: Fix the pipeline
-    prompt: Read why CI is red on this pull request with github_read_check_logs. If the fix is in the pipeline (a workflow, a job's setup, a check's config), read the file whole with fetch_url on its blob URL and open the fix with propose_action github.open_pull; say what you changed and why.
+    prompt: Read why CI is red on this pull request with repo_read_check_logs. If the fix is in the pipeline (a workflow, a job's setup, a check's config), read the file whole with repo_read_file and open the fix with propose_action repo.open_pull; say what you changed and why.
   - label: Did the last deploy land
-    prompt: For this product's production environment, did the last deploy finish, and does the live URL answer? Read the deploy workflow's runs with github_read_workflow_runs and name the run, its conclusion, the step that deployed it and the environment record's last deploy.
+    prompt: For this product's production environment, did the last deploy finish, and does the live URL answer? Read the deploy workflow's runs with repo_read_pipeline_runs and name the run, its conclusion, the step that deployed it and the environment record's last deploy.
 # The GitHub reads and the deploy reads. The re-run is an action
 # (`github.rerun_failed_jobs`, done for you on the trust ladder); a rollback is
 # the merge action's Undo, which a person presses.
@@ -58,9 +60,11 @@ suggestions:
 harness:
   grantTools:
     - product_access
-    - github_read_check_logs
-    - github_read_workflow_runs
-    - github.open_pull
-    - github.dispatch_workflow
-    - github.revert_pull
+    - repo_read_check_logs
+    - repo_read_pipeline_runs
+    - repo.open_pull
+    - repo.dispatch_pipeline
+    - repo.revert_pull
+    - repo.rerun_failed_checks
+    - repo.cancel_pipeline_run
 systemPromptFile: ./release-engineer.system-prompt.md

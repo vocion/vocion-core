@@ -1,5 +1,6 @@
 /**
- * `github.open_pull` — THE PIPELINE'S OWNER OPENS ITS OWN FIX (backlog 049).
+ * `repo.open_pull` (formerly `github.open_pull`) — THE PIPELINE'S OWNER OPENS
+ * ITS OWN FIX (backlog 049). The GitHub provider of the repo family.
  * A red default branch or a pipeline that cannot run is often fixed in files
  * no engineer's worker may touch: `.github/workflows/*`, the runner's setup,
  * the checks' own config. The Release engineer writes the fix itself: the
@@ -10,7 +11,7 @@
  * branch, or opens the revert once it merged.
  *
  * WHO MAY OPEN ONE. A person, in their own words; or an agent whose harness
- * grants it (`harness.grantTools: [github.open_pull]`) — the seat that owns
+ * grants it (`harness.grantTools: [repo.open_pull]`) — the seat that owns
  * the pipeline. Any other seat is refused with who to ask, so the engineer's
  * worker, which is walled off from the workflows, gains no way around the wall
  * through this door. No seat is named here: the grant is the agent's own
@@ -20,7 +21,7 @@
 import type { Action } from './types';
 import { z } from 'zod';
 
-export const OPEN_PULL_ACTION_ID = 'github.open_pull';
+export const OPEN_PULL_ACTION_ID = 'repo.open_pull';
 
 const fileSchema = z.object({
   path: z.string().min(1).max(400).describe('The file, from the repository root, e.g. .github/workflows/ci.yml.'),
@@ -79,8 +80,10 @@ export async function mayActOnPipeline(orgId: string, invokedBy: string | undefi
   const { eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { agentSchema } = await import('@/models/Schema');
+  const { aliasesOf } = await import('./registry');
+  const names = new Set([actionId, ...aliasesOf(actionId)]);
   const owners = (await db.select({ slug: agentSchema.slug, harness: agentSchema.harnessConfig }).from(agentSchema).where(eq(agentSchema.orgId, orgId)))
-    .filter(a => (a.harness?.grantTools ?? []).includes(actionId))
+    .filter(a => (a.harness?.grantTools ?? []).some(name => names.has(name)))
     .map(a => a.slug);
   if (slug && owners.includes(slug)) {
     return { ok: true };
@@ -102,6 +105,7 @@ async function stampChange(orgId: string, recordId: number, change: Record<strin
 
 export const githubOpenPullAction: Action<typeof openPullInput> = {
   id: OPEN_PULL_ACTION_ID,
+  aliases: ['github.open_pull'],
   name: 'Open a pipeline change',
   description: 'Write files as one commit on a vocion/pipeline-… branch and open its pull request, with the workspace\'s GitHub token — for the seat that owns CI to fix the pipeline itself (a workflow under .github/workflows, the runner\'s setup, a check\'s config). Give each file\'s whole new content. The pull request merges itself when its checks are green (git.merge.pipeline); Undo closes it and deletes the branch, or opens the revert once it merged.',
   inputSchema: openPullInput,

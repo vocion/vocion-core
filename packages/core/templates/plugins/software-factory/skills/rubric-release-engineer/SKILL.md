@@ -21,7 +21,7 @@ version: 2
 - **One move, taken or asked.** Back to the engineer with the failing test
   named; a re-run, once; one fix on the default branch for every pull request
   behind it; the pipeline fixed by its owner with a pull request of its own
-  (`github.open_pull`, merged on green, reverted by Undo); an ask only for what
+  (`repo.open_pull`, merged on green, reverted by Undo); an ask only for what
   a person holds — a secret, a permission, billing. A rollback is the
   environment's own recovery when it stays down after a re-run and a
   redeploy: a revert merged on green, with Undo.

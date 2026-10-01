@@ -26,6 +26,7 @@ import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { calendarTools } from './calendarEvents';
 import { listCapabilitiesTool } from './capabilities';
+import { chatTools } from './chatTools';
 import { checkLiveTools } from './checkLive';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
@@ -47,7 +48,6 @@ import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
 import { getBrandTool } from './getBrand';
-import { githubCheckLogsTools } from './githubCheckLogs';
 import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
 import { hubspotCatalogTools } from './hubspotCatalog';
@@ -66,6 +66,7 @@ import {
   updateLearningTool,
 } from './learnings';
 import { lookupObjectsTool } from './lookupObjects';
+import { lookupPersonTools } from './lookupPerson';
 import { updateMissionNotesTool } from './missionNotes';
 import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
@@ -76,11 +77,13 @@ import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
 import { recordVerdictTools } from './recordVerdict';
 import { renderArtifactTools } from './renderArtifacts';
+import { repoTools } from './repoTools';
 import { restTools } from './restDirect';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { setVoiceTool } from './setVoice';
+import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
@@ -197,9 +200,19 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only: a shipped release checked on the live product as the QA
     // account, and what QA saw written on the release and its features.
     ...checkLiveTools(ctx),
-    // Granted-only: what CI said on a pull request or an Actions run — failing
-    // checks, annotations, the failing step's log tail (backlog 049).
-    ...githubCheckLogsTools(ctx),
+    // The code host (`libs/connectors/families.ts`): a pull request, its diff
+    // and a file at a ref for any agent with a repo source in scope; the
+    // checks' logs and the pipeline runs granted-only (backlog 049).
+    ...repoTools(ctx),
+    // Source-gated: the connected issue tracker, live — an issue whole, a
+    // search inside its projects, an attachment (`services/tracker/provider.ts`).
+    ...trackerTools(ctx),
+    // Source-gated — the chat family's reads (a thread, a file on it) for an
+    // agent whose sources include a chat; its writes are actions.
+    ...chatTools(ctx),
+    // One person across the three families — chat user, tracker account,
+    // code-host login — by email. Present with any of the three in scope.
+    ...lookupPersonTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),

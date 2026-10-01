@@ -259,7 +259,22 @@ name: Software factory
 #   Proposed with Build or Dismiss, its pictures, its wiki pages, then How it
 #   ships folded. `product` declares a `wiki` relation (its capabilitiesPage,
 #   and pages tagged with or named after its slug), and the page is `live`.
-version: 2.42.0
+# 2.43.0 — the factory writes where the work is read, on any code host, issue
+#   tracker or chat (2026-10-01). Three connector families replace the vendor
+#   names: `repo` (pull request, diff, file, check logs, pipeline runs; comment,
+#   review, re-run, cancel, dispatch, revert, pipeline fix), `tracker` (issue,
+#   search, attachment; create, transition, update, comment, attach) and
+#   `chat` (thread, file; reply in thread, reaction, post). GitHub, Jira and
+#   Slack are the first provider of each; the source a workspace connected
+#   decides which answers, and no tool, skill or rule names a vendor. The four
+#   GitHub actions and `slack.post_message` keep their former ids as aliases,
+#   so a run, a rule or a grant written against one still resolves. Twelve
+#   skills say how each seat uses them — intake from chat and from the
+#   tracker, mirroring the board, telling the requester where they asked,
+#   drawing from the asker's own screenshots, the engineer's report on the
+#   pull request, QA's verdict mirrored as a review, the four causes of a red
+#   check written on the pull request, the incident update a person sends.
+version: 2.43.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

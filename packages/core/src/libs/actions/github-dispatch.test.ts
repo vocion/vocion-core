@@ -1,5 +1,5 @@
 /**
- * `github.dispatch_workflow` (backlog 049): a deploy that should have run is
+ * `repo.dispatch_pipeline` (backlog 049): a deploy that should have run is
  * started by the pipeline's owner, done for you, and Undo cancels the run.
  * GitHub is mocked; the repository is invented.
  */
@@ -20,12 +20,12 @@ const input = { repo: 'Acme/northwind-core', workflow: '.github/workflows/deploy
 
 beforeAll(async () => {
   await db.insert(agentSchema).values([
-    { orgId: ORG, slug: 'release-engineer', name: 'Release engineer', systemPrompt: 'x', harnessConfig: { grantTools: ['github.dispatch_workflow'] } },
+    { orgId: ORG, slug: 'release-engineer', name: 'Release engineer', systemPrompt: 'x', harnessConfig: { grantTools: ['repo.dispatch_pipeline'] } },
     { orgId: ORG, slug: 'product-manager', name: 'PM', systemPrompt: 'x', harnessConfig: {} },
   ] as never);
 });
 
-describe('github.dispatch_workflow', () => {
+describe('repo.dispatch_pipeline', () => {
   it('is the pipeline owner\'s move, or a person\'s', async () => {
     expect(await action.precheck!({ orgId: ORG, invokedBy: 'agent:release-engineer' }, input)).toBeUndefined();
     expect(await action.precheck!({ orgId: ORG, invokedBy: 'user_kestrel_1' }, input)).toBeUndefined();

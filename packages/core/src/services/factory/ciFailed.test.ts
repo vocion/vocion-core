@@ -35,7 +35,7 @@ beforeAll(async () => {
   }
   await db.insert(agentSchema).values({ orgId: ORG, slug: 'task-engineer', name: 'Engineer', systemPrompt: 'x', harnessConfig: { runsOn: 'external-worker' } } as never);
   await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.repo!, title: REPO, metadata: { checks: [{ name: 'test' }, { name: 'lint' }], productPaths: { rooms: ['apps/web/src/**'] } } });
-  for (const actionId of ['factory.dispatch_task.from_request', 'factory.dispatch_task.recovery', 'factory.dispatch_task.retry', 'github.rerun_failed_jobs']) {
+  for (const actionId of ['factory.dispatch_task.from_request', 'factory.dispatch_task.recovery', 'factory.dispatch_task.retry', 'repo.rerun_failed_checks']) {
     await db.insert(trustRuleSchema).values({ orgId: ORG, actionId, threshold: 0.8, enabled: 'true' });
   }
 });

@@ -1,5 +1,5 @@
 /**
- * `github.rerun_failed_jobs` (backlog 049): reversible by nature — Undo
+ * `repo.rerun_failed_checks` (backlog 049): reversible by nature — Undo
  * cancels the re-run while it runs — so the trust ladder can run it done for
  * you; one re-run per head.
  */
@@ -13,7 +13,7 @@ const { githubRerunFailedJobsAction: action } = await import('./github-rerun');
 
 const input = { url: 'https://github.com/Acme/northwind-core/pull/7', headSha: 'abc123def456' };
 
-describe('github.rerun_failed_jobs', () => {
+describe('repo.rerun_failed_checks', () => {
   it('re-runs through the workspace token and returns the runs it started', async () => {
     const out = await action.execute({ orgId: 'org_1' }, input);
 

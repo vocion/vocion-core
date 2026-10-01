@@ -403,6 +403,13 @@ export type RuntimeContext = {
   /** Configured source slugs (knowledge_source.slug) this agent may reach. */
   connectorSources: string[];
   /**
+   * The connector kind of each slug in `connectorSources`, resolved once at
+   * graph build (`libs/connectors/families.ts`), so the synchronous tool
+   * builder can tell which sources are a code host, an issue tracker or a
+   * chat. Absent on an older context: the slug is then read as the kind.
+   */
+  sourceKinds?: Record<string, string>;
+  /**
    * Per-user ACL for THIS request (SourceAccessService). When set, every
    * retrieval intersects with it. Unset for non-user runs (schedules).
    */

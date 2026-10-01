@@ -21,10 +21,10 @@ do:
   prompt: >-
     A GitHub Actions run on the deploy branch did not succeed: {{repo}}, workflow
     "{{name}}", run #{{runNumber}} attempt {{runAttempt}}, conclusion {{conclusion}},
-    head {{headSha}}, {{url}}. Read it with github_read_check_logs (the run URL) and
+    head {{headSha}}, {{url}}. Read it with repo_read_check_logs (the run URL) and
     say why it failed, quoting the line that settles it. If it reads as flaky or as
     the pipeline itself (a runner, a secret, a service), re-run it once with
-    propose_action github.rerun_failed_jobs and the run URL, and say so. Otherwise
+    propose_action repo.rerun_failed_checks and the run URL, and say so. Otherwise
     find the merged pull request that produced {{headSha}} and the request it served,
     and file one request of kind incident with the repository, the workflow, the run
     URL, the head sha and the merge it followed — severity p1 if the run is the

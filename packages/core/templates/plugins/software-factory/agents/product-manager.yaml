@@ -69,6 +69,10 @@ skills:
   - rank-the-backlog
   - write-release-notes
   - rubric-product-manager
+  - intake-from-chat
+  - intake-from-the-tracker
+  - mirror-the-tracker
+  - tell-the-requester
 objectTypes:
   - request
   - architecture_plan

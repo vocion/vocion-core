@@ -187,10 +187,12 @@ is recorded, so a reply to it resolves without a history scope. The channel
 must already be bound to an agent in the caller's org; this authorises nothing
 in Slack.
 
-## Posting from a proposal: `slack.post_message`
+## Posting from a proposal: `chat.post_message`
 
 An agent that wants to tell a channel something proposes it, the way it
-proposes an email: `propose_action` with `action_id: slack.post_message` and
+proposes an email: `propose_action` with `action_id: chat.post_message` (its
+former id, `slack.post_message`, is still accepted, and a trust rule written
+against it still governs it) and
 `action_input: { text, title?, channelId?, about? }`. The card on Needs you
 shows the words as a message a reviewer can edit before approving; approving
 posts them to the channel under the app's name or the channel's persona;
@@ -208,10 +210,41 @@ posts them to the channel under the app's name or the channel's persona;
   for a person until a workspace's `trust.yaml` says otherwise:
 
   ```yaml
-  - action: slack.post_message
+  - action: chat.post_message
     rung: execute-with-approval
     risk: high
   ```
+
+## The chat family: what an agent reads and writes
+
+Slack is the first provider of the **chat family** (`services/chat/provider.ts`):
+an agent's tools and actions are named for the constructs — channel, thread,
+message, reaction, file — and the source a workspace connected decides which
+provider answers. A skill that says "read the thread the ask came from" reads
+unchanged on a later provider (Microsoft Teams, Discord).
+
+**Two tokens, one rule.** A workspace's `slack` *source* holds the bot token
+of the app installed in the workspace being read — for a client, their own
+Slack, where the thread the ask came from lives. The deployment's
+`SLACK_BOT_TOKEN` is the app the channel *bindings* use (step 4). The family
+reads threads and replies in them with the source's token when the org has a
+slack source holding one, and falls back to the deployment token when it does
+not. `chat.post_message` keeps posting through the bindings.
+
+Reads, present for any agent whose `connectorSources` include a chat:
+
+| Tool | What it answers |
+|---|---|
+| `chat_read_thread` | A thread by permalink (or channel id + message id), oldest first: each message's author, text, id and attached files. A missing scope is named (`groups:history`), not swallowed. |
+| `chat_read_file` | A file attached to a message, by its id or by the permalink of a message carrying one file: an image is stored in the workspace and its URL returned (a `draw_mockup` reference); text, Markdown, CSV and JSON come back as text. Needs `files:read`. |
+
+Writes, through `propose_action`, each with Undo:
+
+| Action | What it changes | Default on the ladder |
+|---|---|---|
+| `chat.post_message` | A post to a channel the workspace bound (above). | `medium` — a person approves until `trust.yaml` promotes it |
+| `chat.reply_in_thread` | A reply in the thread an ask came from, with the token that is in that chat; the words editable on the card; `kind` (`completion`, `sensitive`, `update`) keys the rule as `chat.reply_in_thread.<kind>`, a kind with no rule of its own reading the parent's. Undo deletes the reply. | `medium` |
+| `chat.add_reaction` | A reaction on a message (`eyes` on an ask that became a request, `white_check_mark` when it shipped). Undo removes it; one already there counts as added. Needs `reactions:write`. | `low` — done for you above the bar |
 
 ## What happens when the bot is invited to a channel
 

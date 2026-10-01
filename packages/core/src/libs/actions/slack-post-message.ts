@@ -1,5 +1,7 @@
 /**
- * slack.post_message — post a message to a Slack channel this workspace bound.
+ * chat.post_message (formerly slack.post_message) — post a message to a chat
+ * channel this workspace bound. Slack is the first provider of the chat family;
+ * the binding's surface says which one a channel is on.
  *
  * The generic "tell the channel" write. An agent proposes the words; the card
  * shows them as a message a reviewer can edit before approving; approving
@@ -49,9 +51,12 @@ function agentSlugOf(invokedBy: string | undefined): string | null {
 /** Where the post landed, kept on the run so Undo can take it back. */
 type PostedTo = { channelId: string; ts: string | null; fileIds: string[] };
 
+export const POST_MESSAGE_ACTION_ID = 'chat.post_message';
+
 export const slackPostMessageAction: Action<typeof slackPostMessageInput> = {
-  id: 'slack.post_message',
-  name: 'Post a Slack message',
+  id: POST_MESSAGE_ACTION_ID,
+  aliases: ['slack.post_message'],
+  name: 'Post a chat message',
   description: 'Post a message to a Slack channel this workspace has bound, under the deployment\'s Slack app or the channel\'s persona. The workspace\'s first bound channel when none is named. Undo deletes the post.',
   inputSchema: slackPostMessageInput,
   grant: 'send_message',
@@ -60,7 +65,7 @@ export const slackPostMessageAction: Action<typeof slackPostMessageInput> = {
     if (!input.about) {
       return undefined;
     }
-    return `slack.post_message:${input.channelId ?? 'default'}:${input.about}`.toLowerCase();
+    return `${POST_MESSAGE_ACTION_ID}:${input.channelId ?? 'default'}:${input.about}`.toLowerCase();
   },
   async precheck(ctx, input) {
     const { boundSlackChannel } = await import('@/services/chat/boundChannel');

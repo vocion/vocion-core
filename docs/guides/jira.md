@@ -81,3 +81,39 @@ config:
 schedule: '17 * * * *'
 enabled: true
 ```
+
+## The tracker family: what an agent reads and writes
+
+Jira is the first provider of the **tracker family** (`packages/core/src/services/tracker/provider.ts`):
+the issue tracker as the software factory sees it. An agent's tools and actions are named for the
+constructs every tracker has — an issue, a status transition, a comment, an attachment, a remote
+issue link — never for the vendor, so a skill written against them reads the same on Linear or
+Azure Boards when those providers exist. The sync above mirrors one document per issue, an hour
+old and without comments or attachments; these read the tracker live.
+
+**Which source answers.** An issue key names its project (`NOCO-123` → `NOCO`), and the tracker
+source whose `projectKeys` include that project is the one that reads and writes it. A call with
+no key goes to the workspace's only tracker source; with several, it names one. A key outside every
+configured project is refused with the list of what is connected — a project is added on the
+source, not in a prompt.
+
+**Reads** (present for any agent whose `connectorSources` include a tracker source):
+
+| Tool | What it returns |
+|---|---|
+| `tracker_read_issue` (`key`) | The issue live: summary, description as text, status and its category, type, priority, labels, assignee, reporter, dates, fix versions, every comment, the attachments with their ids, linked issues, and the transitions available from its status. |
+| `tracker_search_issues` (`query`, `limit`, `source`) | A search in the tracker's own language (JQL here), always wrapped in `project in (<configured keys>)` so it never leaves the source's projects. Key, summary, status, assignee, updated and link per row. |
+| `tracker_read_attachment` (`attachment_id`, `issue_key`) | An image is stored in the workspace and its url returned; a text, markdown, CSV or JSON file comes back as text; anything else as its name, type and size. |
+
+**Writes** (through `propose_action`; each rides the trust ladder and has an Undo):
+
+| Action | What it changes | Undo | Default tier |
+|---|---|---|---|
+| `tracker.create_issue` | Files an issue from a request in the asker's words, the Vocion request linked in the description. One per request. | deletes the issue | medium |
+| `tracker.transition_issue` | Moves an issue to a status through a transition its workflow allows; records where it came from. | moves it back, when the workflow allows | low |
+| `tracker.update_issue` | Priority, labels, a fix version, a remote issue link; returns the previous values. | restores them, removes the link | low |
+| `tracker.comment` | A comment on the issue, keyed `tracker.comment.<kind>` (completion, sensitive, update) so a routine completion can earn its way out while a decline stays a person's; editable on the card. | deletes the comment | medium |
+| `tracker.attach_file` | An image or PDF from a workspace artifact or a URL — the mockup, the after-shot. | deletes the attachment | low |
+
+Writes use the same credential as the sync (the Atlassian grant or the pasted token), so a
+token that only reads fails the write with Jira's own message on the run, never silently.

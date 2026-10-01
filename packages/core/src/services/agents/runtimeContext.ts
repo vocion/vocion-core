@@ -29,6 +29,7 @@
 
 import type { RuntimeContext } from './types';
 import type { agentSchema } from '@/models/Schema';
+import { loadSourceKinds } from '@/libs/connectors/families';
 import { loadRestSources } from '@/libs/rest/sources';
 import { resolveTimeZone } from '@/libs/time/zone';
 import { loadFilingTypes } from './tools/fileRecord';
@@ -48,7 +49,7 @@ export type WorkspaceScope = {
 };
 
 /** The workspace facts plus the agent's own resolved tool inputs. */
-export type AgentScope = WorkspaceScope & Pick<RuntimeContext, 'filingTypes' | 'restSources'>;
+export type AgentScope = WorkspaceScope & Pick<RuntimeContext, 'filingTypes' | 'restSources' | 'sourceKinds'>;
 
 /**
  * The workspace facts the in-process harness reads once per graph build,
@@ -85,12 +86,13 @@ export async function workspaceScope(orgId: string): Promise<WorkspaceScope> {
  * @param workspace - The workspace facts, when the caller already has them (one read for many agents).
  */
 export async function agentScope(orgId: string, row: AgentContextRow, workspace?: WorkspaceScope): Promise<AgentScope> {
-  const [ws, filingTypes, restSources] = await Promise.all([
+  const [ws, filingTypes, restSources, sourceKinds] = await Promise.all([
     workspace ?? workspaceScope(orgId),
     loadFilingTypes(orgId, row.objectTypeSlugs ?? []).catch(() => []),
     loadRestSources(orgId, row.connectorSources ?? []).catch(() => []),
+    loadSourceKinds(orgId, row.connectorSources ?? []).catch(() => ({})),
   ]);
-  return { ...ws, filingTypes, restSources };
+  return { ...ws, filingTypes, restSources, sourceKinds };
 }
 
 /**
@@ -147,6 +149,7 @@ export function runtimeContextFromScope(
     enabledPlugins: scope.enabledPlugins,
     filingTypes: scope.filingTypes,
     restSources: scope.restSources,
+    sourceKinds: scope.sourceKinds,
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     defaultTimeZone: scope.defaultTimeZone,

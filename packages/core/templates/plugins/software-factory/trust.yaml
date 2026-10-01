@@ -96,10 +96,13 @@ rules:
     enabled: true
     rung: execute-within-bounds
     risk: low
-  # Re-running a red CI's failed jobs once (backlog 049): changes no code, and
+  # Re-running a red check's failed jobs once (backlog 049): changes no code, and
   # Undo cancels the re-run while it runs. Done for you — the diagnosis read
   # the failure as flaky, or a person fixed the pipeline and answered its ask.
-  - action: github.rerun_failed_jobs
+  # The repo family's ids (`repo.*`) name the code host's constructs, whoever
+  # hosts the code; a rule a workspace wrote against the former GitHub id
+  # (`github.rerun_failed_jobs`) still governs the same action.
+  - action: repo.rerun_failed_checks
     autoApproveAbove: 0.8
     enabled: true
     rung: execute-within-bounds
@@ -107,8 +110,8 @@ rules:
   # The pipeline's owner opens its own fix (plugin 2.33.0, backlog 049): the
   # files as one commit on a vocion/pipeline-… branch and its pull request.
   # Opening one deploys nothing; Undo closes it and deletes the branch. Only a
-  # seat whose harness grants github.open_pull may propose it.
-  - action: github.open_pull
+  # seat whose harness grants repo.open_pull may propose it.
+  - action: repo.open_pull
     autoApproveAbove: 0.8
     enabled: true
     rung: execute-within-bounds
@@ -117,7 +120,7 @@ rules:
   # already merged, started with workflow_dispatch (plugin 2.34.0). The merge
   # was the decision; Undo cancels the run while it runs. Only a seat whose
   # harness grants it may start one.
-  - action: github.dispatch_workflow
+  - action: repo.dispatch_pipeline
     autoApproveAbove: 0.8
     enabled: true
     rung: execute-within-bounds
@@ -126,10 +129,96 @@ rules:
   # revert of its pull request, opened by the environment's own recovery after a
   # re-run and a redeploy did not bring it back. Undo closes the revert, or
   # reverts it once merged.
-  - action: github.revert_pull
+  - action: repo.revert_pull
     autoApproveAbove: 0.8
     enabled: true
     rung: execute-within-bounds
+    risk: medium
+  # THE FACTORY WRITES WHERE THE WORK IS READ (plugin 2.43.0). Three families
+  # of connected system — the code host (`repo.*`), the issue tracker
+  # (`tracker.*`) and the chat (`chat.*`) — each with the writes a seat makes
+  # on them. Every one is proposed, every one has an Undo; the ones below run
+  # done for you because a person can take each back in one move, and the
+  # ones a person READS — a reply to the asker, a comment on their issue, a
+  # post to a channel — are a person's to send, like `notify.requester`.
+  #
+  # A comment on a pull request: the engineer's run report, the release
+  # engineer's reading of a red check. Undo deletes it.
+  - action: repo.comment_pull
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+  # QA's verdict as a review on the pull request, each finding on its line.
+  # The verdict itself is recorded in Vocion first; this is its mirror where
+  # the engineer reads. Undo dismisses the review.
+  - action: repo.submit_review
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
+  # A duplicate or runaway pipeline run on the deploy branch, stopped. Undo
+  # starts it again.
+  - action: repo.cancel_pipeline_run
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+  # An issue filed from a request, in the asker's words, with the request
+  # named in it. Undo deletes it — like filing a request, done for you.
+  - action: tracker.create_issue
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium
+  # The issue's status kept in step with the request's state. Undo moves it back.
+  - action: tracker.transition_issue
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+  # Priority, labels, the release version and the link to the Vocion request
+  # on an issue. Undo restores the previous values.
+  - action: tracker.update_issue
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+  # A mockup or an after-shot attached to the issue. Undo deletes the attachment.
+  - action: tracker.attach_file
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+  # A comment the asker reads on their own issue — the plan, the honest
+  # answer, "shipped in…". It is `notify.requester` on the tracker: a person
+  # sends it. The PM names the kind (`tracker.comment.<kind>`); a kind with
+  # no rule reads this one.
+  - action: tracker.comment
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  # An "acknowledged" reaction on the message that became a request, a
+  # "shipped" one when it did. Undo removes it.
+  - action: chat.add_reaction
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+  # A reply in the thread the ask came from — the requester channel for a
+  # chat-born request. A person sends it, like every message a client reads.
+  - action: chat.reply_in_thread
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  # A post to a channel the workspace bound (formerly `slack.post_message`):
+  # release notes, what shipped, an incident update. A person sends it.
+  - action: chat.post_message
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
     risk: medium
   - action: git.merge
     autoApproveAbove: 1

@@ -54,6 +54,30 @@ reply can go out under a policy the product owner turns on.
 | QA | `change-reviewer` | the verdict against the contract and the evidence | merges, sees the engineer's conversation |
 | Release | `release-engineer` | why a CI or a deploy is red and the move that answers it, the pipeline's own fixes, a down environment brought back (re-run, redeploy, roll back), environments | writes product code |
 
+## Where the seats read and write (2.43.0)
+
+The factory talks to three kinds of system, named for what they are: the
+**code host** (`repo`), the **issue tracker** (`tracker`) and the **chat**
+(`chat`). GitHub, Jira and Slack are the first provider of each; the source a
+workspace connected decides which one answers, and no tool, skill or trust
+rule names a vendor. Every read is a direct tool present when the agent has a
+source of that family; every write is an action through `propose_action`,
+with an Undo, at the rung `trust.yaml` gives it.
+
+| Seat | Reads | Writes (actions) | Skills |
+|---|---|---|---|
+| every seat | `repo_read_pull`, `repo_read_diff`, `repo_read_file`, `tracker_read_issue`, `tracker_search_issues`, `chat_read_thread`, `lookup_person` | — | — |
+| PM | the above | `tracker.create_issue`, `tracker.transition_issue`, `tracker.update_issue`, `tracker.comment` (a person sends), `chat.reply_in_thread` (a person sends), `chat.add_reaction`, `chat.post_message` (a person sends) | `intake-from-chat`, `intake-from-the-tracker`, `mirror-the-tracker`, `tell-the-requester` |
+| Design | `chat_read_file`, `tracker_read_attachment` | `tracker.attach_file`, `tracker.comment`, `chat.post_message` | `draw-from-the-ask`, `close-with-the-after-shot` |
+| Eng | `repo_read_check_logs` (granted) | `repo.comment_pull` | `read-the-ask-whole`, `report-on-the-pull` |
+| QA | `repo_read_check_logs` (granted); no chat, on purpose | `repo.submit_review` (filed by `record_verdict` as the verdict's mirror) | `review-on-the-pull`, `judge-the-checks` |
+| Release | `repo_read_check_logs`, `repo_read_pipeline_runs` (granted) | `repo.rerun_failed_checks`, `repo.open_pull`, `repo.dispatch_pipeline`, `repo.revert_pull`, `repo.cancel_pipeline_run`, `repo.comment_pull`, `chat.post_message` (a person sends) | `explain-a-red-check`, `incident-update` |
+
+The four GitHub actions and `slack.post_message` kept their former ids as
+aliases (`Action.aliases`): a run recorded, a rule a workspace wrote or a
+grant it gave under `github.open_pull` or `slack.post_message` still resolves
+to `repo.open_pull` and `chat.post_message`.
+
 ## The nouns
 
 `request` (the work item — one intake noun for a bug, a review, an email, an
@@ -122,7 +146,7 @@ routed in code (`services/factory/ciFailed.ts`):
 | Cause | The move |
 |---|---|
 | `change_broke_it` | back to the engineer, the failing test named |
-| `flaky` | the failed jobs re-run once (`github.rerun_failed_jobs`, done for you); a second failure is the change's |
+| `flaky` | the failed jobs re-run once (`repo.rerun_failed_checks`, done for you); a second failure is the change's |
 | `main_broken` | one fix request on the default branch listing every pull request it blocks; each is brought up to date and checked again once the branch is green |
 | `infra` | one ask to the Release engineer with the evidence, a re-run as its answer |
 

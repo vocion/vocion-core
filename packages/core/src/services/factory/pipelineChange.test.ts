@@ -30,10 +30,10 @@ beforeAll(async () => {
     types[slug] = t!.id;
   }
   await db.insert(agentSchema).values([
-    { orgId: ORG, slug: OWNER, name: 'Release engineer', systemPrompt: 'x', harnessConfig: { grantTools: ['github_read_check_logs', 'github.open_pull'] } },
+    { orgId: ORG, slug: OWNER, name: 'Release engineer', systemPrompt: 'x', harnessConfig: { grantTools: ['github_read_check_logs', 'repo.open_pull'] } },
     { orgId: ORG, slug: 'task-engineer', name: 'Engineer', systemPrompt: 'x', harnessConfig: { runsOn: 'external-worker' } },
   ] as never);
-  await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: 'github.open_pull', threshold: 0.8, enabled: 'true' });
+  await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: 'repo.open_pull', threshold: 0.8, enabled: 'true' });
 });
 
 async function aFix(title: string) {
@@ -65,7 +65,7 @@ describe('who may open a pipeline change', () => {
   });
 
   it('refuses the proposal itself, before anything reaches GitHub', async () => {
-    await expect(proposeAction({ orgId: ORG, actionId: 'github.open_pull', input: INPUT, principal: { kind: 'agent', id: 'agent:task-engineer', scope: { orgId: ORG }, grants: ['*'], autonomy: 2 }, invokedBy: 'agent:task-engineer', proposal: { confidence: 0.95 } } as never))
+    await expect(proposeAction({ orgId: ORG, actionId: 'repo.open_pull', input: INPUT, principal: { kind: 'agent', id: 'agent:task-engineer', scope: { orgId: ORG }, grants: ['*'], autonomy: 2 }, invokedBy: 'agent:task-engineer', proposal: { confidence: 0.95 } } as never))
       .rejects
       .toThrow(/seat that owns the pipeline/);
     expect(openChangePull).not.toHaveBeenCalled();
@@ -74,7 +74,7 @@ describe('who may open a pipeline change', () => {
   it('done for you for its owner: opened, and written on the record it answers', async () => {
     const fix = await aFix('main is red on Acme/northwind-core: e2e');
 
-    const res = await proposeAction({ orgId: ORG, actionId: 'github.open_pull', input: { ...INPUT, recordId: fix.id }, principal: { kind: 'agent', id: `agent:${OWNER}`, scope: { orgId: ORG }, grants: ['*'], autonomy: 2 }, invokedBy: `agent:${OWNER}`, proposal: { confidence: 0.9 } } as never) as { status: string; runId: number };
+    const res = await proposeAction({ orgId: ORG, actionId: 'repo.open_pull', input: { ...INPUT, recordId: fix.id }, principal: { kind: 'agent', id: `agent:${OWNER}`, scope: { orgId: ORG }, grants: ['*'], autonomy: 2 }, invokedBy: `agent:${OWNER}`, proposal: { confidence: 0.9 } } as never) as { status: string; runId: number };
 
     expect(res.status).toBe('done');
     expect((await read(fix.id)).metadata).toMatchObject({ pipelineChange: { url: 'https://github.com/Acme/northwind-core/pull/501', state: 'open', riskClass: 'pipeline', branch: 'vocion/pipeline-202609301200-ci-fix', by: `agent:${OWNER}`, actionRunId: res.runId } });
@@ -88,7 +88,7 @@ describe('who may open a pipeline change', () => {
   it('opened with no record named, it lands on the repository\'s own record, so it still merges itself (squatch-core #148)', async () => {
     const [repo] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.environment!, title: REPO, metadata: {} }).returning();
 
-    const res = await proposeAction({ orgId: ORG, actionId: 'github.open_pull', input: INPUT, principal: { kind: 'agent', id: `agent:${OWNER}`, scope: { orgId: ORG }, grants: ['*'], autonomy: 2 }, invokedBy: `agent:${OWNER}`, proposal: { confidence: 0.9 } } as never) as { status: string; runId: number };
+    const res = await proposeAction({ orgId: ORG, actionId: 'repo.open_pull', input: INPUT, principal: { kind: 'agent', id: `agent:${OWNER}`, scope: { orgId: ORG }, grants: ['*'], autonomy: 2 }, invokedBy: `agent:${OWNER}`, proposal: { confidence: 0.9 } } as never) as { status: string; runId: number };
 
     expect(res.status).toBe('done');
     expect((await read(repo!.id)).metadata).toMatchObject({ pipelineChange: { state: 'open', riskClass: 'pipeline' } });
@@ -200,7 +200,7 @@ describe('a pipeline change is carried to its merge', () => {
     const asks = await db.select().from(askSchema).where(and(eq(askSchema.orgId, ORG), eq(askSchema.sourceRef, `pipeline-stop:${fix.id}:2`)));
 
     expect(asks).toHaveLength(1);
-    expect(asks[0]!.options?.find(o => o.recommended)?.action).toMatchObject({ id: 'github.rerun_failed_jobs', input: { url: 'https://github.com/Acme/northwind-core/pull/501' } });
+    expect(asks[0]!.options?.find(o => o.recommended)?.action).toMatchObject({ id: 'repo.rerun_failed_checks', input: { url: 'https://github.com/Acme/northwind-core/pull/501' } });
     expect((await read(fix.id)).metadata).toMatchObject({ recovery: { stage: 'stopped', askId: asks[0]!.id }, pipelineWork: { stoppedAt: expect.any(String), askId: asks[0]!.id } });
 
     const [stopped] = await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.stopped'), eq(eventLogSchema.dedupeKey, `factory.stopped:${fix.id}:${asks[0]!.id}`)));
@@ -240,7 +240,7 @@ describe('the owner\'s fix run is read back when it ends', () => {
     const fix = await aFix('main is red: e2e (acted)');
     await raisePipelineFix(ORG, { recordId: fix.id, title: fix.title, repo: REPO, branch: 'main', cause: 'main_broken', why: 'main has no database for e2e', failing: 'e2e', url: 'https://github.com/Acme/northwind-core/pull/402', owner: OWNER });
     const run = await aRun(fix.id, new Date(Date.now() - 60_000));
-    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'github.open_pull', status: 'done', input: { ...INPUT, recordId: fix.id }, invokedBy: `agent:${OWNER}` } as never);
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'repo.open_pull', status: 'done', input: { ...INPUT, recordId: fix.id }, invokedBy: `agent:${OWNER}` } as never);
 
     const out = await pipelineFixEnded(ORG, { automationRunId: run.id, owner: OWNER });
 
@@ -260,7 +260,7 @@ describe('the owner\'s fix run is read back when it ends', () => {
     const asks = await db.select().from(askSchema).where(and(eq(askSchema.orgId, ORG), eq(askSchema.sourceRef, `pipeline-stop:${fix.id}:1`)));
 
     expect(asks).toHaveLength(1);
-    expect(asks[0]!.options?.find(o => o.recommended)?.action).toMatchObject({ id: 'github.rerun_failed_jobs', input: { url: 'https://github.com/Acme/northwind-core/actions/runs/9100' } });
+    expect(asks[0]!.options?.find(o => o.recommended)?.action).toMatchObject({ id: 'repo.rerun_failed_checks', input: { url: 'https://github.com/Acme/northwind-core/actions/runs/9100' } });
     // Ending again says nothing new: the stop is already with a person.
     expect((await pipelineFixEnded(ORG, { automationRunId: run.id, owner: OWNER })).did).toBe('nothing waits');
   });

@@ -40,7 +40,7 @@ type Binding = { channelId: string; teamId: string | null };
  * The Slack channel this workspace's announcements go to: the deployment
  * holds a Slack app (`SLACK_BOT_TOKEN`) and the workspace has bound a
  * channel. The first bound channel, the one notifications post to — one
- * lookup shared with `slack.post_message` (`services/chat/boundChannel.ts`).
+ * lookup shared with `chat.post_message` (`services/chat/boundChannel.ts`).
  * @param orgId - The workspace.
  */
 export async function slackAnnounceChannel(orgId: string): Promise<Binding | null> {

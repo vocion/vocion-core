@@ -43,6 +43,8 @@ playbooks:
 skills:
   - design-the-change
   - rubric-designer
+  - draw-from-the-ask
+  - close-with-the-after-shot
 objectTypes:
   - request
   - product

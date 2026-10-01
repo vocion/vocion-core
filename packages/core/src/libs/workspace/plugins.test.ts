@@ -56,7 +56,7 @@ describe('the shipped catalogue', () => {
     // pipeline's owner (backlog 049). The planner's work is the PM's; Design
     // has an agent instead of an empty-seat comment.
     expect(factory.agents).toEqual(['change-reviewer', 'designer', 'product-manager', 'release-engineer', 'task-engineer']);
-    expect(factory.skills).toEqual(['check-the-live-release', 'design-the-change', 'rank-the-backlog', 'review-against-contract', 'rubric-designer', 'rubric-engineer', 'rubric-product-manager', 'rubric-qa', 'rubric-release-engineer', 'surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
+    expect(factory.skills).toEqual(['check-the-live-release', 'close-with-the-after-shot', 'design-the-change', 'draw-from-the-ask', 'explain-a-red-check', 'incident-update', 'intake-from-chat', 'intake-from-the-tracker', 'judge-the-checks', 'mirror-the-tracker', 'rank-the-backlog', 'read-the-ask-whole', 'report-on-the-pull', 'review-against-contract', 'review-on-the-pull', 'rubric-designer', 'rubric-engineer', 'rubric-product-manager', 'rubric-qa', 'rubric-release-engineer', 'surface-an-ask-as-a-card', 'tell-the-requester', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['designing-a-surface', 'house-voice', 'naming-the-work', 'verify-against-reality']);
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'environment', 'product', 'release', 'repo', 'request']);
     // Five missions carry the loop — the designer's `show-it-first` draws a
@@ -302,7 +302,7 @@ describe('loadWorkspace with the software factory', () => {
     // The trust ladder covers the actions core registers and nothing
     // else. A push runs on its own; a merge is a person's at the high bar;
     // every other rule ships disabled for the workspace to turn on.
-    expect(ws.trust?.rules.map(r => r.action)).toEqual(['objects.update_meta.request.decision', 'objects.propose_candidate.request', 'objects.propose_candidate.environment', 'factory.dispatch_task', 'factory.dispatch_task.retry', 'factory.dispatch_task.from_request', 'factory.dispatch_task.recovery', 'factory.dispatch_task.from_plan', 'factory.approve_plan', 'objects.propose_candidate.architecture_plan', 'git.push_branch', 'github.rerun_failed_jobs', 'github.open_pull', 'github.dispatch_workflow', 'github.revert_pull', 'git.merge', 'git.merge.pipeline', 'git.merge.rollback', 'notify.requester', 'notify.requester.completion', 'notify.requester.sensitive', 'release.announce', 'deploy.release', 'deploy.provision', 'aws.mutate', 'credentials.write']);
+    expect(ws.trust?.rules.map(r => r.action)).toEqual(['objects.update_meta.request.decision', 'objects.propose_candidate.request', 'objects.propose_candidate.environment', 'factory.dispatch_task', 'factory.dispatch_task.retry', 'factory.dispatch_task.from_request', 'factory.dispatch_task.recovery', 'factory.dispatch_task.from_plan', 'factory.approve_plan', 'objects.propose_candidate.architecture_plan', 'git.push_branch', 'repo.rerun_failed_checks', 'repo.open_pull', 'repo.dispatch_pipeline', 'repo.revert_pull', 'repo.comment_pull', 'repo.submit_review', 'repo.cancel_pipeline_run', 'tracker.create_issue', 'tracker.transition_issue', 'tracker.update_issue', 'tracker.attach_file', 'tracker.comment', 'chat.add_reaction', 'chat.reply_in_thread', 'chat.post_message', 'git.merge', 'git.merge.pipeline', 'git.merge.rollback', 'notify.requester', 'notify.requester.completion', 'notify.requester.sensitive', 'release.announce', 'deploy.release', 'deploy.provision', 'aws.mutate', 'credentials.write']);
     // A routine completion may earn its way; a decline or an incident is a person's every time.
     expect(ws.trust?.rules.find(r => r.action === 'notify.requester.completion')).toMatchObject({ enabled: false, risk: 'medium', autoApproveAbove: 0.9 });
     expect(ws.trust?.rules.find(r => r.action === 'notify.requester.sensitive')).toMatchObject({ enabled: false, risk: 'high', autoApproveAbove: 1 });
@@ -314,13 +314,13 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@2.42.0');
+    expect(ws.sha).toContain('+software-factory@2.43.0');
     // A re-run of a red CI's failed jobs is done for you: it changes no code (backlog 049).
-    expect(ws.trust?.rules.find(r => r.action === 'github.rerun_failed_jobs')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
+    expect(ws.trust?.rules.find(r => r.action === 'repo.rerun_failed_checks')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
     // The pipeline's owner opens its own fix, and it merges on green (plugin 2.33.0).
-    expect(ws.trust?.rules.find(r => r.action === 'github.open_pull')).toMatchObject({ enabled: true, rung: 'execute-within-bounds' });
+    expect(ws.trust?.rules.find(r => r.action === 'repo.open_pull')).toMatchObject({ enabled: true, rung: 'execute-within-bounds' });
     expect(ws.trust?.rules.find(r => r.action === 'git.merge.pipeline')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', autoApproveAbove: 0.85 });
-    expect(ws.agents.find(a => a.slug === 'release-engineer')?.harness?.grantTools).toEqual(expect.arrayContaining(['github.open_pull']));
+    expect(ws.agents.find(a => a.slug === 'release-engineer')?.harness?.grantTools).toEqual(expect.arrayContaining(['repo.open_pull']));
   });
 
   it('names the work: one playbook the PM, the engineer and QA all read', () => {
@@ -401,7 +401,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(pm?.team).toBe('software-factory');
     expect(ws.teams.find(t => t.slug === 'software-factory')?.lead).toBe('product-manager');
     expect(pm?.harness?.runsOn).toBeUndefined();
-    expect(pm?.skills).toEqual(['surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-task-contract', 'rank-the-backlog', 'write-release-notes', 'rubric-product-manager']);
+    expect(pm?.skills).toEqual(['surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-task-contract', 'rank-the-backlog', 'write-release-notes', 'rubric-product-manager', 'intake-from-chat', 'intake-from-the-tracker', 'mirror-the-tracker', 'tell-the-requester']);
     expect(pm?.objectTypes).toEqual(['request', 'architecture_plan', 'engineering_task', 'release', 'product', 'repo', 'environment']);
     // The loop is named in the prompt, in the order a person sees it.
     expect(pm?.resolvedSystemPrompt).toContain('asked → decided → planned → building → QA → released');
@@ -427,14 +427,14 @@ describe('loadWorkspace with the software factory', () => {
     // deploy reads, the red CI, the reconcile pass and a failed deploy.
     const release = ws.agents.find(a => a.slug === 'release-engineer');
 
-    expect(release?.harness?.grantTools).toEqual(['product_access', 'github_read_check_logs', 'github_read_workflow_runs', 'github.open_pull', 'github.dispatch_workflow', 'github.revert_pull']);
-    expect(release?.skills).toEqual(['rubric-release-engineer']);
+    expect(release?.harness?.grantTools).toEqual(['product_access', 'repo_read_check_logs', 'repo_read_pipeline_runs', 'repo.open_pull', 'repo.dispatch_pipeline', 'repo.revert_pull', 'repo.rerun_failed_checks', 'repo.cancel_pipeline_run']);
+    expect(release?.skills).toEqual(['rubric-release-engineer', 'explain-a-red-check', 'incident-update']);
     expect(ws.missions.find(m => m.slug === 'keep-the-pipeline-answered')?.agent).toBe('release-engineer');
     expect(ws.automations.filter(a => a.agent === 'release-engineer').map(a => a.slug).sort()).toEqual(['deploy-run-failed', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-reconcile', 'pipeline-fix', 'pipeline-fix-ended']);
     expect(ws.automations.find(a => a.slug === 'environment-health')).toMatchObject({ when: { schedule: '*/10 * * * *' }, do: { job: 'factory-environment-health', input: { owner: 'release-engineer' } } });
     expect(ws.trust?.rules.find(r => r.action === 'git.merge.rollback')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', autoApproveAbove: 0.85 });
     expect(ws.automations.find(a => a.slug === 'environment-deployed')).toMatchObject({ when: { event: ['run.succeeded', 'run.failed'] }, do: { job: 'factory-environment-deployed' } });
-    expect(ws.trust?.rules.find(r => r.action === 'github.dispatch_workflow')).toMatchObject({ enabled: true, rung: 'execute-within-bounds' });
+    expect(ws.trust?.rules.find(r => r.action === 'repo.dispatch_pipeline')).toMatchObject({ enabled: true, rung: 'execute-within-bounds' });
     // The pipeline's owner fixes the pipeline itself, and its run is read back when it ends (plugin 2.33.0).
     expect(ws.automations.find(a => a.slug === 'pipeline-fix')).toMatchObject({ when: { event: 'pipeline.needs_fix' }, do: { checkMission: 'keep-the-pipeline-answered' } });
     expect(ws.automations.find(a => a.slug === 'pipeline-fix-ended')).toMatchObject({ when: { event: ['automation_run.completed', 'automation_run.failed'], filter: { slug: 'pipeline-fix' } }, do: { job: 'factory-pipeline-fix-ended', input: { owner: 'release-engineer' } } });
@@ -446,7 +446,7 @@ describe('loadWorkspace with the software factory', () => {
     // Design is a seat with an agent: the before visual on the request, the after-shot when it ships.
     const designer = ws.agents.find(a => a.slug === 'designer');
 
-    expect(designer?.skills).toEqual(['design-the-change', 'rubric-designer']);
+    expect(designer?.skills).toEqual(['design-the-change', 'rubric-designer', 'draw-from-the-ask', 'close-with-the-after-shot']);
     expect(designer?.objectTypes).toEqual(['request', 'product']);
     expect(designer?.resolvedSystemPrompt).toContain('draw_mockup');
     expect(designer?.resolvedSystemPrompt).toContain('visuals.afterArtifactIds');

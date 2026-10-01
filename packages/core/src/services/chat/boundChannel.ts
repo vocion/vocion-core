@@ -14,7 +14,7 @@ import { chatChannelBindingSchema } from '@/models/Schema';
  *
  * Two readers share this one lookup so they cannot disagree about the target:
  * `release.announce` (`services/factory/releaseAnnounce.ts`) and
- * `slack.post_message` (`libs/actions/slack-post-message.ts`).
+ * `chat.post_message` (`libs/actions/slack-post-message.ts`).
  */
 
 export type BoundSlackChannel = {

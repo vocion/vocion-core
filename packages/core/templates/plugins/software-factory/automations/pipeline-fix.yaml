@@ -29,15 +29,15 @@ do:
     What was read: {{why}} Failing: {{failing}}. Evidence: {{url}}.
     An open change of yours for it, when there is one: {{changeUrl}} (branch {{changeBranch}}).
 
-    1. Read the evidence with github_read_check_logs ({{url}}, or the change's URL),
+    1. Read the evidence with repo_read_check_logs ({{url}}, or the change's URL),
     and quote the log line or annotation that settles what is wrong.
 
     2. Decide the one move, and make it:
     - The fix is in the pipeline (a workflow under .github/workflows, a job's
     services or setup, a check's own config, a script the pipeline runs): read each
-    file whole with fetch_url on its blob URL
-    (https://github.com/{{repo}}/blob/{{branch}}/<path>), change only what the fix needs, and
-    propose_action github.open_pull with repo {{repo}}, base {{branch}}, a title
+    file whole with repo_read_file (repo {{repo}}, the path, ref {{branch}}), change
+    only what the fix needs, and
+    propose_action repo.open_pull with repo {{repo}}, base {{branch}}, a title
     that names the fix, a body that quotes the failing line and says why this fixes
     it and that Undo reverts it, files (each with its whole new content), recordId
     {{recordId}}, and branch {{changeBranch}} when that is set (so the commit adds
@@ -45,7 +45,7 @@ do:
     itself when its checks are green.
     - The failure was transient (a runner lost, a registry or network blip) and
     nothing in the repository needs changing: propose_action
-    github.rerun_failed_jobs with the evidence URL.
+    repo.rerun_failed_checks with the evidence URL.
     - Only a person can fix it (a missing or expired secret, a permission, billing
     or minutes on the account): make no move, and say exactly what is missing and
     who holds it. The factory asks that person once, with your words, when this

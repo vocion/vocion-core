@@ -234,6 +234,46 @@ that the app was not granted is named as such; so is one the app was granted
 that the source does not list. The same tool describes a `jira` or `slack`
 source from its config and grant. Nothing secret is read into the answer.
 
+## The repo family: what an agent reads and writes
+
+GitHub is the first provider of the **repo family** — the code host, named for
+its constructs (`src/services/repo/provider.ts`). An agent's tools and actions
+say "pull request", "check", "pipeline run" and "review", never "GitHub"; the
+URL's host, or the github source that lists an `owner/name`, picks the
+provider. Bitbucket, Azure DevOps and GitLab plug in as further
+`providers/<host>.ts` behind the same interface, and nothing an agent is told,
+no trust rule and no skill changes when they do.
+
+Reads, through the workspace's own credential for the repository (so a
+private repository answers):
+
+| Tool | What it returns | Present for |
+|---|---|---|
+| `repo_read_pull` | one pull request, live: title, description, author, branches, head commit, files changed, reviews, check conclusions, labels | any agent with a repo source in `connectorSources` |
+| `repo_read_diff` | the unified diff of a pull request or of two refs, the files it touches, and with `task_id` the files outside the task's `allowedPaths` | same |
+| `repo_read_file` | a file at a ref, whole (cut at 60k) | same |
+| `repo_read_check_logs` | each failing check, its annotations, the failing step's log tail; whether the base branch is red too (formerly `github_read_check_logs`) | granted (`harness.grantTools`), by either name |
+| `repo_read_pipeline_runs` | a repository's pipeline runs, newest first, each with its jobs and the step that failed (formerly `github_read_workflow_runs`) | granted, by either name |
+
+Writes, each an action proposed through `propose_action`, so the trust ladder,
+the ledger and Undo apply ([agent tools that write](./agent-tools.md)). A
+former id in brackets is still accepted by `propose_action`, by a trust rule
+and by a grant; a new run is recorded under the current id.
+
+| Action | What it does | Undo |
+|---|---|---|
+| `repo.comment_pull` | a comment on the pull request: the run report, why a check is red | deletes the comment |
+| `repo.submit_review` | a review — approve, request changes, comment — with findings inline on their lines; `record_verdict` proposes one for every verdict it records | dismisses an approval or a request for changes |
+| `repo.rerun_failed_checks` (`github.rerun_failed_jobs`) | re-runs the failed jobs of a red head once | cancels the re-run while it runs |
+| `repo.cancel_pipeline_run` | stops a run that should not be running: a duplicate deploy, a loop | starts the run again |
+| `repo.dispatch_pipeline` (`github.dispatch_workflow`) | starts a pipeline by hand: a deploy that should have run, a redeploy | cancels the run while it runs |
+| `repo.open_pull` (`github.open_pull`) | files written as one commit on a `vocion/pipeline-…` branch and its pull request, for the pipeline's own fix | closes it and deletes the branch, or reverts it once merged |
+| `repo.revert_pull` (`github.revert_pull`) | the host's revert of a merged pull request, for a release that took an environment down | closes the revert, or reverts the revert |
+
+`repo.open_pull`, `repo.dispatch_pipeline` and `repo.revert_pull` are the
+pipeline's own moves: only a person, or an agent whose harness grants the
+action by either id, may propose one (`mayActOnPipeline`).
+
 ## The webhook — the same events, sooner
 
 `POST /api/webhooks/github` receives GitHub's deliveries and emits the same

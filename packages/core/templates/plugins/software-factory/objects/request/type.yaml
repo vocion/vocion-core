@@ -86,10 +86,10 @@ schema:
         incidents go to severity and a repo; ideas go to the scope decision.
       enum: [bug, gap, idea, incident, question]
     channel:
-      x-display: {label: Channel, format: badge, group: Where it came from, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
+      x-display: {label: Channel, format: badge, group: Where it came from, tones: {site: info, store_review: warn, email: info, chat: info, github: info, tracker: info, dogfood: ok, internal: muted}}
       type: string
       description: The door it came through. Kept because the same request arrives differently by channel — a store review is public and terse, a dogfood note is trusted and specific — and the honest answer goes back the way it came.
-      enum: [site, store_review, email, chat, github, dogfood, internal]
+      enum: [site, store_review, email, chat, github, tracker, dogfood, internal]
     product:
       x-display: {label: Product, format: link, to: product, group: Where it came from}
       type: string

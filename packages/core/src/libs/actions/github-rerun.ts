@@ -1,5 +1,7 @@
 /**
- * `github.rerun_failed_jobs` — RE-RUN WHAT FAILED, ONCE (backlog 049). A red
+ * `repo.rerun_failed_checks` (formerly `github.rerun_failed_jobs`) — RE-RUN
+ * WHAT FAILED, ONCE (backlog 049). The GitHub provider of the repo family:
+ * a pull request on another host resolves to its own provider by URL. A red
  * CI the diagnosis reads as flaky is re-run instead of sent back to the
  * engineer: a flaky test costs a re-run, not an attempt. Reversible by
  * nature — a re-run changes no code, and Undo cancels it while it is still
@@ -22,15 +24,18 @@ const rerunInput = z.object({
   recordId: z.coerce.number().int().positive().optional().describe('The record this re-run answers (an environment whose deploy failed), so its page shows it.'),
 });
 
+export const RERUN_FAILED_CHECKS_ACTION_ID = 'repo.rerun_failed_checks';
+
 export const githubRerunFailedJobsAction: Action<typeof rerunInput> = {
-  id: 'github.rerun_failed_jobs',
+  id: RERUN_FAILED_CHECKS_ACTION_ID,
+  aliases: ['github.rerun_failed_jobs'],
   name: 'Re-run failed CI jobs',
   description: 'Re-run the failed GitHub Actions jobs on a pull request\'s head (or one Actions run), with the workspace\'s GitHub token. For a check that failed for a reason unrelated to the change — a flaky test, a runner that went away. Changes no code; Undo cancels the re-run while it is still running.',
   inputSchema: rerunInput,
   grant: 'factory_write',
   external: true,
   // One re-run per head: a second proposal for the same commit is the same run.
-  dedupKeyFor: input => `github.rerun_failed_jobs:${input.url}${input.headSha ? `@${input.headSha.slice(0, 12)}` : ''}`,
+  dedupKeyFor: input => `${RERUN_FAILED_CHECKS_ACTION_ID}:${input.url}${input.headSha ? `@${input.headSha.slice(0, 12)}` : ''}`,
   ownsDedupKey: true,
   async reviewCard(_ctx, raw) {
     const input = raw as z.infer<typeof rerunInput>;

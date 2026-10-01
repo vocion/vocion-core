@@ -279,7 +279,7 @@ describe('a product\'s environments and repositories are the one source (Chris, 
       { orgId: ORG, actionId: 'objects.update_meta', status: 'done', input: { id: 361 }, result: { objectId: 361 }, invokedBy: 'agent:release-engineer' },
       { orgId: ORG, actionId: 'objects.update_meta', status: 'done', input: { id: 999 }, result: { objectId: 999 }, invokedBy: 'agent:release-engineer' },
       // A pipeline move says what it did, in its own line.
-      { orgId: ORG, actionId: 'github.dispatch_workflow', status: 'done', input: { recordId: 361 }, result: { objectId: 361, line: 'Started deploy.yml on main for feed000 (run #52).' }, invokedBy: 'agent:release-engineer' },
+      { orgId: ORG, actionId: 'repo.dispatch_pipeline', status: 'done', input: { recordId: 361 }, result: { objectId: 361, line: 'Started deploy.yml on main for feed000 (run #52).' }, invokedBy: 'agent:release-engineer' },
     ] as never);
     const { relatedWrites } = await import('./related');
 

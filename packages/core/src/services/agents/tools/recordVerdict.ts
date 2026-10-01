@@ -11,11 +11,13 @@
  * (`do.requireTool`).
  *
  * The model says what it judged; the server says what that means:
- * - the head is read from GitHub with the workspace token, never typed by the model;
+ * - the head is read from the code host with the workspace token, never typed by the model;
  * - the count ("4 of 6 proven") is computed from the criteria, never claimed;
  * - an approve with an unproven criterion or a blocking finding is refused;
  * - on approve the merge card (`git.merge`) is filed in the same call, so
- *   there is no second step to forget.
+ *   there is no second step to forget;
+ * - the verdict is mirrored onto the pull request as a review on the code
+ *   host (`repo.submit_review`), so the repository's engineers read it too.
  */
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
@@ -154,6 +156,64 @@ export function clipNote(note: string): string {
 export function mergeSummary(note: string, criteria: VerdictCriterion[], proven: number): string {
   const lines = criteria.map(c => `- ${c.status === 'proven' ? 'Proven' : c.status === 'unproven' ? 'Unproven' : 'Unchecked'}: ${c.criterion}${c.evidence ? ` (${c.evidence})` : ''}`);
   return [`${note.trim()}`, '', `QA: ${proven} of ${criteria.length} criteria proven.`, ...lines].join('\n').slice(0, 4_000);
+}
+
+/**
+ * THE VERDICT, MIRRORED WHERE THE ENGINEERS READ IT. The verdict decides the
+ * merge card in Vocion; the same judgement goes onto the pull request as a
+ * review on the code host (`repo.submit_review`), so a repository's own
+ * engineers see it in the tool they already use. Approve → approve; changes
+ * and reject → request changes (a rejected contract still means the change
+ * does not go in as it is). The body is the note, the count and every
+ * finding keyed to what it is against; no inline comments, because the
+ * verdict's findings are keyed to criteria, not to lines.
+ * @param v - What was judged.
+ * @param v.url - The pull request.
+ * @param v.value - The verdict.
+ * @param v.note - The reviewer's sentence.
+ * @param v.proven - Criteria proven.
+ * @param v.total - Criteria in the contract.
+ * @param v.findings - Findings keyed to the contract.
+ * @param v.taskId - The task the verdict is on.
+ */
+export function reviewMirrorInput(v: { url: string; value: typeof VERDICT_VALUES[number]; note: string; proven: number; total: number; findings: VerdictFinding[]; taskId: number }): { url: string; event: 'approve' | 'request_changes'; body: string; taskId: number; recordId: number } {
+  const lines = [
+    `**QA verdict: ${v.value}** — ${v.proven} of ${v.total} criteria proven.`,
+    v.note.trim(),
+    ...(v.findings.length > 0 ? ['', ...v.findings.map(f => `- [${f.severity}] against ${f.against} \`${f.ref}\`: ${f.what}${f.closeBy ? ` Close by: ${f.closeBy}` : ''}`)] : []),
+    '',
+    `_Recorded on task #${v.taskId} in Vocion; the merge is decided there by a person._`,
+  ];
+  return { url: v.url, event: v.value === 'approve' ? 'approve' : 'request_changes', body: lines.join('\n').slice(0, 20_000), taskId: v.taskId, recordId: v.taskId };
+}
+
+/**
+ * Propose the review mirror, done for you or on a card by the workspace's
+ * trust rule. Never throws: a refusal (no code host connected for the pull
+ * request, a rule that holds it) becomes a clause in the verdict's receipt.
+ * @param orgId - The workspace.
+ * @param by - The reviewing agent's slug.
+ * @param input - From {@link reviewMirrorInput}.
+ * @param count - The "N of M criteria proven" line, for the rationale.
+ */
+export async function mirrorVerdictOnPull(orgId: string, by: string, input: ReturnType<typeof reviewMirrorInput>, count: string): Promise<string> {
+  try {
+    const { proposeAction } = await import('@/services/ActionService');
+    const { SUBMIT_REVIEW_ACTION_ID } = await import('@/libs/actions/repo-submit-review');
+    const res = await proposeAction({
+      orgId,
+      actionId: SUBMIT_REVIEW_ACTION_ID,
+      input,
+      principal: { kind: 'agent', id: `agent:${by}`, scope: { orgId }, grants: ['*'], autonomy: 2 },
+      invokedBy: `agent:${by}`,
+      proposal: { confidence: 0.9, rationale: `QA's verdict, mirrored as a review on the pull request: ${count}.`, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: 'The verdict is recorded; the review repeats it where the engineers read.' },
+    });
+    return res.status === 'pending'
+      ? `The review on the pull request waits on a card (run #${res.runId}).`
+      : `The verdict is also on the pull request as a review (run #${res.runId}, ${res.status}).`;
+  } catch (err) {
+    return `The review on the pull request was not filed: ${(err as Error).message}`;
+  }
 }
 
 export async function findTaskByPr(orgId: string, prUrl: string) {
@@ -459,7 +519,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       const taskSha = typeof task.meta.commitSha === 'string' ? task.meta.commitSha : null;
       const commitSha = head?.sha ?? taskSha;
       if (!commitSha) {
-        return `Not recorded: could not read the head of ${task.url} from GitHub, and task #${task.id} names no commit. A verdict is about one commit.`;
+        return `Not recorded: could not read the head of ${task.url} from the code host, and task #${task.id} names no commit. A verdict is about one commit.`;
       }
       if (head?.merged) {
         return `Not recorded: ${task.url} is already merged. A verdict before the merge is the only one that decides anything.`;
@@ -495,7 +555,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
           }
           retry = await buildAgain(ctx.orgId, task, route);
         }
-        return `${recordedAs ? `${recordedAs} ` : ''}Verdict recorded on task #${task.id}: ${value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''}`;
+        const mirrored = await mirrorVerdictOnPull(ctx.orgId, by, reviewMirrorInput({ url: task.url, value, note: verdict.note, proven, total, findings, taskId: task.id }), count);
+        return `${recordedAs ? `${recordedAs} ` : ''}Verdict recorded on task #${task.id}: ${value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''} ${mirrored}`;
       }
       // THE MERGE CARRIES WHAT THE DIFF TOUCHED (2026-09-30). The engineer may
       // go beyond the plan's paths when the outcome needs it; the merge's class,
@@ -533,7 +594,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
           invokedBy: `agent:${by}`,
           proposal: { confidence: MERGE_PROPOSAL_CONFIDENCE, rationale: verdict.note, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: `${count}. ${verdict.note}`.slice(0, 160) },
         });
-        return `Verdict recorded on task #${task.id}: approve, ${count}, at ${commitSha.slice(0, 12)}. The merge card is filed (run #${res.runId}, ${res.status}); a person merges.`;
+        const mirrored = await mirrorVerdictOnPull(ctx.orgId, by, reviewMirrorInput({ url: task.url, value, note: verdict.note, proven, total, findings, taskId: task.id }), count);
+        return `Verdict recorded on task #${task.id}: approve, ${count}, at ${commitSha.slice(0, 12)}. The merge card is filed (run #${res.runId}, ${res.status}); a person merges. ${mirrored}`;
       } catch (err) {
         return `Verdict recorded on task #${task.id} (approve, ${count}), but the merge card was refused: ${(err as Error).message}`;
       }

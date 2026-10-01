@@ -45,7 +45,7 @@ function aNewBranch() {
   routes['POST /git/refs'] = () => ({ status: 201, body: {} });
 }
 
-describe('a pipeline change (github.open_pull\'s work)', () => {
+describe('a pipeline change (repo.open_pull\'s work)', () => {
   it('writes the files as one commit over the base, on a vocion/pipeline- branch, and opens its pull request', async () => {
     aNewBranch();
     routes['GET /pulls?state=open&head=Acme%3Avocion%2Fpipeline-202609301200-ci-give-e2e-its-database'] = () => ({ status: 200, body: [] });

@@ -43,7 +43,7 @@ const reading = (health: 'ok' | 'down'): HealthReading => ({ health, status: hea
 
 function deps(over: Partial<WatchDeps> = {}) {
   let health: 'ok' | 'down' = 'down';
-  const propose = vi.fn(async (_orgId: string, o: { actionId: string }) => ({ runId: { 'github.rerun_failed_jobs': 11, 'github.dispatch_workflow': 12, 'github.revert_pull': 13 }[o.actionId] ?? 1, status: 'done' }));
+  const propose = vi.fn(async (_orgId: string, o: { actionId: string }) => ({ runId: { 'repo.rerun_failed_checks': 11, 'repo.dispatch_pipeline': 12, 'repo.revert_pull': 13 }[o.actionId] ?? 1, status: 'done' }));
   const d: WatchDeps = {
     health: async () => reading(health),
     deployBranch: async () => 'main',
@@ -75,7 +75,7 @@ describe('a down environment is brought back, step by step', () => {
     // Twice: the failed deploy is re-run.
     await watchEnvironments(ORG, { owner: 'release-engineer' }, at(10), d);
 
-    expect(kinds(propose, env.id)).toEqual(['github.rerun_failed_jobs']);
+    expect(kinds(propose, env.id)).toEqual(['repo.rerun_failed_checks']);
     expect(propose.mock.calls.at(-1)![1]).toMatchObject({ owner: 'release-engineer', input: { url: `https://github.com/${REPO}/actions/runs/36001`, recordId: env.id } });
 
     // Inside the re-run's wait, nothing else moves.
@@ -87,7 +87,7 @@ describe('a down environment is brought back, step by step', () => {
     await watchEnvironments(ORG, { owner: 'release-engineer' }, at(10 + STEP_WAIT_MS.rerun / 60_000), d);
     await watchEnvironments(ORG, { owner: 'release-engineer' }, at(40 + STEP_WAIT_MS.redeploy / 60_000), d);
 
-    expect(kinds(propose, env.id)).toEqual(['github.rerun_failed_jobs', 'github.dispatch_workflow', 'github.revert_pull']);
+    expect(kinds(propose, env.id)).toEqual(['repo.rerun_failed_checks', 'repo.dispatch_pipeline', 'repo.revert_pull']);
     expect(propose.mock.calls.at(-1)![1]).toMatchObject({ input: { url: `https://github.com/${REPO}/pull/140`, recordId: env.id, reason: expect.stringContaining('it was healthy on good000 before bad0000 deployed') } });
     expect((await meta(env.id)).healthRecovery.attempts.map((a: { kind: string; actionRunId: number }) => [a.kind, a.actionRunId])).toEqual([['rerun', 11], ['redeploy', 12], ['rollback', 13]]);
 

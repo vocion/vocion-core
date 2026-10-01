@@ -28,9 +28,9 @@ import { MERGE_ACTION_ID } from './mergeAction';
  */
 /**
  * `pipeline` is a change the seat that owns CI opened itself
- * (`github.open_pull`): its workflows, its runner setup, its checks' config,
+ * (`repo.open_pull`): its workflows, its runner setup, its checks' config,
  * merged on green with a revert as the undo (backlog 049). `rollback` is the
- * revert of a release an environment's recovery opened (`github.revert_pull`)
+ * revert of a release an environment's recovery opened (`repo.revert_pull`)
  * after the environment went down on it: what was live before, put back.
  */
 export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise', 'pipeline', 'rollback'] as const;

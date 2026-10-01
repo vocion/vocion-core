@@ -1,5 +1,5 @@
 /**
- * `github.dispatch_workflow` — A DEPLOY THAT SHOULD HAVE RUN, STARTED (backlog
+ * `repo.dispatch_pipeline` — A DEPLOY THAT SHOULD HAVE RUN, STARTED (backlog
  * 049; Chris, 2026-09-30: "start one with workflow_dispatch when a deploy
  * should happen and didn't"). A merge landed on the deploy branch and no run
  * of its deploy workflow followed — a webhook GitHub dropped, a concurrency
@@ -16,7 +16,7 @@ import type { Action } from './types';
 import { z } from 'zod';
 import { mayActOnPipeline } from './github-pull';
 
-export const DISPATCH_WORKFLOW_ACTION_ID = 'github.dispatch_workflow';
+export const DISPATCH_WORKFLOW_ACTION_ID = 'repo.dispatch_pipeline';
 
 const dispatchInput = z.object({
   repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'the repository as owner/name').describe('The repository, owner/name.'),
@@ -32,7 +32,8 @@ type DispatchInput = z.infer<typeof dispatchInput>;
 
 export const githubDispatchWorkflowAction: Action<typeof dispatchInput> = {
   id: DISPATCH_WORKFLOW_ACTION_ID,
-  name: 'Start a workflow',
+  aliases: ['github.dispatch_workflow'],
+  name: 'Start a pipeline',
   description: 'Start a GitHub Actions workflow on a branch (workflow_dispatch) with the workspace\'s GitHub token — a deploy that should have run after a merge and did not, or a redeploy of what is already merged. Undo cancels the run while it is still running.',
   inputSchema: dispatchInput,
   grant: 'factory_write',

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { slackPostMessageAction } from './slack-post-message';
 
 /**
- * slack.post_message: the generic "tell the channel" write. Refused at the
+ * chat.post_message: the generic "tell the channel" write. Refused at the
  * door when the workspace bound nothing, posted through the bound channel
  * (never one an agent merely typed), editable as a message on the card,
  * deduped per record, and taken back by Undo. Fixtures are fictional.
@@ -138,7 +138,7 @@ describe('slackPostMessageAction', () => {
     const a = slackPostMessageAction.dedupKeyFor!(parse({ text: 'Margin 41%', about: 'project:Northwind-Portal' }));
     const b = slackPostMessageAction.dedupKeyFor!(parse({ text: 'Margin now 39%', about: 'project:northwind-portal' }));
 
-    expect(a).toBe('slack.post_message:default:project:northwind-portal');
+    expect(a).toBe('chat.post_message:default:project:northwind-portal');
     expect(b).toBe(a);
     expect(slackPostMessageAction.dedupKeyFor!(parse({ text: 'x', about: 'project:northwind-portal', channelId: 'C0OTHER' }))).not.toBe(a);
     expect(slackPostMessageAction.dedupKeyFor!(parse({ text: 'a one-off' }))).toBeUndefined();

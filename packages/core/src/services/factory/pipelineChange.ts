@@ -40,7 +40,7 @@ export const NO_CHECKS_WAIT_MS = 15 * 60_000;
 /** A fix asked for with no move and no end after this long is a stop. */
 export const UNANSWERED_FIX_MS = 45 * 60_000;
 /** What counts as the seat having acted on a fix: its moves on the action rail. */
-export const PIPELINE_MOVES = ['github.open_pull', 'github.rerun_failed_jobs', 'github.dispatch_workflow'] as const;
+export const PIPELINE_MOVES = ['repo.open_pull', 'repo.rerun_failed_checks', 'repo.dispatch_pipeline'] as const;
 
 /**
  * The seat's display name, for the lines a person reads.
@@ -178,7 +178,7 @@ export async function escalatePipeline(orgId: string, o: { recordId: number; req
       agentSlug: o.owner,
       risk: 'medium',
       options: [
-        { id: 'approve', label: 'It is fixed, check again', description: rerunnable ? 'Re-run the failed jobs now.' : 'The next pass reads it again.', recommended: true, ...(rerunnable ? { action: { id: 'github.rerun_failed_jobs', input: { url: rerunnable, reason: `After a person fixed it: ${o.why}`.slice(0, 500) } } } : {}) },
+        { id: 'approve', label: 'It is fixed, check again', description: rerunnable ? 'Re-run the failed jobs now.' : 'The next pass reads it again.', recommended: true, ...(rerunnable ? { action: { id: 'repo.rerun_failed_checks', input: { url: rerunnable, reason: `After a person fixed it: ${o.why}`.slice(0, 500) } } } : {}) },
         { id: 'reject', label: 'Leave it', description: 'Nothing runs again.' },
       ],
       objectRefs: [{ type: request?.typeSlug ?? types.request, id: String(o.requestId) }, ...(o.recordId !== o.requestId ? [{ type: record?.typeSlug ?? 'record', id: String(o.recordId) }] : [])],

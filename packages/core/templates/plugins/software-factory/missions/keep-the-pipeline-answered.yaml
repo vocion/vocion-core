@@ -24,7 +24,7 @@ successCriteria:
   - Every cause is quoted from GitHub's evidence (an annotation, a log line, the base branch's checks), never inferred from a check's name
   - A flaky failure is re-run at most once per head; a second failure on the same head is sent back to the engineer
   - A red default branch has one fix request listing every pull request it blocks, not one per pull request
-  - A fix that lives in the pipeline (a workflow, a job's setup, a check's config) is written by this seat as a pull request of its own with github.open_pull, quoting the failing line, and merges on green; only what a person holds (a secret, a permission, billing) is asked of a person
+  - A fix that lives in the pipeline (a workflow, a job's setup, a check's config) is written by this seat as a pull request of its own with repo.open_pull, quoting the failing line, and merges on green; only what a person holds (a secret, a permission, billing) is asked of a person
   - An environment down or degraded on two reads is recovered one step a pass (re-run the failed deploy, redeploy, roll the release back when it was healthy before it), each step on its Activity with its Undo, and a person is asked once only when the steps run out
   - The request's Activity carries one line per pipeline failure saying what failed, why, and who moves next
 desiredArtifacts:

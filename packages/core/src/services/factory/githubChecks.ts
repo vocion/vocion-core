@@ -9,7 +9,7 @@
  *     log. What a person would open the Checks tab to read, as evidence for
  *     `ciDiagnose` and for the Release engineer's `github_read_check_logs`.
  *   - `rerunFailedJobs` — re-runs the failed jobs of every failed workflow run
- *     on a head (the `github.rerun_failed_jobs` action); `cancelWorkflowRuns`
+ *     on a head (the `repo.rerun_failed_checks` action); `cancelWorkflowRuns`
  *     is its undo while they are still running.
  *   - `branchChecks`, `readPull`, `pullChangedFiles`, `updatePullBranch` —
  *     what the reconciler reads back when a webhook never arrived, and how a
@@ -18,7 +18,7 @@
  *   - `listWorkflowRuns`, `runJobs`, `readWorkflowRun`, `branchHead` — the
  *     deploys: which runs a workflow made, each job's steps and the one that
  *     failed, and the commit a branch is at; `dispatchWorkflow` starts one
- *     (`github.dispatch_workflow`) when a deploy should have run and did not.
+ *     (`repo.dispatch_pipeline`) when a deploy should have run and did not.
  *
  * Nothing here reads meaning. The log tail is cut by the step's own
  * timestamps; which check failed is GitHub's conclusion field; why it failed

@@ -14,7 +14,7 @@
  *
  *   change_broke_it → the attempt is built again, carrying the failing checks
  *                     and what the log says (the per-stage limit applies).
- *   flaky           → the failed jobs are re-run once (`github.rerun_failed_jobs`,
+ *   flaky           → the failed jobs are re-run once (`repo.rerun_failed_checks`,
  *                     done for you), counted on the task; failing again on the
  *                     same head is treated as the change's.
  *   main_broken     → one fix request on the default branch, listing every
@@ -265,7 +265,7 @@ export async function rerunFailed(orgId: string, o: { url: string; headSha: stri
     const { proposeAction } = await import('@/services/ActionService');
     const res = await proposeAction({
       orgId,
-      actionId: 'github.rerun_failed_jobs',
+      actionId: 'repo.rerun_failed_checks',
       input: { url: o.url, ...(o.headSha ? { headSha: o.headSha } : {}), taskId: o.taskId, reason: o.why.slice(0, 500) },
       principal: SYSTEM_PRINCIPAL(orgId, o.owner),
       invokedBy: `agent:${o.owner ?? 'system'}`,

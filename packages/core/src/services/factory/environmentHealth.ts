@@ -11,12 +11,12 @@
  * work before the next:
  *
  *   rerun      the last run of its deploy workflow failed: its failed jobs
- *              run again (`github.rerun_failed_jobs`).
+ *              run again (`repo.rerun_failed_checks`).
  *   redeploy   the deploy workflow runs again on the deploy branch
- *              (`github.dispatch_workflow`), when it can be started by hand.
+ *              (`repo.dispatch_pipeline`), when it can be started by hand.
  *   rollback   it was healthy on the commit before its last deploy and is not
  *              on this one: that release's pull request is reverted
- *              (`github.revert_pull`), and the revert merges itself on green.
+ *              (`repo.revert_pull`), and the revert merges itself on green.
  *
  * Each step is an action on the rail — done for you, its Undo on it — and a
  * line on the environment's own account. A step that does not apply is not
@@ -132,14 +132,14 @@ export async function nextStep(orgId: string, env: EnvironmentRow, rec: HealthRe
   if (workflow && branch && !tried.has('rerun')) {
     const run = await d.latestRun(orgId, repo, workflow, branch).catch(() => null);
     if (run && run.status === 'completed' && run.conclusion && !['success', 'neutral', 'skipped'].includes(run.conclusion)) {
-      return { kind: 'rerun', actionId: 'github.rerun_failed_jobs', input: { url: run.url, recordId: env.id, reason: `${why}, and its last deploy run #${run.runNumber} ended ${run.conclusion}.` }, url: run.url, why };
+      return { kind: 'rerun', actionId: 'repo.rerun_failed_checks', input: { url: run.url, recordId: env.id, reason: `${why}, and its last deploy run #${run.runNumber} ended ${run.conclusion}.` }, url: run.url, why };
     }
   }
   if (workflow && branch && !tried.has('redeploy')) {
     const triggers = await d.triggers(orgId, repo, workflow, branch).catch(() => null);
     if (triggers?.dispatchable) {
       const sha = str(env.meta.lastDeployedSha);
-      return { kind: 'redeploy', actionId: 'github.dispatch_workflow', input: { repo, workflow, ref: branch, ...(sha && /^[0-9a-f]{7,40}$/i.test(sha) ? { sha } : {}), recordId: env.id, reason: `${why}; redeploying what is merged, as step ${rec.attempts.length + 1} of its recovery.` }, url: null, why };
+      return { kind: 'redeploy', actionId: 'repo.dispatch_pipeline', input: { repo, workflow, ref: branch, ...(sha && /^[0-9a-f]{7,40}$/i.test(sha) ? { sha } : {}), recordId: env.id, reason: `${why}; redeploying what is merged, as step ${rec.attempts.length + 1} of its recovery.` }, url: null, why };
     }
   }
   const healthy = str(env.meta.lastHealthySha);
@@ -147,7 +147,7 @@ export async function nextStep(orgId: string, env: EnvironmentRow, rec: HealthRe
   if (!tried.has('rollback') && healthy && deployed && healthy !== deployed) {
     const pull = await d.mergedPullFor(orgId, repo, deployed).catch(() => null);
     if (pull) {
-      return { kind: 'rollback', actionId: 'github.revert_pull', input: { url: pull, recordId: env.id, reason: `${why}; it was healthy on ${healthy.slice(0, 7)} before ${deployed.slice(0, 7)} deployed, and ${rec.attempts.length > 0 ? rec.attempts.map(a => a.kind).join(' and ') : 'nothing else'} did not bring it back.` }, url: pull, why };
+      return { kind: 'rollback', actionId: 'repo.revert_pull', input: { url: pull, recordId: env.id, reason: `${why}; it was healthy on ${healthy.slice(0, 7)} before ${deployed.slice(0, 7)} deployed, and ${rec.attempts.length > 0 ? rec.attempts.map(a => a.kind).join(' and ') : 'nothing else'} did not bring it back.` }, url: pull, why };
     }
   }
   return null;
