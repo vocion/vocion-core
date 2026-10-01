@@ -63,7 +63,7 @@ describe('expandRecurrence', () => {
   });
 
   it('leaves rules it does not read to the model', () => {
-    expect(expandRecurrence({ start: ny('2026-09-01T18:00:00'), anchorZone: NY, rule: 'FREQ=MONTHLY;BYDAY=3WE', exdates: [], rdates: [], ...window })).toEqual([]);
+    expect(expandRecurrence({ start: ny('2026-09-01T18:00:00'), anchorZone: NY, rule: 'FREQ=MONTHLY;BYDAY=WE', exdates: [], rdates: [], ...window })).toEqual([]);
     expect(expandRecurrence({ start: ny('2026-09-01T18:00:00'), anchorZone: NY, rule: 'FREQ=WEEKLY;BYDAY=1TH', exdates: [], rdates: [], ...window })).toEqual([]);
     expect(expandRecurrence({ start: ny('2026-09-01T18:00:00'), anchorZone: NY, rule: 'FREQ=DAILY;COUNT=5000', exdates: [], rdates: [], ...window })).toEqual([]);
     expect(expandRecurrence({ start: ny('2026-09-01T18:00:00'), anchorZone: NY, rule: 'FREQ=WEEKLY;BYDAY=TU;BYMONTH=6,7,8', exdates: [], rdates: [], ...window })).toEqual([]);
@@ -102,6 +102,38 @@ describe('expandRecurrence', () => {
     }
   });
 
+  describe('monthly, on a weekday by its place in the month', () => {
+    const monthly = (rule: string, start = ny('2026-09-01T18:00:00'), to = window.to) => expandRecurrence({ start, anchorZone: NY, rule, exdates: [], rdates: [], from: window.from, to }).map(d => isoInZone(d, NY).slice(0, 16));
+
+    it('reads the first and the last weekday of each month, on the rule\'s own clock', () => {
+      expect(monthly('FREQ=MONTHLY;BYDAY=1TU')).toEqual(['2026-10-06T18:00', '2026-11-03T18:00']);
+      expect(monthly('FREQ=MONTHLY;BYDAY=-1TU')).toEqual(['2026-09-29T18:00', '2026-10-27T18:00', '2026-11-24T18:00']);
+      expect(monthly('FREQ=MONTHLY;BYDAY=+1TU,3TU')).toEqual(['2026-10-06T18:00', '2026-10-20T18:00', '2026-11-03T18:00', '2026-11-17T18:00']);
+    });
+
+    it('skips a month that has no such weekday', () => {
+      expect(monthly('FREQ=MONTHLY;BYDAY=5TU', ny('2026-09-01T18:00:00'), ny('2027-01-01T00:00:00'))).toEqual(['2026-09-29T18:00', '2026-12-29T18:00']);
+    });
+
+    it('steps INTERVAL months from the first occurrence', () => {
+      expect(monthly('FREQ=MONTHLY;INTERVAL=2;BYDAY=1TU')).toEqual(['2026-11-03T18:00']);
+    });
+
+    it('counts COUNT from the first occurrence, never from a date before it', () => {
+      expect(monthly('FREQ=MONTHLY;BYDAY=1TU;COUNT=2')).toEqual(['2026-10-06T18:00']);
+      expect(monthly('FREQ=MONTHLY;BYDAY=1TU;COUNT=1')).toEqual([]);
+      expect(monthly('FREQ=MONTHLY;BYDAY=1TU;COUNT=2', ny('2026-09-15T18:00:00'))).toEqual(['2026-10-06T18:00', '2026-11-03T18:00']);
+    });
+
+    it('stops at UNTIL', () => {
+      expect(monthly('FREQ=MONTHLY;BYDAY=-1TU;UNTIL=20261101T000000Z')).toEqual(['2026-09-29T18:00', '2026-10-27T18:00']);
+    });
+
+    it('reaches the window of a series that has run for twenty years', () => {
+      expect(monthly('FREQ=MONTHLY;BYDAY=1TU', ny('2006-01-03T18:00:00'))).toEqual(['2026-10-06T18:00', '2026-11-03T18:00']);
+    });
+  });
+
   it('stops walking at the last day a four-digit year can name', () => {
     const far = () => expandRecurrence({ start: new Date('9999-12-01T15:00:00Z'), anchorZone: 'UTC', rule: 'FREQ=WEEKLY;INTERVAL=1000', exdates: [], rdates: [], from: new Date('9999-12-15T00:00:00Z'), to: new Date('+020000-01-01T00:00:00Z') });
 
@@ -117,10 +149,11 @@ describe('readRule', () => {
     }
 
     expect(readRule('FREQ=WEEKLY;BYDAY=MO,TH;UNTIL=20261231T235959Z;WKST=SU')).toEqual({ freq: 'WEEKLY', interval: 1, until: '20261231T235959Z', byDay: ['MO', 'TH'], wkst: 6 });
+    expect(readRule('FREQ=MONTHLY;BYDAY=3WE,-1FR')).toEqual({ freq: 'MONTHLY', interval: 1, byDay: ['3WE', '-1FR'], wkst: 0 });
   });
 
   it('refuses exactly what the expander leaves to the model', () => {
-    for (const rule of ['FREQ=MONTHLY;BYDAY=3WE', 'FREQ=YEARLY', 'FREQ=WEEKLY;BYDAY=1TH', 'FREQ=DAILY;COUNT=5000', 'FREQ=WEEKLY;BYDAY=TU;BYMONTH=6,7,8', 'FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR', 'FREQ=WEEKLY;UNTIL=20261340', 'FREQ=WEEKLY;BYDAY=TU,SU;WKST=XX', 'FREQ=WEEKLY;INTERVAL=abc', 'FREQ=WEEKLY;INTERVAL=0', 'FREQ=WEEKLY;INTERVAL=1001', 'FREQ=WEEKLY;COUNT=1.5', 'FREQ=WEEKLY;UNTIL=20261231T250000Z', 'FREQ=WEEKLY;UNTIL=20261131']) {
+    for (const rule of ['FREQ=MONTHLY', 'FREQ=MONTHLY;BYDAY=WE', 'FREQ=MONTHLY;BYDAY=1WE,FR', 'FREQ=MONTHLY;BYDAY=6WE', 'FREQ=MONTHLY;BYDAY=0WE', 'FREQ=MONTHLY;BYMONTHDAY=15', 'FREQ=YEARLY', 'FREQ=WEEKLY;BYDAY=1TH', 'FREQ=DAILY;COUNT=5000', 'FREQ=WEEKLY;BYDAY=TU;BYMONTH=6,7,8', 'FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR', 'FREQ=WEEKLY;UNTIL=20261340', 'FREQ=WEEKLY;BYDAY=TU,SU;WKST=XX', 'FREQ=WEEKLY;INTERVAL=abc', 'FREQ=WEEKLY;INTERVAL=0', 'FREQ=WEEKLY;INTERVAL=1001', 'FREQ=WEEKLY;COUNT=1.5', 'FREQ=WEEKLY;UNTIL=20261231T250000Z', 'FREQ=WEEKLY;UNTIL=20261131']) {
       expect(readRule(rule)).toBeUndefined();
       expect(expandRecurrence({ start: ny('2026-09-01T18:00:00'), anchorZone: NY, rule, exdates: [], rdates: [], ...window })).toEqual([]);
     }

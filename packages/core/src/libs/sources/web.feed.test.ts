@@ -1885,6 +1885,24 @@ END:VCALENDAR`;
     expect(icsRecurrence(['BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20260231', 'RRULE:FREQ=WEEKLY', 'END:VEVENT'])).toBeUndefined();
   });
 
+  it('reads how long each occurrence lasts, from DTEND or DURATION', () => {
+    const timed = (...extra: string[]) => icsRecurrence(['BEGIN:VEVENT', 'DTSTART;TZID=America/Chicago:20261101T193000', 'RRULE:FREQ=WEEKLY', ...extra, 'END:VEVENT']);
+
+    expect(timed('DTEND;TZID=America/Chicago:20261101T213000')?.duration).toEqual({ days: 0, ms: 7_200_000 });
+    expect(timed('DURATION:PT1H30M')?.duration).toEqual({ days: 0, ms: 5_400_000 });
+    expect(timed('DURATION:P1DT2H')?.duration).toEqual({ days: 1, ms: 7_200_000 });
+    expect(timed('DURATION:P2W')?.duration).toEqual({ days: 14, ms: 0 });
+    expect(icsRecurrence(['BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261010', 'DTEND;VALUE=DATE:20261012', 'RRULE:FREQ=WEEKLY', 'END:VEVENT'], 'America/New_York')?.duration).toEqual({ days: 2, ms: 0 });
+
+    // An end it cannot read, or one that does not come after the start, leaves the length unknown and the rule read.
+    for (const extra of [[], ['DURATION:soon'], ['DURATION:-PT1H'], ['DURATION:P'], ['DTEND;TZID=America/Chicago:20261101T183000'], ['DTEND;VALUE=DATE:20261102']]) {
+      const rec = timed(...extra);
+
+      expect(rec?.rule).toBe('FREQ=WEEKLY');
+      expect(rec?.duration).toBeUndefined();
+    }
+  });
+
   it('leaves the rule to the model when an exception or an extra date cannot be read', () => {
     const weekly = (line: string) => icsRecurrence(['BEGIN:VEVENT', 'DTSTART:20261104T230000Z', 'RRULE:FREQ=WEEKLY', line, 'END:VEVENT'], 'America/New_York');
 

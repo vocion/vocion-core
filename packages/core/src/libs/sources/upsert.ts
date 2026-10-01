@@ -132,6 +132,7 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
     knownCandidates?: { keyedBy?: string };
     seriesLabel?: { sameOn?: string[]; differsOn?: string; keyField?: string };
     keepIdentityOnReread?: { sameOn?: string[] };
+    occurrenceFields?: { day?: string };
   };
   for (const step of parsed.learningSteps ?? []) {
     if (!known.learningSteps.has(step)) {
@@ -166,6 +167,17 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
   }
   if (keepSameOn.length > 0 && [...identity].every(field => keepSameOn.includes(field))) {
     throw new Error(`source "${spec.slug}" processor names every dedupOn field in keepIdentityOnReread.sameOn, so no identity value is left to keep (${[...identity].join(', ')})`);
+  }
+  // The occurrences written from one record differ only on their day, so the
+  // day is what keeps each its own card, and what makes them one series.
+  const occurrenceDay = parsed.occurrenceFields?.day;
+  requireIdentity(occurrenceDay, 'occurrenceFields.day');
+  if (occurrenceDay !== undefined && parsed.keepIdentityOnReread && !keepSameOn.includes(occurrenceDay)) {
+    throw new Error(`source "${spec.slug}" processor names "${occurrenceDay}" in occurrenceFields.day but not in keepIdentityOnReread.sameOn, so a reread could give one occurrence another's day`);
+  }
+  const differsOn = parsed.seriesLabel?.differsOn;
+  if (occurrenceDay !== undefined && differsOn !== undefined && differsOn !== occurrenceDay) {
+    throw new Error(`source "${spec.slug}" processor names "${occurrenceDay}" in occurrenceFields.day, which is not its seriesLabel.differsOn ("${differsOn}"), so the occurrences it writes would not read as one series`);
   }
   // And the one knob that must NOT be identity. The label stage runs BEFORE
   // the proposal (`candidateExtractor/labels.ts` writes into `record.fields`,

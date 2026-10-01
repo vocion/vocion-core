@@ -7,6 +7,7 @@
  * its place only where the capture itself is the thing under test.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { calendarDayOf } from '@/libs/time/relativeDay';
 import { dayPlus, instantInZone, isoInZone, startOfDay } from '@/libs/time/zone';
 import { createSyncBudget } from '../budget';
 
@@ -654,6 +655,16 @@ describe('candidate extractor, one document end to end', () => {
       expect(block().every(line => /^\d{4}-\d{2}-\d{2}$/.test(line))).toBe(true);
     });
 
+    it('gets the dates of a monthly rule on a placed weekday', async () => {
+      invoke.mockResolvedValue(answer());
+
+      await run(context({ document: entry([`DTSTART;TZID=America/New_York:${compact(day(-40))}T190000`, 'RRULE:FREQ=MONTHLY;BYDAY=1TU']) }));
+      const days = block().map(line => line.slice(0, 10));
+
+      expect(days.length).toBeGreaterThan(0);
+      expect(days.every(d => Number(d.slice(8)) <= 7 && new Date(`${d}T00:00:00Z`).getUTCDay() === 2)).toBe(true);
+    });
+
     it('falls back to the configured zone when the stored calendar zone is not one', async () => {
       invoke.mockResolvedValue(answer());
 
@@ -806,6 +817,224 @@ describe('candidate extractor, one document end to end', () => {
       }
 
       expect(invoke).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('a series written from its rule, under occurrenceFields', () => {
+    const NY = 'America/New_York';
+    const knob = candidateExtractorConfigSchema.parse({ ...config, occurrenceFields: { day: 'startDate', start: 'start', end: 'end' } });
+    const onDay = (offset: number) => dayPlus(calendarToday(config.timezone), offset);
+    const compact = (d: string) => d.replaceAll('-', '');
+    const human = () => String((invoke.mock.calls[0]?.[0] as Array<{ content: unknown }>)[1]?.content);
+    const weekly = { rule: 'FREQ=WEEKLY', evidence: 'every Thursday' };
+    const reply = (records: Array<Record<string, unknown>>) => ({ content: JSON.stringify({ records }), usage_metadata: { input_tokens: 900, output_tokens: 120 } });
+    const openMic = (offset: number, over: Record<string, unknown> = {}) => {
+      const { fields, ...rest } = over as { fields?: Record<string, unknown> };
+      return {
+        fields: { title: 'Open Mic Night', startDate: onDay(offset), start: `${onDay(offset)}T20:00`, end: `${onDay(offset)}T22:00`, venueName: 'Bellwater Hall', recurrence: 'every Thursday', price: 'Free', ...fields },
+        confidence: 0.9,
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'A public weekly listing.',
+        ...rest,
+      };
+    };
+    const events = async () => (await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG)))
+      .map(row => row.input as { objectType?: string; fields: Record<string, unknown>; extractionNotes?: string })
+      .filter(input => input.objectType === 'event-candidate')
+      .sort((a, b) => String(a.fields.startDate).localeCompare(String(b.fields.startDate)));
+    const onDays = (...offsets: number[]) => offsets.map(onDay);
+    const feedUrl = 'https://bellwaterhall.example/feed.ics';
+    const entry = (lines: string[], metadata: Record<string, unknown> = {}) => ({
+      ...document,
+      externalId: `${feedUrl}#weekly@bellwaterhall.example`,
+      uri: `${feedUrl}#weekly@bellwaterhall.example`,
+      content: ['BEGIN:VEVENT', 'UID:weekly@bellwaterhall.example', 'SUMMARY:Open Mic Night', ...lines, 'END:VEVENT'].join('\n'),
+      metadata: { contentType: 'text/calendar; charset=utf-8', feedUrl, calendarZone: NY, ...metadata },
+    });
+    const at19 = (offset: number) => `DTSTART;TZID=America/New_York:${compact(onDay(offset))}T190000`;
+    const feedRecord = (offset: number) => openMic(offset, { fields: { start: `${onDay(offset)}T19:00:00`, end: `${onDay(offset)}T20:00:00`, price: undefined } });
+
+    it('writes one record per occurrence inside the horizon from a rule the page states, in the template\'s own shape', async () => {
+      invoke.mockResolvedValue(reply([openMic(2, { repeats: weekly })]));
+
+      const result = await run(context({ config: knob }));
+      const cards = await events();
+
+      expect(cards.map(card => card.fields.startDate)).toEqual(onDays(2, 9, 16, 23, 30, 37, 44, 51, 58));
+      expect(cards[1]!.fields).toMatchObject({ start: `${onDay(9)}T20:00`, end: `${onDay(9)}T22:00`, price: 'Free', recurrence: 'every Thursday' });
+      expect(cards[1]!.extractionNotes).toContain('date computed from the stated rule: every Thursday');
+      expect(cards[0]!.extractionNotes ?? '').not.toContain('date computed');
+      expect(result.counts).toMatchObject({ found: 9, expanded: 8, proposed: 9 });
+      expect(result.produced).toBe(9);
+      expect(result.skipped).toBe(0);
+    });
+
+    it('leaves a record single, and says why, when a guard refuses its rule', async () => {
+      const weekdayOf = (day: string) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][new Date(`${day}T00:00:00Z`).getUTCDay()];
+      invoke.mockResolvedValue(reply([
+        openMic(2, { fields: { title: 'Quiz Night' }, repeats: { rule: 'FREQ=WEEKLY', evidence: 'every second Sunday' } }),
+        openMic(2, { fields: { title: 'Story Hour' }, repeats: { rule: 'FREQ=YEARLY', evidence: 'every Thursday' } }),
+        openMic(2, { fields: { title: 'Craft Club' }, repeats: { rule: 'FREQ=WEEKLY;COUNT=4', evidence: 'every Thursday' } }),
+        openMic(2, { fields: { title: 'Chess Club' }, repeats: { rule: `FREQ=WEEKLY;BYDAY=${weekdayOf(onDay(3))}`, evidence: 'every Thursday' } }),
+      ]));
+
+      const result = await run(context({ config: knob }));
+      const cards = await events();
+
+      expect(cards.map(card => card.fields.title).sort()).toEqual(['Chess Club', 'Craft Club', 'Quiz Night', 'Story Hour']);
+      expect(result.counts).toMatchObject({ 'expansion.evidence_not_in_document': 1, 'expansion.rule_unread': 1, 'expansion.rule_counts': 1, 'expansion.anchor_not_in_rule': 1 });
+      expect(result.counts).not.toHaveProperty('expanded');
+      expect(cards.every(card => card.extractionNotes?.includes('only this date was proposed'))).toBe(true);
+    });
+
+    it('keeps one card for an occurrence the model returned with an offset', async () => {
+      const utc = (offset: number) => instantInZone(`${onDay(offset)}T21:00:00`, NY).toISOString();
+      invoke.mockResolvedValue(reply([
+        openMic(2, { fields: { startDate: utc(2), start: utc(2), end: undefined }, repeats: weekly }),
+        openMic(9, { fields: { startDate: utc(9), start: utc(9), end: undefined } }),
+      ]));
+
+      const result = await run(context({ config: knob }));
+      const ninth = (await events()).filter(card => calendarDayOf(card.fields.startDate, NY) === onDay(9));
+
+      expect(ninth).toHaveLength(1);
+      expect(result.counts).toMatchObject({ 'expansion.held': 1 });
+    });
+
+    it('keeps the model\'s own record for a date it already returned, even with collapsing off', async () => {
+      const loose = candidateExtractorConfigSchema.parse({ ...knob, collapseWithinDocument: false });
+      invoke.mockResolvedValue(reply([openMic(2, { repeats: weekly }), openMic(9, { fields: { start: `${onDay(9)}T19:30` } })]));
+
+      const result = await run(context({ config: loose }));
+      const cards = await events();
+
+      expect(cards.map(card => card.fields.startDate)).toEqual(onDays(2, 9, 16, 23, 30, 37, 44, 51, 58));
+      expect(cards[1]!.fields.start).toBe(`${onDay(9)}T19:30`);
+      expect(cards[1]!.extractionNotes ?? '').not.toContain('date computed');
+      expect(result.counts).toMatchObject({ 'expansion.held': 1, 'expanded': 7, 'found': 9 });
+    });
+
+    it('trims what it wrote, rather than refusing the answer, at the document\'s record limit', async () => {
+      const small = candidateExtractorConfigSchema.parse({ ...knob, maxRecordsPerDocument: 3 });
+      invoke.mockResolvedValue(reply([openMic(2, { repeats: weekly })]));
+
+      const result = await run(context({ config: small }));
+
+      expect((await events()).map(card => card.fields.startDate)).toEqual(onDays(2, 9, 16));
+      expect(result.counts).toMatchObject({ 'expanded': 2, 'expansion.trimmed': 6 });
+      expect(result.notes?.join(' ')).toContain('6 occurrence(s) past the document\'s limit of 3 records were left out');
+    });
+
+    it('reads the page again soon when it left occurrences out at the limit', async () => {
+      const small = candidateExtractorConfigSchema.parse({ ...knob, maxRecordsPerDocument: 3 });
+      invoke.mockResolvedValue(reply([openMic(2, { repeats: { rule: `FREQ=WEEKLY;UNTIL=${compact(onDay(40))}`, evidence: 'every Thursday' } })]));
+
+      const result = await run(context({ config: small }));
+
+      expect(result.counts).toMatchObject({ 'expansion.trimmed': 3 });
+      expect(result.revisitAt).toEqual(startOfDay(onDay(30), NY));
+    });
+
+    it('says when a page that states a rule goes stale', async () => {
+      const dayStart = (offset: number) => startOfDay(onDay(offset), NY);
+      const revisitFor = async (rule: string) => {
+        invoke.mockResolvedValue(reply([openMic(2, { repeats: { rule, evidence: 'every Thursday' } })]));
+        return (await run(context({ config: knob }))).revisitAt;
+      };
+
+      expect(await revisitFor('FREQ=WEEKLY')).toEqual(dayStart(30));
+      expect(await revisitFor('FREQ=WEEKLY;INTERVAL=13')).toEqual(dayStart(93 - 60));
+      expect(await revisitFor(`FREQ=WEEKLY;UNTIL=${compact(onDay(40))}`)).toBeUndefined();
+      expect(await revisitFor('FREQ=YEARLY')).toBeUndefined();
+    });
+
+    describe('on a split calendar entry', () => {
+      it('writes the feed\'s own dates and times, and drops a record on a day the rule does not produce', async () => {
+        invoke.mockResolvedValue(reply([feedRecord(0), feedRecord(3), feedRecord(7)]));
+
+        const result = await run(context({ config: knob, document: entry([at19(-7), `DTEND;TZID=America/New_York:${compact(onDay(-7))}T210000`, 'RRULE:FREQ=WEEKLY']) }));
+        const cards = await events();
+
+        expect(cards.map(card => card.fields.startDate)).toEqual(onDays(0, 7, 14, 21, 28, 35, 42, 49, 56));
+        expect(cards[2]!.fields).toMatchObject({ start: `${onDay(14)}T19:00:00`, end: `${onDay(14)}T21:00:00` });
+        expect(cards.every(card => card.extractionNotes?.includes('date computed from the rule of the calendar entry: RRULE:FREQ=WEEKLY'))).toBe(true);
+        expect(result.counts).toMatchObject({ 'skipped.not_in_rule': 1, 'expansion.replaced': 2, 'expanded': 9, 'found': 10 });
+        expect(result.produced).toBe(9);
+        expect(result.skipped).toBe(1);
+      });
+
+      it('replaces the list of dates with one line naming the next, after the shared opening', async () => {
+        invoke.mockResolvedValue(reply([feedRecord(0)]));
+
+        await run(context({ config: knob, document: entry([at19(-7), 'RRULE:FREQ=WEEKLY']) }));
+
+        expect(human()).not.toContain('<occurrences>');
+        expect(human()).toContain(`This entry repeats; its next date is ${isoInZone(instantInZone(`${onDay(0)}T19:00:00`, NY), NY)}.`);
+        expect(human().indexOf('This entry repeats')).toBeGreaterThan(human().indexOf('<<<DOCUMENT>>>'));
+      });
+
+      it('leaves out an instance the feed writes as a component of its own', async () => {
+        invoke.mockResolvedValue(reply([feedRecord(0), feedRecord(7)]));
+
+        const result = await run(context({ config: knob, document: entry([at19(-7), 'RRULE:FREQ=WEEKLY'], { overridden: [`${compact(onDay(7))}T190000`] }) }));
+
+        expect((await events()).map(card => card.fields.startDate)).toEqual(onDays(0, 14, 21, 28, 35, 42, 49, 56));
+        expect(result.counts).toMatchObject({ 'skipped.not_in_rule': 1, 'expansion.replaced': 1 });
+      });
+
+      it('ends each occurrence by the entry\'s DURATION', async () => {
+        invoke.mockResolvedValue(reply([feedRecord(0)]));
+
+        await run(context({ config: knob, document: entry([at19(-7), 'DURATION:PT90M', 'RRULE:FREQ=WEEKLY']) }));
+
+        expect((await events())[1]!.fields).toMatchObject({ start: `${onDay(7)}T19:00:00`, end: `${onDay(7)}T20:30:00` });
+      });
+
+      it('leaves a rule it does not read to the model, with no hint and nothing dropped', async () => {
+        invoke.mockResolvedValue(reply([feedRecord(3), feedRecord(10)]));
+
+        const result = await run(context({ config: knob, document: entry([at19(-40), 'RRULE:FREQ=MONTHLY;BYMONTHDAY=15']) }));
+
+        expect((await events()).map(card => card.fields.startDate)).toEqual(onDays(3, 10));
+        expect(human()).not.toContain('This entry repeats');
+        expect(human()).not.toContain('<occurrences>');
+        expect(result.counts).not.toHaveProperty('skipped.not_in_rule');
+        expect(result.counts).toMatchObject({ 'expansion.feed_rule_unread': 1 });
+      });
+
+      it('leaves an entry whose exceptions it cannot read to the model, never to a rule the model stated', async () => {
+        invoke.mockResolvedValue(reply([openMic(0, { fields: { start: `${onDay(0)}T19:00:00`, price: undefined }, repeats: { rule: 'FREQ=WEEKLY', evidence: 'RRULE:FREQ=WEEKLY' } }), feedRecord(14)]));
+
+        const result = await run(context({ config: knob, document: entry([at19(-7), 'RRULE:FREQ=WEEKLY', `EXDATE;VALUE=DATE:${compact(onDay(7))}`]) }));
+
+        expect((await events()).map(card => card.fields.startDate)).toEqual(onDays(0, 14));
+        expect(result.counts).toMatchObject({ 'expansion.feed_rule_unread': 1 });
+        expect(result.counts).not.toHaveProperty('expanded');
+        expect(human()).not.toContain('This entry repeats');
+      });
+
+      it('writes floating times in the configured zone, whatever zone the calendar declares', async () => {
+        invoke.mockResolvedValue(reply([openMic(0, { fields: { start: `${onDay(0)}T21:00:00`, end: `${onDay(0)}T23:00:00`, price: undefined } })]));
+        const at21 = `DTSTART;TZID=America/New_York:${compact(onDay(-7))}T210000`;
+
+        const result = await run(context({ config: knob, document: entry([at21, 'RRULE:FREQ=WEEKLY'], { calendarZone: 'UTC' }) }));
+        const cards = await events();
+
+        expect(cards.map(card => card.fields.startDate)).toEqual(onDays(0, 7, 14, 21, 28, 35, 42, 49, 56));
+        expect(cards[1]!.fields).toMatchObject({ start: `${onDay(7)}T21:00:00`, end: `${onDay(7)}T23:00:00` });
+        expect(result.counts).toMatchObject({ 'expansion.replaced': 1 });
+        expect(result.counts).not.toHaveProperty('skipped.not_in_rule');
+        expect(human()).toContain(`This entry repeats; its next date is ${isoInZone(instantInZone(`${onDay(0)}T21:00:00`, NY), NY)}.`);
+      });
+
+      it('keeps the list of dates, and no hint, for a source that does not opt in', async () => {
+        invoke.mockResolvedValue(reply([feedRecord(0)]));
+
+        await run(context({ document: entry([at19(-7), 'RRULE:FREQ=WEEKLY']) }));
+
+        expect(human()).toContain('<occurrences>');
+        expect(human()).not.toContain('This entry repeats');
+      });
     });
   });
 });

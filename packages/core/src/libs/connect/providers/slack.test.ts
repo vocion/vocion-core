@@ -77,4 +77,10 @@ describe('slack connect provider', () => {
       .toEqual({ ok: false, reason: 'missing_code' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('summarizes a grant as the workspace it is on, and nothing for a pasted bot token', () => {
+    expect(slackProvider.summarize({ token: 'xoxb-1', teamId: 'T1', teamName: 'Metacto', botUserId: 'U1', appId: 'A1', scope: 'channels:read' }))
+      .toEqual({ account: 'Metacto (Slack workspace)' });
+    expect(slackProvider.summarize({ token: 'xoxb-1' })).toBeNull();
+  });
 });

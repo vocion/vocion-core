@@ -134,6 +134,14 @@ describe('candidate-extractor config', () => {
     })).toThrow(/evidenceField/);
   });
 
+  it('accepts occurrence fields naming only a day, and rejects an unknown key', () => {
+    const parsed = candidateExtractorConfigSchema.parse({ ...minimal, occurrenceFields: { day: 'startDate' } });
+
+    expect(parsed.occurrenceFields).toEqual({ day: 'startDate' });
+    expect(candidateExtractorConfigSchema.parse(minimal).occurrenceFields).toBeUndefined();
+    expect(() => candidateExtractorConfigSchema.parse({ ...minimal, occurrenceFields: { day: 'startDate', starts: 'start' } })).toThrow(/starts/);
+  });
+
   it('caps followLinks at twenty pages a document', () => {
     expect(() => candidateExtractorConfigSchema.parse({
       ...minimal,

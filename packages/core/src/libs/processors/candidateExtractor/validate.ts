@@ -8,7 +8,9 @@
  *   2. **Hard drops and the operator's knobs**, this file. Everything here is
  *      deterministic and configuration-driven: a tenant cannot run code inside
  *      core's processor, so each rule a tenant needs is a knob whose name says
- *      what it does to a record and never whose rule it is.
+ *      what it does to a record and never whose rule it is. Under
+ *      `occurrenceFields` a series is written out first (`occurrences.ts`),
+ *      so each occurrence meets the same knobs.
  *   3. **The object type's JSON Schema**, report only, through the action's
  *      own `describeSchemaProblems`. A candidate that does not fit still
  *      reaches the queue with the mismatch written on it, because a human
@@ -24,16 +26,19 @@
 
 import type { CandidateExtractorConfig } from './config';
 import type { ExtractedRecord } from './model';
+import type { FeedSeries } from './occurrences';
 import type { PageLink } from '@/libs/sources/pageMetadata';
 import { normaliseForKey, pageKey } from '@/libs/actions/objects-propose-candidate';
 import { dayPlus } from '@/libs/time/zone';
+import { RULE_EVIDENCE_CAP } from './config';
 import { calendarDayOf } from './knownCards';
+import { expandOccurrences } from './occurrences';
 
 /** An adopted rule a record cites, with the text the model was shown. */
 export type CitedRule = { id: string; title?: string; text: string; evidence?: string };
 
 /** A record that survived the gates, with whatever the gates had to say. */
-export type ValidatedRecord = Omit<ExtractedRecord, 'scores' | 'matchedRules'> & {
+export type ValidatedRecord = Omit<ExtractedRecord, 'scores' | 'matchedRules' | 'repeats'> & {
   scores?: Record<string, number>;
   /** Absent: not recorded. `[]`: the rules were checked and none decided it. */
   matchedRules?: CitedRule[];
@@ -54,10 +59,11 @@ export type ValidationOutput = {
   counts: Record<string, number>;
   /** Run-level notes, for the processor result. */
   notes: string[];
+  /** The first day a rule falls on that no record was written for, `YYYY-MM-DD`: past the horizon, or left out at a limit. */
+  nextUnwritten?: string;
 };
 
 const RULE_TITLE_CAP = 60;
-const RULE_EVIDENCE_CAP = 300;
 
 /**
  * Lowercase, quotes dropped, whitespace collapsed: enough that evidence the
@@ -300,6 +306,8 @@ function documentUrls(
  * @param opts.knownIds - Run ids the prompt actually carried.
  * @param opts.today - Today as a calendar day in the config's timezone.
  * @param opts.rules - The adopted rules the prompt carried, by `step#id`.
+ * @param opts.feedSeries - A split calendar entry's own series, which writes its occurrences under `occurrenceFields`.
+ * @param opts.calendarEntry - Whether the document is a split calendar entry, so its dates are never read off a rule the model stated.
  */
 export function validateRecords(opts: {
   records: ExtractedRecord[];
@@ -316,6 +324,8 @@ export function validateRecords(opts: {
   knownIds: Set<number>;
   today: string;
   rules?: Array<{ id: string; text: string }>;
+  feedSeries?: FeedSeries;
+  calendarEntry?: boolean;
 }): ValidationOutput {
   const { config } = opts;
   const counts: Record<string, number> = {};
@@ -365,12 +375,21 @@ export function validateRecords(opts: {
   let pageHaystack: string | null = null;
   let quotedHaystack: string | null = null;
   let pageWords: Set<string> | null = null;
+  const onPage = (quote: string): boolean => {
+    pageHaystack ??= squash(pageBlob());
+    const needle = squash(quote);
+    return needle.length > 0 && pageHaystack.includes(needle);
+  };
   const horizon = dayPlus(opts.today, config.recurrenceHorizonDays);
   const ownKey = pageKey(opts.ownUrl);
   const entryKey = pageKey(opts.entryUrl);
-  for (const raw of opts.records) {
-    const { scores: rawScores, matchedRules: rawRules, ...rest } = raw;
-    const record: ValidatedRecord = { ...rest, fields: { ...raw.fields }, issues: [] };
+  const expansion = expandOccurrences({ records: opts.records, config, today: opts.today, feedSeries: opts.feedSeries, calendarEntry: opts.calendarEntry, knownIds: opts.knownIds, onPage });
+  Object.assign(counts, expansion.counts);
+  notes.push(...expansion.notes);
+  const originOf = new Map<ValidatedRecord, number>();
+  for (const { record: raw, origin, computed, issues } of expansion.items) {
+    const { scores: rawScores, matchedRules: rawRules, repeats: _repeats, ...rest } = raw;
+    const record: ValidatedRecord = { ...rest, fields: { ...raw.fields }, issues: [...(issues ?? [])] };
 
     // Defaults first: they are what a venue site's page leaves unsaid, and the
     // identity check below has to see them.
@@ -457,7 +476,7 @@ export function validateRecords(opts: {
     // show each of its words there.
     for (const field of config.mustAppearInDocument ?? []) {
       const value = record.fields[field];
-      if (isBlank(value) || defaulted.has(field)) {
+      if (isBlank(value) || defaulted.has(field) || computed?.has(field)) {
         continue;
       }
       quotedHaystack ??= squash(unescaped(pageBlob()));
@@ -478,10 +497,10 @@ export function validateRecords(opts: {
       }
     }
 
-    // A value the operator supplied is not the document's to print.
+    // A value the operator supplied, or one computed from a rule, is not the document's to print.
     for (const field of config.quotedFields ?? []) {
       const value = record.fields[field];
-      if (typeof value !== 'string' || isBlank(value) || defaulted.has(field)) {
+      if (typeof value !== 'string' || isBlank(value) || defaulted.has(field) || computed?.has(field)) {
         continue;
       }
       quotedHaystack ??= squash(unescaped(pageBlob()));
@@ -576,7 +595,6 @@ export function validateRecords(opts: {
 
     const known = opts.rules ?? [];
     if (rawRules !== undefined && known.length > 0) {
-      pageHaystack ??= squash(pageBlob());
       const cited: CitedRule[] = [];
       for (const answer of rawRules) {
         const rule = resolveRule(answer.id, known);
@@ -589,8 +607,7 @@ export function validateRecords(opts: {
           continue;
         }
         const evidence = answer.evidence?.trim() ?? '';
-        const needle = squash(evidence);
-        const found = needle.length > 0 && pageHaystack.includes(needle);
+        const found = onPage(evidence);
         if (evidence && !found) {
           record.issues.push(`matchedRules: the evidence for ${rule.id} is not in the document, so it was dropped`);
           bump('skipped.evidence_not_in_document');
@@ -608,6 +625,7 @@ export function validateRecords(opts: {
     }
 
     kept.push(record);
+    originOf.set(record, origin);
   }
 
   let records = kept;
@@ -639,7 +657,8 @@ export function validateRecords(opts: {
   //
   // Applied ONLY to a document that produced exactly one record, because an
   // og:image describes the DOCUMENT rather than any record in it. When the
-  // document describes one thing, the document's image is that thing's image.
+  // document describes one thing, the document's image is that thing's image,
+  // and so the image of every occurrence written from it.
   // When it lists many, the image belongs to the page, and putting it on each
   // record would state on every card something the document never said about
   // any of them.
@@ -655,17 +674,15 @@ export function validateRecords(opts: {
   // `documentUrls` was told about it, so the fallback cannot outlive the
   // declaration that justifies it: take the og:image back out of the gate and
   // this fills nothing, rather than quietly writing past it.
-  const only = records.length === 1 ? records[0] : undefined;
-  if (ogImage && only && !only.imageUrl) {
-    const declared = publishedImage(ogImage);
-    if (declared !== undefined) {
-      only.imageUrl = declared;
-      // Said on the card, because a reviewer reading a picture of the wrong
-      // thing should be able to see where it came from.
-      only.issues.push('the image is the one the document published for itself, no image was stated for this record');
-      bump('image_from_document');
-    }
+  const oneRecord = records.length > 0 && new Set(records.map(record => originOf.get(record))).size === 1;
+  const documentImage = ogImage && oneRecord ? publishedImage(ogImage) : undefined;
+  for (const record of documentImage === undefined ? [] : records.filter(candidate => !candidate.imageUrl)) {
+    record.imageUrl = documentImage;
+    // Said on the card, because a reviewer reading a picture of the wrong
+    // thing should be able to see where it came from.
+    record.issues.push('the image is the one the document published for itself, no image was stated for this record');
+    bump('image_from_document');
   }
 
-  return { records, counts, notes };
+  return { records, counts, notes, ...(expansion.nextUnwritten ? { nextUnwritten: expansion.nextUnwritten } : {}) };
 }

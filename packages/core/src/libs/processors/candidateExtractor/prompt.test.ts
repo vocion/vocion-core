@@ -7,6 +7,7 @@
  * and a block pretending to be the operator's adopted rules, inside one
  * ordinary-looking listing page.
  */
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSyncBudget } from '../budget';
 import { buildExtractionPrompt, EXTRACTOR_SYSTEM_PROMPT, JSON_LD_CHAR_CAP, KNOWN_CHAR_CAP } from './prompt';
@@ -543,5 +544,61 @@ describe('the occurrences block', () => {
     expect(without.human).not.toContain('<occurrences>');
     expect(withDates.human.match(/<occurrences>/g)).toHaveLength(1);
     expect(withDates.human.match(/<\/occurrences>/g)).toHaveLength(1);
+  });
+});
+
+describe('a source that opts into occurrence fields', () => {
+  const knob = candidateExtractorConfigSchema.parse({ ...seriesConfig, occurrenceFields: { day: 'startDate', start: 'start' } });
+  const built = (over: Partial<Parameters<typeof buildExtractionPrompt>[0]> = {}) => buildExtractionPrompt({ config: knob, rules: '', known: '#41 | 2026-11-12 | Open Mic Night | every Thursday', jsonLd: '', pageText: 'Open Mic Night, every Thursday.', maxInputTokens: 10_000, ...over });
+
+  it('asks for a series stated as a rule once, naming exactly the rules core reads', () => {
+    const { system } = built();
+
+    expect(system).toContain('  - repeats     see below. Optional.');
+    expect(system).toContain('"repeats": {"rule"');
+    expect(system).toContain('FREQ=DAILY, FREQ=WEEKLY or FREQ=MONTHLY');
+    expect(system).toContain('INTERVAL, UNTIL, BYDAY, WKST');
+    expect(system).not.toContain('COUNT');
+    expect(system).toContain('otherwise one record per occurrence');
+    expect(system).not.toContain('one record per line of that block');
+    expect(system).not.toContain('Expand a repeating record to one record per occurrence');
+    expect(system).toContain('Never use "repeats" for a document that starts BEGIN:VEVENT');
+  });
+
+  it('names an entry\'s next date after the opening every document shares, so the cached prefix does not move', () => {
+    const plain = built();
+    const hinted = built({ nextDate: '2026-10-01T19:00:00-04:00' });
+
+    expect(hinted.humanPrefix).toBe(plain.humanPrefix);
+    expect(hinted.human).toContain('This entry repeats; its next date is 2026-10-01T19:00:00-04:00.');
+    expect(hinted.human.indexOf('This entry repeats')).toBeGreaterThan(hinted.humanPrefix.length);
+  });
+});
+
+describe('a source that does not opt into occurrence fields', () => {
+  it('sends exactly the prompt it sent before the knob existed', () => {
+    const everyKnob = candidateExtractorConfigSchema.parse({
+      ...seriesConfig,
+      timezone: 'America/New_York',
+      allowedValues: { categories: ['Music', 'Comedy'] },
+      scores: [{ name: 'fit', describe: 'How well the record fits the audience.' }],
+      relatedProposals: [{ objectType: 'venue-candidate', fromFields: { name: 'venueName', city: 'venueCity' }, dedupOn: ['name', 'city'], writeRunIdTo: 'venueCandidateRun' }],
+    });
+    const hash = (built: ReturnType<typeof buildExtractionPrompt>) => createHash('sha256').update(`${built.system}\n---\n${built.human}\n---\n${built.humanPrefix}`).digest('hex');
+    const full = buildExtractionPrompt({
+      config: everyKnob,
+      rules: REAL_RULES,
+      known: '#41 | 2026-11-12 | Open Mic Night | every Thursday',
+      occurrences: ['2026-10-01T15:00:00-04:00', '2026-10-08T15:00:00-04:00'],
+      jsonLd: '[{"@type":"Event","name":"Open Mic Night"}]',
+      pageText: 'BEGIN:VEVENT\nSUMMARY:Open Mic Night\nRRULE:FREQ=WEEKLY;BYDAY=TH\nEND:VEVENT',
+      uri: 'https://bellwaterhall.example/feed.ics#weekly',
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+      maxInputTokens: 10_000,
+      today: '2026-09-29',
+    });
+
+    expect(hash(full)).toBe('d0d7247069df06f0758e7814299ae624169d998a08ff4fde609671e1a0b5bfc0');
+    expect(hash(build())).toBe('1c54e13cc495787305ac3680ce54f1e76cc67fb5079fff6d980ed43f6c569b93');
   });
 });

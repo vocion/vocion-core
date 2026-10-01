@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/libs/sources/registry', () => ({ listConnectors: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({ credentialStatusForOrg: vi.fn() }));
+vi.mock('@/libs/connect/summary', () => ({ grantSummaryForSource: vi.fn(async () => null) }));
 vi.mock('@/services/SourceSyncService', () => ({
   addSource: vi.fn(),
   chunkCountsForOrg: vi.fn(async () => ({})),
@@ -23,6 +24,7 @@ vi.mock('@/services/SourceSyncService', () => ({
 const { clerkAuth } = await import('@/libs/Auth');
 const { listConnectors } = await import('@/libs/sources/registry');
 const { credentialStatusForOrg } = await import('@/services/SourceCredentialService');
+const { grantSummaryForSource } = await import('@/libs/connect/summary');
 const { documentCountsForOrg, latestSyncStateForOrg, listSources } = await import('@/services/SourceSyncService');
 const { GET } = await import('./route');
 
@@ -141,6 +143,39 @@ describe('GET /rpc/sources', () => {
       { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', credentialPlatform: 'strapi', syncless: false, inspectable: false, requiredScopes: null },
       { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false, requiredScopes: null },
     ]);
+  });
+
+  it('names the account a vendor grant is on, only for a connected row a vendor flow connects', async () => {
+    vi.mocked(listConnectors).mockReturnValue([
+      { slug: 'github', name: 'GitHub', description: 'Pull requests', icon: 'GitPullRequest', authKind: 'oauth' },
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey' },
+    ] as never);
+    vi.mocked(listSources).mockResolvedValue([
+      { id: 1, slug: 'github', kind: 'github', config: { repos: ['The-NocoCompany/warranty-app'] }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-09-30T00:00:00.000Z') },
+      { id: 2, slug: 'kb-strapi', kind: 'strapi', config: { _connector: 'strapi' }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-08-01T00:00:00.000Z') },
+      { id: 3, slug: 'github-later', kind: 'github', config: { repos: [] }, lastSyncedAt: null, enabled: 'true', createdAt: new Date('2026-09-30T00:00:00.000Z') },
+    ]);
+    vi.mocked(credentialStatusForOrg).mockResolvedValue({
+      bySourceId: {
+        1: { connected: true, updatedAt: '2026-09-30T21:17:00.000Z', broken: null },
+        2: { connected: true, updatedAt: '2026-08-02T00:00:00.000Z', broken: null },
+      },
+      byConnectorSlug: {},
+    });
+    vi.mocked(documentCountsForOrg).mockResolvedValue({});
+    vi.mocked(latestSyncStateForOrg).mockResolvedValue({});
+    const summary = { account: 'The-NocoCompany (organization)', granted: { label: 'Repositories', items: ['The-NocoCompany/warranty-app'] } };
+    vi.mocked(grantSummaryForSource).mockResolvedValue(summary);
+
+    const body = await (await GET()).json();
+    const bySlug = Object.fromEntries(body.sources.map((s: { slug: string }) => [s.slug, s]));
+
+    expect(bySlug.github.grant).toEqual(summary);
+    // A pasted-key connector and an unconnected row are never asked: nothing to decrypt.
+    expect(bySlug['kb-strapi'].grant).toBeNull();
+    expect(bySlug['github-later'].grant).toBeNull();
+    expect(grantSummaryForSource).toHaveBeenCalledTimes(1);
+    expect(grantSummaryForSource).toHaveBeenCalledWith({ orgId: 'org_1', sourceSlug: 'github', connectorSlug: 'github' });
   });
 
   it('refuses a caller with no workspace', async () => {
