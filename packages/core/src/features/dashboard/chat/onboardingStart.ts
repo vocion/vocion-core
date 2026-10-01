@@ -13,6 +13,6 @@ export async function startOnboardingConversation(deps: { start: () => Promise<{
       deps.open(`/dashboard/chat?conversation=${conversationId}`);
     }
   } catch (err) {
-    console.warn('onboarding: could not open setup', { error: (err as Error).message });
+    console.warn('onboarding: could not open setup', { error: err instanceof Error ? err.message : String(err) });
   }
 }

@@ -28,4 +28,16 @@ describe('startOnboardingConversation', () => {
 
     warn.mockRestore();
   });
+
+  it('logs a thrown non-Error as its text, not undefined', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await startOnboardingConversation({ start: async () => {
+      // eslint-disable-next-line no-throw-literal
+      throw 'gateway timeout';
+    }, open: vi.fn() });
+
+    expect(warn).toHaveBeenCalledWith('onboarding: could not open setup', { error: 'gateway timeout' });
+
+    warn.mockRestore();
+  });
 });

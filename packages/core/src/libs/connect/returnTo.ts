@@ -18,10 +18,18 @@ export function safeReturnPath(raw: unknown): string | null {
   if (raw !== '/dashboard' && !raw.startsWith('/dashboard/') && !raw.startsWith('/dashboard?')) {
     return null;
   }
-  if (raw.includes('\\') || raw.includes('//') || raw.includes('..') || /\p{Cc}/u.test(raw)) {
+  if (raw.includes('\\') || raw.includes('//') || raw.includes('..') || /%2e/i.test(raw) || /\p{Cc}/u.test(raw)) {
     return null;
   }
   return raw;
+}
+
+/**
+ * @param value - A code that came from a query string or a vendor.
+ * @returns At most 64 characters of word characters, dots and dashes.
+ */
+function cleanCode(value: string): string {
+  return value.replace(/[^\w.-]/g, '_').slice(0, 64);
 }
 
 /**
@@ -48,11 +56,14 @@ export function connectReturnPrompt(params: { connect?: string; reason?: string;
   if (!params.source) {
     return null;
   }
+  // The query string is the caller's to write, and this text is put in the
+  // composer: same character rule as returnUrl, so nothing but a short code gets in.
+  const source = cleanCode(params.source);
   if (params.connect === 'ok') {
-    return `I connected ${params.source}. What's next?`;
+    return `I connected ${source}. What's next?`;
   }
   if (params.connect === 'error') {
-    return `Connecting ${params.source} didn't work (${params.reason ?? 'no reason given'}). What should I try?`;
+    return `Connecting ${source} didn't work (${params.reason === undefined ? 'no reason given' : cleanCode(params.reason)}). What should I try?`;
   }
   return null;
 }
@@ -75,7 +86,7 @@ export function returnUrl(
   const url = new URL(`${origin || 'http://relative.invalid'}${base}`);
   url.searchParams.set('connect', outcome.ok ? 'ok' : 'error');
   if (!outcome.ok) {
-    url.searchParams.set('reason', outcome.reason.replace(/[^\w.-]/g, '_').slice(0, 64));
+    url.searchParams.set('reason', cleanCode(outcome.reason));
   }
   if (sourceSlug) {
     url.searchParams.set('source', sourceSlug);

@@ -335,6 +335,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   // 2026-09-28: "I want to click through to the feature detail page").
   const recordLink = live?.recordHref
     ? { href: live.recordHref, label: live.recordHrefLabel ?? 'Open record' }
+    // An href with no actionId is a link card, drawn by its own button below: only recommend_action sets href, and only with an action_id.
     : rec.href && rec.actionId ? { href: rec.href, label: rec.hrefLabel ?? 'Open record' } : null;
   const draft = rec.draft && phase.runId === undefined ? rec.draft : null;
   // What the run made, each one move away — the record link above already
