@@ -113,6 +113,7 @@ import {
   submitFeedback as submitMissionFeedbackRoute,
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
+import { start as startOnboardingRoute } from './Onboarding';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
@@ -183,6 +184,7 @@ export const router = {
     pause: pauseWorkspaceRoute,
     resume: resumeWorkspaceRoute,
   },
+  onboarding: { start: startOnboardingRoute },
   plugins: {
     list: listPluginsRoute,
     set: setPluginRoute,
