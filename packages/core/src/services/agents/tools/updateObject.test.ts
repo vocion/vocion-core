@@ -120,7 +120,7 @@ describe('the write', () => {
 
   it('a change the person asked for runs as theirs, whatever the agent\'s confidence (Chris, 2026-09-29: "Delete the 246 feature request")', async () => {
     const { NO_INTENT } = await import('../turnJudge');
-    const ctx = { ...ctxFor(['request']), userId: 'usr-owner', turnIntent: Promise.resolve({ ...NO_INTENT, changes_page_record: true, decides: true, wants_action: true }) } as RuntimeContext;
+    const ctx = { ...ctxFor(['request']), userId: 'usr-owner', turnIntent: Promise.resolve({ ...NO_INTENT, asks: 'change' }) } as RuntimeContext;
     const [t] = updateObjectTools(ctx);
 
     const out = await t!.invoke({ object_type: 'request', id: requestId, set: { priority: 82 }, reason: 'The person asked for it.', confidence: 0.3 });
@@ -142,7 +142,7 @@ describe('the write', () => {
     }).returning({ id: businessObjectTypeSchema.id });
     const [idea] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: gated!.id, title: 'Theme toggle', metadata: { state: 'new' } }).returning({ id: businessObjectSchema.id });
     const { NO_INTENT } = await import('../turnJudge');
-    const asked = { ...ctxFor(['idea']), userId: 'usr-owner', turnIntent: Promise.resolve({ ...NO_INTENT, changes_page_record: true, decides: true }) } as RuntimeContext;
+    const asked = { ...ctxFor(['idea']), userId: 'usr-owner', turnIntent: Promise.resolve({ ...NO_INTENT, asks: 'change' }) } as RuntimeContext;
 
     // The agent's own call still meets the gate.
     const own = await toolFor(['idea']).invoke({ object_type: 'idea', id: idea!.id, set: { state: 'in_scope' }, reason: 'r', confidence: 0.9 });

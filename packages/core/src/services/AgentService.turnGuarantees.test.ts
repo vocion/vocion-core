@@ -23,13 +23,12 @@ vi.mock('@/libs/DB');
 
 // The turn's judge (`agents/turnJudge.ts`) reads meaning with a model; each
 // test says what that reading is. Unset, it is "no signal".
-const judge = vi.hoisted(() => ({ intent: {} as Record<string, unknown>, readings: [] as Array<Record<string, unknown>> }));
+const judge = vi.hoisted(() => ({ intent: {} as Record<string, unknown> }));
 vi.mock('@/services/agents/turnJudge', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/services/agents/turnJudge')>();
   return {
     ...real,
     readIntent: vi.fn(async () => ({ ...real.NO_INTENT, ...judge.intent })),
-    judgeAnswer: vi.fn(async () => ({ ...real.NO_JUDGEMENT, ...(judge.readings.shift() ?? {}) })),
   };
 });
 
@@ -100,7 +99,6 @@ const { agentSchema } = await import('@/models/Schema');
 const { createConversation } = await import('@/services/ConversationService');
 const { listArtifactsForConversation } = await import('@/services/ArtifactService');
 const { applyTurnGuarantees, delegationFailureNotice, runAgentDeep } = await import('@/services/AgentService');
-const { NO_JUDGEMENT } = await import('@/services/agents/turnJudge');
 
 const ORG = 'org_turn_guarantees';
 const TASK_ID = 'task-abc';
@@ -184,7 +182,6 @@ beforeEach(async () => {
   await db.insert(agentSchema).values({ orgId: ORG, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} } as never);
   streamEvents.mockReset();
   judge.intent = {};
-  judge.readings = [];
 });
 
 describe('a failed delegation reaches the person', () => {
@@ -203,35 +200,10 @@ describe('a failed delegation reaches the person', () => {
     expect(toolErrors[0]).toMatchObject({ tool: 'task' });
   });
 
-  it('the judge sees the failed hand-off, and the agent says so when its reply did not', async () => {
-    const events: AgentEvent[] = [];
-    const seen: Array<{ failed?: string[] }> = [];
-    const out = await applyTurnGuarantees({
-      orgId: ORG,
-      agentSlug: 'lead',
-      request: 'draft a pipeline report',
-      response: 'Here is the pipeline report.',
-      toolCalls: [],
-      failures: [],
-      failedDelegations: [{ name: 'Pipeline Analyst', message: 'timeout' }],
-      judge: async (i) => {
-        seen.push(i);
-        return { ...NO_JUDGEMENT, hides_failure: true };
-      },
-      answer: async () => 'Pipeline Analyst did not complete (it timed out), so this report has no pipeline numbers yet.',
-      emit: e => events.push(e),
-    });
+  it('says a hand-off that did not complete, from the typed failure', async () => {
+    const out = await applyTurnGuarantees({ orgId: ORG, agentSlug: 'lead', request: 'draft a pipeline report', response: 'Here is the pipeline report.', toolCalls: [], failures: [], failedDelegations: [{ name: 'Pipeline Analyst', message: 'timeout' }], answer: async () => 'should not be used', emit: () => {} });
 
-    expect(seen[0]!.failed).toEqual(['the hand-off to Pipeline Analyst did not complete (timeout)']);
-    expect(out).toContain('Pipeline Analyst did not complete');
-    expect(events.some(e => e.type === 'response_delta' && e.delta.includes('did not complete'))).toBe(true);
-  });
-
-  it('says nothing extra when the judge reads the reply as already owning up to it', async () => {
-    const answer = 'I could not get a read from Pipeline Analyst, so this is partial.';
-    const out = await applyTurnGuarantees({ orgId: ORG, agentSlug: 'lead', request: 'x', response: answer, toolCalls: [], failures: [], failedDelegations: [{ name: 'Pipeline Analyst', message: 'timeout' }], judge: async () => NO_JUDGEMENT, answer: async () => 'should not be used', emit: () => {} });
-
-    expect(out).toBe(answer);
+    expect(out).toBe('Here is the pipeline report.\n\nThe hand-off to Pipeline Analyst did not complete (timeout), so nothing from that step is in this answer.');
     expect(delegationFailureNotice([])).toBeNull();
   });
 
@@ -269,132 +241,6 @@ describe('the deliverable contract', () => {
     expect(result.response).toMatch(/could not produce one/);
   });
 
-  it('a tool\'s name written as the last word re-enters once to make the call; the words stay as written', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    judge.readings = [{ wrote_call_as_text: 'recommend_action' }];
-    streamEvents.mockClear();
-    streamEvents.mockResolvedValue(narratedToolStream());
-    const { result } = await run({ message: 'Approve filing it.', deliverable: 'answer', conversationId: conv.id });
-
-    expect(streamEvents).toHaveBeenCalledTimes(2);
-
-    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(second.messages.at(-1)?.content).toContain('Call recommend_action now');
-    expect(second.messages.at(-2)?.content).toContain('Filed. The build decision card is below.');
-    expect(result.response).toContain('Filed. The build decision card is below.');
-  });
-
-  it('a whole call imitated as a fenced block at the end of the message is called too', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    judge.readings = [{ wrote_call_as_text: 'recommend_action' }];
-    streamEvents.mockClear();
-    streamEvents.mockResolvedValue(narratedToolStream('Should I reuse id 124?\n\nCARD\n```\nrecommend_action\nid: clarify-124\nquestion: which one?\n```'));
-    const { result } = await run({ message: 'Approve filing it.', deliverable: 'answer', conversationId: conv.id });
-
-    expect(streamEvents).toHaveBeenCalledTimes(2);
-
-    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(second.messages.at(-1)?.content).toContain('Call recommend_action now');
-    expect(second.messages.at(-2)?.content).toContain('Should I reuse id 124?');
-    expect(result.response).toContain('Should I reuse id 124?');
-  });
-
-  it('a call written as a heading over a JSON block — three of them — re-enters the loop to make it (finding 19)', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    judge.readings = [{ wrote_call_as_text: 'update_object' }];
-    streamEvents.mockClear();
-    streamEvents.mockResolvedValue(narratedToolStream('Now writing each update:\n\n**update_object — request 30**\n\n```json\n{"object_type":"request","id":30,"fields":{"title":"add-send-admin-panel"}}\n```\n\n**update_object — request 38**\n\n```json\n{"object_type":"request","id":38}\n```'));
-    const { result } = await run({ message: 'Backfill the three requests.', deliverable: 'answer', conversationId: conv.id });
-
-    expect(streamEvents).toHaveBeenCalledTimes(2);
-
-    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(second.messages.at(-1)?.content).toContain('Call update_object now');
-    expect(second.messages.at(-2)?.content).toContain('Now writing each update:');
-    expect(result.response).toContain('Now writing each update:');
-  });
-
-  it('a call written out AFTER the continuation re-enters once more, naming the tool (mission run 5067, backlog 006)', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    streamEvents.mockClear();
-    streamEvents
-      // The one continuation is spent on a preamble…
-      .mockResolvedValueOnce(narrationStream())
-      // …and the pass it buys writes the write out as text.
-      .mockResolvedValueOnce(narratedToolStream('Now filing the single update:\n\n**update_object** — request #30\n\n```json\n{"title":"Admin panel so ops can comp orgs"}\n```\n\n*(Calling update_object now.)*'))
-      .mockResolvedValueOnce(lookupStream('[{"id":30}]'));
-    // The first pass only promised; after the continuation the reply writes the call out.
-    judge.readings = [{ answered: false, ends_on_promise: true, promise: 'Let me check the right structure first.' }, { wrote_call_as_text: 'update_object' }];
-    await run({ message: 'Backfill request 30.', deliverable: 'answer', conversationId: conv.id });
-
-    expect(streamEvents).toHaveBeenCalledTimes(3);
-
-    const third = streamEvents.mock.calls[2]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(third.messages.at(-1)?.content).toContain('Call update_object now');
-  });
-
-  it('a continuation that reads and stops on a tool result keeps going instead of handing the write to the answer pass (mission run 5074)', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    const readsOnly = (): AsyncIterable<unknown> => ({ async* [Symbol.asyncIterator]() {
-      yield { event: 'on_tool_end', name: 'read_object', metadata: { checkpoint_ns: 'tools:read-1' }, data: { input: { id: 30 }, output: { content: '{"id":30}' } } };
-    } });
-    streamEvents.mockClear();
-    streamEvents
-      .mockResolvedValueOnce(narrationStream())
-      .mockResolvedValueOnce(readsOnly())
-      .mockResolvedValueOnce(lookupStream('[{"id":30}]'));
-    judge.readings = [{ answered: false, ends_on_promise: true, promise: 'Let me check the right structure first.' }];
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      await run({ message: 'Backfill request 30.', deliverable: 'answer', conversationId: conv.id });
-
-      expect(streamEvents).toHaveBeenCalledTimes(3);
-
-      const third = streamEvents.mock.calls[2]![0] as { messages: Array<{ role: string; content: string }> };
-
-      expect(third.messages.at(-1)?.content).toContain('make the write');
-      // …and it can SEE what the reads returned: a fresh graph starts from
-      // text, so without this the pass re-reads blind (mission run 5081).
-      expect(third.messages.at(-1)?.content).toContain('What your tool calls in this turn returned');
-      expect(third.messages.at(-1)?.content).toContain('### read_object');
-      expect(warn.mock.calls.some(c => String(c[0]).includes('making progress; going on'))).toBe(true);
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
-  it('goes on past three passes while each pass makes a new call, and stops at the first pass that repeats one (Chris, 2026-09-29)', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    const read = (id: number): AsyncIterable<unknown> => ({ async* [Symbol.asyncIterator]() {
-      yield { event: 'on_tool_end', name: 'read_object', metadata: { checkpoint_ns: `tools:read-${id}` }, data: { input: { id }, output: { content: `{"id":${id}}` } } };
-    } });
-    judge.readings = [{ answered: false, ends_on_promise: true, promise: 'Let me check the right structure first.' }];
-    streamEvents.mockClear();
-    streamEvents
-      .mockResolvedValueOnce(narrationStream())
-      .mockResolvedValueOnce(read(30))
-      .mockResolvedValueOnce(read(31))
-      .mockResolvedValueOnce(read(32))
-      .mockResolvedValueOnce(read(33))
-      // The same read again is not progress: the loop stops here.
-      .mockResolvedValueOnce(read(33))
-      .mockResolvedValue(lookupStream('[{"id":30}]'));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      await run({ message: 'Backfill requests 30 to 33.', deliverable: 'answer', conversationId: conv.id });
-
-      // first pass, the promise's continuation, then one pass per new read (31, 32, 33), and the repeat of 33 ends it
-      expect(streamEvents).toHaveBeenCalledTimes(6);
-      expect(warn.mock.calls.filter(c => String(c[0]).includes('making progress; going on'))).toHaveLength(4);
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
   it('a malformed tool call does not end the turn: the error goes back once and the answer still lands', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     streamEvents.mockClear();
@@ -427,25 +273,6 @@ describe('the deliverable contract', () => {
     expect(second.messages.at(-2)?.role).toBe('user');
     expect(result.response).toContain('Found the cards.');
   });
-
-  it('makes no artifact when the turn owed an answer — and continues ONCE when the turn ended on a promise', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    streamEvents.mockClear();
-    streamEvents.mockResolvedValue(narrationStream());
-    judge.readings = [{ answered: false, ends_on_promise: true, promise: 'Let me check the right structure first.' }];
-    const { result } = await run({ message: 'what should I do right now?', deliverable: 'answer', conversationId: conv.id });
-
-    expect(await listArtifactsForConversation({ orgId: ORG, conversationId: conv.id })).toHaveLength(0);
-    // "Let me check…" with no tool call is a promise, not an answer (production
-    // turn 577): the loop re-enters once with the promise as its own last words.
-    expect(streamEvents).toHaveBeenCalledTimes(2);
-
-    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(second.messages.at(-2)).toEqual({ role: 'assistant', content: 'Let me check the right structure first.' });
-    expect(second.messages.at(-1)?.content).toContain('a promise, not an answer');
-    expect(result.response.startsWith('Let me check the right structure first.')).toBe(true);
-  });
 });
 
 /**
@@ -453,17 +280,12 @@ describe('the deliverable contract', () => {
  * @param output - What the tool returned.
  */
 /**
- * A turn that answers in prose and ends with a tool's NAME as its last word.
- * @param body
+ * A turn that answers in prose.
+ * @param body - The answer.
  */
-function narratedToolStream(body = 'Filed. The build decision card is below.\n\nrecommend_action'): AsyncIterable<unknown> {
-  const events = [
-    { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(body) } },
-  ];
+function answerStream(body: string): AsyncIterable<unknown> {
   return { async* [Symbol.asyncIterator]() {
-    for (const e of events) {
-      yield e;
-    }
+    yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(body) } };
   } };
 }
 
@@ -540,7 +362,7 @@ describe('the tool-call log an eval reads', () => {
     streamEvents
       .mockResolvedValueOnce(emptyStream())
       .mockResolvedValueOnce(emptyStream())
-      .mockResolvedValueOnce(narratedToolStream('Four deals closed last month, worth $216K.'));
+      .mockResolvedValueOnce(answerStream('Four deals closed last month, worth $216K.'));
     const { result } = await run({ message: 'how many deals closed?', deliverable: 'answer', conversationId: conv.id });
 
     expect(streamEvents).toHaveBeenCalledTimes(3);
@@ -598,56 +420,6 @@ describe('the tool-call log an eval reads', () => {
       warn.mockRestore();
       backstop.on = false;
     }
-  });
-});
-
-describe('a write the answer claims is a write that ran (finding 23)', () => {
-  const claimed = 'Scoped the StampSend MCP work against the Send standards and the current connector.\n\n**Filed:** Request recorded for Send. Architecture plan queued.';
-  const correction = 'I did not file the request: nothing was saved. Say the word and I will file it now.';
-  const base = { orgId: ORG, agentSlug: 'lead', request: 'File it.', failures: [], failedDelegations: [], answer: async () => correction };
-
-  it('the agent corrects itself, live and stored, when the judge finds the claim has no step behind it', async () => {
-    const events: AgentEvent[] = [];
-    const out = await applyTurnGuarantees({ ...base, judge: async () => ({ ...NO_JUDGEMENT, claims_unrecorded_work: true, claim: 'Request recorded for Send.' }), response: claimed, toolCalls: [{ tool: 'lookup_objects', output: 'request #126' }], emit: e => events.push(e) });
-
-    expect(out).toContain(correction);
-    expect(events.some(e => e.type === 'response_delta' && e.delta.includes(correction))).toBe(true);
-  });
-
-  it('says nothing to the person when the correction pass finds none owed, and never shows its critique (run 3, 2026-10-01)', async () => {
-    const reply = 'I\'ll check what\'s there before filing.\n\nThe uploaded date is not shown yet. Filing it now.';
-    const events: AgentEvent[] = [];
-    const out = await applyTurnGuarantees({
-      ...base,
-      judge: async () => ({ ...NO_JUDGEMENT, claims_unrecorded_work: true, claim: 'Filing it now.' }),
-      answer: async () => '',
-      correct: async () => ({ owed: false, sentence: 'The opening line implied the filing had not happened yet when it had.' }),
-      response: reply,
-      toolCalls: [{ tool: 'file_request', output: 'objects.propose_candidate is DONE: filed as request #303' }],
-      emit: e => events.push(e),
-    });
-
-    expect(out).toBe(reply);
-    expect(events.some(e => e.type === 'response_delta')).toBe(false);
-  });
-
-  it('a correction owed is the agent\'s one sentence about the work', async () => {
-    const out = await applyTurnGuarantees({
-      ...base,
-      judge: async () => ({ ...NO_JUDGEMENT, claims_unrecorded_work: true, claim: 'Request recorded for Send.' }),
-      correct: async () => ({ owed: true, sentence: correction }),
-      response: claimed,
-      toolCalls: [{ tool: 'lookup_objects', output: 'request #126' }],
-      emit: () => {},
-    });
-
-    expect(out).toBe(`${claimed}\n\n${correction}`);
-  });
-
-  it('says nothing when the judge finds the work behind the claim', async () => {
-    const out = await applyTurnGuarantees({ ...base, judge: async () => NO_JUDGEMENT, response: claimed, toolCalls: [{ tool: 'update_object', output: '{"ok":true,"id":130}' }], emit: () => {} });
-
-    expect(out).toBe(claimed);
   });
 });
 
@@ -768,108 +540,6 @@ describe('the live line says what is happening (2026-09-25: "Working is such a l
     } finally {
       warn.mockRestore();
       backstop.on = false;
-    }
-  });
-});
-
-describe('a reply cut off mid-sentence is finished by the agent, as it writes it', () => {
-  it('leaves a continuation that simply finishes the word alone', async () => {
-    const said = 'Two corrections to what I said last turn, now that I have checked the table:\n\n**The';
-    judge.readings = [{ cut_off: true }];
-    const next = 're is still no request record on file for this.**';
-    streamEvents
-      .mockResolvedValueOnce({ async* [Symbol.asyncIterator]() {
-        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(said) } };
-      } })
-      .mockResolvedValueOnce({ async* [Symbol.asyncIterator]() {
-        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(next) } };
-      } })
-      .mockResolvedValue(emptyStream());
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const { result } = await run({ message: 'What changed since last turn?' });
-
-      expect(result.response).toContain('**There is still no request record on file for this.**');
-    } finally {
-      warn.mockRestore();
-    }
-  });
-});
-
-describe('"Filed." with nothing behind it is corrected (conversation 349, second turn)', () => {
-  const base = { orgId: ORG, agentSlug: 'lead', request: 'Please file it now.', failures: [], failedDelegations: [], answer: async () => '' };
-
-  it('the judge is handed the reply, the steps and the cards shown, and a claim it finds is corrected', async () => {
-    const seen: Array<{ reply: string; steps: string[]; cards: number }> = [];
-    const out = await applyTurnGuarantees({
-      ...base,
-      answer: async () => 'Nothing was filed yet; I will file it when you say so.',
-      judge: async (i) => {
-        seen.push(i);
-        return { ...NO_JUDGEMENT, claims_unrecorded_work: true, claim: 'Filed.' };
-      },
-      response: 'Filed. The request card is on your screen — approving it is what writes the record.',
-      toolCalls: [{ tool: 'lookup_objects', output: 'No request record matched' }],
-      cardsShown: 0,
-      emit: () => {},
-    });
-
-    expect(seen[0]).toMatchObject({ cards: 0, steps: ['lookup_objects → No request record matched'] });
-    expect(out).toContain('Nothing was filed yet');
-  });
-
-  it('says nothing when the judge finds nothing claimed', async () => {
-    const out = await applyTurnGuarantees({ ...base, judge: async () => NO_JUDGEMENT, response: 'Here is what I found. The request card is on your screen.', toolCalls: [], cardsShown: 1, emit: () => {} });
-
-    expect(out).toBe('Here is what I found. The request card is on your screen.');
-  });
-});
-
-describe('the person asked for a record and the turn wrote nothing (conversation 349)', () => {
-  it('files it in one pass with propose_action chosen, links it, and the claim check stays quiet', async () => {
-    const received: unknown[] = [];
-    toolBelt.tools = [{
-      name: 'propose_action',
-      invoke: async (input) => {
-        received.push(input);
-        return 'objects.propose_candidate is DONE: filed as request #131 (run #7, confidence 0.8), open at /w/northwind/dashboard/p/feature/131. Title: Export the viewer list.';
-      },
-    }];
-    backstop.calls.length = 0;
-    backstop.calls.push({ name: 'propose_action', args: { action_id: 'objects.propose_candidate', action_input: { objectType: 'request', title: 'Export the viewer list' }, confidence: 0.8, rationale: 'Asked for in chat.', suggested_decision: 'approve', suggested_decision_reason: 'Asked for directly.' } });
-    judge.intent = { files_new_record: true, wants_action: true };
-    streamEvents.mockResolvedValueOnce({ async* [Symbol.asyncIterator]() {
-      yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text('Filed. The request card is on your screen — approving it is what writes the record.') } };
-    } }).mockResolvedValue(emptyStream());
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const { result, events } = await run({ message: 'You said nothing was saved. Please file it now.' });
-
-      expect(received).toHaveLength(1);
-      expect(result.response).toContain('Filed from this conversation: [request #131](/w/northwind/dashboard/p/feature/131).');
-      expect(result.response).not.toContain('Nothing was saved in this turn');
-      expect(result.toolCalls.map(c => c.tool)).toContain('propose_action');
-      expect(events.some(e => e.type === 'status' && e.label === 'Filing what you asked for')).toBe(true);
-    } finally {
-      warn.mockRestore();
-      toolBelt.tools = [];
-      backstop.calls.length = 0;
-    }
-  });
-
-  it('does not run when the person asked for nothing to be filed', async () => {
-    const received: unknown[] = [];
-    toolBelt.tools = [{ name: 'propose_action', invoke: async (input) => {
-      received.push(input);
-      return '';
-    } }];
-    streamEvents.mockResolvedValue(longFormStream());
-    try {
-      await run({ message: 'What changed since last turn?' });
-
-      expect(received).toHaveLength(0);
-    } finally {
-      toolBelt.tools = [];
     }
   });
 });

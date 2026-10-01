@@ -86,7 +86,7 @@ export async function filingOnPersonsWord(ctx: RuntimeContext): Promise<boolean>
     return true;
   }
   const intent = await (ctx.turnIntent ?? Promise.resolve(null)).catch(() => null);
-  return intent?.files_new_record === true;
+  return intent?.asks === 'file';
 }
 
 export async function runProposal(

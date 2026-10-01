@@ -313,7 +313,26 @@ async function learningEagernessFor(orgId: string): Promise<number | null> {
   }
 }
 
-export async function proposeAction(input: {
+/**
+ * Propose an action — the one place every agent write lands. A turn the
+ * person spent asking a question is read-only (`agents/turnScope.ts`): the
+ * write is refused with what to do instead, and a write that lands is counted
+ * on the turn.
+ * @param input - See {@link proposeActionInTurn}.
+ */
+export async function proposeAction(input: Parameters<typeof proposeActionInTurn>[0]): Promise<ProposeResult> {
+  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  if (writesRefused()) {
+    throw new ActionError('read_only_turn', READ_ONLY_RECEIPT);
+  }
+  const res = await proposeActionInTurn(input);
+  if (res.outcome !== 'already_decided') {
+    noteWrite();
+  }
+  return res;
+}
+
+async function proposeActionInTurn(input: {
   orgId: string;
   actionId: string;
   input: Record<string, unknown>;

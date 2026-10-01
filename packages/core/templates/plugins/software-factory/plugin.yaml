@@ -297,7 +297,11 @@ name: Software factory
 #   built from three times, its clone URL made from its title). The repo
 #   type's `url` is `x-verify: repository`, so a proposal for a repository
 #   GitHub does not have is refused with that reason.
-version: 2.49.0
+# 2.50.0 — a question gets an answer (2026-10-01, CHAT-423). The PM answers
+#   how and why from the pull request's diff, QA's verdict and an outside
+#   platform's current docs, never from memory; a question's turn writes
+#   nothing (core reads it once, before the turn runs).
+version: 2.50.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

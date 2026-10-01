@@ -24,14 +24,14 @@ vi.mock('@/services/ActionService', async importOriginal => ({
 // reading that the latest message is a change to something already there.
 vi.mock('./turnJudge', async (importOriginal) => {
   const real = await importOriginal<typeof import('./turnJudge')>();
-  return { ...real, readIntent: vi.fn(async () => ({ ...real.NO_INTENT, changes_existing_record: true, changed_record_type: 'request', wants_action: true })) };
+  return { ...real, readIntent: vi.fn(async () => ({ ...real.NO_INTENT, changed_record_type: 'request', asks: 'change' })) };
 });
 
 const { db } = await import('@/libs/DB');
 const { conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
 const { proposeAction } = await import('@/services/ActionService');
 const { NO_INTENT } = await import('./turnJudge');
-const { anchoredAskCheck, anchoredAskRefusal, anchoredFilingCheck, anchoredFilingRefusal, hasClearFavourite } = await import('./anchoredFiling');
+const { anchoredFilingCheck, anchoredFilingRefusal } = await import('./anchoredFiling');
 const { runProposal } = await import('./tools/proposeAction');
 
 const ORG = 'org_anchored_filing';
@@ -41,7 +41,7 @@ const I = (over: Partial<TurnIntent>): TurnIntent => ({ ...NO_INTENT, ...over })
 
 describe('anchoredFilingRefusal', () => {
   it('refuses a new request when the person asked to change the request on their page', () => {
-    const out = anchoredFilingRefusal({ message: 'Three changes to this request: 1) email only 2) 48 hours 3) name who has not opened it', intent: I({ changes_page_record: true, changes_existing_record: true }), objectType: 'request', anchor: onRequest });
+    const out = anchoredFilingRefusal({ message: 'Three changes to this request: 1) email only 2) 48 hours 3) name who has not opened it', intent: I({ asks: 'change' }), objectType: 'request', anchor: onRequest });
 
     expect(out).toContain('Not filed');
     expect(out).toContain('update_object (object_type "request", id 227)');
@@ -49,7 +49,7 @@ describe('anchoredFilingRefusal', () => {
   });
 
   it('refuses a change to something already there with no record open — the misread that filed #232', () => {
-    const out = anchoredFilingRefusal({ message: CHANGE, intent: I({ changes_existing_record: true, changed_record_type: 'request' }), objectType: 'request', anchor: null });
+    const out = anchoredFilingRefusal({ message: CHANGE, intent: I({ changed_record_type: 'request', asks: 'change' }), objectType: 'request', anchor: null });
 
     expect(out).toContain('no request is open on their page');
     expect(out).toContain('lookup_objects');
@@ -57,28 +57,28 @@ describe('anchoredFilingRefusal', () => {
   });
 
   it('refuses it on a page about a record of another type too', () => {
-    expect(anchoredFilingRefusal({ message: CHANGE, intent: I({ changes_existing_record: true, changed_record_type: 'request' }), objectType: 'request', anchor: { id: 25, objectType: 'product' } })).toContain('no request is open');
+    expect(anchoredFilingRefusal({ message: CHANGE, intent: I({ changed_record_type: 'request', asks: 'change' }), objectType: 'request', anchor: { id: 25, objectType: 'product' } })).toContain('no request is open');
   });
 
   it('files a plan for the request the person asked to restart — a different kind is not the change misfiled (conversation 391)', () => {
-    expect(anchoredFilingRefusal({ message: 'Can you restart this request?', intent: I({ changes_existing_record: true, changed_record_type: 'request' }), objectType: 'architecture_plan', anchor: null })).toBeNull();
+    expect(anchoredFilingRefusal({ message: 'Can you restart this request?', intent: I({ changed_record_type: 'request', asks: 'change' }), objectType: 'architecture_plan', anchor: null })).toBeNull();
     // Not knowing the kind never blocks.
-    expect(anchoredFilingRefusal({ message: 'Change this.', intent: I({ changes_existing_record: true }), objectType: 'request', anchor: null })).toBeNull();
+    expect(anchoredFilingRefusal({ message: 'Change this.', intent: I({ asks: 'change' }), objectType: 'request', anchor: null })).toBeNull();
   });
 
   it('files when the person wants a new or separate record, whatever else they said', () => {
-    expect(anchoredFilingRefusal({ message: 'Change this so it is its own request: a pinned note for viewers.', intent: I({ files_new_record: true, changes_page_record: true }), objectType: 'request', anchor: onRequest })).toBeNull();
-    expect(anchoredFilingRefusal({ message: 'Fix this: uploads fail on a phone when the signal drops.', intent: I({ files_new_record: true }), objectType: 'request', anchor: null })).toBeNull();
+    expect(anchoredFilingRefusal({ message: 'Change this so it is its own request: a pinned note for viewers.', intent: I({ asks: 'file' }), objectType: 'request', anchor: onRequest })).toBeNull();
+    expect(anchoredFilingRefusal({ message: 'Fix this: uploads fail on a phone when the signal drops.', intent: I({ asks: 'file' }), objectType: 'request', anchor: null })).toBeNull();
   });
 
   it('files when the reading is no change at all', () => {
     expect(anchoredFilingRefusal({ message: 'What is worth building next?', intent: I({}), objectType: 'request', anchor: onRequest })).toBeNull();
-    expect(anchoredFilingRefusal({ message: 'Add a way for senders to pin a note.', intent: I({ wants_action: true }), objectType: 'request', anchor: null })).toBeNull();
+    expect(anchoredFilingRefusal({ message: 'Add a way for senders to pin a note.', intent: I({ asks: 'work' }), objectType: 'request', anchor: null })).toBeNull();
   });
 
   it('leaves another type\'s filing alone on a record\'s page', () => {
     // A change on request #227's page does not stop a plan being filed for it.
-    expect(anchoredFilingRefusal({ message: 'Add the 48-hour rule to this request.', intent: I({ changes_page_record: true }), objectType: 'architecture_plan', anchor: onRequest })).toBeNull();
+    expect(anchoredFilingRefusal({ message: 'Add the 48-hour rule to this request.', intent: I({ asks: 'change' }), objectType: 'architecture_plan', anchor: onRequest })).toBeNull();
   });
 });
 
@@ -103,7 +103,7 @@ describe('a filing in a person\'s turn (runProposal)', () => {
   });
 
   it('is refused on a request\'s page when the person asked to change it, and nothing is proposed', async () => {
-    const ctx = ctxFor({ turnMessage: 'Change this request: make the reminder 48 hours.', pageContext: { path: '/dashboard/p/feature/227', title: 'Feature', record: { type: 'object', id: '227', objectType: 'request' } } }, { changes_page_record: true, changes_existing_record: true });
+    const ctx = ctxFor({ turnMessage: 'Change this request: make the reminder 48 hours.', pageContext: { path: '/dashboard/p/feature/227', title: 'Feature', record: { type: 'object', id: '227', objectType: 'request' } } }, { asks: 'change' });
 
     const out = await runProposal(ctx, filing, { tool: 'file_request' });
 
@@ -125,7 +125,7 @@ describe('a filing in a person\'s turn (runProposal)', () => {
   });
 
   it('files as before when the person asked for one', async () => {
-    const ctx = ctxFor({ turnMessage: 'File a feature request: senders pin a note on a send.', pageContext: { path: '/dashboard/p/feature/227', title: 'Feature', record: { type: 'object', id: '227', objectType: 'request' } } }, { files_new_record: true, wants_action: true });
+    const ctx = ctxFor({ turnMessage: 'File a feature request: senders pin a note on a send.', pageContext: { path: '/dashboard/p/feature/227', title: 'Feature', record: { type: 'object', id: '227', objectType: 'request' } } }, { asks: 'file' });
 
     await runProposal(ctx, filing, { tool: 'file_request' });
 
@@ -140,58 +140,3 @@ describe('a filing in a person\'s turn (runProposal)', () => {
  * recommending its own answer at 0.85 over 0.3, instead of changing the
  * request.
  */
-describe('anchoredAskRefusal', () => {
-  const MOCKS = 'can you add mocks/images to this request?';
-  const working = I({ wants_work_on_record: true, wants_action: true });
-  const lopsided = [
-    { label: 'Amend criterion 1 to "every row with a share link"', recommended: true, confidence: 0.85 },
-    { label: 'A disabled control on locked rows too', confidence: 0.3 },
-    { label: 'Move the control beside the badge' },
-  ];
-  const even = [
-    { label: 'In the row', confidence: 0.5 },
-    { label: 'In the menu', confidence: 0.5 },
-  ];
-
-  it('refuses the #224 shape — a ruling about the page\'s request with a clear favourite — and says to edit it', () => {
-    const out = anchoredAskRefusal({ message: MOCKS, intent: working, anchor: onRequest, kind: 'ruling', options: lopsided, objectRefs: [{ type: 'request', id: 227 }, { type: 'architecture_plan', id: 9 }] });
-
-    expect(out).toContain('Not asked');
-    expect(out).toContain('update_object (object_type "request", id 227)');
-    expect(out).toContain('Ask only when two readings are equally good');
-  });
-
-  it('refuses an input ask while the person has the agent working on the record', () => {
-    expect(anchoredAskRefusal({ message: 'Change this: the reminder goes out after 48 hours.', intent: I({ changes_page_record: true }), anchor: onRequest, kind: 'input' })).toContain('a gap you found in it is yours to close');
-    expect(anchoredAskRefusal({ message: 'mock this up', intent: working, anchor: onRequest, kind: 'input' })).toContain('Not asked');
-  });
-
-  it('lets through two equally good readings, a choice the person asked for, and decisions only a person makes', () => {
-    expect(anchoredAskRefusal({ message: MOCKS, intent: working, anchor: onRequest, kind: 'ruling', options: even })).toBeNull();
-    expect(anchoredAskRefusal({ message: 'Mock it up and give me options for where the button goes.', intent: I({ wants_work_on_record: true, wants_to_choose: true }), anchor: onRequest, kind: 'ruling', options: lopsided })).toBeNull();
-
-    for (const kind of ['approval', 'recommendation', 'credential', 'merge', 'gate']) {
-      expect(anchoredAskRefusal({ message: MOCKS, intent: working, anchor: onRequest, kind, options: lopsided })).toBeNull();
-    }
-  });
-
-  it('leaves an ask about another record, or with no record on the page, alone', () => {
-    expect(anchoredAskRefusal({ message: MOCKS, intent: working, anchor: onRequest, kind: 'ruling', options: lopsided, objectRefs: [{ type: 'request', id: 300 }] })).toBeNull();
-    expect(anchoredAskRefusal({ message: MOCKS, intent: working, anchor: null, kind: 'ruling', options: lopsided })).toBeNull();
-  });
-
-  it('reads a favourite only off scored options', () => {
-    expect(hasClearFavourite(lopsided)).toBe(true);
-    expect(hasClearFavourite(even)).toBe(false);
-    expect(hasClearFavourite([{ label: 'A', recommended: true }, { label: 'B' }])).toBe(false);
-    expect(hasClearFavourite([{ label: 'A', recommended: true, confidence: 0.6 }, { label: 'B', confidence: 0.5 }])).toBe(false);
-    expect(hasClearFavourite(['A', 'B'])).toBe(false);
-  });
-
-  it('never gates an unattended run, and reads the page and the intent from the turn', async () => {
-    const page = { path: '/dashboard/p/feature/227', title: 'Feature', record: { type: 'object' as const, id: '227', objectType: 'request' } };
-
-    expect(await anchoredAskCheck(ctxFor({ turnMessage: MOCKS, pageContext: page }, { wants_work_on_record: true }), { kind: 'ruling', options: lopsided })).toContain('Not asked');
-    expect(await anchoredAskCheck(ctxFor({ turnMessage: MOCKS, pageContext: page, missionRunId: 5 } as Partial<RuntimeContext>, { wants_work_on_record: true }), { kind: 'ruling', options: lopsided })).toBeNull();
-  });
-});

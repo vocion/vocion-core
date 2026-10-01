@@ -308,7 +308,7 @@ describe('file_request reads the product\'s capabilities page itself, structural
   it('on the person\'s word it files at once, and hands back what already ships as the check still owed (Chris, 2026-09-29: "don\'t block me")', async () => {
     const filingTypes = await loadFilingTypes(ORG, ['request']);
     const { NO_INTENT } = await import('../turnJudge');
-    const ctx = { ...ctxFor(filingTypes, 911), turnIntent: Promise.resolve({ ...NO_INTENT, files_new_record: true, wants_action: true, record_type: 'request' }) } as RuntimeContext;
+    const ctx = { ...ctxFor(filingTypes, 911), turnIntent: Promise.resolve({ ...NO_INTENT, record_type: 'request', asks: 'file' }) } as RuntimeContext;
     const fileRequest = buildDomainTools(ctx).find(t => t.name === 'file_request')!;
 
     const answer = String(await fileRequest.invoke({ ...BASE, title: 'Let a sender revoke a shared link (the PM asked)' }));

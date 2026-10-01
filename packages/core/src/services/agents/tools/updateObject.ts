@@ -74,7 +74,7 @@ export function updateObjectTool(ctx: RuntimeContext) {
         const writtenAt = new Date(Date.now() - 1_000);
         // On the person's word (the turn's intent read) the change is theirs and runs, with undo.
         const intent = ctx.userId && !ctx.missionRunId ? await (ctx.turnIntent ?? Promise.resolve(null)).catch(() => null) : null;
-        const onPersonsWord = Boolean(intent && (intent.changes_page_record || intent.changes_existing_record || intent.decides));
+        const onPersonsWord = intent?.asks === 'change' || intent?.asks === 'decide';
         const res = await writeRecordAsAgent(ctx, { objectType: object_type, id, set, reason, confidence, onPersonsWord });
         // What the record and the action are read by (`libs/codes.ts`).
         const name = await codeForRecord(ctx.orgId, id).catch(() => null) ?? `${object_type} #${id}`;

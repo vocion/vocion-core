@@ -1,10 +1,10 @@
 /**
- * Conversation 378 (2026-09-29), in the turn loop. "approve, fix and run" on
- * request #201's page; the turn explained and ENDED on "Let me write the plan
- * now." The loop re-enters once with its tools, the announcement as its own
- * last words and the person's instruction in front of it — and only when the
- * person asked for the act. A write that lands in a turn on a record's page
- * is announced as a version beneath that record, so the page refetches.
+ * ONE READ, THEN THE TURN (CHAT-423, 2026-10-01). Five questions on a
+ * feature's page filed two features, rewrote the one they were about,
+ * rejected its merge and started three builds. What the person wants is read
+ * once, before the turn runs (`agents/turnJudge.ts`): a question makes the
+ * turn read-only (`agents/turnScope.ts`), and an act the person asked for that
+ * wrote nothing gets one more pass — no other continuation.
  *
  * The loop is a stand-in that streams what each pass says (the pattern of
  * `AgentService.budgetStop.test.ts`).
@@ -14,15 +14,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
-// What the person wants and how each pass ended are a model's reading
-// (`agents/turnJudge.ts`); each test says what that reading is.
-const judge = vi.hoisted(() => ({ intent: {} as Record<string, unknown>, readings: [] as Array<Record<string, unknown>> }));
+// What the person wants is a model's reading (`agents/turnJudge.ts`); each test says what it is.
+const judge = vi.hoisted(() => ({ intent: {} as Record<string, unknown> }));
 vi.mock('@/services/agents/turnJudge', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/services/agents/turnJudge')>();
   return {
     ...real,
-    readIntent: vi.fn(async () => ({ ...real.NO_INTENT, ...judge.intent })),
-    judgeAnswer: vi.fn(async () => ({ ...real.NO_JUDGEMENT, ...(judge.readings.shift() ?? {}) })),
+    readIntent: vi.fn(async () => ({ asks: 'answer', changed_record_type: null, record_type: null, summary: '', ...judge.intent })),
   };
 });
 
@@ -49,12 +47,16 @@ vi.mock('@/services/BudgetService', () => ({ preflightCheck: vi.fn(async () => (
 const { db } = await import('@/libs/DB');
 const { agentSchema } = await import('@/models/Schema');
 const { runAgentDeep } = await import('@/services/AgentService');
+const { actionRunSchema } = await import('@/models/Schema');
+const { proposeAction } = await import('@/services/ActionService');
+const { noteWrite, writesRefused, READ_ONLY_RECEIPT } = await import('@/services/agents/turnScope');
 
-const ORG = 'org_announced_action';
+const ORG = 'org_one_read';
+const PERSON = 'usr-reader';
 
 const EXPLAINED = 'The run failed because the contract touches two packages without an approved plan, and the factory requires one any time allowed paths span more than one package. Plan #215 carries it now.';
 
-type Pass = Array<Record<string, unknown>>;
+type Pass = Array<Record<string, unknown>> | (() => Promise<Array<Record<string, unknown>>>);
 const say = (t: string) => ({ event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: { content: [{ type: 'text', text: t }] } } });
 const toolEnd = (name: string, output: string) => ({ event: 'on_tool_end', name, run_id: `run-${name}`, metadata: { checkpoint_ns: 'tools:t1' }, data: { input: { requestId: 201 }, output: { content: output, status: 'success' } } });
 
@@ -66,7 +68,8 @@ function passes(...all: Pass[]) {
   const inputs: Array<{ messages: Array<{ role?: string; content?: unknown }> }> = [];
   streamEvents.mockReset().mockImplementation(async (input: (typeof inputs)[number]) => {
     inputs.push(input);
-    const events = all.shift() ?? [say('Done.')];
+    const next = all.shift() ?? [say('Done.')];
+    const events = typeof next === 'function' ? await next() : next;
     return { async* [Symbol.asyncIterator]() {
       yield* events;
     } };
@@ -74,74 +77,96 @@ function passes(...all: Pass[]) {
   return inputs;
 }
 
-async function run(message: string, pageContext?: unknown) {
+async function run(message: string, pageContext?: unknown, userId?: string) {
   const events: AgentEvent[] = [];
-  const result = await runAgentDeep({ orgId: ORG, agentSlug: 'product-manager', message, onEvent: e => void events.push(e), ...(pageContext ? { pageContext: pageContext as never } : {}) });
+  const result = await runAgentDeep({ orgId: ORG, agentSlug: 'product-manager', message, onEvent: e => void events.push(e), ...(pageContext ? { pageContext: pageContext as never } : {}), ...(userId ? { userId } : {}) });
   return { result, events };
 }
 
 beforeEach(async () => {
   judge.intent = {};
-  judge.readings = [];
   await db.delete(agentSchema);
   await db.insert(agentSchema).values({ orgId: ORG, slug: 'product-manager', name: 'Product manager', systemPrompt: 'Be useful.', harnessConfig: {} } as never);
 });
 
-describe('a turn that ends on the move it announced', () => {
-  it('continues once, with its tools, when the person asked for the act', async () => {
-    const inputs = passes([say(`${EXPLAINED}\n\nLet me write the plan now.`)], [say('Approved proposal #5201; the build of #203 is running on plan #215.')]);
-    judge.intent = { wants_action: true, decides: true };
-    judge.readings = [{ ends_on_promise: true, promise: 'Let me write the plan now.' }];
+const PAGE = { path: '/w/northwind/dashboard/p/feature/41', title: 'Send from a chat assistant', record: { type: 'object', id: '41', label: 'request #41' } };
 
-    const { result } = await run('approve, fix and run');
+// The five questions, as a person asked them on a built feature's page.
+const QUESTIONS = [
+  'how does this work without me manually registering an app with the assistant\'s platform?',
+  'how do we implement this so it is globally available? and not require manual intervention for every user?',
+  'i don\'t understand how to manually add it. what do I need to do to build and test this?',
+  'just tell me. what did you build in request #41? how do i use it?',
+  'that looks like old instructions. why aren\'t you pulling current docs when I ask questions like that?',
+];
 
-    expect(inputs).toHaveLength(2);
+describe('a question is answered, and nothing is written (CHAT-423)', () => {
+  it('runs each of the five questions in one pass, refuses every write at the seam, and answers', async () => {
+    for (const question of QUESTIONS) {
+      const tried: Array<{ refused: boolean; code: string | null }> = [];
+      const inputs = passes(async () => {
+        // The agent reaches for a write anyway: the seam refuses it before anything is stored.
+        const err = await proposeAction({ orgId: ORG, actionId: 'objects.propose_candidate', input: { objectType: 'request', title: question }, principal: { kind: 'user', id: PERSON, role: 'member', scope: { orgId: ORG } } as never }).then(() => null, (e: { code?: string }) => e);
+        tried.push({ refused: writesRefused(), code: err?.code ?? null });
+        return [toolEnd('file_request', READ_ONLY_RECEIPT), say('Request #41 serves its schema at /v1/assistant/openapi.json; you create the assistant once and every user signs in on the consent screen.')];
+      });
 
-    const nudge = String(inputs[1]!.messages.at(-1)!.content);
+      const { result } = await run(question, PAGE, PERSON);
 
-    expect(nudge).toContain('You ended your turn on "Let me write the plan now."');
-    expect(nudge).toContain('"approve, fix and run"');
-    expect(inputs[1]!.messages.at(-2)).toMatchObject({ role: 'assistant' });
-    expect(result.response).toContain('Approved proposal #5201');
+      expect(inputs).toHaveLength(1);
+      expect(tried).toEqual([{ refused: true, code: 'read_only_turn' }]);
+      expect(result.response).toContain('/v1/assistant/openapi.json');
+    }
+
+    expect(await db.select().from(actionRunSchema)).toHaveLength(0);
   });
 
-  it('does not continue when the person asked a question — an offer is an answer to one', async () => {
-    const inputs = passes([say(`${EXPLAINED}\n\nLet me write the plan now.`)]);
+  it('a failed read changes nothing: the turn is not read-only', async () => {
+    judge.intent = { unread: true };
+    const seen: boolean[] = [];
+    passes(async () => {
+      seen.push(writesRefused());
+      return [say('Here it is.')];
+    });
 
-    await run('this is critical, what do we need to unblock and finish?');
+    await run('what is this?', PAGE, PERSON);
+
+    expect(seen).toEqual([false]);
+  });
+});
+
+describe('an act the person asked for that wrote nothing gets one more pass, no more', () => {
+  it('a change that landed ends the turn in one pass', async () => {
+    judge.intent = { asks: 'change', changed_record_type: 'request', summary: 'add a size limit to request #41' };
+    const inputs = passes(async () => {
+      expect(writesRefused()).toBe(false);
+
+      noteWrite();
+      return [toolEnd('update_object', 'request #41 updated — acceptance written. Done for you; a person can undo it from Review › Decided.'), say('Added the size limit to request #41.')];
+    });
+
+    await run('change this request: add a 25 MB size limit', PAGE, PERSON);
 
     expect(inputs).toHaveLength(1);
   });
 
-  it('never loops: a continuation that announces again is not continued a second time', async () => {
-    const inputs = passes([say(`${EXPLAINED}\n\nLet me write the plan now.`)], [say(`${EXPLAINED}\n\nI'll put the card up now.`)]);
-    judge.intent = { wants_action: true };
-    judge.readings = [{ ends_on_promise: true, promise: 'Let me write the plan now.' }, { ends_on_promise: true, promise: 'I\'ll put the card up now.' }];
+  it('a change that wrote nothing goes once more with what was asked, and never a third time', async () => {
+    judge.intent = { asks: 'change', changed_record_type: 'request', summary: 'add a size limit to request #41' };
+    const inputs = passes([say('I will add the size limit.')], [say('I could not: the field is locked.')]);
 
-    await run('write it');
+    const { result } = await run('change this request: add a 25 MB size limit', PAGE, PERSON);
 
     expect(inputs).toHaveLength(2);
+    expect(String(inputs[1]!.messages.at(-1)!.content)).toBe('You were asked to add a size limit to request #41. Do it now with your tools, or say in one line why you can\'t. Never write a tool call as text.');
+    expect(result.response).toContain('the field is locked');
   });
-});
 
-describe('a reply that claims work it did not do goes back and does it (conversation 411, 2026-10-01)', () => {
-  const DIAGNOSED = 'Production Send is down for every signed-in user. The API was last deployed at 8:27 AM (sha 4804ea2). I\'m filing the incident and putting the revert card up now.';
+  it('an answer that only promises is not continued: the turn ends as written', async () => {
+    const inputs = passes([say('Let me look into that.')]);
 
-  it('continues with its tools, told to do the claimed work or put up its card, never to say it still needs doing', async () => {
-    const inputs = passes([say(DIAGNOSED)], [toolEnd('file_request', 'objects.propose_candidate is DONE: filed as request #412'), say('Filed the outage as incident #412, and the revert card is up for you to press.')]);
-    judge.readings = [{ claims_unrecorded_work: true, claim: 'I\'m filing the incident and putting the revert card up now.' }];
+    await run('what is blocking request #41?', PAGE, PERSON);
 
-    const { result } = await run('Fix this, now');
-
-    expect(inputs).toHaveLength(2);
-
-    const nudge = String(inputs[1]!.messages.at(-1)!.content);
-
-    expect(nudge).toContain('Your reply says "I\'m filing the incident and putting the revert card up now."');
-    expect(nudge).toContain('"Fix this, now"');
-    expect(nudge).toContain('hand it to that seat');
-    expect(nudge).toContain('Never say that something still needs to happen');
-    expect(result.response).toContain('incident #412');
+    expect(inputs).toHaveLength(1);
   });
 });
 
@@ -180,9 +205,9 @@ describe('a re-entry continues the real conversation (conversation 384)', () => 
       [toolEnd('lookup_objects', '[{"id":120,"title":"Northwind Share"}]'), say('Let me read the capabilities page and open requests before filing.'), { event: 'on_chain_end', name: 'LangGraph', parent_ids: [], data: { output: { messages: state } } }],
       [say('Branded share links are not built yet; request #88 asks for them. Build it when you are ready.')],
     );
-    judge.readings = [{ answered: false, ends_on_promise: true, promise: 'Let me read the capabilities page and open requests before filing.' }];
+    judge.intent = { asks: 'file', record_type: 'request', summary: 'file branded share links for Northwind' };
 
-    await run('Add branded share links to Northwind');
+    await run('Add branded share links to Northwind', undefined, PERSON);
 
     expect(inputs).toHaveLength(2);
 
