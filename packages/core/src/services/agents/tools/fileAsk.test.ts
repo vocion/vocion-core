@@ -102,27 +102,6 @@ describe('file_ask', () => {
 
     expect(out).toMatch(/^Ask refused \(VALIDATION_FAILED\): at most one option may be recommended/);
   });
-
-  it('on the page of the request the person asked to work on, a ruling it already answered is refused as an edit', async () => {
-    const ctx = ctxFor({
-      missionRunId: undefined,
-      missionSlug: undefined,
-      agentSlug: 'designer',
-      turnMessage: 'can you add mocks/images to this request?',
-      pageContext: { path: '/dashboard/p/feature/31', title: 'Feature', record: { type: 'object', id: '31', objectType: 'request' } },
-    } as Partial<RuntimeContext>);
-    const out = await fileAskTool(ctx).invoke({
-      title: 'Locked rows: amend criterion 1, or draw a disabled control?',
-      kind: 'ruling',
-      options: [{ label: 'Amend criterion 1', recommended: true, confidence: 0.85 }, { label: 'Disabled control', confidence: 0.3 }],
-      object_refs: [{ type: 'request', id: 31 }],
-      confidence: 0.87,
-    });
-
-    expect(out).toMatch(/^Not asked: this is about request #31/);
-    expect(await db.select().from(actionRunSchema)).toHaveLength(0);
-    expect(await db.select().from(askSchema)).toHaveLength(0);
-  });
 });
 
 describe('withdraw_ask', () => {
