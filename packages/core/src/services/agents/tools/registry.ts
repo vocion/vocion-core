@@ -90,6 +90,7 @@ import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
 import { wikiTools } from './wiki';
 import { withdrawProposalTool } from './withdrawProposal';
+import { workspaceSetupTool } from './workspaceSetup';
 import { workspaceSourceTools } from './workspaceSource';
 import { zoomTools } from './zoomTranscript';
 
@@ -173,6 +174,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // What the workspace could turn on — plugins and connectors, on or off —
     // so a gap becomes a recommendation instead of a workaround. Read-only.
     listCapabilitiesTool(ctx),
+    workspaceSetupTool(ctx),
     // What the agent's connected sources actually reach — the repositories,
     // project keys and channels in scope, checked live against the grant
     // where the vendor can be asked (a GitHub App installation). "Which
