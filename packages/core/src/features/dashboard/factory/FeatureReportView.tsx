@@ -250,7 +250,7 @@ function ActionButton({ action, report, primary, children }: { action: ReportAct
   if (action.kind === 'build') {
     return (
       <div data-testid="feature-decide">
-        <FeatureBuild requestId={report.requestId} planId={report.planId} label={action.label} pendingRunId={action.runId}>{children}</FeatureBuild>
+        <FeatureBuild requestId={report.requestId} planId={report.planId} label={action.label} pendingRunId={action.runId} disabledReason={action.disabledReason}>{children}</FeatureBuild>
       </div>
     );
   }

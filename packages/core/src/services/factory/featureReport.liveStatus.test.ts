@@ -139,3 +139,30 @@ describe('pickLive', () => {
     expect(pickLive({ workerRuns: [], missionRuns: [{ ...planRun, status: 'awaiting_review' }], context: ctx })).toBeNull();
   });
 });
+
+describe('blocked is a state you can see (2026-10-01, #294)', () => {
+  const blocker = { what: 'Nothing says which repository Lantern is built in, so it cannot be built', owner: 'eli@northwind.example', next: 'add a repo record for Lantern', cause: 'no_repo' };
+  const blockedRequest: ReportObject = { ...request, meta: { state: 'new', product: 'lantern', blocker } };
+
+  it('You says what is wrong, who fixes it and the move; Next says it moves on by itself; never "Nothing needs you"', () => {
+    const report = assembleFeatureReport(input({ request: blockedRequest }));
+    const status = featureStatusOf(report, { objectType: 'request', href: '/dashboard/p/feature/265' }, NOW);
+
+    expect(status.stage.label).toBe('Blocked');
+    expect(status.you).toMatchObject({ needsYou: true, line: 'Blocked: eli@northwind.example to add a repo record for Lantern', why: blocker.what, blocked: { who: 'eli@northwind.example', next: 'add a repo record for Lantern' } });
+    expect(status.you.line).not.toBe('Nothing needs you');
+    expect(status.next).toBe('Once eli@northwind.example does, it moves on by itself: the factory reads the records again every hour.');
+  });
+
+  it('Build is drawn disabled with the reason when it would hit the refusal; a missing plan keeps Build', () => {
+    const refused = assembleFeatureReport(input({ request: blockedRequest }));
+
+    expect(refused.status.action).toMatchObject({ kind: 'drawer' });
+    expect(refused.status.secondary).toMatchObject({ kind: 'build', disabledReason: expect.stringContaining('Nothing says which repository Lantern is built in') });
+
+    const plannable = assembleFeatureReport(input({ request: { ...blockedRequest, meta: { ...blockedRequest.meta, blocker: { ...blocker, cause: 'needs_plan' } } } }));
+
+    expect(plannable.status.action).toMatchObject({ kind: 'build' });
+    expect((plannable.status.action as { disabledReason?: string }).disabledReason).toBeUndefined();
+  });
+});

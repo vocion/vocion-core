@@ -59,10 +59,15 @@ export type LiveRun = {
 /** The You line. */
 export type StatusYou = {
   needsYou: boolean;
-  /** "Nothing needs you" or "Needs you: Build again". */
+  /** "Nothing needs you", "Needs you: Build again", or "Blocked: chris@… to add a repo record". */
   line: string;
   /** Why, when it needs you: the open question, or what stopped. */
   why: string | null;
+  /**
+   * The obstacle, when the work cannot move: what is wrong, who fixes it, the
+   * one move. Drawn as Blocked, never as "Nothing needs you" (2026-10-01, #294).
+   */
+  blocked?: { what: string; who: string | null; next: string | null } | null;
 };
 
 /** A move, as a surface off the record's own page can follow it. */
@@ -265,6 +270,17 @@ export function nowLine(live: LiveRun | null, now: Date): string {
   const elapsed = elapsedLabel(now.getTime() - new Date(live.startedAt).getTime());
   const clock = live.since === 'queued' ? `queued ${elapsed}` : elapsed;
   return [live.label, live.step, clock].filter(Boolean).join(' · ');
+}
+
+/**
+ * The You line when the work cannot move: the obstacle, who fixes it, the move.
+ * @param what - What is wrong.
+ * @param who - Who can fix it, or null when no one is named.
+ * @param next - The one move that clears it.
+ */
+export function blockedYou(what: string, who: string | null, next: string | null): StatusYou {
+  const move = next ?? 'clear it';
+  return { needsYou: true, line: who ? `Blocked: ${who} to ${move}` : `Blocked: ${move}`, why: what, blocked: { what, who, next } };
 }
 
 /**

@@ -4,6 +4,7 @@ import type { DotTone } from '@/components/patterns';
 import { Hammer, Loader2, RotateCcw } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
 import { StatusDot } from '@/components/patterns';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { client } from '@/libs/Orpc';
 
 /**
@@ -80,8 +81,12 @@ export function FeatureHeadline({ requestId, tone, headline, sentence }: { reque
  * for this request (the intake's Build card). Pressing Build approves THAT
  * card, so there is one card and the decision happens here, with Undo —
  * journey 4 left #4945 pending behind "Not being built" (2026-09-28).
+ * @param props.disabledReason - Why a build would be refused right now
+ * (`featureReport` reads it from the request's blocker): the button is drawn
+ * disabled and the reason is its tooltip, so pressing it never just hits the
+ * refusal (2026-10-01, #294).
  */
-export function FeatureBuild({ requestId, planId, children, label = 'Build it', pendingRunId }: { requestId: number; planId: number | null; children?: React.ReactNode; label?: string; pendingRunId?: number }) {
+export function FeatureBuild({ requestId, planId, children, label = 'Build it', pendingRunId, disabledReason }: { requestId: number; planId: number | null; children?: React.ReactNode; label?: string; pendingRunId?: number; disabledReason?: string }) {
   const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'done'; runId: number; workerRunId: number | null; planning: string | null } | { s: 'error'; message: string }>({ s: 'idle' });
 
   const build = async () => {
@@ -130,6 +135,23 @@ export function FeatureBuild({ requestId, planId, children, label = 'Build it', 
           Undo
         </button>
       </p>
+    );
+  }
+  if (disabledReason) {
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* aria-disabled, not disabled: a disabled button takes no pointer or focus, so its tooltip could never show. */}
+            <button type="button" aria-disabled="true" onClick={e => e.preventDefault()} data-testid="feature-build-disabled" className="inline-flex h-9 cursor-not-allowed items-center gap-2 self-start rounded-md bg-foreground px-4 text-sm font-medium text-background opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+              <Hammer className="size-4" aria-hidden />
+              {label}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">{disabledReason}</TooltipContent>
+        </Tooltip>
+        {children}
+      </div>
     );
   }
   return (

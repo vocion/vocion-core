@@ -624,12 +624,95 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).repo)));
-  // By its title (owner/name), its short slug, then the product it builds.
-  const hit = rows.find(x => slug && x.title === slug)
-    ?? rows.find(x => slug && ((x.meta as Meta).slug === slug || x.title.endsWith(`/${slug}`)))
-    ?? rows.find(x => product && (x.meta as Meta).product === product);
+  // By its title (owner/name), its short slug, then the product it builds,
+  // then the repos the product record lists (#959: a product names its repos;
+  // a repo record need not name the product back).
+  const named = (name: string) => rows.find(x => x.title === name) ?? rows.find(x => (x.meta as Meta).slug === name || x.title.endsWith(`/${name}`));
+  const hit = (slug ? named(slug) : undefined)
+    ?? rows.find(x => product && (x.meta as Meta).product === product)
+    ?? (product ? (await productRepoNames(orgId, product)).map(named).find(Boolean) : undefined);
   return hit ? { ...(hit.meta as Meta), title: hit.title } : null;
 }
+
+/**
+ * The product record a slug names, read for what the factory needs of it: its
+ * name, who answers for it, and the repos it lists. Null when none has the slug.
+ * @param orgId - Tenant.
+ * @param slug - The product's slug.
+ */
+export async function readProduct(orgId: string, slug: string | null): Promise<{ id: number; title: string; slug: string; owner: string | null; repos: string[] } | null> {
+  if (!slug) {
+    return null;
+  }
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const [row] = await db
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).product), sql`${businessObjectSchema.metadata} ->> 'slug' = ${slug}`))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  const m = (row.meta ?? {}) as Meta;
+  return { id: row.id, title: str(m, 'name') ?? row.title, slug, owner: str(m, 'accountableUser'), repos: list(m, 'repos') };
+}
+
+async function productRepoNames(orgId: string, product: string): Promise<string[]> {
+  return (await readProduct(orgId, product).catch(() => null))?.repos ?? [];
+}
+
+/**
+ * WHETHER A BUILD WOULD START, before one is proposed (2026-10-01, #294: the
+ * intake proposed a build the dispatch refused for "requiredChecks, repo",
+ * said "no card", and the request sat as Proposed for 109 minutes). The same
+ * contract the dispatch derives, and the same gaps its precheck refuses on,
+ * typed, so the caller routes on them and never on the refusal's words:
+ *
+ *   ready        nothing the records say stops it.
+ *   no_repo      no repo record is the product's, and the product lists none.
+ *   no_checks    the repo record names no checks, so no build could be proven.
+ *   needs_plan   anything else the contract lacks: a plan is what supplies it.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param planId - The plan the build would name, if any.
+ */
+export async function buildReadiness(orgId: string, requestId: number, planId: number | null = null): Promise<BuildReadiness> {
+  const { task, plan, request, repo } = await loadAll({ orgId } as ActionContext, { requestId, ...(planId ? { planId } : {}) } as z.infer<typeof dispatchInput>);
+  const productSlug = request ? str(request.meta, 'product') : null;
+  const product = await readProduct(orgId, productSlug).catch(() => null);
+  if (!task) {
+    return { ready: false, cause: 'needs_plan', gaps: [], product, repo: null };
+  }
+  const gaps = contractGaps(task.meta).filter(g => !(g === 'allowedPaths' && task.id === 0 && !(plan && planIsApproved(plan.meta))));
+  const repoTitle = repo ? str(repo, 'title') : null;
+  if (gaps.length === 0) {
+    return { ready: true, cause: null, gaps: [], product, repo: repoTitle };
+  }
+  if (gaps.includes('repo') && !repo) {
+    return { ready: false, cause: 'no_repo', gaps, product, repo: null };
+  }
+  if (gaps.includes('requiredChecks') && repo) {
+    return { ready: false, cause: 'no_checks', gaps, product, repo: repoTitle, repoOwner: list(repo, 'owners')[0] ?? null };
+  }
+  return { ready: false, cause: 'needs_plan', gaps, product, repo: repoTitle };
+}
+
+/** What {@link buildReadiness} found. */
+export type BuildReadiness = {
+  ready: boolean;
+  cause: 'no_repo' | 'no_checks' | 'needs_plan' | null;
+  /** The contract fields that are missing. */
+  gaps: string[];
+  /** The request's product, as its record says. */
+  product: { id: number; title: string; slug: string; owner: string | null; repos: string[] } | null;
+  /** The repo record the build would use (owner/name). */
+  repo: string | null;
+  /** Who answers for that repo record, when it names an owner. */
+  repoOwner?: string | null;
+};
 
 /**
  * The attempt a retry continues from: the one under this plan that proved the

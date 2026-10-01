@@ -23,7 +23,7 @@
 
 import type { BlockerFacts } from './blocker';
 import type { Failure, RecoveryState } from './recovery';
-import type { FactoryRecord } from '@/libs/actions/factory-dispatch';
+import type { BuildReadiness, FactoryRecord } from '@/libs/actions/factory-dispatch';
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
 import { CLOSED_REQUEST_STATES as CLOSED } from '@/libs/factory/requestStates';
@@ -669,8 +669,10 @@ export async function startPlanning(orgId: string, opts: { request: { id: number
  * the PM choosing to.
  * @param orgId - Tenant.
  * @param payload - The `object.created` payload.
+ * @param opts
+ * @param opts.retry
  */
-export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectCreatedPayload>): Promise<CarryResult> {
+export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectCreatedPayload>, opts: { retry?: boolean } = {}): Promise<CarryResult> {
   const { readRecord, writeMeta } = await lib();
   const id = Number(payload.objectId);
   if (payload.objectType !== (await factoryTypes(orgId)).request || !Number.isInteger(id) || id <= 0) {
@@ -685,8 +687,8 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   // (done for you, Undo on the record), its work is the other one's and
   // nothing starts; below the bar nothing is said and intake carries on.
   const { checkNewRecordForDuplicate } = await import('@/services/objects/duplicateCheck');
-  const duplicate = await checkNewRecordForDuplicate(orgId, payload);
-  if (duplicate.linked && duplicate.line) {
+  const duplicate = opts.retry ? null : await checkNewRecordForDuplicate(orgId, payload);
+  if (duplicate?.linked && duplicate.line) {
     const line = duplicate.line;
     await updateRecovery(orgId, id, s => logLine(s, line, new Date().toISOString()));
     return { requestId: id, did: `duplicate:${duplicate.did}`, line: duplicate.line };
@@ -701,6 +703,14 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   }
   const plan = await approvedPlan(work.plans);
   const at = new Date().toISOString();
+  // A BUILD THAT WOULD BE REFUSED IS NOT PROPOSED (2026-10-01, #294): what
+  // the dispatch would refuse on is read first, typed, and routed — the repo
+  // the product lists, planning with the gap as its brief, or a blocker that
+  // says what is wrong and who fixes it. Never "no card" and silence.
+  let readiness: BuildReadiness | null = null;
+  // Who filed it, kept on the mark, so a retry by the sweep runs as the same person.
+  const from: IntakeMark['from'] = { conversationId: typeof payload.conversationId === 'number' ? payload.conversationId : null, byPerson: payload.byPerson === true, actor: typeof payload.actor === 'string' ? payload.actor : null };
+  const mark = (m: Omit<IntakeMark, 'tries' | 'from'>) => markIntake(orgId, request, { ...m, from });
   // A PERSON'S REQUEST BUILDS BY DEFAULT (Chris, 2026-09-30: "do i have to
   // say 'file it and build it'? Should it not get intent? Should that not be
   // the default assumption for anything that isn't high risk?"). Asking for it
@@ -718,7 +728,12 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
       : null;
     if (held) {
       await updateRecovery(orgId, id, s => logLine(s, 'Filed and held, as you asked: the Build card waits for you.', at));
+      await mark({ at, outcome: 'held' });
     } else {
+      readiness = await readinessOf(orgId, id, plan?.id ?? null);
+      if (!readiness.ready) {
+        return await routeUnready(orgId, request, readiness, { at, plan: !!plan, by: person, mayPlan: true, from });
+      }
       const started = await proposeAsPerson(orgId, person, conversationId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), trigger: 'request', reason: 'A person asked for it.' }, {
         confidence: 0.9,
         rationale: `A person asked for this${conversationId !== null ? ` in conversation #${conversationId}` : ''}; its acceptance is written (${decision.why}).`,
@@ -727,14 +742,22 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
       if (started.ok && started.res.status !== 'pending') {
         const line = 'Filed and started: you asked for it. Undo cancels it until a worker claims it.';
         await updateRecovery(orgId, id, s => logLine(s, line, at));
+        await mark({ at, outcome: 'started' });
         return { requestId: id, did: `start:${started.res.status}:person`, line };
       }
       // Refused or held by the action itself: said here, and the card carries it.
       await updateRecovery(orgId, id, s => logLine(s, `Filed; the build could not start on its own: ${started.ok ? `it is waiting on a card (action #${started.res.runId})` : started.error}`, at));
+      await mark({ at, outcome: started.ok ? 'card' : 'refused', ...(started.ok ? {} : { why: started.error }) });
       if (started.ok) {
         return { requestId: id, did: `card:${started.res.status}:person`, line: null };
       }
     }
+  }
+  readiness ??= await readinessOf(orgId, id, plan?.id ?? null);
+  if (!readiness.ready) {
+    // A person's request was answered above; what reaches here is the
+    // factory's own start or a card, so planning is only for a fix it starts.
+    return await routeUnready(orgId, request, readiness, { at, plan: !!plan, by: null, mayPlan: decision.do === 'start', from });
   }
   if (decision.do === 'start') {
     const out = await propose(orgId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), trigger: 'request', reason: `Started on its own: ${decision.why}.` }, {
@@ -746,6 +769,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
       ? `Filed; the build could not start: ${out.error}`
       : out.res.status === 'pending' ? `Filed; the build is on a card for a person (action #${out.res.runId}): ${decision.why}.` : `Filed and started on its own: ${decision.why}.`;
     await updateRecovery(orgId, id, s => logLine(s, line, at));
+    await mark({ at, outcome: !out.ok ? 'refused' : out.res.status === 'pending' ? 'card' : 'started', ...(out.ok ? {} : { why: out.error }) });
     return { requestId: id, did: out.ok ? `start:${out.res.status}` : 'start:refused', line };
   }
   const out = await propose(orgId, DISPATCH, { requestId: id, ...(plan ? { planId: plan.id } : {}), reason: `Ready to build: ${decision.why}.` }, {
@@ -754,14 +778,127 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
     reason: 'Its acceptance is written, so it can be built as soon as a person says so.',
   });
   if (!out.ok) {
-    return skip(id, `no card: ${out.error}`);
+    // Refused for a reason the readiness read did not foresee: said on the
+    // request's own account, and marked, so the sweep carries it on.
+    const line = `Filed; the Build card could not be made: ${out.error}`;
+    await updateRecovery(orgId, id, s => logLine(s, line, at));
+    await mark({ at, outcome: 'refused', why: out.error });
+    return { requestId: id, did: 'card:refused', line };
   }
   if (!request.meta.recommendationState) {
     await writeMeta(orgId, id, { recommendationState: 'proposed', recommendedAt: at, recommendedOutcome: 'build' });
   }
   const line = `Filed; the Build card is waiting on a person (action #${out.res.runId}).`;
   await updateRecovery(orgId, id, s => logLine(s, line, at));
+  await mark({ at, outcome: 'card' });
   return { requestId: id, did: `card:${out.res.status}`, line };
+}
+
+/** What intake did with a request last, typed, so the sweep can carry on one it could not start. */
+export type IntakeMark = {
+  at: string;
+  /** How many times intake has read it. */
+  tries: number;
+  outcome: 'started' | 'card' | 'planning' | 'blocked' | 'held' | 'refused';
+  /** The blocker's cause, or the refusal, when it did not start. */
+  cause?: BuildReadiness['cause'];
+  why?: string;
+  /** Who filed it, as the filing event said, so a retry runs as them. */
+  from?: { conversationId: number | null; byPerson: boolean; actor: string | null };
+};
+
+/**
+ * The request's intake mark, read.
+ * @param meta - The request's metadata.
+ */
+export function readIntake(meta: Meta): IntakeMark | null {
+  const m = meta.intake;
+  return m && typeof m === 'object' && !Array.isArray(m) && typeof (m as Meta).at === 'string' ? m as IntakeMark : null;
+}
+
+async function markIntake(orgId: string, request: FactoryRecord, mark: Omit<IntakeMark, 'tries'>): Promise<void> {
+  const { readRecord, writeMeta } = await lib();
+  const fresh = await readRecord(orgId, request.id);
+  const before = readIntake(fresh?.meta ?? request.meta);
+  const tries = (before?.tries ?? 0) + 1;
+  const from = mark.from && (mark.from.byPerson || mark.from.conversationId !== null) ? mark.from : before?.from ?? mark.from;
+  await writeMeta(orgId, request.id, { intake: { ...mark, ...(from ? { from } : {}), tries } });
+}
+
+async function readinessOf(orgId: string, requestId: number, planId: number | null): Promise<BuildReadiness> {
+  const { buildReadiness } = await lib();
+  // A read that fails is not a finding: the dispatch's own precheck still runs.
+  return buildReadiness(orgId, requestId, planId).catch(() => ({ ready: true, cause: null, gaps: [], product: null, repo: null }));
+}
+
+/**
+ * A request whose build would be refused, routed on why (2026-10-01, #294).
+ * The records are the fault, so a person who can fix them is named: no repo
+ * is a blocker on the product's owner, a repo with no checks a blocker on the
+ * repo's owner. Anything else a plan supplies, so the request is planned,
+ * with what the contract lacks as the brief, when planning is the factory's
+ * to start; otherwise the same gap is a blocker. The blocker clears itself
+ * once the records say otherwise (`carryBlockedIntake`).
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param r - Why it is not ready.
+ * @param o - How intake got here.
+ * @param o.at - When.
+ * @param o.plan - Whether an approved plan was named.
+ * @param o.by - The person whose request it is, when it is one.
+ * @param o.mayPlan - Whether the factory may start planning on its own.
+ * @param o.from - Who filed it, kept on the mark.
+ */
+async function routeUnready(orgId: string, request: FactoryRecord, r: BuildReadiness, o: { at: string; plan: boolean; by: string | null; mayPlan: boolean; from: IntakeMark['from'] }): Promise<CarryResult> {
+  const id = request.id;
+  const { writeMeta } = await lib();
+  if (r.cause === 'needs_plan' && o.mayPlan) {
+    const why = `the build's contract has no ${r.gaps.join(', ') || 'source it can be read from'} yet, and a plan names ${r.gaps.length === 1 ? 'it' : 'them'}`;
+    await startPlanning(orgId, { request: { id, title: request.title, meta: request.meta }, plan: null, why, counted: true, trigger: 'request', by: o.by ?? PM, at: o.at });
+    await markIntake(orgId, request, { at: o.at, outcome: 'planning', cause: r.cause, why, from: o.from });
+    return { requestId: id, did: 'planning:unready', line: `Planning first: ${why}.` };
+  }
+  const blocker = unreadyBlocker(r, o.at);
+  await writeMeta(orgId, id, { blocker });
+  const line = `Blocked: ${blocker.what}. ${blocker.owner ? `${blocker.owner} can` : 'Someone who can edit the records can'} ${blocker.next}.`;
+  await updateRecovery(orgId, id, s => logLine(s, line, o.at));
+  await markIntake(orgId, request, { at: o.at, outcome: 'blocked', cause: r.cause, why: blocker.what, from: o.from });
+  return { requestId: id, did: `blocked:${r.cause ?? 'unready'}`, line };
+}
+
+/**
+ * The blocker a build that cannot start leaves: what is wrong, who fixes it,
+ * the one move. Pure.
+ * @param r - Why it is not ready.
+ * @param at - When.
+ */
+export function unreadyBlocker(r: BuildReadiness, at: string): { what: string; owner: string | null; next: string; since: string; cause: NonNullable<BuildReadiness['cause']> } {
+  const name = r.product?.title ?? null;
+  if (r.cause === 'no_repo') {
+    return {
+      what: name ? `Nothing says which repository ${name} is built in, so it cannot be built` : 'This request names no product with a repository, so it cannot be built',
+      owner: r.product?.owner ?? null,
+      next: name ? `add a repo record for ${name} (or list one in its repos), or move this request to the product it is for` : 'set the product this request is for',
+      since: at,
+      cause: 'no_repo',
+    };
+  }
+  if (r.cause === 'no_checks') {
+    return {
+      what: `The repo record ${r.repo ?? ''} lists no checks, so a build of it could not be proven`.replace('  ', ' '),
+      owner: r.repoOwner ?? r.product?.owner ?? null,
+      next: `add the checks its CI runs to the repo record ${r.repo ?? ''}`.trim(),
+      since: at,
+      cause: 'no_checks',
+    };
+  }
+  return {
+    what: `The build has no ${r.gaps.join(', ') || 'contract'} yet`,
+    owner: r.product?.owner ?? null,
+    next: 'press Build to plan it first, or write a plan that names them',
+    since: at,
+    cause: 'needs_plan',
+  };
 }
 
 /**
@@ -1331,6 +1468,19 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
     if (work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting || work.openAsks.length > 0) {
       continue;
     }
+    // A REQUEST INTAKE COULD NOT START IS CARRIED ON (2026-10-01, #294).
+    if (!state.stage && work.tasks.length === 0 && work.runs.length === 0) {
+      const r = await carryStalledIntake(orgId, request, work.plans.length > 0, now).catch((err: Error) => {
+        console.warn('factory sweep: carrying a stalled intake failed', { orgId, requestId: id, message: err.message });
+        return null;
+      });
+      if (r) {
+        if (r.line) {
+          acted.push(r);
+        }
+        continue;
+      }
+    }
     if (state.stage === 'planning') {
       const r = await carryPlanningStage(orgId, request, state, work, now);
       if (r) {
@@ -1357,6 +1507,72 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
     }
   }
   return { acted };
+}
+
+/** How long after filing a request intake never started is tried again. */
+export const INTAKE_RETRY_AFTER_MS = 10 * 60_000;
+/** How long between tries. */
+const INTAKE_RETRY_EVERY_MS = 30 * 60_000;
+/** How many times intake reads one request before it is left to a person's Build. */
+const INTAKE_TRIES = 3;
+/** How far back a request a person asked for is still carried on by itself. */
+const INTAKE_RETRY_WINDOW_MS = 3 * 24 * 60 * 60_000;
+
+/**
+ * A REQUEST INTAKE COULD NOT START, CARRIED ON BY THE SWEEP (2026-10-01,
+ * #294: the dispatch refused, intake said "no card", and nothing read the
+ * request again). Two shapes, both read from typed fields, never from words:
+ *
+ *   blocked   intake left a blocker with its cause (`unreadyBlocker`). The
+ *             records are read again; once they say it can be built, the
+ *             blocker clears, its account says so, and intake runs again.
+ *   stalled   a person's request (its `origin`) that intake marked refused,
+ *             or that carries no mark at all (filed before marks existed),
+ *             with nothing built, planned or waiting. Intake runs again, a
+ *             few times, each a while apart, as the person's action: the
+ *             person's hold, if they said one, is read again by the model.
+ *
+ * Null when neither applies, so the sweep carries on with its other checks.
+ * @param orgId - Tenant.
+ * @param request - The request (open, nothing live, no stage, no tasks).
+ * @param planned - Whether it has any plan.
+ * @param now - The clock.
+ */
+async function carryStalledIntake(orgId: string, request: FactoryRecord, planned: boolean, now: Date): Promise<CarryResult | null> {
+  const id = request.id;
+  const mark = readIntake(request.meta);
+  const blocker = request.meta.blocker && typeof request.meta.blocker === 'object' ? request.meta.blocker as Meta : null;
+  const origin = request.meta.origin && typeof request.meta.origin === 'object' ? request.meta.origin as Meta : null;
+  // As the filing said it: the mark's own record of who filed it, else the request's origin.
+  const from = mark?.from ?? { conversationId: typeof origin?.conversationId === 'number' ? origin.conversationId : null, byPerson: typeof origin?.userId === 'string', actor: typeof origin?.userId === 'string' ? origin.userId : null };
+  const payload = { objectId: id, objectType: (await factoryTypes(orgId)).request, conversationId: from.conversationId, byPerson: from.byPerson, ...(from.actor ? { actor: from.actor } : {}) } as Partial<ObjectCreatedPayload>;
+  if (mark?.outcome === 'blocked' && blocker && typeof blocker.cause === 'string') {
+    const readiness = await readinessOf(orgId, id, null);
+    if (!readiness.ready && readiness.cause === blocker.cause) {
+      return { requestId: id, did: 'still blocked', line: null };
+    }
+    const { writeMeta } = await lib();
+    await writeMeta(orgId, id, { blocker: null });
+    const line = readiness.ready ? `The blocker cleared: it can be built now${readiness.repo ? ` from ${readiness.repo}` : ''}.` : 'The blocker changed; intake reads it again.';
+    await updateRecovery(orgId, id, s => logLine(s, line, now.toISOString()));
+    const r = await intakeFiledRequest(orgId, payload, { retry: true });
+    return { requestId: id, did: `unblocked:${r.did}`, line: r.line ?? line };
+  }
+  if (planned || blocker || !from.byPerson) {
+    return null;
+  }
+  if (mark && mark.outcome !== 'refused') {
+    return null;
+  }
+  const filedAt = typeof origin?.at === 'string' ? Date.parse(origin.at) : mark ? Date.parse(mark.at) : Number.NaN;
+  if (!Number.isFinite(filedAt) || now.getTime() - filedAt < INTAKE_RETRY_AFTER_MS || now.getTime() - filedAt > INTAKE_RETRY_WINDOW_MS) {
+    return null;
+  }
+  if (mark && (mark.tries >= INTAKE_TRIES || now.getTime() - Date.parse(mark.at) < INTAKE_RETRY_EVERY_MS)) {
+    return null;
+  }
+  const r = await intakeFiledRequest(orgId, payload, { retry: true });
+  return { requestId: id, did: `intake again:${r.did}`, line: r.line };
 }
 
 /**

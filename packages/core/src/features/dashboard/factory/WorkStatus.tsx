@@ -213,7 +213,15 @@ export function WorkStatus({ status, youAction, className, hideStage }: { status
       <div className={row}>
         <span className={key}>You</span>
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" data-testid="work-status-you">
-          <span className={status.you.needsYou ? 'font-medium text-foreground' : 'text-muted-foreground'}>{status.you.needsYou ? 'Needs you' : status.you.line}</span>
+          {/* Blocked says what is wrong, who fixes it and the move: never "Nothing needs you" while the work cannot move. */}
+          {status.you.blocked
+            ? (
+                <span className="text-foreground" data-testid="work-status-blocked">
+                  <span className="font-medium">Blocked</span>
+                  {` · ${status.you.blocked.who ? `${status.you.blocked.who} to ` : ''}${status.you.blocked.next ?? 'clear it'}`}
+                </span>
+              )
+            : <span className={status.you.needsYou ? 'font-medium text-foreground' : 'text-muted-foreground'}>{status.you.needsYou ? 'Needs you' : status.you.line}</span>}
           {status.you.needsYou && (youAction ?? (status.you.move
             ? <a href={status.you.move.href} className="font-medium text-foreground underline underline-offset-2">{status.you.move.label}</a>
             : null))}

@@ -75,7 +75,7 @@ import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { deliveryStage, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
 import { readRequestLive } from '@/libs/factory/liveCheck';
-import { pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
+import { blockedYou, pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
@@ -502,6 +502,8 @@ export type ReportAction
   = | {
     kind: 'build';
     label: string;
+    /** Why Build would be refused, when it would: drawn disabled, the reason in its tooltip. */
+    disabledReason?: string;
     /**
      * The pending `factory.dispatch_task` card this press approves, when one
      * is already waiting — so the page approves THAT card (with its Undo)
@@ -699,7 +701,7 @@ function list(source: Record<string, unknown> | null | undefined, key: string): 
  * Only this reads as Blocked; "no task running" is a wait, not a block.
  * @param meta - The request's metadata.
  */
-export function blockerOf(meta: Record<string, unknown>): { what: string; owner: string | null; next: string | null } | null {
+export function blockerOf(meta: Record<string, unknown>): { what: string; owner: string | null; next: string | null; cause: string | null } | null {
   const raw = meta.blocker;
   if (raw === null || typeof raw !== 'object') {
     return null;
@@ -707,8 +709,15 @@ export function blockerOf(meta: Record<string, unknown>): { what: string; owner:
   const b = raw as Record<string, unknown>;
   const text = (k: string) => (typeof b[k] === 'string' && (b[k] as string).trim() !== '' ? (b[k] as string).trim() : null);
   const what = text('what');
-  return what === null ? null : { what, owner: text('owner'), next: text('next') };
+  return what === null ? null : { what, owner: text('owner'), next: text('next'), cause: text('cause') };
 }
+
+/**
+ * Causes a build would be refused on (`buildReadiness`): Build is drawn
+ * disabled under them, saying why, because pressing it only hits the refusal.
+ * A plan the build lacks is not one: Build plans it first.
+ */
+const REFUSED_BUILD_CAUSES: ReadonlySet<string> = new Set(['no_repo', 'no_checks']);
 
 /**
  * What the report's own records say about everything a blocker can name.
@@ -2214,6 +2223,8 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>, line: Mo
  */
 export type ReportState = {
   key: 'blocked' | 'decide' | 'approve' | 'building' | 'planning' | 'recovering' | 'qa' | 'changes' | 'stuck' | 'merge' | 'released' | 'waiting';
+  /** The obstacle, when the key is `blocked`: who fixes it and the move, as the record says. */
+  blocker?: { what: string; owner: string | null; next: string | null; cause: string | null } | null;
   /** "Blocked", "Building" — the badge. */
   label: string;
   /** "waiting on you", "no action needed" — the half that says whose move it is. */
@@ -2260,6 +2271,7 @@ function buildState(input: FeatureReportInput, live: LiveRun | null = null, merg
     return {
       key: 'blocked',
       label: 'Blocked',
+      blocker,
       detail: blocker.owner ? `${blocker.owner} to ${blocker.next ?? 'clear it'}` : blocker.next ?? 'nobody is named to clear it',
       needsYou: true,
       question: blocker.what,
@@ -3364,8 +3376,24 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
   const buildLabel = input.workerRuns.some(executedRun) || input.tasks.length > 0 ? 'Build again' : plan.status === 'Awaiting approval' ? 'Approve build' : 'Build it';
   const inbox = state.decision ? inboxHref(state.decision.kind === 'ask' ? 'ask' : 'proposal', state.decision.id) : null;
   switch (state.key) {
-    case 'blocked':
-      return { tone: 'bad', headline: 'Blocked', sentence: `${state.question ?? 'Something is blocking this work'}. ${state.detail.charAt(0).toUpperCase()}${state.detail.slice(1)}.`, action: { kind: 'drawer', label: 'See what is blocking it', drawer: 'status' }, secondary: null, next: 'It moves again once the blocker is cleared.' };
+    case 'blocked': {
+      // A BUILD THAT WOULD BE REFUSED IS NOT OFFERED AS ONE (2026-10-01, #294:
+      // Build sat under "Proposed" and hit the same refusal intake had). Under
+      // a cause the dispatch refuses on, Build is drawn disabled with why; a
+      // build that only lacks its plan plans first, so Build stays.
+      const cause = state.blocker?.cause ?? null;
+      const refused = cause !== null && REFUSED_BUILD_CAUSES.has(cause);
+      const sentence = `${state.question ?? 'Something is blocking this work'}. ${state.detail.charAt(0).toUpperCase()}${state.detail.slice(1)}.`;
+      const build = canBuild && cause !== null
+        ? { kind: 'build' as const, label: buildLabel, ...(refused ? { disabledReason: `${state.question ?? 'It cannot be built yet'}. ${state.detail.charAt(0).toUpperCase()}${state.detail.slice(1)}.` } : {}) }
+        : null;
+      const next = cause !== null
+        ? `Once ${state.blocker?.owner ?? 'someone'} does, it moves on by itself: the factory reads the records again every hour.`
+        : 'It moves again once the blocker is cleared.';
+      return build && !refused
+        ? { tone: 'bad', headline: 'Blocked', sentence, action: build, secondary: null, next }
+        : { tone: 'bad', headline: 'Blocked', sentence, action: { kind: 'drawer', label: 'See what is blocking it', drawer: 'status' }, secondary: build, next };
+    }
     case 'decide':
       return { tone: 'warn', headline: 'Needs your decision', sentence: `A decision is waiting on you: ${state.question ?? 'an open question'}.`, action: inbox ? { kind: 'link', label: 'Review decision', href: inbox } : null, secondary: null, next: 'It moves on as soon as it is decided.' };
     case 'approve': {
@@ -3619,7 +3647,9 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     planId,
     status,
     live,
-    you: youOf(state.needsYou, state.needsYou ? status.action?.label ?? null : null, state.question ?? state.detail),
+    you: state.key === 'blocked' && state.blocker
+      ? blockedYou(state.blocker.what, state.blocker.owner, state.blocker.next)
+      : youOf(state.needsYou, state.needsYou ? status.action?.label ?? null : null, state.question ?? state.detail),
     notices,
     planSummary,
     implementation,
