@@ -45,4 +45,6 @@ export function seedChatWorkspace(): void {
   }
   // One project on a fresh database, so apply auto-targets it.
   run(['src/scripts/apply-workspace.ts', path.join(ROOT, 'templates', 'workspaces', 'client-documents')]);
+  // This suite is not about workspace setup: mark it started so the first-run auto-start does not navigate the admin away after sign-in (#1028).
+  run(['e2e/support/onboarding-db.ts', 'mark-started']);
 }

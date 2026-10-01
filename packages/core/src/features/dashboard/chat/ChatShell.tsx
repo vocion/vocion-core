@@ -198,8 +198,8 @@ function ChatShellInner({
   useEffect(() => {
     if (onboardingDue && !onboardingOpened.current) {
       onboardingOpened.current = true; // StrictMode runs effects twice in dev; the server claim is atomic regardless.
-      // A full navigation, not router.replace: the chat session reads `?conversation=` once at boot (useChatSession's restoredAgentRef), so a soft URL change would leave the opening message unshown.
-      void startOnboardingConversation({ start: () => client.onboarding.start(), open: path => window.location.assign(path) });
+      // A full navigation (replace, so Back skips bare chat), not router.replace: the chat session reads `?conversation=` once at boot (useChatSession's restoredAgentRef), so a soft URL change would leave the opening message unshown.
+      void startOnboardingConversation({ start: () => client.onboarding.start(), open: path => window.location.replace(path) });
     }
   }, [onboardingDue]);
   const sessionRef = useRef(session);
