@@ -17,17 +17,105 @@
 
 import type { Action } from './types';
 import { z } from 'zod';
+import { parsePullUrl } from '@/services/agents/tools/githubPullRead';
 import { mayActOnPipeline } from './github-pull';
 
 export const REVERT_PULL_ACTION_ID = 'repo.revert_pull';
 
 const revertInput = z.object({
-  url: z.string().url().describe('The merged pull request whose change to take back out.'),
+  url: z.string().url().refine(u => parsePullUrl(u) !== null, { message: 'url must be a pull request, https://github.com/<owner>/<repo>/pull/<number>' }).describe('The merged pull request whose change to take back out, https://github.com/<owner>/<repo>/pull/<number>.'),
   recordId: z.coerce.number().int().positive().optional().describe('The environment (or request) the revert answers, so its page shows it and its merge.'),
   reason: z.string().min(8).max(600).describe('Why: what went down on this release, and what was tried first.'),
 });
 
 type RevertInput = z.infer<typeof revertInput>;
+
+/**
+ * A person's id carries no `kind:` prefix (`agent:<slug>`, `token:<id>`).
+ * @param by
+ */
+const isPerson = (by: string | undefined): boolean => Boolean(by) && !by!.includes(':');
+
+const prKey = (url: string): string | null => {
+  const p = parsePullUrl(url);
+  return p ? `${p.owner}/${p.repo}#${p.number}`.toLowerCase() : null;
+};
+
+/** What a revert would take back out: the pull request, and the releases it went out in. */
+export type RevertSubject = {
+  pull: { title: string; merged: boolean; mergedAt: string | null } | null;
+  /** Releases that shipped it, with how production read after each. */
+  releases: Array<{ id: number; code: string | null; healthAfter: string | null; healthCheckedAt: string | null }>;
+  /** When the record the revert answers began (an incident, an environment's outage), if one is named. */
+  recordSince: { code: string | null; at: Date } | null;
+};
+
+/**
+ * Read what a revert would undo: the pull request from GitHub, the releases
+ * on record that shipped it, and when the record it answers was opened. Each
+ * part is null or empty when it cannot be read; nothing here throws.
+ * @param orgId - The workspace.
+ * @param input - The revert.
+ */
+export async function revertSubject(orgId: string, input: Pick<RevertInput, 'url' | 'recordId'>): Promise<RevertSubject> {
+  const key = prKey(input.url);
+  const { readPull } = await import('@/services/factory/githubMerge');
+  const pull = await readPull(orgId, input.url).catch(() => null);
+  const { loadObjectRows } = await import('@/services/workspace/objectRows');
+  const releases = key
+    ? (await loadObjectRows(orgId, 'release').catch(() => []))
+        .filter(r => (Array.isArray(r.meta.prUrls) ? r.meta.prUrls : []).some(u => typeof u === 'string' && prKey(u.replace(/\/(files|commits|checks)\/?$/, '')) === key))
+        .map(r => ({ id: Number(r.id), code: r.code ?? null, healthAfter: typeof r.meta.healthAfter === 'string' ? r.meta.healthAfter : null, healthCheckedAt: typeof r.meta.healthCheckedAt === 'string' ? r.meta.healthCheckedAt : null }))
+    : [];
+  let recordSince: RevertSubject['recordSince'] = null;
+  if (input.recordId) {
+    const { and, eq } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+    const [row] = await db.select({ createdAt: businessObjectSchema.createdAt, typeSlug: businessObjectTypeSchema.slug })
+      .from(businessObjectSchema)
+      .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, input.recordId)))
+      .limit(1)
+      .catch(() => []);
+    if (row?.createdAt) {
+      const { typeCodesForOrg } = await import('@/services/codes');
+      const { recordCode } = await import('@/libs/codes');
+      const codes = await typeCodesForOrg(orgId).catch(() => null);
+      recordSince = { code: recordCode(codes, row.typeSlug, input.recordId), at: row.createdAt };
+    }
+  }
+  return { pull, releases, recordSince };
+}
+
+/**
+ * WHY AN AGENT MAY NOT TAKE THIS BACK OUT (action 5949, 2026-10-01: a product
+ * manager put up a revert of the pull request that had restored production,
+ * in a turn where the person had asked only to defer a request). A revert is
+ * for a release that broke production, so an agent's revert is refused when
+ * the facts on record say this one did not:
+ *
+ *   - a release that shipped it read healthy after it went out (`healthAfter: ok`)
+ *     — reverting it takes a working release back out;
+ *   - it merged after the record it answers was opened — it cannot be what
+ *     broke it.
+ *
+ * Null when neither holds. A person who names the revert is never refused here.
+ * @param subject - From {@link revertSubject}.
+ * @param url - The pull request.
+ */
+export function revertRefusal(subject: RevertSubject, url: string): string | null {
+  const name = url.replace(/^https:\/\/github\.com\//, '');
+  const healthy = subject.releases.find(r => r.healthAfter === 'ok');
+  if (healthy) {
+    return `Not reverting ${name}: it went out in ${healthy.code ?? `release ${healthy.id}`}, and production read healthy after it${healthy.healthCheckedAt ? ` (checked ${healthy.healthCheckedAt})` : ''}. Reverting it would take a working release back out of production. Only a person who names this revert can open it; say what it would undo and let them decide.`;
+  }
+  const merged = subject.pull?.mergedAt ? new Date(subject.pull.mergedAt) : null;
+  if (merged && subject.recordSince && merged.getTime() > subject.recordSince.at.getTime()) {
+    return `Not reverting ${name}: it merged at ${merged.toISOString()}, after ${subject.recordSince.code ?? 'the record it answers'} was opened at ${subject.recordSince.at.toISOString()}, so it cannot be what broke it. Only a person who names this revert can open it.`;
+  }
+  return null;
+}
 
 export const githubRevertPullAction: Action<typeof revertInput> = {
   id: REVERT_PULL_ACTION_ID,
@@ -40,12 +128,25 @@ export const githubRevertPullAction: Action<typeof revertInput> = {
   // One revert per pull request.
   dedupKeyFor: input => `${REVERT_PULL_ACTION_ID}:${input.url}`,
   ownsDedupKey: true,
-  async precheck(ctx) {
-    const may = await mayActOnPipeline(ctx.orgId, ctx.invokedBy, REVERT_PULL_ACTION_ID);
-    return may.ok ? undefined : may.why;
+  async precheck(ctx, input) {
+    const by = ctx.proposedBy ?? ctx.invokedBy;
+    const may = await mayActOnPipeline(ctx.orgId, by, REVERT_PULL_ACTION_ID);
+    if (!may.ok) {
+      return may.why;
+    }
+    // A person who named this revert is never refused; an agent is held to the facts.
+    if (isPerson(by)) {
+      return undefined;
+    }
+    return revertRefusal(await revertSubject(ctx.orgId, input), input.url) ?? undefined;
   },
-  async reviewCard(_ctx, raw) {
+  async reviewCard(ctx, raw) {
     const input = raw as RevertInput;
+    // WHAT IT WOULD UNDO, said plainly: the change by its own title, and the
+    // releases it went out in with how production read after each.
+    const subject = await revertSubject(ctx.orgId, input).catch(() => null);
+    const shippedIn = (subject?.releases ?? []).map(r => `${r.code ?? `release ${r.id}`}${r.healthAfter ? ` (production read ${r.healthAfter} after it)` : ''}`).join(', ');
+    const undoes = [subject?.pull?.title ? `"${subject.pull.title}"` : null, shippedIn ? `shipped in ${shippedIn}` : null].filter(Boolean).join(', ');
     return {
       title: `Roll back ${input.url.replace(/^https:\/\/github\.com\//, '')}`,
       system: 'GitHub',
@@ -53,6 +154,7 @@ export const githubRevertPullAction: Action<typeof revertInput> = {
       badges: [{ label: 'GitHub' }, { label: 'Undo puts the release back' }],
       fields: [
         { label: 'Pull request', value: input.url, href: input.url },
+        ...(undoes ? [{ label: 'It undoes', value: `${undoes} — taken back out of production` }] : []),
         { label: 'Why', value: input.reason },
       ],
       nextAction: 'Approving opens the revert now.',

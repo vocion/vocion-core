@@ -91,6 +91,22 @@ export async function mergePull(orgId: string, url: string, judgedSha: string | 
 }
 
 /**
+ * What a pull request is, as GitHub has it: its title, whether and when it
+ * merged. What a revert card says it would undo, and what its guard reads.
+ * @param orgId - The workspace.
+ * @param url - The pull request.
+ */
+export async function readPull(orgId: string, url: string): Promise<{ title: string; merged: boolean; mergedAt: string | null; state: string }> {
+  const p = await pullFor(orgId, url);
+  const res = await fetch(`https://api.github.com/repos/${p.owner}/${p.repo}/pulls/${p.number}`, { headers: HEADERS(p.token), signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) {
+    throw new Error(`GitHub did not return ${url} (HTTP ${res.status})`);
+  }
+  const meta = await res.json() as { title?: string; merged?: boolean; merged_at?: string | null; state?: string };
+  return { title: String(meta.title ?? ''), merged: Boolean(meta.merged), mergedAt: meta.merged_at ?? null, state: String(meta.state ?? 'unknown') };
+}
+
+/**
  * Undo a merge: open the revert pull request GitHub builds for it.
  * @param orgId - The workspace.
  * @param url - The merged pull request.

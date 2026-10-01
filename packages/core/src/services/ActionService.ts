@@ -434,15 +434,18 @@ export async function proposeAction(input: {
   // schema cannot check lives here, and refusing costs the caller nothing but
   // a message it can act on.
   // What was asked for is already happening: say so, start nothing, refuse nothing.
+  // Whose decision it is, by the principal: an agent's proposal is the
+  // agent's, whoever's thread it was filed in (`ActionContext.proposedBy`).
+  const proposedBy = input.principal.kind === 'agent' ? input.principal.id : (input.invokedBy ?? input.principal.id);
   const underway = await action.underway?.(
-    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, ...(input.turn ? { turn: input.turn } : {}) },
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy, ...(input.turn ? { turn: input.turn } : {}) },
     parsed,
   );
   if (underway) {
     return { runId: 0, status: 'done', outcome: 'already_underway', underway };
   }
   const refusal = await action.precheck?.(
-    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, ...(input.turn ? { turn: input.turn } : {}) },
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy, ...(input.turn ? { turn: input.turn } : {}) },
     parsed,
   );
   if (refusal) {

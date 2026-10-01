@@ -42,7 +42,7 @@ export const githubDispatchWorkflowAction: Action<typeof dispatchInput> = {
   dedupKeyFor: input => `${DISPATCH_WORKFLOW_ACTION_ID}:${input.repo}:${input.workflow}:${input.ref}${input.sha ? `@${input.sha.slice(0, 12)}` : ''}`,
   ownsDedupKey: true,
   async precheck(ctx) {
-    const may = await mayActOnPipeline(ctx.orgId, ctx.invokedBy, DISPATCH_WORKFLOW_ACTION_ID);
+    const may = await mayActOnPipeline(ctx.orgId, ctx.proposedBy ?? ctx.invokedBy, DISPATCH_WORKFLOW_ACTION_ID);
     return may.ok ? undefined : may.why;
   },
   async reviewCard(_ctx, raw) {
