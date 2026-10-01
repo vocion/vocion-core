@@ -1,5 +1,6 @@
 import type { ChromaticConfig } from '@chromatic-com/playwright';
 import { defineConfig, devices } from '@playwright/test';
+import { planLocalDatabase } from './src/scripts/playwright-local-database';
 
 // Use process.env.PORT by default and fallback to port 3008
 // to avoid conflicts with the Next.js default port 3000.
@@ -13,6 +14,27 @@ const PORT = process.env.PORT || '3008';
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${PORT}`;
 
 const CI = !!process.env.CI;
+
+// PLAYWRIGHT_PGLITE_PORT moves the local in-memory PGlite off 5432, so a
+// plain run works on a machine where Docker Postgres already holds that port
+// (`npm run dev:up` publishes it there). The rules — which DATABASE_URL, which
+// command, why a running app is not reused — are in
+// src/scripts/playwright-local-database.ts. Unset, nothing changes: PGlite
+// takes 5432 and DATABASE_URL comes from .env.local. Ignored in CI.
+//
+// DATABASE_URL is written into this process's environment on purpose, and
+// here at load time: Playwright evaluates the config before it starts the web
+// server or any worker, so all of them inherit it. Anything that has to agree
+// on the database must read it after this line, not before.
+const localDatabase = planLocalDatabase({
+  isContinuousIntegration: CI,
+  requestedPort: process.env.PLAYWRIGHT_PGLITE_PORT,
+  exportedDatabaseUrl: process.env.DATABASE_URL,
+  skipsWebServer: !!process.env.PLAYWRIGHT_SKIP_WEB_SERVER,
+});
+if (localDatabase.databaseUrl) {
+  process.env.DATABASE_URL = localDatabase.databaseUrl;
+}
 
 // CI fails fast. Every failure this suite has produced so far was
 // deterministic (a fixture that could not seed, a stale assertion, a server
@@ -57,7 +79,9 @@ export default defineConfig<ChromaticConfig>({
   // already serving PLAYWRIGHT_BASE_URL. The case it exists for: a worktree
   // running against a real Postgres, where the command below cannot be used —
   // `db-server:memory` starts pglite on 5432, the port that Postgres already
-  // holds, and `--race` then takes the Next process down with it.
+  // holds, and `--race` then takes the Next process down with it. To run the
+  // suite on its own throwaway PGlite instead, set PLAYWRIGHT_PGLITE_PORT
+  // (see the top of this file).
   //
   // CI runs against the Postgres service container each E2E shard gets
   // (.github/workflows/CI.yml), not PGlite: PGlite accepts one connection,
@@ -68,10 +92,10 @@ export default defineConfig<ChromaticConfig>({
   webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER
     ? undefined
     : {
-        command: process.env.CI ? 'npm run db:migrate && npm run start' : 'npx run-p db-server:memory dev:next --race',
+        command: process.env.CI ? 'npm run db:migrate && npm run start' : localDatabase.serverCommand,
         url: baseURL,
         timeout: 60 * 1000,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: !process.env.CI && localDatabase.mayReuseRunningServer,
         gracefulShutdown: { signal: 'SIGTERM', timeout: 2 * 1000 },
         env: {
           NEXT_PUBLIC_SENTRY_DISABLED: 'true',
