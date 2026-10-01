@@ -5,7 +5,7 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/objects/recordHref', async () => {
   const { genericRecordLinker, NO_RECORD_PAGES } = await import('@/libs/workspace/recordHref');
   // The codes the software-factory plugin declares; any other type derives its own.
-  const codes = new Map([['request', 'FE'], ['architecture_plan', 'PL'], ['engineering_task', 'TK'], ['release', 'REL'], ['product', 'PRD'], ['repo', 'REPO'], ['environment', 'ENV']]);
+  const codes = new Map([['request', 'FE'], ['architecture_plan', 'PL'], ['engineering_task', 'TK'], ['release', 'REL'], ['product', 'PROD'], ['repo', 'REPO'], ['environment', 'ENV']]);
   return { recordLinkerForOrg: async () => genericRecordLinker, recordLinksForOrg: async () => ({ ...NO_RECORD_PAGES, codes }) };
 });
 
@@ -78,7 +78,7 @@ describe('what a feature is connected to', () => {
 
     expect(items.map(i => [i.relation, i.title])).toEqual([
       ['origin', 'Share menu PDF export'],
-      ['product', 'PRD-300 Northwind Portal'],
+      ['product', 'PROD-300 Northwind Portal'],
       ['plans', 'PL-302 Render the room to PDF'],
       ['tasks', 'TK-303 Room PDF export task'],
       ['tasks', 'TK-304 Room PDF export task'],
@@ -165,7 +165,7 @@ describe('a relation a plugin declares', () => {
       { id: 331, orgId: ORG, typeId: t.field_note!, title: 'Walkthrough notes', metadata: { siteId: 330 } },
     ]);
 
-    expect((await relatedOf(ORG, 331)).map(i => [i.label, i.title])).toEqual([['Site visited', 'PRD-330 Bellwater Hall']]);
+    expect((await relatedOf(ORG, 331)).map(i => [i.label, i.title])).toEqual([['Site visited', 'PROD-330 Bellwater Hall']]);
   });
 
   it('a type that declares nothing is connected to what its link fields name', async () => {
@@ -175,7 +175,7 @@ describe('a relation a plugin declares', () => {
       { id: 341, orgId: ORG, typeId: t.field_note!, title: 'Depot notes', metadata: { siteId: 340 } },
     ]);
 
-    expect((await relatedOf(ORG, 341)).map(i => [i.label, i.title])).toEqual([['Site', 'PRD-340 Contoso Supply depot']]);
+    expect((await relatedOf(ORG, 341)).map(i => [i.label, i.title])).toEqual([['Site', 'PROD-340 Contoso Supply depot']]);
   });
 });
 

@@ -8,8 +8,8 @@ description: >-
   belongs to one; every task serves one; the permanent gates — pricing, plan
   limits, the promises — are read from here.
 icon: package
-# Its records read PRD-<id> in the app and in chat (core: libs/codes.ts).
-code: PRD
+# Its records read PROD-<id> in the app and in chat (core: libs/codes.ts).
+code: PROD
 schema:
   type: object
   # RELATED (core: libs/workspace/related.ts): what a product is connected to.

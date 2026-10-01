@@ -42,7 +42,7 @@ describe('object type codes', () => {
     const ws = loadWorkspace(workspace({}, ['software-factory']));
     const codes = Object.fromEntries(ws.objectTypes.map(t => [t.slug, t.resolvedCode]));
 
-    expect(codes).toMatchObject({ request: 'FE', architecture_plan: 'PL', engineering_task: 'TK', release: 'REL', environment: 'ENV', product: 'PRD', repo: 'REPO' });
+    expect(codes).toMatchObject({ request: 'FE', architecture_plan: 'PL', engineering_task: 'TK', release: 'REL', environment: 'ENV', product: 'PROD', repo: 'REPO' });
   });
 
   it('refuses two types declaring one code, naming both', () => {
