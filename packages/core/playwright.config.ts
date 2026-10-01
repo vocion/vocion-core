@@ -207,6 +207,19 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // Workspace setup (#1028) against the scripted model. Defined only when
+    // the server runs it, like chat-incomplete. Run with: npm run e2e:onboarding
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted'
+      ? [
+          {
+            name: 'onboarding',
+            testDir: './e2e/onboarding',
+            timeout: projectTimeout(180 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh database,
     // so no `setup` project dependency.

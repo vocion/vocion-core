@@ -1,0 +1,13 @@
+{
+  "turns": [
+    {
+      "match": "northwind engineering",
+      "steps": [
+        { "tool": "workspace_setup", "args": {} },
+        { "tool": "offer_connection", "args": { "connector": "github", "why": "So the factory can read Northwind's repositories." } }
+      ],
+      "reply": "Thanks. Connect GitHub below and I'll set up your products from it."
+    }
+  ],
+  "fallback": "This scripted model has no line for that message."
+}
