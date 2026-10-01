@@ -584,6 +584,70 @@ async function escalate(orgId: string, request: FactoryRecord, why: string, unbl
 }
 
 /**
+ * The seat that owns the pipeline: the agent the reconcile automation runs
+ * as (`factory-reconcile`, core's own job) — the plugin says which, never core.
+ * @param orgId - Tenant.
+ */
+async function pipelineOwner(orgId: string): Promise<{ slug: string | null; name: string }> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { agentSchema, automationSchema } = await import('@/models/Schema');
+  const { FACTORY_RECONCILE_JOB } = await import('@/services/jobs/factoryCarry');
+  const [auto] = await db.select({ owner: automationSchema.ownerAgentSlug, input: sql<string | null>`${automationSchema.doConfig} -> 'input' ->> 'owner'` }).from(automationSchema).where(and(eq(automationSchema.orgId, orgId), sql`${automationSchema.doConfig} ->> 'job' = ${FACTORY_RECONCILE_JOB}`)).limit(1);
+  const slug = auto?.input ?? auto?.owner ?? null;
+  if (!slug) {
+    return { slug: null, name: 'the pipeline\'s owner' };
+  }
+  const [agent] = await db.select({ name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, slug))).limit(1);
+  return { slug, name: agent?.name?.trim() || slug };
+}
+
+/**
+ * AN INCOMPATIBLE CONTRACT GOES TO THE PIPELINE'S OWNER, NOT TO A PERSON
+ * (2026-10-01, #294: "checks is not a contract field" became ask #267 to a
+ * person, for a field name Vocion's own code wrote). The request is held —
+ * stopped, with no ask, waiting on the pipeline's owner by name — and the
+ * owner hears it once (`pipeline.needs_fix`, keyed on the request and its
+ * attempt). A new worker or a new deploy starts the build again on its own
+ * (`resumeAfterWorkerRebuild`, which reads a held stop like any other).
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param run - The refused run.
+ * @param run.id - Its id.
+ * @param run.input - Its input, whose contract names the repository.
+ * @param why - What held it.
+ * @param failure - The refusal.
+ * @param now - The clock.
+ */
+async function holdForPipeline(orgId: string, request: FactoryRecord, run: { id: number; input: Meta }, why: string, failure: Failure, now: Date): Promise<string> {
+  const owner = await pipelineOwner(orgId);
+  const task = (run.input.task ?? {}) as Meta;
+  const repo = (await import('./environments')).fullNameOf(task.repo) ?? String(task.repo ?? '');
+  const branch = repo ? await (await import('./githubChange')).defaultBranch(orgId, repo).catch(() => 'the default branch') : 'the default branch';
+  const line = `${why.replace(/[.\s]+$/, '')}. ${owner.name} has it; the build starts again on its own once the worker is rebuilt or Vocion is deployed. Nothing needs you.`;
+  const at = now.toISOString();
+  await updateRecovery(orgId, request.id, s => logLine({ ...s, stage: 'stopped', line, askId: null, waitingOn: { who: owner.name, line, actionRunId: null } }, line, at, run.id));
+  await recordRunLine(orgId, run.id, line);
+  const { raisePipelineFix } = await import('./pipelineChange');
+  await raisePipelineFix(orgId, {
+    recordId: request.id,
+    requestId: request.id,
+    title: request.title,
+    repo,
+    branch,
+    cause: 'contract_incompatible',
+    why: `The worker refused the contract Vocion wrote for run #${run.id}: ${failure.sentence}. Vocion's contract and the worker's schema disagree; nothing was cloned and no model was called.`,
+    failing: 'contract',
+    url: `/dashboard/p/runs/${run.id}`,
+    owner: owner.slug,
+    now,
+  }).catch((err: Error) => {
+    console.warn('[factory] could not hand an incompatible contract to the pipeline\'s owner', { requestId: request.id, runId: run.id, message: err.message });
+  });
+  return line;
+}
+
+/**
  * Whether the factory may take another automatic step on this request, and
  * when it may not, the stop filed as one ask. For callers outside this module
  * (QA's automatic Build again).
@@ -1114,7 +1178,7 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
     delta = after ? contractDelta(before, after) : [];
   }
   let envDelta: string[] = [];
-  if (failure.class === 'environment') {
+  if (failure.class === 'environment' || failure.class === 'contract_shape') {
     const before = ((run.input ?? {}) as { task?: Meta }).task ?? {};
     const after = await previewContract(orgId, base);
     envDelta = environmentDelta(
@@ -1129,6 +1193,8 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   let line: string;
   if (decision.do === 'escalate') {
     line = await escalate(orgId, request, decision.why, decision.unblock, handledAs);
+  } else if (decision.do === 'hold') {
+    line = await holdForPipeline(orgId, request, { id: run.id, input: (run.input ?? {}) as Meta }, decision.why, handledAs, now);
   } else if (decision.do === 'replan') {
     line = await replanStale(orgId, { request, runId: run.id, planId: planId ?? null, why: decision.why, brief: decision.brief, failure: handledAs, now });
   } else {

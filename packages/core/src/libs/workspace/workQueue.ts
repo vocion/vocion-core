@@ -740,7 +740,7 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
       // A line that names who it waits on says it all: "no action needed
       // from you" beside it would contradict the name.
       return carrying.stage === 'stopped'
-        ? dated(`${line} A person decides next`, carriedAt(row), now)
+        ? dated(waitingOnOf(meta(row)) ? line : `${line} A person decides next`, carriedAt(row), now)
         : waitingOnOf(meta(row)) ? dated(line, carriedAt(row), now) : dated(`${line} ${stillOrFine(row, now)}`, carriedAt(row), now);
     }
     const tasks = num(row, 'taskCount') ?? 0;

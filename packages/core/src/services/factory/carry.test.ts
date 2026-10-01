@@ -295,6 +295,43 @@ describe('a failed run recovers', () => {
     expect(((await read(r.id)).metadata as { recovery: { stage: string } }).recovery.stage).toBe('planning');
   });
 
+  it('holds an incompatible contract for the pipeline\'s owner: no ask to a person, and a new worker builds it again (#294)', async () => {
+    await db.insert(agentSchema).values({ orgId: ORG, slug: 'release-engineer', name: 'Release engineer', systemPrompt: 'x' } as never).onConflictDoNothing();
+    await db.insert(automationSchema).values({ orgId: ORG, slug: 'factory-reconcile', name: 'Read the pipeline back', status: 'active', whenConfig: { schedule: '*/5 * * * *' }, doConfig: { job: 'factory-reconcile', input: { owner: 'release-engineer' } }, ownerAgentSlug: 'release-engineer' }).onConflictDoNothing();
+    const r = await request({ product: 'rooms', title: 'Rooms show their page count' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const first = (await runsFor(r.id)).at(-1)!;
+    await claimWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', workerVersion: 'img-old' });
+    await failWorkerRun({ orgId: ORG, id: first.id, workerId: 'w-1', error: 'contract refused: 1 problem: checks is not a contract field (write required_checks). Nothing was cloned and no model was called.', failures: [{ scope: 'contract', message: 'checks is not a contract field (write required_checks)' }] });
+
+    const out = await carry.recoverFailedRun(ORG, first.id);
+
+    expect(out).toMatchObject({ did: 'hold', line: expect.stringMatching(/^Held: the worker refused the contract Vocion wrote: checks is not a contract field \(write required_checks\)\. That is a disagreement between Vocion's code and the worker's, not a question for a person\. Release engineer has it; the build starts again on its own once the worker is rebuilt or Vocion is deployed\. Nothing needs you\.$/) });
+
+    const asks = (await db.select().from(askSchema).where(eq(askSchema.orgId, ORG))).filter(a => (a.objectRefs ?? []).some(ref => Number(ref.id) === r.id));
+
+    expect(asks).toEqual([]);
+
+    const meta = (await read(r.id)).metadata as { recovery: { stage: string; askId: number | null; waitingOn: { who: string } } };
+
+    expect(meta.recovery).toMatchObject({ stage: 'stopped', askId: null, waitingOn: { who: 'Release engineer' } });
+
+    const fixes = await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'pipeline.needs_fix')));
+
+    expect(fixes.filter(e => (e.payload as { recordId: number }).recordId === r.id)).toEqual([expect.objectContaining({ payload: expect.objectContaining({ cause: 'contract_incompatible', attempt: 1 }) })]);
+    // Not a person's stop: nothing announces that a person is needed.
+    expect((await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.stopped')))).filter(e => (e.payload as { requestId: number }).requestId === r.id)).toEqual([]);
+
+    // A worker on a new image claims a run after the hold: the build starts again by itself.
+    const other = await createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: { task: {}, record: { id: 0, type: 'engineering_task' } } });
+    await claimWorkerRun({ orgId: ORG, id: other.id, workerId: 'w-2', workerVersion: 'img-new' });
+
+    const resumed = await carry.resumeAfterWorkerRebuild(ORG);
+
+    expect(resumed.find(a => a.requestId === r.id)).toMatchObject({ did: 'rebuilt:done' });
+    expect(await runsFor(r.id)).toHaveLength(2);
+  });
+
   it('asks rather than repeat a no-changes attempt whose contract has not changed', async () => {
     const r = await request({ product: 'rooms', title: 'Rooms keep their order' });
     await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
@@ -561,7 +598,13 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
 
     expect(meta.workerRebuildResumedFor).toBe('northwind-worker-production 3c9e1a7b');
     expect(meta.recovery.askId).toBeNull();
-    expect(meta.recovery.log.at(-1)?.text).toBe(`New worker (northwind-worker-production 3c9e1a7b) since the stop; building again. Ask #${ask.id} resolved itself.`);
+
+    // In time order (#294): the resume is stamped before its dispatch logs the attempt it started.
+    const texts = meta.recovery.log.map(l => l.text);
+    const resumedAt = texts.indexOf(`New worker (northwind-worker-production 3c9e1a7b) since the stop; building again. Ask #${ask.id} resolved itself.`);
+
+    expect(resumedAt).toBeGreaterThanOrEqual(0);
+    expect(texts.slice(resumedAt + 1)).toEqual(['Recovered: New worker (northwind-worker-production 3c9e1a7b) since the stop; building again (attempt 1 of 3).']);
 
     // Once: a second sweep starts nothing more.
     await carry.sweepStuckRequests(ORG);

@@ -27,7 +27,7 @@ import { planRequirement } from './planRule';
 export const RECOVERY_LIMIT = 3;
 
 /** What a failed engineering run's failure was, as far as the records say. */
-export type FailureClass = 'plan_required' | 'environment' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'stale_plan' | 'refused_other';
+export type FailureClass = 'plan_required' | 'environment' | 'contract_shape' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'stale_plan' | 'refused_other';
 
 export type Failure = {
   class: FailureClass;
@@ -103,6 +103,18 @@ const HANDLED_MAX = 40;
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 
 /**
+ * Log lines in time order. A log with a line whose time cannot be read is left as it is.
+ * @param log - The lines as stored.
+ */
+function inTimeOrder(log: RecoveryLogLine[]): RecoveryLogLine[] {
+  const at = log.map(l => Date.parse(l.at));
+  if (at.some(Number.isNaN) || at.every((t, i) => i === 0 || at[i - 1]! <= t)) {
+    return log;
+  }
+  return log.map((l, i) => ({ l, i })).sort((a, b) => at[a.i]! - at[b.i]! || a.i - b.i).map(x => x.l);
+}
+
+/**
  * The recovery state off a request's metadata, with every field defaulted.
  * @param meta - The request's metadata.
  */
@@ -118,7 +130,9 @@ export function readRecovery(meta: Record<string, unknown> | null | undefined): 
     askId: typeof raw.askId === 'number' ? raw.askId : null,
     planRequestedAt: str(raw.planRequestedAt),
     handledRunIds: Array.isArray(raw.handledRunIds) ? (raw.handledRunIds as unknown[]).map(Number).filter(Number.isInteger) : [],
-    log: Array.isArray(raw.log) ? (raw.log as RecoveryLogLine[]).filter(l => l && typeof l.text === 'string') : [],
+    // Read in time order too, so a log written out of order before
+    // `logLine` kept it in order reads right (a stable sort: equal times keep their order).
+    log: Array.isArray(raw.log) ? inTimeOrder((raw.log as RecoveryLogLine[]).filter(l => l && typeof l.text === 'string')) : [],
     ...(raw.waitingOn && typeof raw.waitingOn === 'object' && typeof (raw.waitingOn as Record<string, unknown>).who === 'string' ? { waitingOn: raw.waitingOn as RecoveryState['waitingOn'] } : {}),
   };
 }
@@ -154,7 +168,20 @@ export function settleRecovery(state: RecoveryState, text: string, at: string): 
 }
 
 export function logLine(state: RecoveryState, text: string, at: string, runId: number | null = null): RecoveryState {
-  return { ...state, log: [...state.log, { at, text, runId }].slice(-LOG_MAX) };
+  // IN TIME ORDER, whoever writes last (2026-10-01, #294: "Filed and started"
+  // at 09:05:05 sat after the 09:06:59 plan lines). A writer stamps its line
+  // when it starts and writes it when it ends — intake stamps the filing, then
+  // awaits the dispatch, which plans, approves and logs on its own — so the
+  // line goes where its time puts it: after every line at or before it.
+  const t = Date.parse(at);
+  let i = state.log.length;
+  if (Number.isFinite(t)) {
+    while (i > 0 && Date.parse(state.log[i - 1]!.at) > t) {
+      i -= 1;
+    }
+  }
+  const log = [...state.log.slice(0, i), { at, text, runId }, ...state.log.slice(i)];
+  return { ...state, log: log.slice(-LOG_MAX) };
 }
 
 /**
@@ -248,6 +275,8 @@ const CHECKS_FAILED = /required checks failed/i;
  */
 const ENVIRONMENT = /\b(?:services failed|postinstall failed|npm ci failed|prisma:sync failed|prisma migrate deploy failed)\b/i;
 const LOST = /lease (?:expired|lost)|lost the lease/i;
+/** A contract refusal about the plan, which the factory answers by planning, not a shape the code got wrong. */
+const PLAN_REFUSAL = /\bplan is required\b|\bapproved plan\b/i;
 const TRANSIENT = /claim failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|network (?:error|is unreachable)|could not resolve host|\b50\d\b|\b429\b|rate limit|temporarily unavailable|prepare failed:.*(?:clone|fetch|could not read|unable to access)/i;
 
 /**
@@ -339,6 +368,19 @@ function classifyRaw(run: { status: string; error: string | null; failures?: Arr
     const why = (end >= 0 ? rest.slice(0, end) : rest).trim();
     return { class: 'plan_required', sentence: why ? `${PLAN_FIRST}${bare(firstSentence(why, 300))}` : 'the change needs a plan first', tail: null, failedChecks: [] };
   }
+  // AN INCOMPATIBLE CONTRACT IS THE SYSTEM'S, NOT A PERSON'S (2026-10-01,
+  // #294: run 438 was refused with "checks is not a contract field (write
+  // required_checks)" and the stop became ask #267 to a person, for a field
+  // name Vocion's own code wrote). Every contract is written by Vocion and
+  // read by the worker; a refusal of its shape — a field the worker does not
+  // know, a key in the wrong case, a required field missing, a value outside
+  // its limits — is the two disagreeing. The worker's typed scope says it was
+  // the contract; anything but the plan (which the factory answers by
+  // planning) is the code's to fix, and a new worker or a new deploy answers it.
+  const shape = failures.find(f => f.scope === 'contract' && f.message && !PLAN_REFUSAL.test(f.message));
+  if (shape) {
+    return { class: 'contract_shape', sentence: `the worker refused the contract Vocion wrote: ${bare(firstSentence(shape.message, 300))}`, tail: null, failedChecks: [] };
+  }
   if (failures.some(f => f.scope === 'services') || ENVIRONMENT.test(error)) {
     return { class: 'environment', sentence: firstSentence(error || failures.find(f => f.scope === 'services')?.message || 'the worker\'s environment failed'), tail: null, failedChecks: [] };
   }
@@ -380,6 +422,8 @@ export function unblockFor(failure: Failure): string {
     case 'lost':
     case 'transient':
       return 'check that the worker is running and can reach the repository, then press Build';
+    case 'contract_shape':
+      return 'make the contract Vocion writes and the one the worker reads agree (a Vocion deploy or a worker rebuild); the build starts again on its own after either';
     default:
       return `answer what the run refused on: ${failure.sentence}`;
   }
@@ -407,6 +451,8 @@ export function nextAfter(failure: Failure): string {
       return 'the factory runs it once more';
     case 'no_changes':
       return 'the factory sends it again if the contract has changed since, and asks you if it has not';
+    case 'contract_shape':
+      return 'the pipeline\'s owner fixes the disagreement, and the build starts again on its own once the worker or Vocion changes';
     default:
       return 'the factory asks you, because it cannot answer this refusal itself';
   }
@@ -414,6 +460,7 @@ export function nextAfter(failure: Failure): string {
 
 export type RecoveryDecision
   = | { do: 'plan'; why: string }
+    | { do: 'hold'; why: string; unblock: string }
     | { do: 'replan'; why: string; brief: string }
     | { do: 'dispatch'; why: string; note: string | null }
     | { do: 'escalate'; why: string; unblock: string };
@@ -451,6 +498,15 @@ export function recoveryDecision(input: { failure: Failure; attempts: number; li
   // environment has changed since, and otherwise a person is asked at once.
   if (failure.class === 'environment' && (input.environmentDelta ?? []).length === 0) {
     return { do: 'escalate', why: `Stopped: the worker's environment is failing before any work starts: ${failure.sentence}; it needs a person or a worker rebuild`, unblock: unblockFor(failure) };
+  }
+  // AN INCOMPATIBLE CONTRACT IS NOT A PERSON'S QUESTION and not an attempt:
+  // the same contract is refused the same way until the code changes. Held
+  // for the pipeline's owner, and sent again once the worker has changed
+  // since the refusal (or, by `resumeAfterWorkerRebuild`, once Vocion is deployed).
+  if (failure.class === 'contract_shape') {
+    return (input.environmentDelta ?? []).length > 0
+      ? { do: 'dispatch', why: `the worker changed since it refused the contract (${(input.environmentDelta ?? []).join('; ')})`, note: null }
+      : { do: 'hold', why: `Held: ${failure.sentence}. That is a disagreement between Vocion's code and the worker's, not a question for a person`, unblock: unblockFor(failure) };
   }
   if (input.attempts >= limit) {
     return { do: 'escalate', why: `Stopped after ${input.attempts} attempt${input.attempts === 1 ? '' : 's'}: ${failure.sentence}`, unblock: unblockFor(failure) };
@@ -665,11 +721,17 @@ export function recoveryStage(meta: Record<string, unknown> | null | undefined):
     // The last automatic attempt is drawn as a warning: the next stop asks a person.
     return { stage: 'recovering', label: `Recovering (attempt ${built} of ${s.limit})`, line: s.line ?? `Recovering (attempt ${built} of ${s.limit}).`, tone: built >= s.limit ? 'warn' : 'info' };
   }
+  // A stop held for a seat (an incompatible contract, with the pipeline's
+  // owner) names who it waits on: it is not a person's decision.
+  const waiting = s.waitingOn && s.line && s.waitingOn.line === s.line ? s.waitingOn.who : null;
+  if (waiting) {
+    return { stage: 'stopped', label: `Waiting on ${waiting}`, line: s.line!, tone: 'warn' };
+  }
   return { stage: 'stopped', label: `Stopped after ${n} attempt${n === 1 ? '' : 's'}`, line: s.line ?? `Stopped after ${n} attempts; a person decides what happens next.`, tone: 'bad' };
 }
 
-/** Failures that are the machine's, not the work's: a new worker is what answers them. */
-export const INFRASTRUCTURE_FAILURES: ReadonlySet<FailureClass> = new Set<FailureClass>(['transient', 'lost', 'environment']);
+/** Failures that are the machine's or the code's, not the work's: a new worker or a deploy is what answers them. */
+export const INFRASTRUCTURE_FAILURES: ReadonlySet<FailureClass> = new Set<FailureClass>(['transient', 'lost', 'environment', 'contract_shape']);
 
 /** One option on a stop's ask, in the ask's own shape. */
 export type StopOption = { id: 'approve' | 'reject'; label: string; description: string; recommended?: boolean };

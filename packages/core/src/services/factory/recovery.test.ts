@@ -307,3 +307,61 @@ describe('a stale plan (the worker\'s typed failure, or the records)', () => {
     expect(planGate({ contract, planApproved: false, planFirst: 'the approved plan no longer fits the repository' })).toMatchObject({ go: false, why: 'the approved plan no longer fits the repository' });
   });
 });
+
+describe('an incompatible contract is the system\'s to fix, not a person\'s (#294)', () => {
+  it('a refusal of the contract\'s shape is its own class; a refusal for want of a plan is not', async () => {
+    const { classifyFailure: classify } = await import('./recovery');
+    const refused = (message: string) => classify({ status: 'failed', error: `contract refused: 1 problem: ${message}`, failures: [{ scope: 'contract', message }] });
+
+    expect(refused('checks is not a contract field (write required_checks)')).toMatchObject({ class: 'contract_shape', sentence: 'the worker refused the contract Vocion wrote: checks is not a contract field (write required_checks)' });
+    expect(refused('qa is required when risk_class is ui: add qa.flows with at least one { name, path }').class).toBe('contract_shape');
+    expect(refused('qa.flows[0].name must be at most 60 characters').class).toBe('contract_shape');
+    expect(refused('plan is required: allowed_paths spans 2 packages (apps/web, packages/core). Write the plan').class).toBe('plan_required');
+    expect(refused('plan: this task needs an approved plan').class).toBe('refused_other');
+  });
+
+  it('is held, never asked, until the worker changes; then it is sent again', async () => {
+    const { classifyFailure: classify, recoveryDecision: decide, INFRASTRUCTURE_FAILURES: infra } = await import('./recovery');
+    const failure = classify({ status: 'failed', error: 'contract refused', failures: [{ scope: 'contract', message: 'checks is not a contract field (write required_checks)' }] });
+
+    expect(decide({ failure, attempts: 3 })).toMatchObject({ do: 'hold', why: expect.stringMatching(/^Held: the worker refused the contract Vocion wrote: checks is not a contract field/) });
+    expect(decide({ failure, attempts: 1, environmentDelta: ['worker img-old → img-new'] })).toMatchObject({ do: 'dispatch' });
+    expect(infra.has('contract_shape')).toBe(true);
+  });
+
+  it('a held stop names who it waits on, and is not a person\'s decision', async () => {
+    const { recoveryStage: stage } = await import('./recovery');
+    const line = 'Held: the worker refused the contract Vocion wrote. Release engineer has it.';
+
+    expect(stage({ recovery: { stage: 'stopped', line, attempts: [{ n: 1 }], waitingOn: { who: 'Release engineer', line, actionRunId: null } } })).toMatchObject({ stage: 'stopped', label: 'Waiting on Release engineer', tone: 'warn' });
+    expect(stage({ recovery: { stage: 'stopped', line, attempts: [{ n: 1 }] } })).toMatchObject({ label: 'Stopped after 1 attempt', tone: 'bad' });
+  });
+});
+
+describe('the recovery log is kept in time order (#294)', () => {
+  it('a line stamped before the lines already written goes where its time puts it', async () => {
+    const { logLine: log, readRecovery: read } = await import('./recovery');
+    let s = read({});
+    s = log(s, 'Build pressed.', '2026-10-01T09:05:06.113Z');
+    s = log(s, 'Plan #295 approved; the build started on its own.', '2026-10-01T09:06:58.254Z');
+    s = log(s, 'Plan #295 written and approved.', '2026-10-01T09:06:59.170Z');
+    // Intake stamps the filing, then awaits the dispatch, which planned and logged first.
+    s = log(s, 'Filed and started: you asked for it.', '2026-10-01T09:05:05.163Z');
+    s = log(s, 'Same moment, written later.', '2026-10-01T09:06:59.170Z');
+
+    expect(s.log.map(l => l.text)).toEqual(['Filed and started: you asked for it.', 'Build pressed.', 'Plan #295 approved; the build started on its own.', 'Plan #295 written and approved.', 'Same moment, written later.']);
+  });
+
+  it('a log written out of order before this reads in order; equal times keep their order', async () => {
+    const { readRecovery: read } = await import('./recovery');
+    const stored = [
+      { at: '2026-10-01T09:06:59.170Z', text: 'b', runId: null },
+      { at: '2026-10-01T09:05:05.163Z', text: 'a', runId: null },
+      { at: '2026-10-01T10:05:02.149Z', text: 'd', runId: 439 },
+      { at: '2026-10-01T10:05:00.521Z', text: 'c', runId: 438 },
+      { at: '2026-10-01T10:05:02.149Z', text: 'e', runId: null },
+    ];
+
+    expect(read({ recovery: { log: stored } }).log.map(l => l.text)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+});

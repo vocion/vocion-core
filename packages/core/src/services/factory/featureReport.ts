@@ -87,7 +87,7 @@ import { inboxHref } from '@/services/inbox/inboxRef';
 import { blockerResolution } from './blocker';
 import { captionOf, CAROUSEL_SECTIONS, sourceOf } from './carouselSource';
 import { planRecordFromTask, planRequirementForTask } from './planRule';
-import { bare, classifyFailure, nextAfter, readRecovery, recoveryStage } from './recovery';
+import { bare, classifyFailure, nextAfter, readRecovery, recoveryStage, waitingOnOf } from './recovery';
 
 /** A business object as the report reads it — request, task or release. */
 export type ReportObject = {
@@ -2400,7 +2400,9 @@ function buildState(input: FeatureReportInput, live: LiveRun | null = null, merg
   if (engineeringStopped(input)) {
     const newestRun = [...input.workerRuns].sort((a, b) => b.id - a.id)[0]!;
     if (carrying?.stage === 'stopped') {
-      return { key: 'stuck', label: carrying.label, detail: carrying.line.replace(/^Stopped(?: after \d+ attempts?)?:\s*/, ''), needsYou: true, question: null, action: { label: 'Build again', href: '#feature-decide' }, decision: null };
+      // Held for a seat (an incompatible contract): nobody is asked.
+      const held = waitingOnOf(input.request.meta) !== null;
+      return { key: 'stuck', label: carrying.label, detail: carrying.line.replace(/^(?:Stopped(?: after \d+ attempts?)?|Held):\s*/, ''), needsYou: !held, question: null, action: { label: held ? 'View run' : 'Build again', href: held ? '#report-runs' : '#feature-decide' }, decision: null };
     }
     if (carrying?.stage === 'recovering') {
       return { key: 'recovering', label: carrying.label, detail: 'the run failed; the next attempt starts on its own', needsYou: false, question: null, action: { label: 'View run', href: '#report-runs' }, decision: null };
@@ -3463,6 +3465,9 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
     case 'changes':
       return { tone: 'warn', headline: 'Changes requested', sentence: `QA found problems and sent it back${changesDetail(state.detail)} Nothing from this attempt has merged.`, action: { kind: 'drawer', label: 'Review requested changes', drawer: 'acceptance' }, secondary: canBuild ? { kind: 'build', label: 'Build again' } : null, next: 'Build again starts the next attempt with what QA found.' };
     case 'stuck':
+      if (!state.needsYou && state.label.startsWith('Waiting on')) {
+        return { tone: 'info', headline: state.label, sentence: `${capitalise(bare(state.detail))}.`, action: { kind: 'drawer', label: 'View run', drawer: 'implementation' }, secondary: canBuild ? { kind: 'build', label: 'Build again' } : null, next: 'It builds again on its own once the worker is rebuilt or Vocion is deployed.' };
+      }
       return { tone: 'warn', headline: state.label, sentence: state.label.startsWith('Stopped after') ? `${capitalise(bare(state.detail))}. A person decides what happens next; nothing from these attempts has merged.` : `${capitalise(bare(state.detail))}. Nothing from this attempt has merged.`, action: canBuild ? { kind: 'build', label: 'Build again' } : { kind: 'drawer', label: 'View run', drawer: 'implementation' }, secondary: canBuild ? { kind: 'drawer', label: 'View run', drawer: 'implementation' } : null, next: canBuild ? 'Nothing moves until someone builds it again.' : null };
     default:
       break;
