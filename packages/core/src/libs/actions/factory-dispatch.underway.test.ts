@@ -23,7 +23,7 @@ describe('is the request already building? (pure)', () => {
   it('a start that went to planning a minute ago holds the request, and says which run has it', () => {
     const out = underwayRefusal([{ id: 5016, status: 'done', executedAt: new Date('2026-09-29T03:22:41Z'), result: planning }], { now: NOW });
 
-    expect(out).toMatch(/^already building: run #5016/);
+    expect(out).toMatch(/^already building: ACT-5016/);
     expect(out).toMatch(/planning first \(the allowed paths span 3 packages\)/);
   });
 
@@ -38,7 +38,7 @@ describe('is the request already building? (pure)', () => {
   it('a worker run that is queued, running or paused holds it; one that ended does not', () => {
     const started = { workerRunId: 409, requestId: 224, taskId: 225 };
 
-    expect(underwayRefusal([{ id: 5017, status: 'done', executedAt: NOW, result: started, workerStatus: 'running' }], { now: NOW })).toMatch(/^already building: run #409 \(started by action #5017\) is running/);
+    expect(underwayRefusal([{ id: 5017, status: 'done', executedAt: NOW, result: started, workerStatus: 'running' }], { now: NOW })).toMatch(/^already building: RUN-409 \(started by ACT-5017\) is running/);
 
     for (const ended of ['completed', 'failed', 'cancelled', 'awaiting_review']) {
       expect(underwayRefusal([{ id: 5017, status: 'done', executedAt: NOW, result: started, workerStatus: ended }], { now: NOW })).toBeNull();
@@ -46,7 +46,7 @@ describe('is the request already building? (pure)', () => {
   });
 
   it('a start between its decision and its result holds it', () => {
-    expect(underwayRefusal([{ id: 5020, status: 'executing', executedAt: null, result: null }], { now: NOW })).toMatch(/^already building: run #5020/);
+    expect(underwayRefusal([{ id: 5020, status: 'executing', executedAt: null, result: null }], { now: NOW })).toMatch(/^already building: ACT-5020/);
   });
 
   it('an undone or failed start holds nothing', () => {
@@ -78,7 +78,7 @@ describe('buildUnderway, read from the runs', () => {
   it('refuses a second start while the first is planning, but not the run asking about itself', async () => {
     const [run] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'factory.dispatch_task', input: { requestId: 224 }, status: 'done', executedAt: new Date(), result: planning }).returning({ id: actionRunSchema.id });
 
-    expect(await buildUnderway(ORG, 224)).toMatch(new RegExp(`^already building: run #${run!.id}`));
+    expect(await buildUnderway(ORG, 224)).toMatch(new RegExp(`^already building: ACT-${run!.id}`));
     expect(await buildUnderway(ORG, 224, { excludeRunId: run!.id })).toBeNull();
     expect(await buildUnderway(ORG, 999)).toBeNull();
     expect(await buildUnderway('org_other', 224)).toBeNull();
@@ -88,7 +88,7 @@ describe('buildUnderway, read from the runs', () => {
     const [worker] = await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'send-engineer', status: 'queued' }).returning({ id: workerRunSchema.id });
     await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'factory.dispatch_task', input: { requestId: 130 }, status: 'done', executedAt: new Date(), result: { workerRunId: worker!.id, requestId: 130 } });
 
-    expect(await buildUnderway(ORG, 130)).toMatch(new RegExp(`^already building: run #${worker!.id}`));
+    expect(await buildUnderway(ORG, 130)).toMatch(new RegExp(`^already building: RUN-${worker!.id}`));
   });
 });
 

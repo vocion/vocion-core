@@ -97,7 +97,7 @@ describe('a request that was just filed', () => {
   const bug = { kind: 'bug', severity: 'p1', state: 'new', acceptance: ['A member can open the room they were invited to.'] };
 
   it('starts the fix a person asked for in a conversation', () => {
-    expect(intakeDecision({ meta: bug, origin: { conversationId: 12, byPerson: true } })).toMatchObject({ do: 'start', why: expect.stringContaining('conversation #12') });
+    expect(intakeDecision({ meta: bug, origin: { conversationId: 12, byPerson: true } })).toMatchObject({ do: 'start', why: expect.stringContaining('CHAT-12') });
     expect(intakeDecision({ meta: { ...bug, kind: 'incident', severity: 'p2' }, origin: { conversationId: 12, byPerson: true } }).do).toBe('start');
     expect(intakeDecision({ meta: { ...bug, kind: 'gap', severity: 'p1' }, origin: { conversationId: 12, byPerson: true } }).do).toBe('start');
   });

@@ -100,7 +100,7 @@ describe('the write', () => {
   it('writes declared fields done-for-you and says the record changed', async () => {
     const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { priority: 82, state: 'in_scope' }, reason: 'Seven asked.', confidence: 0.9 });
 
-    expect(out).toMatch(/^request #\d+ "CSV export" updated — priority, state written \(run #\d+, confidence 0\.9\), now version 2 of its history\. Done for you/);
+    expect(out).toMatch(/^[A-Z]{2,5}-\d+ "CSV export" updated — priority, state written \(ACT-\d+, confidence 0\.9\), now version 2 of its history\. Done for you/);
 
     const [row] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, requestId));
 
@@ -183,7 +183,7 @@ describe('the shape the model sends (backlog 006, 2026-09-25)', () => {
     const out = await toolFor(['request']).invoke({ object_type: 'request', id: requestId, set: { priority: 40 } } as never);
 
     expect(out).not.toMatch(/did not match expected schema/);
-    expect(out).toMatch(/request #\d+/);
+    expect(out).toMatch(/[A-Z]{2,5}-\d+/);
   });
 
   it('names the allowed values when a value is not one of them', async () => {

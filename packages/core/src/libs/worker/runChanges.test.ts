@@ -25,7 +25,7 @@ describe('what a run filed or changed', () => {
     ])).toEqual([
       { text: 'Updated engineering task #77 "Room PDF export"', href: '/dashboard/objects/77' },
       { text: 'Filed request #130', href: '/dashboard/objects/130' },
-      { text: 'Ran dispatch task — run #502', href: '/dashboard/p/runs/502' },
+      { text: 'Ran dispatch task — RUN-502', href: '/dashboard/p/runs/502' },
       { text: 'Filed ask #88 "Which rooms first?"', href: '/dashboard/inbox/ask%3A88' },
       { text: 'Recorded a verdict on task #77: approve', href: '/dashboard/objects/77' },
       { text: 'Made markdown "Release notes"', href: '/dashboard/artifacts/640' },

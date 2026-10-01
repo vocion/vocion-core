@@ -1,3 +1,4 @@
+import { CORE_NOUN_CODES, nounCode } from '@/libs/codes';
 /**
  * A BLOCKER GOES STALE WHEN THE THING IT WAITS ON MOVES.
  *
@@ -42,6 +43,12 @@ const NAMED: Array<{ kind: BlockerRefKind; re: RegExp }> = [
   { kind: 'plan', re: /\bplan\s+#?(\d+)/gi },
   { kind: 'ask', re: /\bask\s+#?(\d+)/gi },
   { kind: 'action', re: /\b(?:review\s+item|action(?:\s+run)?|card)\s+#?(\d+)/gi },
+  // The same records by their codes (`libs/codes.ts`): ASK-267, ACT-5590, and
+  // a plan by its type's code (PL-295) — any record code, which resolves only
+  // when the id is one of the request's plans.
+  { kind: 'ask', re: new RegExp(`\\b${CORE_NOUN_CODES.ask}-(\\d+)`, 'g') },
+  { kind: 'action', re: new RegExp(`\\b${CORE_NOUN_CODES.action}-(\\d+)`, 'g') },
+  { kind: 'plan', re: new RegExp(`\\b(?!(?:${Object.values(CORE_NOUN_CODES).join('|')})-)[A-Z]{2,5}-(\\d+)`, 'g') },
 ];
 
 function toDate(v: unknown): Date | null {
@@ -119,13 +126,13 @@ export function blockerResolution(raw: unknown, facts: BlockerFacts): BlockerRes
       const a = facts.asks?.find(x => x.id === ref.id);
       const at = toDate(a?.decidedAt);
       if (a && (at !== null || (a.status != null && a.status !== 'open')) && after(at)) {
-        return { ref, line: `ask #${ref.id} was answered`, at };
+        return { ref, line: `${nounCode('ask', ref.id)} was answered`, at };
       }
     } else {
       const r = facts.actions?.find(x => x.id === ref.id);
       const at = toDate(r?.decidedAt) ?? toDate(r?.executedAt);
       if (r && r.status !== 'pending' && after(at)) {
-        return { ref, line: `review item #${ref.id} was decided`, at };
+        return { ref, line: `review item ${nounCode('action', ref.id)} was decided`, at };
       }
     }
   }

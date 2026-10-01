@@ -45,8 +45,8 @@ describe('when the move was made', () => {
   });
 
   it('is resolved by an answered ask and by a decided review item', () => {
-    expect(blockerResolution({ what: 'x', waitsOn: [{ kind: 'ask', id: 12 }] }, { asks: [{ id: 12, status: 'approved', decidedAt: new Date('2026-09-29T10:00:00Z') }] })?.line).toBe('ask #12 was answered');
-    expect(blockerResolution({ what: 'x', next: 'decide review item #77' }, { actions: [{ id: 77, status: 'rejected', decidedAt: null }] })?.line).toBe('review item #77 was decided');
+    expect(blockerResolution({ what: 'x', waitsOn: [{ kind: 'ask', id: 12 }] }, { asks: [{ id: 12, status: 'approved', decidedAt: new Date('2026-09-29T10:00:00Z') }] })?.line).toBe('ASK-12 was answered');
+    expect(blockerResolution({ what: 'x', next: 'decide review item #77' }, { actions: [{ id: 77, status: 'rejected', decidedAt: null }] })?.line).toBe('review item ACT-77 was decided');
   });
 
   it('ignores a decision made before the blocker was written', () => {
@@ -54,5 +54,15 @@ describe('when the move was made', () => {
 
     expect(blockerResolution(since, { plans: [{ id: 136, status: 'approved', approvedAt: '2026-09-29T14:20:14Z' }] })).toBeNull();
     expect(blockerResolution(since, { plans: [{ id: 136, status: 'approved', approvedAt: '2026-09-29T15:20:00Z' }] })).not.toBeNull();
+  });
+});
+
+describe('a blocker that names its records by code (libs/codes.ts)', () => {
+  it('reads ASK-, ACT- and a plan\'s code from its next line', () => {
+    expect(blockerRefs({ what: 'x', next: 'Answer ASK-12, decide ACT-77, then approve PL-136.' })).toEqual([
+      { kind: 'ask', id: 12 },
+      { kind: 'action', id: 77 },
+      { kind: 'plan', id: 136 },
+    ]);
   });
 });

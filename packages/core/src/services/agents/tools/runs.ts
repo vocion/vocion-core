@@ -19,11 +19,13 @@ import type { WorkerRun } from '@/services/WorkerRunService';
 import { tool } from '@langchain/core/tools';
 import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { runFacts } from '@/libs/factory/runFacts';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, verdictFact } from '@/libs/factory/workFacts';
 import { actionRunSchema, businessObjectSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
 import { getObjectTypeBySlug, listBusinessObjects } from '@/services/BusinessObjectService';
+import { codesForRecords } from '@/services/codes';
 import { taskStatus } from '@/services/factory/featureReport';
 import { loadPullSignals, mergeRiskClassOf, mergeRulesFor } from '@/services/factory/pullSignals';
 import { runRecord } from '@/services/WorkerRunService';
@@ -375,17 +377,37 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
         console.warn('list_recent_runs: delivery facts could not be read', { orgId: ctx.orgId, message: (err as Error).message });
         return null;
       });
+      // Every run, task and request carries the code the answer names it by
+      // (RUN-439, TK-296, FE-294 — `libs/codes.ts`), read in one pass.
+      const recordIdsNamed = workerRows.flatMap((run) => {
+        const facts = delivery?.byRun.get(run.id) as { task?: { id?: number }; request?: { id?: number } } | undefined;
+        return [runRecord(run)?.id, facts?.task?.id, facts?.request?.id].filter((id): id is number => typeof id === 'number');
+      });
+      const codes = await codesForRecords(ctx.orgId, [...recordIdsNamed, ...(releases?.recent ?? []).map(r => Number(r.id))]).catch(() => new Map<number, string>());
+      const coded = <T extends { id?: unknown }>(ref: T | undefined | null): T | undefined | null => (ref && typeof ref.id === 'number' && codes.has(ref.id) ? { ...ref, code: codes.get(ref.id) } : ref);
+      for (const r of releases?.recent ?? []) {
+        if (codes.has(Number(r.id))) {
+          r.code = codes.get(Number(r.id));
+        }
+      }
       const workerRuns = workerRows.map((run) => {
         const result = (run.result ?? null) as Record<string, unknown> | null;
         const input = (run.input ?? {}) as Record<string, unknown>;
+        const facts = { ...(delivery?.byRun.get(run.id) ?? {}) } as Record<string, unknown>;
+        for (const key of ['task', 'request'] as const) {
+          if (facts[key]) {
+            facts[key] = coded(facts[key] as { id?: unknown });
+          }
+        }
         return {
           id: run.id,
+          code: nounCode('run', run.id),
           kind: run.kind,
           status: run.status,
-          ...(delivery?.byRun.get(run.id) ?? {}),
+          ...facts,
           agent: run.agentSlug,
           objective: objectiveOf(input),
-          record: runRecord(run),
+          record: coded(runRecord(run)),
           summary: run.summary,
           error: run.error,
           ...changeReported(result, (run.progress ?? {}) as Record<string, unknown>),
@@ -423,7 +445,7 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
           ? (args.withFeedbackOnly ? undefined : 'This workspace has no `release` object type, so nothing here says what reached people.')
           : releases,
         workflowRuns: workflow.map(r => ({ kind: 'workflow', ...r })),
-        actionRuns: args.withFeedbackOnly ? [] : actionRows.map(r => ({ kind: 'action', ...r })),
+        actionRuns: args.withFeedbackOnly ? [] : actionRows.map(r => ({ kind: 'action', code: nounCode('action', r.id), ...r })),
       }, null, 2);
     },
     {

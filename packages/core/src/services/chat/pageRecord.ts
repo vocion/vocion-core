@@ -14,7 +14,7 @@
 
 import type { PageContext, RecordRef } from './pageContext';
 import type { RecordLinks } from '@/libs/workspace/recordHref';
-import { recordTypeOfPage } from '@/libs/workspace/recordHref';
+import { recordCodeFrom, recordTypeOfPage } from '@/libs/workspace/recordHref';
 
 /** What the resolver reads outside itself — real in production, literal in tests. */
 export type PageRecordDeps = {
@@ -48,7 +48,8 @@ export async function typeRecordRef(ref: RecordRef, path: string, deps: PageReco
     return ref;
   }
   const slug = pageSlugOf(ref.href) ?? pageSlugOf(path);
-  const fromPage = slug ? recordTypeOfPage(await deps.links().catch(() => ({ pages: new Map(), workspaceSlug: null })), slug) : null;
+  const links: RecordLinks = await deps.links().catch(() => ({ pages: new Map<string, string>(), workspaceSlug: null }));
+  const fromPage = slug ? recordTypeOfPage(links, slug) : null;
   const row = await deps.row(Number(ref.id)).catch(() => null);
   // The row is the fact; the manifest is what the page says it opens. They
   // agree on every record page; when they do not, the row wins.
@@ -57,7 +58,8 @@ export async function typeRecordRef(ref: RecordRef, path: string, deps: PageReco
     return ref;
   }
   // A page title is often the app's ("Vocion Dashboard"); the row has the record's.
-  return { ...ref, objectType, ...(row?.title ? { label: row.title } : {}) };
+  // Named by its code (FE-294), as every tool names it.
+  return { ...ref, objectType, code: recordCodeFrom(links, { objectType, id: ref.id }), ...(row?.title ? { label: row.title } : {}) };
 }
 
 /**

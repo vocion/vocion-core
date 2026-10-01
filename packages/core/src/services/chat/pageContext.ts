@@ -84,6 +84,8 @@ export type RecordRef = {
    * itself (`services/chat/pageRecord.ts`), never guessed from the slug.
    */
   objectType?: string;
+  /** For a typed `object`: what a person reads it by — FE-294 (`libs/codes.ts`). */
+  code?: string;
 };
 
 /** One message in a chat thread, as the agent needs to see it. */
@@ -500,7 +502,7 @@ function describeRecord(ref: RecordRef): string {
   // A typed record names its type and id the way the tools take them, so
   // "this" is `update_object {objectType: "request", id: 124}`, not a guess.
   if (ref.type === 'object' && ref.objectType) {
-    return `${ref.objectType.replace(/[_-]+/g, ' ')} #${ref.id}${ref.label ? ` "${ref.label}"` : ''}${ref.href ? ` (${ref.href})` : ''} — objectType "${ref.objectType}", id ${ref.id}`;
+    return `${ref.code ?? `${ref.objectType.replace(/[_-]+/g, ' ')} #${ref.id}`}${ref.label ? ` "${ref.label}"` : ''}${ref.href ? ` (${ref.href})` : ''} — objectType "${ref.objectType}", id ${ref.id}`;
   }
   return `${ref.type.replace('_', ' ')} ${name}${ref.href ? ` (${ref.href})` : ''}`;
 }
@@ -536,7 +538,7 @@ export function withPageContext(message: string, ctx: PageContext | null, refs: 
     lines.push(`I am looking at ${where} in the app.`);
   }
   if (ctx.record) {
-    lines.push(`This page is about the ${describeRecord(ctx.record)}.`);
+    lines.push(`This page is about ${ctx.record.code ? '' : 'the '}${describeRecord(ctx.record)}.`);
   }
   if (ctx.refs && ctx.refs.length > 0) {
     lines.push(`I mentioned: ${ctx.refs.map(describeRecord).join('; ')}.`);

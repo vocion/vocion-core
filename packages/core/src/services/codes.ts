@@ -1,5 +1,5 @@
 import type { CoreNoun, TypeCodes } from '@/libs/codes';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { cache } from 'react';
 import { assignTypeCodes, coreNounOf, formatCode, nounCode, parseCode, recordCode, TYPE_CODE_SCHEMA_KEY } from '@/libs/codes';
 import { db } from '@/libs/DB';
@@ -122,4 +122,24 @@ export async function resolveCode(orgId: string, text: string | number): Promise
     return { kind: 'none', reason: `${formatCode(parsed.prefix, parsed.id)} does not exist; record ${parsed.id} is ${code} (${row.title})` };
   }
   return { kind: 'record', id: row.id, typeSlug: row.slug, code, title: row.title };
+}
+
+/**
+ * Many records' codes in one read — id → code — for a tool or a surface
+ * naming a list. Ids the org has no record for are left out.
+ * @param orgId - The workspace.
+ * @param ids - Record ids.
+ */
+export async function codesForRecords(orgId: string, ids: readonly number[]): Promise<Map<number, string>> {
+  const wanted = [...new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0))];
+  if (wanted.length === 0) {
+    return new Map();
+  }
+  const rows = await db
+    .select({ id: businessObjectSchema.id, slug: businessObjectTypeSchema.slug })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, wanted)));
+  const codes = await typeCodesForOrg(orgId);
+  return new Map(rows.map(r => [r.id, recordCode(codes, r.slug, r.id)]));
 }

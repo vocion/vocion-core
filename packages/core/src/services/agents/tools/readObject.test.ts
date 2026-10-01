@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 const getBusinessObject = vi.fn();
 
+// Codes are read from the types (`services/codes.ts`); here, a fixed one.
+vi.mock('@/services/codes', () => ({ codeForRecord: async (_org: string, id: number) => `FE-${id}`, resolveCode: async () => ({ kind: 'none', reason: 'not here' }) }));
 vi.mock('@/services/BusinessObjectService', () => ({ getBusinessObject: (...a: unknown[]) => getBusinessObject(...a) }));
 
 const loadRecordStatus = vi.fn(async () => ({ ok: false, reason: 'no_report' }) as unknown);

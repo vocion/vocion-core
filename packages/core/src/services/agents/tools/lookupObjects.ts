@@ -1,10 +1,13 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { parseCode, recordCode } from '@/libs/codes';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
+import { typeCodesForOrg } from '@/services/codes';
 import { objectKnowledge } from '@/services/MemoryService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { liveStatusOf } from './readObject';
+import { recordIdArg, recordIdOf } from './recordIdArg';
 
 /**
  * How many records a lookup reads the delivery status of. Each is the feature
@@ -27,6 +30,15 @@ function compactValue(v: unknown): string {
 }
 
 /**
+ * A `where` value, with a code (FE-132) read as its record's id.
+ * @param v
+ */
+function idOrValue(v: string | number | boolean): string {
+  const parsed = typeof v === 'string' ? parseCode(v) : null;
+  return parsed?.prefix ? String(parsed.id) : String(v);
+}
+
+/**
  * lookup_objects — list the structured business objects the agent can see.
  *
  * Returns a COMPACT, sanitized digest: human fields only, no internal ids, no
@@ -40,7 +52,13 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
   const available = ctx.objectTypeSlugs.join(', ');
   return tool(
     async (args) => {
+      // One record by its code (FE-294) or id, checked against its type's code.
+      const byId = args.id === undefined ? null : await recordIdOf(ctx.orgId, args.id);
+      if (byId && 'reason' in byId) {
+        return `${byId.reason}.`;
+      }
       const all = await listBusinessObjects(ctx.orgId, args.type_slug);
+      const codes = await typeCodesForOrg(ctx.orgId).catch(() => null);
       // NARROW BEFORE READING (red team, 2026-09-26). Every lookup returned
       // every record of the type — 61 requests, every plan — as one JSON
       // blob, and the PM answered "there is no plan for #132" with plan #134
@@ -50,11 +68,12 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
       const where = Object.entries(args.where ?? {});
       const words = (args.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
       const matched = all.filter((obj) => {
-        if (args.id !== undefined && obj.id !== args.id) {
+        if (byId && obj.id !== byId.id) {
           return false;
         }
         const meta = (obj.metadata ?? {}) as Record<string, unknown>;
-        if (!where.every(([k, v]) => String((k === 'status' ? obj.status : meta[k]) ?? '').toLowerCase() === String(v).toLowerCase())) {
+        // A link field named by code ({ requestId: "FE-132" }) is matched by its id.
+        if (!where.every(([k, v]) => String((k === 'status' ? obj.status : meta[k]) ?? '').toLowerCase() === idOrValue(v).toLowerCase())) {
           return false;
         }
         if (words.length > 0) {
@@ -103,7 +122,8 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
         //
         // It is the first key because it is what the next tool call needs, and
         // a digest that buries the handle is a digest a model has to hunt in.
-        const rec: Record<string, unknown> = { id: obj.id, title: obj.title, status: obj.status };
+        // The CODE beside it: what the answer names the record by (FE-294, `libs/codes.ts`).
+        const rec: Record<string, unknown> = { id: obj.id, code: recordCode(codes, obj.type?.slug, obj.id), title: obj.title, status: obj.status };
         if (statuses[i]) {
           rec.liveStatus = statuses[i];
         }
@@ -149,7 +169,7 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
       description: `Look up the structured business objects (follow-ups, events, deals, accounts) the agent tracks. Returns a compact, sanitized digest to SYNTHESIZE into a plain answer — never paste it back verbatim. When ${STATUS_READS} or fewer records match and their type has a report page, each carries liveStatus: where it is now and its delivery facts (QA's verdict, whether its pull request merged, CI, whether its merge runs itself, the request's stage) — say status from those fields, never from a field that only says a run ended.`,
       schema: z.object({
         type_slug: z.string().optional().describe(`Object type to filter by${available ? ` (available: ${available})` : ''}`),
-        id: z.number().int().positive().optional().describe('One record by its id — the fastest way to read a record you already know.'),
+        id: recordIdArg('One record — the fastest way to read a record you already know').optional(),
         where: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Field equals value, e.g. { "requestId": 132 } for the plan of request 132, { "product": "send", "state": "triaged" }. Case-insensitive.'),
         query: z.string().optional().describe('Words that must all appear in the title, summary or outcome.'),
         limit: z.number().int().min(1).max(100).optional().describe('At most this many records (default 25). The reply says how many more matched.'),

@@ -143,7 +143,7 @@ describe('file_request reads the person\'s words before it writes', () => {
 
     const second = String(await tool.invoke({ ...ASK, title: 'View count next to the title', product: 'harbor' }));
 
-    expect(second).toMatch(/is DONE: filed as request #\d+/);
+    expect(second).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+/);
     expect(await requestTitled('View count next to the title')).toMatchObject({ product: 'harbor' });
   });
 

@@ -18,6 +18,7 @@
 import type { Action, ReviewCard } from './types';
 import { z } from 'zod';
 import { factoryTypes } from '@/libs/factory/types';
+import { codeForRecord } from '@/services/codes';
 import { planIsApproved, readRecord, writeMeta } from './factory-dispatch';
 
 export const APPROVE_PLAN_ACTION_ID = 'factory.approve_plan';
@@ -99,7 +100,7 @@ export const factoryApprovePlanAction: Action<typeof approvePlanInput> = {
       system: 'Factory',
       summary: input.reason,
       fields: [
-        ...(m.requestId ? [{ label: 'Request', value: `#${String(m.requestId)}`, href: `/dashboard/p/feature/${String(m.requestId)}` }] : []),
+        ...(m.requestId ? [{ label: 'Request', value: await codeForRecord(ctx.orgId, Number(m.requestId)).catch(() => null) ?? `#${String(m.requestId)}`, href: `/dashboard/p/feature/${String(m.requestId)}` }] : []),
         { label: 'Approach', value: str(m, 'approach') ?? 'not stated' },
         { label: 'Changes', value: list(m, 'components').join('\n') || 'not stated' },
         { label: 'Why a plan', value: list(m, 'ruleTriggers').join('; ') || 'not recorded' },

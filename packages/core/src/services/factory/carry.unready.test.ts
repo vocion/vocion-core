@@ -170,7 +170,7 @@ describe('waiting names who (2026-10-01, plan #276)', () => {
 
     const m = await meta(r.id);
 
-    expect(m.recovery.line).toBe(`Planning — plan #${plan!.id} is written and waiting for dana@northwind.example to approve it.`);
+    expect(m.recovery.line).toBe(`Planning — AP-${plan!.id} is written and waiting for dana@northwind.example to approve it.`);
     expect(m.recovery.waitingOn).toMatchObject({ who: 'dana@northwind.example', line: m.recovery.line });
   });
 });

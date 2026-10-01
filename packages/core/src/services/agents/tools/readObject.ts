@@ -26,8 +26,10 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { nowLine } from '@/libs/factory/liveStatus';
 import { getBusinessObject } from '@/services/BusinessObjectService';
+import { codeForRecord } from '@/services/codes';
 import { readRecovery } from '@/services/factory/recovery';
 import { loadRecordStatus } from '@/services/objects/recordStatus';
+import { recordIdArg, recordIdOf } from './recordIdArg';
 
 /**
  * THE RECORD'S HISTORY, COUNTED, AT THE TOP.
@@ -122,17 +124,23 @@ export function readObjectTool(ctx: RuntimeContext) {
   const readable = ctx.objectTypeSlugs;
   return tool(
     async (raw) => {
-      const { object_type, id } = raw as { object_type: string; id: number };
+      const { object_type, id: named } = raw as { object_type: string; id: number | string };
       if (!readable.includes(object_type)) {
         return `Refused: this agent does not work with "${object_type}" records. It may read: ${readable.join(', ')}.`;
       }
+      const ref = await recordIdOf(ctx.orgId, named);
+      if ('reason' in ref) {
+        return `${ref.reason}. Use lookup_objects to find it; a record is named by its code (FE-294), not a name.`;
+      }
+      const id = ref.id;
       const row = await getBusinessObject(id, ctx.orgId);
       if (!row) {
-        return `No record #${id} in this workspace. Use lookup_objects to find the id; it is the record's own number, not a name.`;
+        return `No record ${typeof named === 'string' && /[a-z]/i.test(named) ? named.toUpperCase() : `#${id}`} in this workspace. Use lookup_objects to find it; a record is named by its code (FE-294), not a name.`;
       }
       const slug = (row as { type?: { slug?: string } }).type?.slug;
+      const code = await codeForRecord(ctx.orgId, id).catch(() => null) ?? `#${id}`;
       if (slug !== undefined && slug !== object_type) {
-        return `Record #${id} is a "${slug}", not a "${object_type}". Read it as its own type.`;
+        return `${code} is a "${slug}", not a "${object_type}". Read it as its own type.`;
       }
       // The whole record as JSON, which is what a caller that asked for one
       // record in full wants. It is data to work from, never text to paste
@@ -151,6 +159,7 @@ export function readObjectTool(ctx: RuntimeContext) {
       const derived = await derivedFieldsOf(ctx.orgId, row.id).catch(() => ({ values: {}, drift: {} }));
       return JSON.stringify({
         id: row.id,
+        code,
         title: row.title,
         status: row.status,
         ...(live ? { liveStatus: live } : {}),
@@ -162,10 +171,10 @@ export function readObjectTool(ctx: RuntimeContext) {
     },
     {
       name: 'read_object',
-      description: 'Read ONE record in full, every field whole. Use it when you need what a field actually says — lookup_objects truncates every value to 120 characters so it can list many, which is the right shape for scanning and the wrong one for working. Find the id with lookup_objects first. Data to work from; never paste it back verbatim.',
+      description: 'Read ONE record in full, every field whole. Use it when you need what a field actually says — lookup_objects truncates every value to 120 characters so it can list many, which is the right shape for scanning and the wrong one for working. Find it with lookup_objects first; name it by its code (FE-294) or id. Data to work from; never paste it back verbatim.',
       schema: z.object({
         object_type: z.string().min(1).describe(`The object type slug. One of: ${readable.join(', ')}.`),
-        id: z.number().int().positive().describe('The record\'s id (from lookup_objects), never its title.'),
+        id: recordIdArg('The record (from lookup_objects)'),
       }),
     },
   );

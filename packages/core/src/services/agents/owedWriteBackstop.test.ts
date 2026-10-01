@@ -59,7 +59,7 @@ describe('the line the person reads', () => {
     expect(owedWriteLine('objects.propose_candidate is DONE: filed as request #131 (run #7, confidence 0.8), open at /w/northwind/dashboard/p/feature/131. Title: Export the list. It was within bounds…'))
       .toBe('Filed from this conversation: [request #131](/w/northwind/dashboard/p/feature/131).');
     expect(owedWriteLine('Proposed objects.propose_candidate → action run #9 is PENDING human approval in the review queue (confidence 0.8).'))
-      .toMatch(/^Filed from this conversation for approval: it is waiting in Review as action run #9\./);
+      .toMatch(/^Filed from this conversation for approval: it is waiting in Review as ACT-9\./);
     expect(owedWriteLine('Not recorded: invalid arguments for propose_action — …')).toBeNull();
   });
 });

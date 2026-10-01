@@ -27,8 +27,9 @@ const MAX_FIELDS_CHARS = 5_000;
 /** At most this many records beneath it. */
 const MAX_CHILDREN = 12;
 
-export type GroundedRecord = { id: number; typeSlug: string; title: string; status: string | null; fields: Record<string, unknown> };
-export type GroundedChild = { id: number; typeSlug: string; title: string; status: string | null; state?: string };
+/** `code` is what the record is read by — FE-294 (`libs/codes.ts`). */
+export type GroundedRecord = { id: number; code?: string; typeSlug: string; title: string; status: string | null; fields: Record<string, unknown> };
+export type GroundedChild = { id: number; code?: string; typeSlug: string; title: string; status: string | null; state?: string };
 
 /**
  * The block, as the model reads it.
@@ -41,11 +42,11 @@ export function describeRecordGrounding(record: GroundedRecord, children: readon
   const fields = JSON.stringify(record.fields);
   const parts = [
     `--- the ${kind} on this page (read now, canonical) ---`,
-    `${kind} #${record.id} "${record.title}"${record.status ? ` — status ${record.status}` : ''}. This is the record as it stands; it is what the page shows. Answer from it and never say you cannot see it.`,
-    fields.length > MAX_FIELDS_CHARS ? `${fields.slice(0, MAX_FIELDS_CHARS)}… [the rest: read_object ${record.typeSlug} ${record.id}]` : fields,
+    `${record.code ?? `${kind} #${record.id}`} "${record.title}"${record.status ? ` — status ${record.status}` : ''}. This is the record as it stands; it is what the page shows. Answer from it and never say you cannot see it.`,
+    fields.length > MAX_FIELDS_CHARS ? `${fields.slice(0, MAX_FIELDS_CHARS)}… [the rest: read_object ${record.typeSlug} ${record.code ?? record.id}]` : fields,
   ];
   if (children.length > 0) {
-    parts.push('', `Filed under it (newest first) — read one by id for its whole record:`, ...children.map(c => `- ${c.typeSlug.replace(/[_-]+/g, ' ')} #${c.id} "${c.title}"${c.status ? ` — ${c.status}` : ''}${c.state ? ` (${c.state})` : ''}`));
+    parts.push('', `Filed under it (newest first) — read one by its code for its whole record:`, ...children.map(c => `- ${c.code ?? `${c.typeSlug.replace(/[_-]+/g, ' ')} #${c.id}`} "${c.title}"${c.status ? ` — ${c.status}` : ''}${c.state ? ` (${c.state})` : ''}`));
   }
   if (decisions.length > 0) {
     parts.push('', 'Waiting on the person about it — when they tell you what to do with one, do it with the call named:', describeOpenDecisions(decisions));
@@ -100,9 +101,12 @@ export async function buildRecordGrounding(orgId: string, ctx: PageContext | nul
       openDecisionsOn(orgId, id),
     ]);
     const typeSlug = (row as { type?: { slug?: string } }).type?.slug ?? ref.objectType ?? 'record';
+    const { typeCodesForOrg } = await import('@/services/codes');
+    const { recordCode } = await import('@/libs/codes');
+    const codes = await typeCodesForOrg(orgId).catch(() => null);
     return describeRecordGrounding(
-      { id: row.id, typeSlug, title: row.title, status: row.status ?? null, fields: (row.metadata ?? {}) as Record<string, unknown> },
-      children.map(c => ({ id: c.id, typeSlug: c.typeSlug, title: c.title, status: c.status ?? null, state: stateOf((c.metadata ?? {}) as Record<string, unknown>) })),
+      { id: row.id, code: recordCode(codes, typeSlug, row.id), typeSlug, title: row.title, status: row.status ?? null, fields: (row.metadata ?? {}) as Record<string, unknown> },
+      children.map(c => ({ id: c.id, code: recordCode(codes, c.typeSlug, c.id), typeSlug: c.typeSlug, title: c.title, status: c.status ?? null, state: stateOf((c.metadata ?? {}) as Record<string, unknown>) })),
       decisions,
     );
   } catch (err) {

@@ -182,7 +182,7 @@ describe('filing a request from chat, end to end', () => {
     const out = await graph.invoke({ messages: [{ role: 'user', content: 'File a feature request for Send: senders want to see who opened the file and when.' }] } as never) as { messages: Array<{ getType: () => string; content: unknown; name?: string }> };
     const toolAnswer = out.messages.filter(m => m.getType() === 'tool').map(m => String(m.content)).join('\n');
 
-    expect(toolAnswer).toMatch(/is DONE: filed as request #\d+ \(run #\d+, confidence 0\.9\), open at \S+/);
+    expect(toolAnswer).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+ \(ACT-\d+, confidence 0\.9\), open at \S+/);
 
     const [row] = await db
       .select()
@@ -194,7 +194,7 @@ describe('filing a request from chat, end to end', () => {
     expect(row!.business_object.title).toBe(ASK_353.title);
     expect(row!.business_object.metadata).toMatchObject({ product: 'send', title: ASK_353.title, story: ASK_353.story, acceptance: ASK_353.acceptance });
     expect(row!.business_object.metadata).not.toHaveProperty('confidence');
-    expect(toolAnswer).toContain(`request #${row!.business_object.id}`);
+    expect(toolAnswer).toMatch(new RegExp(`[A-Z]{2,5}-${row!.business_object.id}\\b`));
     expect(events.find(e => e.type === 'record_created')?.record?.href).toContain(String(row!.business_object.id));
   });
 
@@ -234,7 +234,7 @@ describe('the generic propose_action path beside it', () => {
       action_input: { objectType: 'request', title: `${title} (generic path)`, dedupOn: ['product', 'title'], fields: { ...fields, title: `${title} (generic path)` } },
     }) as string;
 
-    expect(filed).toMatch(/^objects\.propose_candidate is DONE: filed as request #\d+/);
+    expect(filed).toMatch(/^objects\.propose_candidate is DONE: filed as [A-Z]{2,5}-\d+/);
   });
 });
 
@@ -313,7 +313,7 @@ describe('file_request reads the product\'s capabilities page itself, structural
 
     const answer = String(await fileRequest.invoke({ ...BASE, title: 'Let a sender revoke a shared link (the PM asked)' }));
 
-    expect(answer).toMatch(/is DONE: filed as request #\d+/);
+    expect(answer).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+/);
     expect(answer).toContain('Filed on the person\'s word, before these checks were done');
     expect(answer).toContain('revoke a link at any time (Kill)');
     expect(answer).toContain('do not refile it');
@@ -330,7 +330,7 @@ describe('file_request reads the product\'s capabilities page itself, structural
       gapCheck: { finding: 'add', how: 'Read the capabilities page: it lists expiry, not revoke.', checkedAt: '2026-09-29T04:00:00Z', sources: ['wiki:beacon-capabilities'] },
     }));
 
-    expect(answer).toMatch(/is DONE: filed as request #\d+/);
+    expect(answer).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+/);
   });
 
   it('citing the page with a finding of none is refused with what already ships, not our new message', async () => {

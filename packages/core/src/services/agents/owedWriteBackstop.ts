@@ -78,22 +78,22 @@ export type OwedWriteResult = {
  * @param output - The filing tool's answer (propose_action and file_<type> share it).
  */
 export function owedWriteLine(output: string): string | null {
-  const done = /is DONE: filed as (.+?) \(run #\d[^)]*\)(?:, open at (\S+?))?\.(?:\s|$)/.exec(output);
+  const done = /is DONE: filed as (.+?) \((?:run #|ACT-)\d[^)]*\)(?:, open at (\S+?))?\.(?:\s|$)/.exec(output);
   if (done) {
     const name = done[1]!.trim();
     return `Filed from this conversation: ${done[2] ? `[${name}](${done[2]})` : name}.`;
   }
-  const pending = /action run #(\d+) is PENDING/.exec(output);
+  const pending = /(?:action run #|ACT-)(\d+) is PENDING/.exec(output);
   if (pending) {
-    return `Filed from this conversation for approval: it is waiting in Review as action run #${pending[1]}. Nothing is recorded until a person approves it there.`;
+    return `Filed from this conversation for approval: it is waiting in Review as ACT-${pending[1]}. Nothing is recorded until a person approves it there.`;
   }
-  const refreshed = /Action run #(\d+) for .+ was updated in place/.exec(output);
+  const refreshed = /(?:Action run #|ACT-)(\d+) for .+ was updated in place/.exec(output);
   if (refreshed) {
-    return `This was already waiting in Review as action run #${refreshed[1]}; it now carries what was asked here.`;
+    return `This was already waiting in Review as ACT-${refreshed[1]}; it now carries what was asked here.`;
   }
-  const done2 = /is DONE \(run #(\d+)/.exec(output);
+  const done2 = /is DONE \((?:run #|ACT-)(\d+)/.exec(output);
   if (done2) {
-    return `Filed from this conversation (run #${done2[1]}).`;
+    return `Filed from this conversation (ACT-${done2[1]}).`;
   }
   return null;
 }
@@ -169,6 +169,11 @@ export function answerNamesFiled(text: string, output: string): boolean {
   if (href && (text ?? '').includes(href)) {
     return true;
   }
+  // Filed as a code (FE-294) or an older "request #294": the answer names it either way.
+  const code = /filed as ([A-Z]{2,5})-(\d+)\b/.exec(output);
+  if (code) {
+    return new RegExp(`\\b${code[1]}-${code[2]}(?!\\d)|#${code[2]}(?!\\d)`, 'i').test(text ?? '');
+  }
   const filed = /filed as [^#\n]{0,40}#(\d+)/i.exec(output);
   return filed !== null && new RegExp(`#${filed[1]}(?!\\d)`).test(text ?? '');
 }
@@ -206,7 +211,7 @@ export function changedInTurn(toolCalls: ReadonlyArray<{ tool: string; input?: R
     if (c.tool === 'update_object') {
       return Number(c.input?.id) === id
         && (c.output ?? '').trim() !== ''
-        && !/^\s*(?:update refused|refused|update failed|not written|update to \S+ #\d+ did not land|received tool input did not match)/i.test(c.output ?? '');
+        && !/^\s*(?:update refused|refused|update failed|not written|update to \S+(?: #\d+)? did not land|received tool input did not match)/i.test(c.output ?? '');
     }
     // The artifact path to the same record (backlog 035): update_artifact on
     // its body answers "<type> #<id> … changed" or "The change to <type> #<id>
@@ -263,12 +268,12 @@ export function attemptedChange(toolCalls: ReadonlyArray<{ tool: string; input?:
 export function changeLine(output: string, label: string, href: string | null, what: string): string | null {
   const name = href ? `[${label}](${href})` : label;
   const said = what.trim().replace(/\.+$/, '');
-  if (/ updated — .+ written \(run #\d+/.test(output)) {
+  if (/ updated — .+ written \((?:run #|ACT-)\d+/.test(output)) {
     return `Changed ${name}: ${said}.`;
   }
-  const pending = /is PENDING a person's decision \(run #(\d+)/.exec(output) ?? /now carries these values \(run #(\d+)\)/.exec(output);
+  const pending = /is PENDING a person's decision \((?:run #|ACT-)(\d+)/.exec(output) ?? /now carries these values \((?:run #|ACT-)(\d+)\)/.exec(output);
   if (pending) {
-    return `The change to ${name} is waiting in Review as action run #${pending[1]}: ${said}. Nothing is changed until a person approves it.`;
+    return `The change to ${name} is waiting in Review as ACT-${pending[1]}: ${said}. Nothing is changed until a person approves it.`;
   }
   return null;
 }

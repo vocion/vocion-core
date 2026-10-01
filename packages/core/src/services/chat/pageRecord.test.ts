@@ -38,9 +38,10 @@ describe('the page\'s record is typed before the turn (conversation 355: "`featu
   it('a feature page is its request, with the record\'s own title over the app\'s', async () => {
     const ctx = await typePageRecord(readPageContext({ path: '/w/northwind/dashboard/p/feature/124', title: 'Vocion Dashboard' }), deps);
 
-    expect(ctx?.record).toEqual({ type: 'object', id: '124', label: 'Open alerts', href: '/dashboard/p/feature/124', objectType: 'request' });
+    // …and by its code (no type declares one here: derived from the slug).
+    expect(ctx?.record).toEqual({ type: 'object', id: '124', label: 'Open alerts', href: '/dashboard/p/feature/124', objectType: 'request', code: 'REQ-124' });
     // The model reads the type and id the tools take.
-    expect(withPageContext('remove push notifications from scope', ctx)).toContain('This page is about the request #124 "Open alerts" (/dashboard/p/feature/124) — objectType "request", id 124.');
+    expect(withPageContext('remove push notifications from scope', ctx)).toContain('This page is about REQ-124 "Open alerts" (/dashboard/p/feature/124) — objectType "request", id 124.');
   });
 
   it('a release page is its release; a registered record is typed too', async () => {

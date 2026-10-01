@@ -40,7 +40,7 @@ const ID_KEYS = ['workerRunId', 'objectId', 'requestId', 'createdTaskId', 'taskI
  */
 export function proposeResultOf(output: string): Record<string, unknown> | null {
   const at = output.indexOf('Result:');
-  if (!/is DONE \(run #/.test(output) || at < 0) {
+  if (!/is DONE \((?:run #|ACT-)/.test(output) || at < 0) {
     return null;
   }
   const tail = output.slice(at + 7).trim();
@@ -120,9 +120,11 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
     if (r.name === 'update_object') {
       // Changed another record in place: watch it too. A proposal to change
       // one is waiting on a person and is its card's business.
-      const m = /^(\S+) #(\d+)(?: "[^"]*")? updated/.exec(r.output);
+      // "FE-294 "…" updated", or an older "request #294 "…" updated".
+      const m = /^(?:(\S+) #|([A-Z]{2,5})-)(\d+)(?: "[^"]*")? updated/.exec(r.output);
       if (m && !/\bPENDING\b/.test(r.output)) {
-        push({ label: `${words(m[1]!)} #${m[2]}`, href: genericRecordLinker({ objectType: m[1]!, id: m[2]! }), ref: { type: 'object', id: m[2]! } });
+        const type = m[1] ?? (typeof r.input?.object_type === 'string' ? r.input.object_type : null);
+        push({ label: m[2] ? `${m[2]}-${m[3]}` : `${words(m[1]!)} #${m[3]}`, href: genericRecordLinker({ objectType: type, id: m[3]! }), ref: { type: 'object', id: m[3]! } });
       }
       continue;
     }

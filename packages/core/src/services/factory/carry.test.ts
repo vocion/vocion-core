@@ -273,7 +273,7 @@ describe('a failed run recovers', () => {
     const [ask] = await db.select().from(askSchema).where(eq(askSchema.id, meta.recovery.askId));
 
     expect(ask).toMatchObject({ status: 'open', kind: 'approval', sourceRef: expect.stringMatching(new RegExp(`^factory-recovery:${r.id}:`)) });
-    expect(ask!.body).toContain('3. Build (run #');
+    expect(ask!.body).toContain('3. Build (RUN-');
 
     // The typed moment a person is needed (backlog 048): raised once, after
     // the ask exists, carrying what the "needs a person" notification says.
@@ -502,7 +502,7 @@ describe('a planning run that ends without a plan is caught when it ends (#246, 
     // The page says so: planning again, which attempt, and why.
     const recovery = ((await read(r.id)).metadata as { recovery: { line: string } }).recovery;
 
-    expect(recovery.line).toMatch(/^Planning again \(attempt \d of 3\) because the planning run \(automation run #\d+\) ended without filing a plan/);
+    expect(recovery.line).toMatch(/^Planning again \(attempt \d of 3\) because the planning run \(AUTO-\d+\) ended without filing a plan/);
   });
 
   it('plans again when planning went quiet, even with an old rejected plan on the request (#130, 2026-09-30)', async () => {
@@ -601,7 +601,7 @@ describe('a rebuilt worker answers an infrastructure stop (ask #220, 2026-09-28)
 
     // In time order (#294): the resume is stamped before its dispatch logs the attempt it started.
     const texts = meta.recovery.log.map(l => l.text);
-    const resumedAt = texts.indexOf(`New worker (northwind-worker-production 3c9e1a7b) since the stop; building again. Ask #${ask.id} resolved itself.`);
+    const resumedAt = texts.indexOf(`New worker (northwind-worker-production 3c9e1a7b) since the stop; building again. ASK-${ask.id} resolved itself.`);
 
     expect(resumedAt).toBeGreaterThanOrEqual(0);
     expect(texts.slice(resumedAt + 1)).toEqual(['Recovered: New worker (northwind-worker-production 3c9e1a7b) since the stop; building again (attempt 1 of 3).']);
@@ -766,7 +766,7 @@ describe('a stale plan is planned again (#130, 2026-09-29: a plan written before
     });
     const out = await carry.recoverFailedRun(ORG, runId);
 
-    expect(out).toMatchObject({ did: 'replan', line: expect.stringMatching(/^Recovered: planning again because the plan no longer fits the repository: the allowed paths name apps\/old-web .*; plan #\d+ is superseded\.$/) });
+    expect(out).toMatchObject({ did: 'replan', line: expect.stringMatching(/^Recovered: planning again because the plan no longer fits the repository: the allowed paths name apps\/old-web .*; [A-Z]{2,5}-\d+ is superseded\.$/) });
     // Nothing was sent again: the same paths would fail the same way.
     expect(await runsFor(r.id)).toHaveLength(1);
     expect(((await read(plan.id)).metadata as Record<string, unknown>).status).toBe('superseded');
@@ -906,7 +906,7 @@ describe('the contract changed after QA (#201)', () => {
 
     expect((next!.input as { recoveryClass?: string }).recoveryClass).toBe('contract_changed');
     // The write that changed the contract is told what it started, so the answer does not offer to dispatch.
-    expect(await carry.contractChangeReceipt(ORG, r.id, since, 100)).toMatch(new RegExp(`merge #${merge!.id} is held and the next attempt is (started|filed)`));
+    expect(await carry.contractChangeReceipt(ORG, r.id, since, 100)).toMatch(new RegExp(`merge ACT-${merge!.id} is held and the next attempt is (started|filed)`));
   });
 
   it('does nothing when no contract field changed, or no merge is waiting', async () => {

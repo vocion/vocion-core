@@ -15,6 +15,7 @@
 
 import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { restProposalWords } from '@/libs/chat/stepLabels';
+import { nounCode } from '@/libs/codes';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 
 export type RunCallRow = {
@@ -72,18 +73,20 @@ export function callChange(call: RunCallRow, link: RecordLinker = genericRecordL
   const wait = pending ? ' — waiting for a person' : '';
   switch (call.tool) {
     case 'update_object': {
-      const m = /^(\S+) #(\d+)(?: "([^"]*)")? updated/.exec(out);
+      // "FE-294 "…" updated", or an older "request #294 "…" updated".
+      const m = /^(?:(\S+) #|([A-Z]{2,5})-)(\d+)(?: "([^"]*)")? updated/.exec(out);
       const type = m?.[1] ?? str(input.object_type) ?? 'record';
-      const id = m?.[2] ?? str(input.id);
+      const id = m?.[3] ?? str(input.id);
       if (!m && !pending) {
         return null;
       }
-      const name = m?.[3] ? ` "${m[3]}"` : '';
-      return { text: pending ? `Proposed a change to ${type.replace(/_/g, ' ')} #${id}${wait}` : `Updated ${type.replace(/_/g, ' ')} #${id}${name}`, href: objectHref(link, type, id) };
+      const name = m?.[4] ? ` "${m[4]}"` : '';
+      const named = m?.[2] ? `${m[2]}-${id}` : `${type.replace(/_/g, ' ')} #${id}`;
+      return { text: pending ? `Proposed a change to ${named}${wait}` : `Updated ${named}${name}`, href: objectHref(link, type, id) };
     }
     case 'propose_action': {
       const action = str(input.action_id) ?? 'an action';
-      if (/is DONE \(run #/.test(out)) {
+      if (/is DONE \((?:run #|ACT-)/.test(out)) {
         const ids = resultIds(out);
         const href = ids.workerRunId ? `/dashboard/p/runs/${ids.workerRunId}` : ids.objectId ? objectHref(link, ids.objectType, ids.objectId) : ids.taskId ? objectHref(link, 'engineering_task', ids.taskId) : objectHref(link, 'request', ids.requestId);
         const record = ids.objectId ? `${ids.objectType ? ids.objectType.replace(/_/g, ' ') : 'record'} #${ids.objectId}` : null;
@@ -91,7 +94,7 @@ export function callChange(call: RunCallRow, link: RecordLinker = genericRecordL
         if (action === 'objects.propose_candidate' && record) {
           return { text: `Filed ${record}`, href };
         }
-        const what = ids.workerRunId ? ` — run #${ids.workerRunId}` : record ? ` — ${record}` : '';
+        const what = ids.workerRunId ? ` — ${nounCode('run', ids.workerRunId)}` : record ? ` — ${record}` : '';
         return { text: `Ran ${actionWords(action)}${what}`, href };
       }
       if (pending || /was updated in place/.test(out)) {

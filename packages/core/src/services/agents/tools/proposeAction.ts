@@ -19,8 +19,10 @@ import { tool } from '@langchain/core/tools';
 import { explainProposeActionMiss, normalizeProposeActionArgs, proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
 import { listActions } from '@/libs/actions/registry';
 import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
+import { nounCode } from '@/libs/codes';
 import { ActionError, proposeAction, willExecuteOnItsOwn } from '@/services/ActionService';
 import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
+import { codeForRecord } from '@/services/codes';
 import { readsThisTurn } from '@/services/gates/turnReads';
 import { checkProposalBudget, IDEA_ACTION_ID, isAgentsOwnSchedule, isFactoryStep } from '@/services/proposals/ProposalBudgetService';
 import { anchoredFilingCheck } from '../anchoredFiling';
@@ -229,13 +231,13 @@ export async function runProposal(
     }
     if (res.outcome === 'already_decided') {
       const decidedOn = res.decidedAt ? ` on ${res.decidedAt.toISOString().slice(0, 10)}` : '';
-      return `Not proposed: a person already decided this exact record${decidedOn} — action run #${res.runId} is ${res.status}. Nothing was queued and nothing changed. Do not propose it again; move on to records nobody has judged yet.`;
+      return `Not proposed: a person already decided this exact record${decidedOn} — ${nounCode('action', res.runId)} is ${res.status}. Nothing was queued and nothing changed. Do not propose it again; move on to records nobody has judged yet.`;
     }
     if (res.outcome === 'refreshed') {
-      return `Action run #${res.runId} for ${action_id} was updated in place — it was already waiting for approval, and now carries this payload (confidence ${confidence}). No new review item was created. Do NOT claim the change was made.`;
+      return `${nounCode('action', res.runId)} for ${action_id} was updated in place — it was already waiting for approval, and now carries this payload (confidence ${confidence}). No new review item was created. Do NOT claim the change was made.`;
     }
     if (res.status === 'pending') {
-      return withAdvice(`Proposed ${action_id} → action run #${res.runId} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`);
+      return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`);
     }
     // A DONE THAT MADE A RECORD SAYS WHICH, WITH ITS LINK. Conversation
     // 349 (2026-09-28): a request filed within bounds came back as a run
@@ -247,7 +249,8 @@ export async function runProposal(
     if (created) {
       const { recordHref } = await import('@/services/objects/recordHref');
       const href = await recordHref(ctx.orgId, { objectType: created.objectType, id: created.id }).catch(() => undefined);
-      const name = `${created.objectType.replace(/_/g, ' ')} #${created.id}`;
+      // Named by its code (FE-294), the reference the person reads everywhere else.
+      const name = await codeForRecord(ctx.orgId, Number(created.id)).catch(() => null) ?? `${created.objectType.replace(/_/g, ' ')} #${created.id}`;
       if (href) {
         ctx.emit({ type: 'record_created', record: { type: 'object', id: String(created.id), label: created.title ? `${name} — ${created.title}` : name, href } });
       }
@@ -256,7 +259,7 @@ export async function runProposal(
       // The factory's intake is waited on briefly and said here.
       const { filingReceipt } = await import('@/services/factory/carry');
       const started = await filingReceipt(ctx.orgId, { objectType: created.objectType, id: Number(created.id) }).catch(() => null);
-      return withAdvice(`${action_id} is DONE: filed as ${name} (run #${res.runId}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.${started ? `\n\n${started}` : ''}`);
+      return withAdvice(`${action_id} is DONE: filed as ${name} (${nounCode('action', res.runId)}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.${started ? `\n\n${started}` : ''}`);
     }
     // The record it moved, linked, so the person can follow it there.
     // The action names the record it moved (`result.record`); core names no type.
@@ -266,7 +269,7 @@ export async function runProposal(
     const moved = movedType && Number.isInteger(movedId) && movedId > 0
       ? await import('@/services/objects/recordHref').then(m => m.recordHref(ctx.orgId, { objectType: movedType, id: movedId })).catch(() => null)
       : null;
-    return `${action_id} is DONE (run #${res.runId}${asPerson ? ', as the person asked' : `, confidence ${confidence}`}) — it ran without waiting; a person can undo it from the Review queue's Decided tab.${moved ? ` Give the person this link to follow it: [${movedType!.replace(/[_-]+/g, ' ')} #${movedId}](${moved}).` : ''} Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
+    return `${action_id} is DONE (${nounCode('action', res.runId)}${asPerson ? ', as the person asked' : `, confidence ${confidence}`}) — it ran without waiting; a person can undo it from the Review queue's Decided tab.${moved ? ` Give the person this link to follow it: [${await codeForRecord(ctx.orgId, movedId).catch(() => null) ?? `${movedType!.replace(/[_-]+/g, ' ')} #${movedId}`}](${moved}).` : ''} Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
   } catch (err) {
     if (err instanceof ActionError) {
       return opts.refused ? opts.refused(err.code, err.message) : `Proposal refused (${err.code}): ${err.message}`;

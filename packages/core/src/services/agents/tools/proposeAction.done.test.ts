@@ -39,7 +39,7 @@ describe('a DONE proposal that made a record', () => {
       suggested_decision_reason: 'Asked for directly by the product owner.',
     });
 
-    expect(said).toContain('is DONE: filed as request #131 (run #7, confidence 0.8), open at /w/northwind/dashboard/p/feature/131.');
+    expect(said).toContain('is DONE: filed as request #131 (ACT-7, confidence 0.8), open at /w/northwind/dashboard/p/feature/131.');
     expect(said).toContain('the record exists now; no approval is pending');
     expect(said).toContain('[request #131](/w/northwind/dashboard/p/feature/131)');
     expect(events).toContainEqual({

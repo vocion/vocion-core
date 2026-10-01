@@ -18,8 +18,10 @@
 
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
+import { nounCode } from '@/libs/codes';
 import { REOPENABLE_REQUEST_STATES } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
+import { codesForRecords } from '@/services/codes';
 
 export const DISPATCH_ACTION_ID = 'factory.dispatch_task';
 
@@ -941,19 +943,19 @@ export function underwayNow(earlier: readonly EarlierStart[], opts: { trigger?: 
     // planning, the plan was approved two minutes later, and its build was
     // refused as "already building: run #5335 is starting it").
     if (IN_FLIGHT_RUN_STATUSES.includes(run.status) && opts.trigger !== 'plan') {
-      return { line: `run #${run.id} is starting it now`, workerRunId: null };
+      return { line: `${nounCode('action', run.id)} is starting it now`, workerRunId: null };
     }
     if (run.status !== 'done' || !run.result) {
       continue;
     }
     const workerRunId = Number(run.result.workerRunId);
     if (Number.isInteger(workerRunId) && workerRunId > 0 && run.workerStatus && BUILDING_WORKER_STATUSES.includes(run.workerStatus)) {
-      return { line: `run #${workerRunId} (started by action #${run.id}) is ${run.workerStatus}`, workerRunId };
+      return { line: `${nounCode('run', workerRunId)} (started by ${nounCode('action', run.id)}) is ${run.workerStatus}`, workerRunId };
     }
     if (run.result.planning === true && opts.trigger !== 'plan' && run.executedAt && now - run.executedAt.getTime() < PLANNING_HOLD_MS) {
       const minutes = Math.max(0, Math.round((now - run.executedAt.getTime()) / 60_000));
       const why = typeof run.result.why === 'string' ? ` (${run.result.why})` : '';
-      return { line: `run #${run.id} started it ${minutes === 0 ? 'under a minute' : `${minutes} min`} ago and it is planning first${why}; the plan's approval starts the build`, workerRunId: null };
+      return { line: `${nounCode('action', run.id)} started it ${minutes === 0 ? 'under a minute' : `${minutes} min`} ago and it is planning first${why}; the plan's approval starts the build`, workerRunId: null };
     }
   }
   return null;
@@ -1004,7 +1006,7 @@ export async function settleMootDecisions(orgId: string, request: { id: number; 
   const { and, eq, ne, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { actionRunSchema } = await import('@/models/Schema');
-  const why = `A person started request #${request.id}${opts.runId ? ` (run #${opts.runId})` : ''}.`;
+  const why = `A person started request #${request.id}${opts.runId ? ` (${nounCode('action', opts.runId)})` : ''}.`;
   const asks: number[] = [];
   const askId = Number((request.meta.recovery as { askId?: unknown } | undefined)?.askId);
   if (Number.isInteger(askId) && askId > 0) {
@@ -1126,14 +1128,17 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       ? { go: false as const, why: `plan #${plan!.id} ${stale.reason}; it is planned again` }
       : task ? await gateFor(task, plan, request, { personApproving: true, planFirst: input.planFirst }) : { go: true as const };
     const budget = typeof m.tokenBudget === 'number' ? `$${m.tokenBudget}` : 'the worker default';
+    // Each record on the card by its code (FE-294, PL-295, TK-296).
+    const codes = await codesForRecords(ctx.orgId, [request?.id, plan?.id, input.taskId].map(Number));
+    const named = (id: number) => codes.get(id) ?? `#${id}`;
     return {
       title: `Start the build: ${request?.title ?? task?.title ?? `task #${input.taskId}`}`,
       system: 'Factory',
       summary: input.reason,
       fields: [
-        ...(request ? [{ label: 'Request', value: `#${request.id} ${request.title}`, href: `/dashboard/p/feature/${request.id}` }] : []),
-        ...(plan ? [{ label: 'Plan', value: `#${plan.id} ${plan.title}` }] : []),
-        { label: 'Task', value: input.taskId ? `#${input.taskId} ${task?.title ?? ''}`.trim() : `${task?.title ?? ''} (new)` },
+        ...(request ? [{ label: 'Request', value: `${named(request.id)} ${request.title}`, href: `/dashboard/p/feature/${request.id}` }] : []),
+        ...(plan ? [{ label: 'Plan', value: `${named(plan.id)} ${plan.title}` }] : []),
+        { label: 'Task', value: input.taskId ? `${named(Number(input.taskId))} ${task?.title ?? ''}`.trim() : `${task?.title ?? ''} (new)` },
         { label: 'Change', value: str(m, 'objective') ?? '' },
         { label: 'Paths', value: list(m, 'allowedPaths').join(', ') },
         { label: 'Checks', value: list(m, 'requiredChecks').join(', ') },
@@ -1293,7 +1298,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       // open after the build started again at 01:48, and the sweep then read
       // the request as waiting on a person). Whatever started this build, the
       // request's open stop asks are superseded by it.
-      await supersedeStopAsks(ctx.orgId, request.id, input.reason ?? `Building again (run #${run.id}).`).catch(() => undefined);
+      await supersedeStopAsks(ctx.orgId, request.id, input.reason ?? `Building again (${nounCode('run', run.id)}).`).catch(() => undefined);
       // The card was the decision: the acceptance is frozen as the contract
       // and the recommendation is approved, in the same action.
       await writeMeta(ctx.orgId, request.id, {
@@ -1323,7 +1328,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     const runId = Number(result.workerRunId);
     const run = await getWorkerRun(ctx.orgId, runId);
     if (run && run.status !== 'queued') {
-      throw new Error(`Worker run #${runId} is already ${run.status}; stop it from the run instead.`);
+      throw new Error(`${nounCode('run', runId)} is already ${run.status}; stop it from the run instead.`);
     }
     if (run) {
       await cancelWorkerRun(ctx.orgId, runId);

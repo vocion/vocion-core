@@ -4,7 +4,8 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { askSchema, businessObjectSchema, businessObjectTypeSchema, workerRunSchema } = await import('@/models/Schema');
-const { codeForRecord, resolveCode, typeCodesForOrg } = await import('./codes');
+const { codeForRecord, codesForRecords, resolveCode, typeCodesForOrg } = await import('./codes');
+const { recordIdOf } = await import('./agents/tools/recordIdArg');
 
 const ORG = 'proj_codes_northwind';
 const OTHER = 'proj_codes_kestrel';
@@ -76,5 +77,25 @@ describe('codeForRecord', () => {
   it('writes a record\'s code from its id', async () => {
     expect(await codeForRecord(ORG, feature)).toBe(`FE-${feature}`);
     expect(await codeForRecord(OTHER, feature)).toBeNull();
+  });
+});
+
+describe('codesForRecords', () => {
+  it('names many records in one read, leaving out ids the org does not have', async () => {
+    const codes = await codesForRecords(ORG, [feature, plan, 999_999]);
+
+    expect(codes.get(feature)).toBe(`FE-${feature}`);
+    expect(codes.get(plan)).toBe(`PL-${plan}`);
+    expect(codes.has(999_999)).toBe(false);
+  });
+});
+
+describe('recordIdOf (a tool call\'s record argument)', () => {
+  it('takes a code or an id, and refuses a code of the wrong type, saying what it is', async () => {
+    expect(await recordIdOf(ORG, `fe-${feature}`)).toEqual({ id: feature });
+    expect(await recordIdOf(ORG, feature)).toEqual({ id: feature });
+    expect(await recordIdOf(ORG, `#${feature}`)).toEqual({ id: feature });
+    expect(await recordIdOf(ORG, `FE-${plan}`)).toEqual({ reason: expect.stringContaining(`is PL-${plan}`) });
+    expect(await recordIdOf(ORG, `RUN-${run}`)).toEqual({ reason: `RUN-${run} is not a record` });
   });
 });

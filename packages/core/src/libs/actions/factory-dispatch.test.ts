@@ -384,7 +384,7 @@ describe('a plan\'s own build is never refused as a second start (#201, 2026-09-
     const executing = [{ id: 5335, status: 'executing', executedAt: null, result: null }];
 
     expect(underwayRefusal(executing, { trigger: 'plan' })).toBeNull();
-    expect(underwayRefusal(executing, { trigger: 'recovery' })).toMatch(/^already building: run #5335/);
+    expect(underwayRefusal(executing, { trigger: 'recovery' })).toMatch(/^already building: ACT-5335/);
   });
 });
 
@@ -392,8 +392,8 @@ describe('a start of something already running is answered, not refused (convers
   it('names the worker run to follow', () => {
     const building = [{ id: 5381, status: 'done', executedAt: new Date(), result: { workerRunId: 432 }, workerStatus: 'queued' }];
 
-    expect(underwayNow(building)).toEqual({ line: 'run #432 (started by action #5381) is queued', workerRunId: 432 });
-    expect(underwayRefusal(building)).toBe('already building: run #432 (started by action #5381) is queued. Nothing new was started — follow that run.');
+    expect(underwayNow(building)).toEqual({ line: 'RUN-432 (started by ACT-5381) is queued', workerRunId: 432 });
+    expect(underwayRefusal(building)).toBe('already building: RUN-432 (started by ACT-5381) is queued. Nothing new was started — follow that run.');
     expect(underwayNow([])).toBeNull();
   });
 });

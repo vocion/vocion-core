@@ -21,6 +21,7 @@
  */
 
 import type { PlanTrigger } from './planRule';
+import { nounCode } from '@/libs/codes';
 import { planRequirement } from './planRule';
 
 /** Automatic attempts per request since the last person action. */
@@ -649,7 +650,7 @@ export function intakeDecision(input: { meta: Record<string, unknown>; origin: {
   }
   if (fix && input.origin.conversationId && input.origin.byPerson) {
     const what = [kind, severity?.toUpperCase()].filter(Boolean).join(', ');
-    return { do: 'start', why: `a person asked for this fix in conversation #${input.origin.conversationId} (${what}, ${acceptance.length} acceptance criteri${acceptance.length === 1 ? 'on' : 'a'})` };
+    return { do: 'start', why: `a person asked for this fix in ${nounCode('conversation', input.origin.conversationId)} (${what}, ${acceptance.length} acceptance criteri${acceptance.length === 1 ? 'on' : 'a'})` };
   }
   return { do: 'card', why: fix ? 'it was not asked for in a conversation, so a person starts it' : 'it is not a fix a person asked for, so a person decides whether to build it' };
 }

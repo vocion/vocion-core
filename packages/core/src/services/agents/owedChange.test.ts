@@ -87,7 +87,7 @@ describe('the line the person reads', () => {
     expect(changeLine('request #214 "Download CSV" updated — acceptance written (run #9, confidence 0.9). Done for you;', 'request #214', '/w/northwind/dashboard/p/feature/214', 'Added a pages-read column and a title-plus-date filename.'))
       .toBe('Changed [request #214](/w/northwind/dashboard/p/feature/214): Added a pages-read column and a title-plus-date filename.');
     expect(changeLine('Update to request #214 (acceptance) is PENDING a person\'s decision (run #9, confidence 0.5 was under the bar', 'request #214', null, 'Added a column'))
-      .toBe('The change to request #214 is waiting in Review as action run #9: Added a column. Nothing is changed until a person approves it.');
+      .toBe('The change to request #214 is waiting in Review as ACT-9: Added a column. Nothing is changed until a person approves it.');
     expect(changeLine('Update refused (invalid): …', 'request #214', null, 'x')).toBeNull();
   });
 });
@@ -123,7 +123,7 @@ describe('the change pass', () => {
     const res = await changeOwedRecord({ request: 'Update the story to say founders.', history: [], answer: '', record: RECORD, tool: updateObjectTool(ctx), model: model as never });
 
     expect(res.filed).toBe(true);
-    expect(res.line).toMatch(/^The change to \[request #214\]\(.+\) is waiting in Review as action run #5001: Reworded the story\./);
+    expect(res.line).toMatch(/^The change to \[request #214\]\(.+\) is waiting in Review as ACT-5001: Reworded the story\./);
   });
 
   it('a model that makes no call changes nothing and says why', async () => {
