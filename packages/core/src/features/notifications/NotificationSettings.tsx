@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Column, ListEmpty, ListRow, ListRows, ListSkeleton } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ageLabel } from '@/libs/timeAgo';
@@ -25,25 +26,6 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(body?.error?.message ?? `request failed (${res.status})`);
   }
   return res.json() as Promise<T>;
-}
-
-function Toggle(props: { on: boolean; disabled?: boolean; label: string; onChange: (on: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={props.on}
-      aria-label={props.label}
-      disabled={props.disabled}
-      onClick={() => props.onChange(!props.on)}
-      className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
-        props.on ? 'bg-foreground' : 'bg-foreground/15',
-      )}
-    >
-      <span className={cn('inline-block size-4 rounded-full bg-background shadow transition-transform', props.on ? 'translate-x-[18px]' : 'translate-x-0.5')} />
-    </button>
-  );
 }
 
 /**
@@ -165,12 +147,12 @@ export function NotificationSettings() {
                               ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <span className="inline-flex"><Toggle on disabled label={`${k.label}: ${c.label}`} onChange={() => {}} /></span>
+                                      <span className="inline-flex"><Switch on disabled label={`${k.label}: ${c.label}`} onChange={() => {}} /></span>
                                     </TooltipTrigger>
                                     <TooltipContent>Always on — the bell keeps every notification.</TooltipContent>
                                   </Tooltip>
                                 )
-                              : <Toggle on={isOn(k.kind, c)} label={`${k.label}: ${c.label}`} onChange={on => void save({ channels: { [k.kind]: { [c.id]: on } } })} />}
+                              : <Switch on={isOn(k.kind, c)} label={`${k.label}: ${c.label}`} onChange={on => void save({ channels: { [k.kind]: { [c.id]: on } } })} />}
                           </td>
                         ))}
                       </tr>
@@ -187,7 +169,7 @@ export function NotificationSettings() {
             <h2 id="quiet-heading" className="text-sm font-semibold">Quiet hours</h2>
             <p className="mt-1 text-[13px] text-muted-foreground">Push, email and Slack wait until they end. The bell never waits.</p>
           </div>
-          <Toggle on={prefs.quietHours !== null} label="Quiet hours" onChange={on => void save({ quietHours: on ? { start: '22:00', end: '07:00', timeZone: zone } : null })} />
+          <Switch on={prefs.quietHours !== null} label="Quiet hours" onChange={on => void save({ quietHours: on ? { start: '22:00', end: '07:00', timeZone: zone } : null })} />
         </div>
         {prefs.quietHours && (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">

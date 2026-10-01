@@ -1,328 +1,112 @@
+import type { PlanPlugin } from '@/features/dashboard/automations/automationsPlan';
 import { eq } from 'drizzle-orm';
-import { CalendarClock, Cog, Compass, Database, GitBranch, History, Zap } from 'lucide-react';
+import { History } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { EmptyState } from '@/components/ui/empty-state';
-import { StatusPill } from '@/components/ui/status-pill';
-import { AutomationCardStatus } from '@/features/dashboard/AutomationCardStatus';
-import { AutomationPauseControl } from '@/features/dashboard/AutomationPauseControl';
-import { checkResultOf, pauseStateOf } from '@/features/dashboard/automationResult';
-import { AutomationTestRun } from '@/features/dashboard/AutomationTestRun';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
+import { AutomationsList } from '@/features/dashboard/automations/AutomationsList';
+import { planAutomations } from '@/features/dashboard/automations/automationsPlan';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
+import { listPluginSlugs, loadPlugin, pluginContents } from '@/libs/workspace/plugins';
 import { knowledgeSourceSchema } from '@/models/Schema';
 import { listAgents } from '@/services/AgentService';
-import {
-  automationOwnerAgentSlug,
-  automationSourceFreshness,
-  describeAutomationSchedule,
-  lastRunBySlug,
-  listAutomations,
-  pausesFor,
-  recentSkipsBySlug,
-  scheduleHealth,
-} from '@/services/AutomationService';
+import { automationOwnerAgentSlug, lastRunBySlug, listAutomations, pausesFor } from '@/services/AutomationService';
 import { listMissions } from '@/services/MissionService';
-import { isEntityStatus } from '@/types/Status';
+import { enabledPluginsForOrg } from '@/services/PluginService';
+
+export const dynamic = 'force-dynamic';
 
 /**
- * Automation — the WHEN of the system, as first-class objects.
+ * AUTOMATIONS — every automation in the workspace, with its switch (Chris,
+ * 2026-10-01: "Put all those automations on an Automations page with toggle
+ * switches. Make it on main nav under More dropdown. Leave most off").
  *
- * Each automation binds a trigger to a piece of work:
- *   when: a schedule (cron) or an event
- *   do:   run a workflow (deterministic procedure), check a mission (the team's
- *         judgment pass on a standing goal, optionally with an authored
- *         execution prompt), or run a built-in job (deterministic server code)
+ * One row per automation, grouped by the plugin that ships it and the
+ * workspace's own last: its name, what it reacts to, the seat that owns it,
+ * its last run, and a switch. Switching one off pauses it and switching it on
+ * resumes it — the same pause the automation's own page records, with who and
+ * when, and Undo in the toast. Which ones are on is each workspace's decision,
+ * not this page's: nothing here switches anything by itself.
  *
- * This page is the DEFINITION side: what the automation does, when it fires,
- * who owns it, whether it is overdue, how fresh the data it reads is, and a
- * Test run control. The HISTORY side is its own surface — the run log at
- * `/dashboard/automation/runs`, and one automation's fires at
- * `/dashboard/automation/<slug>`.
- *
- * Authored in workspace/<org>/automations/*.yaml. Source-sync crons are
- * listed below for completeness (they're connector config, not automations).
+ * The automation's own page (`/dashboard/automation/<slug>`) keeps the rest:
+ * its parameters, its schedule's health, a test run and every fire.
  * @param props
  * @param props.params
  */
-export default async function AutomationPage(props: {
-  params: Promise<{ locale: string }>;
-}) {
+export default async function AutomationsPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
     return null;
   }
-
-  const [missions, agents, lastRuns, skips] = await Promise.all([
+  const now = await currentTime();
+  const [rows, missions, agents, lastRuns, enabled] = await Promise.all([
+    listAutomations(orgId),
     listMissions(orgId),
     listAgents(orgId),
     lastRunBySlug(orgId),
-    recentSkipsBySlug(orgId),
+    enabledPluginsForOrg(orgId).catch(() => [] as string[]),
   ]);
-  const missionAgentBySlug = new Map(missions.map(m => [m.slug, m.agentSlug]));
-  const agentNameBySlug = new Map(agents.map(ag => [ag.slug, ag.name]));
-
-  const rows = await listAutomations(orgId);
   const pauses = await pausesFor(rows, orgId);
-  const automations = await Promise.all(
-    rows.map(async (a) => {
-      const live = a.whenConfig.schedule ? await describeAutomationSchedule(orgId, a.slug) : null;
-      const lastRun = lastRuns.get(a.slug) ?? null;
-      const pause = pauses.get(a.slug) ?? null;
-      // The mirror slugs come from the last fire's own tool calls, so the
-      // freshness shown is of the data this work actually reads.
-      const mirrorSlugs = checkResultOf(lastRun?.result)?.mirror?.sources ?? [];
-      return {
-        ...a,
-        live,
-        pause,
-        ownerSlug: automationOwnerAgentSlug(a, missionAgentBySlug),
-        lastRun,
-        skips: skips.get(a.slug) ?? null,
-        health: scheduleHealth({
-          cron: a.whenConfig.schedule ?? null,
-          lastFireAt: lastRun?.startedAt ?? null,
-          // A person's pause is quiet on purpose; so is one placed in Temporal
-          // directly, though that one is flagged on the card as not from here.
-          paused: live?.paused || pause !== null,
-        }),
-        freshness: await automationSourceFreshness(orgId, mirrorSlugs),
-      };
-    }),
-  );
-  const sources = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, orgId));
-  const syncing = sources.filter((s) => {
-    const cfg = s.configJson as { schedule?: string } | null;
-    return s.enabled === 'true' && cfg?.schedule;
+  const missionAgent = new Map(missions.map(m => [m.slug, m.agentSlug]));
+  const agentName = new Map(agents.map(a => [a.slug, a.name]));
+  const shipped = new Set(listPluginSlugs());
+  const plugins: PlanPlugin[] = enabled.filter(slug => shipped.has(slug)).map((slug) => {
+    const plugin = loadPlugin(slug);
+    return { slug, name: plugin.manifest.name, automations: pluginContents(plugin).automations };
+  });
+  const groups = planAutomations({
+    automations: rows,
+    plugins,
+    owners: new Map(rows.map((a) => {
+      const owner = automationOwnerAgentSlug(a, missionAgent);
+      return [a.slug, owner ? agentName.get(owner) ?? owner : null] as const;
+    })),
+    lastRuns: new Map([...lastRuns].map(([slug, r]) => [slug, { status: r.status, startedAt: r.startedAt }])),
+    pausers: new Map([...pauses].map(([slug, p]) => [slug, p.by.name ?? p.by.id])),
+    now,
   });
 
+  // Connector refresh crons are connector config, not automations; listed so
+  // "what runs on a schedule here" has one answer.
+  const sources = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, orgId));
+  const syncing = sources.filter(s => s.enabled === 'true' && (s.configJson as { schedule?: string } | null)?.schedule);
+
   return (
-    <>
-      <TitleBar
-        title="Automation"
-        description="When things happen. Each automation binds a trigger — a schedule or an event — to a workflow run or a mission check."
-        actions={(
-          <Link
-            href="/dashboard/automation/runs"
-            title="Every fire, every automation"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
-          >
-            <History className="size-3.5" />
-            Run log
-          </Link>
-        )}
-      />
-
-      {automations.length === 0
-        ? (
-            <EmptyState
-              icon={CalendarClock}
-              title="No automations yet"
-              description="Author one in workspace/<org>/automations/ — when: {schedule | event} → do: {workflow | checkMission} — and run workspace:apply."
-            />
-          )
-        : (
-            <div className="mb-6 flex flex-col gap-2">
-              {automations.map((a) => {
-                const next = a.live?.nextActionTimes?.[0] ?? null;
-                return (
-                  <div key={a.slug} className="rounded-lg border border-border bg-background p-4">
-                    <div className="flex flex-wrap items-start gap-3">
-                      <CalendarClock className="mt-0.5 size-4 shrink-0 text-primary" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Link href={`/dashboard/automation/${a.slug}`} className="text-sm font-medium hover:underline">
-                            {a.name}
-                          </Link>
-                          <StatusPill status={a.status && isEntityStatus(a.status) ? a.status : 'inactive'} />
-                        </div>
-
-                        {/* What it does, in the author's words. Stored on the row
-                            all along and never rendered until now. */}
-                        {a.description && (
-                          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{a.description}</p>
-                        )}
-
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                          {a.whenConfig.schedule
-                            ? (
-                                <span title={a.whenConfig.schedule}>
-                                  {cronToText(a.whenConfig.schedule)}
-                                </span>
-                              )
-                            : (
-                                <span className="inline-flex items-center gap-1">
-                                  <Zap className="size-3" />
-                                  on
-                                  {' '}
-                                  <code className="font-mono">{a.whenConfig.event}</code>
-                                </span>
-                              )}
-                          <span aria-hidden>→</span>
-                          <DoTarget doConfig={a.doConfig} />
-                          {a.ownerSlug && (
-                            <>
-                              <span aria-hidden>·</span>
-                              <Link
-                                href={`/dashboard/agents/${a.ownerSlug}`}
-                                className="inline-flex items-center gap-1 hover:underline"
-                                title={a.ownerAgentSlug ? 'Owning agent' : 'Owner inherited from the mission'}
-                              >
-                                <Compass className="size-3" />
-                                {agentNameBySlug.get(a.ownerSlug) ?? a.ownerSlug}
-                                {!a.ownerAgentSlug && <span className="text-muted-foreground/60">(via mission)</span>}
-                              </Link>
-                            </>
-                          )}
-                        </div>
-
-                        {/* The operating parameters — for a job/workflow these ARE
-                            the behaviour, so "what is it doing" is unanswerable
-                            without them. */}
-                        <Params input={a.doConfig.input} />
-                      </div>
-
-                      <div className="shrink-0 text-right text-[11px] text-muted-foreground">
-                        {a.live?.paused && !a.pause && (
-                          <div className="text-amber-600" title="The Temporal schedule is paused, but not from this app — nobody is on the record for it. Pause it here to put a name on it, or resume it in Temporal.">
-                            paused in Temporal, not from here
-                          </div>
-                        )}
-                        {next && (
-                          <div>
-                            next
-                            {' '}
-                            {next.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                          </div>
-                        )}
-                        {a.whenConfig.schedule && !a.live && (
-                          <div title="Temporal has no live schedule yet — run workspace:apply with Temporal up.">not scheduled yet</div>
-                        )}
-                        <AutomationCardStatus run={a.lastRun} health={a.health} freshness={a.freshness} slug={a.slug} skips={a.skips} />
-                      </div>
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-border pt-3">
-                      <AutomationPauseControl slug={a.slug} paused={a.pause ? pauseStateOf(a.pause) : null} />
-                      <AutomationTestRun
-                        slug={a.slug}
-                        kind={a.doConfig.checkMission ? 'mission_check' : a.doConfig.workflow ? 'workflow' : 'job'}
-                        supportsDay={false}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-      {syncing.length > 0 && (
-        <div className="rounded-md border border-border p-5">
-          <div className="mb-1 flex items-center gap-2 text-base font-semibold">
-            <Database className="size-4 text-primary" />
-            Source syncs
-          </div>
-          <p className="mb-3 text-sm text-muted-foreground">Connector refresh crons — configured on each connector, incremental from its checkpoint.</p>
-          {syncing.map((s) => {
-            const cfg = s.configJson as { schedule?: string };
-            return (
-              <div key={s.slug} className="flex items-center gap-3 border-b border-border py-2 text-sm last:border-0">
-                <Link href="/dashboard/connectors" className="font-medium hover:underline">{s.slug}</Link>
-                <span className="text-[11px] text-muted-foreground" title={cfg.schedule}>{cronToText(cfg.schedule ?? '')}</span>
-              </div>
-            );
-          })}
-        </div>
+    <ListPage
+      title="Automations"
+      description="Every automation in this workspace. Switch one off to pause it: who switched it, and when, stays on its record, and Undo puts it back."
+      actions={(
+        <Link href="/dashboard/automation/runs" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted">
+          <History className="size-3.5" />
+          Run log
+        </Link>
       )}
-    </>
+    >
+      <AutomationsList groups={groups} />
+      {syncing.length > 0 && (
+        <section className="mt-8" aria-label="Source syncs">
+          <h2 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Source syncs</h2>
+          <ListRows>
+            {syncing.map(s => (
+              <ListRow
+                key={s.slug}
+                href="/dashboard/connectors"
+                title={s.slug}
+                subline={<Subline segments={[cronToText((s.configJson as { schedule?: string }).schedule ?? ''), 'Set on the connector']} separator="·" />}
+              />
+            ))}
+          </ListRows>
+        </section>
+      )}
+    </ListPage>
   );
 }
 
-type DoConfig = { workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> };
-
-/**
- * What the automation runs. Three do-types, not two: a `job` is a built-in
- * deterministic server task, and it has no page of its own to link to —
- * rendering it as a workflow produced an empty label and a dead link.
- * @param props
- * @param props.doConfig
- */
-function DoTarget({ doConfig }: { doConfig: DoConfig }) {
-  if (doConfig.checkMission) {
-    return (
-      <Link href="/dashboard/missions" className="inline-flex items-center gap-1 hover:underline">
-        <Compass className="size-3" />
-        check mission:
-        {' '}
-        {doConfig.checkMission}
-      </Link>
-    );
-  }
-  if (doConfig.workflow) {
-    return (
-      <Link href={`/dashboard/workflows/${doConfig.workflow}`} className="inline-flex items-center gap-1 hover:underline">
-        <GitBranch className="size-3" />
-        run workflow:
-        {' '}
-        {doConfig.workflow}
-      </Link>
-    );
-  }
-  if (doConfig.job) {
-    return (
-      <span className="inline-flex items-center gap-1" title="Built-in server job — deterministic code, not an agent or a workflow">
-        <Cog className="size-3" />
-        run job:
-        {' '}
-        <code className="font-mono">{doConfig.job}</code>
-      </span>
-    );
-  }
-  return <span className="text-amber-600">no work configured</span>;
-}
-
-/**
- * The `do.input` parameters, flattened one level so nested filters stay readable.
- * @param root0
- * @param root0.input
- */
-function Params({ input }: { input: Record<string, unknown> | undefined }) {
-  const entries = Object.entries(input ?? {});
-  if (entries.length === 0) {
-    return null;
-  }
-  return (
-    <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-      {entries.map(([k, v]) => (
-        <div key={k} className="text-[11px]">
-          <dt className="inline text-muted-foreground">
-            {k}
-            :
-            {' '}
-          </dt>
-          <dd className="inline font-mono">{formatParam(v)}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function formatParam(v: unknown): string {
-  if (v === null || v === undefined) {
-    return '—';
-  }
-  if (Array.isArray(v)) {
-    return v.length === 0 ? 'any' : v.join(', ');
-  }
-  if (typeof v === 'object') {
-    const inner = Object.entries(v as Record<string, unknown>)
-      .map(([k, val]) => `${k}=${formatParam(val)}`)
-      .join(' · ');
-    return inner || '—';
-  }
-  return String(v);
+/** Now, read once per render: `Date.now()` counts as impure inside a render. */
+async function currentTime(): Promise<number> {
+  return Date.now();
 }
