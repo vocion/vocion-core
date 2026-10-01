@@ -13,7 +13,7 @@ const { db } = await import('@/libs/DB');
 const { askSchema, businessObjectSchema, workerRunSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
-const { reconcileOpenPulls, recheckFixedBranches, watchQueuedRuns } = await import('./reconcile');
+const { reconcileOpenPulls, recheckFixedBranches, settleClosedRequests, watchQueuedRuns } = await import('./reconcile');
 
 const ORG = 'org_factory_reconcile';
 const REPO = 'Acme/northwind-core';
@@ -146,5 +146,25 @@ describe('runs queued past pickup', () => {
     await watchQueuedRuns(ORG, new Date(), 'release-engineer');
 
     expect((await db.select().from(askSchema).where(eq(askSchema.id, ask!.id)))[0]!.status).not.toBe('open');
+  });
+});
+
+describe('a closed request leaves no stage behind', () => {
+  it('settles a shipped request still reading Recovering, and leaves an open one alone (#269, 2026-10-01)', async () => {
+    const recovering = { stage: 'recovering', line: 'Recovering (attempt 2 of 3): QA sent attempt #71 back', attempts: [], since: null, limit: 3, askId: null, planRequestedAt: null, handledRunIds: [], log: [] };
+    const [shipped] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.request!, title: 'Rooms theme toggle', metadata: { state: 'shipped', recovery: recovering } }).returning();
+    const [open] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.request!, title: 'Rooms export', metadata: { state: 'building', recovery: recovering } }).returning();
+
+    const out = await settleClosedRequests(ORG, new Date('2026-10-01T02:00:00Z'));
+
+    expect(out.map(r => r.requestId)).toContain(shipped!.id);
+    expect(out.map(r => r.requestId)).not.toContain(open!.id);
+
+    const [after] = await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.id, shipped!.id));
+    const rec = (after!.metadata as { recovery: { stage: unknown; line: unknown; log: Array<{ text: string }> } }).recovery;
+
+    expect(rec.stage).toBeNull();
+    expect(rec.line).toBeNull();
+    expect(rec.log.at(-1)?.text).toMatch(/^Closed \(shipped\)/);
   });
 });

@@ -301,6 +301,36 @@ export async function watchQueuedRuns(orgId: string, now: Date, owner: string | 
  * @param now - The clock.
  * @param deps - Injected in tests.
  */
+/**
+ * A closed request still carrying a recovery stage is settled: a release, a
+ * deferral or an answer closed it while a stage line was left behind.
+ * Keyed on the request's own fields (its state and recovery), no type named.
+ * @param orgId - Tenant.
+ * @param now - The clock.
+ */
+export async function settleClosedRequests(orgId: string, now: Date): Promise<Result[]> {
+  const { and, eq, inArray, isNotNull, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const { CLOSED_REQUEST_STATES } = await import('@/libs/factory/requestStates');
+  const { readRecovery, settleRecovery } = await import('./recovery');
+  const { writeMeta } = await import('@/libs/actions/factory-dispatch');
+  const rows = await db.select({ id: businessObjectSchema.id, meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(
+    eq(businessObjectSchema.orgId, orgId),
+    inArray(sql<string>`${businessObjectSchema.metadata}->>'state'`, [...CLOSED_REQUEST_STATES]),
+    isNotNull(sql`${businessObjectSchema.metadata}->'recovery'->>'stage'`),
+  )).limit(20);
+  const out: Result[] = [];
+  for (const row of rows) {
+    const meta = (row.meta ?? {}) as Meta;
+    const state = String(meta.state);
+    const recovery = settleRecovery(readRecovery(meta), `Closed (${state.replace(/_/g, ' ')}); nothing is carrying it any more.`, now.toISOString());
+    await writeMeta(orgId, row.id, { recovery });
+    out.push({ requestId: row.id, did: 'settled', line: null });
+  }
+  return out;
+}
+
 export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Date = new Date(), deps?: ReconcileDeps): Promise<{ acted: Result[] }> {
   const d = deps ?? await defaultDeps();
   const owner = str(input.owner);
@@ -321,6 +351,7 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the merge read-back', async () => (await (await import('./delivery')).refreshDeliveries(orgId, now, d.deliveries)).map(r => ({ requestId: r.requestId, did: r.did, line: null })));
   await step('the pipeline changes', async () => (await import('./pipelineChange')).reconcileChanges(orgId, now, owner));
   await step('the unanswered pipeline fixes', async () => (await import('./pipelineChange')).watchUnanswered(orgId, now, owner));
+  await step('the closed requests', () => settleClosedRequests(orgId, now));
   await step('the missed deploys', async () => (await import('./environments')).watchMissedDeploys(orgId, now, owner).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));
   return { acted };
 }

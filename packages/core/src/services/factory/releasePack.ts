@@ -16,6 +16,7 @@ import { db } from '@/libs/DB';
 import { criterionEvidence } from '@/libs/workspace/criterionEvidence';
 import { featureProof, risksLine } from '@/libs/workspace/featureProof';
 import { artifactSchema, businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { readRecovery, settleRecovery } from './recovery';
 
 /**
  * `https://github.com/o/r/pull/12/files` → `https://github.com/o/r/pull/12`.
@@ -218,7 +219,8 @@ export async function buildReleasePack(orgId: string, releaseId: number): Promis
         ? { ...a, met: true, evidence: c.evidence ?? `QA, release #${releaseId}`, ...(c.evidenceUrl ? { evidenceUrl: c.evidenceUrl } : {}), provenBy: { taskId: proof.attempt!.taskId, releaseId } }
         : a;
     });
-    requestMeta.push({ id: request.id, set: { state: 'shipped', shippedAt: releasedAt, shippedIn: releaseId, ...(judged && acceptance.length > 0 ? { acceptance: marked } : {}) } });
+    const recovery = request.meta.recovery && typeof request.meta.recovery === 'object' ? settleRecovery(readRecovery(request.meta), `Shipped in release #${releaseId}.`, releasedAt) : undefined;
+    requestMeta.push({ id: request.id, set: { state: 'shipped', shippedAt: releasedAt, shippedIn: releaseId, ...(recovery ? { recovery } : {}), ...(judged && acceptance.length > 0 ? { acceptance: marked } : {}) } });
   }
   return { requestIds, taskIds, evidence, reverted, releaseMeta, requestMeta };
 }

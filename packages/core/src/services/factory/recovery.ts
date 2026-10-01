@@ -122,6 +122,19 @@ export function readRecovery(meta: Record<string, unknown> | null | undefined): 
  * @param at - When.
  * @param runId - The run it was about, when there is one.
  */
+/**
+ * The work is done (shipped, deferred, answered): nothing is planning,
+ * recovering or stopped any more, so the stage, its sentence and any open
+ * escalation go, and the log says why. #269 shipped in release #281 and its
+ * page still read "Recovering (attempt 2 of 3)" (2026-10-01).
+ * @param state - The request's recovery.
+ * @param text - What closed it, for the log.
+ * @param at - When.
+ */
+export function settleRecovery(state: RecoveryState, text: string, at: string): RecoveryState {
+  return logLine({ ...state, stage: null, line: null, askId: null }, text, at);
+}
+
 export function logLine(state: RecoveryState, text: string, at: string, runId: number | null = null): RecoveryState {
   return { ...state, log: [...state.log, { at, text, runId }].slice(-LOG_MAX) };
 }
