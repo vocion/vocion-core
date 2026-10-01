@@ -17,8 +17,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { connectStartHref, safeReturnPath } from '@/libs/connect/returnTo';
-import { returnUrl } from '@/libs/connect/routes';
+import { connectStartHref, returnUrl, safeReturnPath } from '@/libs/connect/returnTo';
 import {
   buildConfigFromFields,
   configFieldsFor,

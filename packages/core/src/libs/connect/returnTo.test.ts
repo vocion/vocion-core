@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/Env', () => ({ Env: { AUTH_SECRET: 'test-secret-0123456789abcdef' } }));
 
-const { connectReturnPrompt, connectStartHref, safeReturnPath } = await import('./returnTo');
-const { returnUrl } = await import('./routes');
+const { connectReturnPrompt, connectStartHref, returnUrl, safeReturnPath } = await import('./returnTo');
 const { signState, verifyState } = await import('./state');
 
 describe('safeReturnPath — never an open redirect', () => {
