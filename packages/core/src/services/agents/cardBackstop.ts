@@ -662,7 +662,13 @@ export async function realCardBackstopDeps(opts: { ctx: RuntimeContext; orgId: s
       if (!parsed.success) {
         return `its input does not fit ${actionId}: ${parsed.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`;
       }
-      return (await action.precheck?.({ orgId: opts.orgId, invokedBy: `agent:${opts.agentSlug}` }, parsed.data)) || undefined;
+      // A CARD IS PRESSED BY THE PERSON (conversation 411, 2026-10-01): pressing
+      // it proposes the action as them (`Review.propose`, invokedBy the
+      // person), so it is checked as them. Checked as the seat, the revert
+      // card for a production outage was refused ("the pipeline's own move")
+      // and never went up, though the person's press would have run it.
+      const presser = ctx.userId && !ctx.missionRunId ? ctx.userId : `agent:${opts.agentSlug}`;
+      return (await action.precheck?.({ orgId: opts.orgId, invokedBy: presser }, parsed.data)) || undefined;
     },
     repair: (actionId, input, label) => {
       const action = registry.getAction(actionId);

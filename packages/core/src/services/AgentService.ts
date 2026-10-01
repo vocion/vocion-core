@@ -255,6 +255,17 @@ export type TurnGuaranteeInput = {
 };
 
 /**
+ * What an agent is told when its reply claims work its steps do not show:
+ * do it, with its tools, or put up the card for it, or hand it to the seat
+ * that owns it; never say it still needs doing (conversation 411).
+ * @param claim - The claim, as the judge quoted it.
+ * @param message - The person's message this turn.
+ */
+export function owedWorkNudge(claim: string, message: string): string {
+  return `Your reply says "${claim.slice(0, 300)}", and the steps you took do not show it done. The person said: "${message.slice(0, 300)}". Do it now, with your tools: make each call it takes (file the record, put up the card). When an action is another seat's to take, hand it to that seat with what broke and what you found, or put up the card for the person to press. Then say what you did, with its link. Never say that something still needs to happen, and never write a tool call as text. Do not repeat a call you already made.`;
+}
+
+/**
  * Everything a finished turn owes the person, applied in code rather than
  * asked for in a prompt:
  *
@@ -1228,9 +1239,16 @@ export async function runAgentDeep(opts: {
       // the pass ended on announcing it. A call the model wrote out as text is
       // the act, and runs below.
       const announced = !empty && !narratedName && textCalls.length === 0 && intent.wants_action && judged.ends_on_promise ? (judged.promise ?? soFar.slice(-200)) : null;
-      const continued = empty || !judged.answered || judged.ends_on_promise || narratedName !== null;
+      // A CLAIM WITH NOTHING BEHIND IT IS FINISHED, NOT CONFESSED (2026-10-01,
+      // conversation 411: "Fix this, now" on a production outage; the PM said
+      // "I'm filing the incident and putting the revert card up now", made
+      // neither, and the turn ended "The filing and card were not put up —
+      // they need to happen now"). The judge's typed reading that the reply
+      // claims work the steps do not show sends the agent back to do it.
+      const unrecorded = !empty && !narratedName && !announced && judged.claims_unrecorded_work ? (judged.claim ?? soFar.slice(-200)) : null;
+      const continued = empty || !judged.answered || judged.ends_on_promise || narratedName !== null || unrecorded !== null;
       if (continued) {
-        const why = empty ? 'returned nothing' : narratedName ? `wrote the ${narratedName} call out as text` : announced ? 'announced an action it did not take' : !judged.answered ? 'did not answer' : 'ended on a promise';
+        const why = empty ? 'returned nothing' : narratedName ? `wrote the ${narratedName} call out as text` : announced ? 'announced an action it did not take' : unrecorded ? 'claimed work it did not do' : !judged.answered ? 'did not answer' : 'ended on a promise';
         console.warn(`agent turn: ${why}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, text: soFar.slice(0, 80), judged });
         emit({ type: 'status', label: narratedName ? `Making the ${narratedName} call it described` : toolCallLog.length > 0 ? `Reading what ${toolCallLog.length} step${toolCallLog.length === 1 ? '' : 's'} found` : 'Looking up what it needs' });
         if (narratedName) {
@@ -1246,11 +1264,13 @@ export async function runAgentDeep(opts: {
           ? 'You returned nothing — no words and no tool call. Answer the person now: run the lookups you need and reply.'
           : announced
             ? `You ended your turn on "${announced}" — an announcement, not the action — and the person told you what to do: "${opts.message.slice(0, 300)}". Do it now, with your tools: make the calls it takes${waiting.length > 0 ? `; what is waiting on them, and the call that decides each:\n${describeOpenDecisions(waiting)}\n` : '. '}Then say what you did and what it started. Do not repeat that sentence, and never write a tool call as text.`
-            : narratedName
-              ? `Your last message wrote a ${narratedName} call out as text instead of calling it, so nothing happened. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
-              : judged.ends_on_promise
-                ? `You ended your turn on "${judged.promise ?? soFar.slice(-200)}" — a promise, not an answer. Do what you said, with your tools, and answer now. Do not repeat that sentence.`
-                : 'That was not an answer to the person. Answer them now: run the lookups you need, then reply.';
+            : unrecorded
+              ? owedWorkNudge(unrecorded, opts.message)
+              : narratedName
+                ? `Your last message wrote a ${narratedName} call out as text instead of calling it, so nothing happened. Call ${narratedName} now with the arguments your message described, then reply in one sentence. Never write a tool call as text.`
+                : judged.ends_on_promise
+                  ? `You ended your turn on "${judged.promise ?? soFar.slice(-200)}" — a promise, not an answer. Do what you said, with your tools, and answer now. Do not repeat that sentence.`
+                  : 'That was not an answer to the person. Answer them now: run the lookups you need, then reply.';
         await runGraph({
           ...input,
           messages: continueWith(nudge, [...input.messages, ...(empty ? [] : [{ role: 'assistant', content: soFar }])]),
@@ -1284,10 +1304,12 @@ export async function runAgentDeep(opts: {
             // It said something after its last call: an answer ends the turn;
             // a new promise (a model's reading) is kept, not left hanging.
             const now = await judgeAnswer({ orgId: opts.orgId, message: opts.message, reply: normalizeAnswerHtml(finalText).trim(), steps: stepLines(toolCallLog), cards: emittedCards.length });
-            if (now.answered && !now.ends_on_promise) {
+            if (now.answered && !now.ends_on_promise && !now.claims_unrecorded_work) {
               break;
             }
-            nudge = `You ended on "${now.promise ?? 'a promise'}". Do it now, with your tools, then answer. Do not repeat a call you already made.`;
+            nudge = now.claims_unrecorded_work && !now.ends_on_promise
+              ? owedWorkNudge(now.claim ?? 'that something was done', opts.message)
+              : `You ended on "${now.promise ?? 'a promise'}". Do it now, with your tools, then answer. Do not repeat a call you already made.`;
           }
           console.warn('agent turn: making progress; going on', { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, fresh: fresh.length, extra: extra + 1, cap });
           emit({ type: 'status', label: `Still working · ${toolCallLog.length} steps so far` });

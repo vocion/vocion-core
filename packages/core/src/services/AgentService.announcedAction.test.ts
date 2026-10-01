@@ -124,6 +124,27 @@ describe('a turn that ends on the move it announced', () => {
   });
 });
 
+describe('a reply that claims work it did not do goes back and does it (conversation 411, 2026-10-01)', () => {
+  const DIAGNOSED = 'Production Send is down for every signed-in user. The API was last deployed at 8:27 AM (sha 4804ea2). I\'m filing the incident and putting the revert card up now.';
+
+  it('continues with its tools, told to do the claimed work or put up its card, never to say it still needs doing', async () => {
+    const inputs = passes([say(DIAGNOSED)], [toolEnd('file_request', 'objects.propose_candidate is DONE: filed as request #412'), say('Filed the outage as incident #412, and the revert card is up for you to press.')]);
+    judge.readings = [{ claims_unrecorded_work: true, claim: 'I\'m filing the incident and putting the revert card up now.' }];
+
+    const { result } = await run('Fix this, now');
+
+    expect(inputs).toHaveLength(2);
+
+    const nudge = String(inputs[1]!.messages.at(-1)!.content);
+
+    expect(nudge).toContain('Your reply says "I\'m filing the incident and putting the revert card up now."');
+    expect(nudge).toContain('"Fix this, now"');
+    expect(nudge).toContain('hand it to that seat');
+    expect(nudge).toContain('Never say that something still needs to happen');
+    expect(result.response).toContain('incident #412');
+  });
+});
+
 describe('a write beneath the page\'s record reaches the page', () => {
   it('announces a version beneath request #201 when a plan is filed from its page, and names no version', async () => {
     passes([toolEnd('file_architecture_plan', 'architecture plan #230 is DONE: filed as architecture plan #230 (run #9001).'), say(`${EXPLAINED} Filed plan #230 for it.`)]);
