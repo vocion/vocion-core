@@ -7,8 +7,9 @@ on events (`when: { event }`, see [Automation](../entities/automation.md)); this
 connector is what emits them, so the planner learns that a factory branch went
 red without a person polling GitHub by hand.
 
-It is read-only, it mirrors almost nothing (one small document per pull request
-so the PR is searchable), and it needs one token per workspace.
+The connector only reads, it mirrors almost nothing (one small document per pull
+request so the PR is searchable), and it needs one credential per workspace: a
+token, or the GitHub App's installation (see *Connect with GitHub* below).
 
 ## What it emits
 
@@ -180,6 +181,17 @@ When the deployment is a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
 **Connect with GitHub** instead of a token field. The person is sent to the
 app's install page on GitHub, chooses the organization and the repositories
 the app may see, and comes back. Nothing is pasted.
+
+The app's repository permissions are the deployment's to choose, and the
+person installing it sees and grants exactly that list. Reading the events
+above takes **Metadata**, **Pull requests**, **Checks**, **Contents** and
+**Actions**, all read. A deployment whose workers also act on the repositories
+— push a factory branch, open a pull request, start a workflow — grants
+**Contents**, **Pull requests**, **Actions** and **Workflows** as read and
+write instead. The connector never writes with any of it: the only request it
+makes beyond reading is minting the installation token itself, and a write is
+an action that goes through the review queue and the trust ladder, not
+something a permission turns on.
 
 The app asks for user authorization during installation, so the callback
 also carries a short-lived code; Vocion turns it into a user token, checks
