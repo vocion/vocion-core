@@ -5,7 +5,7 @@
  * Starts a loopback listener, prints the consent URL, captures the code,
  * exchanges it for a REFRESH token, and stores
  * `{ refreshToken, clientId, clientSecret }` for each requested connector
- * (gmail / drive / ga4). Connectors + gmail.send then mint fresh access
+ * (gmail / drive / ga4 / google-calendar / google-ads). Connectors + gmail.send then mint fresh access
  * tokens per run via `libs/sources/googleAuth` — no more hourly expiry.
  *
  * Usage:
@@ -20,15 +20,9 @@ import { createServer } from 'node:http';
 import process from 'node:process';
 import { eq, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { GOOGLE_OAUTH_SCOPES_BY_SOURCE } from '@/libs/sources/googleAuth';
 import { projectSchema } from '@/models/Schema';
 import { storeCredentialForSource } from '@/services/SourceCredentialService';
-
-const SCOPES: Record<string, string[]> = {
-  'gmail': ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'],
-  'drive': ['https://www.googleapis.com/auth/drive.readonly'],
-  'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
-  'google-calendar': ['https://www.googleapis.com/auth/calendar.readonly'],
-};
 
 function parseArgs(argv: string[]) {
   const out: Record<string, string> = {};
@@ -63,7 +57,7 @@ async function main() {
     process.exit(1);
   }
 
-  const scopes = [...new Set(sources.flatMap(s => SCOPES[s] ?? []))];
+  const scopes = [...new Set(sources.flatMap(s => GOOGLE_OAUTH_SCOPES_BY_SOURCE[s] ?? []))];
   if (scopes.length === 0) {
     console.error(`No known scopes for sources: ${sources.join(', ')}`);
     process.exit(1);
