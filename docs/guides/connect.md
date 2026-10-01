@@ -57,6 +57,12 @@ person clicks Connect with Slack
   names an org or a person other than the admin signed in is refused with a
   short code (`state_expired`, `wrong_workspace`, `wrong_person`, `not_admin`,
   `signed_out`), and no exchange is attempted.
+- **Return path.** The start route also accepts `returnTo`, a `/dashboard`
+  path (for example the chat the person was in). It is signed into the state,
+  and the callback lands there with `connect`, `reason` and `source` appended
+  to its own query. Anything that is not a plain `/dashboard` path (another
+  host, a `//` or backslash, `..`, over 500 characters) is dropped at start and
+  refused on verify, and the landing falls back to `/dashboard/sources`.
 - **Exchange** is the provider's. It gets every query parameter but `state`
   and this deployment's callback URL, and returns either a credential bag
   with a display name, or a refusal reason.

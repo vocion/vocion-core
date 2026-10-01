@@ -9,6 +9,7 @@
  */
 
 import { Env } from '@/libs/Env';
+import { safeReturnPath } from './returnTo';
 
 /**
  * The deployment's public origin for connect, or null when it is not
@@ -41,13 +42,16 @@ export function callbackUri(origin: string, provider: string): string {
  * @param origin - The configured public origin; `''` gives a relative URL.
  * @param outcome - `ok`, or the short refusal code.
  * @param sourceSlug - The source the person was connecting, when known.
+ * @param returnTo - Where the person started, when it passes `safeReturnPath`; else Sources.
  */
 export function returnUrl(
   origin: string,
   outcome: { ok: true } | { ok: false; reason: string },
   sourceSlug?: string,
+  returnTo?: string | null,
 ): string {
-  const url = new URL(`${origin || 'http://relative.invalid'}/dashboard/sources`);
+  const base = safeReturnPath(returnTo) ?? '/dashboard/sources';
+  const url = new URL(`${origin || 'http://relative.invalid'}${base}`);
   url.searchParams.set('connect', outcome.ok ? 'ok' : 'error');
   if (!outcome.ok) {
     url.searchParams.set('reason', outcome.reason.replace(/[^\w.-]/g, '_').slice(0, 64));

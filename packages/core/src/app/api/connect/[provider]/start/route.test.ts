@@ -124,6 +124,16 @@ describe('GET /api/connect/[provider]/start', () => {
     expect(res.headers.get('location')).toContain(encodeURIComponent('https://configured.example/api/connect/slack/callback'));
   });
 
+  it('signs a dashboard returnTo into the state and drops an off-site one', async () => {
+    await GET(request('?source=slack&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7'), context());
+
+    expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', userId: 'user_1', returnTo: '/dashboard/chat?conversation=7' });
+
+    await GET(request('?source=slack&returnTo=%2F%2Fevil.example'), context());
+
+    expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', userId: 'user_1' });
+  });
+
   it('sends an admin to the vendor with a state bound to org, source and person', async () => {
     const res = await GET(request(), context());
 

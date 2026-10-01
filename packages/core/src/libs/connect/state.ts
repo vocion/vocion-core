@@ -13,6 +13,7 @@
 import { Buffer } from 'node:buffer';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Env } from '@/libs/Env';
+import { safeReturnPath } from './returnTo';
 
 export type ConnectStatePayload = {
   v: 1;
@@ -21,6 +22,8 @@ export type ConnectStatePayload = {
   sourceSlug: string;
   userId: string;
   nonce: string;
+  /** Where to land afterwards: a `/dashboard` path, re-checked on verify. */
+  returnTo?: string;
   /** Unix milliseconds. */
   exp: number;
 };
@@ -48,10 +51,11 @@ function sign(payload: string): string {
  * @param input.orgId - The workspace the credential will belong to.
  * @param input.sourceSlug - The source being connected.
  * @param input.userId - The person who started it.
+ * @param input.returnTo - Optional `/dashboard` path to land on afterwards.
  * @param now - Injected for tests.
  */
 export function signState(
-  input: { provider: string; orgId: string; sourceSlug: string; userId: string },
+  input: { provider: string; orgId: string; sourceSlug: string; userId: string; returnTo?: string },
   now: number = Date.now(),
 ): string {
   const payload: ConnectStatePayload = {
@@ -60,6 +64,7 @@ export function signState(
     orgId: input.orgId,
     sourceSlug: input.sourceSlug,
     userId: input.userId,
+    ...(input.returnTo ? { returnTo: input.returnTo } : {}),
     nonce: randomBytes(16).toString('hex'),
     exp: now + TTL_MS,
   };
@@ -112,6 +117,9 @@ export function verifyState(
     || typeof payload.nonce !== 'string'
     || typeof payload.exp !== 'number'
   ) {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (payload.returnTo !== undefined && safeReturnPath(payload.returnTo) === null) {
     return { ok: false, reason: 'malformed' };
   }
   if (payload.exp <= now) {

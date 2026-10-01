@@ -24,8 +24,8 @@ import { storeCredentialForSource } from '@/services/SourceCredentialService';
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
   // A missing origin still lands the person somewhere sensible: a relative URL.
   const origin = connectOrigin() ?? '';
-  const land = (outcome: { ok: true } | { ok: false; reason: string }, sourceSlug?: string) =>
-    NextResponse.redirect(new URL(returnUrl(origin, outcome, sourceSlug), req.nextUrl), 303);
+  const land = (outcome: { ok: true } | { ok: false; reason: string }, sourceSlug?: string, returnTo?: string | null) =>
+    NextResponse.redirect(new URL(returnUrl(origin, outcome, sourceSlug, returnTo), req.nextUrl), 303);
 
   const { provider: providerId } = await ctx.params;
   const provider = providerFor(providerId);
@@ -44,27 +44,27 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   }
   const { payload } = verified;
   if (payload.provider !== provider.id) {
-    return land({ ok: false, reason: 'state_provider' });
+    return land({ ok: false, reason: 'state_provider' }, undefined, payload.returnTo);
   }
   const { orgId, userId, role } = await auth();
   if (!orgId || !userId) {
-    return land({ ok: false, reason: 'signed_out' }, payload.sourceSlug);
+    return land({ ok: false, reason: 'signed_out' }, payload.sourceSlug, payload.returnTo);
   }
   if (orgId !== payload.orgId) {
-    return land({ ok: false, reason: 'wrong_workspace' }, payload.sourceSlug);
+    return land({ ok: false, reason: 'wrong_workspace' }, payload.sourceSlug, payload.returnTo);
   }
   if (userId !== payload.userId) {
-    return land({ ok: false, reason: 'wrong_person' }, payload.sourceSlug);
+    return land({ ok: false, reason: 'wrong_person' }, payload.sourceSlug, payload.returnTo);
   }
   if (role !== 'admin') {
-    return land({ ok: false, reason: 'not_admin' }, payload.sourceSlug);
+    return land({ ok: false, reason: 'not_admin' }, payload.sourceSlug, payload.returnTo);
   }
   const source = await findSourceBySlug(orgId, payload.sourceSlug);
   if (!source) {
-    return land({ ok: false, reason: 'source_missing' }, payload.sourceSlug);
+    return land({ ok: false, reason: 'source_missing' }, payload.sourceSlug, payload.returnTo);
   }
   if (!origin) {
-    return land({ ok: false, reason: 'server_unconfigured' }, source.slug);
+    return land({ ok: false, reason: 'server_unconfigured' }, source.slug, payload.returnTo);
   }
   const query: Record<string, string> = {};
   req.nextUrl.searchParams.forEach((value, key) => {
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   const exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id) });
   if (!exchanged.ok) {
     console.error('[connect] vendor exchange refused', { provider: provider.id, source: source.slug, reason: exchanged.reason });
-    return land({ ok: false, reason: exchanged.reason }, source.slug);
+    return land({ ok: false, reason: exchanged.reason }, source.slug, payload.returnTo);
   }
   try {
     await storeCredentialForSource({
@@ -94,7 +94,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       source: source.slug,
       message: error instanceof Error ? error.message : String(error),
     });
-    return land({ ok: false, reason: 'store_failed' }, source.slug);
+    return land({ ok: false, reason: 'store_failed' }, source.slug, payload.returnTo);
   }
-  return land({ ok: true }, source.slug);
+  return land({ ok: true }, source.slug, payload.returnTo);
 }

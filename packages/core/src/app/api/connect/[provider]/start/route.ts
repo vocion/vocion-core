@@ -1,5 +1,5 @@
 /**
- * GET /api/connect/[provider]/start?source=<slug>
+ * GET /api/connect/[provider]/start?source=<slug>[&returnTo=/dashboard/...]
  *
  * Sends a workspace admin to the vendor to authorize a source. The state it
  * carries is signed and bound to this org, this source and this person; the
@@ -13,6 +13,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { providerFor, providerForConnector } from '@/libs/connect/registry';
+import { safeReturnPath } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
 import { signState } from '@/libs/connect/state';
@@ -59,6 +60,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       { status: 500 },
     );
   }
-  const state = signState({ provider: provider.id, orgId, sourceSlug: source.slug, userId });
+  const returnTo = safeReturnPath(req.nextUrl.searchParams.get('returnTo'));
+  const state = signState({ provider: provider.id, orgId, sourceSlug: source.slug, userId, ...(returnTo ? { returnTo } : {}) });
   return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id) }), 302);
 }

@@ -125,6 +125,27 @@ describe('GET /api/connect/[provider]/callback', () => {
     expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', source: 'slack-1727000000' });
   });
 
+  it('lands back in the conversation the connect started from, success or refusal', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, returnTo: '/dashboard/chat?conversation=7' } });
+
+    const ok = await GET(request(), context());
+
+    expect(landing(ok)).toEqual({ path: '/dashboard/chat', conversation: '7', connect: 'ok', source: 'slack-1727000000' });
+
+    vi.mocked(clerkAuth).mockResolvedValue({ ...admin, role: 'member' as never });
+    const refused = await GET(request(), context());
+
+    expect(landing(refused)).toMatchObject({ path: '/dashboard/chat', connect: 'error', reason: 'not_admin' });
+  });
+
+  it('never redirects off-site, even if a state somehow carried a foreign returnTo', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, returnTo: '//evil.example' } });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', source: 'slack-1727000000' });
+  });
+
   it('refuses a signed-out person with its own code, so the message can say to sign in', async () => {
     vi.mocked(clerkAuth).mockResolvedValue({ ...admin, orgId: null, userId: null, role: null });
 
