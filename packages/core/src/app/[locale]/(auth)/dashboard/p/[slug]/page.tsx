@@ -1,6 +1,4 @@
 import type { PageField, PageManifest, PageRow, PageView, PageWindow } from '@/libs/workspace/pages';
-// Aliased at build time: the workspace's own pages/components/registry.tsx
-// when it ships one, the in-repo empty stub otherwise (see next.config.ts).
 import { components as wsxComponents } from '@wsx/registry';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
@@ -21,6 +19,9 @@ import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
+// Aliased at build time: the workspace's own pages/components/registry.tsx
+// when it ships one, the in-repo empty stub otherwise (see next.config.ts).
+import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
@@ -193,6 +194,7 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
         const taskId = taskRecordId(r);
         return {
           id: r.id,
+          code: nounCode('run', r.id),
           title: r.facts.headline,
           status: r.status,
           createdAt: r.createdAt ?? null,

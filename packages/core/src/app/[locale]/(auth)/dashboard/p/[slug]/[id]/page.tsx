@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
 import { FeatureReportView, ReportContextLine, reportLiveRefresh } from '@/features/dashboard/factory/FeatureReportView';
@@ -10,6 +11,7 @@ import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { pagePlugin } from '@/libs/workspace/pages';
+import { codeForRecord, resolveCode } from '@/services/codes';
 import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
 import { withDuplicateFact } from '@/services/objects/duplicateCheck';
@@ -18,6 +20,22 @@ import { recordHref } from '@/services/objects/recordHref';
 import { withReferenceFact } from '@/services/objects/referenceRead';
 import { relatedOf, relatedWrites } from '@/services/objects/related';
 import { readPageForOrg } from '@/services/PluginService';
+
+/**
+ * The tab and the breadcrumb read the record by its code and name —
+ * "FE-294 Export an invoice as a PDF" — rather than the app's own title.
+ * @param props - Next's route props.
+ * @param props.params - `{slug, id}`.
+ */
+export async function generateMetadata(props: { params: Promise<{ slug: string; id: string }> }): Promise<Metadata> {
+  const { id } = await props.params;
+  if (!/^\d+$/.test(id)) {
+    return {};
+  }
+  const { orgId } = await auth();
+  const resolved = orgId ? await resolveCode(orgId, Number(id)).catch(() => null) : null;
+  return resolved?.kind === 'record' ? { title: `${resolved.code} ${resolved.title}` } : {};
+}
 
 /**
  * The `report` archetype's route — `/dashboard/p/<slug>/<id>`.
@@ -176,8 +194,11 @@ export default async function WorkspaceReportPage(props: {
   const report = await loadFeatureReport(orgId, recordId, now);
   // The three lines, with the record's own page as their base — the same
   // read the API, the pane and the chat draw (`services/objects/recordStatus.ts`).
+  // What a person reads this work by — FE-294 — leads the context line, so
+  // the page says which of the numbers in a journey it is (`libs/codes.ts`).
+  const code = report ? await codeForRecord(orgId, report.requestId).catch(() => null) : null;
   const status = report
-    ? await withReferenceFact(orgId, await withDuplicateFact(orgId, featureStatusOf(report, { objectType: manifest.report.subject, href: await recordHref(orgId, { objectType: manifest.report.subject, id: recordId }) }, now)))
+    ? await withReferenceFact(orgId, await withDuplicateFact(orgId, featureStatusOf(report, { objectType: manifest.report.subject, href: await recordHref(orgId, { objectType: manifest.report.subject, id: recordId }), ...(code ? { code } : {}) }, now)))
     : undefined;
   // The record's version closes the metadata line, and carries the page's
   // re-read while anything runs (one chip, not a History row and a live row).
@@ -212,7 +233,7 @@ export default async function WorkspaceReportPage(props: {
               // smaller and muted (Chris, 2026-09-28), closed by the version.
               <>
                 {report.goal && <span className="block text-[15px] leading-relaxed text-foreground">{report.goal}</span>}
-                <ReportContextLine bits={report.context} end={chip} />
+                <ReportContextLine bits={code ? [code, ...report.context] : report.context} end={chip} />
               </>
             )
           : manifest.description}

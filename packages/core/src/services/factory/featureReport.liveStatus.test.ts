@@ -86,7 +86,7 @@ describe('the Now line: what is running for this work, and true', () => {
   it('a run no worker has claimed reads "Waiting for a worker", counted from when it was queued — never "Building now … started"', () => {
     const report = assembleFeatureReport(input({ request: { ...request, meta: { state: 'building' } }, tasks: [task], workerRuns: [worker()] }));
 
-    expect(report.live).toMatchObject({ kind: 'queued', label: 'Waiting for a worker', since: 'queued', startedAt: '2026-09-30T10:02:00.000Z', runLabel: 'Run #432' });
+    expect(report.live).toMatchObject({ kind: 'queued', label: 'Waiting for a worker', since: 'queued', startedAt: '2026-09-30T10:02:00.000Z', runLabel: 'RUN-432' });
     expect(nowLine(report.live, NOW)).toBe('Waiting for a worker · queued 3 min');
     expect(report.state.label).toBe('Waiting for a worker');
     expect(report.status.headline).toBe('Waiting for a worker');
@@ -172,7 +172,7 @@ describe('the Now line says the step in a person\'s words (2026-10-01)', () => {
     const run: LiveMissionRunInput = { id: 6732, status: 'running', title: 'show-it-first: Every visible change is seen before it is decided', startedAt: T('2026-09-30T10:04:00Z'), step: null, forRecord: true, label: 'Draw the mockup a request owes' };
     const live = pickLive({ workerRuns: [], missionRuns: [run], context: { planning: false, reviewing: null } });
 
-    expect(live).toMatchObject({ kind: 'working', label: 'Draw the mockup a request owes', step: null, runLabel: 'Agent run #6732' });
+    expect(live).toMatchObject({ kind: 'working', label: 'Draw the mockup a request owes', step: null, runLabel: 'RUN-6732' });
     expect(pickLive({ workerRuns: [], missionRuns: [{ ...run, label: null }], context: { planning: false, reviewing: null } })!.label).toBe(run.title);
   });
 });

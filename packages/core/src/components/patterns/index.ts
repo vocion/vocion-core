@@ -39,6 +39,8 @@ export { useListUrlState } from './listUrlState';
 export { OpenInPreview } from './OpenInPreview';
 // Loading + pending
 export { PendingIcon } from './PendingIcon';
+
+export { RecordCode } from './RecordCode';
 export { Related, relatedFacts } from './Related';
 
 export { formatScore, scorePercent, type ScoreVerdict, scoreVerdict } from './scoreChip';

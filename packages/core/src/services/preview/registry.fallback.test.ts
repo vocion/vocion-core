@@ -26,7 +26,7 @@ describe('an unresolved reference', () => {
   it('names an engineering run in words, with its run page', async () => {
     const doc = await resolvePreview({ type: 'worker_run', id: '424242' }, CTX);
 
-    expect(doc.title).toBe('Run #424242');
+    expect(doc.title).toBe('RUN-424242');
     expect(doc.href).toBe('/dashboard/p/runs/424242');
   });
 

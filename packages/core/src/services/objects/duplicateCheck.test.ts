@@ -113,7 +113,7 @@ describe('checkNewRecordForDuplicate', () => {
     // The status line reads it, with Undo, and asks nothing of anyone.
     const status = await dup.withDuplicateFact(ORG, { record: { id: again.id, objectType: 'ask', title: again.title, href: '/x' }, stage: { key: 'asked', label: 'Asked', tone: 'info' }, you: { needsYou: true, line: 'Needs you: Build', why: null, move: { label: 'Build', href: '/x' } }, live: null, next: 'Build it', readAt: new Date().toISOString() });
 
-    expect(status.stage).toEqual({ key: 'duplicate', label: `Duplicate of #${first.id}`, tone: 'muted' });
+    expect(status.stage).toEqual({ key: 'duplicate', label: expect.stringMatching(new RegExp(`^Duplicate of [A-Z]{2,5}-${first.id}$`)), tone: 'muted' });
     expect(status.you).toMatchObject({ needsYou: false, move: null });
     expect(status.next).toBeNull();
     expect(status.duplicate).toMatchObject({ of: { id: first.id, title: first.title }, undoRunId: out.runId, confidence: 0.93 });

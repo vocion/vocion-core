@@ -22,6 +22,7 @@ import { resolveField } from '@/libs/workspace/pages';
 import { declaredRecordFields, hasInspectionImage, isDiscoveryRecord, recordSections } from '@/libs/workspace/records';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { recordRef } from '@/services/chat/recordContext';
+import { codeForRecord } from '@/services/codes';
 import { recordVersionOf } from '@/services/objects/recordBody';
 import { recordBodyEnabled } from '@/services/objects/recordBodyFormat';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
@@ -79,6 +80,8 @@ export default async function ObjectDetailPage(props: {
   if (!obj) {
     return notFound();
   }
+  // What a person reads it by — FE-294 (`libs/codes.ts`).
+  const code = await codeForRecord(orgId, obj.id).catch(() => null) ?? `#${obj.id}`;
 
   const meta = obj.metadata as Record<string, unknown>;
   const keyTopics = (meta.key_topics ?? meta.topics ?? []) as string[];
@@ -138,6 +141,7 @@ export default async function ObjectDetailPage(props: {
           <div className="min-w-0">
             <div className="break-words">{obj.title}</div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-normal">
+              <span className="text-muted-foreground tabular-nums" data-testid="record-code">{code}</span>
               <Badge variant="secondary">{obj.type.label}</Badge>
               {obj.status && (
                 <Badge variant={obj.status === 'completed' || obj.status === 'accepted' ? 'default' : 'outline'}>
@@ -207,8 +211,8 @@ export default async function ObjectDetailPage(props: {
               <h2 className="mb-2 text-sm font-semibold">System Info</h2>
               <dl className="space-y-1 text-xs text-muted-foreground">
                 <div className="flex justify-between gap-3">
-                  <dt>Object ID</dt>
-                  <dd className="font-mono">{obj.id}</dd>
+                  <dt>Code</dt>
+                  <dd className="font-mono">{code}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
                   <dt>Type</dt>

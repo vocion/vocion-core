@@ -708,7 +708,7 @@ describe('a Build card already up (journey 4, 2026-09-28: #214\'s card #4945 pen
     const card = out.find(r => r.id === 214)!;
 
     expect(card.meta.state).toBe('Decide');
-    expect(card.meta.workLine).toBe('Build card waiting on you (action #4945) · waiting since today');
+    expect(card.meta.workLine).toBe('Build card waiting on you (ACT-4945) · waiting since today');
     expect(card.meta.pendingBuildRunId).toBe(4945);
     // A decision leads the proposed lane, ahead of the older queued row.
     expect(out.filter(r => r.meta.laneKey === 'proposed').map(r => r.id)).toEqual([214, 213]);

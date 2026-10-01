@@ -167,7 +167,7 @@ describe('product context is readable, and the machinery is behind technical det
     const o = build();
     const labels = o.technical.facts.map(f => f.label);
 
-    expect(labels).toEqual(expect.arrayContaining(['Slug', 'Record', 'Repositories', 'API', 'Open requests (counter)']));
+    expect(labels).toEqual(expect.arrayContaining(['Slug', 'Code', 'Repositories', 'API', 'Open requests (counter)']));
 
     const theme = o.technical.other.find(f => f.label === 'Theme');
 

@@ -19,6 +19,7 @@
 
 import type { ResultLink } from '@/libs/actions/resultLinks';
 import { resultLinks } from '@/libs/actions/resultLinks';
+import { nounCode } from '@/libs/codes';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
 
@@ -128,7 +129,7 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
     if (r.name === 'update_artifact') {
       const id = r.input?.id;
       if (r.output.startsWith('Updated "') && (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id)))) {
-        push({ label: `artifact #${id}`, href: `/dashboard/artifacts/${id}`, ref: { type: 'artifact', id: String(id) } });
+        push({ label: nounCode('artifact', id), href: `/dashboard/artifacts/${id}`, ref: { type: 'artifact', id: String(id) } });
       }
       continue;
     }
@@ -142,7 +143,7 @@ export function turnFollowups(runs: readonly TurnToolStep[] | undefined, opts: {
         continue;
       }
       if (ask) {
-        push({ label: `ask #${ask}`, href: inboxHref('ask', Number(ask)), ref: { type: 'ask', id: ask } });
+        push({ label: nounCode('ask', ask), href: inboxHref('ask', Number(ask)), ref: { type: 'ask', id: ask } });
       }
       for (const a of about) {
         push({ label: `${words(a.type)} #${a.id}`, href: genericRecordLinker({ objectType: a.type, id: a.id }), ref: { type: 'object', id: a.id } });

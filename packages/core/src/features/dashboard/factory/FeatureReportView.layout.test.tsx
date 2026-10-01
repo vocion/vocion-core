@@ -257,7 +257,7 @@ describe('the action follows the state', () => {
 
     const run = page.getByTestId('work-status-run');
 
-    await expect.element(run).toHaveTextContent('Run #503');
+    await expect.element(run).toHaveTextContent('RUN-503');
     expect(run.element().getAttribute('data-preview-key')).toBe('worker_run:503');
     await expect.element(page.getByTestId('report-status')).toHaveTextContent('Current state');
     // The Implementation lists the live run as a row too.
@@ -306,7 +306,7 @@ describe('the action follows the state', () => {
       actionRuns: [{ id: 4945, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: 41 }, decidedBy: null, decidedAt: null, approvedByAgent: null, note: null, createdAt: T('2026-09-21T10:00:00Z'), executedAt: null }],
     }));
 
-    await expect.element(page.getByTestId('report-status-sentence')).toHaveTextContent('A build card is waiting for your approval (action #4945).');
+    await expect.element(page.getByTestId('report-status-sentence')).toHaveTextContent('A build card is waiting for your approval (ACT-4945).');
 
     await page.getByTestId('feature-build').click();
 

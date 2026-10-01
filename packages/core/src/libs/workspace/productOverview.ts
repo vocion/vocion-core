@@ -783,7 +783,7 @@ export function buildProductOverview(input: {
     }
   };
   add('Slug', slug);
-  add('Record', `#${product.id}`);
+  add('Code', product.code ?? `#${product.id}`);
   add('Repositories', strings(m.repos).join(', ') || null);
   add('API', str(urls.api), str(urls.api) ?? undefined);
   add('Health source', str(m.healthSource));

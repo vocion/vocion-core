@@ -182,7 +182,7 @@ function DuplicateLine({ status }: { status: RecordStatus & { duplicate: NonNull
     <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-muted-foreground" data-testid="work-status-duplicate" data-duplicate-of={d.of.id}>
       <span>
         {'Same as '}
-        <a href={d.of.href} className="font-medium text-foreground underline underline-offset-2">{`#${d.of.id} ${d.of.title}`}</a>
+        <a href={d.of.href} className="font-medium text-foreground underline underline-offset-2">{`${d.of.code ?? `#${d.of.id}`} ${d.of.title}`}</a>
         {d.reason ? ` — ${d.reason}` : ''}
       </span>
       {d.undoRunId !== null && <UndoRun recordId={status.record.id} runId={d.undoRunId} testId="work-status-duplicate-undo" />}
@@ -295,7 +295,7 @@ export function RecordMicrocard({ record }: { record: TurnRecord }) {
     <div className="flex min-w-0 items-center gap-1.5 text-[13px]" data-testid="record-microcard" data-record-id={record.id} data-live={live ? 'true' : undefined}>
       <PreviewOpen recordRef={{ type: 'object', id: String(record.id) }} look="row" className="min-w-0 flex-1" testId="record-microcard-open">
         <span className="flex min-w-0 items-center gap-1.5 px-2 py-1">
-          <StatusDot tone={live ? 'amber' : status ? TONE[status.stage.tone] : 'neutral'} pulse={live !== null} label={<span className="text-foreground/70 tabular-nums">{`#${record.id}`}</span>} />
+          <StatusDot tone={live ? 'amber' : status ? TONE[status.stage.tone] : 'neutral'} pulse={live !== null} label={<span className="text-foreground/70 tabular-nums">{record.code ?? `#${record.id}`}</span>} />
           <span className="min-w-0 truncate font-medium text-foreground">{record.title}</span>
           {/* The record's stage (Planning, Building, Deploying, Live), never the run's own
               name: a live check's mission title read as the request's state (run 2,

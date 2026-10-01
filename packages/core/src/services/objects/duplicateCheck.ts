@@ -428,7 +428,10 @@ export async function duplicateFactOf(orgId: string, recordId: number): Promise<
   const { and, desc, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { actionRunSchema, businessObjectSchema } = await import('@/models/Schema');
-  const { recordHref } = await import('@/services/objects/recordHref');
+  const { recordLinksForOrg } = await import('@/services/objects/recordHref');
+  const { recordCodeFrom, recordHrefFrom } = await import('@/libs/workspace/recordHref');
+  const links = await recordLinksForOrg(orgId);
+  const ofRef = { objectType: read.type.slug, id: of };
   const [target] = await db.select({ title: businessObjectSchema.title }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, of))).limit(1);
   // The write that set it, when one did and it still stands: its reason and Undo.
   const [run] = await db
@@ -441,7 +444,7 @@ export async function duplicateFactOf(orgId: string, recordId: number): Promise<
   const current = run && setTo === of ? run : null;
   const confidence = (current?.proposal as Meta | null | undefined)?.confidence;
   return {
-    of: { id: of, title: target?.title ?? `#${of}`, href: await recordHref(orgId, { objectType: read.type.slug, id: of }) },
+    of: { id: of, code: recordCodeFrom(links, ofRef), title: target?.title ?? recordCodeFrom(links, ofRef), href: recordHrefFrom(links, ofRef) },
     reason: current ? String((current.proposal as Meta | null | undefined)?.rationale ?? '') || null : null,
     confidence: typeof confidence === 'number' ? confidence : null,
     undoRunId: current?.id ?? null,
@@ -462,7 +465,7 @@ export async function withDuplicateFact(orgId: string, status: RecordStatus): Pr
   }
   return {
     ...status,
-    stage: { key: 'duplicate', label: `Duplicate of #${fact.of.id}`, tone: 'muted' },
+    stage: { key: 'duplicate', label: `Duplicate of ${fact.of.code ?? `#${fact.of.id}`}`, tone: 'muted' },
     you: { needsYou: false, line: 'Nothing needs you', why: null, move: null },
     next: null,
     duplicate: fact,

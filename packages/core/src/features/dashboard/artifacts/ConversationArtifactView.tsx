@@ -272,6 +272,9 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                       onShowSources={session.handleShowSources}
                       onCitationClick={session.handleCitationClick}
                       onOpenArtifact={openById}
+                      // What the thread filed reads under its latest turn here
+                      // too, not only in the dock (it never loaded on /chat/<id>).
+                      conversationId={props.conversationId}
                     />
                   )}
               {session.pendingHitl && (

@@ -9,9 +9,12 @@
 import type { RecordMentionLink } from '@/libs/chat/recordMentions';
 import { and, eq, inArray } from 'drizzle-orm';
 import { findRecordMentions } from '@/libs/chat/recordMentions';
+import { CORE_NOUN_CODES, coreNounOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { recordHrefFrom } from '@/libs/workspace/recordHref';
 import { businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { hrefForCode } from '@/services/codeLinks';
+import { resolveCode } from '@/services/codes';
 import { recordLinksForOrg } from '@/services/objects/recordHref';
 
 /** Never more than this many links per answer — an answer that names more is a list, not prose. */
@@ -46,11 +49,14 @@ export async function recordMentionLinks(orgId: string, text: string): Promise<R
       }
     }
     const words = [...namesOf.values()].flatMap(s => [...s]);
-    const mentions = findRecordMentions(text, words).slice(0, MAX_LINKS * 2);
+    // Codes too — FE-201, RUN-439 (`libs/codes.ts`): the type codes and core's.
+    const typeCodes = links.codes ?? new Map<string, string>();
+    const prefixes = [...typeCodes.values(), ...Object.values(CORE_NOUN_CODES)];
+    const mentions = findRecordMentions(text, words, prefixes).slice(0, MAX_LINKS * 2);
     if (mentions.length === 0) {
       return [];
     }
-    const ids = [...new Set(mentions.map(m => m.id))];
+    const ids = [...new Set(mentions.filter(m => !m.code || !coreNounOf(m.code)).map(m => m.id))];
     const rows = await db
       .select({ id: businessObjectSchema.id, type: businessObjectTypeSchema.slug })
       .from(businessObjectSchema)
@@ -59,8 +65,20 @@ export async function recordMentionLinks(orgId: string, text: string): Promise<R
     const typeOf = new Map(rows.map(r => [r.id, r.type]));
     const out = new Map<string, RecordMentionLink>();
     for (const m of mentions) {
+      if (m.code && coreNounOf(m.code)) {
+        // A run, an ask, a conversation: linked only when it is this workspace's.
+        const resolved = out.has(m.text.toLowerCase()) ? null : await resolveCode(orgId, m.text);
+        if (resolved && resolved.kind !== 'none') {
+          out.set(m.text.toLowerCase(), { text: m.text, href: await hrefForCode(orgId, resolved) });
+        }
+        continue;
+      }
       const type = typeOf.get(m.id);
       if (!type) {
+        continue;
+      }
+      // A code links only when its prefix is the record's type's: FE-295 is not plan 295.
+      if (m.code && typeCodes.get(type) !== m.code) {
         continue;
       }
       if (m.word !== null && !namesOf.get(type)?.has(norm(m.word)) && !namesOf.get(type)?.has(norm(m.word).replace(/s$/, ''))) {

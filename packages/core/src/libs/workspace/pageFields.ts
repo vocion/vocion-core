@@ -935,6 +935,8 @@ export type PageRecordPage = NonNullable<z.infer<typeof PageManifestSchema>['rec
 
 export type PageRow = {
   id: string | number;
+  /** What a person reads the record by — FE-294 (`libs/codes.ts`); set for object rows. */
+  code?: string;
   title: string;
   status: string | null;
   createdAt: Date | null;
@@ -953,6 +955,9 @@ export function resolveField(row: PageRow, from: string): unknown {
   }
   if (from === 'id') {
     return row.id;
+  }
+  if (from === 'code') {
+    return row.code;
   }
   const path = from.startsWith('meta.') ? from.slice(5) : from;
   let cur: unknown = row.meta;

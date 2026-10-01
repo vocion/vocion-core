@@ -1,4 +1,5 @@
 import type { RelatedItem } from '@/libs/workspace/related';
+import { nounCode } from '@/libs/codes';
 
 /**
  * A RUN READS LIKE A RUNNER PAGE (backlog 036; Chris, 2026-09-28: "for live
@@ -132,8 +133,9 @@ export type RunCriterion = { text: string; state: 'proven' | 'open' | null };
  * not say it.
  */
 export type RunContext = {
-  feature: { id: number; title: string; href: string } | null;
-  plan: { id: number; title: string; href: string } | null;
+  /** `code` is what a person reads each by — FE-294, PL-295 (`libs/codes.ts`). */
+  feature: { id: number; code?: string; title: string; href: string } | null;
+  plan: { id: number; code?: string; title: string; href: string } | null;
   /** The engineering task the run builds, the record behind the machine id. */
   task?: { id: number; href: string } | null;
   /**
@@ -170,13 +172,13 @@ export function runRelatedItems(h: RunHeader): RelatedItem[] {
     items.push({ key: `origin:${c.origin.conversationId}`, relation: 'origin', label: 'Started in chat', title: c.origin.title, href: c.origin.href, external: false, preview: { type: 'conversation', id: String(c.origin.conversationId) }, kind: 'conversation', note: c.origin.by, at: c.origin.at });
   }
   if (c.feature) {
-    items.push({ key: `feature:${c.feature.id}`, relation: 'feature', label: 'Feature', title: `#${c.feature.id} ${c.feature.title}`, href: c.feature.href, external: false, preview: { type: 'object', id: String(c.feature.id) }, kind: 'record', note: null, at: null });
+    items.push({ key: `feature:${c.feature.id}`, relation: 'feature', label: 'Feature', title: `${c.feature.code ?? `#${c.feature.id}`} ${c.feature.title}`, href: c.feature.href, external: false, preview: { type: 'object', id: String(c.feature.id) }, kind: 'record', note: null, at: null });
   }
   if (c.plan) {
-    items.push({ key: `plan:${c.plan.id}`, relation: 'plan', label: 'Plan', title: `#${c.plan.id} ${c.plan.title}`, href: c.plan.href, external: false, preview: { type: 'object', id: String(c.plan.id) }, kind: 'record', note: null, at: null });
+    items.push({ key: `plan:${c.plan.id}`, relation: 'plan', label: 'Plan', title: `${c.plan.code ?? `#${c.plan.id}`} ${c.plan.title}`, href: c.plan.href, external: false, preview: { type: 'object', id: String(c.plan.id) }, kind: 'record', note: null, at: null });
   }
   for (const o of c.others ?? []) {
-    items.push({ key: `attempt:${o.runId}`, relation: 'attempts', label: 'Other attempts', title: `Run #${o.runId}`, href: o.href, external: false, preview: { type: 'worker_run', id: String(o.runId) }, kind: 'run', note: o.status, at: null });
+    items.push({ key: `attempt:${o.runId}`, relation: 'attempts', label: 'Other attempts', title: nounCode('run', o.runId), href: o.href, external: false, preview: { type: 'worker_run', id: String(o.runId) }, kind: 'run', note: o.status, at: null });
   }
   if (c.branch) {
     items.push(c.branch.href ? linkItem('branch', 'Branch', c.branch.href, c.branch.name) : { key: `branch:${c.branch.name}`, relation: 'branch', label: 'Branch', title: c.branch.name, href: null, external: false, preview: null, kind: 'link', note: null, at: null });

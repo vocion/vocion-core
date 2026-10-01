@@ -1,12 +1,14 @@
 import type { RelatedItem, Relation } from '@/libs/workspace/related';
 import { and, asc, desc, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
+import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { describeRef } from '@/libs/preview/describeRef';
 import { relativeLabel } from '@/libs/timeAgo';
+import { recordCodeFrom, recordLinker } from '@/libs/workspace/recordHref';
 import { derivedOf, deriveValue, driftOf, relationsOf } from '@/libs/workspace/related';
 import { actionRunSchema, artifactSchema, businessObjectSchema, businessObjectTypeSchema, conversationSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { RECORD_BODY_ROLE } from '@/services/objects/recordBodyFormat';
-import { recordLinkerForOrg } from '@/services/objects/recordHref';
+import { recordLinkerForOrg, recordLinksForOrg } from '@/services/objects/recordHref';
 import { REPORTED_ROLE, reportedAttachments } from '@/services/objects/reported';
 
 /**
@@ -86,7 +88,7 @@ export async function recordOrigin(orgId: string, record: { id: number; meta: Re
     : null;
   return {
     conversationId: convo.id,
-    title: convo.title || `Conversation #${convo.id}`,
+    title: convo.title || nounCode('conversation', convo.id),
     href: describeRef({ type: 'conversation', id: String(convo.id) }).href ?? null,
     by: by ? (by.name?.trim() || by.email) : null,
     at,
@@ -200,14 +202,15 @@ async function readRelated(orgId: string, objectId: number, opts: { relations?: 
   }
   const meta = obj(self.meta);
   const relations = opts.relations ?? relationsOf(self.schema as Record<string, unknown> | null);
-  const link = await recordLinkerForOrg(orgId);
+  const links = await recordLinksForOrg(orgId);
+  const link = recordLinker(links);
   const found = new Map<string, Row[]>();
   const items: RelatedItem[] = [];
   const recordItem = (r: Row, rel: Relation): RelatedItem => ({
     key: `${rel.key}:object:${r.id}`,
     relation: rel.key,
     label: rel.label,
-    title: `#${r.id} ${r.title}`,
+    title: `${recordCodeFrom(links, { objectType: r.type, id: r.id })} ${r.title}`,
     href: link({ objectType: r.type, id: r.id }),
     external: false,
     preview: { type: 'object', id: String(r.id) },
@@ -285,7 +288,7 @@ async function readRelated(orgId: string, objectId: number, opts: { relations?: 
           key: `${rel.key}:run:${r.id}`,
           relation: rel.key,
           label: rel.label,
-          title: `Run #${r.id}`,
+          title: nounCode('run', r.id),
           href: describeRef({ type: 'worker_run', id: String(r.id) }).href ?? null,
           external: false,
           preview: { type: 'worker_run' as const, id: String(r.id) },
@@ -495,7 +498,7 @@ export async function recordOrigins(orgId: string, rows: ReadonlyArray<{ id: num
   for (const [id, conversationId] of wanted) {
     const c = byId.get(conversationId);
     if (c) {
-      out.set(id, { conversationId, title: c.title || `Conversation #${c.id}`, href: describeRef({ type: 'conversation', id: String(c.id) }).href ?? null });
+      out.set(id, { conversationId, title: c.title || nounCode('conversation', c.id), href: describeRef({ type: 'conversation', id: String(c.id) }).href ?? null });
     }
   }
   return out;

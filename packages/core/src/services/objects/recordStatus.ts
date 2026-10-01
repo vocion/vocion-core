@@ -1,5 +1,5 @@
 import type { RecordStatus } from '@/libs/factory/liveStatus';
-import { hasReportPage, recordHrefFrom } from '@/libs/workspace/recordHref';
+import { hasReportPage, recordCodeFrom, recordHrefFrom } from '@/libs/workspace/recordHref';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
@@ -42,5 +42,5 @@ export async function loadRecordStatus(orgId: string, id: number, now: Date = ne
   // A duplicate reads as one (`x-duplicate-check`): the record it repeats, with Undo.
   const { withDuplicateFact } = await import('./duplicateCheck');
   const { withReferenceFact } = await import('./referenceRead');
-  return { ok: true, status: await withReferenceFact(orgId, await withDuplicateFact(orgId, featureStatusOf(report, { objectType, href: recordHrefFrom(links, { objectType, id }) }, now))) };
+  return { ok: true, status: await withReferenceFact(orgId, await withDuplicateFact(orgId, featureStatusOf(report, { objectType, href: recordHrefFrom(links, { objectType, id }), code: recordCodeFrom(links, { objectType, id }) }, now))) };
 }

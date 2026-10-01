@@ -1,6 +1,7 @@
 import type { ProofRecord } from './featureProof';
 import type { PageRow } from './pageFields';
 import type { LiveRun } from '@/libs/factory/liveStatus';
+import { nounCode } from '@/libs/codes';
 import { deliveryLine, deliveryStage, failedRun, readDelivery } from '@/libs/factory/delivery';
 import { nowLine } from '@/libs/factory/liveStatus';
 import { seatLabel } from '@/libs/gates/handoffGate';
@@ -843,7 +844,7 @@ export function workLine(row: PageRow, lane: WorkLane, now: Date, opts: { staged
       const at = date(meta(row).pendingBuildAt);
       const cardDays = at ? Math.floor((now.getTime() - at.getTime()) / 86_400_000) : days;
       const cardWaited = cardDays === null ? '' : cardDays < 1 ? ' · waiting since today' : ` · waiting ${cardDays} day${cardDays === 1 ? '' : 's'}`;
-      return `Build card waiting on you (action #${buildCard})${cardWaited}`;
+      return `Build card waiting on you (${nounCode('action', buildCard)})${cardWaited}`;
     }
     return verb ? `Decide whether to ${verb}${waited}` : `Decide${waited}`;
   }

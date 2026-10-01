@@ -15,7 +15,7 @@ describe('an engineering run\'s preview', () => {
     const doc = await resolvePreview({ type: 'worker_run', id: String(run!.id) }, { orgId: ORG, userId: null });
 
     expect(doc.href).toBe(`/dashboard/p/runs/${run!.id}`);
-    expect(doc.facts).toEqual(expect.arrayContaining([{ label: 'Run', value: `#${run!.id}` }, { label: 'Stopped at', value: 'verify' }]));
+    expect(doc.facts).toEqual(expect.arrayContaining([{ label: 'Run', value: `RUN-${run!.id}` }, { label: 'Stopped at', value: 'verify' }]));
     expect(doc.body).toMatch(/^\*\*Stopped at verify\*\* — verification failed: Claude produced no changes/);
     expect(doc.body).toContain('**Fix it from Claude Code**');
     expect(doc.body).toMatch(new RegExp(`Vocion software factory run #${run!.id} failed \\(send-t194\\)`));
@@ -95,7 +95,7 @@ describe('an agent run\'s preview', () => {
   it('says what it is in words when the run is not there', async () => {
     const doc = await resolvePreview({ type: 'mission_run', id: '999999' }, { orgId: ORG, userId: null });
 
-    expect(doc.title).toBe('Agent run #999999');
+    expect(doc.title).toBe('RUN-999999');
     expect(doc.href).toBe('/dashboard/p/runs/agent-999999');
     expect(doc.unresolved?.retryable).toBeUndefined();
   });

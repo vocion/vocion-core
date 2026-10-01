@@ -90,7 +90,7 @@ describe('the run\'s header', () => {
 
     await expect.element(page.getByRole('heading', { level: 1, name: 'Room PDF export' })).toBeVisible();
     await expect.element(page.getByTestId('run-title-feature')).toHaveAttribute('href', '/w/acme/dashboard/p/feature/269');
-    await expect.element(page.getByTestId('run-context-task')).toHaveTextContent('Run #435 · northwind-t275');
+    await expect.element(page.getByTestId('run-context-task')).toHaveTextContent('RUN-435 · northwind-t275');
 
     expect(document.querySelector('h1')?.textContent).not.toContain('northwind-t275');
   });

@@ -8,15 +8,15 @@ import { describeRef } from './describeRef';
  */
 describe('a reference, in words', () => {
   it.each([
-    [{ type: 'mission_run', id: '5974' }, 'Agent run #5974', '/dashboard/p/runs/agent-5974'],
-    [{ type: 'worker_run', id: '501' }, 'Run #501', '/dashboard/p/runs/501'],
+    [{ type: 'mission_run', id: '5974' }, 'RUN-5974', '/dashboard/p/runs/agent-5974'],
+    [{ type: 'worker_run', id: '501' }, 'RUN-501', '/dashboard/p/runs/501'],
     [{ type: 'feature_section', id: '126.plan' }, 'Plan for #126', '/dashboard/p/feature/126'],
     [{ type: 'feature_section', id: '126.implementation' }, 'Implementation of #126', '/dashboard/p/feature/126'],
     [{ type: 'feature_section', id: '126.criterion-0' }, 'Criterion 1 of #126', '/dashboard/p/feature/126'],
-    [{ type: 'artifact', id: '700' }, 'Artifact #700', '/dashboard/artifacts/700'],
-    [{ type: 'conversation', id: '12' }, 'Conversation #12', '/dashboard/chat?c=12'],
+    [{ type: 'artifact', id: '700' }, 'ART-700', '/dashboard/artifacts/700'],
+    [{ type: 'conversation', id: '12' }, 'CHAT-12', '/dashboard/chat?c=12'],
     [{ type: 'object', id: '31' }, 'Record #31', '/dashboard/objects/31'],
-    [{ type: 'ask', id: '88' }, 'Ask #88', '/dashboard/inbox/ask%3A88'],
+    [{ type: 'ask', id: '88' }, 'ASK-88', '/dashboard/inbox/ask%3A88'],
   ] as const)('%o → %s', (ref, label, href) => {
     expect(describeRef(ref)).toEqual({ label, href });
   });

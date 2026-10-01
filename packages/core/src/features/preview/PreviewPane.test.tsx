@@ -88,7 +88,7 @@ describe('while the server restarts', () => {
     await expect.element(page.getByTestId('preview-restarting')).toHaveTextContent('Vocion is still restarting.');
     await expect.element(page.getByTestId('preview-panel')).not.toHaveTextContent('Could not load');
     // The header names it in words the whole time, never the bare id.
-    await expect.element(page.getByRole('heading')).toHaveTextContent('Agent run #5974');
+    await expect.element(page.getByRole('heading')).toHaveTextContent('RUN-5974');
 
     expect(get).toHaveBeenCalledTimes(4);
 
@@ -99,7 +99,7 @@ describe('while the server restarts', () => {
   });
 
   it('retries a server answer that says the read itself failed', async () => {
-    get.mockResolvedValueOnce({ ref: { type: 'mission_run', id: '5974' }, title: 'Agent run #5974', sourceLabel: 'Agent run', unresolved: { reason: 'This could not be read just now.', reference: '5974', retryable: true } }).mockResolvedValue(run);
+    get.mockResolvedValueOnce({ ref: { type: 'mission_run', id: '5974' }, title: 'RUN-5974', sourceLabel: 'Agent run', unresolved: { reason: 'This could not be read just now.', reference: '5974', retryable: true } }).mockResolvedValue(run);
     render(<PreviewPane recordRef={{ type: 'mission_run', id: '5974' }} />);
 
     await expect.element(page.getByTestId('preview-panel')).toHaveTextContent('Triage the export request');
@@ -124,7 +124,7 @@ describe('a reference that truly cannot be read', () => {
     get.mockRejectedValue(httpError(403));
     render(<PreviewPane recordRef={{ type: 'mission_run', id: '5974' }} />);
 
-    await expect.element(page.getByTestId('preview-unresolved')).toHaveTextContent('Could not load Agent run #5974.');
+    await expect.element(page.getByTestId('preview-unresolved')).toHaveTextContent('Could not load RUN-5974.');
     await expect.element(page.getByTestId('preview-unresolved')).toHaveTextContent('It is not shared with you.');
     await expect.element(page.getByTestId('preview-unresolved-link')).toHaveAttribute('href', '/dashboard/p/runs/agent-5974');
     expect(get).toHaveBeenCalledTimes(1);

@@ -18,6 +18,7 @@ import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { linkRecordMentions } from '@/libs/chat/recordMentions';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { firstMessageTitle } from '@/libs/chat/threadTitle';
+import { nounCode } from '@/libs/codes';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
@@ -1801,7 +1802,7 @@ export function useChatSession({
         if (!cancelled) {
           setRecentChats((rows as Array<{ id: number; title: string | null; titleSource?: ConversationTitleSource }>).map(row => ({
             id: row.id,
-            title: row.title || `Chat #${row.id}`,
+            title: row.title || nounCode('conversation', row.id),
             ...(row.titleSource ? { titleSource: row.titleSource } : {}),
           })));
         }

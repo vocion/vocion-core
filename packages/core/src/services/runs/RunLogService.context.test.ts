@@ -3,8 +3,9 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 // The org's pages are not under test: requests open on the generic record here.
 vi.mock('@/services/objects/recordHref', async () => {
-  const { genericRecordLinker } = await import('@/libs/workspace/recordHref');
-  return { recordLinkerForOrg: async () => genericRecordLinker };
+  const { genericRecordLinker, NO_RECORD_PAGES } = await import('@/libs/workspace/recordHref');
+  const links = { ...NO_RECORD_PAGES, codes: new Map([['request', 'FE'], ['architecture_plan', 'PL']]) };
+  return { recordLinkerForOrg: async () => genericRecordLinker, recordLinksForOrg: async () => links };
 });
 
 const { db } = await import('@/libs/DB');

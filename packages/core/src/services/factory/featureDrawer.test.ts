@@ -40,7 +40,7 @@ function report(over: Partial<FeatureReportInput> = {}) {
     ...assembleFeatureReport({ ...base, ...over }),
     activity: [
       { kind: 'conversation' as const, id: 12, title: 'Scoping the export', at: T('2026-09-02T09:00:00Z'), status: 'wrote', detail: null },
-      { kind: 'mission_run' as const, id: 88, title: 'Mission run 88', at: T('2026-09-05T09:00:00Z'), status: 'completed', detail: '3 steps' },
+      { kind: 'mission_run' as const, id: 88, title: 'RUN-88', at: T('2026-09-05T09:00:00Z'), status: 'completed', detail: '3 steps' },
     ],
   };
 }
@@ -108,9 +108,9 @@ describe('the implementation drawer', () => {
 
     expect(d.title).toBe('Implementation');
     expect(d.subtitle).toBe('2 attempts · $4.29 spent · Not estimated');
-    expect(d.body.indexOf('[Run #501 · Completed](?preview=worker_run:501)')).toBeLessThan(d.body.indexOf('[Run #500 · Failed](?preview=worker_run:500)'));
-    expect(d.body).toContain('**[Run #501 · Completed](?preview=worker_run:501)** · attempt 2 of 2 · 04 Sep 2026, 11:00 UTC · $3.09\n- Pull request: [northwind-portal#12](https://github.com/example/northwind-portal/pull/12)\n- Checks: 2 passed');
-    expect(d.body).toContain('**[Run #500 · Failed](?preview=worker_run:500)** · attempt 1 of 2 · 03 Sep 2026, 10:30 UTC · $1.20\n- Checks: 1 failed (typecheck), 1 passed\n- Why it stopped: typecheck failed');
+    expect(d.body.indexOf('[RUN-501 · Completed](?preview=worker_run:501)')).toBeLessThan(d.body.indexOf('[RUN-500 · Failed](?preview=worker_run:500)'));
+    expect(d.body).toContain('**[RUN-501 · Completed](?preview=worker_run:501)** · attempt 2 of 2 · 04 Sep 2026, 11:00 UTC · $3.09\n- Pull request: [northwind-portal#12](https://github.com/example/northwind-portal/pull/12)\n- Checks: 2 passed');
+    expect(d.body).toContain('**[RUN-500 · Failed](?preview=worker_run:500)** · attempt 1 of 2 · 03 Sep 2026, 10:30 UTC · $1.20\n- Checks: 1 failed (typecheck), 1 passed\n- Why it stopped: typecheck failed');
     // Nothing is running, so nothing leads.
     expect(d.body).not.toContain('## Running now');
     expect(d.href).toBe('/dashboard/p/runs/501');
@@ -182,7 +182,7 @@ describe('the other drawers say each thing once', () => {
 
     expect(d.subtitle).toBe('1 conversation and 1 run tied to this work, newest first');
     expect(d.body).toContain('[Scoping the export](?preview=conversation:12)');
-    expect(d.body).toContain('[Agent run #88](?preview=mission_run:88)');
+    expect(d.body).toContain('[RUN-88](?preview=mission_run:88)');
     expect(d.body).not.toContain('Mission run 88');
   });
 
@@ -200,7 +200,7 @@ describe('the other drawers say each thing once', () => {
     const d = featureDrawer({ ...r, implementation: { ...r.implementation, attempts: [live, ...r.implementation.attempts] } }, 'implementation', NOW)!;
 
     expect(d.body.indexOf('## Running now')).toBeLessThan(d.body.indexOf('## Runs, newest first'));
-    expect(d.body).toContain('## Running now\n\n- [Run #502 · Running](?preview=worker_run:502) · attempt 3 of 3 · started 4 min ago');
+    expect(d.body).toContain('## Running now\n\n- [RUN-502 · Running](?preview=worker_run:502) · attempt 3 of 3 · started 4 min ago');
   });
 
   it('cost: the spend is the line, not the line and the body; each attempt links its run', () => {
@@ -208,8 +208,8 @@ describe('the other drawers say each thing once', () => {
 
     expect(d.subtitle).toBe('$4.29 spent · Not estimated');
     expect(d.body).not.toContain('**Spent:**');
-    expect(d.body).toContain('- [Run #501 · Completed](/dashboard/p/runs/501): $3.09');
-    expect(d.body).toContain('- [Run #500 · Failed](/dashboard/p/runs/500): $1.20');
+    expect(d.body).toContain('- [RUN-501 · Completed](/dashboard/p/runs/501): $3.09');
+    expect(d.body).toContain('- [RUN-500 · Failed](/dashboard/p/runs/500): $1.20');
   });
 
   it('details: the ask, triage, the contracts and the approvals, the asked date said once', () => {

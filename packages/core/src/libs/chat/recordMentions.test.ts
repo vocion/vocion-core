@@ -32,4 +32,11 @@ describe('record mentions in an answer (Chris, 2026-09-28: "click through to the
   it('does not link a longer number that starts with the same digits', () => {
     expect(linkRecordMentions('#2010 is not #201.', [{ text: '#201', href: '/p/201' }])).toBe('#2010 is not [#201](/p/201).');
   });
+
+  it('finds a code in capitals — FE-294, RUN-439 — with its prefix, and nothing that only looks like one', () => {
+    const found = findRecordMentions('FE-294 is building in RUN-439; a re-run or fe-12 or PRE-7 is not a code here.', WORDS, ['FE', 'RUN']);
+
+    expect(found.map(m => [m.text, m.id, m.code])).toEqual([['FE-294', 294, 'FE'], ['RUN-439', 439, 'RUN']]);
+    expect(linkRecordMentions('FE-294 is building', [{ text: 'FE-294', href: '/p/feature/294' }])).toBe('[FE-294](/p/feature/294) is building');
+  });
 });

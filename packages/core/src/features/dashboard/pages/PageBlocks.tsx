@@ -1,5 +1,6 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
+import { RecordCode } from '@/components/patterns';
 import { StatusDot } from '@/components/patterns/DetailPage';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
 import { Badge } from '@/components/ui/badge';
@@ -204,6 +205,7 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
       <div className="flex flex-col gap-1 @md:flex-row @md:items-start @md:justify-between @md:gap-x-3">
         <span className="flex min-w-0 items-start gap-2 text-base font-semibold text-foreground">
           {mark}
+          <RecordCode code={row.code} />
           {split && href
             ? (
                 <Link href={href} className={`${FACT_LINK} min-w-0 decoration-transparent`} data-testid="block-title-link">

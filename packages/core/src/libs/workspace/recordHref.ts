@@ -1,4 +1,6 @@
 import type { PageManifest } from './pageFields';
+import type { TypeCodes } from '@/libs/codes';
+import { recordCode } from '@/libs/codes';
 import { workspaceUrl } from '@/libs/links';
 
 /**
@@ -39,6 +41,11 @@ export type RecordLinks = {
    * status it is in (`services/objects/recordStatus.ts`). Absent, none.
    */
   reports?: ReadonlySet<string>;
+  /**
+   * Object type → the code its records read by (FE → FE-294, `libs/codes.ts`).
+   * Absent, a type's code is derived from its slug.
+   */
+  codes?: TypeCodes;
 };
 
 /** The manifest fields the rule reads — enough that a test can hand in a literal. */
@@ -147,6 +154,16 @@ export function recordHrefFrom(links: RecordLinks, ref: RecordLinkRef): string {
   const template = ref.objectType ? links.pages.get(ref.objectType) : undefined;
   const path = template ? template.replace('{id}', encodeURIComponent(String(ref.id))) : rawRecordPath(ref.id);
   return links.workspaceSlug ? workspaceUrl(links.workspaceSlug, path) : path;
+}
+
+/**
+ * The code a person reads one record by — FE-294 — from the same links the
+ * record's href comes from, so a surface that can link a record can name it.
+ * @param links - From {@link recordLinksOf}, with the workspace's type codes.
+ * @param ref - The record.
+ */
+export function recordCodeFrom(links: RecordLinks, ref: RecordLinkRef): string {
+  return recordCode(links.codes, ref.objectType, ref.id);
 }
 
 /**

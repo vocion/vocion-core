@@ -353,9 +353,11 @@ export async function runContext(run: WorkerRunRow): Promise<RunContext | null> 
     return null;
   }
   const { businessObjectSchema } = await import('@/models/Schema');
-  const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
+  const { recordLinksForOrg } = await import('@/services/objects/recordHref');
+  const { recordCodeFrom, recordLinker } = await import('@/libs/workspace/recordHref');
   const { attemptOfRun, readRecovery } = await import('@/services/factory/recovery');
-  const link = await recordLinkerForOrg(run.orgId);
+  const links = await recordLinksForOrg(run.orgId);
+  const link = recordLinker(links);
   const ids = [requestId, ...(Number.isSafeInteger(taskId) && taskId > 0 ? [taskId] : [])];
   const rows = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, run.orgId), inArray(businessObjectSchema.id, ids)));
   const request = rows.find(r => r.id === requestId) ?? null;
@@ -366,7 +368,7 @@ export async function runContext(run: WorkerRunRow): Promise<RunContext | null> 
   let plan: RunContext['plan'] = null;
   if (Number.isSafeInteger(planId) && planId > 0) {
     const [p] = await db.select({ id: businessObjectSchema.id, title: businessObjectSchema.title }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, run.orgId), eq(businessObjectSchema.id, planId))).limit(1);
-    plan = p ? { id: p.id, title: p.title, href: link({ objectType: 'architecture_plan', id: p.id }) } : null;
+    plan = p ? { id: p.id, code: recordCodeFrom(links, { objectType: 'architecture_plan', id: p.id }), title: p.title, href: link({ objectType: 'architecture_plan', id: p.id }) } : null;
   }
   const { sql } = await import('drizzle-orm');
   const siblings = await db
@@ -387,7 +389,7 @@ export async function runContext(run: WorkerRunRow): Promise<RunContext | null> 
   const origin = request ? await recordOrigin(run.orgId, { id: request.id, meta: (request.meta ?? {}) as Record<string, unknown> }).catch(() => null) : null;
   return {
     origin,
-    feature: request ? { id: request.id, title: request.title, href: featureHref } : { id: requestId, title: `Feature #${requestId}`, href: featureHref },
+    feature: { id: requestId, code: recordCodeFrom(links, { objectType: 'request', id: requestId }), title: request?.title ?? recordCodeFrom(links, { objectType: 'request', id: requestId }), href: featureHref },
     plan,
     // The task's type as the run names it, never written here.
     task: taskRow && typeof input.record?.type === 'string' ? { id: taskRow.id, href: link({ objectType: input.record.type, id: taskRow.id }) } : null,

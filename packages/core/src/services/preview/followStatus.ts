@@ -6,10 +6,11 @@
  * themselves, never from what the answer said about them.
  *
  * A request's state is its latest engineering run's while one exists, so the
- * chip under "I've started it" says "running · run #419" and follows it.
+ * chip under "I've started it" says "running · RUN-419" and follows it.
  */
 
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { askSchema, businessObjectSchema, businessObjectTypeSchema, missionRunSchema, workerRunSchema } from '@/models/Schema';
 
@@ -86,13 +87,13 @@ export async function followStatuses(orgId: string, refs: FollowRef[]): Promise<
       .from(businessObjectSchema)
       .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
       .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.id, objectIds)));
-    const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
-    const link = await recordLinkerForOrg(orgId);
+    const { recordLinksForOrg } = await import('@/services/objects/recordHref');
+    const { recordCodeFrom } = await import('@/libs/workspace/recordHref');
+    const links = await recordLinksForOrg(orgId);
     for (const r of rows) {
       const meta = (r.meta ?? {}) as Record<string, unknown>;
-      // One name per thing: the workspace's page names it, else its type.
-      const page = /\/p\/([^/]+)\/[^/]+$/.exec(link({ objectType: r.type, id: r.id }))?.[1];
-      const name = `${(page ?? (r.type === 'engineering_task' ? 'task' : r.type === 'architecture_plan' ? 'plan' : r.type)).replace(/[-_]+/g, ' ')} #${r.id}`;
+      // One name per thing: its code, which says what kind of thing it is (FE-294).
+      const name = recordCodeFrom(links, { objectType: r.type, id: r.id });
       if (r.type === 'request') {
         // A request follows its latest engineering run while it has one.
         const [run] = await db
@@ -103,7 +104,7 @@ export async function followStatuses(orgId: string, refs: FollowRef[]): Promise<
           .limit(1);
         const word = typeof meta.state === 'string' ? meta.state : r.status;
         out[key({ type: 'object', id: String(r.id) })] = run && followStateOf(run.status) !== 'done'
-          ? { state: followStateOf(run.status), label: `${run.status} · run #${run.id}`, name }
+          ? { state: followStateOf(run.status), label: `${run.status} · ${nounCode('run', run.id)}`, name }
           : { state: followStateOf(word), label: word ?? 'open', name };
         continue;
       }

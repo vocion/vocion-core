@@ -4,7 +4,7 @@ import type { RecordRef } from '@/services/chat/pageContext';
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { historyRefId } from '@/libs/versions/versionRef';
-import { hasReportPage, recordHrefFrom } from '@/libs/workspace/recordHref';
+import { hasReportPage, recordCodeFrom, recordHrefFrom } from '@/libs/workspace/recordHref';
 import { actionRunSchema, businessObjectSchema, businessObjectTypeSchema, conversationMessageSchema, conversationSchema, toolCallSchema } from '@/models/Schema';
 import { recordLinksForOrg } from '@/services/objects/recordHref';
 
@@ -101,6 +101,7 @@ async function describeRecords(orgId: string, ids: readonly number[], opts: { fi
     const made = opts.filed.has(id);
     return [{
       id,
+      code: recordCodeFrom(links, { objectType: row.type, id }),
       title: row.title,
       href: recordHrefFrom(links, { objectType: row.type, id }),
       filed: made,

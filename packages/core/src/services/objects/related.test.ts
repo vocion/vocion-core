@@ -3,8 +3,10 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 // The org's pages are not under test: records open on the generic record page.
 vi.mock('@/services/objects/recordHref', async () => {
-  const { genericRecordLinker } = await import('@/libs/workspace/recordHref');
-  return { recordLinkerForOrg: async () => genericRecordLinker };
+  const { genericRecordLinker, NO_RECORD_PAGES } = await import('@/libs/workspace/recordHref');
+  // The codes the software-factory plugin declares; any other type derives its own.
+  const codes = new Map([['request', 'FE'], ['architecture_plan', 'PL'], ['engineering_task', 'TK'], ['release', 'REL'], ['product', 'PRD'], ['repo', 'REPO'], ['environment', 'ENV']]);
+  return { recordLinkerForOrg: async () => genericRecordLinker, recordLinksForOrg: async () => ({ ...NO_RECORD_PAGES, codes }) };
 });
 
 const { db } = await import('@/libs/DB');
@@ -76,14 +78,14 @@ describe('what a feature is connected to', () => {
 
     expect(items.map(i => [i.relation, i.title])).toEqual([
       ['origin', 'Share menu PDF export'],
-      ['product', '#300 Northwind Portal'],
-      ['plans', '#302 Render the room to PDF'],
-      ['tasks', '#303 Room PDF export task'],
-      ['tasks', '#304 Room PDF export task'],
-      ['runs', `Run #${run!.id}`],
+      ['product', 'PRD-300 Northwind Portal'],
+      ['plans', 'PL-302 Render the room to PDF'],
+      ['tasks', 'TK-303 Room PDF export task'],
+      ['tasks', 'TK-304 Room PDF export task'],
+      ['runs', `RUN-${run!.id}`],
       ['pulls', 'PR #26'],
       ['pulls', 'PR #27'],
-      ['releases', '#305 Portal 2026-09-30'],
+      ['releases', 'REL-305 Portal 2026-09-30'],
       ['artifacts', 'share-menu.png'],
     ]);
 
@@ -119,7 +121,7 @@ describe('what a product is connected to', () => {
       { id: 322, orgId: ORG, typeId: t.repo!, title: 'kestrel-desk', metadata: { product: 'desk' } },
     ]);
 
-    expect((await relatedOf(ORG, 320)).map(i => [i.relation, i.title])).toEqual([['repos', '#321 northwind-portal']]);
+    expect((await relatedOf(ORG, 320)).map(i => [i.relation, i.title])).toEqual([['repos', 'REPO-321 northwind-portal']]);
   });
 });
 
@@ -163,7 +165,7 @@ describe('a relation a plugin declares', () => {
       { id: 331, orgId: ORG, typeId: t.field_note!, title: 'Walkthrough notes', metadata: { siteId: 330 } },
     ]);
 
-    expect((await relatedOf(ORG, 331)).map(i => [i.label, i.title])).toEqual([['Site visited', '#330 Bellwater Hall']]);
+    expect((await relatedOf(ORG, 331)).map(i => [i.label, i.title])).toEqual([['Site visited', 'PRD-330 Bellwater Hall']]);
   });
 
   it('a type that declares nothing is connected to what its link fields name', async () => {
@@ -173,7 +175,7 @@ describe('a relation a plugin declares', () => {
       { id: 341, orgId: ORG, typeId: t.field_note!, title: 'Depot notes', metadata: { siteId: 340 } },
     ]);
 
-    expect((await relatedOf(ORG, 341)).map(i => [i.label, i.title])).toEqual([['Site', '#340 Contoso Supply depot']]);
+    expect((await relatedOf(ORG, 341)).map(i => [i.label, i.title])).toEqual([['Site', 'PRD-340 Contoso Supply depot']]);
   });
 });
 
@@ -202,8 +204,8 @@ describe('what a run is connected to', () => {
       failures: [],
       context: {
         origin: { conversationId: 812, title: 'Share menu PDF export', href: '/dashboard/chat?c=812', by: 'Dana Reyes', at: null },
-        feature: { id: 301, title: 'Room PDF export', href: '/dashboard/p/feature/301' },
-        plan: { id: 302, title: 'Render the room to PDF', href: '/dashboard/objects/302' },
+        feature: { id: 301, code: 'FE-301', title: 'Room PDF export', href: '/dashboard/p/feature/301' },
+        plan: { id: 302, code: 'PL-302', title: 'Render the room to PDF', href: '/dashboard/objects/302' },
         attempt: { n: 2, of: 3 },
         others: [{ runId: 431, status: 'failed', href: '/dashboard/p/runs/431' }],
         acceptance: null,
@@ -213,9 +215,9 @@ describe('what a run is connected to', () => {
 
     expect(items.map(i => [i.label, i.title, i.preview?.type ?? null])).toEqual([
       ['Started in chat', 'Share menu PDF export', 'conversation'],
-      ['Feature', '#301 Room PDF export', 'object'],
-      ['Plan', '#302 Render the room to PDF', 'object'],
-      ['Other attempts', 'Run #431', 'worker_run'],
+      ['Feature', 'FE-301 Room PDF export', 'object'],
+      ['Plan', 'PL-302 Render the room to PDF', 'object'],
+      ['Other attempts', 'RUN-431', 'worker_run'],
       ['Branch', 'factory/northwind-t304', null],
       ['Pull request', 'PR #27', null],
     ]);

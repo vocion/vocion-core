@@ -59,6 +59,6 @@ describe('GET /api/v1/conversations/:id/records', () => {
     const res = await call(conv!.id);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ records: [{ id: rec!.id, title: 'Fix the header overflow', href: `/dashboard/p/feature/${rec!.id}`, filed: true, change: null, hasStatus: true }] });
+    expect(await res.json()).toEqual({ records: [{ id: rec!.id, code: `REQ-${rec!.id}`, title: 'Fix the header overflow', href: `/dashboard/p/feature/${rec!.id}`, filed: true, change: null, hasStatus: true }] });
   });
 });

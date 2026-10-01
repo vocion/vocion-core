@@ -23,6 +23,7 @@ import { rulingChoices } from '@/features/dashboard/chat/rulingChoices';
 import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { isSelfUpdate } from '@/libs/actions/selfUpdate';
+import { nounCode } from '@/libs/codes';
 import { cn } from '@/utils/Helpers';
 import { contentKindEditable, contentKindRenderer } from './contentKinds';
 import { approvableItems, isChecked, walkApplies, walkCount } from './contentWalk';
@@ -1154,7 +1155,7 @@ export function ReviewSurface(props: {
                   ? { label: card.confidenceSubject ?? 'Recommendation', value: <ConfidenceMeter value={run.proposal.confidence} label={card.confidenceSubject ?? 'Recommendation'} /> }
                   : null,
                 !brief && run.proposal?.suggestedDecision ? { label: 'Agent suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
-                { label: 'Run', value: `#${run.id}` },
+                { label: 'Run', value: nounCode('action', run.id) },
                 handoff ? { label: 'Who runs it', value: <span data-testid="who-runs-it">{whoRunsIt}</span> } : null,
                 alignmentRate !== null && run.alignment
                   ? {

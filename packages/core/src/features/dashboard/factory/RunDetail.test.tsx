@@ -201,7 +201,7 @@ describe('where the run belongs (Chris, 2026-09-29: "context of the implementati
 
     await expect.element(page.getByRole('link', { name: '#41 Room PDF export' })).toHaveAttribute('href', '/w/acme/dashboard/p/feature/41');
     await expect.element(page.getByRole('link', { name: '#52 Render the room to PDF on the server' })).toHaveAttribute('href', '/w/acme/dashboard/objects/52');
-    await expect.element(page.getByRole('link', { name: 'Run #6' })).toHaveAttribute('href', '/dashboard/p/runs/6');
+    await expect.element(page.getByRole('link', { name: 'RUN-6' })).toHaveAttribute('href', '/dashboard/p/runs/6');
     await expect.element(page.getByTestId('run-criteria-toggle')).toHaveTextContent('3 criteria · 2 proven');
     await expect.element(page.getByRole('link', { name: 'factory/northwind-t12' })).toHaveAttribute('href', 'https://github.com/example/northwind-portal/tree/factory/northwind-t12');
   });

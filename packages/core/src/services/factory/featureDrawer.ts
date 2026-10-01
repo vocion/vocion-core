@@ -20,6 +20,7 @@
  */
 
 import type { FeatureDrawerKey, FeatureReport, ReportAttempt, ReportCheck, ReportEntry, ReportSection, TimelineEntry } from './featureReport';
+import { nounCode } from '@/libs/codes';
 import { formatAge, formatStamp, money } from './featureReport';
 
 /** What a drawer shows: the pane's heading, one line under it, a few facts and the body. */
@@ -214,7 +215,7 @@ function attemptMd(a: ReportAttempt, of: number): string {
   // A run as a row, opening in the pane: its status, its number, which
   // attempt it was (Chris, 2026-09-29: "the summary should indicate active
   // runs as rows").
-  const head = `**[Run #${a.runId} · ${a.outcome}](${peek('worker_run', a.runId)})** · attempt ${a.n} of ${Math.max(of, a.n)} · ${formatStamp(a.at)}${a.cents !== null ? ` · ${money(a.cents)}` : ''}`;
+  const head = `**[${nounCode('run', a.runId)} · ${a.outcome}](${peek('worker_run', a.runId)})** · attempt ${a.n} of ${Math.max(of, a.n)} · ${formatStamp(a.at)}${a.cents !== null ? ` · ${money(a.cents)}` : ''}`;
   const lines = [
     a.prUrl ? `- Pull request: [${prName(a.prUrl)}](${a.prUrl})` : null,
     a.executed ? `- Checks: ${checksLine(a.checks)}` : null,
@@ -283,7 +284,7 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
       const n = impl.attempts.length;
       const attempts = impl.attempts.map(a => attemptMd(a, n)).join('\n\n');
       // What is running now leads, one row each, before the history.
-      const running = impl.attempts.filter(a => a.live).map(a => `- [Run #${a.runId} · ${a.outcome}](${peek('worker_run', a.runId)}) · attempt ${a.n} of ${n} · started ${a.ago}`).join('\n');
+      const running = impl.attempts.filter(a => a.live).map(a => `- [${nounCode('run', a.runId)} · ${a.outcome}](${peek('worker_run', a.runId)}) · attempt ${a.n} of ${n} · started ${a.ago}`).join('\n');
       const latest = impl.latest ? runPage(impl.latest.runId) : null;
       // The five delivery facts, each a link to what it rests on.
       const evidence: Record<string, string | null> = {
@@ -371,8 +372,8 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
         body: items.length === 0
           ? 'No conversation or run names this work.'
           : items.map((i) => {
-              // A run with no title of its own reads as what it is, with its number.
-              const title = /^(?:Mission|Agent) run \d+$/.test(i.title) ? `${word[i.kind]} #${i.id}` : i.title;
+              // A run with no title of its own reads by its code (RUN-6414), already its title.
+              const title = i.title;
               // A repeated agent run is one line, opening its newest run.
               const repeats = i.count && i.count > 1 ? ` · ran ${i.count} times` : '';
               return `- [${title}](${peek(i.kind, i.id)}) · ${word[i.kind]}${repeats}${i.status ? ` · ${i.status}` : ''}${i.detail ? ` · ${i.detail}` : ''} · ${repeats ? 'last ' : ''}${ago(i.at)}`;
@@ -390,7 +391,7 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
           sectionMd(section('money'), { heading: false, omit: ['Spent'] }),
           report.notices.filter(nt => nt.key === 'cost-disagree').map(nt => `> ${nt.evidence}`).join('\n\n'),
           n > 0
-            ? `## By run\n\n${impl.attempts.map(a => `- [Run #${a.runId} · ${a.outcome}](${runPage(a.runId)}): ${a.cents === null ? 'no charge recorded' : money(a.cents)}`).join('\n')}`
+            ? `## By run\n\n${impl.attempts.map(a => `- [${nounCode('run', a.runId)} · ${a.outcome}](${runPage(a.runId)}): ${a.cents === null ? 'no charge recorded' : money(a.cents)}`).join('\n')}`
             : '',
         ].filter(Boolean).join('\n\n'),
       };

@@ -309,9 +309,11 @@ export const actionStatusRoute = os
     // Everything it made — the run it started, the request it planned, the
     // PR — so the settled card opens each in one move (Chris, 2026-09-29).
     const { resultLinks } = await import('@/libs/actions/resultLinks');
-    const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
-    const links = row.status === 'done'
-      ? resultLinks({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, await recordLinkerForOrg(orgId))
+    const { recordLinksForOrg } = await import('@/services/objects/recordHref');
+    const { recordLinker } = await import('@/libs/workspace/recordHref');
+    const recordLinks = row.status === 'done' ? await recordLinksForOrg(orgId) : null;
+    const links = recordLinks
+      ? resultLinks({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, recordLinker(recordLinks), recordLinks.codes)
       : [];
     return {
       status: row.status,

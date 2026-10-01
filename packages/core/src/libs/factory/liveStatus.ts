@@ -1,4 +1,5 @@
 import type { Delivery } from './delivery';
+import { nounCode } from '@/libs/codes';
 import { describeRef } from '@/libs/preview/describeRef';
 import { isLiveStatus } from '@/libs/worker/runLog';
 import { runName, runningRun } from './delivery';
@@ -48,7 +49,7 @@ export type LiveRun = {
   runRef: { type: 'worker_run' | 'mission_run'; id: string } | null;
   /** The run's own page (`libs/preview/describeRef.ts`), or GitHub's page for an outside run. */
   runHref: string;
-  /** "Run #432", "Agent run #6414". */
+  /** "RUN-432" — what a person reads the run by (`libs/codes.ts`). */
   runLabel: string;
   /** ISO — when the clock this line shows started: queued at, claimed at, started at. */
   startedAt: string;
@@ -78,7 +79,8 @@ export type StatusMove = { label: string; href: string };
  * polls, what the preview pane and the Work row draw.
  */
 export type RecordStatus = {
-  record: { id: number; objectType: string; title: string; href: string };
+  /** `code` is what a person reads it by — FE-294 (`libs/codes.ts`). */
+  record: { id: number; objectType: string; title: string; href: string; code?: string };
   /** The stage badge — "Planning", "Waiting for a worker", "Ready to merge". */
   stage: { key: string; label: string; tone: 'ok' | 'warn' | 'bad' | 'info' | 'muted' };
   you: StatusYou & { move: StatusMove | null };
@@ -105,7 +107,7 @@ export type RecordStatus = {
    * run that wrote it, for Undo (null when a person set it by hand).
    */
   duplicate?: {
-    of: { id: number; title: string; href: string };
+    of: { id: number; title: string; href: string; code?: string };
     reason: string | null;
     confidence: number | null;
     undoRunId: number | null;
@@ -212,7 +214,7 @@ export function pickLive(input: { workerRuns: readonly LiveWorkerRunInput[]; mis
       step,
       runRef: { type: 'worker_run', id: String(claimed.id) },
       runHref: runHref('worker_run', claimed.id),
-      runLabel: `Run #${claimed.id}`,
+      runLabel: nounCode('run', claimed.id),
       startedAt: claimed.claimedAt!.toISOString(),
       since: 'claimed',
     };
@@ -232,7 +234,7 @@ export function pickLive(input: { workerRuns: readonly LiveWorkerRunInput[]; mis
       step: agent.step,
       runRef: { type: 'mission_run', id: String(agent.id) },
       runHref: runHref('mission_run', agent.id),
-      runLabel: `Agent run #${agent.id}`,
+      runLabel: nounCode('run', agent.id),
       startedAt: agent.startedAt.toISOString(),
       since: 'started',
     };
@@ -245,7 +247,7 @@ export function pickLive(input: { workerRuns: readonly LiveWorkerRunInput[]; mis
       step: null,
       runRef: { type: 'worker_run', id: String(queued.id) },
       runHref: runHref('worker_run', queued.id),
-      runLabel: `Run #${queued.id}`,
+      runLabel: nounCode('run', queued.id),
       startedAt: queued.createdAt.toISOString(),
       since: 'queued',
     };
@@ -272,7 +274,7 @@ export function elapsedLabel(ms: number): string {
 
 /**
  * The Now line in words, for a surface that draws one string (a Work row,
- * MCP): "Waiting for a worker · run #432 · queued 3 min".
+ * MCP): "Waiting for a worker · RUN-432 · queued 3 min".
  * @param live - The live run, or null.
  * @param now - The clock.
  */
@@ -315,6 +317,8 @@ export function youOf(needsYou: boolean, move: string | null, why: string | null
  */
 export type TurnRecord = {
   id: number;
+  /** What a person reads it by — FE-294 (`libs/codes.ts`). */
+  code?: string;
   title: string;
   href: string;
   /** True when the turn made it; false when it changed an existing one. */

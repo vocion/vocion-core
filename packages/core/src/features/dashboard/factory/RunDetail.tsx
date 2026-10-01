@@ -7,6 +7,7 @@ import { Accordion, FactList, MetaChip, relatedFacts, Section } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useLive } from '@/hooks/useLive';
+import { nounCode } from '@/libs/codes';
 import { Link } from '@/libs/I18nNavigation';
 import { liveTopic } from '@/libs/live/topics';
 import { client } from '@/libs/Orpc';
@@ -319,7 +320,7 @@ function RunFacts({ header: h }: { header: RunHeader }) {
           preview: c?.task ? { type: 'object', id: String(c.task.id) } : null,
           value: (
             <span className="font-mono text-[12px]" data-testid="run-context-task">
-              {`${h.kind === 'agent' ? 'Agent run' : 'Run'} #${h.id}`}
+              {nounCode('run', h.id)}
               {h.taskId && (
                 <>
                   {' · '}

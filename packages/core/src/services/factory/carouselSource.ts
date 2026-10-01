@@ -19,6 +19,7 @@
  */
 
 import type { ReportArtifact, ReportObject, ReportWorkerRun } from './featureReport';
+import { nounCode } from '@/libs/codes';
 import { LIVE_ROLE } from '@/libs/factory/liveCheck';
 
 /** Where a picture sits in the story. One word each, the carousel's label. */
@@ -139,14 +140,14 @@ export function sourceOf(input: SourceInput): EvidenceSource {
   }
   if (section === CAROUSEL_SECTIONS.reported) {
     const cid = conversationId ?? input.originConversationId ?? null;
-    return { text: line(`Reported in chat by ${by ?? 'a person'}`, cid ? `conversation ${cid}` : null, when), ref: cid ? { type: 'conversation', id: String(cid) } : artifactRef };
+    return { text: line(`Reported in chat by ${by ?? 'a person'}`, cid ? nounCode('conversation', cid) : null, when), ref: cid ? { type: 'conversation', id: String(cid) } : artifactRef };
   }
   if (section === CAROUSEL_SECTIONS.plan) {
     return { text: line(by ?? 'Vocion', 'drawn from the record', when), ref: artifactRef };
   }
   if (section === CAROUSEL_SECTIONS.mockup) {
     const base = num(prov.baseArtifactId) ?? num(bag(a.spec.source).baseArtifactId);
-    const how = prov.drawnFrom === 'screen' || base ? `drawn on screenshot #${base ?? '?'}` : a.spec.source ? 'drawn from the request' : 'filed on the request';
+    const how = prov.drawnFrom === 'screen' || base ? `drawn on screenshot${base ? ` ${nounCode('artifact', base)}` : ''}` : a.spec.source ? 'drawn from the request' : 'filed on the request';
     const ref: SourceRef = missionRunId ? { type: 'mission_run', id: String(missionRunId) } : conversationId ? { type: 'conversation', id: String(conversationId) } : artifactRef;
     return { text: line(by ?? 'Designer', how, when), ref };
   }

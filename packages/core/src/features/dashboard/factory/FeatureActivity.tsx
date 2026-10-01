@@ -3,6 +3,7 @@
 import type { ReportActivity } from '@/services/factory/featureReport';
 import { Bot, ChevronRight, Hammer, MessageSquare } from 'lucide-react';
 import { usePreviewOpener } from '@/features/preview/previewState';
+import { nounCode } from '@/libs/codes';
 import { previewActivity, repeatLabel } from '@/libs/factory/activityRows';
 import { FeatureDrawerLink } from './FeatureDrawerLink';
 
@@ -27,6 +28,7 @@ import { FeatureDrawerLink } from './FeatureDrawerLink';
 
 const ICON = { conversation: MessageSquare, mission_run: Bot, worker_run: Hammer } as const;
 const WORD = { conversation: 'Conversation', mission_run: 'Agent run', worker_run: 'Engineering run' } as const;
+const NOUN = { conversation: 'conversation', mission_run: 'run', worker_run: 'run' } as const;
 
 /** How many rows the page shows before "View all work". */
 const WORK_PREVIEW_ROWS = 3;
@@ -45,11 +47,14 @@ function ago(at: Date): string {
 function Row({ item }: { item: ReportActivity }) {
   const open = usePreviewOpener({ type: item.kind, id: String(item.id) });
   const Icon = ICON[item.kind];
+  // What it is read by (RUN-439, CHAT-405), ahead of its title when it has one.
+  const code = nounCode(NOUN[item.kind], item.id);
   return (
     <li>
       <button type="button" onClick={open} data-testid="activity-row" data-origin={item.origin ? 'true' : undefined} className="flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-hover">
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <span className="min-w-0 flex-1 truncate">
+          {item.title !== code && !item.origin && <span className="text-muted-foreground tabular-nums">{`${code} `}</span>}
           <span className="text-foreground">{item.title}</span>
           <span className="text-muted-foreground">{` · ${item.origin && item.detail ? item.detail : repeatLabel(item) ?? WORD[item.kind]}`}</span>
         </span>

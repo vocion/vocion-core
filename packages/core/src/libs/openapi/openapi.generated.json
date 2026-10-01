@@ -41,6 +41,10 @@
       "description": "Endpoints under /api/v1/chat-bindings."
     },
     {
+      "name": "codes",
+      "description": "Endpoints under /api/v1/codes."
+    },
+    {
       "name": "conversations",
       "description": "Endpoints under /api/v1/conversations."
     },
@@ -1783,6 +1787,64 @@
             "description": "The id from the URL.",
             "schema": {
               "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/codes/{code}": {
+      "get": {
+        "operationId": "get_codes_code",
+        "summary": "What a code names in this workspace — `FE-294`, `run-439`, or an old bare `294` — and where it opens.",
+        "tags": [
+          "codes"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "What a code names in this workspace — `FE-294`, `run-439`, or an old bare\n`294` — and where it opens. Case-insensitive. Answers `{ code, kind, id,\ntitle?, href }`: `kind` is `record` (with the record's title) or the core\nnoun (`run`, `action`, `ask`, `conversation`, `artifact`, `automation`).\nA code whose prefix is not the record's type is a 404 that says what the\nrecord's code is. What ⌘K reads when a person types a code.",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "description": "The code from the URL.",
+            "schema": {
+              "type": "string"
             }
           }
         ]

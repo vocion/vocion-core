@@ -24,6 +24,7 @@ import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, Re
 import type { FactoryTypes } from '@/libs/factory/types';
 import type { RecordOrigin } from '@/services/objects/related';
 import { and, desc, eq, inArray } from 'drizzle-orm';
+import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { collapseActivity } from '@/libs/factory/activityRows';
 import { factoryTypes } from '@/libs/factory/types';
@@ -418,7 +419,7 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
       .where(and(eq(conversationSchema.orgId, orgId), inArray(conversationSchema.id, [...conv.keys()])));
     for (const r of rows) {
       const c = conv.get(r.id)!;
-      out.push({ kind: 'conversation', id: r.id, title: r.title?.trim() || `Conversation ${r.id}`, at: c.at, status: c.writes > 0 ? 'wrote' : 'read', detail: `${r.agentSlug ?? 'agent'} · ${c.steps} step${c.steps === 1 ? '' : 's'}` });
+      out.push({ kind: 'conversation', id: r.id, title: r.title?.trim() || nounCode('conversation', r.id), at: c.at, status: c.writes > 0 ? 'wrote' : 'read', detail: `${r.agentSlug ?? 'agent'} · ${c.steps} step${c.steps === 1 ? '' : 's'}` });
     }
   }
   if (mission.size > 0) {
@@ -430,11 +431,11 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
     const fireFailed = await failedFireLines(orgId, rows);
     for (const r of rows) {
       const m = mission.get(r.id)!;
-      out.push({ kind: 'mission_run', id: r.id, title: r.title?.trim() || `Mission run ${r.id}`, at: m.at, status: fireFailed.get(r.id) ?? r.status ?? null, detail: `${m.steps} step${m.steps === 1 ? '' : 's'}` });
+      out.push({ kind: 'mission_run', id: r.id, title: r.title?.trim() || nounCode('run', r.id), at: m.at, status: fireFailed.get(r.id) ?? r.status ?? null, detail: `${m.steps} step${m.steps === 1 ? '' : 's'}` });
     }
   }
   for (const w of workerRuns) {
-    out.push({ kind: 'worker_run', id: w.id, title: w.summary?.split('\n')[0]?.slice(0, 90) || `Engineering run ${w.id}`, at: w.completedAt ?? w.claimedAt ?? w.createdAt, status: w.status, detail: [w.model, w.cents !== null ? `$${(w.cents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ') || null });
+    out.push({ kind: 'worker_run', id: w.id, title: w.summary?.split('\n')[0]?.slice(0, 90) || nounCode('run', w.id), at: w.completedAt ?? w.claimedAt ?? w.createdAt, status: w.status, detail: [w.model, w.cents !== null ? `$${(w.cents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ') || null });
   }
   if (!origin) {
     return collapseActivity(out);

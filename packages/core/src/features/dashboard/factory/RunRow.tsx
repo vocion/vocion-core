@@ -1,6 +1,7 @@
 import type { DotTone } from '@/components/patterns';
 import type { ReportAttempt, Tone } from '@/services/factory/featureReport';
 import { StatusDot } from '@/components/patterns';
+import { nounCode } from '@/libs/codes';
 import { money } from '@/services/factory/featureReport';
 import { PreviewOpen } from './FeatureDrawerLink';
 
@@ -23,7 +24,7 @@ export function RunRow({ attempt: a, of, testId }: { attempt: ReportAttempt; of:
     <PreviewOpen recordRef={{ type: 'worker_run', id: String(a.runId) }} look="row" testId={testId}>
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1.5 text-[13px]" data-run-row={a.runId} data-live={a.live ? 'true' : undefined}>
         <StatusDot tone={tone} label={<span className="font-medium text-foreground">{a.outcome}</span>} />
-        <span className="text-foreground/85 tabular-nums">{`Run #${a.runId}`}</span>
+        <span className="text-foreground/85 tabular-nums">{nounCode('run', a.runId)}</span>
         <span className="text-muted-foreground tabular-nums">
           {[`attempt ${a.n} of ${Math.max(of, a.n)}`, `started ${a.ago}`, a.cents !== null && a.cents > 0 ? money(a.cents) : null].filter(Boolean).join(' · ')}
         </span>

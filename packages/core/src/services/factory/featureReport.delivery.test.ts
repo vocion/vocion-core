@@ -93,7 +93,7 @@ describe('a failed deploy says which step, and who is on it — or the pause tha
     const report = assembleFeatureReport(input({ request: request({ ...deploying, runs: [failedRun], answer: { runId: 9001, automation: 'A failed deploy is an incident', slug: 'deploy-run-failed', by: 'Release engineer', automationRunId: 7001, at: '2026-09-30T22:50:00Z', paused: null } }) }));
 
     expect(report.status).toMatchObject({ headline: 'Deploy failed', tone: 'warn', action: { label: 'Open the failed run' } });
-    expect(report.status.sentence).toBe('Merged 30 Sep 2026, 22:38 UTC by Dana Reyes (PR #41). Deploy run #59 failed on GitHub (step API). Release engineer is on it (automation run #7001).');
+    expect(report.status.sentence).toBe('Merged 30 Sep 2026, 22:38 UTC by Dana Reyes (PR #41). Deploy run #59 failed on GitHub (step API). Release engineer is on it (AUTO-7001).');
     expect(report.you.needsYou).toBe(false);
   });
 

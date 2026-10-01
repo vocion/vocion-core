@@ -30,8 +30,9 @@ describe('turnRecordsOf', () => {
     });
 
     expect(out).toEqual([
-      { id: filed!.id, title: 'Fix the header overflow', href: `/dashboard/p/feature/${filed!.id}`, filed: true, change: null, hasStatus: true },
-      { id: changed!.id, title: 'Northwind portal', href: `/dashboard/objects/${changed!.id}`, filed: false, change: { fields: ['summary', 'surfaceUrl'], version: 3, historyRef: `${changed!.id}@3` }, hasStatus: false },
+      // Each reads by its type's code (no type here declares one: derived from the slug).
+      { id: filed!.id, code: `REQ-${filed!.id}`, title: 'Fix the header overflow', href: `/dashboard/p/feature/${filed!.id}`, filed: true, change: null, hasStatus: true },
+      { id: changed!.id, code: `PRO-${changed!.id}`, title: 'Northwind portal', href: `/dashboard/objects/${changed!.id}`, filed: false, change: { fields: ['summary', 'surfaceUrl'], version: 3, historyRef: `${changed!.id}@3` }, hasStatus: false },
     ]);
   });
 

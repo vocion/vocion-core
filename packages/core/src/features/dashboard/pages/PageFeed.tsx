@@ -1,6 +1,6 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageFeed as PageFeedConfig, PageField, PagePrimary, PageRow } from '@/libs/workspace/pageFields';
-import { LedgerEntry, LedgerGroup } from '@/components/patterns';
+import { LedgerEntry, LedgerGroup, RecordCode } from '@/components/patterns';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
 import { Link } from '@/libs/I18nNavigation';
 import { fieldIsEmptyOn, interpolateHref, resolveField } from '@/libs/workspace/pageFields';
@@ -81,7 +81,16 @@ export function PageFeed({ rows, fields, primary, feed, rowLink, now, links, gro
         {rows.length === 0 && <p className="py-4 text-sm text-muted-foreground">Nothing here yet.</p>}
         {rows.map((row) => {
           const href = rowLink ? interpolateHref(row, rowLink) : null;
-          const title = lead ? <FeedValue row={row} field={lead} now={now} links={links} /> : row.title;
+          const named = lead ? <FeedValue row={row} field={lead} now={now} links={links} /> : row.title;
+          const title = row.code
+            ? (
+                <>
+                  {named}
+                  {' '}
+                  <RecordCode code={row.code} className="text-xs" />
+                </>
+              )
+            : named;
           const shownLines = lines.filter(f => drawn(row, f, now));
           const summaryText = drawn(row, summary, now) ? String(resolveField(row, summary.from ?? summary.key)) : null;
           return (

@@ -4,6 +4,7 @@ import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
 import { argAsText, renderString } from '@/libs/rest/template';
 import { notificationRuleSchema, projectSchema } from '@/models/Schema';
+import { codeForRecord } from '@/services/codes';
 import { matchesFilter } from '@/services/eventFilter';
 import { notify } from './notify';
 import { resolveRecipients } from './people';
@@ -105,11 +106,13 @@ export async function notifyFromEvent(input: { orgId: string; type: string; payl
       const rendered = renderNotification(rule.config, input.payload, String(input.eventId ?? input.dedupeKey ?? Date.now()));
       const link = await linkFor(input.orgId, project?.slug ?? null, rendered);
       const recipients = await resolveRecipients(input.orgId, rule.config.who, input.payload);
+      // The notification leads with what its record is read by — "FE-294 … needs you".
+      const code = rendered.record && /^\d+$/.test(rendered.record.id) ? await codeForRecord(input.orgId, Number(rendered.record.id)).catch(() => null) : null;
       const out = await notify({
         orgId: input.orgId,
         kind: rule.kind,
         userIds: recipients.userIds,
-        title: rendered.title,
+        title: code ? `${code} ${rendered.title}` : rendered.title,
         body: rendered.body,
         link,
         record: rendered.record,

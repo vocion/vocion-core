@@ -1,4 +1,5 @@
 import type { RecordRef } from '@/services/chat/pageContext';
+import { nounCode } from '@/libs/codes';
 import { evidenceRef } from './evidenceRef';
 import { parseSourcesRefId } from './sourcesRef';
 
@@ -51,9 +52,9 @@ function describe(type: RecordRef['type'], rawId: string): RefDescription {
   const n = /^\d+$/.test(id) ? id : null;
   switch (type) {
     case 'mission_run':
-      return n ? { label: `Agent run #${n}`, href: `/dashboard/p/runs/agent-${n}` } : { label: 'Agent run', href: null };
+      return n ? { label: nounCode('run', n), href: `/dashboard/p/runs/agent-${n}` } : { label: 'Agent run', href: null };
     case 'worker_run':
-      return n ? { label: `Run #${n}`, href: `/dashboard/p/runs/${n}` } : { label: 'Run', href: null };
+      return n ? { label: nounCode('run', n), href: `/dashboard/p/runs/${n}` } : { label: 'Run', href: null };
     case 'feature_section': {
       const m = /^(\d+)\.([\w-]+)$/.exec(id);
       if (!m) {
@@ -65,7 +66,7 @@ function describe(type: RecordRef['type'], rawId: string): RefDescription {
       return { label: `${part} #${request}`, href: `/dashboard/p/feature/${request}` };
     }
     case 'artifact':
-      return n ? { label: `Artifact #${n}`, href: `/dashboard/artifacts/${n}` } : { label: 'Artifact', href: null };
+      return n ? { label: nounCode('artifact', n), href: `/dashboard/artifacts/${n}` } : { label: 'Artifact', href: null };
     case 'briefing':
       return n ? { label: `Briefing #${n}`, href: `/dashboard/briefings/${n}` } : { label: 'Briefing', href: null };
     case 'conversation': {
@@ -74,14 +75,14 @@ function describe(type: RecordRef['type'], rawId: string): RefDescription {
       if (sources) {
         return { label: 'Sources', href: `/dashboard/chat?c=${sources.conversationId}` };
       }
-      return n ? { label: `Conversation #${n}`, href: `/dashboard/chat?c=${n}` } : { label: 'Conversation', href: null };
+      return n ? { label: nounCode('conversation', n), href: `/dashboard/chat?c=${n}` } : { label: 'Conversation', href: null };
     }
     case 'record_history':
       return n ? { label: `History of record #${n}`, href: `/dashboard/objects/${n}` } : { label: 'Record history', href: null };
     case 'request':
       return n ? { label: `Request #${n}`, href: `/dashboard/p/feature/${n}` } : { label: 'Request', href: null };
     case 'ask':
-      return n ? { label: `Ask #${n}`, href: `/dashboard/inbox/${encodeURIComponent(`ask:${n}`)}` } : { label: 'Ask', href: null };
+      return n ? { label: nounCode('ask', n), href: `/dashboard/inbox/${encodeURIComponent(`ask:${n}`)}` } : { label: 'Ask', href: null };
     case 'object':
       if (n) {
         return { label: `Record #${n}`, href: `/dashboard/objects/${n}` };

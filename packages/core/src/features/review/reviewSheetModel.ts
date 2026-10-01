@@ -4,6 +4,7 @@ import type { ActionChange } from '@/services/inbox/describeActionRun';
 import type { EmailPreviewModel } from '@/services/inbox/emailPreview';
 import type { ReviewContextModel } from '@/services/inbox/reviewContextModel';
 import { looksLikeManualInput } from '@/libs/actions/manual';
+import { nounCode } from '@/libs/codes';
 import { evidenceRef } from '@/libs/preview/evidenceRef';
 import { humaniseField } from '@/services/inbox/describeActionRun';
 
@@ -302,7 +303,7 @@ export function splitReviewContext(input: {
   if (input.waiting) {
     facts.push({ label: 'Waiting', value: input.waiting });
   }
-  facts.push({ label: 'Run', value: `#${input.runId}` });
+  facts.push({ label: 'Run', value: nounCode('action', input.runId) });
   if (input.confidence !== null) {
     facts.push({ label: 'Confidence', value: `${Math.round(input.confidence * 100)}%` });
   }

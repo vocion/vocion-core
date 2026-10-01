@@ -20,11 +20,13 @@
  * a request opens on its feature page, not the generic record.
  */
 
+import type { TypeCodes } from '@/libs/codes';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
+import { nounCode, recordCode } from '@/libs/codes';
 import { inboxHref } from '@/services/inbox/inboxRef';
 
 export type ResultLink = {
-  /** "request #201", "engineering run #355", "PR". */
+  /** "FE-201", "RUN-355", "Pull request" — what a person reads each by (`libs/codes.ts`). */
   label: string;
   /** Relative for an in-app page; absolute for an external one. */
   href: string;
@@ -91,8 +93,9 @@ const URL_KEYS: ReadonlyArray<{ key: string; label: string }> = [
  * @param run.input - What it was asked to do (names the object type for `objectId`).
  * @param run.result - What it returned.
  * @param link - Where a record opens in this workspace.
+ * @param codes - The workspace's type codes, so a record reads FE-201; absent, it reads by its page's noun.
  */
-export function resultLinks(run: { actionId: string; input: Meta | null; result: Meta | null }, link: RecordLinker): ResultLink[] {
+export function resultLinks(run: { actionId: string; input: Meta | null; result: Meta | null }, link: RecordLinker, codes?: TypeCodes): ResultLink[] {
   const result = run.result;
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     return [];
@@ -100,6 +103,7 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
   const input = run.input ?? {};
   const out: ResultLink[] = [];
   const seen = new Set<string>();
+  const named = (href: string, type: string, noun: string, id: number) => (codes ? recordCode(codes, type, id) : `${nounFor(href, noun)} #${id}`);
   const push = (l: ResultLink) => {
     if (!seen.has(l.href)) {
       seen.add(l.href);
@@ -110,7 +114,7 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
   // The engineering run it started is what moves next: first.
   const workerRunId = positiveInt(result.workerRunId);
   if (workerRunId !== null) {
-    push({ label: `run #${workerRunId}`, href: `/dashboard/p/runs/${workerRunId}`, ref: { type: 'worker_run', id: String(workerRunId) } });
+    push({ label: nounCode('run', workerRunId), href: `/dashboard/p/runs/${workerRunId}`, ref: { type: 'worker_run', id: String(workerRunId) } });
   }
 
   // The record it made or changed (`objects.*` return `objectId` / `id`).
@@ -118,7 +122,7 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
   const objectType = typeof result.objectType === 'string' ? result.objectType : typeof input.objectType === 'string' ? input.objectType : null;
   if (objectId !== null && objectType && objectType !== run.actionId) {
     const href = link({ objectType, id: objectId });
-    push({ label: `${nounFor(href, words(objectType))} #${objectId}`, href, ref: recordRef(objectType, objectId) });
+    push({ label: named(href, objectType, words(objectType), objectId), href, ref: recordRef(objectType, objectId) });
   }
 
   const types = new Set<string>();
@@ -127,18 +131,18 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
     if (id !== null && !types.has(type)) {
       types.add(type);
       const href = link({ objectType: type, id });
-      push({ label: `${nounFor(href, noun)} #${id}`, href, ref: recordRef(type, id) });
+      push({ label: named(href, type, noun, id), href, ref: recordRef(type, id) });
     }
   }
 
   const askId = positiveInt(result.askId);
   if (askId !== null) {
-    push({ label: `ask #${askId}`, href: inboxHref('ask', askId), ref: { type: 'ask', id: String(askId) } });
+    push({ label: nounCode('ask', askId), href: inboxHref('ask', askId), ref: { type: 'ask', id: String(askId) } });
   }
 
   const artifactId = positiveInt(result.artifactId);
   if (artifactId !== null) {
-    push({ label: `artifact #${artifactId}`, href: `/dashboard/artifacts/${artifactId}`, ref: { type: 'artifact', id: String(artifactId) } });
+    push({ label: nounCode('artifact', artifactId), href: `/dashboard/artifacts/${artifactId}`, ref: { type: 'artifact', id: String(artifactId) } });
   }
 
   for (const { key, label } of URL_KEYS) {

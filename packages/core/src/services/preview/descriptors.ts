@@ -4,6 +4,7 @@ import type { PreviewDoc, PreviewFact } from '@/libs/preview/types';
 import type { RecordRef } from '@/services/chat/pageContext';
 import type { KnowledgeDocumentDetail } from '@/services/SourceSyncService';
 import { and, asc, desc, eq } from 'drizzle-orm';
+import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
 import { parseSourcesRefId, sourcesMarkdown } from '@/libs/preview/sourcesRef';
@@ -459,7 +460,7 @@ async function resolveSources(ref: RecordRef, ctx: { orgId: string }, which: { c
     ref,
     title: `Sources · ${docs.length}`,
     sourceLabel: 'Sources',
-    facts: facts({ label: 'Conversation', value: convo.title ?? `#${convo.id}` }, which.messageId !== null && { label: 'Answer', value: `#${which.messageId}` }),
+    facts: facts({ label: 'Conversation', value: convo.title ?? nounCode('conversation', convo.id) }, which.messageId !== null && { label: 'Answer', value: `#${which.messageId}` }),
     ...(docs.length > 0 ? body(sourcesMarkdown(docs), LOG_LIMIT) : { body: 'No sources were kept for this answer.' }),
   };
 }
@@ -508,7 +509,7 @@ registerPreview('worker_run', {
       href: `/dashboard/p/runs/${run.id}`,
       ...(glance ? { run: glance } : {}),
       facts: facts(
-        { label: 'Run', value: `#${run.id}` },
+        { label: 'Run', value: nounCode('run', run.id) },
         input.task?.task_id && { label: 'Task', value: input.task.task_id },
         { label: 'Status', value: run.status },
         stoppedAt && { label: failed ? 'Stopped at' : 'Stage', value: stoppedAt },
@@ -605,7 +606,7 @@ registerPreview('mission_run', {
         { label: 'Cost', value: 'no cost recorded' },
         { label: 'Agent', value: run.team?.lead ?? '' },
         { label: 'Started', value: when(run.createdAt) ?? '' },
-        { label: 'Run', value: `Agent run #${run.id}` },
+        { label: 'Run', value: nounCode('run', run.id) },
       ),
       body: `**What it filed or changed**\n\n${changed}`,
       steps: deriveSteps(data),

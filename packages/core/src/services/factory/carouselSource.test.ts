@@ -25,7 +25,7 @@ describe('every carousel picture says what it is and who made it', () => {
 
     const onScreen = art({ author: 'Designer', conversationId: 397, spec: { provenance: { drawnFrom: 'screen', baseArtifactId: 611 } } });
 
-    expect(sourceOf({ artifact: onScreen, section: CAROUSEL_SECTIONS.mockup, runs: [], releases: [] })).toEqual({ text: 'Designer · drawn on screenshot #611 · Sep 25', ref: { type: 'conversation', id: '397' } });
+    expect(sourceOf({ artifact: onScreen, section: CAROUSEL_SECTIONS.mockup, runs: [], releases: [] })).toEqual({ text: 'Designer · drawn on screenshot ART-611 · Sep 25', ref: { type: 'conversation', id: '397' } });
   });
 
   it('a QA capture: the run it came from and its side', () => {
@@ -54,7 +54,7 @@ describe('every carousel picture says what it is and who made it', () => {
   it('a picture sent in chat: the person and the conversation', () => {
     const sent = art({ id: 901, recordRole: 'reported', author: 'Dana Okafor', conversationId: 397 });
 
-    expect(sourceOf({ artifact: sent, section: CAROUSEL_SECTIONS.reported, runs: [], releases: [] })).toEqual({ text: 'Reported in chat by Dana Okafor · conversation 397 · Sep 25', ref: { type: 'conversation', id: '397' } });
+    expect(sourceOf({ artifact: sent, section: CAROUSEL_SECTIONS.reported, runs: [], releases: [] })).toEqual({ text: 'Reported in chat by Dana Okafor · CHAT-397 · Sep 25', ref: { type: 'conversation', id: '397' } });
   });
 
   it('the platform\'s own drawing of the record is the plan picture', () => {

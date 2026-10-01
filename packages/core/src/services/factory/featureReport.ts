@@ -73,6 +73,7 @@ import type { PullSignals, WorkFacts } from '@/libs/factory/workFacts';
 import type { ProofCriterion } from '@/libs/workspace/featureProof';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
+import { nounCode } from '@/libs/codes';
 import { deliveryStage, failedRun, pausedAnswerLine, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
 import { readRequestLive } from '@/libs/factory/liveCheck';
 import { blockedYou, pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
@@ -1477,8 +1478,8 @@ function runsSection(runs: ReportWorkerRun[], mergedPrs: Set<string>): ReportSec
     return {
       key: `run-${run.id}`,
       title: index === 0
-        ? `Latest attempt · Run #${run.id}`
-        : `Earlier attempt ${newestFirst.length - index} of ${newestFirst.length} · Run #${run.id}, superseded`,
+        ? `Latest attempt · ${nounCode('run', run.id)}`
+        : `Earlier attempt ${newestFirst.length - index} of ${newestFirst.length} · ${nounCode('run', run.id)}, superseded`,
       status: run.status,
       tone: statusTone(run.status),
       at: runAt(run),
@@ -3361,7 +3362,7 @@ function afterMergeStatus(input: FeatureReportInput, impl: ReportImplementation,
       if (answer?.paused) {
         return { tone: 'bad', headline: 'Deploy failed', sentence: `${merged} ${what} ${pausedAnswerLine(answer)}: nothing re-runs or fixes it until it is resumed.`.replace(/\s+/g, ' ').trim(), action: { kind: 'link', label: 'Resume', href: `/dashboard/automation/${answer.slug}` }, secondary: open, next: `Once "${answer.automation}" is resumed, the failure is read within five minutes: a flaky run is re-run, anything else is fixed or escalated, and the release follows the deploy.` };
       }
-      const onIt = answer ? ` ${answer.by ?? `"${answer.automation}"`} is on it${answer.automationRunId ? ` (automation run #${answer.automationRunId})` : ''}.` : watching;
+      const onIt = answer ? ` ${answer.by ?? `"${answer.automation}"`} is on it${answer.automationRunId ? ` (${nounCode('automation', answer.automationRunId)})` : ''}.` : watching;
       return { tone: 'warn', headline: 'Deploy failed', sentence: `${merged} ${what}${onIt}`.replace(/\s+/g, ' ').trim(), action: open, secondary: null, next: 'A flaky or infrastructure failure is re-run; anything else is fixed or escalated. The release follows the deploy.' };
     }
     default:
@@ -3426,7 +3427,7 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
         headline: merge ? 'Ready to merge' : dispatch ? 'Build proposed' : 'Needs approval',
         sentence: merge
           ? `QA approved the change and it is waiting for you to merge. It is not live until it merges. ${verifiedLine}`
-          : dispatch ? `A build card is waiting for your approval (action #${state.decision!.id}). Building it approves that card; nothing has run yet.` : `${state.question ?? 'An action'} is waiting for your approval.`,
+          : dispatch ? `A build card is waiting for your approval (${nounCode('action', state.decision!.id)}). Building it approves that card; nothing has run yet.` : `${state.question ?? 'An action'} is waiting for your approval.`,
         // The build card is approved HERE, not one page away: the press
         // approves the pending dispatch itself, with Undo (journey 4).
         action: dispatch
@@ -3772,12 +3773,13 @@ function moveOf(action: ReportAction, href: string, requestId: number): StatusMo
  * @param record - The record's type and its page.
  * @param record.objectType - Its type slug, as the record says.
  * @param record.href - Where it opens (`recordHref`).
+ * @param record.code
  * @param now - When this was read.
  */
-export function featureStatusOf(report: FeatureReport, record: { objectType: string; href: string }, now: Date): RecordStatus {
+export function featureStatusOf(report: FeatureReport, record: { objectType: string; href: string; code?: string }, now: Date): RecordStatus {
   const action = report.status.action;
   return {
-    record: { id: report.requestId, objectType: record.objectType, title: report.title, href: record.href },
+    record: { id: report.requestId, objectType: record.objectType, title: report.title, href: record.href, ...(record.code ? { code: record.code } : {}) },
     stage: { key: report.state.key, label: report.status.headline, tone: report.status.tone },
     you: { ...report.you, move: report.you.needsYou && action ? moveOf(action, record.href, report.requestId) : null },
     live: report.live,

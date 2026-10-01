@@ -931,7 +931,7 @@ describe('build reads as a story', () => {
 
     expect(build.title).toBe('Build');
     expect(build.entries[0]!.title).toContain('Latest attempt');
-    expect(build.entries[0]!.title).toContain('Run #3');
+    expect(build.entries[0]!.title).toContain('RUN-3');
     expect(build.entries[1]!.title).toContain('superseded');
     expect(build.entries).toHaveLength(3);
   });
@@ -940,7 +940,7 @@ describe('build reads as a story', () => {
     const report = assembleFeatureReport(input({ workerRuns: [run(7, '2026-09-20T10:00:00Z')] }));
     const build = report.sections.find(x => x.key === 'runs')!;
 
-    expect(build.entries[0]!.title).toBe('Latest attempt · Run #7');
+    expect(build.entries[0]!.title).toBe('Latest attempt · RUN-7');
   });
 });
 
@@ -1280,7 +1280,7 @@ describe('the status sentence and its one action', () => {
     const r = proposal({ actionRuns: [card] });
 
     expect(r.status.headline).toBe('Build proposed');
-    expect(r.status.sentence).toBe('A build card is waiting for your approval (action #4945). Building it approves that card; nothing has run yet.');
+    expect(r.status.sentence).toBe('A build card is waiting for your approval (ACT-4945). Building it approves that card; nothing has run yet.');
     expect(r.status.action).toEqual({ kind: 'build', label: 'Build it', runId: 4945 });
     expect(r.status.secondary).toEqual({ kind: 'link', label: 'Open the card', href: '/dashboard/inbox/proposal-4945' });
     expect(r.state.needsYou).toBe(true);

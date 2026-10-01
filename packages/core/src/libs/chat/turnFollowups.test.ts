@@ -6,7 +6,7 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
     const out = 'factory.dispatch_task is DONE (run #5301, confidence 0.95) — it was reversible and above the bar, so it ran without waiting. Result: {"workerRunId":419,"taskId":243,"createdTaskId":243,"planId":230,"requestId":201}';
 
     expect(turnFollowups([{ type: 'tool', name: 'propose_action', input: { action_id: 'factory.dispatch_task' }, output: out }]).map(f => [f.label, f.ref.type, f.ref.id])).toEqual([
-      ['run #419', 'worker_run', '419'],
+      ['RUN-419', 'worker_run', '419'],
       ['request #201', 'object', '201'],
       ['task #243', 'object', '243'],
       ['plan #230', 'object', '230'],
@@ -31,7 +31,7 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
       { type: 'tool', name: 'decide_ask', output: 'Refused: already decided', state: 'error' },
       { type: 'tool', name: 'file_ask', output: 'Ask #88 filed on Needs you.' },
       { type: 'tool', name: 'decide_ask', output: 'Decided ask #88 "Ship it?": approve (approved).' },
-    ]).map(f => f.label)).toEqual(['ask #88']);
+    ]).map(f => f.label)).toEqual(['ASK-88']);
     expect(turnFollowups(undefined)).toEqual([]);
   });
 
@@ -55,7 +55,7 @@ describe('what a turn set moving, to watch (Chris, 2026-09-29, request #201)', (
       { type: 'tool', name: 'update_artifact', input: { id: 515 }, output: 'Updated "Squatch Core" to v4.' },
     ];
 
-    expect(turnFollowups(runs, { exclude: [{ type: 'object', id: '201' }] }).map(f => f.label)).toEqual(['engineering task #243', 'release #12', 'artifact #515']);
+    expect(turnFollowups(runs, { exclude: [{ type: 'object', id: '201' }] }).map(f => f.label)).toEqual(['engineering task #243', 'release #12', 'ART-515']);
   });
 
   it('a turn that only read, or only touched the page, ends with no chips', () => {

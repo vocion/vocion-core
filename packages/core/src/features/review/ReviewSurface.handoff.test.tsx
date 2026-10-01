@@ -170,7 +170,7 @@ describe('the hand-off card, pending', () => {
     expect(details.querySelector('[data-testid="confidence-meter"]')).toBeNull();
     expect(details.textContent).not.toContain('Can be put back');
     expect(details.textContent).toContain('Deploy');
-    expect(details.textContent).toContain('#781');
+    expect(details.textContent).toContain('ACT-781');
   });
 
   it('says who runs it and where the run stands: Approve is the current step', async () => {

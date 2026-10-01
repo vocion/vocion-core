@@ -12,8 +12,11 @@
  * Pure and safe on the client.
  */
 
-/** One mention: the words as written, the id, and the kind it was called by (null for a bare `#201`). */
-export type RecordMention = { text: string; id: number; word: string | null };
+/**
+ * One mention: the words as written, the id, and the kind it was called by
+ * (null for a bare `#201`) — or, for a code (`FE-201`, `RUN-439`), its prefix.
+ */
+export type RecordMention = { text: string; id: number; word: string | null; code?: string };
 
 /** One link: the words to link, and where they go. */
 export type RecordMentionLink = { text: string; href: string };
@@ -55,10 +58,22 @@ function inside(spans: Array<[number, number]>, start: number, end: number): boo
  * one of `words` — the workspace's object type slugs, labels and page names)
  * and a bare `#201` not written in some other numbering.
  * @param text - The answer.
+ * A code — `FE-201`, `RUN-439`, one of `codes` written in capitals — is a
+ * mention too, with its prefix (`libs/codes.ts`).
  * @param words - What the workspace calls its records ("request", "feature", "deal").
+ * @param codes - The prefixes this workspace reads things by (FE, PL, RUN, ASK…).
  */
-export function findRecordMentions(text: string, words: readonly string[]): RecordMention[] {
+export function findRecordMentions(text: string, words: readonly string[], codes: readonly string[] = []): RecordMention[] {
   const spans = protectedSpans(text);
+  const coded: RecordMention[] = [];
+  const prefixes = [...new Set(codes.filter(c => /^[A-Z]{2,5}$/.test(c)))].sort((a, b) => b.length - a.length);
+  if (prefixes.length > 0) {
+    for (const m of text.matchAll(new RegExp(`(?<![\\w-])(${prefixes.join('|')})-(\\d{1,9})\\b`, 'g'))) {
+      if (!inside(spans, m.index!, m.index! + m[0].length)) {
+        coded.push({ text: m[0], id: Number(m[2]), word: null, code: m[1]! });
+      }
+    }
+  }
   const vocab = [...new Set(words.map(w => w.trim().toLowerCase()).filter(w => w.length >= 2))].sort((a, b) => b.length - a.length);
   const typed = vocab.length > 0 ? `\\b(${vocab.map(w => escapeRegex(w).replace(/[\s_-]+/g, '[\\s_-]+')).join('|')})s?\\s+#?(\\d{1,7})\\b` : null;
   const re = new RegExp(`${typed ? `${typed}|` : ''}(?<![\\w&/#])#(\\d{1,7})\\b`, 'gi');
@@ -79,7 +94,7 @@ export function findRecordMentions(text: string, words: readonly string[]): Reco
     }
     out.push({ text: m[0], id, word: null });
   }
-  return out;
+  return [...coded, ...out];
 }
 
 /**

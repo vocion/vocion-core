@@ -21,6 +21,7 @@ import { doneSummary } from '@/libs/actions/doneSummary';
 import { resultLinks } from '@/libs/actions/resultLinks';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { recordLinker } from '@/libs/workspace/recordHref';
 import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
 import { recordRef } from '@/services/chat/recordContext';
@@ -31,7 +32,7 @@ import { askGroupHref } from '@/services/inbox/recordKey';
 import { INBOX_SORTS, kindForAsk, listProposalQueue } from '@/services/InboxService';
 import { getCandidate } from '@/services/LearningCandidateService';
 import { getMissionRun } from '@/services/MissionService';
-import { recordLinkerForOrg } from '@/services/objects/recordHref';
+import { recordLinksForOrg } from '@/services/objects/recordHref';
 import { getWorkerRun } from '@/services/WorkerRunService';
 import { getWorkflowRun } from '@/services/WorkflowService';
 
@@ -154,7 +155,8 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
         const desc = describeAction(run);
         const runShape = { actionId: run.actionId, input: (run.input ?? {}) as Record<string, unknown>, result: (run.result ?? null) as Record<string, unknown> | null };
         const did = run.status === 'done' ? doneSummary(runShape) : null;
-        const made = run.status === 'done' ? resultLinks(runShape, await recordLinkerForOrg(orgId)) : [];
+        const recordLinks = run.status === 'done' ? await recordLinksForOrg(orgId) : null;
+        const made = recordLinks ? resultLinks(runShape, recordLinker(recordLinks), recordLinks.codes) : [];
         const by = run.decidedBy ? run.people?.[run.decidedBy] ?? null : null;
         return (
           <div className="mx-auto w-full max-w-3xl">
