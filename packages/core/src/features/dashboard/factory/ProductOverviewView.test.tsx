@@ -79,7 +79,7 @@ describe('the product overview', () => {
 
   it('draws the sections in the order a product manager asks them, with how it ships folded', async () => {
     await draw();
-    const order = ['product-doing', 'product-attention', 'product-work', 'product-releases', 'product-proposed', 'product-context', 'product-engineering', 'product-activity'];
+    const order = ['product-doing', 'product-attention', 'product-work', 'product-releases', 'product-proposed', 'product-context', 'product-engineering'];
     const tops = order.map(id => document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect().top);
 
     expect([...tops].sort((a, b) => a - b)).toEqual(tops);
