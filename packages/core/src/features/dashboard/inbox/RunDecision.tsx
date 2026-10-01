@@ -10,6 +10,7 @@ import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { cancelReceipt } from './cancelReceipt';
 import { DECISION_VERBS, verbForShortcut } from './decisionVerbs';
 import { decisionCrumbs } from './inboxMeta';
 import { withMinimumPending } from './pending';
@@ -57,10 +58,15 @@ export function RunDecision({ run }: { run: RunSummary }) {
         : run.kind === 'workflow'
           ? (verb === 'resume' ? client.review.resumeWorkflow({ id: run.id }) : client.review.cancelWorkflow({ id: run.id }))
           : Promise.resolve();
-      await withMinimumPending(work);
-      toast.success(`${verb === 'resume' ? 'Resumed' : 'Cancelled'} · ${run.title}`, {
-        description: verb === 'resume' ? 'The run continues from where it paused.' : 'Stopped; nothing more runs.',
-      });
+      const result = await withMinimumPending(work);
+      if (verb === 'resume') {
+        toast.success(`Resumed · ${run.title}`, { description: 'The run continues from where it paused.' });
+      } else {
+        // The response says whether the cancel stopped anything: a run that
+        // finished first comes back with its own status, untouched.
+        const receipt = cancelReceipt(run.title, (result as { status?: string } | undefined)?.status);
+        toast[receipt.tone](receipt.title, { description: receipt.description });
+      }
       // Stay on the run and re-read it: its new status is the receipt, and
       // the way back is a link the person presses.
       router.refresh();

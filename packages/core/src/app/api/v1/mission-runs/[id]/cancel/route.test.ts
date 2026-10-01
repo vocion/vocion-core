@@ -7,11 +7,23 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 vi.mock('@/services/ApiTokenService', () => ({ authenticateBearer: vi.fn() }));
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
+vi.mock('@/services/MissionService', missionServiceWithAWatchedLookup);
+
+/**
+ * The real MissionService, with `getMissionRun` wrapped so one test can make
+ * the route's check see an older snapshot of the run than the cancel does.
+ * @param importOriginal - Vitest's loader for the real module.
+ */
+async function missionServiceWithAWatchedLookup(importOriginal: () => Promise<typeof import('@/services/MissionService')>) {
+  const actual = await importOriginal();
+  return { ...actual, getMissionRun: vi.fn(actual.getMissionRun) };
+}
 
 const { db } = await import('@/libs/DB');
 const { missionRunSchema } = await import('@/models/Schema');
 const { authenticateBearer } = await import('@/services/ApiTokenService');
 const { clerkAuth } = await import('@/libs/Auth');
+const { getMissionRun } = await import('@/services/MissionService');
 const { POST } = await import('./route');
 
 const mockBearer = vi.mocked(authenticateBearer);
@@ -85,6 +97,18 @@ describe('POST /api/v1/mission-runs/:id/cancel', () => {
 
   it('does not re-label a settled run', async () => {
     const id = await makeRun('completed');
+
+    const res = await POST(post(String(id), {}), params(String(id)));
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe('MISSION_RUN_SETTLED');
+  });
+
+  it('409s, not 200s, when the run settles between the route\'s check and the cancel', async () => {
+    const id = await makeRun('completed');
+    const settled = await getMissionRun(id, ORG);
+    // The check reads the run a moment before the loop wrote `completed`.
+    vi.mocked(getMissionRun).mockResolvedValueOnce({ ...settled!, status: 'running' });
 
     const res = await POST(post(String(id), {}), params(String(id)));
 

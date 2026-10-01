@@ -990,17 +990,24 @@ export async function decide(
     throw new ReviewDecisionError(`a ${item.kind} run is resumed or cancelled, never marked done by hand`);
   }
   switch (item.kind) {
+    // A cancel on a run that finished before it arrived changes nothing
+    // (vocion-core#123), and nobody rejected that run, so no rejection is
+    // recorded for it.
     case 'workflow':
-      action === 'approve'
-        ? await resumeWorkflow(item.id, orgId)
-        : await cancelWorkflow(item.id, orgId, opts?.reason);
-      trackDecision(item, action as 'approve' | 'reject', orgId, reviewedBy);
+      if (action === 'approve') {
+        await resumeWorkflow(item.id, orgId);
+        trackDecision(item, 'approve', orgId, reviewedBy);
+      } else if ((await cancelWorkflow(item.id, orgId, opts?.reason)).status === 'cancelled') {
+        trackDecision(item, 'reject', orgId, reviewedBy);
+      }
       return {};
     case 'mission':
-      action === 'approve'
-        ? await resumeMission(item.id, orgId)
-        : await cancelMission(item.id, orgId, opts?.reason);
-      trackDecision(item, action as 'approve' | 'reject', orgId, reviewedBy);
+      if (action === 'approve') {
+        await resumeMission(item.id, orgId);
+        trackDecision(item, 'approve', orgId, reviewedBy);
+      } else if ((await cancelMission(item.id, orgId, opts?.reason)).status === 'cancelled') {
+        trackDecision(item, 'reject', orgId, reviewedBy);
+      }
       return {};
     case 'action': {
       if (action === 'done') {

@@ -115,7 +115,10 @@ export const cancel = os
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const run = await cancelMission(input.id, orgId, input.reason);
-    void trackReviewDecision({ orgId, userId }, { kind: 'mission', id: input.id }, 'rejected');
+    // A run that finished before the cancel reached it was not rejected (vocion-core#123).
+    if (run.status === 'cancelled') {
+      void trackReviewDecision({ orgId, userId }, { kind: 'mission', id: input.id }, 'rejected');
+    }
     return run;
   });
 
