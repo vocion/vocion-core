@@ -41,6 +41,7 @@ import { trackerCreateIssueAction } from './tracker-create-issue';
 import { trackerTransitionIssueAction } from './tracker-transition-issue';
 import { trackerUpdateIssueAction } from './tracker-update-issue';
 import { wikiWritePageAction } from './wiki-write-page';
+import { workspaceDescribeAction } from './workspace-describe';
 import { workspaceWriteOperatingIntentAction } from './workspace-operating-intent';
 import { workspaceWriteMissionAction, workspaceWritePlaybookAction } from './workspace-source';
 
@@ -147,6 +148,8 @@ registerAction(askFileAction);
 registerAction(askWithdrawAction);
 // Turn a workspace plugin on/off from chat — reversible, internal, done-for-you above the bar.
 registerAction(pluginEnableAction);
+// Save what the workspace is for — reversible, internal; the setup conversation proposes it first.
+registerAction(workspaceDescribeAction);
 // An agent adds a teammate from the catalog, with the daily allowance it is
 // hired under — reversible (the agent, its budget and the team the hire
 // created all go back), internal, and held at approval until a workspace
