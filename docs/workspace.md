@@ -287,6 +287,10 @@ Merge vocabulary (YAML kinds — agents, objects, missions):
 
 - **Scalars & objects** (`model`, `systemPromptFile`, `searchConfig`) → your value **replaces** the base value.
 - **Arrays** (`skills`, `connectorSources`, `objectTypes`) → default **replace**; opt into extend semantics with `{ $append: [x] }` or `{ $remove: [y] }`.
+- **`harness`** merges key by key: pinning `model` keeps the base's `excludeTools` and the rest.
+- **`harness.grantTools`** **adds** to the base's grants: an override that names two tools keeps every
+  tool the plugin grants as well. To make the list the whole list, say `grantToolsMode: replace`
+  beside it; to take one grant away, `grantTools: {$remove: [x]}`.
 
 **Skills and playbooks override differently**: a workspace SKILL.md with the
 same slug as an activated base one replaces it OUTRIGHT (whole-file replace,
