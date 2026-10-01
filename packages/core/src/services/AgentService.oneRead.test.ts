@@ -46,7 +46,7 @@ vi.mock('@/services/BudgetService', () => ({ preflightCheck: vi.fn(async () => (
 
 const { db } = await import('@/libs/DB');
 const { agentSchema } = await import('@/models/Schema');
-const { runAgentDeep } = await import('@/services/AgentService');
+const { REFUSAL_NOTICE, runAgentDeep, stopReasonOf } = await import('@/services/AgentService');
 const { actionRunSchema } = await import('@/models/Schema');
 const { proposeAction } = await import('@/services/ActionService');
 const { noteWrite, writesRefused, READ_ONLY_RECEIPT } = await import('@/services/agents/turnScope');
@@ -132,6 +132,24 @@ describe('a question is answered, and nothing is written (CHAT-423)', () => {
     await run('what is this?', PAGE, PERSON);
 
     expect(seen).toEqual([false]);
+  });
+});
+
+describe('a refusal is an outcome, not an empty pass', () => {
+  it('ends the turn in one pass, asks no other model, and says the model declined', async () => {
+    const declined = { event: 'on_chat_model_end', metadata: { checkpoint_ns: 'model_request:m1' }, data: { output: { content: [], response_metadata: { stop_reason: 'refusal' } } } };
+    const inputs = passes([declined]);
+
+    const { result } = await run(QUESTIONS[0]!, PAGE, PERSON);
+
+    expect(inputs).toHaveLength(1);
+    expect(result.response).toContain(REFUSAL_NOTICE);
+  });
+
+  it('reads the stop reason the provider typed', () => {
+    expect(stopReasonOf({ response_metadata: { stop_reason: 'refusal' } })).toBe('refusal');
+    expect(stopReasonOf({ response_metadata: { stopReason: 'end_turn' } })).toBe('end_turn');
+    expect(stopReasonOf({})).toBeNull();
   });
 });
 

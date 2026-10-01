@@ -232,6 +232,8 @@ export type TurnGuaranteeInput = {
   cardsShown?: number;
   /** The turn's last event was a tool result, not words — it owes an answer whatever its length. */
   endedOnTool?: boolean;
+  /** The model declined the request (its typed stop reason): nothing composes an answer for it. */
+  refused?: boolean;
   failures: ReadonlyArray<TurnFailure>;
   failedDelegations: ReadonlyArray<FailedDelegation>;
   systemPrompt?: string;
@@ -249,6 +251,20 @@ export type TurnGuaranteeInput = {
   /** Where the answer pass's calls are run and recorded. */
   onToolCall?: (call: import('./agents/answerBackstop').AnswerPassCall) => Promise<void>;
 };
+
+/** What the person reads when the model declined their request. */
+export const REFUSAL_NOTICE = 'The model declined to answer this request, so nothing more was tried. Rephrasing it, or asking about one part of it, may get an answer.';
+
+/**
+ * The stop reason on a model's final message, as the provider typed it
+ * (Anthropic `stop_reason`, Bedrock `stopReason`); null when it has none.
+ * @param output - The `on_chat_model_end` output.
+ */
+export function stopReasonOf(output: unknown): string | null {
+  const o = (output ?? {}) as { response_metadata?: Record<string, unknown>; additional_kwargs?: Record<string, unknown> };
+  const r = o.response_metadata?.stop_reason ?? o.response_metadata?.stopReason ?? o.additional_kwargs?.stop_reason;
+  return typeof r === 'string' ? r : null;
+}
 
 /**
  * Everything a finished turn owes the person, applied in code rather than
@@ -279,47 +295,52 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
   // A TURN THAT WORKED AND DID NOT ANSWER IS ANSWERED HERE — before anything
   // else is appended, so what follows reads under an answer and not under a
   // preamble (services/agents/answerBackstop.ts).
-  try {
-    // The answer streams as it is written: the first delta opens the
-    // paragraph, the rest follow it, and `text` holds exactly what was sent.
-    let streamed = false;
-    const onDelta = (delta: string): void => {
-      if (!streamed) {
-        streamed = true;
-        // Leading whitespace would stack under the break that opens the answer.
-        const lead = `${text.trim().length > 0 ? '\n\n' : ''}${delta.trimStart()}`;
-        text = `${text}${lead}`;
-        input.emit({ type: 'response_delta', delta: lead });
-        return;
+  // A refusal is said, and no other model is asked to answer in its place.
+  if (input.refused) {
+    append(REFUSAL_NOTICE);
+  } else {
+    try {
+      // The answer streams as it is written: the first delta opens the
+      // paragraph, the rest follow it, and `text` holds exactly what was sent.
+      let streamed = false;
+      const onDelta = (delta: string): void => {
+        if (!streamed) {
+          streamed = true;
+          // Leading whitespace would stack under the break that opens the answer.
+          const lead = `${text.trim().length > 0 ? '\n\n' : ''}${delta.trimStart()}`;
+          text = `${text}${lead}`;
+          input.emit({ type: 'response_delta', delta: lead });
+          return;
+        }
+        text = `${text}${delta}`;
+        input.emit({ type: 'response_delta', delta });
+      };
+      const answered = await runAnswerBackstop({
+        orgId: input.orgId,
+        request: input.request,
+        finalText: text,
+        toolCalls: input.toolCalls,
+        endedOnTool: input.endedOnTool === true,
+        systemPrompt: input.systemPrompt,
+        history: input.history,
+        messages: input.messages,
+        tools: input.cardTools,
+        onToolCall: input.onToolCall,
+        // Say it: the answer is being written from what the steps found.
+        compose: (args) => {
+          input.emit({ type: 'status', label: `Writing the answer from ${input.toolCalls.length} step${input.toolCalls.length === 1 ? '' : 's'}` });
+          return (input.answer ?? composeAnswerWithModel)(args);
+        },
+        onDelta,
+      });
+      // A composer that does not stream (tests, a provider without it) still
+      // answers: the whole answer goes out as one delta, as before.
+      if (answered && !streamed) {
+        append(answered);
       }
-      text = `${text}${delta}`;
-      input.emit({ type: 'response_delta', delta });
-    };
-    const answered = await runAnswerBackstop({
-      orgId: input.orgId,
-      request: input.request,
-      finalText: text,
-      toolCalls: input.toolCalls,
-      endedOnTool: input.endedOnTool === true,
-      systemPrompt: input.systemPrompt,
-      history: input.history,
-      messages: input.messages,
-      tools: input.cardTools,
-      onToolCall: input.onToolCall,
-      // Say it: the answer is being written from what the steps found.
-      compose: (args) => {
-        input.emit({ type: 'status', label: `Writing the answer from ${input.toolCalls.length} step${input.toolCalls.length === 1 ? '' : 's'}` });
-        return (input.answer ?? composeAnswerWithModel)(args);
-      },
-      onDelta,
-    });
-    // A composer that does not stream (tests, a provider without it) still
-    // answers: the whole answer goes out as one delta, as before.
-    if (answered && !streamed) {
-      append(answered);
+    } catch (err) {
+      console.warn(`answer backstop failed for org ${input.orgId} agent ${input.agentSlug}: ${(err as Error).message}`);
     }
-  } catch (err) {
-    console.warn(`answer backstop failed for org ${input.orgId} agent ${input.agentSlug}: ${(err as Error).message}`);
   }
 
   // A HAND-OFF THAT DID NOT COMPLETE IS SAID, from the typed failure.
@@ -897,6 +918,11 @@ export async function runAgentDeep(opts: {
   // A malformed tool call is retried once, not fatal — see the catch below.
   let toolErrorRetried = false;
   let thoughtOnlyRetried = false;
+  // THE MODEL DECLINED (2026-10-01, FE-308's questions): the API answered
+  // `stop_reason: "refusal"`, and the loop read that as "said nothing" and
+  // ran two more passes into the same refusal. A refusal is an outcome, read
+  // from the response's typed stop reason: the turn ends and says so.
+  let refused = false;
   // WHAT THE PERSON WANTS, read once by a model before the turn runs —
   // never by matching their words (`agents/turnJudge.ts`). A question makes
   // the turn read-only (`agents/turnScope.ts`): nothing is filed, changed or
@@ -976,6 +1002,9 @@ export async function runAgentDeep(opts: {
 
     for await (const evUnknown of stream as AsyncIterable<RawStreamEvent>) {
       const ev = evUnknown;
+      if (ev.event === 'on_chat_model_end' && stopReasonOf(ev.data?.output) === 'refusal') {
+        refused = true;
+      }
       // The pass's final state, for the next re-entry to continue from.
       if (ev.event === 'on_chain_end' && ((ev as { parent_ids?: unknown[] }).parent_ids ?? []).length === 0) {
         const state = ev.data?.output as { messages?: unknown[] } | undefined;
@@ -1168,7 +1197,7 @@ export async function runAgentDeep(opts: {
       const soFar = normalizeAnswerHtml(finalText).trim();
       const empty = soFar.length === 0 && toolCallLog.length === 0;
       const owedAct = personTurn && !empty && textCalls.length === 0 && turn.writes === 0 && ['change', 'file', 'decide'].includes(intent.asks);
-      if (empty || owedAct) {
+      if (!refused && (empty || owedAct)) {
         console.warn(`agent turn: ${empty ? 'returned nothing' : 'an act was asked for and nothing was written'}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, asks: intent.asks });
         emit({ type: 'status', label: empty ? 'Looking up what it needs' : 'Doing what you asked' });
         if (soFar.length > 0) {
@@ -1188,7 +1217,7 @@ export async function runAgentDeep(opts: {
       // zero characters, twice). The words are not coming from that
       // configuration: compile once more with thinking off and run again.
       const stillEmpty = normalizeAnswerHtml(finalText).trim().length === 0 && toolCallLog.length === 0 && emittedCards.length === 0;
-      if (stillEmpty && !thoughtOnlyRetried) {
+      if (stillEmpty && !thoughtOnlyRetried && !refused) {
         thoughtOnlyRetried = true;
         console.warn('agent turn: thought and said nothing; once more without thinking', { orgId: opts.orgId, agentSlug: opts.agentSlug });
         compiled = await compileAgentForRequest(
@@ -1352,6 +1381,7 @@ export async function runAgentDeep(opts: {
     toolCalls: toolCallLog,
     cardsShown: emittedCards.length,
     endedOnTool: toolCallLog.length > 0 && !answeredSinceTool,
+    refused,
     failures,
     failedDelegations,
     systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
