@@ -284,7 +284,7 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       // conversation column — is lit whole, or the cap cuts it off above its
       // composer and dims the words the step asked people to watch (Chris,
       // 2026-10-02). A ring always traces the whole element.
-      const overflows = r.height > vh * 0.9;
+      const overflows = r.height > vh - 16;
       const height = ringOnly || !overflows ? Math.min(r.height + 16, vh - top - 8) : Math.min(r.height + 16, vh * 0.62, vh - top - 8);
       const left = Math.max(8, r.left - 8);
       const next = { top, left, width: Math.min(r.width + 16, window.innerWidth - left - 8), height: Math.max(40, height) };
