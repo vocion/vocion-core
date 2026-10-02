@@ -22,14 +22,16 @@
  *     never touched.
  *   - A bag the provider cannot read is reported, not guessed at.
  *
- * Idempotent: the login row is rotated in place when the account matches, and
- * a linked source is no longer a candidate, so a second run moves nothing.
+ * Idempotent, and never overwrites a newer login: an install is skipped, with a
+ * reason, when the store already holds a live login for the account or any of
+ * its sources already points at a stored credential. A re-run therefore never
+ * replaces a rotated refresh token with the old bag.
  */
 
 import type { DbTransaction } from '@/libs/DbTransaction';
 import type { CredentialPlatform } from '@/libs/platforms/registry';
 import type { SealedLoginValues } from '@/services/ApiTokenService';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { providerForConnector } from '@/libs/connect/registry';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
@@ -170,6 +172,44 @@ async function wouldRevokeAnotherKey(orgId: string, platform: CredentialPlatform
 }
 
 /**
+ * Whether any source of the connector already points at a credential in the
+ * store. Such a source was linked by a login or a paste, which is newer than the
+ * old `source_credential` bag the move would copy.
+ * @param install - Which org and connector.
+ */
+async function anySourceAlreadyLinked(install: InstallToMove): Promise<boolean> {
+  const [linked] = await db
+    .select({ id: knowledgeSourceSchema.id })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, install.orgId), sourceIsOfConnector(install.connector), isNotNull(knowledgeSourceSchema.apiTokenId)))
+    .limit(1);
+  return Boolean(linked);
+}
+
+/**
+ * Whether the workspace already holds a live login for this platform and
+ * account. It is newer than the old bag (a re-login, or a rotated refresh
+ * token), so the move must not write over it.
+ * @param orgId - The workspace.
+ * @param platform - The connector's credential platform.
+ * @param account - The account the old bag is on.
+ */
+async function liveLoginExists(orgId: string, platform: CredentialPlatform, account: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: apiTokenSchema.id })
+    .from(apiTokenSchema)
+    .where(and(
+      eq(apiTokenSchema.orgId, orgId),
+      eq(apiTokenSchema.platform, platform.id),
+      eq(apiTokenSchema.obtainedVia, 'login'),
+      eq(apiTokenSchema.account, account),
+      isNull(apiTokenSchema.revokedAt),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
  * Move one install's login, turning any failure into a skip that names the org
  * and the error's name or code, never its message (a message can carry a value).
  * @param install - Which org and connector.
@@ -194,6 +234,9 @@ async function moveOneInstall(install: InstallToMove): Promise<MoveOutcome> {
   if (!provider || !platform) {
     return skippedInstall(install, 'no connect provider or credential platform');
   }
+  if (await anySourceAlreadyLinked(install)) {
+    return skippedInstall(install, 'a source already uses a credential in the store, which is newer than the old login');
+  }
   const credential = await newestLiveCredential(install);
   if (!credential) {
     return skippedInstall(install, 'no live credential to move');
@@ -206,13 +249,15 @@ async function moveOneInstall(install: InstallToMove): Promise<MoveOutcome> {
   if (!account) {
     return skippedInstall(install, 'credential is not a login the provider can read');
   }
+  if (await liveLoginExists(install.orgId, platform, account)) {
+    return skippedInstall(install, 'the store already holds a live login for this account, which is newer than the old one');
+  }
   if (await wouldRevokeAnotherKey(install.orgId, platform, account)) {
     return skippedInstall(install, 'a pasted key is already live for this one-live platform');
   }
   // Sealed first: the vault reads the org's key through the pool, which must not wait on the transaction.
   const sealed = await sealLoginValues(install.orgId, bag);
   const moved = await db.transaction(tx => writeMove(tx, { install, platform, account, displayName: credential.displayName, bag, sealed }));
-  // A re-run finds the login row already there and every source already linked: nothing moved.
   return { moved: moved.linkedSourceIds.length > 0 ? moved : null, skipped: null };
 }
 

@@ -39,7 +39,7 @@ async function loginRows() {
 describe('moveLoginsToCredentialStore', () => {
   beforeAll(async () => {
     await db.insert(tenantAccountSchema).values({ id: 'acct-move', name: 'Northwind', slug: 'northwind-move' });
-    await db.insert(projectSchema).values(['org_move', 'org_unreadable', 'org_pasted', 'org_boom', 'org_fine'].map(id => ({ id, accountId: 'acct-move', slug: id, name: id })));
+    await db.insert(projectSchema).values(['org_move', 'org_unreadable', 'org_pasted', 'org_boom', 'org_fine', 'org_rotated'].map(id => ({ id, accountId: 'acct-move', slug: id, name: id })));
   });
 
   it('stores the login once, links every unlinked source non-exclusively, and leaves the old row live', async () => {
@@ -111,7 +111,7 @@ describe('moveLoginsToCredentialStore', () => {
 
     expect(source!.apiTokenId).toBe(pasted.id);
     expect(await db.select().from(apiTokenSchema).where(and(eq(apiTokenSchema.orgId, 'org_pasted'), eq(apiTokenSchema.obtainedVia, 'login')))).toHaveLength(0);
-    expect(report.skipped.filter(entry => entry.orgId === 'org_pasted')).toEqual([{ orgId: 'org_pasted', connector: 'github', why: 'a pasted key is already live for this one-live platform' }]);
+    expect(report.skipped.filter(entry => entry.orgId === 'org_pasted')).toEqual([{ orgId: 'org_pasted', connector: 'github', why: 'a source already uses a credential in the store, which is newer than the old login' }]);
   });
 
   it('one org failing is reported and the rest still move', async () => {
@@ -132,5 +132,30 @@ describe('moveLoginsToCredentialStore', () => {
 
     expect(report.moved.map(entry => entry.orgId)).toContain('org_fine');
     expect(report.skipped.filter(entry => entry.orgId === 'org_boom')).toEqual([{ orgId: 'org_boom', connector: 'github', why: 'move failed: Error' }]);
+  });
+
+  it('never overwrites a login that was rotated after the first move, and says it skipped', async () => {
+    await storeCredentialForSource({ orgId: 'org_rotated', sourceSlug: 'github', raw: GITHUB_BAG });
+    await db.insert(knowledgeSourceSchema).values({ orgId: 'org_rotated', slug: 'github-main', kind: 'plugin', configJson: { _connector: 'github' } });
+    await moveLoginsToCredentialStore();
+    const [moved] = await db.select().from(apiTokenSchema).where(and(eq(apiTokenSchema.orgId, 'org_rotated'), eq(apiTokenSchema.obtainedVia, 'login')));
+    await db.update(apiTokenSchema).set({ ciphertext: 'rotated-ciphertext' }).where(eq(apiTokenSchema.id, moved!.id));
+
+    const report = await moveLoginsToCredentialStore();
+
+    const [afterSecondRun] = await db.select().from(apiTokenSchema).where(eq(apiTokenSchema.id, moved!.id));
+
+    expect(afterSecondRun!.ciphertext).toBe('rotated-ciphertext');
+    expect(report.skipped.filter(entry => entry.orgId === 'org_rotated')).toHaveLength(1);
+
+    // A source added after the move has no link yet; the newer login still must not be replaced by the old bag.
+    await db.insert(knowledgeSourceSchema).values({ orgId: 'org_rotated', slug: 'github-late', kind: 'plugin', configJson: { _connector: 'github' } });
+    await db.update(knowledgeSourceSchema).set({ apiTokenId: null }).where(and(eq(knowledgeSourceSchema.orgId, 'org_rotated'), eq(knowledgeSourceSchema.slug, 'github-main')));
+    const third = await moveLoginsToCredentialStore();
+
+    const [afterThirdRun] = await db.select().from(apiTokenSchema).where(eq(apiTokenSchema.id, moved!.id));
+
+    expect(afterThirdRun!.ciphertext).toBe('rotated-ciphertext');
+    expect(third.moved.filter(entry => entry.orgId === 'org_rotated')).toEqual([]);
   });
 });
