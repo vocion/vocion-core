@@ -58,7 +58,7 @@ export function needsLoginOrPaste(connector: string, info: ConnectInfo | undefin
  * @param config - What the person filled in.
  */
 export async function saveConnectedSource(connector: string, config: Record<string, unknown>): Promise<void> {
-  await client.connect.saveSource({ connector, config });
+  await client.connect.saveSource({ connector, config, createNew: true });
 }
 
 /**

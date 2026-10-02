@@ -16,6 +16,8 @@ export const saveSourceRoute = os
     connector: z.string().min(1).max(80),
     config: z.record(z.string(), z.unknown()),
     sourceSlug: z.string().min(1).max(120).optional(),
+    // The page's "Add another" means a new source; only a caller that names a source on purpose sends false.
+    createNew: z.boolean().default(true),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
@@ -25,6 +27,7 @@ export const saveSourceRoute = os
       connector: input.connector,
       config: input.config,
       sourceSlug: input.sourceSlug,
+      createNew: input.createNew,
     });
     if (!saved.ok) {
       // The service words its refusals for a person; the form shows them as they are.

@@ -38,15 +38,25 @@ function call(input: unknown): Promise<unknown> {
   return procedure['~orpc'].handler({ input, context: {} });
 }
 
+/**
+ * Run the payload through the procedure's input schema first, as the HTTP
+ * layer does, so schema defaults (createNew) apply.
+ * @param input - The payload a client would send.
+ */
+function parseInput(input: unknown): unknown {
+  const procedure = saveSourceRoute as unknown as { '~orpc': { inputSchema: { parse: (value: unknown) => unknown } } };
+  return procedure['~orpc'].inputSchema.parse(input);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   signedIn();
 });
 
 describe('connect.saveSource', () => {
-  it('saves for the signed-in person in their workspace and returns the new source id', async () => {
+  it('saves, always as a new source, for the signed-in person in their workspace and returns the new source id', async () => {
     vi.mocked(createSourceOnLogin).mockResolvedValue({ ok: true, sourceId: 42, slug: 'github', created: true });
-    const result = await call({ connector: 'github', config: { repos: ['northwind/portal'] } });
+    const result = await call(parseInput({ connector: 'github', config: { repos: ['northwind/portal'] } }));
 
     expect(result).toEqual({ ok: true, sourceId: 42 });
     expect(createSourceOnLogin).toHaveBeenCalledWith({
@@ -55,18 +65,19 @@ describe('connect.saveSource', () => {
       connector: 'github',
       config: { repos: ['northwind/portal'] },
       sourceSlug: undefined,
+      createNew: true,
     });
   });
 
   it('shows a member the refusal sentence, not a generic error', async () => {
     vi.mocked(createSourceOnLogin).mockResolvedValue({ ok: false, reason: NOT_ADMIN });
 
-    await expect(call({ connector: 'github', config: {} })).rejects.toMatchObject({ code: 'bad-request', message: NOT_ADMIN });
+    await expect(call(parseInput({ connector: 'github', config: {} }))).rejects.toMatchObject({ code: 'bad-request', message: NOT_ADMIN });
   });
 
   it('surfaces the service reason as the error message', async () => {
     vi.mocked(createSourceOnLogin).mockResolvedValue({ ok: false, reason: 'Log in to GitHub first' });
 
-    await expect(call({ connector: 'github', config: {} })).rejects.toMatchObject({ message: 'Log in to GitHub first' });
+    await expect(call(parseInput({ connector: 'github', config: {} }))).rejects.toMatchObject({ message: 'Log in to GitHub first' });
   });
 });

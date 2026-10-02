@@ -144,13 +144,14 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
     window.history.replaceState(null, '', url.toString());
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<Source[]> => {
     setLoading(true);
     try {
       const res = await fetch('/rpc/sources');
       const data = await res.json();
       setSources(data.sources ?? []);
       setConnectors(data.connectors ?? []);
+      return data.sources ?? [];
     } finally {
       setLoading(false);
     }
@@ -235,7 +236,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
                 : 'flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'}
             >
               <CircleAlert className="mt-0.5 size-4 shrink-0" />
-              <span className="flex-1">{connectOutcomeMessage(connectOutcome)}</span>
+              <span className="flex-1">{connectOutcomeMessage({ ...connectOutcome, source: connectorNameFor(connectors, connectOutcome.source) })}</span>
               <button type="button" onClick={() => setConnectOutcome(null)} className="text-xs underline-offset-2 hover:underline">
                 Dismiss
               </button>
@@ -295,9 +296,15 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
               connectInfo={connectInfo[addingKind]}
               pasteFirst={pasteFirst}
               onClose={() => setAddingKind(null)}
-              onAdded={async () => {
+              onAdded={async (pasteInto) => {
                 setAddingKind(null);
-                await refresh();
+                const fresh = await refresh();
+                // A person who chose to paste is not done until the token is in:
+                // open the same credential dialog a row's Connect opens.
+                const created = pasteInto === undefined ? undefined : fresh.find(row => row.id === pasteInto);
+                if (created) {
+                  setConnectingSource(created);
+                }
               }}
             />
           )
@@ -1126,6 +1133,31 @@ async function createSourceReturningId(
 }
 
 /**
+ * The paste-path save: an edit patches the source, an add creates one and
+ * says which, so the panel can open its credential dialog.
+ * @param input - What to save.
+ * @param input.existing - The source being edited, or null when adding.
+ * @param input.kind - Connector slug.
+ * @param input.config - The connector's config blob.
+ */
+async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<{ error: string | null; newId: number | null }> {
+  if (input.existing) {
+    return { error: await updateSourceConfig(input.existing.id, input.config), newId: null };
+  }
+  const created = await createSourceReturningId(input.kind, input.config);
+  return { error: created.error, newId: created.id };
+}
+
+/**
+ * The name a person knows a connector by, for the line after a login.
+ * @param connectors - The tiles the page loaded.
+ * @param slug - The connector slug from the URL.
+ */
+function connectorNameFor(connectors: ConnectorTile[], slug: string | null): string | null {
+  return slug === null ? null : (connectors.find(tile => tile.slug === slug)?.name ?? slug);
+}
+
+/**
  * PATCH one source's config. Returns the server's message on failure, null on success.
  * @param sourceId - Source to update.
  * @param configJson - The connector's own config blob, replacing the stored one.
@@ -1613,7 +1645,7 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
   connectInfo?: ConnectInfo;
   pasteFirst?: boolean;
   onClose: () => void;
-  onAdded: () => Promise<void> | void;
+  onAdded: (pasteInto?: number) => Promise<void> | void;
 }) {
   const [values, setValues] = useState<Record<string, ConfigFieldValue>>(() => (
     existing
@@ -1656,14 +1688,14 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
         await onAdded();
         return;
       }
-      const message = existing
-        ? await updateSourceConfig(existing.id, config)
-        : await createSource(kind, config);
-      if (message) {
-        setError(message);
+      const saved = await savePastedOrEdited({ existing, kind, config });
+      if (saved.error) {
+        setError(saved.error);
         return;
       }
-      await onAdded();
+      // Someone who chose to paste has not finished: hand the new source to
+      // the panel so the credential dialog opens on it.
+      await onAdded(choosing && pasteChecked ? (saved.newId ?? undefined) : undefined);
     } catch (err) {
       // A network failure throws rather than returning a message. Without this
       // the dialog sat on a spinner that never resolved and said nothing.
@@ -2429,7 +2461,8 @@ function AddSourceDialog({
   /** Open with "Paste a token instead" ticked. */
   pasteFirst?: boolean;
   onClose: () => void;
-  onAdded: () => Promise<void> | void;
+  /** Called after a save; the id of the new source when the person still has a token to paste for it. */
+  onAdded: (pasteInto?: number) => Promise<void> | void;
 }) {
   const connectorName = connector?.name ?? kind;
   const source = existing ?? null;

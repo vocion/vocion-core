@@ -28,9 +28,71 @@ const TILES = [
   { slug: 'slack', name: 'Slack', description: 'Channels.', icon: 'MessageSquare', authKind: 'oauth', credentialPlatform: null, syncless: false, inspectable: false },
 ];
 
+/**
+ * A configured GitHub source, as `/rpc/sources` lists it.
+ * @param slug - The source's slug.
+ * @param id - The source's id.
+ */
+function githubSource(slug: string, id: number) {
+  return {
+    id,
+    slug,
+    kind: 'plugin',
+    config: { _connector: 'github', repos: ['northwind/api'], deployBranch: 'staging' },
+    lastSyncedAt: null,
+    enabled: 'true',
+    createdAt: '2026-09-01T00:00:00.000Z',
+    authKind: 'apikey',
+    objectType: null,
+    documentCount: 0,
+    chunkCount: 0,
+    credentialConnected: true,
+    credentialUpdatedAt: null,
+    credentialBroken: null,
+    syncless: false,
+    inspectable: false,
+    inspectNote: null,
+    sync: null,
+  };
+}
+
+/**
+ * Stub the sources API. The list is `sources`; a POST to `/rpc/sources` adds
+ * `github-2` (id 7) to it, the way a real create would, and is recorded.
+ * @param sources - The sources the workspace starts with.
+ */
+function stubSources(sources: ReturnType<typeof githubSource>[]) {
+  const posts: Record<string, unknown>[] = [];
+  const listed = [...sources];
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === '/rpc/sources' && init?.method === 'POST') {
+      posts.push(JSON.parse(String(init.body)));
+      listed.push(githubSource('github-2', 7));
+      return new Response(JSON.stringify({ source: { id: 7 } }), { status: 200 });
+    }
+    if (url === '/rpc/sources') {
+      return new Response(JSON.stringify({ sources: listed, connectors: TILES }), { status: 200 });
+    }
+    if (url === '/rpc/sources/7/credentials') {
+      return new Response(JSON.stringify({
+        credentials: null,
+        available: [],
+        linkedCredentialId: null,
+        platform: 'github',
+        platformLabel: 'GitHub',
+        helpText: 'A GitHub token.',
+        fields: [{ name: 'token', label: 'Access token', shapeHint: 'any non-empty token', secret: true }],
+      }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ error: `unstubbed ${url}` }), { status: 500 });
+  }));
+  return posts;
+}
+
 beforeEach(() => {
   saveSource.mockReset();
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ sources: [], connectors: TILES }), { status: 200 })));
+  stubSources([]);
 });
 
 afterEach(() => {
@@ -96,16 +158,18 @@ describe('the add form follows the connector declaration', () => {
 describe('after a login', () => {
   it('says who is logged in and saves through the login route with the typed repos', async () => {
     saveSource.mockResolvedValue({ ok: true, sourceId: 5 });
+    stubSources([githubSource('github', 3)]);
     window.history.replaceState(null, '', '/?add=github&connect=ok&connector=github');
     await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: 'northwind', lastAttempt: null } }} />);
 
     await expect.element(page.getByText('Logged in as northwind')).toBeVisible();
+    await expect.element(page.getByText('Connected GitHub.', { exact: false })).toBeVisible();
     await expect.element(page.getByRole('link', { name: /Log in with/ })).not.toBeInTheDocument();
 
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await vi.waitFor(() => expect(saveSource).toHaveBeenCalledWith({ connector: 'github', config: expect.objectContaining({ repos: ['northwind/portal'] }) }));
+    await vi.waitFor(() => expect(saveSource).toHaveBeenCalledWith({ connector: 'github', createNew: true, config: { repos: ['northwind/portal'], baseUrl: 'https://api.github.com', deployBranch: 'main', lookbackDays: 7 } }));
   });
 
   it('shows the refusal sentence the route sends back', async () => {
@@ -117,6 +181,22 @@ describe('after a login', () => {
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
     await expect.element(page.getByRole('alert')).toHaveTextContent('Only a workspace admin can connect a source');
+  });
+});
+
+describe('pasting a token', () => {
+  it('opens the credential dialog for the source it just created', async () => {
+    const posts = stubSources([githubSource('github', 3)]);
+    window.history.replaceState(null, '', '/?add=github&paste=1');
+    await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: null, lastAttempt: null } }} />);
+
+    await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await expect.element(page.getByRole('heading', { name: 'Connect github-2' })).toBeVisible();
+    await expect.element(page.getByLabelText(/Access token/)).toBeVisible();
+    expect(posts).toHaveLength(1);
+    expect(saveSource).not.toHaveBeenCalled();
   });
 });
 

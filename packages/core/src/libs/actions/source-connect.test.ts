@@ -18,6 +18,7 @@ const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, sourceDekSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { sealLoginValues, storeLoginCredential, storePlatformKey } = await import('@/services/ApiTokenService');
 const { linkSourceToStoredCredential } = await import('@/services/SourceCredentialService');
+const { createSourceOnLogin } = await import('@/services/connect/createSourceOnLogin');
 const { sourceConnectAction } = await import('./source-connect');
 
 const ORG = 'org_connect_pick';
@@ -219,5 +220,20 @@ describe('source.connect', () => {
     expect((await sources())[0]!.configJson).toMatchObject({ repos: ['northwind/api', 'northwind/portal'] });
 
     await expect(sourceConnectAction.undo!(asAdmin, githubPick, { ...result, sourceId: 'x' })).rejects.toThrow('no source to undo');
+  });
+
+  it('createNew adds a second source and leaves the first one\'s config alone', async () => {
+    await seedLogin();
+    const [first] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'github', kind: 'plugin', configJson: { repos: ['northwind/api'], deployBranch: 'staging', _connector: 'github' } }).returning();
+
+    const added = await createSourceOnLogin({ orgId: ORG, actorUserId: ADMIN, createNew: true, connector: 'github', config: { repos: ['northwind/portal'], deployBranch: 'main' } });
+    const third = await createSourceOnLogin({ orgId: ORG, actorUserId: ADMIN, createNew: true, connector: 'github', config: { repos: ['northwind/web'] } });
+    const rows = await sources();
+    const untouched = rows.find(row => row.id === first!.id)!;
+
+    expect(added).toMatchObject({ ok: true, created: true, slug: 'github-2' });
+    expect(third).toMatchObject({ ok: true, created: true, slug: 'github-3' });
+    expect(rows).toHaveLength(3);
+    expect(untouched.configJson).toEqual({ repos: ['northwind/api'], deployBranch: 'staging', _connector: 'github' });
   });
 });
