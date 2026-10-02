@@ -3249,6 +3249,18 @@ export const apiTokenSchema = pgTable(
      * legitimate choice the person issuing it gets to make.
      */
     expiresAt: timestamp('expires_at', { mode: 'date' }),
+    /**
+     * How the credential reached us: pasted by a person, or granted by a
+     * provider login (GitHub App install, Atlassian or Slack OAuth). A login's
+     * bag is never shown back on screen.
+     */
+    obtainedVia: text('obtained_via').default('paste').notNull().$type<'paste' | 'login'>(),
+    /**
+     * The non-secret identity a login belongs to (a GitHub org, an Atlassian
+     * site, a Slack team). Keeps one row per account across re-logins. Null on
+     * a pasted key.
+     */
+    account: text('account'),
   },
   table => [
     index('api_token_org_idx').on(table.orgId),

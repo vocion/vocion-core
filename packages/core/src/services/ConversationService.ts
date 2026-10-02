@@ -10,6 +10,7 @@
 
 import type { CardState } from '@/libs/cards/card';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
+import type { DbTransaction } from '@/libs/DbTransaction';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { PageContext } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
@@ -733,9 +734,6 @@ export async function tailMessages(opts: { orgId: string; conversationId: number
     .limit(Math.min(Math.max(opts.limit ?? 2, 1), 20));
   return rows.reverse();
 }
-
-/** A drizzle transaction, as `db.transaction` hands it to its callback. */
-export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** What a later step may write onto a card that was already drawn. */
 export type CardRunPatch = {
