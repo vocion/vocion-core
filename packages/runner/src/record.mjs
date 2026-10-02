@@ -135,12 +135,15 @@ export function taskCompleted(task, result, { type, runId, summary, costUsd }) {
       // states on production (a team's live check). Without them only a flow's name and
       // criterion reached the record, and nothing could reach its state again.
       qaFlows: (result.qa_flows || []).slice(0, 40),
+      // In-run repair passes (failed checks the engineer fixed inside this run), so the feature page
+      // and QA see that a check went red and what turned it green.
+      repairs: (result.repairs || []).slice(0, 5),
     },
   };
 }
 
 /** What the runner writes when the run failed: why, what was kept and where, what it cost. */
-export function taskFailed(task, { type, runId, error, failures = [], kept = null, checks = [], costUsd = 0, attempt }) {
+export function taskFailed(task, { type, runId, error, failures = [], kept = null, checks = [], costUsd = 0, attempt, repairs = [] }) {
   const rows = checkRows(checks);
   const meta = {
     runId,
@@ -153,6 +156,9 @@ export function taskFailed(task, { type, runId, error, failures = [], kept = nul
     actualCents: cents(costUsd) ?? 0,
     costUpdatedAt: new Date().toISOString(),
   };
+  if (repairs.length) {
+    meta.repairs = repairs.slice(0, 5);
+  }
   if (kept) {
     meta.keptBranch = kept.branch || null;
     meta.branch = kept.branch || undefined;

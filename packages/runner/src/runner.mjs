@@ -25,6 +25,7 @@
 // Exit code is 0 in every case so ECS never retries a task on its own; Vocion holds the truth.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -38,9 +39,10 @@ import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
 import { captureEvidence, containerCredentials, productionBase, publishArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
 import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
+import { repairBrief, repairDecision, repairRecord, repairsLine } from './repair.mjs';
 import { resumeConflictNote } from './resume.mjs';
 import { checkPlan, serviceSpec } from './services.mjs';
-import { withUsage } from './usage.mjs';
+import { usageDelta, withUsage } from './usage.mjs';
 
 // ---------- configuration ----------
 
@@ -496,6 +498,33 @@ function planLogLine(t) {
   };
 }
 
+/**
+ * The required checks as the engineer should run them: each one's exact command, and the line
+ * that says to run them before finishing. A failing check is repaired in this run, but a pass that
+ * never sees red is cheaper still.
+ */
+function checksBrief(t) {
+  const scripts = (readJson(path.join(REPO_DIR, 'package.json')) || {}).scripts || {};
+  const steps = checkPlan(t, scripts);
+  if (!steps.length) {
+    return '- (none)';
+  }
+  const lines = steps.map((c) => {
+    if (c.kind === 'em-dashes') {
+      return `- ${c.name}: the worker greps every changed file for the em dash character (U+2014)`;
+    }
+    if (c.kind === 'skipped') {
+      return `- ${c.name}: skipped (${c.reason})`;
+    }
+    return `- ${c.name}: \`${c.command}\``;
+  });
+  const runnable = steps.filter(c => c.command);
+  return [
+    ...lines,
+    ...(runnable.length ? ['', 'Run each of these commands yourself, from the repository root, before you finish, and fix what fails. A check that fails after you finish comes back to you with its output.'] : []),
+  ].join('\n');
+}
+
 function renderTaskMarkdown(t, runId) {
   const list = a => (a && a.length ? a.map(x => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n') : '- (none)');
   return [
@@ -523,7 +552,7 @@ function renderTaskMarkdown(t, runId) {
     '',
     '## Required checks the worker runs after you finish',
     '',
-    list(t.required_checks),
+    checksBrief(t),
     '',
     t.plan && !t.plan.skipped ? `## Approved plan\n\nThis work was planned and the plan was approved${t.plan.approved_by ? ` by ${t.plan.approved_by}` : ''}${t.plan.plan_id ? ` (${t.plan.plan_id})` : ''}${t.plan.url ? `: ${t.plan.url}` : ''}. Build the outcome it describes. Where the plan is wrong or incomplete, do what the outcome needs and say in your report what you changed from the plan and why.\n${t.plan.summary ? `\n${t.plan.summary}\n` : ''}` : '',
     t.plan && t.plan.skipped ? `## Plan\n\nA plan was offered and declined: ${t.plan.skip_reason}\n` : '',
@@ -783,12 +812,26 @@ async function startServices(task) {
   log('services_started', { services_started: state.services });
 }
 
-function runClaude(task, runId) {
+/** The run's model budget in dollars: the contract's, never above the worker's (or the run's cap). */
+function runBudgetUsd(task) {
+  return Math.min(cfg.maxBudgetUsd, num(task.token_budget_usd, cfg.maxBudgetUsd));
+}
+/** The run's wall clock in seconds, from the contract, never above the worker's (or the run's end). */
+function runWallSeconds(task) {
+  return Math.min(cfg.wallClockMinutes, num(task.wall_clock_minutes, cfg.wallClockMinutes)) * 60;
+}
+
+/**
+ * One Claude Code pass in the checkout. The first pass gets the task brief and a session id; a
+ * repair pass (`opts.resume`) continues that session with the failing checks, so the engineer keeps
+ * its context instead of rebuilding it. `opts.budget` and `opts.timeoutSeconds` are what is left.
+ */
+function runClaude(task, runId, opts = {}) {
   const model = task.model_policy.model || cfg.defaultModel;
-  const budget = Math.min(cfg.maxBudgetUsd, num(task.token_budget_usd, cfg.maxBudgetUsd));
-  const wallSeconds = Math.min(cfg.wallClockMinutes, num(task.wall_clock_minutes, cfg.wallClockMinutes)) * 60;
-  const claudeTimeout = Math.max(300, wallSeconds - LAND_RESERVE_SECONDS);
-  setPhase('claude', `model=${model} budget=$${budget} timeout=${claudeTimeout}s`);
+  const budget = round2(opts.budget ?? runBudgetUsd(task));
+  const claudeTimeout = Math.floor(opts.timeoutSeconds ?? Math.max(300, runWallSeconds(task) - LAND_RESERVE_SECONDS));
+  const label = opts.label || 'engineer';
+  setPhase(label === 'engineer' ? 'claude' : 'repair', `${label}: model=${model} budget=$${budget} timeout=${claudeTimeout}s${opts.resume ? ' (same session)' : ''}`);
 
   const args = [
     '-p',
@@ -818,8 +861,15 @@ function runClaude(task, runId) {
     standingRules(task),
     '--model',
     model,
-    '--no-session-persistence',
   ];
+  // The session is kept on disk (under ~/.claude, inside the container) so a repair pass can resume it.
+  if (opts.resume) {
+    args.push('--resume', opts.resume);
+  } else if (opts.sessionId) {
+    args.push('--session-id', opts.sessionId);
+  } else {
+    args.push('--no-session-persistence');
+  }
   if (task.model_policy.effort) {
     args.push('--effort', String(task.model_policy.effort));
   }
@@ -842,10 +892,10 @@ function runClaude(task, runId) {
     CLAUDE_PROJECT_DIR: REPO_DIR,
   });
 
-  const prompt = renderTaskMarkdown(task, runId);
-  fs.writeFileSync(path.join(LOG_DIR, 'prompt.md'), prompt);
+  const prompt = opts.prompt ?? renderTaskMarkdown(task, runId);
+  fs.writeFileSync(path.join(LOG_DIR, label === 'engineer' ? 'prompt.md' : `prompt.${label}.md`), prompt);
 
-  const streamPath = path.join(LOG_DIR, 'claude.stream.jsonl');
+  const streamPath = path.join(LOG_DIR, label === 'engineer' ? 'claude.stream.jsonl' : `claude.${label}.stream.jsonl`);
   return new Promise((resolve) => {
     const started = Date.now();
     const child = spawn(cfg.claudeBin, args, { cwd: REPO_DIR, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -895,24 +945,28 @@ function runClaude(task, runId) {
       // everything below reads it identically.
       const result = finalResult;
       const durationS = Math.round((Date.now() - started) / 1000);
-      const costUsd = Number(result?.total_cost_usd) || 0;
-      const modelUsage = result?.modelUsage || {};
+      // A resumed session reports its total since the session began (cost and per-model usage), so
+      // this pass's share is the difference from what the session had reported before it.
+      const sessionCostUsd = Number(result?.total_cost_usd) || 0;
+      const costUsd = Math.max(0, sessionCostUsd - (opts.resume ? (opts.priorSessionCostUsd || 0) : 0));
+      const modelUsage = opts.resume ? usageDelta(result?.modelUsage || {}, opts.priorModelUsage || {}) : (result?.modelUsage || {});
       const model = Object.entries(modelUsage).sort((a, b) => (b[1]?.costUSD || 0) - (a[1]?.costUSD || 0))[0]?.[0] || null;
       const usage = result?.usage || {};
       state.costUsd += costUsd;
       state.model = model || state.model;
-      state.counts.turns = Number(result?.num_turns) || 0;
+      state.counts.turns = (label === 'engineer' ? 0 : (state.counts.turns || 0)) + (Number(result?.num_turns) || 0);
       state.counts.permissionDenials = Array.isArray(result?.permission_denials) ? result.permission_denials.length : 0;
       if (model) {
-        state.pendingUsage = {
+        state.pendingUsage = withUsage(state.pendingUsage, {
           model,
           inputTokens: (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0) + (usage.cache_read_input_tokens || 0),
           outputTokens: usage.output_tokens || 0,
           cacheReadTokens: usage.cache_read_input_tokens || 0,
           cents: Math.round(costUsd * 100),
-        };
+        });
       }
-      log('claude.finished', {
+      log(label === 'engineer' ? 'claude.finished' : 'repair.claude.finished', {
+        pass: label === 'engineer' ? undefined : label,
         exit_code: code,
         signal,
         duration_s: durationS,
@@ -925,9 +979,56 @@ function runClaude(task, runId) {
         result_preview: String(result?.result || '').slice(0, 300),
         stderr_tail: code === 0 ? undefined : tail(err, 8),
       });
-      resolve({ code, signal, result, costUsd, model, usage, modelUsage, durationS, stderrTail: tail(err, 20), stderrFull: err, rawTail: result ? undefined : tail(out, 20), messages, streamPath });
+      resolve({ code, signal, result, costUsd, sessionCostUsd, sessionModelUsage: result?.modelUsage || {}, sessionId: result?.session_id || opts.sessionId || opts.resume || null, model, usage, modelUsage, durationS, stderrTail: tail(err, 20), stderrFull: err, rawTail: result ? undefined : tail(out, 20), messages, streamPath });
     });
   });
+}
+
+/**
+ * The engineer's passes as one: costs, time and usage summed, the transcripts and streams joined,
+ * the last pass's result with every pass's report, so the logs, the PR and the result read the
+ * whole run. The first pass's session stays the one a later repair resumes.
+ */
+function mergeClaude(a, b) {
+  if (!b) {
+    return a;
+  }
+  try {
+    if (b.streamPath && b.streamPath !== a.streamPath && fs.existsSync(b.streamPath)) {
+      fs.appendFileSync(a.streamPath, fs.readFileSync(b.streamPath));
+    }
+  } catch {}
+  const modelUsage = { ...a.modelUsage };
+  for (const [m, u] of Object.entries(b.modelUsage || {})) {
+    const prior = modelUsage[m] || {};
+    modelUsage[m] = Object.fromEntries([...new Set([...Object.keys(prior), ...Object.keys(u)])].map(k => [k, typeof (u[k] ?? prior[k]) === 'number' ? (Number(prior[k]) || 0) + (Number(u[k]) || 0) : (u[k] ?? prior[k])]));
+  }
+  const usage = { ...a.usage };
+  for (const [k, v] of Object.entries(b.usage || {})) {
+    if (typeof v === 'number') {
+      usage[k] = (Number(usage[k]) || 0) + v;
+    }
+  }
+  const reports = [a.result?.result, b.result?.result].filter(Boolean);
+  const result = b.result ? { ...b.result, result: reports.join('\n\nRepair pass report:\n') } : a.result;
+  return {
+    ...a,
+    result,
+    code: b.code,
+    signal: b.signal,
+    costUsd: (a.costUsd || 0) + (b.costUsd || 0),
+    durationS: (a.durationS || 0) + (b.durationS || 0),
+    model: b.model || a.model,
+    usage,
+    modelUsage,
+    messages: [...(a.messages || []), ...(b.messages || [])],
+    stderrFull: [a.stderrFull, b.stderrFull].filter(Boolean).join('\n'),
+    stderrTail: b.stderrTail || a.stderrTail,
+    // A resumed pass carries the session's running totals forward; a fresh pass starts its own.
+    sessionId: b.result ? b.sessionId : a.sessionId,
+    sessionCostUsd: b.result ? b.sessionCostUsd : a.sessionCostUsd,
+    sessionModelUsage: b.result ? b.sessionModelUsage : a.sessionModelUsage,
+  };
 }
 
 function changedFiles() {
@@ -1148,6 +1249,7 @@ function land(task, runId, verification, claude, prepared, evidence = null, test
     '| check | status | exit | detail |',
     '|---|---|---|---|',
     ...verification.checks.map(c => `| ${c.name} | ${c.status} | ${c.exit_code ?? ''} | ${String(c.tail || '').split('\n').slice(-1)[0].replace(/\|/g, '\\|').slice(0, 160)} |`),
+    ...(verification.repairs?.length ? ['', `Repaired in this run: ${repairsLine(verification.repairs)}.`] : []),
     '',
     '## Run',
     '',
@@ -1490,7 +1592,7 @@ async function fail(runId, error, failures = [], partial = {}) {
     failures: failures.map(f => ({ scope: f.scope || 'worker', message: String(f.message || f).slice(0, 1000) })),
     // A typed failure (partial.failure: { kind, ... }) rides `result.failure`, which Vocion stores,
     // so the factory's recovery reads the kind instead of matching the error's words.
-    result: keptResult || partial.failure ? { ...(keptResult || {}), ...(partial.failure ? { failure: partial.failure } : {}) } : undefined,
+    result: keptResult || partial.failure || partial.repairs?.length ? { ...(keptResult || {}), ...(partial.failure ? { failure: partial.failure } : {}), ...(partial.repairs?.length ? { repairs: partial.repairs } : {}) } : undefined,
   };
   if (events.length) {
     body.events = events;
@@ -1514,7 +1616,7 @@ async function fail(runId, error, failures = [], partial = {}) {
   // input, which still names task_id and objective).
   const task = state.task || partial.task || null;
   if (task?.task_id) {
-    await reportToRecord('failed', taskFailed(task, { type: state.record?.type, runId, error: fullError, failures, kept, checks: partial.checks || [], costUsd: state.costUsd, attempt: partial.attempt }));
+    await reportToRecord('failed', taskFailed(task, { type: state.record?.type, runId, error: fullError, failures, kept, checks: partial.checks || [], costUsd: state.costUsd, attempt: partial.attempt, repairs: partial.repairs || [] }));
   }
 }
 
@@ -1678,7 +1780,7 @@ async function main() {
     return;
   }
 
-  const claude = await runClaude(task, runId);
+  let claude = await runClaude(task, runId, { sessionId: randomUUID() });
   const partial = { task_id: task.task_id, attempt: prepared.attempt };
   if (state.lostLease) {
     log('exit', { note: 'lease lost; leaving the working tree behind' }); return;
@@ -1717,6 +1819,81 @@ async function main() {
   } catch (e) {
     await finalizeRunLogs(task, runId, claude, {}); await fail(runId, `verify crashed: ${e.message}`, [], partial); return;
   }
+
+  // Required checks failed: the same engineer repairs them inside this run, up to MAX_REPAIR_PASSES,
+  // while the run has budget and clock left. A new attempt costs a dispatch, a clone, npm ci and a
+  // rebuilt context; a repair pass costs the fix.
+  const repairs = [];
+  for (;;) {
+    const checksSeconds = verification.checks.reduce((s, c) => s + (Number(c.duration_s) || 0), 0);
+    const decision = repairDecision({
+      verification,
+      passesDone: repairs.length,
+      budgetLeftUsd: runBudgetUsd(task) - state.costUsd,
+      secondsLeft: runWallSeconds(task) - (Date.now() - startedAt) / 1000 - LAND_RESERVE_SECONDS - checksSeconds,
+      stopped: state.stopped,
+      lostLease: state.lostLease,
+    });
+    if (!decision.repair) {
+      if (!verification.ok && decision.reason !== 'no-changes') {
+        log('repair.skipped', { reason: decision.reason, passes: repairs.length, failed: verification.checks.filter(c => c.status === 'failed').map(c => c.name) });
+      }
+      break;
+    }
+    const pass = repairs.length + 1;
+    const budget = runBudgetUsd(task) - state.costUsd;
+    const timeoutSeconds = runWallSeconds(task) - (Date.now() - startedAt) / 1000 - LAND_RESERVE_SECONDS - checksSeconds;
+    log('repair.started', { pass, failed: decision.failures.map(c => c.name), budget_usd: round2(budget), timeout_s: Math.floor(timeoutSeconds), session: claude.sessionId || null });
+    let step = null;
+    let resumed = Boolean(claude.sessionId && claude.result);
+    if (resumed) {
+      step = await runClaude(task, runId, { label: `repair-${pass}`, resume: claude.sessionId, priorSessionCostUsd: claude.sessionCostUsd, priorModelUsage: claude.sessionModelUsage, prompt: repairBrief({ failures: decision.failures, outputs: verification.outputs, pass }), budget, timeoutSeconds });
+    }
+    // The session could not be resumed (it ended without a result, or Claude Code refused it): a
+    // fresh pass in the same checkout, with the task brief and the failures.
+    if (!state.stopped && !state.lostLease && (!step || (!step.result && step.durationS < 60))) {
+      if (step) {
+        log('repair.resume_failed', { pass, code: step.code, stderr_tail: step.stderrTail });
+        claude = mergeClaude(claude, step);
+      }
+      resumed = false;
+      const left = runWallSeconds(task) - (Date.now() - startedAt) / 1000 - LAND_RESERVE_SECONDS - checksSeconds;
+      step = await runClaude(task, runId, { label: `repair-${pass}`, sessionId: randomUUID(), prompt: repairBrief({ failures: decision.failures, outputs: verification.outputs, pass, taskBrief: renderTaskMarkdown(task, runId) }), budget: runBudgetUsd(task) - state.costUsd, timeoutSeconds: left });
+    }
+    claude = mergeClaude(claude, step);
+    if (state.lostLease) {
+      log('exit', { note: 'lease lost during a repair pass; leaving the working tree behind' }); return;
+    }
+    if (state.stopped) {
+      repairs.push(repairRecord({ pass, failures: decision.failures, after: null, resumed, costUsd: step.costUsd, durationS: step.durationS, outcome: 'stopped' }));
+      break;
+    }
+    let after;
+    try {
+      after = verify(task);
+    } catch (e) {
+      log('verify.crashed', { error: e.message, pass });
+      break;
+    }
+    const rec = repairRecord({ pass, failures: decision.failures, after, resumed, costUsd: step.costUsd, durationS: step.durationS });
+    repairs.push(rec);
+    log(rec.outcome === 'fixed' ? 'repair.fixed' : 'repair.unfixed', rec);
+    verification = after;
+  }
+  verification.repairs = repairs;
+  if (repairs.length) {
+    partial.repairs = repairs;
+  }
+
+  // A stop that arrived during a repair is final (a person's cancel, #1038): keep the work, fail as stopped.
+  if (state.stopped) {
+    await finalizeRunLogs(task, runId, claude, verification.outputs);
+    keepWork(task, runId, prepared, claude, verification, classifyStop({ stopped: true, stopReason: state.stopReason }));
+    partial.checks = verification.checks;
+    await fail(runId, `stopped by Vocion before the task finished (${state.stopReason})`, [{ scope: 'control', message: `stop signal on heartbeat (${state.stopReason})` }], partial);
+    return;
+  }
+
   state.counts.filesChanged = verification.files.length;
   if (!verification.ok) {
     log('verify.failed', { error: verification.error, files: verification.files, checks: verification.checks.map(c => `${c.name}=${c.status}`) });
@@ -1729,7 +1906,8 @@ async function main() {
       await fail(runId, `verification failed: ${verification.error}`, [{ scope: 'claude', message: String(claude.result?.result || '').slice(0, 1500) }], { ...partial, checks: verification.checks });
       return;
     }
-    await fail(runId, `verification failed: ${verification.error}`, verification.checks.filter(c => c.status === 'failed').map(c => ({ scope: `check:${c.name}`, message: c.tail })), { ...partial, checks: verification.checks });
+    const repaired = repairs.length ? ` (after ${repairs.length} repair pass${repairs.length === 1 ? '' : 'es'} in this run: ${repairsLine(repairs)})` : '';
+    await fail(runId, `verification failed: ${verification.error}${repaired}`, verification.checks.filter(c => c.status === 'failed').map(c => ({ scope: `check:${c.name}`, message: c.tail })), { ...partial, checks: verification.checks });
     return;
   }
   log('verified', { files: verification.files, checks: verification.checks.map(c => `${c.name}=${c.status}`) });
@@ -1829,9 +2007,11 @@ async function main() {
     qa_report: evidence ? evidence.markdown : '',
     qa_summary: evidence ? evidence.summary : (qa ? 'the capture pass did not run' : ''),
     worker: workerId,
-    agent_report: String(claude.result.result || '').slice(0, 2000),
+    agent_report: String(claude.result?.result || '').slice(0, 2000),
+    // Each in-run repair pass: what failed going in, what it fixed, what it cost.
+    repairs,
   };
-  const summary = `Task ${task.task_id} (${task.risk_class}): changed ${verification.files.length} file(s)${verification.beyondPlan?.length ? ` (${verification.beyondPlan.length} beyond the plan)` : ''}, ${verification.checks.filter(c => c.status === 'passed').length}/${verification.checks.length} checks passed, opened ${landed.prUrl} from ${prepared.branch}. Model ${claude.model}, $${round2(claude.costUsd)}, ${claude.durationS}s in claude, ${result.elapsed_s}s total.${evidence ? ` QA evidence: ${evidence.summary}.` : ''}`;
+  const summary = `Task ${task.task_id} (${task.risk_class}): changed ${verification.files.length} file(s)${verification.beyondPlan?.length ? ` (${verification.beyondPlan.length} beyond the plan)` : ''}, ${verification.checks.filter(c => c.status === 'passed').length}/${verification.checks.length} checks passed${repairs.length ? ` (repaired in-run: ${repairsLine(repairs)})` : ''}, opened ${landed.prUrl} from ${prepared.branch}. Model ${claude.model}, $${round2(claude.costUsd)}, ${claude.durationS}s in claude, ${result.elapsed_s}s total.${evidence ? ` QA evidence: ${evidence.summary}.` : ''}`;
   await complete(runId, result, summary);
   log('done', { pr_url: landed.prUrl, cost_usd: round2(state.costUsd), elapsed_s: result.elapsed_s });
 }
