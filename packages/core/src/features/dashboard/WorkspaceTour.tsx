@@ -278,9 +278,13 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       }
       const r = el.getBoundingClientRect();
       const top = Math.max(8, r.top - 8);
-      // A dimmed spotlight caps tall elements so the page still shows; a ring
-      // traces the whole element. Both stay inside the viewport.
-      const height = ringOnly ? Math.min(r.height + 16, vh - top - 8) : Math.min(r.height + 16, vh * 0.62, vh - top - 8);
+      // A dimmed spotlight caps an element that overflows the viewport (a
+      // long table) so the page still shows; one that fits on screen — the
+      // conversation column — is lit whole, or the cap cuts it off above its
+      // composer and dims the words the step asked people to watch (Chris,
+      // 2026-10-02). A ring always traces the whole element.
+      const overflows = r.height > vh * 0.9;
+      const height = ringOnly || !overflows ? Math.min(r.height + 16, vh - top - 8) : Math.min(r.height + 16, vh * 0.62, vh - top - 8);
       const left = Math.max(8, r.left - 8);
       const next = { top, left, width: Math.min(r.width + 16, window.innerWidth - left - 8), height: Math.max(40, height) };
       setMeasured((prev) => {
