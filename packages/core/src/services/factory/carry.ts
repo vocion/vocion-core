@@ -1346,6 +1346,10 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
     } else if (out.res.status === 'pending') {
       line = `${input.reason} It is on a card for a person (${nounCode('action', out.res.runId)}).`;
       await updateRecovery(orgId, requestId, s => logLine(s, line, now.toISOString(), run.id));
+    } else if (out.res.outcome === 'already_underway') {
+      // Nothing new started: say what is, never "sending it again" over no run.
+      line = `${nounCode('run', run.id)} failed (${failure.sentence}); not sent again because ${out.res.underway?.line ?? 'another start is under way'}.`;
+      await updateRecovery(orgId, requestId, s => logLine(s, line, now.toISOString(), run.id));
     } else {
       // The dispatch wrote the attempt (and its line) itself.
       line = input.reason;

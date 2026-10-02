@@ -1165,6 +1165,12 @@ export function underwayRefusal(earlier: readonly EarlierStart[], opts: { trigge
  */
 export function underwayNow(earlier: readonly EarlierStart[], opts: { trigger?: string | null; now?: Date } = {}): { line: string; workerRunId: number | null } | null {
   const now = (opts.now ?? new Date()).getTime();
+  // A PLANNING HOLD ENDS AT THE BUILD IT WAS HOLDING FOR (Walk 8, FE-364,
+  // 2026-10-02: the start at 04:56 planned first, the plan's build ran as
+  // RUN-473, and when 473 failed at 05:06 the recovery was answered "planning
+  // first" by that same start and nothing was dispatched). Newest first: once
+  // a later start produced a worker run, an older planning start holds nothing.
+  let built = false;
   for (const run of earlier) {
     // A plan's own build continues the start that asked for the plan, even
     // while that start is still executing (#201, 2026-09-30: run 5335 went to
@@ -1180,7 +1186,11 @@ export function underwayNow(earlier: readonly EarlierStart[], opts: { trigger?: 
     if (Number.isInteger(workerRunId) && workerRunId > 0 && run.workerStatus && BUILDING_WORKER_STATUSES.includes(run.workerStatus)) {
       return { line: `${nounCode('run', workerRunId)} (started by ${nounCode('action', run.id)}) is ${run.workerStatus}`, workerRunId };
     }
-    if (run.result.planning === true && opts.trigger !== 'plan' && run.executedAt && now - run.executedAt.getTime() < PLANNING_HOLD_MS) {
+    if (Number.isInteger(workerRunId) && workerRunId > 0) {
+      built = true;
+      continue;
+    }
+    if (!built && run.result.planning === true && opts.trigger !== 'plan' && run.executedAt && now - run.executedAt.getTime() < PLANNING_HOLD_MS) {
       const minutes = Math.max(0, Math.round((now - run.executedAt.getTime()) / 60_000));
       const why = typeof run.result.why === 'string' ? ` (${run.result.why})` : '';
       return { line: `${nounCode('action', run.id)} started it ${minutes === 0 ? 'under a minute' : `${minutes} min`} ago and it is planning first${why}; the plan's approval starts the build`, workerRunId: null };

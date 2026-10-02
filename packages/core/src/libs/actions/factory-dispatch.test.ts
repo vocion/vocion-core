@@ -398,6 +398,27 @@ describe('a start of something already running is answered, not refused (convers
   });
 });
 
+describe('a planning hold ends at the build it was holding for (Walk 8, FE-364, 2026-10-02)', () => {
+  it('lets the recovery of a failed build through, though the start that planned first is under 15 minutes old', () => {
+    const now = new Date('2026-10-02T05:06:36Z');
+    const earlier = [
+      // newest first: the plan's build, whose run just failed
+      { id: 6140, status: 'done', executedAt: new Date('2026-10-02T04:58:10Z'), result: { workerRunId: 473 }, workerStatus: 'failed' },
+      // the person's start that went to planning
+      { id: 6138, status: 'done', executedAt: new Date('2026-10-02T04:56:51Z'), result: { planning: true, why: 'the allowed paths span 3 packages' }, workerStatus: null },
+    ];
+
+    expect(underwayNow(earlier as never, { trigger: 'recovery', now })).toBeNull();
+  });
+
+  it('still holds a second start while planning is under way and nothing has been built', () => {
+    const now = new Date('2026-10-02T04:58:00Z');
+    const earlier = [{ id: 6138, status: 'done', executedAt: new Date('2026-10-02T04:56:51Z'), result: { planning: true }, workerStatus: null }];
+
+    expect(underwayNow(earlier as never, { trigger: 'request', now })?.line).toMatch(/planning first/);
+  });
+});
+
 describe('the repo is the record\'s url, never its title (runs 443–445, 2026-10-01)', () => {
   const request = { title: 'Fix the image build', product: 'northwind', acceptance: ['The image builds.'] };
   const plan = { repoSlugs: ['apps/northwind-api'], components: ['apps/northwind-api — build'] };
