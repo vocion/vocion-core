@@ -49,7 +49,7 @@ import {
 } from './BusinessObject';
 import { suggestions as chatSuggestions } from './Chat';
 import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
-import { saveSourceRoute as saveConnectedSourceRoute } from './Connect';
+import { addConnectorRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute } from './Connect';
 import {
   append as appendConvMessage,
   create as createConv,
@@ -250,6 +250,8 @@ export const router = {
   },
   connect: {
     saveSource: saveConnectedSourceRoute,
+    addConnector: addConnectorRoute,
+    revealStoredCredential: revealStoredCredentialRoute,
   },
   apiTokens: {
     list: listTokensRoute,

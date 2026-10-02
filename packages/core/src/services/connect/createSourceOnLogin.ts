@@ -39,7 +39,8 @@ export type CreateSourceOutcome
   = | { ok: true; sourceId: number; slug: string; created: boolean; before?: Record<string, unknown> }
     | { ok: false; reason: string };
 
-type StoredCredential = { id: string; obtainedVia: 'paste' | 'login'; account: string | null; createdAt: Date };
+/** A live row of the credential store, as the Connectors form needs it: never the secret, only the masked tail. */
+export type StoredCredential = { id: string; obtainedVia: 'paste' | 'login'; account: string | null; createdAt: Date; keyHint: string | null };
 
 /**
  * The name a person knows the connector by.
@@ -79,7 +80,7 @@ export function configProblem(connector: string, config: Record<string, unknown>
  */
 export async function newestLiveCredential(orgId: string, platformId: string): Promise<StoredCredential | null> {
   const rows = await db
-    .select({ id: apiTokenSchema.id, obtainedVia: apiTokenSchema.obtainedVia, account: apiTokenSchema.account, createdAt: apiTokenSchema.createdAt })
+    .select({ id: apiTokenSchema.id, obtainedVia: apiTokenSchema.obtainedVia, account: apiTokenSchema.account, createdAt: apiTokenSchema.createdAt, keyHint: apiTokenSchema.keyHint })
     .from(apiTokenSchema)
     .where(and(
       eq(apiTokenSchema.orgId, orgId),
@@ -134,7 +135,7 @@ export async function connectorHasLiveSource(orgId: string, connector: string): 
 }
 
 /** Where a pick lands: a new source, or an existing one it is added to. */
-type Target
+export type Target
   = | { kind: 'create'; slug: string }
     | { kind: 'merge'; slug: string; existing: Record<string, unknown> }
     | { kind: 'refuse'; reason: string };
@@ -177,7 +178,7 @@ async function uniqueSlug(orgId: string, base: string): Promise<string> {
  * site): none means create, one means add to it, several means ask.
  * @param input - The pick.
  */
-async function resolveTarget(input: CreateSourceInput): Promise<Target> {
+export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
   const label = connectorLabel(input.connector);
   const all = await db
     .select({ slug: knowledgeSourceSchema.slug, configJson: knowledgeSourceSchema.configJson })
@@ -305,7 +306,7 @@ async function linkCredential(tx: DbTransaction, input: { orgId: string; sourceI
  * @param target - Where it lands.
  * @param credential - The credential to link.
  */
-async function saveWithin(
+export async function saveWithin(
   tx: DbTransaction,
   input: CreateSourceInput,
   target: Exclude<Target, { kind: 'refuse' }>,

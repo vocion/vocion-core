@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/connect/attempts', () => ({ lastConnectAttempts: vi.fn() }));
 vi.mock('./createSourceOnLogin', () => ({ newestLiveCredential: vi.fn() }));
+vi.mock('@/services/SourceCredentialService', () => ({ connectorHoldingCredential: vi.fn(async () => null) }));
 
 const { lastConnectAttempts } = await import('@/libs/connect/attempts');
 const { newestLiveCredential } = await import('./createSourceOnLogin');
@@ -20,14 +21,14 @@ beforeEach(() => {
 
 describe('connectInfoForOrg', () => {
   it('names the account of a live login', async () => {
-    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'c1', obtainedVia: 'login', account: 'northwind', createdAt: new Date('2026-10-01T10:00:00.000Z') });
+    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'c1', obtainedVia: 'login', account: 'northwind', createdAt: new Date('2026-10-01T10:00:00.000Z'), keyHint: '…abcd' });
     const info = await connectInfoForOrg('org_a');
 
     expect(info.github).toMatchObject({ providerLabel: 'GitHub', loggedInAs: 'northwind' });
   });
 
   it('does not call a pasted key a login', async () => {
-    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'c1', obtainedVia: 'paste', account: null, createdAt: new Date('2026-10-01T10:00:00.000Z') });
+    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'c1', obtainedVia: 'paste', account: null, createdAt: new Date('2026-10-01T10:00:00.000Z'), keyHint: '…abcd' });
     const info = await connectInfoForOrg('org_a');
 
     expect(info.github?.loggedInAs).toBeNull();
@@ -48,12 +49,12 @@ describe('connectInfoForOrg', () => {
     vi.mocked(lastConnectAttempts).mockResolvedValue(new Map([
       ['github', { connector: 'github', provider: 'github', ok: false, reason: 'access_denied', summary: 'GitHub denied access', at: new Date('2026-10-01T16:12:00.000Z'), userId: 'u1' }],
     ]));
-    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'c1', obtainedVia: 'paste', account: null, createdAt: new Date('2026-10-01T16:30:00.000Z') });
+    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'c1', obtainedVia: 'paste', account: null, createdAt: new Date('2026-10-01T16:30:00.000Z'), keyHint: '…abcd' });
     const pasted = await connectInfoForOrg('org_a');
 
     expect(pasted.github?.lastAttempt).toBeNull();
 
-    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'c1', obtainedVia: 'paste', account: null, createdAt: new Date('2026-10-01T09:00:00.000Z') });
+    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'c1', obtainedVia: 'paste', account: null, createdAt: new Date('2026-10-01T09:00:00.000Z'), keyHint: '…abcd' });
     const stale = await connectInfoForOrg('org_a');
 
     expect(stale.github?.lastAttempt).toEqual({ at: '2026-10-01T16:12:00.000Z', summary: 'GitHub denied access' });

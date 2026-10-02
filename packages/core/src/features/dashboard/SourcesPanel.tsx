@@ -26,7 +26,7 @@ import {
   fieldValuesFromConfig,
   initialFieldValues,
 } from '@/libs/sources/configFields';
-import { canSaveFromLogin, ConnectChoice, failedAttempts, needsLoginOrPaste, saveConnectedSource } from './ConnectByLogin';
+import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, failedAttempts, initialCredentialDraft, missingCredentialLabels } from './ConnectByLogin';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
@@ -109,7 +109,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
   // Where a chat connect card started (`?returnTo=`), so connecting lands back
   // in the conversation instead of staying here (#1080).
   const [returnTo, setReturnTo] = useState<string | null>(null);
-  // `?paste=1` opens the add form with "Paste a token instead" already ticked.
+  // `?paste=1` opens the add form with the first credential input focused.
   const [pasteFirst, setPasteFirst] = useState(false);
 
   useEffect(() => {
@@ -296,15 +296,9 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
               connectInfo={connectInfo[addingKind]}
               pasteFirst={pasteFirst}
               onClose={() => setAddingKind(null)}
-              onAdded={async (pasteInto) => {
+              onAdded={async () => {
                 setAddingKind(null);
-                const fresh = await refresh();
-                // A person who chose to paste is not done until the token is in:
-                // open the same credential dialog a row's Connect opens.
-                const created = pasteInto === undefined ? undefined : fresh.find(row => row.id === pasteInto);
-                if (created) {
-                  setConnectingSource(created);
-                }
+                await refresh();
               }}
             />
           )
@@ -1133,19 +1127,19 @@ async function createSourceReturningId(
 }
 
 /**
- * The paste-path save: an edit patches the source, an add creates one and
- * says which, so the panel can open its credential dialog.
+ * Save a connector that has no credential in its add form: an edit patches the
+ * source, an add creates one.
  * @param input - What to save.
  * @param input.existing - The source being edited, or null when adding.
  * @param input.kind - Connector slug.
  * @param input.config - The connector's config blob.
+ * @returns The server's message on failure, null on success.
  */
-async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<{ error: string | null; newId: number | null }> {
+async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<string | null> {
   if (input.existing) {
-    return { error: await updateSourceConfig(input.existing.id, input.config), newId: null };
+    return updateSourceConfig(input.existing.id, input.config);
   }
-  const created = await createSourceReturningId(input.kind, input.config);
-  return { error: created.error, newId: created.id };
+  return createSource(input.kind, input.config);
 }
 
 /**
@@ -1645,7 +1639,7 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
   connectInfo?: ConnectInfo;
   pasteFirst?: boolean;
   onClose: () => void;
-  onAdded: (pasteInto?: number) => Promise<void> | void;
+  onAdded: () => Promise<void> | void;
 }) {
   const [values, setValues] = useState<Record<string, ConfigFieldValue>>(() => (
     existing
@@ -1656,11 +1650,11 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
   const [advancedShown, setAdvancedShown] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pasteChecked, setPasteChecked] = useState(pasteFirst === true);
-  // Only a NEW source offers the choice; an edit keeps the credential it has.
+  // Only a NEW source asks for a credential here; an edit keeps the one it has.
   const choosing = !existing;
-  const fromLogin = choosing && canSaveFromLogin(kind, connectInfo);
-  const waitingOnChoice = choosing && needsLoginOrPaste(kind, connectInfo, pasteChecked);
+  const [credential, setCredential] = useState(() => initialCredentialDraft(connectInfo));
+  const credentialInputs = choosing ? credentialInputsFor(kind) : [];
+  const credentialMissing = missingCredentialLabels(credentialInputs, credential);
 
   // The saved config goes in so an edit carries through settings this form has
   // no input for, instead of deleting them.
@@ -1675,27 +1669,25 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (missingLabels.length > 0 || waitingOnChoice) {
+    if (missingLabels.length > 0 || credentialMissing.length > 0) {
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      // A login is saved by the service the chat action uses; its refusal
-      // sentence throws and is shown as it is. Paste keeps the route it always had.
-      if (fromLogin) {
-        await saveConnectedSource(kind, config);
+      // The connector and its credential are one request and one transaction; a
+      // refusal throws with the sentence the server wrote and is shown as it is.
+      if (credentialInputs.length > 0) {
+        await addConnectorWithCredential(kind, config, credential);
         await onAdded();
         return;
       }
       const saved = await savePastedOrEdited({ existing, kind, config });
-      if (saved.error) {
-        setError(saved.error);
+      if (saved) {
+        setError(saved);
         return;
       }
-      // Someone who chose to paste has not finished: hand the new source to
-      // the panel so the credential dialog opens on it.
-      await onAdded(choosing && pasteChecked ? (saved.newId ?? undefined) : undefined);
+      await onAdded();
     } catch (err) {
       // A network failure throws rather than returning a message. Without this
       // the dialog sat on a spinner that never resolved and said nothing.
@@ -1710,15 +1702,15 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
     <AddSourceDialogFrame
       title={title}
       error={error}
-      requirement={waitingOnChoice ? 'log in, or choose Paste a token instead' : describeMissingFields(missingLabels)}
+      requirement={describeMissingFields([...credentialMissing, ...missingLabels])}
       submitLabel={existing ? 'Save changes' : 'Add connector'}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
-      canSubmit={missingLabels.length === 0 && !waitingOnChoice}
+      canSubmit={missingLabels.length === 0 && credentialMissing.length === 0}
       onClose={onClose}
       onSubmit={submit}
     >
-      {choosing ? <ConnectChoice connector={kind} info={connectInfo} pasteChecked={pasteChecked} onPasteChange={setPasteChecked} /> : null}
+      {choosing ? <ConnectCredential connector={kind} info={connectInfo} draft={credential} setDraft={setCredential} focusFirst={pasteFirst === true} /> : null}
       {everydayFields.map(field => (
         <SourceConfigInput
           key={field.key}
@@ -2456,13 +2448,13 @@ function AddSourceDialog({
   connector: ConnectorTile | null;
   /** The source being edited, or null when adding a new one. */
   existing?: Source | null;
-  /** The login state for this connector, for the add form's login-or-paste choice. */
+  /** What the server says about this connector's login and stored credential, for the add form. */
   connectInfo?: ConnectInfo;
-  /** Open with "Paste a token instead" ticked. */
+  /** Open with the first credential input focused. */
   pasteFirst?: boolean;
   onClose: () => void;
-  /** Called after a save; the id of the new source when the person still has a token to paste for it. */
-  onAdded: (pasteInto?: number) => Promise<void> | void;
+  /** Called after a save. */
+  onAdded: () => Promise<void> | void;
 }) {
   const connectorName = connector?.name ?? kind;
   const source = existing ?? null;
