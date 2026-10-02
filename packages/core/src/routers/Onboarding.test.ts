@@ -1,6 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+// The real catalog by default; a test swaps in a small one to see onboarding open without a card.
+vi.mock('@/libs/workspace', async importActual => ({ ...(await importActual<typeof import('@/libs/workspace')>()), listPlugins: vi.fn() }));
 // importActual('./AuthGuards') pulls in next-auth, which cannot load in the node project, so loadProject is mocked
 // with a real read against the PGlite DB.
 vi.mock('./AuthGuards', () => ({ guardAuth: vi.fn(), guardRole: vi.fn(), loadProject: vi.fn() }));
@@ -8,6 +10,7 @@ const { db } = await import('@/libs/DB');
 const { eq } = await import('drizzle-orm');
 const { conversationMessageSchema, conversationSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { guardAuth, guardRole, loadProject } = await import('./AuthGuards');
+const workspace = await import('@/libs/workspace');
 const { start } = await import('./Onboarding');
 
 type StartResult = { conversationId: number | null; reason: string | null };
@@ -30,7 +33,25 @@ beforeAll(async () => {
   ]);
 });
 
-beforeEach(() => vi.mocked(guardRole).mockReset());
+const realListPlugins = (await vi.importActual<typeof import('@/libs/workspace')>('@/libs/workspace')).listPlugins;
+
+beforeEach(() => {
+  vi.mocked(guardRole).mockReset();
+  vi.mocked(workspace.listPlugins).mockImplementation(realListPlugins);
+});
+
+function catalogOf(count: number): ReturnType<typeof workspace.listPlugins> {
+  return realListPlugins().filter(plugin => plugin.manifest.recommend.when.length > 0).slice(0, count);
+}
+
+async function openingRuns(): Promise<Array<{ type: string }>> {
+  await db.update(projectSchema).set({ onboardingStartedAt: null, onboardingStartedBy: null }).where(eq(projectSchema.id, 'org_onb_r1'));
+  signedInAs('org_onb_r1');
+  const { conversationId } = await call();
+  const [opening] = await db.select().from(conversationMessageSchema).where(eq(conversationMessageSchema.conversationId, conversationId!));
+
+  return opening!.runsJson ?? [];
+}
 
 describe('onboarding.start', () => {
   it('opens one conversation with the lead greeting first; a second call opens none', async () => {
@@ -63,6 +84,20 @@ describe('onboarding.start', () => {
     const results = await Promise.all([call(), call()]);
 
     expect(results.filter(r => r.conversationId !== null)).toHaveLength(1);
+  });
+
+  it.each([0, 1])('a catalog of %i plugins opens setup with no card and asks in prose', async (count) => {
+    vi.mocked(workspace.listPlugins).mockReturnValue(catalogOf(count));
+    const runs = await openingRuns();
+
+    expect(runs.filter(run => run.type === 'card')).toHaveLength(0);
+  });
+
+  it('a catalog of two plugins opens setup with a card the schema accepts', async () => {
+    vi.mocked(workspace.listPlugins).mockReturnValue(catalogOf(2));
+    const [card] = (await openingRuns()).filter(run => run.type === 'card') as unknown as Array<{ options: unknown[] }>;
+
+    expect(card!.options).toHaveLength(2);
   });
 
   it('a workspace with no lead opens nothing and stays unclaimed', async () => {

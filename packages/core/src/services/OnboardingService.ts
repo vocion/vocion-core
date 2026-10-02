@@ -91,15 +91,18 @@ export async function releaseOnboardingStart(orgId: string, userId: string): Pro
  * @param input
  * @param input.workspaceName - The workspace's display name.
  * @param input.description - Its saved description, if any.
+ * @param input.cardOffered - Whether the opener card rides on this message; without it, the question is asked here in one sentence.
  * @returns Markdown.
  */
-export function onboardingOpeningMessage(input: { workspaceName: string; description: string | null }): string {
-  // The question lives on the opener card, so the prose asks nothing.
+export function onboardingOpeningMessage(input: { workspaceName: string; description: string | null; cardOffered: boolean }): string {
+  // With the opener card the question lives on the card and the prose asks nothing.
+  const ask = input.cardOffered ? [] : ['What do you want me taking off your plate?', ''];
   const known = input.description ? [`You've described it as "${input.description}".`, ''] : [];
   return [
     `Welcome to **${input.workspaceName}**. I'll set it up with you, one question at a time: what it's for, which tools to connect, and what to turn on.`,
     '',
     ...known,
+    ...ask,
     'You can say "onboard this workspace" any time to pick this back up.',
   ].join('\n');
 }
@@ -130,12 +133,15 @@ function cutOnWord(text: string, max: number): string {
  * @param input
  * @param input.plugins - The catalog: slug, name and the plugin's `recommend.when` reasons.
  * @param input.enabled - Slugs already on in this workspace.
- * @returns A `choice` card.
+ * @returns A `choice` card, or null when fewer than two plugins qualify (a choice card needs two options).
  */
-export function openerCard(input: { plugins: Array<{ slug: string; name: string; when: string[] }>; enabled: string[] }): Card {
+export function openerCard(input: { plugins: Array<{ slug: string; name: string; when: string[] }>; enabled: string[] }): Card | null {
   const on = input.plugins.filter(plugin => input.enabled.includes(plugin.slug));
   const recommended = input.plugins.filter(plugin => !input.enabled.includes(plugin.slug) && plugin.when.length > 0);
   const picked = [...on, ...recommended].slice(0, OPENER_MAX_OPTIONS);
+  if (picked.length < 2) {
+    return null;
+  }
   return {
     id: newCardId(),
     kind: 'choice',

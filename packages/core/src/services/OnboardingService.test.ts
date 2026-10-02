@@ -5,6 +5,7 @@ const { db } = await import('@/libs/DB');
 const { eq } = await import('drizzle-orm');
 const { knowledgeSourceSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
 const svc = await import('./OnboardingService');
+const { CardSchema, cardKind } = await import('@/libs/cards/card');
 
 const FRESH = 'org_onb_fresh';
 const DESCRIBED = 'org_onb_described';
@@ -89,18 +90,27 @@ describe('isOnboardingDue', () => {
 
 describe('onboardingOpeningMessage', () => {
   it('asks nothing in prose when there is no description: the opener card carries the question', () => {
-    const text = svc.onboardingOpeningMessage({ workspaceName: 'Northwind Fresh', description: null });
+    const text = svc.onboardingOpeningMessage({ workspaceName: 'Northwind Fresh', description: null, cardOffered: true });
 
     expect(text).toContain('Welcome to **Northwind Fresh**');
     expect(text).not.toContain('?');
   });
 
   it('confirms an existing description instead of asking again', () => {
-    const text = svc.onboardingOpeningMessage({ workspaceName: 'Northwind Eng', description: 'Northwind engineering' });
+    const text = svc.onboardingOpeningMessage({ workspaceName: 'Northwind Eng', description: 'Northwind engineering', cardOffered: true });
 
     expect(text).toContain('"Northwind engineering"');
     expect(text).not.toMatch(/what is this workspace for/i);
     expect(text).not.toContain('?');
+  });
+});
+
+describe('onboardingOpeningMessage without a card', () => {
+  it('asks the opening question as one plain sentence', () => {
+    const text = svc.onboardingOpeningMessage({ workspaceName: 'Northwind Fresh', description: null, cardOffered: false });
+
+    expect(text.match(/\?/g)).toHaveLength(1);
+    expect(text).toContain('What do you want me taking off your plate?');
   });
 });
 
@@ -116,25 +126,32 @@ describe('openerCard', () => {
   it('puts an enabled plugin first, caps at three options, and describes each by its first reason', () => {
     const card = svc.openerCard({ plugins: catalog, enabled: ['proposals'] });
 
-    expect(card).toMatchObject({ kind: 'choice', title: 'What do you want me taking off your plate?', allowOther: true, actions: [], body: 'Pick one, or type your own. I\'ll ask one thing at a time.' });
-    expect(card.options!.map(o => o.label)).toEqual(['Proposals', 'Wiki', 'Software factory']);
-    expect(card.options!.map(o => o.id)).toEqual(['A', 'B', 'C']);
-    expect(card.options![2]!.description).toBe('a deployment has repositories and wants changes proposed');
-    expect(card.options!.some(o => o.actions)).toBe(false);
+    expect(card!).toMatchObject({ kind: 'choice', title: 'What do you want me taking off your plate?', allowOther: true, actions: [], body: 'Pick one, or type your own. I\'ll ask one thing at a time.' });
+    expect(card!.options!.map(o => o.label)).toEqual(['Proposals', 'Wiki', 'Software factory']);
+    expect(card!.options!.map(o => o.id)).toEqual(['A', 'B', 'C']);
+    expect(card!.options![2]!.description).toBe('a deployment has repositories and wants changes proposed');
+    expect(card!.options!.some(o => o.actions)).toBe(false);
   });
 
   it('skips a catalog plugin with no reason to recommend it, and cuts a long reason on a word boundary', () => {
     const long = `${'word '.repeat(60)}end`;
     const card = svc.openerCard({ plugins: [catalog[1]!, { slug: 'a', name: 'A', when: [long] }, catalog[0]!], enabled: [] });
 
-    expect(card.options!.map(o => o.label)).toEqual(['A', 'Wiki']);
-    expect(card.options![0]!.description!.length).toBeLessThanOrEqual(200);
-    expect(card.options![0]!.description!.endsWith('word')).toBe(true);
+    expect(card!.options!.map(o => o.label)).toEqual(['A', 'Wiki']);
+    expect(card!.options![0]!.description!.length).toBeLessThanOrEqual(200);
+    expect(card!.options![0]!.description!.endsWith('word')).toBe(true);
   });
 
   it('is still a valid choice card with only two plugins to offer', () => {
     const card = svc.openerCard({ plugins: [catalog[0]!, catalog[3]!], enabled: [] });
 
-    expect(card.options).toHaveLength(2);
+    expect(CardSchema.safeParse(card).success).toBe(true);
+    expect(cardKind('choice')!.refine!(CardSchema.parse(card))).toBeNull();
+  });
+
+  it('is no card at all with fewer than two options, since a choice card needs two', () => {
+    expect(svc.openerCard({ plugins: [], enabled: [] })).toBeNull();
+    expect(svc.openerCard({ plugins: [catalog[0]!], enabled: [] })).toBeNull();
+    expect(svc.openerCard({ plugins: [catalog[1]!, catalog[0]!], enabled: [] })).toBeNull();
   });
 });

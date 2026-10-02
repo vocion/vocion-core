@@ -11,7 +11,7 @@ describe('workspace_setup tells the model the ONE next step', () => {
   it('with no description: ask narrower questions, and offer workspace.describe once it can be said in a sentence', () => {
     const text = renderSetupStatus(base);
 
-    expect(text).toMatch(/NEXT: the opener card has asked/);
+    expect(text).toMatch(/NEXT: the opening question asked what to take off their plate/);
     expect(text).toContain('workspace.describe');
     expect(text).not.toContain('offer_connection');
   });
@@ -29,9 +29,17 @@ describe('workspace_setup tells the model the ONE next step', () => {
 
     expect(text).toMatch(/Setup is complete/);
     expect(text).toContain('Connected: github');
-    expect(text).toContain('plugin.enable');
-    expect(text).toContain('the task tool');
-    expect(text).toContain('one at a time');
+  });
+
+  it('the plugin and task-tool lead-in is the non-software branch only, after the software path', () => {
+    const text = renderSetupStatus({ ...base, description: 'Northwind engineering', connectedConnectors: ['github'], enabledPlugins: ['software-factory'], done: true });
+    const otherBranch = text.indexOf('For any other workspace');
+
+    expect(otherBranch).toBeGreaterThan(text.indexOf('8. What first'));
+    expect(text.indexOf('plugin.enable')).toBeGreaterThan(otherBranch);
+    expect(text.indexOf('the task tool')).toBeGreaterThan(otherBranch);
+    expect(text.indexOf('1. Repos')).toBeLessThan(text.indexOf('offer_connection'));
+    expect(text.slice(0, text.indexOf('1. Repos'))).not.toMatch(/plugin\.enable|task tool|offer_connection/);
   });
 });
 
@@ -46,7 +54,7 @@ describe('the setup interview', () => {
   });
 
   it('describe and connect are asked and offered by name of the tool, from the plugin\'s connectors', () => {
-    expect(renderSetupStatus(base)).toContain('ask_choice');
+    expect(renderSetupStatus(base)).toContain('Let me say it differently');
     expect(renderSetupStatus(described)).toContain('recommend.connectors');
   });
 
@@ -66,8 +74,8 @@ describe('the setup interview', () => {
   it('what first: a typed answer is filed with file_request and never asked again', () => {
     const line = renderSetupStatus(growing).split('\n').find(l => l.includes('8. What first'));
 
-    expect(line ?? renderSetupStatus(growing)).toMatch(/file_request/);
-    expect(renderSetupStatus(growing)).toMatch(/never ask (it )?again/i);
+    expect(line).toMatch(/file_request/);
+    expect(line).toMatch(/never ask it again/i);
   });
 
   it('names only bindable actions for options, and never raises a rung', () => {

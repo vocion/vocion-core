@@ -32,9 +32,9 @@ const SOFTWARE_QUESTIONS = [
  * follows every branch it is given (DESIGN-PRINCIPLES: one obvious path).
  */
 const STEP_GUIDE: Record<OnboardingStep, string> = {
-  describe: 'NEXT: the opener card has asked what to take off their plate. Take their answer and ask narrower questions with ask_choice. When you can say what the workspace is for in a sentence, offer it as option A bound to workspace.describe with {"description": "<that sentence>"}, and option B "Let me say it differently".',
+  describe: 'NEXT: the opening question asked what to take off their plate (a card, or one sentence). Take their answer and ask narrower questions with ask_choice. When you can say what the workspace is for in a sentence, offer it as option A bound to workspace.describe with {"description": "<that sentence>"}, and option B "Let me say it differently".',
   connect: 'NEXT: call list_capabilities, pick the plugin that fits the description, and for each connector in its recommend.connectors that is not connected, call offer_connection, one at a time, most useful first. You may offer any other connector the conversation points to.',
-  grow: `NEXT: offer to turn on the plugins whose "Helps when" fits (recommend_action, action plugin.enable, input {"slug": "<slug>"}), call offer_connection for any connector they still need, then hand each enabled plugin's team lead the description with the task tool. Do these one at a time, waiting for the person's answer before the next. For a software workspace, ask in this order, one ask_choice per turn:\n${SOFTWARE_QUESTIONS}`,
+  grow: `NEXT: for a software workspace (the software-factory plugin is on), this is the whole path: ask in this order, one ask_choice per turn.\n${SOFTWARE_QUESTIONS}\nFor any other workspace: offer to turn on the plugins whose "Helps when" fits (recommend_action, action plugin.enable, input {"slug": "<slug>"}), call offer_connection for any connector they still need, then hand each enabled plugin's team lead the description with the task tool. Do these one at a time, waiting for the person's answer before the next.`,
 };
 
 /**
