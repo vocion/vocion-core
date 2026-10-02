@@ -118,6 +118,20 @@ describe('the software-factory request flow owns a request from Build to live (b
     expect(h.marks.map(([t]) => [t, valueFor(REQUEST_STATUSES, t)])).toEqual([['starting', 'building'], ['building', 'building'], ['review', 'in_qa'], ['deploying', 'deploying'], ['checking_live', null], ['live', 'seen_live']]);
   });
 
+  it('says when QA could not finish, and still takes the review the factory starts again (Walk 11, FE-387)', async () => {
+    const h = harness([{ kind: 'building', workerRunId: 611, taskId: 1 }], { 611: opened('feat-1', 'pr/71') }, { live: () => ({ state: 'seen', line: 'Seen live: 1 of 1' }) });
+    await ask(70);
+    const id = await start(h.name, 70);
+    await until(id, 'building');
+    await emit('worker_run.completed', { workerRunId: 611 });
+    await until(id, 'review');
+    await emit('factory.review_failed', { requestId: 70, url: 'pr/71' });
+    await vi.waitFor(() => expect(h.marks.map(([, line]) => line)).toContain('QA could not finish its review of pr/71; the factory starts it again, up to twice.'));
+    await emit('pr.merged', { url: 'pr/71' });
+
+    await until(id, 'deploying');
+  });
+
   it('retries a failure on the kept branch, takes QA\'s send-back as the next attempt, and ends live', async () => {
     const h = harness(
       [{ kind: 'building', workerRunId: 501, taskId: 1 }, { kind: 'building', workerRunId: 502, taskId: 2 }, { kind: 'building', workerRunId: 503, taskId: 3 }],

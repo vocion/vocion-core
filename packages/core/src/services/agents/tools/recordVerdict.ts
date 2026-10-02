@@ -312,8 +312,16 @@ async function writeTask(orgId: string, id: number, set: Record<string, unknown>
 export async function markReviewFailed(orgId: string, prUrl: string): Promise<number | null> {
   const task = await findTaskByPr(orgId, prUrl);
   const status = task ? String((task as { status?: string }).status ?? task.meta.status ?? '') : '';
-  if (!task || status !== 'awaiting_review') {
+  if (!task || !['awaiting_review', 'review_failed'].includes(status)) {
     return null;
+  }
+  // SAID WHERE THE PERSON LOOKS (Walk 11, FE-387): the request's flow read
+  // "QA is reviewing" for 1 h 33 m over two failed reviews. Every failed
+  // review is an event the flow waits on, so its status line says so.
+  const { emitEvent } = await import('@/services/EventService');
+  await emitEvent({ orgId, type: 'factory.review_failed', payload: { requestId: Number(task.meta.requestId) || null, taskId: task.id, url: prUrl }, invokedBy: 'system:factory-review' }).catch(() => undefined);
+  if (status === 'review_failed') {
+    return task.id;
   }
   // Only WHEN, never the refusal text: review 5746 read the last review's
   // refusal off this record and judged the work by it ("the task's own

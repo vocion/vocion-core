@@ -207,9 +207,29 @@ steps:
                 match: {url: '{{vars.prUrl}}'}
               - types: [pr.closed]
                 match: {url: '{{vars.prUrl}}'}
+              - types: [factory.review_failed]
+                match: {url: '{{vars.prUrl}}'}
             timeout: 2592000
             since: '{{vars.reviewFrom}}'
           as: reviewed
+        # A review that could not finish is said where the person looks
+        # (Walk 11: "QA is reviewing" over two failed reviews), and the flow
+        # waits on for the review the factory starts again.
+        - when:
+            - if: {path: vars.reviewed.type, equals: factory.review_failed}
+              then:
+                - status: {stage: review, line: 'QA could not finish its review of {{vars.prUrl}}; the factory starts it again, up to twice.', with: {prUrl: '{{vars.prUrl}}'}}
+                - wait_event:
+                    any:
+                      - types: [factory.build_requested]
+                        match: {requestId: '{{input.requestId}}'}
+                      - types: [pr.merged]
+                        match: {url: '{{vars.prUrl}}'}
+                      - types: [pr.closed]
+                        match: {url: '{{vars.prUrl}}'}
+                    timeout: 2592000
+                    since: '{{vars.reviewFrom}}'
+                  as: reviewed
         - when:
             - if: {path: vars.reviewed, exists: false}
               then:
