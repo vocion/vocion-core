@@ -18,6 +18,36 @@ import { stepLabelFor } from '@/libs/chat/stepLabels';
 
 export type CollectedDoc = { document_id: string; semantic_identifier: string; link: string; source_type: string; blurb: string; citationIndex?: number; foundBy?: string };
 
+/** What a card hands the collector: the card run as it will be stored, minus its `type`. */
+type CardRunInput = Omit<Extract<ConversationRun, { type: 'card' }>, 'type'>;
+
+/**
+ * The stored run for a card. It keeps everything the card shows, so a reload
+ * draws the card the person saw: the body and fields, both links, the last
+ * failed attempt and the decision. Keys the card did not set stay off the row.
+ * @param card - The card as surfaced.
+ */
+function cardRunOf(card: CardRunInput): ConversationRun {
+  return {
+    type: 'card',
+    ...(card.id ? { id: card.id } : {}),
+    ...(card.kind ? { kind: card.kind } : {}),
+    label: card.label,
+    actionId: card.actionId,
+    input: card.input,
+    runId: card.runId,
+    ...(card.state ? { state: card.state } : {}),
+    ...(card.rationale ? { rationale: card.rationale } : {}),
+    ...(card.body ? { body: card.body } : {}),
+    ...(card.fields ? { fields: card.fields } : {}),
+    ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}),
+    ...(card.secondaryHref ? { secondaryHref: card.secondaryHref, ...(card.secondaryHrefLabel ? { secondaryHrefLabel: card.secondaryHrefLabel } : {}) } : {}),
+    ...(card.lastAttempt ? { lastAttempt: card.lastAttempt } : {}),
+    ...(card.decision ? { decision: card.decision } : {}),
+    ...(card.draft ? { draft: card.draft } : {}),
+  };
+}
+
 export class RunCollector {
   private runs: ConversationRun[] = [];
   private currentText: string | null = null;
@@ -110,7 +140,7 @@ export class RunCollector {
     this.mentionLinks.push(...links);
   }
 
-  onCard(card: { id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; href?: string; hrefLabel?: string; draft?: { prompt: string; missing: string } }): void {
+  onCard(card: CardRunInput): void {
     // Written once: the route tees a card when it is first seen AND again
     // when the auto-filed copy is written to the stream (finding 18).
     if (this.hasCard(card.label, card.actionId)) {
@@ -120,7 +150,7 @@ export class RunCollector {
       return;
     }
     this.flushText();
-    this.runs.push({ type: 'card', ...(card.id ? { id: card.id } : {}), ...(card.kind ? { kind: card.kind } : {}), label: card.label, actionId: card.actionId, input: card.input, runId: card.runId, ...(card.state ? { state: card.state } : {}), ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}), ...(card.draft ? { draft: card.draft } : {}) });
+    this.runs.push(cardRunOf(card));
   }
 
   /**

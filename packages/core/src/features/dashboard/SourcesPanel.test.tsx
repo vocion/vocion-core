@@ -1,8 +1,30 @@
 import { NextIntlClientProvider } from 'next-intl';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { describeSyncResult, filterConnectors, initialCredentialChoice, parseStrapiCollections, SourcesPanel } from './SourcesPanel';
+
+const addConnector = vi.fn();
+vi.mock('@/libs/Orpc', () => ({
+  client: { connect: { addConnector: (...args: unknown[]) => addConnector(...args) } },
+  noStoreClient: { connect: { revealStoredCredential: vi.fn() } },
+}));
+
+beforeEach(() => {
+  addConnector.mockReset();
+  addConnector.mockResolvedValue({ ok: true, sourceId: 1 });
+});
+
+/**
+ * A connector's add box asks for its credential too (#1080): fill what Jira
+ * needs so the test can get on with the settings it is about.
+ */
+async function fillJiraCredential() {
+  await userEvent.fill(page.getByLabelText('Atlassian account email', { exact: true }), 'sam@acme.example');
+  await userEvent.fill(page.getByLabelText('API token', { exact: true }), 'jira-token-1');
+}
+
+const JIRA_CREDENTIAL = { values: { email: 'sam@acme.example', apiToken: 'jira-token-1' } };
 
 /**
  * The Sources panel has two jobs a reviewer would notice being wrong: the
@@ -1491,26 +1513,26 @@ describe('a form built from the connector\'s own fields', () => {
   });
 
   it('sends what was typed, shaped the way the connector schema expects', async () => {
-    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG, OPS');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
-    const created = posts.find(post => post.url === '/rpc/sources')!;
-
-    expect(created.body).toEqual({
-      kind: 'jira',
-      configJson: {
+    expect(addConnector).toHaveBeenCalledWith({
+      connector: 'jira',
+      config: {
         baseUrl: 'https://acme.atlassian.net',
         projectKeys: ['ENG', 'OPS'],
         doneWindowDays: 90,
         includeDescription: true,
       },
+      credential: JIRA_CREDENTIAL,
     });
   });
 
@@ -1519,15 +1541,16 @@ describe('a form built from the connector\'s own fields', () => {
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
-    await expect.element(page.getByText(/a site url and project keys/i)).toBeVisible();
+    await expect.element(page.getByText(/Still needed:.*api token.*site url and project keys/i)).toBeVisible();
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
 
     await expect.element(page.getByText(/Still needed: project keys/i)).toBeVisible();
   });
 
   it('offers HubSpot its record types as a choice rather than a free-text box', async () => {
-    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
     render(<SourcesPanel />);
     await openConnectorForm('HubSpot');
 
@@ -1536,13 +1559,12 @@ describe('a form built from the connector\'s own fields', () => {
     await expect.element(recordType).toBeVisible();
 
     await recordType.selectOptions('deals');
+    await userEvent.fill(page.getByLabelText('Private-app token', { exact: true }), 'pat-na1-test');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
-    const created = posts.find(post => post.url === '/rpc/sources')!;
-
-    expect(created.body.configJson).toEqual({ objectType: 'deals', baseUrl: 'https://api.hubapi.com' });
+    expect(addConnector).toHaveBeenCalledWith({ connector: 'hubspot', config: { objectType: 'deals', baseUrl: 'https://api.hubapi.com' }, credential: { values: { token: 'pat-na1-test' } } });
   });
 
   it('keeps base-URL overrides out of the way until they are asked for', async () => {
@@ -1561,17 +1583,11 @@ describe('a form built from the connector\'s own fields', () => {
     // Before this the submit had no catch: a network failure left the dialog on
     // a spinner that never resolved and said nothing.
     stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
-    const reachable = globalThis.fetch;
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : String(input);
-      if (url === '/rpc/sources' && init?.method === 'POST') {
-        throw new TypeError('Failed to fetch');
-      }
-      return reachable(input, init);
-    }));
+    addConnector.mockRejectedValue(new TypeError('Failed to fetch'));
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
@@ -1581,37 +1597,37 @@ describe('a form built from the connector\'s own fields', () => {
   });
 
   it('sends what a checkbox and a number box were changed to', async () => {
-    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
     await page.getByLabelText(/Include the issue description/).click();
     await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '14');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
-    const created = posts.find(post => post.url === '/rpc/sources')!;
-
-    expect(created.body.configJson).toMatchObject({ includeDescription: false, doneWindowDays: 14 });
+    expect(addConnector.mock.calls[0]![0].config).toMatchObject({ includeDescription: false, doneWindowDays: 14 });
   });
 
   it('refuses to submit a number below the field\'s floor', async () => {
     // The bound is on the input, so the browser stops the submit before the
     // server ever sees a zero. `buildConfigFromFields` clamps as well, for the
     // paths that do not go through a form.
-    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
     await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '0');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(0);
+    expect(addConnector).not.toHaveBeenCalled();
     await expect.element(page.getByLabelText(/Keep finished issues for/)).toBeInvalid();
   });
 

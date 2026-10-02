@@ -13,9 +13,10 @@ import { adfToText, buildJql, jiraConnector } from '@/libs/sources/jira';
 // credential service; the tests watch the call, never the database.
 vi.mock('@/services/SourceCredentialService', () => ({
   updateCredentialValuesForConnector: vi.fn(async () => true),
-  getCredentialsForSource: vi.fn(async () => undefined),
+  getCredentialsForConnector: vi.fn(async () => undefined),
+  resolveApiTokenIdForSource: vi.fn(async () => null),
 }));
-const { getCredentialsForSource, updateCredentialValuesForConnector } = await import('@/services/SourceCredentialService');
+const { getCredentialsForConnector, updateCredentialValuesForConnector } = await import('@/services/SourceCredentialService');
 
 function res(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return {
@@ -75,7 +76,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.mocked(updateCredentialValuesForConnector).mockClear();
-  vi.mocked(getCredentialsForSource).mockReset().mockResolvedValue(undefined);
+  vi.mocked(getCredentialsForConnector).mockReset().mockResolvedValue(undefined);
 });
 
 describe('jiraConnector', () => {
@@ -297,7 +298,7 @@ describe('jiraConnector with an Atlassian grant', () => {
   });
 
   it('refreshes from the token stored NOW, not the one this run loaded, when another sync rotated it first', async () => {
-    vi.mocked(getCredentialsForSource).mockResolvedValue(grant({ refreshToken: 'rt-rotated-by-other' }));
+    vi.mocked(getCredentialsForConnector).mockResolvedValue(grant({ refreshToken: 'rt-rotated-by-other' }));
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(res({ access_token: 'at-new', refresh_token: 'rt-new', expires_in: 3600 }))
       .mockResolvedValueOnce(res(PROJECT_PAGE))
@@ -312,7 +313,7 @@ describe('jiraConnector with an Atlassian grant', () => {
 
   it('adopts the winner when the compare-and-swap loses to a concurrent rotation or a fresh consent', async () => {
     vi.mocked(updateCredentialValuesForConnector).mockResolvedValueOnce(false);
-    vi.mocked(getCredentialsForSource)
+    vi.mocked(getCredentialsForConnector)
       .mockResolvedValueOnce(grant())
       .mockResolvedValueOnce(grant({ accessToken: 'at-winner', refreshToken: 'rt-winner' }));
     const fetchMock = vi.fn()

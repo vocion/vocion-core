@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardLink, describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
+import { cardLink, cardShown, describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
 
 /**
  * On 2026-09-15 two `client.review.propose` calls 400'd with "Invalid input:
@@ -158,5 +158,41 @@ describe('a card\'s record link (2026-09-28: "click through to the feature detai
     const checked = readRecommendedAction({ actionId: 'factory.dispatch_task', label: 'Approve build', input: { requestId: 201 }, href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
 
     expect(checked.ok && checked.rec).toMatchObject({ href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
+  });
+});
+
+/**
+ * A card's links are agent output. Every one must stay inside the product:
+ * `/\evil.example` reads as `//evil.example` in a browser, and a control
+ * character can hide the real target from a person reading the link.
+ */
+describe('in-app links on a card', () => {
+  it.each(['/\\evil.example', '//evil.example', 'https://evil.example', 'javascript:alert(1)', '/ok\u0000x'])('cardLink drops %j', (href) => {
+    expect(cardLink(href, 'Open')).toEqual({});
+  });
+
+  it('cardLink keeps an app path with its label', () => {
+    expect(cardLink('/dashboard/connectors?add=github', 'Connect')).toEqual({ href: '/dashboard/connectors?add=github', hrefLabel: 'Connect' });
+  });
+
+  it('cardShown drops a bad secondary link and keeps a good one with its label', () => {
+    expect(cardShown({ secondaryHref: '/\\evil.example', secondaryHrefLabel: 'Paste a token' })).toEqual({});
+    expect(cardShown({ secondaryHref: '/dashboard/connectors?paste=1', secondaryHrefLabel: 'Paste a token' })).toEqual({ secondaryHref: '/dashboard/connectors?paste=1', secondaryHrefLabel: 'Paste a token' });
+  });
+
+  it('cardShown drops a bad field link but keeps the field', () => {
+    const shown = cardShown({ fields: [{ label: 'Repo', value: 'northwind/portal', href: 'https://evil.example' }, { label: 'Page', value: 'Connectors', href: '/dashboard/connectors' }, { label: 'Account', value: 'northwind' }] });
+
+    expect(shown.fields).toEqual([{ label: 'Repo', value: 'northwind/portal' }, { label: 'Page', value: 'Connectors', href: '/dashboard/connectors' }, { label: 'Account', value: 'northwind' }]);
+  });
+
+  it('cardShown keeps a field whose stored link is null, and drops a non-text link', () => {
+    const shown = cardShown({ fields: [{ label: 'Repo', value: 'northwind/portal', href: null }, { label: 'Page', value: 'Connectors', href: 42 }] } as never);
+
+    expect(shown.fields).toEqual([{ label: 'Repo', value: 'northwind/portal' }, { label: 'Page', value: 'Connectors' }]);
+  });
+
+  it('cardShown leaves keys that were not set absent', () => {
+    expect(cardShown({})).toEqual({});
   });
 });

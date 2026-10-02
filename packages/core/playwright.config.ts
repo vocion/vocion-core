@@ -207,6 +207,23 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // #1080 — connecting from the Connectors page and from chat. Needs the
+    // scripted connect providers (so no login ever reaches a real vendor) and
+    // the scripted model (for the chat case), so it is defined only when the
+    // server runs both, exactly like `chat-incomplete`: a plain
+    // `npx playwright test`, locally or in CI, never defines it.
+    // Run with: npm run e2e:connect
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted' && process.env.VOCION_CONNECT_SCRIPT
+      ? [
+          {
+            name: 'connect',
+            testDir: './e2e/connect',
+            timeout: projectTimeout(180 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh database,
     // so no `setup` project dependency.

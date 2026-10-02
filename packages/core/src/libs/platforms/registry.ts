@@ -204,6 +204,38 @@ export type CredentialPlatform = {
    * platforms have exactly one; AWS has two.
    */
   fields: readonly CredentialField[];
+  /**
+   * How a person connects this platform (#1080). The Connectors form and the
+   * chat card read this instead of special-casing providers. Declared on every
+   * platform that backs a connector. It stays free of runtime imports so client
+   * UI can read it; `howToConnect.test.ts` holds the login half to the connect
+   * registry and the provider scope constants.
+   */
+  howToConnect?: {
+    /** Present when a provider login can fetch the credential itself. */
+    login?: {
+      /** The connect provider that runs it (`libs/connect/registry.ts`). */
+      provider: 'github' | 'atlassian' | 'slack';
+      /** The access the login asks for, one line each, in the vendor's words. */
+      access: readonly string[];
+      /**
+       * The settings the source still needs after the login, by config key, each with the
+       * name a person knows it by. Empty means login alone is enough and the login makes the
+       * source itself. This is the one answer: the callback, the form, the chat card and the
+       * agent's next step all read it.
+       */
+      settingsAfterLogin: readonly { key: string; label: string }[];
+    };
+    /** Pasting is always possible. What to paste, and where to get one by hand. */
+    paste: {
+      /** The kind of credential, named the way the vendor names it: "Personal access token", "API token", "Bot token". */
+      credential: string;
+      /** The access the pasted credential needs, one line each. */
+      access: readonly string[];
+      /** Where to make one by hand. Only a URL the vendor documents. Leave it out rather than guess. */
+      getItAt?: { url: string; steps: readonly string[] };
+    };
+  };
 };
 
 /**
@@ -364,6 +396,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // cap waits for the first workspace that actually needs two.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['apollo'],
+    howToConnect: {
+      paste: {
+        credential: 'API key',
+        access: [],
+      },
+    },
     credentialsShareable: false,
     toolProvider: null,
     llmProvider: null,
@@ -386,6 +424,14 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // its repository list, so several github sources share the one credential.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['github'],
+    howToConnect: {
+      login: { provider: 'github', access: ['The repositories you choose during install'], settingsAfterLogin: [{ key: 'repos', label: 'repositories' }] },
+      paste: {
+        credential: 'Personal access token',
+        access: ['pull_requests:read', 'checks:read', 'contents:read', 'metadata:read', 'actions:read (for run.failed on the deploy branch)'],
+        getItAt: { url: 'https://github.com/settings/personal-access-tokens/new', steps: ['Make a fine-grained personal access token', 'Grant it the repositories the source lists', 'Give it the read-only permissions listed above'] },
+      },
+    },
     credentialsShareable: true,
     llmProvider: null,
     toolProvider: null,
@@ -406,6 +452,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['granola'],
+    howToConnect: {
+      paste: {
+        credential: 'API key',
+        access: [],
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -422,6 +474,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['hubspot'],
+    howToConnect: {
+      paste: {
+        credential: 'Private-app token',
+        access: ['CRM object read access'],
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -439,6 +497,14 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['jira'],
+    howToConnect: {
+      login: { provider: 'atlassian', access: ['read:jira-work', 'read:jira-user', 'offline_access'], settingsAfterLogin: [{ key: 'baseUrl', label: 'site' }, { key: 'projectKeys', label: 'project keys' }] },
+      paste: {
+        credential: 'API token',
+        access: [],
+        getItAt: { url: 'https://id.atlassian.com/manage-profile/security/api-tokens', steps: ['Make an API token', 'Paste it with the Atlassian account email it was issued to'] },
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -478,6 +544,13 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // the cap waits for the workspace that actually needs two.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['notion'],
+    howToConnect: {
+      paste: {
+        credential: 'Internal integration token',
+        access: ['Pages and databases shared with the integration, from the page\'s Connections menu'],
+        getItAt: { url: 'https://notion.so/my-integrations', steps: ['Make an internal integration', 'Share the pages and databases it should see from the page\'s Connections menu'] },
+      },
+    },
     // One integration token reads every page shared with it, and a source
     // narrows by search term rather than by credential, so a workspace running
     // several Notion sources types the token once.
@@ -504,6 +577,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // credential rather than needing its own.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['posthog'],
+    howToConnect: {
+      paste: {
+        credential: 'Personal API key',
+        access: ['query:read', 'event_definition:read'],
+      },
+    },
     // One personal key reads every project its owner can see, so several
     // posthog sources — one per product filter — type it once.
     credentialsShareable: true,
@@ -550,6 +629,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // reads every project of the organization it was made in.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['sentry'],
+    howToConnect: {
+      paste: {
+        credential: 'Auth token',
+        access: ['org:read', 'project:read', 'event:read'],
+      },
+    },
     credentialsShareable: true,
     llmProvider: null,
     toolProvider: null,
@@ -590,6 +675,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['strapi'],
+    howToConnect: {
+      paste: {
+        credential: 'API token',
+        access: ['Read-only'],
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -635,6 +726,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // need another can add a `headerName` field beside these two.
     credentialsPerOrg: 'many',
     connectorSlugs: ['rest'],
+    howToConnect: {
+      paste: {
+        credential: 'Bearer token',
+        access: ['Read rights for the read tools', 'Write rights only for the endpoints the source declares as actions'],
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -667,6 +764,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
+    howToConnect: {
+      paste: {
+        credential: 'OAuth client and refresh token',
+        access: [],
+      },
+    },
     // One OAuth consent covers every Google connector the workspace ticked, so
     // the same credential is meant to be pointed at by several sources.
     credentialsShareable: true,
@@ -718,6 +821,14 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['slack'],
+    howToConnect: {
+      login: { provider: 'slack', access: ['channels:read', 'channels:history', 'groups:read', 'groups:history'], settingsAfterLogin: [] },
+      paste: {
+        credential: 'Bot token',
+        access: ['channels:history', 'channels:read', 'The bot has to be in each channel you sync'],
+        getItAt: { url: 'https://api.slack.com/apps', steps: ['Open your Slack app', 'Copy the bot token from OAuth & Permissions'] },
+      },
+    },
     // A bot token reads every channel it was invited to, and one source syncs
     // one channel, so a workspace watching several channels shares one token.
     credentialsShareable: true,
@@ -736,6 +847,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['zoom'],
+    howToConnect: {
+      paste: {
+        credential: 'Server-to-server OAuth app credentials',
+        access: ['user:read:admin', 'cloud_recording:read:admin'],
+      },
+    },
     // A server-to-server app authenticates for the whole Zoom account, so
     // several sources scoped to different people share one set.
     credentialsShareable: true,
@@ -1136,4 +1253,35 @@ export function keyHint(key: string): string {
     return '…';
   }
   return `…${key.slice(-KEY_HINT_CHARS)}`;
+}
+
+/**
+ * How to connect the platform behind a connector, or null when no platform
+ * claims the connector. The Connectors form and the chat connect card read
+ * this rather than special-casing providers (#1080).
+ * @param connectorSlug - A source's connector slug, e.g. `jira`.
+ */
+export function howToConnectFor(connectorSlug: string): CredentialPlatform['howToConnect'] | null {
+  return platformForConnectorSlug(connectorSlug)?.howToConnect ?? null;
+}
+
+/**
+ * Whether logging in is all it takes: the connector declares a login and
+ * names no setting the source still needs.
+ * @param connectorSlug - A source's connector slug, e.g. `slack`.
+ */
+export function loginIsEnough(connectorSlug: string): boolean {
+  const login = howToConnectFor(connectorSlug)?.login;
+  return Boolean(login) && login!.settingsAfterLogin.length === 0;
+}
+
+/**
+ * What happens after the login, in a person's words, from the declaration:
+ * the one sentence the form and the chat card both show.
+ * @param settings - The login's `settingsAfterLogin`.
+ */
+export function afterLoginText(settings: readonly { label: string }[]): string {
+  return settings.length === 0
+    ? 'Logging in is all it takes; the source is added for you.'
+    : `After logging in you choose: ${settings.map(setting => setting.label).join(', ')}.`;
 }

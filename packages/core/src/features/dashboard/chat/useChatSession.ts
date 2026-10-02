@@ -1,7 +1,7 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { AgentOption, AgentRun, CardDecision, CardField, CardLastAttempt, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
@@ -24,7 +24,7 @@ import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
-import { cardLink, draftOf, readRecommendedAction } from './recommendedAction';
+import { cardLink, cardShown, draftOf, readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
@@ -182,7 +182,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
     // is not a client-side ornament that a reload forgets.
     const recommendations: RecommendedAction[] = runsRaw
       .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
-      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), ...cardLink(r.href, r.hrefLabel), ...draftOf(r.draft), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
+      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.rationale ? { rationale: r.rationale } : {}), ...(r.runId !== undefined ? { runId: r.runId } : {}), ...cardLink(r.href, r.hrefLabel), ...cardShown(r), ...draftOf(r.draft), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
     return {
       ...(typeof row.id === 'number' ? { id: row.id } : {}),
       role: row.role,
@@ -773,8 +773,8 @@ export function useChatSession({
         // The typed form (backlog 025): on the ledger already, on the wire
         // now, filed later if at all — `card_update` carries the proposal id.
         flushDeltas();
-        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string; draft?: unknown };
-        const link = cardLink(c.href, c.hrefLabel);
+        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: unknown };
+        const link = { ...cardLink(c.href, c.hrefLabel), ...cardShown(c) };
         const primary = c.actions?.[0];
         let rec: RecommendedAction;
         if (primary) {
@@ -787,7 +787,7 @@ export function useChatSession({
         } else if (typeof c.title === 'string' && c.title.trim()) {
           // A recommendation with nothing to press (its action was refused,
           // finding 20): still the agent's recommendation, read not pressed.
-          rec = { id: c.id, actionId: '', input: {}, label: c.title, ...(c.rationale ? { rationale: c.rationale } : {}), ...(c.source?.agentSlug ? { agentSlug: c.source.agentSlug } : {}), state: c.state ?? 'proposed' };
+          rec = { id: c.id, actionId: '', input: {}, label: c.title, ...link, ...(c.rationale ? { rationale: c.rationale } : {}), ...(c.source?.agentSlug ? { agentSlug: c.source.agentSlug } : {}), state: c.state ?? 'proposed' };
         } else {
           return;
         }

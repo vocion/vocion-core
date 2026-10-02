@@ -68,6 +68,7 @@ import {
 import { lookupObjectsTool } from './lookupObjects';
 import { lookupPersonTools } from './lookupPerson';
 import { updateMissionNotesTool } from './missionNotes';
+import { offerConnectionTool } from './offerConnection';
 import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
 import { posthogCountTools } from './posthogCounts';
@@ -173,6 +174,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // What the workspace could turn on — plugins and connectors, on or off —
     // so a gap becomes a recommendation instead of a workaround. Read-only.
     listCapabilitiesTool(ctx),
+    offerConnectionTool(ctx),
     // What the agent's connected sources actually reach — the repositories,
     // project keys and channels in scope, checked live against the grant
     // where the vendor can be asked (a GitHub App installation). "Which

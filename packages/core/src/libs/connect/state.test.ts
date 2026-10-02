@@ -5,6 +5,7 @@
  */
 
 import { Buffer } from 'node:buffer';
+import { createHmac } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/Env', () => ({ Env: { AUTH_SECRET: 'test-secret-0123456789abcdef' } }));
@@ -68,5 +69,33 @@ describe('connect state', () => {
     // Signature will not match the other payload, and that is the point: no
     // path exists to a well-signed wrong shape without the secret.
     expect(verifyState(`${other}.${signature}`)).toEqual({ ok: false, reason: 'bad_signature' });
+  });
+});
+
+describe('state without a source row', () => {
+  const sign = (payload: Record<string, unknown>) => {
+    const json = JSON.stringify(payload);
+    return `${Buffer.from(json, 'utf8').toString('base64url')}.${createHmac('sha256', 'test-secret-0123456789abcdef').update(json).digest('hex')}`;
+  };
+  const base = { v: 1, provider: 'github', orgId: 'org_1', userId: 'user_1', nonce: 'n', exp: Date.now() + 60_000 };
+
+  it('round-trips a connector-only state with its chat card', () => {
+    const verified = verifyState(signState({ provider: 'github', orgId: 'org_1', userId: 'user_1', connectorSlug: 'github', conversationId: 7, cardId: 'card_1' }));
+
+    expect(verified.ok && verified.payload).toMatchObject({ connectorSlug: 'github', conversationId: 7, cardId: 'card_1' });
+    expect(verified.ok && verified.payload.sourceSlug).toBeUndefined();
+  });
+
+  it('refuses a signed state that names neither a source nor a connector', () => {
+    expect(verifyState(sign(base))).toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('still verifies a state signed before this change, which has a sourceSlug only', () => {
+    expect(verifyState(sign({ ...base, sourceSlug: 'github' })).ok).toBe(true);
+  });
+
+  it('refuses a card id or conversation id of the wrong type', () => {
+    expect(verifyState(sign({ ...base, connectorSlug: 'github', conversationId: '7' }))).toEqual({ ok: false, reason: 'malformed' });
+    expect(verifyState(sign({ ...base, connectorSlug: 'github', cardId: 5 }))).toEqual({ ok: false, reason: 'malformed' });
   });
 });

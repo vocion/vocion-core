@@ -36,6 +36,7 @@ import { repoCommentPullAction } from './repo-comment-pull';
 import { repoSubmitReviewAction } from './repo-submit-review';
 import { restRequestAction } from './rest';
 import { slackPostMessageAction } from './slack-post-message';
+import { sourceConnectAction } from './source-connect';
 import { teamHireAgentAction } from './team-hire-agent';
 import { trackerAttachFileAction } from './tracker-attach-file';
 import { trackerCommentAction } from './tracker-comment';
@@ -154,6 +155,8 @@ registerAction(askFileAction);
 registerAction(askWithdrawAction);
 // Turn a workspace plugin on/off from chat — reversible, internal, done-for-you above the bar.
 registerAction(pluginEnableAction);
+// A source saved from what the person picked, on their login; reversible until it syncs (`services/connect/createSourceOnLogin.ts`).
+registerAction(sourceConnectAction);
 // An agent adds a teammate from the catalog, with the daily allowance it is
 // hired under — reversible (the agent, its budget and the team the hire
 // created all go back), internal, and held at approval until a workspace

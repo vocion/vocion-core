@@ -34,4 +34,11 @@ describe('the card contract', () => {
     expect(card).toMatchObject({ href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
     expect(recommendationFromCard(card)).toMatchObject({ href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
   });
+
+  it('a link card needs an href; with one it reads', () => {
+    const base = { id: 'card_l', kind: 'link', title: 'Connect GitHub', actions: [], source: {}, state: 'proposed' };
+
+    expect(readCard(base).ok).toBe(false);
+    expect(readCard({ ...base, href: '/dashboard/connectors?add=github' }).ok).toBe(true);
+  });
 });

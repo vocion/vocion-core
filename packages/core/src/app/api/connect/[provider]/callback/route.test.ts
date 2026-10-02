@@ -2,9 +2,10 @@ import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
-vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn(), clearLinkedCredential: vi.fn() }));
-vi.mock('@/libs/connect/state', () => ({ verifyState: vi.fn() }));
-vi.mock('@/services/SourceCredentialService', () => ({ storeCredentialForSource: vi.fn() }));
+vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn() }));
+vi.mock('@/libs/connect/state', () => ({ verifyState: vi.fn(), stateIssuedAt: (state: { exp: number }) => new Date(state.exp - 600000) }));
+vi.mock('@/services/connect/completeLogin', () => ({ completeLogin: vi.fn(), recordFailedLogin: vi.fn(), approveLoginCard: vi.fn() }));
+vi.mock('@/services/connect/createSourceOnLogin', () => ({ createSourceWhenNoConfigNeeded: vi.fn(), loginMakesItsSource: (connector: string) => connector === 'slack' }));
 const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
 
@@ -26,9 +27,10 @@ vi.mock('@/libs/connect/registry', () => {
 });
 
 const { clerkAuth } = await import('@/libs/Auth');
-const { clearLinkedCredential, findSourceBySlug } = await import('@/libs/connect/sources');
+const { findSourceBySlug } = await import('@/libs/connect/sources');
 const { verifyState } = await import('@/libs/connect/state');
-const { storeCredentialForSource } = await import('@/services/SourceCredentialService');
+const { approveLoginCard, completeLogin, recordFailedLogin } = await import('@/services/connect/completeLogin');
+const { createSourceWhenNoConfigNeeded } = await import('@/services/connect/createSourceOnLogin');
 const { GET } = await import('./route');
 
 const admin = {
@@ -53,7 +55,7 @@ function context(provider = 'slack') {
   return { params: Promise.resolve({ provider }) };
 }
 
-function landing(res: Response): { path: string; connect?: string; reason?: string; source?: string } {
+function landing(res: Response): { path: string; connect?: string; reason?: string; source?: string; connector?: string; add?: string } {
   const url = new URL(res.headers.get('location')!);
   return { path: url.pathname, ...Object.fromEntries(url.searchParams) };
 }
@@ -65,7 +67,8 @@ beforeEach(() => {
   vi.mocked(verifyState).mockReturnValue({ ok: true, payload });
   vi.mocked(findSourceBySlug).mockResolvedValue({ id: 7, slug: 'slack-1727000000', connectorSlug: 'slack' });
   exchange.mockResolvedValue({ ok: true, credentials: { token: 'xoxb-1', teamId: 'T1' }, displayName: 'Slack — Noco' });
-  vi.mocked(storeCredentialForSource).mockResolvedValue({ installId: 1, credentialId: 2 });
+  vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_1', linkedSourceIds: [7] });
+  vi.mocked(createSourceWhenNoConfigNeeded).mockResolvedValue({ created: false });
 });
 
 describe('GET /api/connect/[provider]/callback', () => {
@@ -86,7 +89,7 @@ describe('GET /api/connect/[provider]/callback', () => {
 
     expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'wrong_workspace', source: 'slack-1727000000' });
     expect(exchange).not.toHaveBeenCalled();
-    expect(storeCredentialForSource).not.toHaveBeenCalled();
+    expect(completeLogin).not.toHaveBeenCalled();
   });
 
   it('passes the vendor refusal on as a code and stores nothing', async () => {
@@ -94,8 +97,22 @@ describe('GET /api/connect/[provider]/callback', () => {
 
     const res = await GET(request(), context());
 
-    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'invalid_code', source: 'slack-1727000000' });
-    expect(storeCredentialForSource).not.toHaveBeenCalled();
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'invalid_code', connector: 'slack', source: 'slack-1727000000' });
+    expect(completeLogin).not.toHaveBeenCalled();
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack', reason: 'invalid_code', stateIssuedAt: new Date(payload.exp - 600000) }));
+  });
+
+  it('records a vendor exchange that throws as a dated failed attempt on the card, and lands with an error', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, connectorSlug: 'slack', conversationId: 7, cardId: 'card_1' } });
+    exchange.mockRejectedValue(new Error('connect ETIMEDOUT with code c0de'));
+
+    const res = await GET(request(), context());
+
+    expect(res.status).toBe(303);
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'provider_unreachable' });
+    expect(res.headers.get('location')).not.toContain('c0de');
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'provider_unreachable', card: { conversationId: 7, cardId: 'card_1' } }));
+    expect(completeLogin).not.toHaveBeenCalled();
   });
 
   it('hands the provider every query param but the state, with this deployment\'s callback', async () => {
@@ -107,22 +124,90 @@ describe('GET /api/connect/[provider]/callback', () => {
     });
   });
 
-  it('stores the bag under the CONNECTOR, where sync reads it, not the source row\'s own slug', async () => {
-    // A source made in the UI is `slack-<timestamp>`; sync resolves the
-    // install by config._connector (`slack`). Storing under the row's slug
-    // would put the grant where nothing reads it.
+  it('logs in for the connector, not the source row\'s own slug, and says so on the landing URL', async () => {
+    // A source made in the UI is `slack-<timestamp>`; the login belongs to the
+    // connector (`slack`) and the source is only linked to it afterwards.
     const res = await GET(request(), context());
 
-    expect(storeCredentialForSource).toHaveBeenCalledWith({
+    expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({
       orgId: 'org_1',
-      sourceSlug: 'slack',
-      raw: { token: 'xoxb-1', teamId: 'T1' },
-      displayName: 'Slack — Noco (slack-1727000000)',
       userId: 'user_1',
-    });
-    expect(clearLinkedCredential).toHaveBeenCalledWith('org_1', 7);
+      connectorSlug: 'slack',
+      sourceSlug: 'slack-1727000000',
+      exchanged: { credentials: { token: 'xoxb-1', teamId: 'T1' }, displayName: 'Slack — Noco' },
+    }));
     expect(res.status).toBe(303);
-    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', source: 'slack-1727000000' });
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', connector: 'slack', source: 'slack-1727000000' });
+  });
+
+  it('after a stored login, asks for the source the login itself can make, with the sources it linked', async () => {
+    await GET(request(), context());
+
+    expect(createSourceWhenNoConfigNeeded).toHaveBeenCalledWith({ orgId: 'org_1', userId: 'user_1', connector: 'slack', linkedSourceIds: [7] });
+  });
+
+  it('makes no source when the login was not stored', async () => {
+    vi.mocked(completeLogin).mockResolvedValue({ ok: false, reason: 'no_credential_platform' });
+
+    await GET(request(), context());
+
+    expect(createSourceWhenNoConfigNeeded).not.toHaveBeenCalled();
+  });
+
+  it('logs in from a connector alone, with no source row, and hands the chat card on', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'slack', conversationId: 7, cardId: 'card_1' } });
+
+    const res = await GET(request(), context());
+
+    expect(findSourceBySlug).not.toHaveBeenCalled();
+    expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({ connectorSlug: 'slack', sourceSlug: undefined, card: undefined }));
+    expect(approveLoginCard).toHaveBeenCalledWith({ orgId: 'org_1', userId: 'user_1', card: { conversationId: 7, cardId: 'card_1' } });
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', connector: 'slack' });
+  });
+
+  it('records a refusal on the card too, but never before the state\'s own checks pass', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, connectorSlug: 'slack', conversationId: 7, cardId: 'card_1' } });
+    vi.mocked(clerkAuth).mockResolvedValue({ ...admin, userId: 'user_2' });
+
+    await GET(request(), context());
+
+    expect(recordFailedLogin).not.toHaveBeenCalled();
+
+    vi.mocked(clerkAuth).mockResolvedValue(admin);
+    exchange.mockResolvedValue({ ok: false, reason: 'access_denied' });
+    await GET(request(), context());
+
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'access_denied', card: { conversationId: 7, cardId: 'card_1' } }));
+  });
+
+  it('records a login that could not be stored with its own reason', async () => {
+    vi.mocked(completeLogin).mockResolvedValue({ ok: false, reason: 'no_credential_platform' });
+
+    const res = await GET(request(), context());
+
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'no_credential_platform' }));
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'no_credential_platform' });
+  });
+
+  it('lands back in the conversation the connect started from, success or refusal', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, returnTo: '/dashboard/chat?conversation=7' } });
+
+    const ok = await GET(request(), context());
+
+    expect(landing(ok)).toEqual({ path: '/dashboard/chat', conversation: '7', connect: 'ok', connector: 'slack', source: 'slack-1727000000' });
+
+    vi.mocked(clerkAuth).mockResolvedValue({ ...admin, role: 'member' as never });
+    const refused = await GET(request(), context());
+
+    expect(landing(refused)).toMatchObject({ path: '/dashboard/chat', connect: 'error', reason: 'not_admin' });
+  });
+
+  it('never redirects off-site, even if a state somehow carried a foreign returnTo', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, returnTo: '//evil.example' } });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', connector: 'slack', source: 'slack-1727000000' });
   });
 
   it('refuses a signed-out person with its own code, so the message can say to sign in', async () => {
@@ -149,7 +234,7 @@ describe('GET /api/connect/[provider]/callback', () => {
     const res = await GET(request(), context());
 
     expect(landing(res).reason).toBe('not_admin');
-    expect(storeCredentialForSource).not.toHaveBeenCalled();
+    expect(completeLogin).not.toHaveBeenCalled();
   });
 
   it('lands with a code instead of a 500 when AUTH_SECRET is unset and verify throws', async () => {
@@ -164,12 +249,52 @@ describe('GET /api/connect/[provider]/callback', () => {
   });
 
   it('never puts the vendor code in the landing URL, even when storing fails', async () => {
-    vi.mocked(storeCredentialForSource).mockRejectedValue(new Error('vault down'));
+    vi.mocked(completeLogin).mockRejectedValue(new Error('vault down'));
 
     const res = await GET(request(), context());
     const location = res.headers.get('location')!;
 
     expect(location).not.toContain('c0de');
-    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'store_failed', source: 'slack-1727000000' });
+    expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'store_failed', connector: 'slack', source: 'slack-1727000000' });
+  });
+
+  it('a login that should have made its source and could not says so: error landing, failed attempt on the card, card not approved', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'slack', conversationId: 7, cardId: 'card_1' } });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_1', linkedSourceIds: [] });
+    vi.mocked(createSourceWhenNoConfigNeeded).mockResolvedValue({ created: false, failed: 'slack has 2 sources' });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'source_not_created', connector: 'slack' });
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'source_not_created', card: { conversationId: 7, cardId: 'card_1' } }));
+    expect(approveLoginCard).not.toHaveBeenCalled();
+  });
+
+  it('does not approve the card of a connector that needs picks until chat or the form finishes it', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'github', conversationId: 7, cardId: 'card_1' } });
+
+    await GET(request(), context());
+
+    expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({ card: { conversationId: 7, cardId: 'card_1' } }));
+    expect(approveLoginCard).not.toHaveBeenCalled();
+  });
+
+  it('after a login that made its source, lands on Connectors without reopening the add dialog', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'slack', returnTo: '/dashboard/connectors?add=slack' } });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_1', linkedSourceIds: [] });
+    vi.mocked(createSourceWhenNoConfigNeeded).mockResolvedValue({ created: true });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toEqual({ path: '/dashboard/connectors', connect: 'ok', connector: 'slack' });
+  });
+
+  it('keeps the add dialog open when the connector still needs picks from the form', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'github', returnTo: '/dashboard/connectors?add=github' } });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_1', linkedSourceIds: [] });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toEqual({ path: '/dashboard/connectors', add: 'github', connect: 'ok', connector: 'github' });
   });
 });

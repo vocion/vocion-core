@@ -17,7 +17,8 @@ export function readConnectOutcome(search: string): ConnectOutcome | null {
   if (connect !== 'ok' && connect !== 'error') {
     return null;
   }
-  const source = params.get('source');
+  // A login started from a connector comes back naming `connector`; one started from a source names `source`.
+  const source = params.get('source') ?? params.get('connector');
   if (connect === 'ok') {
     return { ok: true, source };
   }
@@ -46,6 +47,8 @@ export function connectOutcomeMessage(outcome: ConnectOutcome): string {
     server_unconfigured: 'This server is missing AUTH_SECRET or NEXT_PUBLIC_APP_URL, so it cannot finish a connect.',
     source_missing: 'The source this authorization was for no longer exists.',
     store_failed: 'The vendor authorized Vocion but the credential could not be stored. Try again; if it repeats, check the server log.',
+    source_not_created: 'You are logged in, but the source could not be created. Add it from Connectors.',
+    provider_unreachable: 'The vendor could not be reached, so nothing was connected. Try again.',
     not_implemented: 'This provider is not available on this server yet.',
   };
   return `Could not connect${which}: ${reasons[outcome.reason] ?? `the vendor refused (${outcome.reason}).`}`;
