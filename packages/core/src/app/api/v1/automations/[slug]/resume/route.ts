@@ -6,7 +6,7 @@ import { controlActor, controlErrorResponse, readControlNote } from '../../_cont
 /**
  * POST /api/v1/automations/:slug/resume  { note? } — lift a pause.
  *
- * Clears the hold, unpauses the Temporal Schedule for a schedule-when, and
+ * Clears the hold, unpauses the durable schedule for a schedule-when, and
  * records who lifted it and whose pause it was — the same `control` row the
  * dashboard's Resume writes. The note is optional here: the reason for a
  * resume is usually the pause's note, answered.

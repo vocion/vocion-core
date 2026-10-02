@@ -10,14 +10,14 @@
  * A stranded run traced back to an EVENT automation (`regenerate-brief-on-
  * request`, `handoff-on-reply`) answers a specific payload that has nowhere
  * else to come from, so it is replayed once, inside 24h, as its own
- * `automationFire` Temporal workflow — never run inline here, and never
+ * `automation.fire` job — never run inline here, and never
  * replayed a second time. A stranded run traced to a SCHEDULE automation
  * (`wiki-debrief`, `process-new-mqls`) is superseded by its own next fire, so
  * it is only marked failed.
  *
- * The DB is the PGlite test mock (`vi.mock('@/libs/DB')`); Temporal is
- * mocked so no real connection is attempted — the assertions check what this
- * code asked Temporal to start, not that a workflow actually ran.
+ * The DB is the PGlite test mock (`vi.mock('@/libs/DB')`); the job start is
+ * mocked — the assertions check what this code asked to start, not that the
+ * fire actually ran.
  */
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,17 +28,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 process.env.VOCION_MISSION_RUN_REAP_AFTER_MS = String(20 * 60_000);
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/temporal/client', async () => {
-  const actual = await vi.importActual<typeof import('@/libs/temporal/client')>('@/libs/temporal/client');
-  return { ...actual, getTemporalClient: vi.fn() };
+vi.mock('@/libs/durable/jobs', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/durable/jobs')>('@/libs/durable/jobs');
+  return { ...actual, startJob: vi.fn() };
 });
 
 const { db } = await import('@/libs/DB');
 const { automationRunSchema, missionRunSchema, toolCallSchema } = await import('@/models/Schema');
-const { AUTOMATION_FIRE_WORKFLOW, automationRefireWorkflowIdFor, getTemporalClient, VOCION_WORKFLOWS_TASK_QUEUE } = await import('@/libs/temporal/client');
+const { automationRefireWorkflowIdFor } = await import('@/libs/durable/scheduleIds');
+const { startJob } = await import('@/libs/durable/jobs');
 const { reapStaleMissionRuns } = await import('@/services/MissionService');
 
-const mockGetTemporalClient = vi.mocked(getTemporalClient);
+const mockStartJob = vi.mocked(startJob);
 
 const ORG = 'org_reap';
 const OTHER_ORG = 'org_reap_other';
@@ -113,9 +114,9 @@ beforeEach(async () => {
   await db.delete(missionRunSchema);
   await db.delete(automationRunSchema);
   await db.delete(toolCallSchema);
-  workflowStart = vi.fn().mockResolvedValue(undefined);
-  mockGetTemporalClient.mockReset();
-  mockGetTemporalClient.mockResolvedValue({ workflow: { start: workflowStart } } as never);
+  mockStartJob.mockReset();
+  mockStartJob.mockResolvedValue({ id: 'started' });
+  workflowStart = mockStartJob as never;
 });
 
 describe('reapStaleMissionRuns — reaps stale, skips fresh, skips terminal', () => {
@@ -220,15 +221,14 @@ describe('reapStaleMissionRuns — the linked automation_run', () => {
     expect(automationRun!.finishedAt).toEqual(NOW);
 
     expect(workflowStart).toHaveBeenCalledTimes(1);
-    expect(workflowStart).toHaveBeenCalledWith(AUTOMATION_FIRE_WORKFLOW, {
-      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-      workflowId: automationRefireWorkflowIdFor(ORG, automationRunId, missionRunId),
-      args: [{
+    expect(workflowStart).toHaveBeenCalledWith(automationRefireWorkflowIdFor(ORG, automationRunId, missionRunId), {
+      job: 'automation.fire',
+      input: {
         orgId: ORG,
         slug: 'regenerate-brief-on-request',
         input: { threadId: 'thread-1' },
         invokedBy: 'reap-refire:event:thread.replied',
-      }],
+      },
     });
   });
 
@@ -362,7 +362,7 @@ describe('reapStaleMissionRuns — org scoping', () => {
     expect(result.ids.toSorted()).toEqual([runA, runB].toSorted());
     expect(workflowStart).toHaveBeenCalledTimes(2);
 
-    const orgsDispatched = workflowStart.mock.calls.map(call => (call[1] as { args: [{ orgId: string }] }).args[0].orgId).toSorted();
+    const orgsDispatched = workflowStart.mock.calls.map(call => (call[1] as { input: { orgId: string } }).input.orgId).toSorted();
 
     expect(orgsDispatched).toEqual([ORG, OTHER_ORG].toSorted());
   });

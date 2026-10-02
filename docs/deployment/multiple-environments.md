@@ -147,9 +147,9 @@ compose default, or `ALTER USER` once the box is up.
 
 **`profiles: []` does not clear a base profile.**
 
-Core's dev compose gates the temporal worker behind `profiles: [worker]`. An
+Core's dev compose gates the feedback worker behind `profiles: [worker]`. An
 overlay declaring `profiles: []` doesn't override it — the service vanishes from
-the merged config, and scheduled automations fire into a queue nobody drains.
+the merged config, and the feedback queue is never drained.
 
 Set `COMPOSE_PROFILES=worker` instead, paired with `--scale worker=0`: the same
 profile also pulls in core's dev `worker` service, which crash-loops on the

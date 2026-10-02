@@ -15,7 +15,7 @@ const betterStackSink: AsyncSink = async (record) => {
 
 const canForwardToBetterStack = Boolean(Env.NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN) && Boolean(Env.NEXT_PUBLIC_BETTER_STACK_INGESTING_HOST);
 
-// Not awaited on purpose. This module is reached by the Temporal worker and
+// Not awaited on purpose. This module is reached by the durable executor and
 // the CLI scripts through tsx, which compiles the package as CommonJS, and a
 // top-level await is a hard transform error there ("Top-level await is
 // currently not supported with the cjs output format"). That killed every

@@ -1,7 +1,7 @@
 /**
  * THE LIVE CHECK, run from Vocion: QA's flows for a release, on the live
  * product, signed in as the product's QA account, in the browser where the
- * agents' tools run (the app and the Temporal worker both carry Chromium).
+ * agents' tools run (the app and the durable executor both carry Chromium).
  * The decisions are `libs/factory/liveCheck.ts`; the tool is `check_live`.
  *
  * Where the browser runs, decided 2026-10-01: here, not on a runner. The

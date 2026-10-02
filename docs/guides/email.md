@@ -52,7 +52,7 @@ Copy it once.
 
 ## 3. Configure the server
 
-On the app **and** the Temporal worker (the job runs in the worker):
+On the app (the job runs on the durable executor in the app):
 
 ```bash
 VOCION_MAIL_ENABLED=1
@@ -87,7 +87,7 @@ do:
 ```
 
 Apply the workspace (`npm run workspace:apply -- <path> --project <id>`) and
-the Temporal schedule is reconciled like every other automation. Fire it once by
+the durable schedule is reconciled like every other automation. Fire it once by
 hand from `/dashboard/automation` to see the first report.
 
 ### Mailing a team's own briefing

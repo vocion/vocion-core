@@ -177,7 +177,7 @@ to the in-process loop. Vocion stores checkpoints and progress, not the worker's
 
 ## Operations
 
-- **Reaper:** a Temporal schedule (`worker-run-reaper`, every 5 minutes) marks lapsed leases `lost`.
+- **Reaper:** a durable schedule (`worker-run-reaper`, every 5 minutes) marks lapsed leases `lost`.
   Applied on every worker boot; removed when the flag is off.
 - **Table:** `worker_run`, migration `0081`; `kind`, `model`, `summary` added in `0092`. Indexed by
   `(org_id, status)`, `(org_id, agent_slug)`, and `(status, lease_expires_at)` for the reaper.

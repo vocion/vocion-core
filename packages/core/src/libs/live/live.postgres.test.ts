@@ -1,6 +1,6 @@
 /**
  * The live stream across PROCESSES, against a real Postgres: a write made by
- * a separate OS process (standing in for the temporal worker's container)
+ * a separate OS process (standing in for the durable executor's container)
  * reaches a subscriber in this one through the trigger, NOTIFY and a
  * listening connection — and still arrives when that connection is killed
  * mid-stream, by the ring and the reconnect.

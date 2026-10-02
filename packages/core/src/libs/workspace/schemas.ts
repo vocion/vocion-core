@@ -1929,7 +1929,7 @@ export const SourceManifestSchema = z.object({
   /** Resolved per-connector config (validated against the connector\'s configSchema at apply time). */
   config: z.record(z.string(), z.unknown()).default({}),
   /**
-   * Sync schedule (cron expression) for Temporal scheduled syncs. When
+   * Sync schedule (cron expression) for durable scheduled syncs. When
    * omitted, the source only syncs on manual trigger via /dashboard/connectors.
    */
   schedule: z.string().optional().describe('Cron expression for scheduled sync. Manual-only when omitted.'),

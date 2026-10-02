@@ -46,7 +46,7 @@ cp packages/core/.env.example packages/core/.env.local
 # A workspace can later store its own provider keys, which take precedence over these.
 
 # 3. Start local services: app Postgres (pgvector) plus the platform stack
-#    (Langfuse on :3200, Temporal on :7233 with its UI on :8233, OTel collector on :4317/:4318)
+#    (Langfuse on :3200, OTel collector on :4317/:4318)
 npm run dev:up
 npm run dev:status          # docker compose ps
 # npm run dev:down          # stop it again
@@ -201,8 +201,8 @@ The lefthook `pre-commit` hook runs integrity, eslint `--fix` on staged files, `
 expect knip to fail your commit if you add a dependency or an export that nothing imports yet.
 
 Where to look when something breaks: the Next.js dev server output in your terminal, Langfuse at
-`http://localhost:3200` for LLM traces and cost, the Temporal UI at `http://localhost:8233` for
-workflow and schedule state, `docker compose logs -f postgres` for the database, and
+`http://localhost:3200` for LLM traces and cost, the `durable` schema in Postgres for
+workflow and schedule state (`durable.workflow_status`, `durable.workflow_schedules`), `docker compose logs -f postgres` for the database, and
 OpenTelemetry spans through the collector on `:4317`/`:4318`. Application logging is LogTape.
 
 ## Conventions you must follow

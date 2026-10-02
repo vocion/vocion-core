@@ -22,7 +22,7 @@ import { missionRunSchema, toolCallSchema, workerRunEventSchema, workerRunSchema
  * it. Vocion never proxies those bytes.
  *
  * No static import of `libs/Logger` or of `WorkerRunService`: this module sits
- * in the Temporal worker's import chain through the reaper, and the service
+ * in the durable executor's import chain through the reaper, and the service
  * imports it.
  */
 

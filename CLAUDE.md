@@ -50,7 +50,7 @@ metrics as the evidence layer underneath.
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript (strict)
 - **Retrieval:** Native first-party — pgvector (HNSW cosine) + Postgres FTS (tsvector + ts_rank), reciprocal rank fusion, optional LLM rerank. No third-party retrieval engine.
-- **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (Temporal async workflow queued). Built-in: `web`. Demo: `local-files` (see Phase B).
+- **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (a `source.sync` durable job on schedule or on demand). Built-in: `web`. Demo: `local-files` (see Phase B).
 - **Styling:** Tailwind CSS 4 + Shadcn UI (Radix primitives)
 - **Auth:** Auth.js / NextAuth v5 (`next-auth` ^5.0.0-beta + `@auth/drizzle-adapter`) with multi-tenancy via accounts/projects + RBAC. Config: `src/libs/Auth.ts`; RPC guards: `src/routers/AuthGuards.ts`.
 - **Database:** PostgreSQL (Docker Compose; pgvector/pgvector:pg16) + Drizzle ORM
@@ -96,9 +96,9 @@ Write path: `services/IngestionService.ingestDocument()` — chunks via `libs/re
 
 Embeddings run on OpenAI `text-embedding-3-small` by default and on Amazon Bedrock Titan when a workspace or the environment says so — `libs/retrieval/embeddingBackend.ts` owns the vendor specifics, the embedder owns batching, retry and tracing. Provider precedence: `project.embeddingConfig` (authored as `defaults.embeddingProvider` in `workspace.yaml`), then `VOCION_EMBEDDING_PROVIDER`, then `VOCION_LLM_PROVIDER`, then OpenAI. The `embedding` column is `vector(1536)`, fixed in the DDL — every backend checks the width it got back and refuses a mismatch rather than failing at insert, because storing a different width needs a schema migration plus a re-embed of every chunk. Titan G1 (`amazon.titan-embed-text-v1`) does return 1536, verified with a live `InvokeModel` on 2026-09-03; AWS's own docs contradict each other on this, so trust the check, not the docs.
 
-Connectors implement `libs/sources/types.ts` `SourceConnector` interface (`sync(ctx): AsyncIterable<IngestDoc>`). Registry at `libs/sources/registry.ts`. Sync orchestrator: `services/SourceSyncService.runSync(orgId, sourceId, onProgress?)` — synchronous today; Temporal async variant queued.
+Connectors implement `libs/sources/types.ts` `SourceConnector` interface (`sync(ctx): AsyncIterable<IngestDoc>`). Registry at `libs/sources/registry.ts`. Sync orchestrator: `services/SourceSyncService.runSync(orgId, sourceId, onProgress?)` — synchronous in-process; the scheduled and on-demand async path is the `source.sync` durable job (`services/background/catalog.ts`).
 
-Port map: Vocion :3000, Postgres :5432, Langfuse :3200, Temporal UI :8233. See `infra/README.md` for the platform compose.
+Port map: Vocion :3000, Postgres :5432, Langfuse :3200. See `infra/README.md` for the platform compose.
 
 ## Running with Docker PostgreSQL
 
@@ -452,8 +452,7 @@ product and is **not wired in core** — leave the variable at its default.
 ```
 infra/
 ├── README.md                       # Full infrastructure docs
-├── docker-compose.platform.yml     # Postgres + Langfuse + Temporal compose
-├── temporal/                       # Temporal worker entrypoint + activities
+├── docker-compose.platform.yml     # Langfuse + OTel compose
 ├── otel/                           # OpenTelemetry collector config
 ├── aws/                            # AWS deploy stubs
 └── terraform/                      # IaC

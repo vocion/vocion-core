@@ -728,7 +728,7 @@ export async function runAgentDeep(opts: {
 
   // The person's per-thread choice of model and thinking, mapped onto the
   // agent's own vendor. Nothing to do when they left both at the default.
-  // Dynamic imports, like the harness itself: the Temporal worker reaches
+  // Dynamic imports, like the harness itself: the durable executor reaches
   // this file and must never statically load the LLM module.
   const { chatModelOptionsFor, chatModelOptionsWithOverride } = await import('./agents/harness');
   const { resolvedModelId, resolvedModelIdFor, resolveProvider } = await import('@/libs/llm/langchain');

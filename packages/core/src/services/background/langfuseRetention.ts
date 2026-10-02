@@ -1,6 +1,6 @@
 /**
  * Langfuse retention activity — the host-side wrapper that lets a
- * Temporal Schedule drive the trace pruner.
+ * durable schedule drive the trace pruner.
  *
  * Runs in the worker process, where network access is allowed.
  * `langfuseRetentionWorkflow` calls it through `proxyActivities`; the

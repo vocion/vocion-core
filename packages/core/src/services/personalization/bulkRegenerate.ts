@@ -4,7 +4,7 @@ import type { BulkLeadOutcome } from '@/models/Schema';
  *
  * A reviewer picks the leads the queue shows and asks for their briefs to be
  * written again with one note. Each is a full agent pass, so the work is a
- * Temporal workflow that walks the leads two at a time on the worker; this
+ * durable job that walks the leads two at a time on the executor; this
  * module owns the job ROW that the person watches while it runs and that
  * remains afterwards, and the guards on what may enter a job at all.
  *
@@ -15,11 +15,9 @@ import type { BulkLeadOutcome } from '@/models/Schema';
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { getTemporalClient, VOCION_WORKFLOWS_TASK_QUEUE } from '@/libs/temporal/client';
+import { startJob } from '@/libs/durable/jobs';
 import { leadBriefSchema, personalizationBulkJobSchema } from '@/models/Schema';
 import { REVIEW_STATUS } from '@/services/PersonalizationQueueService';
-
-export const BULK_BRIEF_REGENERATE_WORKFLOW = 'bulkBriefRegenerate';
 
 export type StartBulkResult
   = | { ok: true; jobId: number; total: number }
@@ -79,12 +77,8 @@ export async function startBulkBriefRegenerate(orgId: string, opts: { leadIds: n
   const workflowId = bulkWorkflowIdFor(orgId, jobId);
 
   try {
-    const client = await getTemporalClient();
-    await client.workflow.start(BULK_BRIEF_REGENERATE_WORKFLOW, {
-      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-      workflowId,
-      args: [{ orgId, jobId, leadIds: ids, note: opts.note, by: opts.by }],
-    });
+    const { JOB } = await import('@/services/background/catalog');
+    await startJob(workflowId, { job: JOB.bulkBriefRegenerate, input: { orgId, jobId, leadIds: ids, note: opts.note, by: opts.by } });
   } catch (err) {
     // The row must not outlive a workflow that never started: a job page
     // showing "queued" forever would be a promise nothing is keeping.
@@ -117,7 +111,7 @@ export async function markBulkJobRunning(orgId: string, jobId: number): Promise<
 
 /**
  * Write one lead's outcome and recompute the counters from the list, so a
- * lead Temporal retried after a recorded failure counts once, as whatever it
+ * lead the engine retried after a recorded failure counts once, as whatever it
  * ended as. Marks the job done when every lead has settled.
  * @param orgId
  * @param jobId
@@ -136,7 +130,7 @@ export async function recordBulkLeadOutcome(orgId: string, jobId: number, outcom
     }
     const at = new Date().toISOString();
     // A fresh entry, not a merge: a lead that failed and then landed on
-    // Temporal's retry must not keep the failure's reason beside "landed".
+    // The engine's retry must not keep the failure's reason beside "landed".
     const settled = (prior?: BulkLeadOutcome): BulkLeadOutcome => ({
       leadId: outcome.leadId,
       contactName: outcome.contactName ?? prior?.contactName ?? null,

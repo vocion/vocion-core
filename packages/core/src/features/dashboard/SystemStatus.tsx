@@ -226,7 +226,6 @@ export const SystemStatus = () => {
           {[
             { label: 'Vocion', url: 'http://localhost:3000' },
             { label: 'Langfuse', url: 'http://localhost:3200' },
-            { label: 'Temporal UI', url: 'http://localhost:8233' },
           ].map(link => (
             <a
               key={link.label}

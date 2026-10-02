@@ -12,12 +12,6 @@ import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/temporal/client', () => ({
-  getTemporalClient: vi.fn(async () => {
-    throw new Error('temporal unavailable in tests');
-  }),
-}));
-
 const { db } = await import('@/libs/DB');
 const { agentSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { DEFAULT_SAMPLE_WORKSPACE, SAMPLE_USERS, SAMPLE_WORKSPACE_PATH, SAMPLE_WORKSPACES, SampleSeedBlockedError, seedSampleWorkspace, UnknownSampleWorkspaceError } = await import('@/services/SampleWorkspaceService');

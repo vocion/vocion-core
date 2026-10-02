@@ -1116,7 +1116,7 @@ export const teamRelations = relations(teamSchema, ({ one }) => ({
  * automation binds a trigger to one of them: `{when: schedule|event,
  * do: run workflow | check mission}`. Authored in
  * workspace/<org>/automations/*.yaml; schedule-whens materialize as
- * Temporal Schedules; event-whens are matched by EventService on emit.
+ * durable schedules; event-whens are matched by EventService on emit.
  */
 export const automationSchema = pgTable(
   'automation',
@@ -1332,7 +1332,7 @@ export const missionSchema = pgTable(
     desiredArtifacts: jsonb('desired_artifacts').$type<string[]>().default([]),
     /**
      * Standing-responsibility schedule — 5-field cron (UTC). When set, a
-     * Temporal Schedule fires a check run (the lead reviews the charter,
+     * durable schedule fires a check run (the lead reviews the charter,
      * does only what's needed) on this cadence. Null = brief-only.
      */
     schedule: text('schedule'),
@@ -2197,7 +2197,7 @@ export const evalScoreSchema = pgTable('eval_score', {
  * An evaluator a workspace authored, and where it lives remotely once synced.
  *
  * Workspace apply writes the desired state here and stops. The AWS call that
- * creates the remote evaluator happens later, in a Temporal activity, because
+ * creates the remote evaluator happens later, in a background job, because
  * apply makes no external calls today and must not start failing for every
  * other resource in the file when AWS is unreachable.
  *
@@ -2320,7 +2320,7 @@ export const evalBatchJobSchema = pgTable('eval_batch_job', {
   /**
    * Our idempotency key, written before the job is started.
    *
-   * A Temporal activity is at-least-once, so the start call can run twice for
+   * A background job is at-least-once, so the start call can run twice for
    * one run. AWS reuses the existing job when it sees the same token, which
    * turns a retry into a no-op instead of a second job billing for the same
    * sessions twice.
@@ -4706,7 +4706,7 @@ export type BulkLeadOutcome = {
 /**
  * A bulk action on the personalization queue, as the record a person watches
  * while it runs and what remains afterwards (Metacto ticket 071). The work
- * itself is a Temporal workflow keyed to this row's id; `outcomes` carries
+ * itself is a durable job keyed to this row's id; `outcomes` carries
  * one entry per lead, and `done` / `failed` are recomputed from it on every
  * write so a retried lead never double-counts.
  */

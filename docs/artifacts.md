@@ -238,7 +238,7 @@ alone.
 
 A copy that fails keeps the external link and records why on `ingest`
 (`{ status, reason, attempts, at, sourceExpiresAt }`). `failed` (a timeout, a
-5xx) is retried hourly by the `artifact-image-sweep` Temporal schedule while
+5xx) is retried hourly by the `artifact-image-sweep` durable schedule while
 the link is still valid, at most five times; `refused` and `expired` are not.
 
 Rows written before this existed are brought along by a backfill — dry run by

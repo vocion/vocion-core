@@ -1,11 +1,11 @@
 /**
- * Running an eval dataset from a Temporal activity.
+ * Running an eval dataset from a background job.
  *
  * Activities run in the host process with full Node access, which is where the
  * agent, the judge and the AWS client all live. The Workflow that calls this
  * stays in the deterministic sandbox and does no I/O of its own.
  *
- * The `runGroupId` matters more here than anywhere else. Temporal activities
+ * The `runGroupId` matters more here than anywhere else. background jobs
  * are at-least-once: a worker that dies mid-run has its activity retried, and
  * an eval run that inserted its rows already would otherwise insert a second
  * set — a phantom point on a trend line, for work that happened once. The
@@ -16,7 +16,7 @@
  * client through the agent it runs, and the worker boots every activity module
  * eagerly — so a static import here would cost seconds of startup and megabytes
  * of module graph on a worker that may never run an eval. The same split the
- * processor registry already uses, and `temporal-worker.imports.test.ts`
+ * processor registry already uses, and the import-chain tests
  * asserts it holds.
  */
 

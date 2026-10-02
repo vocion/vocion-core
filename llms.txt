@@ -11,7 +11,7 @@ above what confidence, mission autonomy levels 1 to 5, and one review queue expo
 `workspace_version` audit row is written on every apply and every tool call is stamped with the
 workspace SHA, so any output traces back to the exact prompts that produced it. Retrieval is
 first-party pgvector plus Postgres full-text search with reciprocal rank fusion. Observability is
-Langfuse and OpenTelemetry; durable workflows and schedules run on Temporal. `@vocion/core` is
+Langfuse and OpenTelemetry; durable workflows, schedules and background jobs run on DBOS in the app's own Postgres. `@vocion/core` is
 private to npm and is not published there — you install it by cloning
 https://github.com/vocion/vocion-core.
 

@@ -6,7 +6,7 @@
   max_server_memory_usage_to_ram_ratio of total RAM, which defaults to
   0.9 (clickhouse.com/docs/operations/server-configuration-parameters/settings,
   checked 2026-09-03) — about 57 GB of the 64 GB r6i.2xlarge. On this
-  box it shares that RAM with the app, Postgres, Temporal, Redis, Caddy
+  box it shares that RAM with the app, Postgres, Redis, Caddy
   and the Langfuse web and worker containers, so an unrestricted
   ClickHouse can starve the thing clients actually use.
 

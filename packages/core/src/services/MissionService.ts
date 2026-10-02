@@ -10,7 +10,8 @@
 import type { CausalChain } from '@/services/automations/fireGuards';
 import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { AUTOMATION_FIRE_WORKFLOW, automationRefireWorkflowIdFor, getTemporalClient, VOCION_WORKFLOWS_TASK_QUEUE } from '@/libs/temporal/client';
+import { startJob } from '@/libs/durable/jobs';
+import { automationRefireWorkflowIdFor } from '@/libs/durable/scheduleIds';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { automationRunSchema, missionRunSchema, missionSchema, toolCallSchema, workflowSchema } from '@/models/Schema';
 import { withRunCost } from './budget/runCost';
@@ -657,9 +658,9 @@ async function hasRecentToolCallActivity(orgId: string, missionRunId: number, cu
  * A schedule fire (`wiki-debrief`, `process-new-mqls`, a mission's own
  * standing check) is superseded by its next scheduled fire regardless, so it
  * is only marked `error` here. An event fire is dispatched again — inside
- * {@link MISSION_RUN_REFIRE_WINDOW_MS} — as its own `automationFire` workflow
- * rather than run inline: a mission check can take up to 90 minutes
- * (`services/temporal/workflows/automationFire.ts`), and this sweep needs to
+ * {@link MISSION_RUN_REFIRE_WINDOW_MS} — as its own `automation.fire` job
+ * rather than run inline: a mission check can take up to 90 minutes, and this
+ * sweep needs to
  * stay fast for every other stranded run behind it. The replay carries the
  * original fire's merged input (`automation_run.input` — kept exactly to
  * "reproduce a run from") and is stamped `invokedBy: reap-refire:<original>`,
@@ -707,16 +708,15 @@ async function closeAndMaybeRefireAutomationRun(orgId: string, automationRunId: 
   }
 
   try {
-    const client = await getTemporalClient();
-    await client.workflow.start(AUTOMATION_FIRE_WORKFLOW, {
-      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-      workflowId: automationRefireWorkflowIdFor(orgId, automationRunId, missionRunId),
-      args: [{
+    const { JOB } = await import('@/services/background/catalog');
+    await startJob(automationRefireWorkflowIdFor(orgId, automationRunId, missionRunId), {
+      job: JOB.automationFire,
+      input: {
         orgId,
         slug: automationRun.slug,
         input: (automationRun.input as Record<string, unknown> | null) ?? {},
         invokedBy: `reap-refire:${invokedBy}`,
-      }],
+      },
     });
     return true;
   } catch (error) {
@@ -728,8 +728,8 @@ async function closeAndMaybeRefireAutomationRun(orgId: string, automationRunId: 
 /**
  * Mark every mission run whose last activity lapsed as `failed` — the
  * mission-run analogue of `WorkerRunService.reapLostWorkerRuns` (ADR 0004) for
- * a run mode with no lease to lapse. Called by the Temporal Schedule in
- * `MissionRunReaperScheduleService`, same five-minute cadence as the
+ * a run mode with no lease to lapse. Called by the `mission-run-reaper`
+ * schedule (`services/background/deploymentSchedules.ts`), same five-minute cadence as the
  * worker-run reaper; safe to call any time.
  *
  * "Last activity" is the later of the row's own `updated_at` (bumped on every

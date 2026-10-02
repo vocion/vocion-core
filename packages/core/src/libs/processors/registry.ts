@@ -4,7 +4,7 @@
  * Deliberately NOT the static-import pattern of `libs/sources/registry.ts`.
  * A processor's `run` is the expensive half, a model client, a prompt, an
  * HTTP hop, and two static import graphs would pull it in whether a tenant
- * uses it or not: `SourceSyncService` (and through it the Temporal worker) and
+ * uses it or not: `SourceSyncService` (and through it the durable executor) and
  * `libs/workspace/applier.ts`, which validates a processor's config
  * synchronously while applying a workspace.
  *

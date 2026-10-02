@@ -1,10 +1,10 @@
 /**
- * Source-sync activity — the host-side wrapper that lets a Temporal
- * Workflow (and therefore a Temporal Schedule) drive `runSync`.
+ * Source-sync job — the host-side wrapper that lets a durable schedule drive
+ * `runSync`.
  *
- * Runs in the worker process (full Node access: DB, network, the vault).
- * `sourceSyncWorkflow` calls this via `proxyActivities`; a Schedule starts
- * that workflow on the source's cron. Incremental by default — a scheduled
+ * Runs on the durable executor (full Node access: DB, network, the vault).
+ * The `source.sync` job calls this as a retried step; a schedule starts it on
+ * the source's cron. Incremental by default — a scheduled
  * run fetches only what changed since the last checkpoint.
  */
 

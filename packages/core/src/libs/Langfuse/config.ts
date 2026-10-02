@@ -25,7 +25,7 @@
  *
  * Everything reads `process.env` directly rather than `libs/Env.ts`,
  * because the standalone scripts (`smoke-langfuse`, `langfuse-bootstrap`,
- * the Temporal worker) run outside the Next.js runtime where that
+ * the durable executor) run outside the Next.js runtime where that
  * module's other required variables are not present.
  */
 
@@ -94,7 +94,7 @@ export type LangfuseEnabled = {
    * project-level retention is an Enterprise feature on self-hosted
    * instances (langfuse.com/pricing-self-host, checked 2026-09-03). So
    * Vocion enforces it: `services/LangfuseRetentionService.ts` deletes
-   * traces past this age through the public API, on a daily Temporal
+   * traces past this age through the public API, on a daily durable
    * schedule, using nothing but the project keys already configured.
    */
   retentionDays: number | null;

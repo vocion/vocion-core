@@ -4,7 +4,7 @@
  * plugin's designer, fired by `mockup.requested`; these only decide that one
  * is owed, and answer how it ended.
  *
- * Bodies are imported on first use: the Temporal worker loads this registry.
+ * Bodies are imported on first use: the durable executor loads this registry.
  */
 
 /** `object.created` / `object.updated`: a record the rule says has a UI, with no mockup yet. */

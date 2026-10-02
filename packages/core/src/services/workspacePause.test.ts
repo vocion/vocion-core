@@ -27,13 +27,6 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/WorkflowService', () => ({
   startWorkflow: vi.fn(async () => ({ id: 77 })),
 }));
-vi.mock('@/libs/temporal/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/libs/temporal/client')>();
-  return { ...actual, getTemporalClient: vi.fn(async () => {
-    throw new Error('temporal unavailable in this suite');
-  }) };
-});
-
 const { db } = await import('@/libs/DB');
 const {
   actionRunSchema,

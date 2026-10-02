@@ -174,7 +174,7 @@ export async function produceTranscripts(options: ProduceTranscriptsOptions): Pr
  * Write the transcripts as `eval_case_result` rows and remember their ids.
  *
  * Clears the run's existing case rows first, because this can run twice. A
- * Temporal activity is at-least-once, and a retry reuses the same run through
+ * background job is at-least-once, and a retry reuses the same run through
  * its run group — so a blind insert would leave that run holding two rows per
  * case, and the run page reads every row by run id with nothing to tell the
  * copies apart. Deleting first is safe: the rows being replaced belong to the

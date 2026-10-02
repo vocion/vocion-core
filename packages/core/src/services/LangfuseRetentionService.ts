@@ -21,8 +21,8 @@
  * Deleting a trace deletes its observations and scores with it, so
  * there is nothing to clean up separately.
  *
- * Runs on a daily Temporal schedule — see
- * `services/temporal/workflows/langfuseRetention.ts`. Nothing calls it
+ * Runs on a daily durable schedule — see
+ * `services/background/deploymentSchedules.ts`. Nothing calls it
  * on the request path.
  */
 
@@ -34,7 +34,7 @@ import { langfuseConfig } from '@/libs/Langfuse';
  * Log through a dynamic import.
  *
  * `libs/Logger` has a top-level await, and this module sits in the
- * import chain of the Temporal worker, which tsx compiles as CommonJS —
+ * import chain of the durable executor, which tsx compiles as CommonJS —
  * where a top-level await is fatal. Importing the logger normally stops
  * the worker from starting at all, which is the one process that runs
  * this job. Same approach as `libs/Langfuse.ts` and

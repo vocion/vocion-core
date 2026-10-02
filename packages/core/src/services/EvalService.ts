@@ -843,7 +843,7 @@ export async function createRefreshRun(opts: {
 /**
  * Mark a run failed when it could not be started at all.
  *
- * Used by the refresh route when Temporal is unreachable: the row already
+ * Used by the refresh route when the durable engine is unreachable: the row already
  * exists and saying running forever would be a lie the UI cannot recover from.
  * @param runId - The row to close out.
  */

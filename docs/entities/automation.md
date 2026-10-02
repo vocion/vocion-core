@@ -9,7 +9,7 @@ pure procedures, and neither carries its own schedule.
 | **Path** | `automations/<slug>.yaml` |
 | **Schema** | `AutomationManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
 | **Applied to** | `automation` table |
-| **Runtime** | A Temporal schedule or an event match, dispatched through `dispatchDo` |
+| **Runtime** | A durable schedule (DBOS, schema `durable`) or an event match, dispatched through `dispatchDo` |
 | **Surface** | `/dashboard/automation` |
 | **Layering** | Workspace-only — a base pack ships no automations |
 
@@ -59,14 +59,14 @@ the same event still fires; only the one whose run raised it is held back.
 
 **The ceiling.** Past `maxFiresPer10m` event fires in ten minutes (schedule
 fires, test runs and refusals are not counted), a fire is held: a `skipped`
-row with `result.reason: rate_limited` and the ceiling, and one Temporal
-`automationFire` workflow (`coalesce: true`, one per automation) is arranged
-for after the window. A second held fire while one is waiting finds it there
+row with `result.reason: rate_limited` and the ceiling, and one
+`automation.fire` job (`coalesce: true`, one per automation per window, started
+on a durable sleep) is arranged for after the window. A second held fire while one is waiting finds it there
 and arranges nothing — that is the coalescing. When the coalesced fire runs it
 claims the held rows (`result.coalescedInto: <its run id>`), its own result
 carries `coalesced: n`, and a mission check's brief says how many it covers.
 The card shows "rate limited — n fires held in the last 10 minutes (ceiling
-6)" while the window is live. Temporal being unreachable does not undo the
+6)" while the window is live. The durable engine being unreachable does not undo the
 hold; the row says `coalesce: unreachable` and the held fires are not
 replayed.
 
@@ -182,7 +182,7 @@ is recorded as one: who, when, and the note they left.
 | | |
 |---|---|
 | **Who can** | Any signed-in member of the project — the same guard the mission mutations use (`guardAuth`). The actor is taken from the session, never from the request. |
-| **What it does** | A `schedule` automation's Temporal Schedule is paused (`handle.pause`), with the person and note written into the Schedule's own note so Temporal's UI agrees. An `event` automation is skipped by the event matcher while paused. Either way `beginAutomationFire` refuses a fire that reaches it — a test run, a CLI call, a Schedule Temporal never saw paused — and records the refusal as an `error` run, the way a `disabled` automation's is. |
+| **What it does** | A `schedule` automation's durable schedule is paused (`pauseSchedule`); the person and note live on the row and in the run log. An `event` automation is skipped by the event matcher while paused. Either way `beginAutomationFire` refuses a fire that reaches it — a test run, a CLI call, a schedule never seen paused — and records the refusal as an `error` run, the way a `disabled` automation's is. |
 | **What is recorded** | On the row: `paused_at`, `paused_by` (the `user.id`), `paused_note`. In the run log: a synthetic run of kind `control`, status `ok`, `invoked_by: user:<id>`, whose `result` names the action (`pause` \| `resume`), the person (id and name, so it reads after the account is gone), the note, and how the Schedule took it (`paused` \| `resumed` \| `unreachable` \| `null` for an event-when). A resume also records the pause it lifted. |
 | **What is shown** | "Paused by *name* *when*: *note*" on the card and the detail page, and one row per pause and resume in the run log, filterable with `kind=control`. A `control` row is not a fire: it does not count as "last run" and does not reset the overdue clock. |
 | **Surface** | `client.automations.pause({ slug, note? })` / `client.automations.resume({ slug, note? })`. Pausing a paused automation (or resuming a running one) answers `CONFLICT` — the state on screen is stale. |
@@ -192,8 +192,7 @@ is recorded as one: who, when, and the note they left.
 **What apply does to a paused automation.** Nothing to the pause. `status`
 is what the YAML says and is replaced on every apply; the pause lives beside
 it and `workspace:apply` never writes those columns. Schedule reconciliation
-creates the Temporal Schedule paused if Temporal never had it, re-asserts the
-pause if it did, and never unpauses one — apply does not resume what a person
+re-asserts the pause on the durable schedule every time, and never unpauses one — apply does not resume what a person
 stopped. The apply summary names each one as a warning:
 `automation/<slug>: paused by <name> at <when> UTC — <note>; left paused.`
 Setting `status: disabled` in the YAML and a pause can both hold at once;
@@ -212,9 +211,9 @@ is held, a matched event writes a `skipped` run with reason
 log says why the afternoon is empty. See
 [the off switch](./workspace-manifest.md#the-off-switch--pausing-the-whole-workspace).
 
-A Schedule paused in Temporal directly, with nobody on the record, shows on
-the card as "paused in Temporal, not from here" — pause it in the app to put
-a name on it, or resume it where it was paused.
+Schedules are only paused from the app, so a paused schedule always has a
+name on the record. A schedule tick never overlaps its own last fire: a tick
+that finds a fire of the same automation still running is skipped.
 
 ## Rules
 

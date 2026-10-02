@@ -1,7 +1,7 @@
 # Vocion production overlay — single-EC2 + Docker Compose (Phase F).
 #
 # Compose this with the repo-root docker-compose.yml (Postgres) and
-# infra/docker-compose.platform.yml (Langfuse + OTel + Temporal) to
+# infra/docker-compose.platform.yml ((Langfuse + OTel)) to
 # bring up the full stack on one VM:
 #
 #   docker compose \

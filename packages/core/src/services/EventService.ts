@@ -9,7 +9,7 @@
  * dispatched to them. This does: `emitEvent` records the event (deduped),
  * finds the workflows subscribed to that type whose filter matches, and starts
  * each one with the payload as input. Durability of the started run is the
- * workflow engine's job (Temporal); this is the fan-out.
+ * workflow engine's job (the durable engine); this is the fan-out.
  */
 
 import type { CausalChain, SkipReason } from '@/services/automations/fireGuards';
@@ -42,7 +42,7 @@ export type EmitEventInput = {
    * held open for minutes. Only a caller in a request scope may pass it.
    *
    * `auto` is for an emitter that cannot know where it runs — a record
-   * written from a chat turn, a job on the Temporal worker, an action a trust
+   * written from a chat turn, a job on the durable executor, an action a trust
    * rule executed inside another event's pass. Inside a request scope a
    * `job` automation (plain code, milliseconds) runs where the event was
    * raised and anything that runs an agent goes to the background; outside
@@ -582,7 +582,7 @@ export type AutomationRunFailedPayload = {
 /**
  * Whether this code is running inside a request, where `after` can hold work
  * until the response is sent. Asked by scheduling nothing: `after` throws
- * outside a request scope (a script, the Temporal worker).
+ * outside a request scope (a script, the durable executor).
  */
 async function inRequestScope(): Promise<boolean> {
   try {
@@ -774,7 +774,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
           result: {
             kind: 'skipped',
             reason: 'rate_limited',
-            detail: `over ${ceiling} event fire${ceiling === 1 ? '' : 's'} in ten minutes (when.maxFiresPer10m); ${coalesce === 'unreachable' ? 'Temporal was unreachable, so this fire will not be replayed' : 'held for one coalesced fire after the window'}`,
+            detail: `over ${ceiling} event fire${ceiling === 1 ? '' : 's'} in ten minutes (when.maxFiresPer10m); ${coalesce === 'unreachable' ? 'the durable engine was unreachable, so this fire will not be replayed' : 'held for one coalesced fire after the window'}`,
             event: input.type,
             causedBy,
             ceiling,

@@ -1,21 +1,18 @@
 /**
  * WorkflowScheduleService — turns a workflow's `trigger: {type: schedule,
- * cron}` into a live Temporal Schedule that fires `scheduledWorkflowTrigger`
+ * cron}` into a durable schedule that runs the `workflow.trigger` job
  * (→ `startWorkflowRunActivity` → `startWorkflow`) on that cadence.
  *
- * Mirrors SourceScheduleService exactly — same idempotent ensure/remove
- * shape, distinct schedule-id namespace (`workflow-schedule-…` vs
- * `source-sync-…`). `workspace:apply` reconciles schedules against the
- * authored trigger config; nothing else creates them.
+ * Same idempotent ensure/remove shape as SourceScheduleService, distinct name
+ * namespace (`workflow-schedule-…` vs `source-sync-…`). `workspace:apply`
+ * reconciles schedules against the authored trigger config; nothing else
+ * creates them.
  */
 
-import type { ScheduleOptions } from '@temporalio/client';
-import {
-  getTemporalClient,
-  SCHEDULED_WORKFLOW_TRIGGER,
-  scheduleIdFor,
-  VOCION_WORKFLOWS_TASK_QUEUE,
-} from '@/libs/temporal/client';
+import type { ScheduleSpec } from '@/libs/durable/jobs';
+import { scheduleJob, unscheduleJob } from '@/libs/durable/jobs';
+import { scheduleIdFor } from '@/libs/durable/scheduleIds';
+import { JOB } from '@/services/background/catalog';
 
 export type WorkflowScheduleSpec = {
   orgId: string;
@@ -27,88 +24,31 @@ export type WorkflowScheduleSpec = {
 };
 
 /**
- * Build the Temporal `ScheduleOptions` for a workflow's cron trigger.
- * Pure — no client, no I/O — so it's unit-testable.
+ * The schedule for a workflow's cron trigger. Pure.
  * @param spec
  */
-export function buildWorkflowScheduleOptions(spec: WorkflowScheduleSpec): ScheduleOptions {
+export function workflowScheduleSpec(spec: WorkflowScheduleSpec): ScheduleSpec {
   return {
-    scheduleId: scheduleIdFor(spec.orgId, spec.workflowSlug),
-    spec: { cronExpressions: [spec.cron] },
-    action: {
-      type: 'startWorkflow',
-      workflowType: SCHEDULED_WORKFLOW_TRIGGER,
-      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-      args: [{ orgId: spec.orgId, workflowSlug: spec.workflowSlug, input: spec.input ?? {} }],
-    },
+    name: scheduleIdFor(spec.orgId, spec.workflowSlug),
+    cron: spec.cron,
+    job: JOB.workflowTrigger,
+    input: { orgId: spec.orgId, workflowSlug: spec.workflowSlug, input: spec.input ?? {} },
   };
 }
 
 /**
- * Create (or update) the workflow's trigger Schedule. Idempotent.
+ * Create (or update) the workflow's trigger schedule. Idempotent.
  * @param spec
  */
 export async function ensureWorkflowSchedule(spec: WorkflowScheduleSpec): Promise<void> {
-  const client = await getTemporalClient();
-  const options = buildWorkflowScheduleOptions(spec);
-  try {
-    await client.schedule.create(options);
-  } catch (err) {
-    if (isAlreadyExists(err)) {
-      const handle = client.schedule.getHandle(options.scheduleId);
-      await handle.update(prev => ({ ...prev, spec: options.spec, action: options.action }));
-      return;
-    }
-    throw err;
-  }
+  await scheduleJob(workflowScheduleSpec(spec));
 }
 
 /**
- * Delete a workflow's trigger Schedule. No-op if it doesn't exist.
+ * Delete a workflow's trigger schedule. No-op if it doesn't exist.
  * @param orgId
  * @param workflowSlug
  */
 export async function removeWorkflowSchedule(orgId: string, workflowSlug: string): Promise<void> {
-  const client = await getTemporalClient();
-  try {
-    await client.schedule.getHandle(scheduleIdFor(orgId, workflowSlug)).delete();
-  } catch (err) {
-    if (!isNotFound(err)) {
-      throw err;
-    }
-  }
-}
-
-/**
- * Describe a workflow's schedule (next fire times) — best-effort, for the
- * automation UI. Returns null when the schedule (or Temporal) is absent.
- * @param orgId
- * @param workflowSlug
- */
-export async function describeWorkflowSchedule(
-  orgId: string,
-  workflowSlug: string,
-): Promise<{ nextActionTimes: Date[]; paused: boolean } | null> {
-  try {
-    const client = await getTemporalClient();
-    const desc = await client.schedule.getHandle(scheduleIdFor(orgId, workflowSlug)).describe();
-    return {
-      nextActionTimes: (desc.info.nextActionTimes ?? []).slice(0, 3),
-      paused: desc.state.paused ?? false,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function isAlreadyExists(err: unknown): boolean {
-  const name = (err as { name?: string })?.name ?? '';
-  const message = (err as { message?: string })?.message ?? '';
-  return name === 'ScheduleAlreadyRunning' || /already exists|already running/i.test(message);
-}
-
-function isNotFound(err: unknown): boolean {
-  const name = (err as { name?: string })?.name ?? '';
-  const message = (err as { message?: string })?.message ?? '';
-  return name === 'ScheduleNotFoundError' || /not found/i.test(message);
+  await unscheduleJob(scheduleIdFor(orgId, workflowSlug));
 }

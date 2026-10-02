@@ -5,18 +5,18 @@
 ```
 localhost:3000  ─── Vocion App (Next.js)
 localhost:3200  ─── Langfuse (LLM observability, evals, prompts)
-localhost:7233  ─── Temporal gRPC (workflow engine)
-localhost:8233  ─── Temporal Web UI (workflow monitoring)
 localhost:4317  ─── OTel Collector (gRPC)
 localhost:4318  ─── OTel Collector (HTTP)
 localhost:5432  ─── Postgres (pgvector + pgcrypto, Vocion DB)
 ```
 
+Durable work — flows, schedules, background jobs — runs on DBOS inside the app process, in schema `durable` of the Vocion DB; there is no separate workflow server (v0.6.0, `docs/deployment/v0.6.0-off-temporal.md`).
+
 Retrieval is first-party: pgvector (HNSW cosine) + Postgres FTS in the Vocion DB itself, served by `services/RetrievalService`. No third-party retrieval engine.
 
 ## Quick Start
 
-### 1. Start the Platform (Postgres + Langfuse + Temporal + OTel)
+### 1. Start the Platform (Postgres + Langfuse + OTel)
 
 ```bash
 docker compose -f infra/docker-compose.platform.yml -p vocion-platform up -d
@@ -45,7 +45,6 @@ Those Langfuse credentials, and every Langfuse secret in
 `infra/docker-compose.platform.yml`, are committed to this repository and
 are for local development only. A deployed environment generates its
 own — see [`docs/deployment/observability.md`](../docs/deployment/observability.md).
-| Temporal | http://localhost:8233 | No auth (dev) |
 
 ## Port Map
 
@@ -56,8 +55,6 @@ own — see [`docs/deployment/observability.md`](../docs/deployment/observabilit
 | Langfuse | 3200 | langfuse-web (remapped from 3000) |
 | OTel Collector (gRPC) | 4317 | otel-collector |
 | OTel Collector (HTTP) | 4318 | otel-collector |
-| Temporal gRPC | 7233 | temporal |
-| Temporal UI | 8233 | temporal-ui (remapped from 8080) |
 
 ## Stopping Services
 
@@ -73,5 +70,4 @@ docker compose -f infra/docker-compose.platform.yml -p vocion-platform down -v
 
 - Postgres: 1GB RAM (small demo datasets); scales with chunk count
 - Langfuse: 4GB RAM (ClickHouse + PostgreSQL). Same appetite on a deployed box, where it self-hosts by default and shares the instance with the app — see [`docs/deployment/observability.md`](../docs/deployment/observability.md) for sizing, and for opting out to Langfuse Cloud, which removes these containers entirely.
-- Temporal: 2GB RAM (PostgreSQL)
 - Total recommended: 8GB+ RAM for full stack

@@ -85,7 +85,7 @@ better name is worth. Rename it in both, or in neither.
 | | Phase 1 — the box | Phase 2 — the agent runtime |
 |---|---|---|
 | Lives in | parent project | **here**, `infra/agentcore/` |
-| Builds | VPC, EC2, EBS, Elastic IP, Route 53, IAM, snapshots. Then Caddy, Postgres, Langfuse, Temporal, the app. | ECR repo, execution role, Memory store, arm64 image, the runtime itself |
+| Builds | VPC, EC2, EBS, Elastic IP, Route 53, IAM, snapshots. Then Caddy, Postgres, Langfuse, the app. | ECR repo, execution role, Memory store, arm64 image, the runtime itself |
 | Tool | OpenTofu + `bootstrap.sh` | `provision.sh`, `deploy-runtime.sh`, `smoke-invoke.sh` |
 
 Skip phase 2 and **the site comes up healthy while chat fails**. Any agent with

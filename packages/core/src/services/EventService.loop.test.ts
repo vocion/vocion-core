@@ -28,23 +28,14 @@ vi.mock('@/services/MissionService', () => ({
   startMission: vi.fn(async () => ({ id: 2505, status: 'completed' })),
 }));
 
-const temporal = {
-  start: vi.fn(async (_type: string, _opts: unknown) => {}),
-};
-vi.mock('@/libs/temporal/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/libs/temporal/client')>();
-  return {
-    ...actual,
-    getTemporalClient: vi.fn(async () => ({ workflow: { start: temporal.start } })),
-  };
-});
-
 const { db } = await import('@/libs/DB');
 const { automationRunSchema, automationSchema, eventLogSchema } = await import('@/models/Schema');
 const { startMission } = await import('@/services/MissionService');
 const { fireAutomation, recentSkipsBySlug, SKIPPED_RUN_KIND, lastRunBySlug } = await import('@/services/AutomationService');
 const { emitEvent, MISSION_RUN_COMPLETED } = await import('@/services/EventService');
-const { automationCoalescedWorkflowIdFor } = await import('@/libs/temporal/client');
+const { automationCoalescedWorkflowIdFor } = await import('@/libs/durable/scheduleIds');
+const { durable } = await import('@/libs/durable');
+const { resetMemoryEngine } = await import('@/libs/durable/memory');
 const { RATE_LIMIT_WINDOW_MS } = await import('@/services/automations/fireGuards');
 
 const ORG = 'org_loop';
@@ -67,6 +58,7 @@ async function runsOf(slug: string) {
 }
 
 beforeEach(async () => {
+  resetMemoryEngine();
   await db.delete(automationRunSchema);
   await db.delete(automationSchema);
   await db.delete(eventLogSchema);
@@ -187,12 +179,11 @@ describe('the ceiling per automation', () => {
 
     expect(vi.mocked(startMission)).not.toHaveBeenCalled();
     expect(out.skipped).toEqual([{ slug: 'wiki-debrief', automationRunId: expect.any(Number), reason: 'rate_limited' }]);
-    expect(temporal.start).toHaveBeenCalledTimes(1);
-    expect(temporal.start).toHaveBeenCalledWith('automationFire', expect.objectContaining({
-      workflowId: automationCoalescedWorkflowIdFor(ORG, 'wiki-debrief'),
-      args: [{ orgId: ORG, slug: 'wiki-debrief', coalesce: true }],
-      startDelay: RATE_LIMIT_WINDOW_MS,
-    }));
+
+    // One coalesced fire, waiting out the window on a durable sleep.
+    const window = Math.floor(Date.now() / RATE_LIMIT_WINDOW_MS);
+
+    expect(await durable().state(`${automationCoalescedWorkflowIdFor(ORG, 'wiki-debrief')}-${window}`)).toBe('pending');
 
     const skip = (await runsOf('wiki-debrief')).find(r => r.kind === SKIPPED_RUN_KIND)!;
 
@@ -206,9 +197,6 @@ describe('the ceiling per automation', () => {
   it('a second held fire finds the coalesced fire already waiting', async () => {
     await seed('wiki-debrief', 'wiki-debrief');
     await priorEventFires('wiki-debrief', 6);
-    temporal.start.mockImplementationOnce(async () => {}).mockImplementationOnce(async () => {
-      throw Object.assign(new Error('Workflow execution already started'), { name: 'WorkflowExecutionAlreadyStartedError' });
-    });
 
     await emitEvent({ orgId: ORG, type: MISSION_RUN_COMPLETED, payload: completed('a', 1) });
     await emitEvent({ orgId: ORG, type: MISSION_RUN_COMPLETED, payload: completed('b', 2) });

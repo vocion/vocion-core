@@ -1,5 +1,5 @@
 /**
- * startWorkflowRun activity — lets a Temporal Schedule start a Vocion
+ * startWorkflowRun activity — lets a durable schedule start a Vocion
  * workflow run on its cron.
  *
  * Runs in the worker process with full deps, so the in-process runLoop

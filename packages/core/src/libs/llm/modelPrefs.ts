@@ -14,7 +14,7 @@
  *             or adaptive thinking on models that size their own.
  */
 
-/** The vendors a preference can be mapped onto — the same alphabet as `langchain.ts`'s `PrefsProvider`, spelled here so this module never imports the LLM module (the Temporal worker reaches it). */
+/** The vendors a preference can be mapped onto — the same alphabet as `langchain.ts`'s `PrefsProvider`, spelled here so this module never imports the LLM module (the durable executor reaches it). */
 export type PrefsProvider = 'anthropic' | 'openai' | 'bedrock' | 'scripted';
 
 export const MODEL_STRENGTHS = ['fast', 'balanced', 'deep'] as const;

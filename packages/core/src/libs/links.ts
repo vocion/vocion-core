@@ -136,7 +136,7 @@ export function projectSlugProblem(slug: string): string | null {
  * Base URL for absolute links: `NEXT_PUBLIC_APP_URL`, trailing slash trimmed;
  * empty when unset (a relative link is better than `undefined/dashboard`).
  *
- * Read from `process.env`, not `Env`, so the Temporal worker and scripts
+ * Read from `process.env`, not `Env`, so the durable executor and scripts
  * (which do not always load the validated env) still produce a link.
  */
 export function appBaseUrl(): string {

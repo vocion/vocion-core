@@ -98,7 +98,7 @@ WORKDIR /app/packages/core
 # point where the same build had been finishing a half hour earlier. That is a
 # heap ceiling rather than the box running out of memory, so the cap is named
 # here instead of left to be inferred. Kept at 6 GiB so it stays safe on the
-# smaller instance size, with Postgres, Temporal and Langfuse resident on the
+# smaller instance size, with Postgres and Langfuse resident on the
 # same box while the image builds. That failure was a webpack build. Since
 # #670 the build runs on Turbopack, whose compiler is native code and lives
 # outside V8's heap, so the cap now bounds the JavaScript half of the build

@@ -176,7 +176,7 @@ export async function notify(input: NotifyInput, opts: { now?: Date; deliver?: '
 
 /**
  * Hold work until after the response when inside a request (Next's `after`);
- * false outside one (a script, the Temporal worker), where the caller runs it.
+ * false outside one (a script, the durable executor), where the caller runs it.
  * @param work - The work.
  */
 async function scheduleAfterResponse(work: () => Promise<unknown>): Promise<boolean> {

@@ -7,3 +7,5 @@
  */
 import '@/services/workflows/durableWorkflowRun';
 import './flow';
+import './jobs';
+import '@/services/background/catalog';

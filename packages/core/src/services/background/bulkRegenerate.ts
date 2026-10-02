@@ -1,6 +1,6 @@
 /**
  * The per-lead step of a bulk brief regeneration (Metacto ticket 071), run on
- * the worker under Temporal: reset the brief with the note, then fire the
+ * the executor as a durable job: reset the brief with the note, then fire the
  * workspace's regenerate automation for that one lead and wait for the pass.
  *
  * Same two moves as the single-lead Regenerate on the lead page, with two
@@ -9,28 +9,11 @@
  * the job row, landed or failed with the reason, so the person watching the
  * job sees each lead settle.
  */
-import { Context } from '@temporalio/activity';
 import { finishBulkJob, markBulkJobRunning, recordBulkLeadOutcome } from '@/services/personalization/bulkRegenerate';
 
 export type RegenerateLeadBriefActivityInput = { orgId: string; jobId: number; leadId: number; note: string; by: string };
 
-const HEARTBEAT_EVERY_MS = 30_000;
-
 export async function regenerateLeadBriefActivity(input: RegenerateLeadBriefActivityInput): Promise<{ state: 'landed' | 'failed' }> {
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
-  try {
-    const ctx = Context.current();
-    ctx.heartbeat('starting');
-    heartbeat = setInterval(() => {
-      try {
-        ctx.heartbeat('running');
-      } catch {
-        /* the attempt is over */
-      }
-    }, HEARTBEAT_EVERY_MS);
-  } catch {
-    /* not running under Temporal (tests) */
-  }
   try {
     await markBulkJobRunning(input.orgId, input.jobId);
     const { regenerateBrief } = await import('@/services/PersonalizationQueueService');
@@ -58,16 +41,12 @@ export async function regenerateLeadBriefActivity(input: RegenerateLeadBriefActi
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Dynamic: the worker bundle must never statically reach libs/Logger
-    // (its top-level await is fatal under tsx CommonJS; temporal-worker.imports.test).
+    // (its top-level await is fatal under tsx CommonJS; the import-chain tests).
     const { logger } = await import('@/libs/Logger');
     logger.warn('bulk regenerate: lead did not land', { orgId: input.orgId, jobId: input.jobId, leadId: input.leadId, error: message });
     await recordBulkLeadOutcome(input.orgId, input.jobId, { leadId: input.leadId, contactName: null, state: 'failed', error: message }).catch(() => {});
-    // Rethrown so Temporal retries once; a retry that lands overwrites the failure.
+    // Rethrown so the job's step retries once; a retry that lands overwrites the failure.
     throw err;
-  } finally {
-    if (heartbeat) {
-      clearInterval(heartbeat);
-    }
   }
 }
 
