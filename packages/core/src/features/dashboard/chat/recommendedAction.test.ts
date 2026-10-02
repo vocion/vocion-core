@@ -186,6 +186,12 @@ describe('in-app links on a card', () => {
     expect(shown.fields).toEqual([{ label: 'Repo', value: 'northwind/portal' }, { label: 'Page', value: 'Connectors', href: '/dashboard/connectors' }, { label: 'Account', value: 'northwind' }]);
   });
 
+  it('cardShown keeps a field whose stored link is null, and drops a non-text link', () => {
+    const shown = cardShown({ fields: [{ label: 'Repo', value: 'northwind/portal', href: null }, { label: 'Page', value: 'Connectors', href: 42 }] } as never);
+
+    expect(shown.fields).toEqual([{ label: 'Repo', value: 'northwind/portal' }, { label: 'Page', value: 'Connectors' }]);
+  });
+
   it('cardShown leaves keys that were not set absent', () => {
     expect(cardShown({})).toEqual({});
   });

@@ -33,7 +33,7 @@ export type CreateSourceOutcome
   = | { ok: true; sourceId: number; slug: string; created: boolean; before?: Record<string, unknown> }
     | { ok: false; reason: string };
 
-type StoredCredential = { id: string; obtainedVia: 'paste' | 'login' };
+type StoredCredential = { id: string; obtainedVia: 'paste' | 'login'; account: string | null };
 
 /**
  * The name a person knows the connector by.
@@ -66,13 +66,14 @@ export function configProblem(connector: string, config: Record<string, unknown>
 
 /**
  * The newest live credential of the platform: a login first, otherwise a
- * pasted key. Revoked and expired rows never count.
+ * pasted key. Revoked and expired rows never count. `offer_connection` reads
+ * it too, to tell "log in" from "already logged in" (#1028).
  * @param orgId - The workspace.
  * @param platformId - The credential platform, e.g. `github`.
  */
-async function newestLiveCredential(orgId: string, platformId: string): Promise<StoredCredential | null> {
+export async function newestLiveCredential(orgId: string, platformId: string): Promise<StoredCredential | null> {
   const rows = await db
-    .select({ id: apiTokenSchema.id, obtainedVia: apiTokenSchema.obtainedVia })
+    .select({ id: apiTokenSchema.id, obtainedVia: apiTokenSchema.obtainedVia, account: apiTokenSchema.account })
     .from(apiTokenSchema)
     .where(and(
       eq(apiTokenSchema.orgId, orgId),

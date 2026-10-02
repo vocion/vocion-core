@@ -3,8 +3,12 @@ import type { Card } from '@/libs/cards/card';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { newCardId } from '@/libs/cards/card';
+import { lastConnectAttempts } from '@/libs/connect/attempts';
+import { connectStartHref } from '@/libs/connect/returnTo';
+import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { connectorOfSource } from '@/libs/sources/connectorOf';
 import { getConnector } from '@/libs/sources/registry';
+import { newestLiveCredential } from '@/services/connect/createSourceOnLogin';
 import { listSources } from '@/services/SourceSyncService';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 
@@ -16,8 +20,7 @@ import { memberWorkspace } from '@/services/WorkspaceAccessService';
  * @returns An in-app URL.
  */
 export function connectHref(connectorSlug: string, conversationId: number | undefined): string {
-  const back = conversationId ? `/dashboard/chat?conversation=${conversationId}` : '/dashboard/chat';
-  return `/dashboard/connectors?add=${encodeURIComponent(connectorSlug)}&returnTo=${encodeURIComponent(back)}`;
+  return `/dashboard/connectors?add=${encodeURIComponent(connectorSlug)}&returnTo=${encodeURIComponent(returnPath(conversationId))}`;
 }
 
 /**
@@ -44,9 +47,60 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
   if ((await listSources(ctx.orgId)).some(s => connectorOfSource(s) === connector.slug)) {
     return `${name} is already connected; nothing to offer.`;
   }
-  const href = connectHref(connector.slug, ctx.conversationId);
-  const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, rationale: input.why, actions: [], source: { agentSlug: ctx.agentSlug, tool: 'offer_connection' }, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
+  const how = howToConnectFor(connector.slug);
+  const login = how?.login;
+  const source = { agentSlug: ctx.agentSlug, tool: 'offer_connection' };
+  if (!login) {
+    const href = connectHref(connector.slug, ctx.conversationId);
+    const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, rationale: input.why, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
+    ctx.emit({ type: 'card', card });
+    return connectedWording(name, href);
+  }
+  // A live login with no source yet: the next step is picking what to sync,
+  // not another login.
+  const platform = platformForConnectorSlug(connector.slug);
+  const live = platform ? await newestLiveCredential(ctx.orgId, platform.id) : null;
+  if (live?.obtainedVia === 'login') {
+    return `Already logged in to ${name} as ${live.account ?? 'the connected account'}. Call browse_connection to offer what it can see, then save the pick with source.connect.`;
+  }
+  const returnTo = returnPath(ctx.conversationId);
+  const cardId = newCardId();
+  const href = connectStartHref({ provider: login.provider, connector: connector.slug, returnTo, conversationId: ctx.conversationId, cardId });
+  const failed = (await lastConnectAttempts(ctx.orgId)).get(connector.slug);
+  const lastAttempt = failed && !failed.ok && failed.summary ? { at: failed.at.toISOString(), reason: failed.reason ?? 'unknown', summary: failed.summary } : undefined;
+  const card: Card = {
+    id: cardId,
+    kind: 'link',
+    title: `Connect ${name}`,
+    rationale: input.why,
+    ...(login.access.length > 0 ? { body: `Asks for: ${login.access.join(', ')}` } : {}),
+    actions: [],
+    source,
+    href,
+    hrefLabel: `Connect ${name}`,
+    secondaryHref: `/dashboard/connectors?add=${encodeURIComponent(connector.slug)}&paste=1&returnTo=${encodeURIComponent(returnTo)}`,
+    secondaryHrefLabel: 'Paste a token',
+    ...(lastAttempt ? { lastAttempt } : {}),
+    state: 'proposed',
+  };
   ctx.emit({ type: 'card', card });
+  return connectedWording(name, href);
+}
+
+/**
+ * Where the person lands after the login: this conversation when there is one.
+ * @param conversationId - The setup conversation, when the turn has one.
+ */
+function returnPath(conversationId: number | undefined): string {
+  return conversationId ? `/dashboard/chat?conversation=${conversationId}` : '/dashboard/chat';
+}
+
+/**
+ * What the model reads after the card is shown.
+ * @param name - The connector's display name.
+ * @param href - The card's button target.
+ */
+function connectedWording(name: string, href: string): string {
   return `Showed a "Connect ${name}" card (${href}). After connecting, the person lands back in this conversation. Do not claim it is connected until they say so or workspace_setup shows it.`;
 }
 

@@ -4,6 +4,8 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, knowledgeSourceSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { storeLoginCredential } = await import('@/services/ApiTokenService');
+const { recordConnectAttempt } = await import('@/libs/connect/attempts');
 const { connectHref, offerConnectionTool } = await import('./offerConnection');
 
 const ORG = 'org_offer';
@@ -32,16 +34,65 @@ describe('connectHref', () => {
 });
 
 describe('offer_connection', () => {
-  it('puts one link card in chat for a connector that is not connected', async () => {
+  it('a login-capable connector gets a card whose button starts the login, carrying its own id', async () => {
     const emit = vi.fn();
     const out = await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'github', why: 'So the factory can read Northwind\'s repos.' });
 
     expect(emit).toHaveBeenCalledTimes(1);
 
     const card = emit.mock.calls[0]![0].card;
+    const href = new URL(card.href, 'https://app.example');
 
-    expect(card).toMatchObject({ kind: 'link', actions: [], href: connectHref('github', 7), state: 'proposed', rationale: 'So the factory can read Northwind\'s repos.' });
+    expect(href.pathname).toBe('/api/connect/github/start');
+    expect(card.href.startsWith('/api/connect/github/start?connector=github')).toBe(true);
+    expect(href.searchParams.get('card')).toBe(card.id);
+    expect(href.searchParams.get('conversation')).toBe('7');
+    expect(href.searchParams.get('returnTo')).toBe('/dashboard/chat?conversation=7');
+    expect(card).toMatchObject({
+      kind: 'link',
+      title: 'Connect GitHub',
+      hrefLabel: 'Connect GitHub',
+      secondaryHref: '/dashboard/connectors?add=github&paste=1&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7',
+      secondaryHrefLabel: 'Paste a token',
+      actions: [],
+      state: 'proposed',
+      rationale: 'So the factory can read Northwind\'s repos.',
+    });
+    expect(card.body).toMatch(/^Asks for: .+/);
+    expect(card.lastAttempt).toBeUndefined();
+    expect(JSON.stringify(card)).not.toMatch(/approve/i);
     expect(String(out)).toContain('Do not claim it is connected');
+  });
+
+  it('a failed attempt recorded earlier rides on the card with its date', async () => {
+    await recordConnectAttempt({ orgId: ORG, userId: 'usr-admin', provider: 'github', providerLabel: 'GitHub', connector: 'github', ok: false, reason: 'access_denied' });
+    const emit = vi.fn();
+    await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'github', why: 'x' });
+
+    const card = emit.mock.calls[0]![0].card;
+
+    expect(card.lastAttempt).toMatchObject({ reason: 'access_denied', summary: 'GitHub denied access' });
+    expect(Number.isNaN(Date.parse(card.lastAttempt.at))).toBe(false);
+  });
+
+  it('a connector with no login provider keeps the Connectors link', async () => {
+    const emit = vi.fn();
+    await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'apollo', why: 'x' });
+
+    const card = emit.mock.calls[0]![0].card;
+
+    expect(card).toMatchObject({ href: connectHref('apollo', 7), hrefLabel: 'Connect Apollo' });
+    expect(card.secondaryHref).toBeUndefined();
+    expect(card.body).toBeUndefined();
+  });
+
+  it('already logged in and no source: no card, and the text points at browse_connection', async () => {
+    await storeLoginCredential({ orgId: ORG, platform: 'github', name: 'GitHub - northwind', account: 'northwind', values: { installationId: '42', token: 'ghs_not_a_real_token' }, createdBy: 'usr-admin' });
+    const emit = vi.fn();
+    const out = String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'github', why: 'x' }));
+
+    expect(emit).not.toHaveBeenCalled();
+    expect(out).toBe('Already logged in to GitHub as northwind. Call browse_connection to offer what it can see, then save the pick with source.connect.');
   });
 
   it('refuses an unknown connector and shows no card', async () => {

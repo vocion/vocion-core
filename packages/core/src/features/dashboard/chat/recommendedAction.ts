@@ -46,7 +46,7 @@ export function cardLink(href: unknown, label: unknown): { href: string; hrefLab
  */
 function withSafeHref(field: CardField): CardField {
   const { href, ...rest } = field;
-  return href !== undefined && isInAppPath(href) ? { ...rest, href } : rest;
+  return typeof href === 'string' && isInAppPath(href) ? { ...rest, href } : rest;
 }
 
 /**

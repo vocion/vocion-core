@@ -13,6 +13,7 @@ import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { openAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
+import { ConnectLinkCard, isConnectLinkCard } from './ConnectLinkCard';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
 import { describeActionEffect, describeCardState } from './recommendedAction';
 import { answerInput, rulingChoices } from './rulingChoices';
@@ -52,13 +53,25 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
+type CardProps = {
   rec: RecommendedAction;
   /** Whether to offer the inline Approve. The server still authorizes the decision. */
   canApprove?: boolean;
   /** Fired once the run exists (tap or server-filed) so a stack can count it. */
   onProposed?: (runId: number) => void;
-}) {
+};
+
+/**
+ * One card in the answer. The connect card (`offer_connection`, #1028) has its
+ * own component; every other card is the action card below. The split is here,
+ * above every hook, so neither card ever calls a different set of hooks.
+ * @param props - The card and how it behaves.
+ */
+export function RecommendedActionCard(props: CardProps) {
+  return isConnectLinkCard(props.rec) ? <ConnectLinkCard rec={props.rec} /> : <ActionCard {...props} />;
+}
+
+function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
   const [drafting, setDrafting] = useState(false);
   // The decision goes into the conversation as a typed user turn (backlog
@@ -620,15 +633,9 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
                   // A card that names no action has nothing to approve (red team,
                   // 2026-09-26: "Approve build" whose Approve answered "This
                   // recommendation named no action"). It reads as a note; no button
-                  // that can only fail. A link card (offer_connection, #1028) is
-                  // the exception: its one button is the link.
-                    ? (rec.href
-                        ? (
-                            <Link href={rec.href} data-testid="recommended-action-open" className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90">
-                              {rec.hrefLabel ?? 'Open'}
-                            </Link>
-                          )
-                        : null)
+                  // that can only fail. The connect link card (offer_connection,
+                  // #1028) never reaches here: ConnectLinkCard draws it.
+                    ? null
                     : (
                         <>
                           {/* One click when the suggestion is already right. Approving
