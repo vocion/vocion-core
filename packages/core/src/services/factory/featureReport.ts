@@ -87,6 +87,7 @@ import { genericRecordLinker } from '@/libs/workspace/recordHref';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { blockerResolution } from './blocker';
 import { captionOf, CAROUSEL_SECTIONS, sourceOf } from './carouselSource';
+import { buildHistory } from './featureHistory';
 import { planRecordFromTask, planRequirementForTask } from './planRule';
 import { bare, classifyFailure, nextAfter, readRecovery, recoveryStage, waitingOnOf } from './recovery';
 
@@ -239,6 +240,10 @@ export type FeatureReportInput = {
    * nobody is named.
    */
   watcher?: string | null;
+  /** Every conversation and agent run tied to it (`featureReportData.loadActivity`), for its Timeline. */
+  activity?: ReportActivity[];
+  /** The records' codes (PL-371, REL-375), by id. Absent, rows carry none. */
+  codes?: ReadonlyMap<number, string>;
 };
 
 /** One labelled figure in a section. `value` null renders as "not recorded". */
@@ -416,8 +421,70 @@ export type ReportActivity = {
   detail: string | null;
   /** The conversation the feature was requested in: the oldest entry, closing its Activity. */
   origin?: boolean;
-  /** How many agent runs of the same title this row stands for (`libs/factory/activityRows.ts`). */
+  /** How many agent runs of the same title this row stands for. */
   count?: number;
+  /**
+   * An agent run's words, from the automation that started it: `label` what
+   * it did ("Checked it live"), `doing` while it runs, each falling back to
+   * the automation's name (`libs/factory/runTitle.ts`). Absent, no
+   * automation started it.
+   */
+  label?: string | null;
+  doing?: string | null;
+  /** The run's own stored title, kept as the last resort for a run no automation started. */
+  stored?: string | null;
+  /** The run's status column (`status` above may be a sentence: why its fire failed). */
+  runStatus?: string | null;
+  /** When the run started and ended, for matching what it wrote to it. */
+  startedAt?: Date | null;
+  endedAt?: Date | null;
+  /** The record ids its tool calls named — this request, one of its tasks. */
+  touched?: number[];
+  /** What it cost, when that is recorded. Null is "not recorded", never free. */
+  cents?: number | null;
+};
+
+/**
+ * ONE ROW OF THE FEATURE'S TIMELINE (Chris, 2026-10-02): what happened,
+ * newest first — the chat, the plan, each attempt with its build and QA's
+ * reviews under it, the merge, the deploy, the release, the live check, and
+ * the factory's own notes. The page draws a few; the side panel draws them
+ * all, with the same component (`features/dashboard/factory/FeatureTimeline.tsx`).
+ * Assembled in `services/factory/featureHistory.ts`.
+ */
+export type HistoryRow = {
+  key: string;
+  kind: 'conversation' | 'plan' | 'attempt' | 'build' | 'review' | 'agent' | 'merge' | 'deploy' | 'release' | 'live' | 'note';
+  /** What happened, in a person's words (`runTitle`). */
+  title: string;
+  /** Its run or record code (RUN-479, PL-371), drawn small and muted. */
+  code: string | null;
+  /** ISO time, or null when the record carries none (those sort last). */
+  at: string | null;
+  tone: Tone;
+  /** What it cost. Null is "not recorded". */
+  cents: number | null;
+  /** What a tap opens in the preview pane. */
+  open: { type: 'worker_run' | 'mission_run' | 'conversation' | 'object'; id: string } | null;
+  /** Where a tap goes when it is not a preview: a pull request, a deploy run. */
+  href: string | null;
+  /** Still going. */
+  live: boolean;
+  /** An attempt's own rows — its build and QA's reviews of it — newest first. */
+  children?: HistoryRow[];
+  /**
+   * The factory's own lines written at the same moment, folded under the row
+   * they stand beside rather than listed again (the side panel shows them).
+   */
+  notes?: string[];
+};
+
+/** The Timeline's foot: what the work cost in all, and where it went. */
+export type HistoryCost = {
+  /** Everything recorded, in cents. */
+  totalCents: number;
+  /** Builds, agent runs and chat, each null when nothing of that kind is costed. */
+  split: Array<{ key: 'builds' | 'agents' | 'chat'; label: string; cents: number | null }>;
 };
 
 export type FeatureReport = {
@@ -483,6 +550,10 @@ export type FeatureReport = {
   release: ReportReleaseSummary;
   /** A few events worth a glance, newest first. The whole timeline is one tap away. */
   activityPreview: Array<TimelineEntry & { ago: string }>;
+  /** THE TIMELINE: what happened, newest first, each row titled as a person says it (`featureHistory.ts`). */
+  history: HistoryRow[];
+  /** Its foot: the total and the split. */
+  historyCost: HistoryCost;
   /** Whether Dismiss is still an honest second way out: only before any work has started. */
   canDismiss: boolean;
   /** What this should change for people, as the record says it. The introduction carries it. */
@@ -509,7 +580,7 @@ export type FeatureReport = {
  * pane (`feature_section:<requestId>.<key>`) — linkable, closed by Back, one
  * pane, never stacked. `criterion-<n>` is one acceptance criterion (0-based).
  */
-export type FeatureDrawerKey = 'status' | 'plan' | 'implementation' | 'acceptance' | 'release' | 'activity' | 'work' | 'cost' | 'details' | `criterion-${number}`;
+export type FeatureDrawerKey = 'status' | 'plan' | 'implementation' | 'acceptance' | 'release' | 'timeline' | 'activity' | 'work' | 'cost' | 'details' | `criterion-${number}`;
 
 /** The one move the page offers, and how it is made. */
 export type ReportAction
@@ -623,6 +694,12 @@ export type ReportAttempt = {
   n: number;
   /** Still queued, running or paused — the run to watch. */
   live: boolean;
+  /** The run's own status column. */
+  status: string;
+  /** The task (attempt contract) it built, when its input names one. */
+  taskId: number | null;
+  /** The checks its failures named (`check:<name>`), for a failed run that reported no checks list. */
+  failedChecks: string[];
 };
 
 /** A delivery fact that is true, false or not established — never inferred from a neighbour. */
@@ -643,6 +720,14 @@ export type ReportImplementation = {
   /** "Not estimated", or the estimate and its variance when a real estimate exists. */
   costLine: string;
   absence: string | null;
+  /**
+   * THE ATTEMPT THAT SHIPPED: the one whose pull request merged, else null.
+   * What "Did it work?" reads its pull request and checks from — never an
+   * earlier attempt's (FE-370: "Checks passed: Failed" beside "Merged: Yes").
+   */
+  shipped: ReportAttempt | null;
+  /** The checks of the attempt that counts — the shipped one, else the lead — from its run, else its task. */
+  checks: ReportCheck[];
 };
 
 export type ReportReleaseSummary = {
@@ -654,7 +739,9 @@ export type ReportReleaseSummary = {
    * `liveCheck`): seen, partly, not, or `pending` while no live check has
    * looked. Null before it is live. Shipped is not the same as seen.
    */
-  seen: { state: 'seen' | 'partial' | 'not_seen' | 'pending'; line: string; detail?: string | null } | null;
+  seen: { state: 'seen' | 'partial' | 'not_seen' | 'pending'; line: string; detail?: string | null; reached?: number; total?: number } | null;
+  /** The release record's code (REL-375), when the codes were read. */
+  code?: string | null;
   /** The release that shipped it, when one did: what "Check live again" asks QA to check. */
   releaseId?: number;
   at: Date | null;
@@ -3214,7 +3301,19 @@ function attemptOf(run: ReportWorkerRun, now: Date, n = 1): ReportAttempt {
     checks: change.checks,
     n,
     live: executed ? runIsLive(run) : run.claimedAt === null && runIsLive(run),
+    status: run.status,
+    taskId: runTaskId(run),
+    failedChecks: (run.failures ?? []).map(f => (typeof f?.scope === 'string' && f.scope.startsWith('check:') ? f.scope.slice('check:'.length) : null)).filter((x): x is string => x !== null && x !== ''),
   };
+}
+
+/**
+ * The task a run built, when its input names one.
+ * @param run - The run.
+ */
+function runTaskId(run: ReportWorkerRun): number | null {
+  const id = Number((run.input?.record as { id?: unknown } | undefined)?.id);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 /**
@@ -3251,9 +3350,18 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
   const runPr = newestFirst.map(r => runChange(r).prUrl).find(p => p !== null) ?? null;
   const prUrl = taskPr ?? runPr;
   const merged = prUrl !== null && mergedPrs.has(prUrl);
-  const leadChange = lead ? runChange(lead) : null;
-  const taskChecks = input.tasks.flatMap(t => (Array.isArray(t.meta.checks) ? t.meta.checks as Array<Record<string, unknown>> : []).map(c => (typeof c?.passed === 'boolean' ? c.passed : null)));
-  const checks = [...(leadChange?.checks.map(c => c.passed) ?? []), ...taskChecks];
+  // THE CHECKS ARE THE SHIPPED ATTEMPT'S (FE-370, 2026-10-02): every task's
+  // checks were pooled, so attempt 1's failed `test` read "Checks passed:
+  // Failed" beside "Merged: Yes · Released: Live". The attempt whose pull
+  // request merged is the one that counts; before a merge, the lead.
+  const shippedRun = newestFirst.find(r => executedRun(r) && runChange(r).prUrl !== null && mergedPrs.has(runChange(r).prUrl!)) ?? null;
+  const checksRun = shippedRun ?? lead;
+  const leadChange = checksRun ? runChange(checksRun) : null;
+  const checksTask = checksRun ? input.tasks.find(t => t.id === runTaskId(checksRun)) ?? null : null;
+  const taskChecks: ReportCheck[] = (checksTask && Array.isArray(checksTask.meta.checks) ? checksTask.meta.checks as Array<Record<string, unknown>> : [])
+    .map(c => ({ name: str(c, 'name') ?? 'check', passed: typeof c?.passed === 'boolean' ? c.passed : null, detail: null }));
+  const checkList = leadChange && leadChange.checks.length > 0 ? leadChange.checks : taskChecks;
+  const checks = checkList.map(c => c.passed);
   const spent = line.actualCents ?? (line.runCents > 0 ? line.runCents : null);
   const ladder: LadderStep[] = [
     {
@@ -3295,8 +3403,9 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
       state: release.state === 'live' ? 'yes' : release.state === 'not_released' ? 'no' : 'unknown',
     },
   ];
-  const estimate = line.estimateCents === null ? null : money(line.estimateCents);
-  const variance = line.varianceCents === null
+  // No estimate is not a $0.00 estimate (FE-370: "estimated $0.00, +$2.77").
+  const estimate = line.estimateCents === null || line.estimateCents <= 0 ? null : money(line.estimateCents);
+  const variance = line.varianceCents === null || estimate === null
     ? null
     : `${line.varianceCents >= 0 ? '+' : '−'}${money(Math.abs(line.varianceCents))}${line.variancePct === null ? '' : ` (${line.variancePct >= 0 ? '+' : ''}${line.variancePct}%)`}`;
   const costLine = [
@@ -3305,6 +3414,8 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
   ].join(' · ');
   return {
     latest: lead ? attemptOf(lead, input.now, runs.indexOf(lead) + 1) : null,
+    shipped: shippedRun ? attemptOf(shippedRun, input.now, runs.indexOf(shippedRun) + 1) : null,
+    checks: checkList,
     earlier: Math.max(0, runs.length - (lead ? 1 : 0)),
     attempts: newestFirst.map((r, i) => attemptOf(r, input.now, runs.length - i)),
     prUrl,
@@ -3316,6 +3427,20 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
       ? input.tasks.length > 0 ? 'Queued for the engineer — no run has started yet.' : 'Nothing has been built yet.'
       : null,
   };
+}
+
+/**
+ * How many of this feature's live states the release's check reached, from
+ * the release's own evidence rows — "seen live 4 of 4". Empty when the
+ * release records no rows for it.
+ * @param meta - The release's metadata.
+ * @param requestId - The feature.
+ */
+function liveCounts(meta: Record<string, unknown>, requestId: number): { reached?: number; total?: number } {
+  const rows = (Array.isArray(meta.liveEvidence) ? meta.liveEvidence : [])
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+    .filter(r => r.requestId === null || r.requestId === undefined || Number(r.requestId) === requestId);
+  return rows.length === 0 ? {} : { reached: rows.filter(r => r.status === 'reached').length, total: rows.length };
 }
 
 /**
@@ -3333,9 +3458,11 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
   if (shipped) {
     const name = [str(shipped.r.meta, 'product'), str(shipped.r.meta, 'version')].filter(Boolean).join(' ') || shipped.r.title;
     const live = readRequestLive(input.request.meta);
-    const seen = live ? { state: live.state, line: live.line, detail: live.detail } : { state: 'pending' as const, line: 'Not yet seen live' };
+    const counts = liveCounts(shipped.r.meta, input.request.id);
+    const seen = live ? { state: live.state, line: live.line, detail: live.detail, ...counts } : { state: 'pending' as const, line: 'Not yet seen live' };
     return {
       state: 'live',
+      code: input.codes?.get(shipped.r.id) ?? null,
       label: 'Live',
       sentence: `Live since ${formatStamp(shipped.at)}, in ${name}. ${seen.line}${/[.!?]$/.test(seen.line) ? '' : '.'}`,
       seen,
@@ -3708,6 +3835,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const state = buildState(normalised, live, mergedPrs);
   const surfaceUrl = resolveLiveUrl(str((input.request.meta.visuals ?? {}) as Record<string, unknown>, 'surfaceUrl'), input.liveBases ?? []);
   const timeline = buildTimeline(normalised, mergedPrs);
+  const history = buildHistory(normalised, { implementation, release, mergedPrs });
   const notices = findNotices(normalised, mergedPrs, line);
   const read = withActiveRun(buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl, live }), implementation);
   const status = input.place ? { ...read, headline: input.place.label, tone: input.place.tone } : read;
@@ -3748,6 +3876,8 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
       .slice(0, 4)
       // A run reads as an attempt, not as "Run 501 · task-engineer · …".
       .map(e => ({ ...e, title: e.kind === 'run' ? e.title.replace(/^Run \d+ · .+ · attempt (\S+) · (\w+)$/, 'Engineering attempt $1 $2') : e.title, ago: formatAge(input.now.getTime() - e.at!.getTime()) })),
+    history: history.rows,
+    historyCost: history.cost,
     expectedBenefit: str(input.request.meta, 'expectedResult'),
     surfaceUrl,
     // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's

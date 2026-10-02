@@ -7,6 +7,8 @@
 # (`factory-plan-approved`).
 slug: factory-plan-request
 name: Write the plan the build needs
+label: Planned it
+doing: Writing the plan
 description: >-
   The factory asked for an architecture plan before it builds a request. The PM
   writes one plan, per write-architecture-plan, and files it; approval and the

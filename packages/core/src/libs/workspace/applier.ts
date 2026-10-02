@@ -1361,7 +1361,13 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
     description: automation.description ?? null,
     status: automation.status,
     whenConfig: automation.when as { schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number },
-    doConfig: automation.do as { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> },
+    // A run's words (`label`, `doing`) ride the do-config: they describe what
+    // doing it is called, and need no column of their own (`runTitle`).
+    doConfig: {
+      ...(automation.do as { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> }),
+      ...(automation.label ? { label: automation.label } : {}),
+      ...(automation.doing ? { doing: automation.doing } : {}),
+    },
     ownerAgentSlug: automation.agent ?? null,
   };
   if (mode.offline) {

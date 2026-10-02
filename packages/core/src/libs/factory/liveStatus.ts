@@ -3,6 +3,7 @@ import { nounCode } from '@/libs/codes';
 import { describeRef } from '@/libs/preview/describeRef';
 import { isLiveStatus } from '@/libs/worker/runLog';
 import { runName, runningRun } from './delivery';
+import { runTitle } from './runTitle';
 
 /**
  * WHERE THIS IS, IN THREE LINES — You, Now, Next (Chris, 2026-09-30: "a simple
@@ -227,7 +228,7 @@ export function pickLive(input: { workerRuns: readonly LiveWorkerRunInput[]; mis
       ? 'Writing the plan'
       : kind === 'reviewing'
         ? `QA reviewing${input.context.reviewing?.pr ? ` ${input.context.reviewing.pr}` : ''}`
-        : agent.label?.trim() || agent.title;
+        : agent.label?.trim() || runTitle({ kind: 'agent', status: agent.status, stored: agent.title });
     return {
       kind,
       label,

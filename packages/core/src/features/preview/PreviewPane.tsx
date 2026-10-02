@@ -13,6 +13,7 @@ import { PanelCloseButton } from '@/components/ui/panel-close-button';
 import { ARTIFACT_KIND_ICON } from '@/features/dashboard/artifacts/kinds';
 import { SharePicker } from '@/features/dashboard/artifacts/SharePicker';
 import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/agentSurface';
+import { FeatureTimeline } from '@/features/dashboard/factory/FeatureTimeline';
 import { RunStepList } from '@/features/dashboard/factory/RunDetail';
 import { RunGlanceView } from '@/features/dashboard/factory/RunGlanceView';
 import { LiveWorkStatus } from '@/features/dashboard/factory/WorkStatus';
@@ -97,7 +98,7 @@ function PreviewIcon({ type, doc }: { type: RecordType; doc: PreviewDoc }) {
  * A link inside a preview's body. One written as `?preview=<type>:<id>` is a
  * peek at another record: it swaps this pane for that one in place — same
  * pane, pushed to history so Back returns — rather than reloading the page
- * (a feature's "View all work" lists runs and conversations this way).
+ * (a feature's Timeline lists runs and conversations this way).
  * Everything else is an ordinary link.
  * @param props - The anchor's props from the markdown renderer.
  * @param props.href - Where it points.
@@ -230,6 +231,15 @@ function Body(props: { doc: PreviewDoc }) {
   }
   if (doc.unresolved) {
     return <CouldNotLoad label={doc.title} reason={doc.unresolved.reason} href={doc.href} reference={doc.unresolved.reference} />;
+  }
+  // A feature's Timeline draws as its page draws it, every row (one list,
+  // two densities — `FeatureTimeline`).
+  if (doc.timeline) {
+    return (
+      <div className="px-4 py-3">
+        <FeatureTimeline rows={doc.timeline.rows} cost={doc.timeline.cost} density="full" />
+      </div>
+    );
   }
   // An engineering run draws as its run page does: one header, one shape.
   if (doc.run) {

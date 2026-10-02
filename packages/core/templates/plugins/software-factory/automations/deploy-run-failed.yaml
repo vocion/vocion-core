@@ -7,6 +7,8 @@
 # engineer's now. A workspace that needs its own words overrides it by slug.
 slug: deploy-run-failed
 name: A failed deploy is an incident
+label: Answered the failed deploy
+doing: Answering the failed deploy
 description: >-
   When a GitHub Actions run on the deploy branch completes without
   succeeding, the Release engineer reads the run, files one incident request

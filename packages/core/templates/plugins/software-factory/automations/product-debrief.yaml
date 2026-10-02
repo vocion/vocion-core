@@ -1,5 +1,7 @@
 slug: product-debrief
 name: Write what shipped on the record
+label: Wrote what shipped
+doing: Writing what shipped
 description: >-
   Fires the moment the factory finishes something — a worker run completes or
   fails, a pull request merges — so the Product manager writes it where a

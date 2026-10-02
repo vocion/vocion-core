@@ -7,6 +7,8 @@
 # factory knows the plugin beyond this subscription.
 slug: incident-deploy-caused
 name: A deploy that broke production is answered
+label: Answered the incident
+doing: Answering the incident
 description: >-
   When a production incident opens whose cause is a deploy, the Release
   engineer finds the release behind it and rolls it back, or says why not.

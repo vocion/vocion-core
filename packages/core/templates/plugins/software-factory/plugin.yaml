@@ -321,7 +321,14 @@ name: Software factory
 #   the Work tab, a null status reads In progress. The factory writes it at
 #   each transition (the request flow's `status` steps write it too); Work,
 #   the feature page and the product page read it.
-version: 2.54.0
+# 2.55.0 — a run reads as what it did (2026-10-02, FE-370: the feature page
+#   listed `release-live-check: Every criterion is proven, or it is named as
+#   unproven` and `Task send-t374 (logic): changed 1 file(s)…`). Each
+#   automation that starts an agent run says what a run of it did (`label`,
+#   "Checked it live") and is doing (`doing`); every list of runs titles
+#   them so. A request's Related is its records: the tasks are read for the
+#   pull requests and not listed, and their runs are the Timeline.
+version: 2.55.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

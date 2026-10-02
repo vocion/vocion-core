@@ -5,6 +5,8 @@
 # one that draws nothing is caught when it ends (`design-mockup-ended`).
 slug: design-mockup
 name: Draw the mockup a request owes
+label: Drew the mockup
+doing: Drawing the mockup
 description: >-
   A request with a UI has no mockup. The designer surveys the product's look,
   draws the outcome as its own UI blocks with draw_mockup, and files the images

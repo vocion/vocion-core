@@ -72,8 +72,9 @@ schema:
   x-related:
     - {key: product, label: Product, from: links, field: product, type: product, match: slug}
     - {key: plans, label: Plan, from: backlinks, type: architecture_plan, field: requestId}
-    - {key: tasks, label: Engineering tasks, from: backlinks, type: engineering_task, field: requestId}
-    - {key: runs, label: Engineering runs, from: runs, of: tasks}
+    # Read for the pull requests; the tasks and their runs are the feature's
+    # Timeline, not Related (2026-10-02: Related is records only).
+    - {key: tasks, label: Engineering tasks, from: backlinks, type: engineering_task, field: requestId, hidden: true}
     - {key: pulls, label: Pull requests, from: url, field: prUrl, of: tasks}
     - {key: releases, label: Releases, from: backlinks, type: release, field: requestIds}
   properties:

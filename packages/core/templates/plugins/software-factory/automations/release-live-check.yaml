@@ -14,6 +14,8 @@
 # browser runs where the agents' tools run (`services/factory/liveCheck.ts`).
 slug: release-live-check
 name: Check the release on the live product
+label: Checked it live
+doing: Checking it live
 description: >-
   Fires when a release that changed something people use is linked, and once
   more when the first check did not see the change. QA reads each shipped

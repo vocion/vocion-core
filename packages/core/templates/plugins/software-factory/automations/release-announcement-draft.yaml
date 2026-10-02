@@ -13,6 +13,8 @@
 # reads as draft or approved, not `not-prepared`, and is left alone.
 slug: release-announcement-draft
 name: Draft the release announcement
+label: Drafted the release note
+doing: Drafting the release note
 description: >-
   Fires when a release is linked to the requests, tasks and QA verdicts it
   shipped and something people use changed. The Product manager writes the

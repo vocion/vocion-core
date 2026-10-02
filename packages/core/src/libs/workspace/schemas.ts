@@ -1278,6 +1278,15 @@ export type OperatingIntentManifest = z.infer<typeof OperatingIntentManifestSche
 export const AutomationManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().optional(),
+  /**
+   * What one finished run of it did, past tense, as a list row reads it:
+   * "Checked it live", "Drew the mockup", "QA reviewed". Every list of runs
+   * titles a run with it (`libs/factory/runTitle.ts`) instead of the run's
+   * stored title, which is plumbing. Absent, the name.
+   */
+  label: z.string().min(1).max(60).optional(),
+  /** The same while a run is going: "Checking it live". Absent, the name. */
+  doing: z.string().min(1).max(60).optional(),
   description: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
   /**

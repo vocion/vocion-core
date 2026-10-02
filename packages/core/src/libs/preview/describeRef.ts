@@ -30,8 +30,9 @@ const FEATURE_PART: Record<string, string> = {
   implementation: 'Implementation of',
   acceptance: 'Acceptance for',
   release: 'Release of',
-  activity: 'Activity on',
-  work: 'Connected work on',
+  timeline: 'Timeline of',
+  activity: 'Timeline of',
+  work: 'Timeline of',
   cost: 'Cost of',
   details: 'The records of',
 };

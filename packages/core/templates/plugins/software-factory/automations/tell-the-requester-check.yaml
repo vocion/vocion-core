@@ -1,5 +1,7 @@
 slug: tell-the-requester-check
 name: Two-hourly reply pass
+label: Reply pass
+doing: Reply pass
 description: >-
   Wakes the PM on the cadence of the `tell-the-requester` mission to check the
   standing charter and do only what needs doing now.

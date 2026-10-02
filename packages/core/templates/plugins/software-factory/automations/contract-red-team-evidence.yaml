@@ -21,6 +21,8 @@
 # kept low: a burst of green checks is more likely a symptom than a workload.
 slug: contract-red-team-evidence
 name: Green checks are not the same as a proven contract
+label: QA reviewed
+doing: QA reviewing
 description: >-
   When every check on a factory pull request has passed, the change reviewer
   reads each acceptance criterion against the evidence attached to it: is this

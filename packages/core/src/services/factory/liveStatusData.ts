@@ -103,7 +103,7 @@ export async function loadLiveMissionRuns(orgId: string, subjects: readonly Live
   }
   const [fires, calls] = await Promise.all([
     db
-      .select({ targetRunId: automationRunSchema.targetRunId, requestId: sql<string | null>`${automationRunSchema.input}->>'requestId'`, name: automationSchema.name })
+      .select({ targetRunId: automationRunSchema.targetRunId, requestId: sql<string | null>`${automationRunSchema.input}->>'requestId'`, name: automationSchema.name, doing: sql<string | null>`${automationSchema.doConfig} ->> 'doing'` })
       .from(automationRunSchema)
       .leftJoin(automationSchema, and(eq(automationSchema.orgId, automationRunSchema.orgId), eq(automationSchema.slug, automationRunSchema.slug)))
       .where(and(eq(automationRunSchema.orgId, orgId), isNotNull(automationRunSchema.targetRunId), inArray(automationRunSchema.targetRunId, runIds))),
@@ -119,8 +119,11 @@ export async function loadLiveMissionRuns(orgId: string, subjects: readonly Live
     const owner = f.requestId !== null && Number(f.requestId) > 0 ? out.has(Number(f.requestId)) ? Number(f.requestId) : null : null;
     if (owner !== null && f.targetRunId !== null) {
       forRecord.set(f.targetRunId, (forRecord.get(f.targetRunId) ?? new Set()).add(owner));
-      if (f.name?.trim()) {
-        labelOf.set(f.targetRunId, f.name.trim());
+      // The automation's own words for a run in progress ("Checking it
+      // live"), else its name (`libs/factory/runTitle.ts`).
+      const words = f.doing?.trim() || f.name?.trim();
+      if (words) {
+        labelOf.set(f.targetRunId, words);
       }
     }
   }
