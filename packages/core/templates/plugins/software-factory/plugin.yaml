@@ -335,7 +335,14 @@ name: Software factory
 #   `product` opts into x-agent-file, and the PM's `products-from-repos` skill
 #   proposes a workspace's first products and repos when setup hands it a
 #   connected code host. Every one is a person's approval.
-version: 3.1.0
+# 3.2.0 — a suggested product and its repositories are created in one tap
+#   (#1028, 2026-10-02). `products-from-repos` asks one `ask_choice` per
+#   product; option A is bound to core's `objects.create_group`, so the
+#   product and its repos exist together or not at all, and a second tap
+#   creates nothing. It checks `lookup_objects` and the tracker first and
+#   never suggests work already in progress, in QA or done. It no longer
+#   uses `file_product`.
+version: 3.2.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
