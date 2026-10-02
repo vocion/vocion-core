@@ -932,10 +932,11 @@ export function runChange(run: ReportWorkerRun): {
       const check = c as Record<string, unknown>;
       const passed = typeof check.passed === 'boolean' ? check.passed : str(check, 'status') === 'passed' ? true : str(check, 'status') === 'failed' ? false : null;
       const exit = num(check, 'exitCode') ?? num(check, 'exit_code');
+      const said = passed === false ? (str(check, 'summary') ?? str(check, 'tail')?.split('\n').slice(-1)[0]?.slice(0, 200) ?? null) : null;
       return {
         name: str(check, 'name') ?? str(check, 'check') ?? 'check',
         passed,
-        detail: exit === null ? null : `exit ${exit}`,
+        detail: checkDetail(exit, said),
       };
     }),
     keptBranch: kept,
@@ -1504,6 +1505,30 @@ function runsSection(runs: ReportWorkerRun[], mergedPrs: Set<string>): ReportSec
  * @param tasks - The tasks.
  * @param runs - The runs, for a pull request the task never recorded.
  */
+/**
+ * WHY A CHECK FAILED, not only that it did (FE-224, 2026-10-02: the page said
+ * "test · exit 2" while the reason, `sh: 1: Syntax error: "(" unexpected`, sat
+ * in the run's failures). The runner writes each check's last output line on
+ * the task's `verification`; a failed check shows it beside its exit code.
+ * @param meta - The task's metadata.
+ * @param name - The check.
+ */
+function verificationSummary(meta: Record<string, unknown>, name: string): string | null {
+  const rows = Array.isArray(meta.verification) ? (meta.verification as unknown[]) : [];
+  const row = rows.find(r => r && typeof r === 'object' && (r as Record<string, unknown>).check === name) as Record<string, unknown> | undefined;
+  return row ? str(row, 'summary') : null;
+}
+
+/**
+ * A check's detail: its exit code and, when it failed, what it said.
+ * @param exit - The exit code.
+ * @param summary - Its last output line.
+ */
+function checkDetail(exit: number | null, summary: string | null): string | null {
+  const parts = [exit === null ? null : `exit ${exit}`, summary].filter((p): p is string => Boolean(p));
+  return parts.length > 0 ? parts.join(': ') : null;
+}
+
 function changeSection(tasks: ReportObject[], runs: ReportWorkerRun[]): ReportSection {
   const s = blank('change', 'The change');
   const fromTasks = tasks.filter(t => str(t.meta, 'prUrl'));
@@ -1532,12 +1557,9 @@ function changeSection(tasks: ReportObject[], runs: ReportWorkerRun[]): ReportSe
       ],
       checks: rawChecks.map((c) => {
         const check = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>;
-        const exit = num(check, 'exitCode');
-        return {
-          name: str(check, 'name') ?? 'check',
-          passed: typeof check.passed === 'boolean' ? check.passed : null,
-          detail: exit === null ? null : `exit ${exit}`,
-        };
+        const name = str(check, 'name') ?? 'check';
+        const passed = typeof check.passed === 'boolean' ? check.passed : null;
+        return { name, passed, detail: checkDetail(num(check, 'exitCode'), passed === false ? verificationSummary(meta, name) : null) };
       }),
       flags: [],
     };

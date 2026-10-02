@@ -35,7 +35,7 @@ import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, me
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown } from './events.mjs';
 import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, namedTestStatus, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testNamePattern, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
-import { checkAllowedPaths, pathsMissingFailure } from './preflight.mjs';
+import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
 import { captureEvidence, containerCredentials, productionBase, publishArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
 import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
 import { resumeConflictNote } from './resume.mjs';
@@ -1658,6 +1658,17 @@ async function main() {
     const { failure } = pathsMissingFailure(pathsCheck);
     log('preflight.paths_missing', { missing: pathsCheck.missing, suggest: pathsCheck.suggest, roots: pathsCheck.roots });
     task.notes = [task.notes, `Stale plan paths: ${failure.reason}. Work against the tree as it is.`].filter(Boolean).join('\n\n');
+  }
+
+  // A check command that cannot run fails every attempt the same way, whatever the code: it is the
+  // repo record's configuration. Found here, before services or a model call, and failed typed
+  // (`check_not_runnable`) so recovery stops and names the record instead of retrying the code.
+  const unrunnable = notRunnableChecks(checkPlan(task, {}), args => sh('sh', args, { timeoutSeconds: 30 }));
+  if (unrunnable.length) {
+    const f = checkNotRunnableFailure(unrunnable);
+    log('preflight.check_not_runnable', { checks: unrunnable.map(c => ({ name: c.name, command: c.command, reason: c.reason })) });
+    await fail(runId, f.error, f.failures, { task_id: task.task_id, failure: f.failure });
+    return;
   }
 
   try {

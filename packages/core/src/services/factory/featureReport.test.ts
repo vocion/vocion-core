@@ -1496,3 +1496,14 @@ describe('merged means merged (#201: "Merged: Yes" beside "Ready to merge")', ()
     expect(mergedPullRequests([{ id: 9, title: 'send@abc', status: null, meta: { prUrls: [pr] } } as never], []).has(pr)).toBe(true);
   });
 });
+
+describe('a failed check says why, not only that it failed', () => {
+  it('shows the check\'s last output line beside its exit code', () => {
+    const run = { id: 7, agentSlug: 'engineer', kind: 'worker', status: 'failed', attempt: 1, cents: null, model: null, summary: null, error: null, createdAt: NOW, claimedAt: null, completedAt: null, input: {}, progress: {}, result: { checks: [{ name: 'test', status: 'failed', exit_code: 2, tail: 'npm test\nsh: 1: Syntax error: "(" unexpected' }, { name: 'lint', status: 'passed', exit_code: 0, tail: 'ok' }] } } as ReportWorkerRun;
+
+    expect(runChange(run).checks).toEqual([
+      { name: 'test', passed: false, detail: 'exit 2: sh: 1: Syntax error: "(" unexpected' },
+      { name: 'lint', passed: true, detail: 'exit 0' },
+    ]);
+  });
+});

@@ -239,6 +239,64 @@ describe('an approved plan builds', () => {
 });
 
 describe('a failed run recovers', () => {
+  it('a retry continues the branch the failed run kept, at the next attempt (FE-224)', async () => {
+    const r = await request({ product: 'rooms', title: 'The room list loses its sort on refresh' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const run = (await runsFor(r.id)).at(-1)!;
+    const taskId = Number(((run.input as Record<string, unknown>).record as { id: number }).id);
+    // What the runner writes on the task when it keeps the work of a failed run.
+    const task = await read(taskId);
+    await db.update(businessObjectSchema).set({ metadata: { ...(task.metadata as Record<string, unknown>), keptBranch: `factory/rooms-t${taskId}-wip-${run.id}` } }).where(eq(businessObjectSchema.id, taskId));
+
+    await carry.recoverFailedRun(ORG, await failNewest(r.id, 'verification failed: required checks failed: test', [{ scope: 'check:test', message: 'expected 3 rows, got 2' }]));
+    const next = (await runsFor(r.id)).at(-1)!;
+    const contract = (next.input as { task: Record<string, unknown> }).task;
+
+    expect(next.id).not.toBe(run.id);
+    expect(contract.base_sha).toBe(`factory/rooms-t${taskId}-wip-${run.id}`);
+    expect(contract.attempt).toBe(2);
+    expect(String(contract.objective)).toContain(`continues branch factory/rooms-t${taskId}-wip-${run.id}`);
+  });
+
+  it('a check that cannot run stops once on its repo record, spends no attempt, and continues once the command is fixed', async () => {
+    const [repo] = await db.insert(businessObjectSchema).values({
+      orgId: ORG,
+      typeId: types.repo!,
+      title: 'Acme/ledger-core',
+      metadata: { owners: ['Robin Vale'], checks: [{ name: 'test', command: 'npm test (suites need postgres)' }, { name: 'lint', command: 'npm run lint' }], productPaths: { ledger: ['apps/ledger/src/**'] } },
+    }).returning();
+    const r = await request({ product: 'ledger', ownerRepo: 'Acme/ledger-core', title: 'The ledger total ignores refunds' });
+    await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });
+    const first = (await runsFor(r.id)).at(-1)!;
+
+    expect((first.input as { task: { checks?: unknown } }).task.checks).toEqual([{ name: 'test', command: 'npm test (suites need postgres)' }, { name: 'lint', command: 'npm run lint' }]);
+
+    const out = await carry.recoverFailedRun(ORG, await failNewest(r.id, 'check not runnable: the repo record\'s command for test cannot run as written; nothing was built.', [{ scope: 'check_not_runnable', message: 'test: `npm test (suites need postgres)`: it is not a shell command: it does not parse' }], { failure: { kind: 'check_not_runnable', checks: [{ name: 'test', command: 'npm test (suites need postgres)', reason: 'it is not a shell command: it does not parse', stderr: 'sh: 1: Syntax error: "(" unexpected' }] } }));
+
+    expect(out.did).toBe('configure');
+    expect(out.line).toContain('Robin Vale fixes the check command on');
+    expect(out.line).toContain('test (`npm test (suites need postgres)`)');
+    expect(await runsFor(r.id)).toHaveLength(1);
+
+    const stopped = (await read(r.id)).metadata as { recovery: { stage: string; askId: number | null; waitingOn: { who: string } }; checkConfigStop: { runId: number } };
+
+    expect(stopped.recovery).toMatchObject({ stage: 'stopped', askId: null, waitingOn: { who: 'Robin Vale' } });
+    expect(stopped.checkConfigStop.runId).toBe(first.id);
+    // Nothing moves while the record still says the same thing.
+    expect(await carry.resumeAfterCheckFix(ORG, { id: r.id, title: r.title, typeId: types.request!, typeSlug: 'request', meta: stopped as never })).toBeNull();
+
+    await db.update(businessObjectSchema).set({ metadata: { ...(repo!.metadata as Record<string, unknown>), checks: [{ name: 'test', command: 'npm test' }, { name: 'lint', command: 'npm run lint' }] } }).where(eq(businessObjectSchema.id, repo!.id));
+    const resumed = await carry.resumeAfterCheckFix(ORG, { id: r.id, title: r.title, typeId: types.request!, typeSlug: 'request', meta: (await read(r.id)).metadata as never });
+
+    expect(resumed?.did).toMatch(/^check fixed:/);
+
+    const second = (await runsFor(r.id)).at(-1)!;
+
+    expect(second.id).not.toBe(first.id);
+    expect((second.input as { task: { checks?: unknown } }).task.checks).toEqual([{ name: 'test', command: 'npm test' }, { name: 'lint', command: 'npm run lint' }]);
+    expect(((await read(r.id)).metadata as { checkConfigStop?: unknown }).checkConfigStop).toBeNull();
+  });
+
   it('sends failed checks again with their output, and stops after three attempts with one ask', async () => {
     const r = await request({ product: 'rooms', title: 'The invite email links to the wrong room' });
     await carry.intakeFiledRequest(ORG, { objectType: 'request', objectId: r.id, conversationId: 12, byPerson: true });

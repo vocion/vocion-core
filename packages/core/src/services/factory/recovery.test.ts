@@ -365,3 +365,44 @@ describe('the recovery log is kept in time order (#294)', () => {
     expect(read({ recovery: { log: stored } }).log.map(l => l.text)).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 });
+
+describe('a check that cannot run is configuration, not code', () => {
+  // The worker's typed shape (runner preflight.mjs checkNotRunnableFailure), with invented commands.
+  const run = {
+    status: 'failed',
+    error: 'check not runnable: the repo record\'s command for test, no-em-dashes cannot run as written; nothing was built.',
+    failures: [{ scope: 'check_not_runnable', message: 'test: `npm test (suites need postgres)`: it is not a shell command: it does not parse' }],
+    result: { failure: { kind: 'check_not_runnable', checks: [
+      { name: 'test', command: 'npm test (suites need postgres)', reason: 'it is not a shell command: it does not parse', stderr: 'sh: 1: Syntax error: "(" unexpected' },
+      { name: 'no-em-dashes', command: 'the worker greps for U+2014', reason: 'its first word, the, is not a command the runner can find', stderr: 'sh: the: not found' },
+    ] } },
+  };
+
+  it('reads the worker\'s typed kind, with each command and what the shell said', () => {
+    const f = classifyFailure(run);
+
+    expect(f.class).toBe('check_not_runnable');
+    expect(f.failedChecks).toEqual(['test', 'no-em-dashes']);
+    expect(f.sentence).toContain('the repo record\'s command for test, no-em-dashes cannot run as written');
+    expect(f.tail).toContain('Syntax error');
+    expect(f.notRunnable?.[1]?.command).toBe('the worker greps for U+2014');
+  });
+
+  it('is never retried, whether attempts are left or not, and says who fixes what', () => {
+    const f = classifyFailure(run);
+    for (const attempts of [0, RECOVERY_LIMIT]) {
+      const d = recoveryDecision({ failure: f, attempts });
+
+      expect(d.do).toBe('configure');
+      expect(d.do === 'configure' && d.why).toContain('the repo record\'s configuration, not the code');
+      expect(d.do === 'configure' && d.unblock).toContain('on the repo record');
+    }
+  });
+
+  it('a check that ran and failed is still the code\'s, and is sent again with its output', () => {
+    const f = classifyFailure({ status: 'failed', error: 'verification failed: required checks failed: test', failures: [{ scope: 'check:test', message: 'expected 2 rows, got 1' }] });
+
+    expect(f.class).toBe('checks_failed');
+    expect(recoveryDecision({ failure: f, attempts: 0 }).do).toBe('dispatch');
+  });
+});

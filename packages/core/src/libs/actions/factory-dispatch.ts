@@ -664,9 +664,11 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     ? `\n\nWhat the person reported (open each to see what they saw):\n${input.reported!.map(r => `- ${r.title}: ${r.file ?? r.url}${r.file ? ` (${r.url})` : ''}`).join('\n')}`
     : '';
   const resumeProven = resume ? (resume.meta.verdict as { proven?: number; total?: number } | undefined) : undefined;
-  const continued = resume
-    ? `\n\nThis attempt continues branch ${String(resume.meta.branch)} (task #${resume.id}, ${resumeProven?.proven ?? 0} of ${resumeProven?.total ?? '?'} criteria proven). Keep what is proven; change only what the open criteria need.`
-    : '';
+  const continued = !resume
+    ? ''
+    : (resumeProven?.proven ?? 0) > 0 || !keptBranchOf(resume.meta)
+        ? `\n\nThis attempt continues branch ${String(resume.meta.branch)} (task #${resume.id}, ${resumeProven?.proven ?? 0} of ${resumeProven?.total ?? '?'} criteria proven). Keep what is proven; change only what the open criteria need.`
+        : `\n\nThis attempt continues branch ${String(resume.meta.branch)}, the work task #${resume.id} kept when its run ended without landing. Keep that work; fix what stopped it before anything else.`;
   const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + reported + carried + continued + asked;
   // A ui change is refused without a QA flow (the worker screenshots it
   // before and after). The request says where it lives; that page is the flow.
@@ -883,14 +885,37 @@ export type BuildReadiness = {
  * @param rows - The request's sent-back and superseded attempts.
  * @param planId - The plan this build answers, or null when it has none.
  * @param planApprovedAt - When that plan was last approved (ISO), if known.
+ * @param recovered - The task whose failed run this build recovers: its kept branch, when it has one, is the base.
  */
-export function pickResumeBase(rows: Array<{ id: number; meta: Meta; createdAt?: Date | null }>, planId: number | null, planApprovedAt?: string | null): { id: number; meta: Meta } | null {
+export function pickResumeBase(rows: Array<{ id: number; meta: Meta; createdAt?: Date | null }>, planId: number | null, planApprovedAt?: string | null, recovered?: { id: number; meta: Meta; createdAt?: Date | null } | null): { id: number; meta: Meta } | null {
   const proven = (m: Meta) => Number((m.verdict as { proven?: unknown } | undefined)?.proven ?? 0) || 0;
   const samePlan = (m: Meta) => (Number(m.planId) > 0 ? Number(m.planId) : null) === planId;
   const since = planApprovedAt ? Date.parse(planApprovedAt) : Number.NaN;
   const afterApproval = (r: { createdAt?: Date | null }) => Number.isNaN(since) || !r.createdAt || r.createdAt.getTime() >= since;
+  // A RETRY CONTINUES THE BRANCH ITS FAILED RUN KEPT (FE-224, 2026-10-02:
+  // runs 462 to 465 each kept their work on a factory/...-wip-<run> branch and
+  // said "Continue from this branch", and each recovery started again from
+  // origin/main, throwing the last attempt away). The run a recovery answers
+  // is the newest work, built on whatever base it was given, so its kept
+  // branch is where the next attempt starts, under the same plan as always.
+  const kept = recovered ? keptBranchOf(recovered.meta) : null;
+  if (recovered && kept && samePlan(recovered.meta) && afterApproval(recovered)) {
+    return { id: recovered.id, meta: { ...recovered.meta, branch: kept } };
+  }
   const eligible = rows.filter(r => typeof r.meta.branch === 'string' && r.meta.branch.startsWith('factory/') && proven(r.meta) > 0 && samePlan(r.meta) && afterApproval(r));
   return eligible.sort((a, b) => proven(b.meta) - proven(a.meta) || b.id - a.id)[0] ?? null;
+}
+
+/**
+ * The branch a failed run's work is on: the one it pushed (`keptBranch`,
+ * written by the runner when it keeps work), else the factory branch it was
+ * itself continuing (`baseSha`) when it stopped before keeping anything (a
+ * check that could not run stops it before any model call). Null when neither.
+ * @param meta - The task's metadata.
+ */
+export function keptBranchOf(meta: Meta): string | null {
+  const b = str(meta, 'keptBranch') ?? str(meta, 'baseSha');
+  return b && b.startsWith('factory/') ? b : null;
 }
 
 /**
@@ -900,8 +925,9 @@ export function pickResumeBase(rows: Array<{ id: number; meta: Meta; createdAt?:
  * @param requestId - The request.
  * @param planId - The plan this build answers.
  * @param planApprovedAt - When that plan was last approved.
+ * @param recoveryOfRun - The failed run this build recovers, whose kept branch it continues.
  */
-async function sentBackTask(orgId: string, requestId: number, planId: number | null, planApprovedAt?: string | null): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
+async function sentBackTask(orgId: string, requestId: number, planId: number | null, planApprovedAt?: string | null, recoveryOfRun?: number): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
   const { and, eq, inArray, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
@@ -919,7 +945,24 @@ async function sentBackTask(orgId: string, requestId: number, planId: number | n
     .limit(20);
   const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta, createdAt: r.createdAt }));
   const latest = all.find(r => r.status === 'changes_requested') ?? null;
-  return { latest: latest ? { id: latest.id, meta: latest.meta } : null, resume: pickResumeBase(all, planId, planApprovedAt) };
+  // The task whose run this recovery answers, whatever its status (a failed run leaves it `rejected`).
+  const [recovered] = recoveryOfRun
+    ? await db
+        .select({ id: businessObjectSchema.id, meta: businessObjectSchema.metadata, createdAt: businessObjectSchema.createdAt })
+        .from(businessObjectSchema)
+        .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+        .where(and(
+          eq(businessObjectSchema.orgId, orgId),
+          eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).task),
+          sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
+          sql`${businessObjectSchema.metadata}->>'workerRunId' = ${String(recoveryOfRun)}`,
+        ))
+        .limit(1)
+    : [];
+  return {
+    latest: latest ? { id: latest.id, meta: latest.meta } : null,
+    resume: pickResumeBase(all, planId, planApprovedAt, recovered ? { id: recovered.id, meta: (recovered.meta ?? {}) as Meta, createdAt: recovered.createdAt } : null),
+  };
 }
 
 /**
@@ -953,7 +996,7 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     ? await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? (stored ? str(stored.meta, 'repoSlug') : null) ?? (request ? str(request.meta, 'ownerRepo') : null), request ? str(request.meta, 'product') : null)
     : null;
   if (!stored && request) {
-    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null, plan ? str(plan.meta, 'approvedAt') : null);
+    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null, plan ? str(plan.meta, 'approvedAt') : null, input.recoveryOfRun);
     const { reportedLinks } = await import('@/services/objects/reported');
     const reported = await reportedLinks(ctx.orgId, request.id).catch(() => []);
     const environments = await productEnvironments(ctx.orgId, str(request.meta, 'product'));

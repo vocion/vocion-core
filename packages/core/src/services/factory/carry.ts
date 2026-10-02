@@ -651,6 +651,90 @@ async function holdForPipeline(orgId: string, request: FactoryRecord, run: { id:
 }
 
 /**
+ * A CHECK THAT CANNOT RUN STOPS ON ITS REPO RECORD (FE-224, 2026-10-02: four
+ * runs failed `sh: 1: Syntax error` and `sh: 1: the: not found` on REPO-27's
+ * prose check commands, and recovery retried the code three times, about $8).
+ * One typed stop, no attempt spent and no card: the line names each broken
+ * command, the record it is on, and who fixes it (the record's owner, else the
+ * seat that owns the pipeline). `checkConfigStop` on the request remembers the
+ * commands, so the sweep continues the build once the record changes
+ * (`resumeAfterCheckFix`).
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param run - The run that could not run its checks.
+ * @param run.id - Its id.
+ * @param run.input - Its input, whose contract names the repository and the commands.
+ * @param why - What stopped it.
+ * @param failure - The failure, with each command that cannot run.
+ * @param now - The clock.
+ */
+async function stopOnRepoRecord(orgId: string, request: FactoryRecord, run: { id: number; input: Meta }, why: string, failure: Failure, now: Date): Promise<string> {
+  const task = (run.input.task ?? {}) as Meta;
+  const { readRepo, writeMeta } = await lib();
+  const slug = (await import('./environments')).fullNameOf(task.repo) ?? null;
+  const repo = await readRepo(orgId, slug, typeof request.meta.product === 'string' ? request.meta.product : null).catch(() => null);
+  const ref = (repo && typeof repo.recordCode === 'string' && repo.recordCode) || (slug ? `the repo record for ${slug}` : 'the repo record');
+  const owners = repo && Array.isArray(repo.owners) ? (repo.owners as unknown[]).filter((o): o is string => typeof o === 'string' && o.trim() !== '') : [];
+  const who = owners[0] ?? (await pipelineOwner(orgId)).name;
+  const given = new Map((Array.isArray(task.checks) ? task.checks as Array<{ name?: unknown; command?: unknown }> : []).map(c => [String(c.name ?? ''), String(c.command ?? '')]));
+  const checks = (failure.notRunnable ?? []).map(c => ({ name: c.name, command: c.command || given.get(c.name) || '' }));
+  const broken = checks.map(c => `${c.name} (\`${c.command}\`)`).join(', ');
+  const line = `${why.replace(/[.\s]+$/, '')}. ${who} fixes the check command${checks.length === 1 ? '' : 's'} on ${ref}: ${broken}; the build continues on its own once the record changes. Nothing was built and nothing was spent on the model.`;
+  const at = now.toISOString();
+  await writeMeta(orgId, request.id, { checkConfigStop: { runId: run.id, repo: ref, recordId: repo?.recordId ?? null, owner: who, checks, at } });
+  await updateRecovery(orgId, request.id, s => logLine({ ...s, stage: 'stopped', line, askId: null, waitingOn: { who, line, actionRunId: null } }, line, at, run.id));
+  return line;
+}
+
+/**
+ * THE BUILD CONTINUES ONCE THE CHECK COMMAND IS FIXED. A request stopped on a
+ * check that could not run (`stopOnRepoRecord`) is read again by the sweep:
+ * when the contract the records give now carries a different command for any
+ * check that could not run, the stop clears and the build is sent again as a
+ * recovery of that run, so it continues the branch the work is on.
+ * @param orgId - Tenant.
+ * @param request - The request (stopped, nothing live).
+ * @param now - The clock.
+ */
+export async function resumeAfterCheckFix(orgId: string, request: FactoryRecord, now: Date = new Date()): Promise<CarryResult | null> {
+  const stop = request.meta.checkConfigStop && typeof request.meta.checkConfigStop === 'object' ? request.meta.checkConfigStop as Meta : null;
+  const runId = Number(stop?.runId);
+  if (!stop || !Number.isInteger(runId) || runId <= 0) {
+    return null;
+  }
+  const { previewContract, writeMeta } = await lib();
+  const work = await workFor(orgId, request.id);
+  // A newer run since the stop (a person pressed Build) answered it, one way or another.
+  if (work.runs[0] && work.runs[0].id !== runId) {
+    await writeMeta(orgId, request.id, { checkConfigStop: null });
+    return null;
+  }
+  const planId = (await approvedPlan(work.plans))?.id;
+  const base = { requestId: request.id, ...(planId ? { planId } : {}) };
+  const preview = await previewContract(orgId, base);
+  const current = new Map((Array.isArray(preview?.checks) ? preview!.checks as Array<{ name?: unknown; command?: unknown }> : []).map(c => [String(c.name ?? ''), String(c.command ?? '')]));
+  const was = (Array.isArray(stop.checks) ? stop.checks as Array<{ name?: unknown; command?: unknown }> : []).map(c => ({ name: String(c.name ?? ''), command: String(c.command ?? '') }));
+  const changed = was.filter(c => (current.get(c.name) ?? '') !== c.command);
+  if (changed.length === 0) {
+    return null;
+  }
+  const line = `The check command${changed.length === 1 ? '' : 's'} for ${changed.map(c => c.name).join(', ')} on ${String(stop.repo ?? 'the repo record')} changed since ${nounCode('run', runId)} could not run ${changed.length === 1 ? 'it' : 'them'}; building again.`;
+  await writeMeta(orgId, request.id, { checkConfigStop: null });
+  await updateRecovery(orgId, request.id, s => logLine({ ...s, stage: null, line: null, waitingOn: null }, line, now.toISOString(), runId));
+  const out = await propose(orgId, DISPATCH, { ...base, trigger: 'recovery', recoveryOfRun: runId, recoveryClass: 'check_not_runnable', reason: line }, {
+    confidence: 0.9,
+    rationale: `${nounCode('run', runId)} stopped because a check command could not run; the repo record now gives a different command.`,
+    reason: 'The configuration that stopped it changed; Undo cancels it until a worker claims it.',
+  });
+  if (!out.ok) {
+    const stopped = await escalate(orgId, request, `Stopped: the check command was fixed, but the build could not start: ${out.error}`, 'fix what the dispatch refused on, then press Build');
+    return { requestId: request.id, did: 'check fixed:refused', line: stopped };
+  }
+  await recordRunLine(orgId, runId, line);
+  return { requestId: request.id, did: `check fixed:${out.res.status}`, line };
+}
+
+/**
  * Whether the factory may take another automatic step on this request, and
  * when it may not, the stop filed as one ask. For callers outside this module
  * (QA's automatic Build again).
@@ -1208,6 +1292,8 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   let line: string;
   if (decision.do === 'escalate') {
     line = await escalate(orgId, request, decision.why, decision.unblock, handledAs);
+  } else if (decision.do === 'configure') {
+    line = await stopOnRepoRecord(orgId, request, { id: run.id, input: (run.input ?? {}) as Meta }, decision.why, handledAs, now);
   } else if (decision.do === 'hold') {
     line = await holdForPipeline(orgId, request, { id: run.id, input: (run.input ?? {}) as Meta }, decision.why, handledAs, now);
   } else if (decision.do === 'replan') {
@@ -1490,6 +1576,10 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
     if (!request || !(await isOpen(orgId, request))) {
       continue;
     }
+    // A stop on a check command waits for the repo record, not for a worker or a deploy (`resumeAfterCheckFix`).
+    if (request.meta.checkConfigStop) {
+      continue;
+    }
     const work = await workFor(orgId, requestId);
     // A stop with no run behind it (#233: the plan approved, the count spent
     // before a build ever started) is resumed too, from its approved plan.
@@ -1597,6 +1687,17 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
       acted.push({ requestId: id, did: 'blocker cleared', line: cleared });
     }
     if (work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting || work.openAsks.length > 0) {
+      continue;
+    }
+    // A stop on a check that could not run continues once its command is fixed.
+    if (state.stage === 'stopped' && request.meta.checkConfigStop) {
+      const r = await resumeAfterCheckFix(orgId, request, now).catch((err: Error) => {
+        console.warn('factory sweep: the check-fix check failed', { orgId, requestId: id, message: err.message });
+        return null;
+      });
+      if (r) {
+        acted.push(r);
+      }
       continue;
     }
     // A REQUEST INTAKE COULD NOT START IS CARRIED ON (2026-10-01, #294).

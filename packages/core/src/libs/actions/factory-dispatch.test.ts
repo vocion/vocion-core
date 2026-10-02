@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, repoCloneUrl, repoFullName, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, keptBranchOf, pathsFromComponents, pickResumeBase, repoCloneUrl, repoFullName, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -470,5 +470,36 @@ describe('the contract says where each field came from (FE-314, 2026-10-01)', ()
   it('says why there is no repo', () => {
     expect((deriveContract({ given: {}, request: { title: 'x' }, plan: null, repo: null }).contractSources as Record<string, string>).repo).toMatch(/^none: no approved repo record/);
     expect((deriveContract({ given: {}, request: { title: 'x' }, plan: null, repo: { title: 'Northwind (portal) monorepo', recordCode: 'REPO-12' } }).contractSources as Record<string, string>).repo).toBe('none: REPO-12 has no url, and its title is not owner/name');
+  });
+});
+
+describe('a retry continues the branch its failed run kept', () => {
+  // A run whose checks failed kept its work on a wip branch and said "continue from this branch".
+  const failed = (id: number, planId: number | null, keptBranch: string | null = `factory/acme-t${id}-wip-${id + 100}`) => ({ id, createdAt: new Date('2026-10-02T02:30:00Z'), meta: { planId, attempt: 1, workerRunId: id + 100, runStatus: 'failed', branch: keptBranch, keptBranch } });
+
+  it('the recovered run\'s kept branch is the base, over an older proven attempt', () => {
+    const proven = { id: 230, meta: { branch: 'factory/t230', planId: 348, verdict: { proven: 4, total: 8 } } };
+    const r = pickResumeBase([proven], 348, null, failed(353, 348));
+
+    expect(r?.id).toBe(353);
+    expect(r?.meta.branch).toBe('factory/acme-t353-wip-453');
+  });
+
+  it('a run that kept nothing, or was built to another plan, or before the plan\'s approval, falls back to the usual pick', () => {
+    expect(pickResumeBase([], 348, null, failed(353, 348, null))).toBeNull();
+    expect(pickResumeBase([], 348, null, failed(353, 236))).toBeNull();
+    expect(pickResumeBase([], 348, '2026-10-02T03:00:00Z', failed(353, 348))).toBeNull();
+    expect(keptBranchOf({ keptBranch: 'main' })).toBeNull();
+  });
+
+  it('the contract starts from the kept branch at the next attempt and says what it continues', () => {
+    const resume = pickResumeBase([], 348, null, failed(353, 348));
+    const meta = deriveContract({ given: {}, request: { title: 'Copy link', acceptance: ['A visible confirmation appears'] }, plan: { approach: 'Add a control to the row.' }, repo: null, resume, note: 'The last attempt failed its required checks (test).' });
+
+    expect(meta.baseSha).toBe('factory/acme-t353-wip-453');
+    expect(meta.attempt).toBe(2);
+    expect(meta.resumedFrom).toBe(353);
+    expect(String(meta.objective)).toContain('continues branch factory/acme-t353-wip-453, the work task #353 kept');
+    expect(contractFromTask({ id: 0, title: 'Copy link', meta }, { product: 'acme' }).base_sha).toBe('factory/acme-t353-wip-453');
   });
 });

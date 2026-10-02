@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 // node --test packages/runner/src/preflight.test.mjs
 import { describe, it } from 'node:test';
-import { checkAllowedPaths, closestSibling, pathRoot, pathsMissingFailure } from './preflight.mjs';
+import { checkAllowedPaths, checkNotRunnableFailure, closestSibling, commandHead, notRunnableChecks, pathRoot, pathsMissingFailure } from './preflight.mjs';
 
 // A tree after apps/old-* became apps/acme-*.
 const DIRS = new Set(['apps', 'apps/acme-api', 'apps/acme-web', 'apps/acme-marketing', 'apps/acme-api/prisma', 'packages', 'packages/core', 'packages/core/src', 'packages/infra', 'docs', 'tools', 'tools/worker']);
@@ -121,4 +122,48 @@ describe('the typed failures', () => {
     assert.match(error, /^paths missing: /);
     assert.match(error, /Nothing was changed/);
   });
+});
+
+// Real sh, the way the runner asks it: a check command that cannot run is found before any model call.
+
+const realSh = (args) => {
+  const r = spawnSync('sh', args, { encoding: 'utf8' });
+  return { code: r.status ?? 1, stdout: r.stdout, stderr: r.stderr };
+};
+
+it('the first word a command line runs, past assignments; a subshell or group is left to the shell', () => {
+  assert.equal(commandHead('npm test'), 'npm');
+  assert.equal(commandHead('CI=1 NODE_ENV=test npx vitest run'), 'npx');
+  assert.equal(commandHead('./scripts/check.sh --all'), './scripts/check.sh');
+  assert.equal(commandHead('(cd apps/web && npm test)'), null);
+  assert.equal(commandHead('if true; then npm test; fi'), null);
+});
+
+it('prose in a check command is found as not runnable, with what the shell said (FE-224)', () => {
+  const steps = [
+    { name: 'test', kind: 'command', command: 'npm test (integration suites need environment.services: [postgres])' },
+    { name: 'no-em-dashes', kind: 'command', command: 'the worker greps changed files for U+2014' },
+    { name: 'lint', kind: 'command', command: 'npm run lint' },
+    { name: 'typecheck', kind: 'script', command: 'npm run typecheck --silent' },
+    { name: 'dash', kind: 'em-dashes' },
+  ];
+  const bad = notRunnableChecks(steps, realSh);
+  assert.deepEqual(bad.map(c => c.name), ['test', 'no-em-dashes']);
+  assert.match(bad[0].reason, /does not parse/);
+  assert.match(bad[0].stderr, /syntax error|unexpected/i);
+  assert.match(bad[1].reason, /first word, the, is not a command/);
+  assert.equal(bad[1].exit_code, 127);
+});
+
+it('a runnable command passes, including a compound one', () => {
+  assert.deepEqual(notRunnableChecks([{ name: 'test', kind: 'command', command: 'sh -c true && echo ok' }, { name: 'build', kind: 'command', command: '(cd . && true)' }], realSh), []);
+});
+
+it('the typed failure names each check, its command and why, scoped by the kind', () => {
+  const f = checkNotRunnableFailure([{ name: 'test', command: 'npm test (x)', reason: 'it is not a shell command: it does not parse', stderr: 'sh: 1: Syntax error: "(" unexpected', exit_code: 2 }]);
+  assert.equal(f.failure.kind, 'check_not_runnable');
+  assert.deepEqual(f.failure.checks.map(c => c.name), ['test']);
+  assert.equal(f.failures[0].scope, 'check_not_runnable');
+  assert.match(f.error, /^check not runnable: the repo record's command for test cannot run as written/);
+  assert.doesNotMatch(f.error, /required checks failed/);
 });
