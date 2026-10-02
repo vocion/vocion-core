@@ -359,6 +359,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                         // sanitizer would strip `vocion-cite:` and drop the link.
                         urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
                         components={{
+                          // An image whose URL ends in `#icon` is a glyph in the
+                          // line, not a figure: text-height, inline, no prose
+                          // margins. An agent marks the system a line came from
+                          // (the contract, the spec book, the daily log) this way.
+                          img: ({ node: _node, src, alt, ...rest }) => (typeof src === 'string' && src.endsWith('#icon')
+                            ? <img src={src} alt={alt ?? ''} className="m-0! mr-1.5 inline-block size-[1.05em] align-[-0.15em]" {...rest} />
+                            : <img src={src} alt={alt ?? ''} {...rest} />),
                           // A table is the one thing in a turn that cannot
                           // wrap: its width is the sum of its columns, and a
                           // column holding an identifier has a min-content of
