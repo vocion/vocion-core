@@ -111,6 +111,41 @@ describe('one workflow owns a request from Build to live (backlog 054)', () => {
     expect(script.dispatches[1]).toMatchObject({ attempt: 2, base: 'factory/send-t366-wip-473', intent: { from: 'chat', note: 'fix the size label', byPerson: true } });
   });
 
+  it('the live check is done only when a result is recorded: one retry with the reason, then a typed stop (release #369)', async () => {
+    const asks: string[] = [];
+    const stops: string[] = [];
+    const name = `test.request.live.${n++}`;
+    defineDurable({
+      name,
+      run: (ctx, input: { orgId: string; requestId: number; since: string }) => runRequest(ctx, input, {
+        dispatch: async () => ({ kind: 'building', workerRunId: 901, taskId: 9 }),
+        readRun: async () => opened('b', 'pr/45'),
+        stop: async (_o, _r, why) => {
+          stops.push(why);
+        },
+        readLive: async () => null,
+        askLive: async (_o, releaseId, why) => {
+          asks.push(`${releaseId}:${why}`);
+        },
+      }),
+    });
+    await ask(45);
+    const id = await start(name, 45);
+    await until(id, 'building');
+    await emit('worker_run.completed', { workerRunId: 901 });
+    await until(id, 'review');
+    await emit('pr.merged', { url: 'pr/45' });
+    await until(id, 'deploying');
+    await emit('release.linked', { releaseId: 369, requestIds: [45] });
+    await emit('automation_run.completed', { slug: 'release-live-check' });
+    await vi.waitFor(() => expect(asks).toHaveLength(1));
+    await emit('automation_run.completed', { slug: 'release-live-check' });
+
+    await expect(memoryRunResult(id)).resolves.toEqual({ stage: 'live_unchecked' });
+    expect(asks[0]).toMatch(/^369:the last QA run ended without recording/);
+    expect(stops).toEqual(['REL-369 is live, but no live check was recorded after 2 tries.']);
+  });
+
   it('a person\'s cancel is final: nothing retries it', async () => {
     const { script, name } = harness([{ kind: 'building', workerRunId: 601, taskId: 1 }], { 601: { status: 'cancelled', branch: 'wip-601', prUrl: null, failure: null, decision: { do: 'dispatch', why: '' } } });
     await ask(41);

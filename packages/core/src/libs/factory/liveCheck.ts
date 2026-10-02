@@ -202,7 +202,8 @@ const stepSchema = z.record(z.string(), z.unknown()).superRefine((step, ctx) => 
 });
 
 export const LiveFlowSchema = z.object({
-  name: z.string().trim().min(1).max(60),
+  // A long name is clipped, never refused (release #369: a 61-character name failed the recording call).
+  name: z.string().trim().min(1).transform(v => v.slice(0, 60)),
   phase: z.enum(LIVE_PHASES).default('check'),
   /** The feature a check flow proves; omitted when the release shipped one. */
   request_id: z.number().int().positive().optional(),
