@@ -65,6 +65,13 @@ const StepSchema = z.object({
    * `[data-testid=composer-send]`.
    */
   prefill: z.string().optional(),
+  /**
+   * A link the tour follows by itself as soon as it is on the page — the
+   * preview pane's "open full page", once a tap has opened the preview — so
+   * the audience makes one tap, not two. The step moves on as it navigates;
+   * nobody reads it, so give it the next step's words.
+   */
+  follow: z.string().optional(),
   /** Autoplay: how long the step holds before moving on. Defaults from the body's length. */
   dwellMs: z.number().int().positive().optional(),
   /** Override the tour's `mask` for this step. */
