@@ -357,6 +357,11 @@ name: Software factory
 #   one pick per cleanup group (stale, already shipped, duplicates); a pick
 #   binds nothing, and each `tracker.transition_issue` is proposed for the
 #   person's approval.
+#   Setup also records where the app runs (#1028, 2026-10-02).
+#   `record-the-environments` asks for the QA sign-in through
+#   `offer_connection` (`app-login`, never typed in chat), then saves the
+#   product's environment, with `qaLoginCredentialId`, in one tap, so the
+#   first shipped change comes back with a screenshot.
 version: 3.2.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []

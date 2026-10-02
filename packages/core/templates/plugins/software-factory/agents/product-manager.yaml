@@ -75,6 +75,7 @@ skills:
   - tell-the-requester
   - products-from-repos
   - sweep-the-tracker
+  - record-the-environments
 objectTypes:
   - request
   - architecture_plan
