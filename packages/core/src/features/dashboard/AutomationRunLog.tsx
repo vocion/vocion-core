@@ -21,6 +21,7 @@ const SKIP_LABEL: Record<string, string> = {
   workspace_paused: 'workspace paused',
   automation_paused: 'paused',
   fire_failed: 'could not start',
+  precondition_unmet: 'not set up yet',
 };
 
 /**

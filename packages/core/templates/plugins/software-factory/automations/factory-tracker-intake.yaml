@@ -5,7 +5,9 @@
 # PM files a request for each issue in an intake status that has no request
 # yet, at most `intakePerDay` per calendar day in the workspace's time zone.
 # A source with no `intakeStatuses` files nothing: today's behaviour, tickets a
-# person points at. The per-issue steps are `intake-from-the-tracker`; this
+# person points at. Core holds this run back in code until some source has them
+# (`role: tracker-intake`, `services/automations/preconditions.ts`): no model
+# call, a `skipped` row in the log. The per-issue steps are `intake-from-the-tracker`; this
 # only decides which issues. The order (`orderBy: priority`) comes from the
 # tracker search, and the daily cap is enforced by `file_request` itself.
 slug: factory-tracker-intake

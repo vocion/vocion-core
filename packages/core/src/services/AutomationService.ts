@@ -22,6 +22,7 @@ import { pauseSchedule, resumeSchedule, scheduleJob, startJob, unscheduleJob } f
 import { automationCoalescedWorkflowIdFor, automationScheduleIdFor } from '@/libs/durable/scheduleIds';
 import { apiTokenSchema, automationRunSchema, automationSchema, knowledgeSourceSchema, missionRunSchema, toolCallSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
+import { unmetPrecondition } from '@/services/automations/preconditions';
 import { JOB } from '@/services/background/catalog';
 import { withRunCost } from '@/services/budget/runCost';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
@@ -165,6 +166,8 @@ export type PendingAutomationFire = {
   causedBy: CausalChain;
   /** How many held fires this one stands in for. Zero for an ordinary fire. */
   coalesced: number;
+  /** Set when a precondition held the run back: `automationRunId` is the `skipped` row and nothing is dispatched. */
+  skipped?: AutomationSkipResult;
 };
 
 /**
@@ -237,6 +240,15 @@ export async function beginAutomationFire(
     throw err;
   }
 
+  // The automation's own precondition, by role, before any run exists: an
+  // unconfigured workspace skips here with no model call, on the record.
+  const unmet = await unmetPrecondition(orgId, doCfg.role);
+  if (unmet) {
+    const skipped: AutomationSkipResult = { kind: 'skipped', reason: 'precondition_unmet', detail: unmet, event: invokedBy, causedBy: opts.causedBy ?? null };
+    const skippedRunId = await recordSkippedFire(orgId, slug, { event: invokedBy, payload: input, invokedBy, result: skipped });
+    return { orgId, slug, kind, automationRunId: skippedRunId, doCfg, input, invokedBy, causedBy: opts.causedBy ?? [], coalesced: 0, skipped };
+  }
+
   const [runRow] = await db
     .insert(automationRunSchema)
     .values({ ...row, status: 'running' })
@@ -277,6 +289,9 @@ export async function completeAutomationFire(
   pending: PendingAutomationFire,
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; automationRunId: number; result?: unknown }> {
   const { orgId, slug, doCfg, input, triggerInput, invokedBy, automationRunId, causedBy, coalesced } = pending;
+  if (pending.skipped) {
+    return { kind: pending.kind, runId: 0, automationRunId, result: pending.skipped };
+  }
   try {
     // The brief distinguishes an event fire from a schedule fire by what the
     // CALLER handed in, never by the merged input: a scheduled check with fixed
