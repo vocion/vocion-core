@@ -8,15 +8,24 @@ import type { ConnectProvider } from './provider';
 import { atlassianProvider } from './providers/atlassian';
 import { githubProvider } from './providers/github';
 import { slackProvider } from './providers/slack';
+import { connectScriptEnabled, scriptedProviders } from './scripted';
 
-export const connectProviders: readonly ConnectProvider[] = [slackProvider, atlassianProvider, githubProvider];
+const realProviders: readonly ConnectProvider[] = [slackProvider, atlassianProvider, githubProvider];
+
+/**
+ * Every provider, the real ones, or their scripted stand-ins when
+ * `VOCION_CONNECT_SCRIPT` is set (e2e only; refused in production).
+ */
+export function connectProviders(): readonly ConnectProvider[] {
+  return connectScriptEnabled() ? scriptedProviders(realProviders) : realProviders;
+}
 
 /**
  * The provider with this id, or null when the URL names none.
  * @param id - The `[provider]` URL segment.
  */
 export function providerFor(id: string): ConnectProvider | null {
-  return connectProviders.find(provider => provider.id === id) ?? null;
+  return connectProviders().find(provider => provider.id === id) ?? null;
 }
 
 /**
@@ -25,7 +34,7 @@ export function providerFor(id: string): ConnectProvider | null {
  * @param connectorSlug - A source's connector slug, e.g. `jira`.
  */
 export function providerForConnector(connectorSlug: string): ConnectProvider | null {
-  return connectProviders.find(provider => provider.connectorSlugs.includes(connectorSlug)) ?? null;
+  return connectProviders().find(provider => provider.connectorSlugs.includes(connectorSlug)) ?? null;
 }
 
 /**
