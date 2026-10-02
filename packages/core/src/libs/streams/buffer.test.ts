@@ -30,3 +30,20 @@ describe('whether the person started another turn', () => {
     expect(newerTurnIn('org_n', 91, Date.now() + 1)).toBe(false);
   });
 });
+
+describe('which turn is the newest in a conversation', () => {
+  it('moves on with every turn, even two opened in one millisecond, and is per workspace and conversation', async () => {
+    const { latestTurnIn, openStream } = await import('./buffer');
+
+    expect(latestTurnIn('org_l', 55)).toBeNull();
+
+    openStream('latest-1', { orgId: 'org_l', userId: 'u1' }, 55);
+    const first = latestTurnIn('org_l', 55);
+    openStream('latest-2', { orgId: 'org_l', userId: 'u1' }, 55);
+
+    expect(first).not.toBeNull();
+    expect(latestTurnIn('org_l', 55)).toBeGreaterThan(first!);
+    expect(latestTurnIn('org_l', 56)).toBeNull();
+    expect(latestTurnIn('org_x', 55)).toBeNull();
+  });
+});

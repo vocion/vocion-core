@@ -43,7 +43,11 @@ type BufferedStream = {
   conversationId?: number | null;
   /** When the turn started (`newerTurnIn`). */
   openedAt: number;
+  /** Counts up with every turn this process opens, so two turns in one millisecond still differ (`latestTurnIn`). */
+  turnNumber: number;
 };
+
+let turnsOpened = 0;
 
 const streams = new Map<string, BufferedStream>();
 const TTL_MS = 15 * 60_000; // a finished/abandoned stream is replayable for 15 min
@@ -68,7 +72,7 @@ function sweep(): void {
  */
 export function openStream(id: string, owner: { orgId: string; userId: string }, conversationId: number | null = null): { append: (data: string) => void; close: () => void } {
   sweep();
-  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner, conversationId, openedAt: Date.now() };
+  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner, conversationId, openedAt: Date.now(), turnNumber: ++turnsOpened };
   streams.set(id, s);
   return {
     append: (data: string) => {
@@ -228,4 +232,24 @@ export function newerTurnIn(orgId: string, conversationId: number, since: number
     }
   }
   return false;
+}
+
+/**
+ * Which turn is the newest in this conversation, in this process? A tool that
+ * may speak once per turn compares this with the number it saw last: a
+ * different number means the person has sent another message. The agent
+ * runtime's tool calls come back to this box, so they see the same answer as
+ * an in-process run.
+ * @param orgId - The workspace.
+ * @param conversationId - The conversation.
+ * @returns The newest turn's number, or null when this process holds no turn for it.
+ */
+export function latestTurnIn(orgId: string, conversationId: number): number | null {
+  let latest: number | null = null;
+  for (const s of streams.values()) {
+    if (s.owner.orgId === orgId && s.conversationId === conversationId && (latest === null || s.turnNumber > latest)) {
+      latest = s.turnNumber;
+    }
+  }
+  return latest;
 }

@@ -22,6 +22,7 @@ import { apolloCompanyTools } from './apolloCompanies';
 import { apolloInScope } from './apolloDirect';
 import { apolloListTools } from './apolloLists';
 import { apolloPeopleTools } from './apolloPeople';
+import { askChoiceTool } from './askChoice';
 import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { calendarTools } from './calendarEvents';
@@ -177,6 +178,7 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     listCapabilitiesTool(ctx),
     workspaceSetupTool(ctx),
     offerConnectionTool(ctx),
+    askChoiceTool(ctx),
     // What the agent's connected sources actually reach — the repositories,
     // project keys and channels in scope, checked live against the grant
     // where the vendor can be asked (a GitHub App installation). "Which
