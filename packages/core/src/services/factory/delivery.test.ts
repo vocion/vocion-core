@@ -48,7 +48,7 @@ beforeEach(async () => {
   taskId = task!.id;
 });
 
-const merged = { url: PR, repo: 'northwind/share', mergeSha: 'a1b2c3d4', mergedAt: '2026-09-30T22:38:05Z', mergedBy: 'dana-reyes', author: 'factory-bot' };
+const merged = { url: PR, repo: 'northwind/share', mergeSha: 'a1b2c3d4', mergedAt: new Date(NOW.getTime() - 3_600_000).toISOString(), mergedBy: 'dana-reyes', author: 'factory-bot' };
 
 describe('recordMerge', () => {
   it('writes who merged it, when and the run it started, and settles the recovery line', async () => {
