@@ -1,7 +1,7 @@
 import type { Action, ActionContext } from './types';
 import type { DbTransaction } from '@/libs/DbTransaction';
 import type { Rung } from '@/services/autonomy/rungs';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { autonomyPolicySchema } from '@/models/Schema';
@@ -31,6 +31,21 @@ function loadAutonomyService() {
 
 type AutonomyService = Awaited<ReturnType<typeof loadAutonomyService>>;
 
+/** A goal as stored: the rung, who named it, and when (ISO text, so it survives the run record's JSON). */
+const storedGoal = z.object({
+  goalRung: z.string().nullable(),
+  goalSetBy: z.string().nullable(),
+  goalSetAt: z.string().nullable(),
+});
+
+/** What execute records for undo: the goal each action had before, and the who/when this run wrote. */
+const goalRunResult = z.object({
+  written: z.object({ by: z.string(), setAt: z.string() }),
+  previous: z.record(z.string(), storedGoal),
+});
+
+type StoredGoal = z.infer<typeof storedGoal>;
+
 /**
  * Save the goal on one action's policy row, on the caller's transaction. A new
  * row is written at the rung the action already stands on (read through the
@@ -43,9 +58,16 @@ type AutonomyService = Awaited<ReturnType<typeof loadAutonomyService>>;
  * @param ctx.by
  * @param actionId - The action the goal is for.
  * @param goal - The rung to work toward.
+ * @param now - The time written as the goal's date, shared by the whole run so undo can recognise it.
+ * @returns The goal the row had before this write (nulls when none), for undo.
  */
-async function saveGoalOne(service: AutonomyService, tx: DbTransaction, ctx: { orgId: string; by: string }, actionId: string, goal: Rung): Promise<void> {
-  const now = new Date();
+async function saveGoalOne(service: AutonomyService, tx: DbTransaction, ctx: { orgId: string; by: string }, actionId: string, goal: Rung, now: Date): Promise<StoredGoal> {
+  const [existing] = await tx.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, ctx.orgId), eq(autonomyPolicySchema.actionId, actionId))).limit(1);
+  const previous: StoredGoal = {
+    goalRung: existing?.goalRung ?? null,
+    goalSetBy: existing?.goalSetBy ?? null,
+    goalSetAt: existing?.goalSetAt?.toISOString() ?? null,
+  };
   const current = await service.effectivePolicy(ctx.orgId, actionId, tx);
   await tx
     .insert(autonomyPolicySchema)
@@ -64,6 +86,50 @@ async function saveGoalOne(service: AutonomyService, tx: DbTransaction, ctx: { o
       target: [autonomyPolicySchema.orgId, autonomyPolicySchema.actionId],
       set: { goalRung: goal, goalSetBy: ctx.by, goalSetAt: now, updatedAt: now },
     });
+  return previous;
+}
+
+/**
+ * Put back the goal a row had before this run, but only while the row still
+ * holds the goal this run wrote. A goal someone named since is left alone.
+ * Running it again finds the written goal gone and changes nothing.
+ * @param tx - The transaction every row is written on.
+ * @param orgId - The workspace.
+ * @param actionId - The action to restore.
+ * @param run - What execute recorded.
+ */
+async function restoreGoalOne(tx: DbTransaction, orgId: string, actionId: string, run: z.infer<typeof goalRunResult>): Promise<void> {
+  const before = run.previous[actionId];
+  if (!before) {
+    return;
+  }
+  await tx
+    .update(autonomyPolicySchema)
+    .set({
+      goalRung: before.goalRung,
+      goalSetBy: before.goalSetBy,
+      goalSetAt: before.goalSetAt ? new Date(before.goalSetAt) : null,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(autonomyPolicySchema.orgId, orgId),
+      eq(autonomyPolicySchema.actionId, actionId),
+      eq(autonomyPolicySchema.goalSetBy, run.written.by),
+      eq(autonomyPolicySchema.goalSetAt, new Date(run.written.setAt)),
+    ));
+}
+
+/**
+ * Restore every listed action in one transaction.
+ * @param tx - The transaction every row is written on.
+ * @param orgId - The workspace.
+ * @param actionIds - The actions the run covered.
+ * @param run - What execute recorded.
+ */
+async function restoreGoalsInTransaction(tx: DbTransaction, orgId: string, actionIds: string[], run: z.infer<typeof goalRunResult>): Promise<void> {
+  for (const actionId of actionIds) {
+    await restoreGoalOne(tx, orgId, actionId, run);
+  }
 }
 
 /**
@@ -75,11 +141,15 @@ async function saveGoalOne(service: AutonomyService, tx: DbTransaction, ctx: { o
  * @param ctx.orgId
  * @param ctx.by
  * @param input - The actions and the goal.
+ * @param now - The date written on every row.
+ * @returns Each action's previous goal.
  */
-async function saveGoalsInTransaction(tx: DbTransaction, service: AutonomyService, ctx: { orgId: string; by: string }, input: z.infer<typeof autonomySetGoalInput>): Promise<void> {
+async function saveGoalsInTransaction(tx: DbTransaction, service: AutonomyService, ctx: { orgId: string; by: string }, input: z.infer<typeof autonomySetGoalInput>, now: Date): Promise<Record<string, StoredGoal>> {
+  const previous: Record<string, StoredGoal> = {};
   for (const actionId of input.actionIds) {
-    await saveGoalOne(service, tx, ctx, actionId, input.goal);
+    previous[actionId] = await saveGoalOne(service, tx, ctx, actionId, input.goal, now);
   }
+  return previous;
 }
 
 /**
@@ -125,18 +195,18 @@ export const autonomySetGoalAction: Action<typeof autonomySetGoalInput> = {
       throw new Error(notAdmin);
     }
     const service = await loadAutonomyService();
-    await db.transaction(tx => saveGoalsInTransaction(tx, service, { orgId: ctx.orgId, by: by! }, input));
-    return { goal: input.goal, actionIds: input.actionIds };
+    const now = new Date();
+    const previous = await db.transaction(tx => saveGoalsInTransaction(tx, service, { orgId: ctx.orgId, by: by! }, input, now));
+    return { goal: input.goal, actionIds: input.actionIds, written: { by: by!, setAt: now.toISOString() }, previous };
   },
-  async undo(ctx: ActionContext, input) {
+  async undo(ctx: ActionContext, input, result) {
     const by = ctx.reviewedBy ?? ctx.invokedBy;
     const notAdmin = await adminCheck(ctx.orgId, by, NOT_ADMIN);
     if (notAdmin) {
       throw new Error(notAdmin);
     }
-    await db
-      .update(autonomyPolicySchema)
-      .set({ goalRung: null, goalSetBy: null, goalSetAt: null, updatedAt: new Date() })
-      .where(and(eq(autonomyPolicySchema.orgId, ctx.orgId), inArray(autonomyPolicySchema.actionId, input.actionIds)));
+    const run = goalRunResult.parse(result);
+    await db.transaction(tx => restoreGoalsInTransaction(tx, ctx.orgId, input.actionIds, run));
+    return { undone: true };
   },
 };

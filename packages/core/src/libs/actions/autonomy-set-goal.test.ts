@@ -70,16 +70,58 @@ describe('autonomy.set_goal', () => {
 
   it('undo clears the goal and the rung is still unchanged', async () => {
     const input = parse({ actionIds: ['test.undo'], goal: 'execute-within-bounds' });
-    await autonomySetGoalAction.execute(CTX, input);
+    const result = await autonomySetGoalAction.execute(CTX, input) as Record<string, unknown>;
     const rung = (await effectivePolicy(ORG, 'test.undo')).rung;
 
-    await autonomySetGoalAction.undo!(CTX, input, {});
+    await autonomySetGoalAction.undo!(CTX, input, result);
     const row = await policyRow('test.undo');
 
     expect(row?.goalRung).toBeNull();
     expect(row?.goalSetBy).toBeNull();
     expect(row?.goalSetAt).toBeNull();
     expect((await effectivePolicy(ORG, 'test.undo')).rung).toBe(rung);
+  });
+
+  it('undo brings back a goal set before, with its original who and when', async () => {
+    const earlier = new Date('2026-09-01T10:00:00Z');
+    await db.insert(autonomyPolicySchema).values({ orgId: ORG, actionId: 'test.prior', rung: 'assist', riskTier: 'medium', source: 'app', goalRung: 'recommend', goalSetBy: MEMBER, goalSetAt: earlier });
+    const input = parse({ actionIds: ['test.prior'], goal: 'autonomous' });
+    const result = await autonomySetGoalAction.execute(CTX, input) as Record<string, unknown>;
+
+    await autonomySetGoalAction.undo!(CTX, input, result);
+    const row = await policyRow('test.prior');
+
+    expect(row?.goalRung).toBe('recommend');
+    expect(row?.goalSetBy).toBe(MEMBER);
+    expect(row?.goalSetAt?.getTime()).toBe(earlier.getTime());
+  });
+
+  it('undo leaves a goal someone else set afterwards', async () => {
+    const input = parse({ actionIds: ['test.after'], goal: 'assist' });
+    const result = await autonomySetGoalAction.execute(CTX, input) as Record<string, unknown>;
+    const later = new Date(Date.now() + 60_000);
+    await db.update(autonomyPolicySchema).set({ goalRung: 'autonomous', goalSetBy: MEMBER, goalSetAt: later }).where(and(eq(autonomyPolicySchema.orgId, ORG), eq(autonomyPolicySchema.actionId, 'test.after')));
+
+    await autonomySetGoalAction.undo!(CTX, input, result);
+    const row = await policyRow('test.after');
+
+    expect(row?.goalRung).toBe('autonomous');
+    expect(row?.goalSetBy).toBe(MEMBER);
+  });
+
+  it('undo twice leaves the same state as once', async () => {
+    const earlier = new Date('2026-09-02T10:00:00Z');
+    await db.insert(autonomyPolicySchema).values({ orgId: ORG, actionId: 'test.twice', rung: 'assist', riskTier: 'medium', source: 'app', goalRung: 'recommend', goalSetBy: MEMBER, goalSetAt: earlier });
+    const input = parse({ actionIds: ['test.twice'], goal: 'autonomous' });
+    const result = await autonomySetGoalAction.execute(CTX, input) as Record<string, unknown>;
+
+    await autonomySetGoalAction.undo!(CTX, input, result);
+    const once = await policyRow('test.twice');
+    await autonomySetGoalAction.undo!(CTX, input, result);
+    const twice = await policyRow('test.twice');
+
+    expect(twice?.goalRung).toBe('recommend');
+    expect(twice?.goalSetAt?.getTime()).toBe(once?.goalSetAt?.getTime());
   });
 
   it('refuses a member at proposal time and at approval, and stores nothing', async () => {
