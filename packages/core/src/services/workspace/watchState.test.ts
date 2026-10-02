@@ -19,9 +19,19 @@ describe('what a watch is watching, and when it last read', () => {
   it('says when it last read, and why its last read failed', () => {
     const at = new Date('2026-01-10T12:00:00Z');
 
-    expect(watchStateOf(row(), { startedAt: at, status: 'ok', error: null }, WATCH)).toEqual({ name: 'Production errors become incidents', items: ['northwind-api', 'northwind-web'], state: 'active', lastReadAt: at, lastError: null });
+    expect(watchStateOf(row(), { startedAt: at, status: 'ok', error: null }, WATCH)).toEqual({ name: 'Production errors become incidents', items: ['northwind-api', 'northwind-web'], state: 'active', lastReadAt: at, lastError: null, lastOutcome: null, in: null });
     expect(watchStateOf(row(), { startedAt: at, status: 'error', error: 'Sentry answered 401' }, WATCH).lastError).toBe('Sentry answered 401');
     expect(watchStateOf(row(), null, WATCH).lastReadAt).toBeNull();
+  });
+
+  it('reads what the last check came to, and why a check that ran could not read', () => {
+    const at = new Date('2026-01-10T12:00:00Z');
+    const check = (outcome: string, why?: string) => ({ startedAt: at, status: 'ok', error: null, result: { acted: [], check: { kind: 'Sentry issues', threshold: '20', outcome, targets: [], at: at.toISOString(), ...(why ? { why } : {}) } } });
+
+    expect(watchStateOf(row(), check('quiet'), { ...WATCH, in: 'Sentry' })).toMatchObject({ lastOutcome: 'quiet', lastError: null, in: 'Sentry' });
+    expect(watchStateOf(row(), check('unchecked', 'No Sentry token is stored.'), WATCH)).toMatchObject({ lastOutcome: 'unchecked', lastError: 'No Sentry token is stored.' });
+    // A run from before checks recorded what they saw.
+    expect(watchStateOf(row(), { startedAt: at, status: 'ok', error: null, result: { acted: [] } }, WATCH).lastOutcome).toBeNull();
   });
 
   it('tells a paused, an off and a missing watch apart from a quiet one', () => {

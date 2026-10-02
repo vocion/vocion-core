@@ -11,6 +11,7 @@ import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PageBlocks } from '@/features/dashboard/pages/PageBlocks';
 import { PageFeed } from '@/features/dashboard/pages/PageFeed';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
+import { PageMonitorBlocks } from '@/features/dashboard/pages/PageMonitorBlocks';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { WatchEmpty } from '@/features/dashboard/pages/WatchEmpty';
@@ -948,6 +949,9 @@ export default async function WorkspacePage(props: {
       )}
 
       <Widgets manifest={manifest} position="above" rows={windowed} stats={stats} />
+      {/* What is watched, above the rows; what each check saw, below them. */}
+      <PageMonitorBlocks orgId={orgId} blocks={manifest.blocks} position="above" plugin={ownedBy} now={now} />
+      {manifest.rowsTitle && <h2 className="mb-2 text-sm font-semibold" data-testid="page-rows-title">{manifest.rowsTitle}</h2>}
 
       {manifest.archetype === 'report' && (
         <p className="max-w-2xl text-sm text-muted-foreground">
@@ -1078,6 +1082,7 @@ export default async function WorkspacePage(props: {
       )}
 
       <Widgets manifest={manifest} position="below" rows={windowed} stats={stats} />
+      <PageMonitorBlocks orgId={orgId} blocks={manifest.blocks} position="below" plugin={ownedBy} now={now} />
 
       {rowsLead && pluginPanel}
       {rowsLead && about}

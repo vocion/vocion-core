@@ -12,9 +12,19 @@
 # Empty, it says what the watch is watching (`error-watch`'s `projects`) and
 # when it last read, so a quiet production never reads the same as a watch
 # pointed at nothing, a paused one, or one whose last read failed.
+#
+# Chris (2026-10-02): "How can I see (1) what monitors/tests are configured
+# and enabled? Log of checks with results?" So the page answers three
+# questions, in order: what is watched (each monitor, what it checks, how
+# often, on or paused, its last check), the incidents, and the checks (every
+# recent run, what it checked and what it saw). The monitors are named here
+# by slug; `environment-health` is the software factory's and is left out
+# where the factory is off. The plugin's outcome panel is not on this page:
+# what drives the watch is the monitors block, and its learnings were other
+# seats' cards.
 slug: incidents
 title: Incidents
-description: Production errors past the watch's threshold — open first, then the latest resolved.
+description: What is watched, the incidents it opened — open first — and every check with what it saw.
 icon: siren
 nav: {section: Production Watch, order: 1}
 archetype: list
@@ -42,6 +52,11 @@ rowLink: /dashboard/objects/{id}
 # The watch writes every ten minutes and the on-call engineer writes its move
 # when it answers; the page re-reads the moment either lands.
 live: {follow: ['list:incident'], every: 30}
+pluginPanel: false
+rowsTitle: Incidents
+blocks:
+  - {kind: monitors, position: above, automations: [error-watch, environment-health]}
+  - {kind: checkLog, position: below, automations: [error-watch, environment-health], limit: 40}
 empty:
-  text: No incidents.
-  watch: {automation: error-watch, items: projects, itemLabel: project}
+  text: No open incidents.
+  watch: {automation: error-watch, items: projects, itemLabel: project, in: Sentry}

@@ -21,9 +21,17 @@
  * `cause`, `release` and `environment`, for whatever listens — a
  * notification, another plugin's automation. Nothing here names a product, a
  * plugin or a type.
+ *
+ * Every pass also says what it saw (`check`, `libs/automations/checkResult.ts`):
+ * each project it read, how many issues had events in the last hour, how many
+ * of them crossed the threshold and the newest that did, and whether the pass
+ * stayed quiet, opened or updated an incident, or could not read — so the
+ * Incidents page can show a quiet production as a check that ran.
  */
 
+import type { CheckResult, CheckTarget } from '@/libs/automations/checkResult';
 import type { IssueCount, SentryCredentials, SentryEvent, SentryIssue, SentryResult } from '@/libs/sentry/client';
+import { checkResult, passOutcome } from '@/libs/automations/checkResult';
 
 type Meta = Record<string, unknown>;
 
@@ -166,38 +174,89 @@ export function causeFacts(issue: SentryIssue, event: SentryEvent | null, releas
 type Result = { project: string; shortId: string | null; did: string; recordId: number | null };
 
 /**
+ * What the pass reads as its threshold, in words.
+ * @param input
+ */
+export function thresholdLine(input: Pick<ErrorWatchInput, 'threshold' | 'windowMinutes'>): string {
+  return `${input.threshold} events in the last hour for a new issue, or ${input.threshold} in ${input.windowMinutes} min at twice the ${input.windowMinutes} min before`;
+}
+
+const KIND = 'Sentry issues';
+
+/**
  * One pass over every watched project.
  * @param orgId - The workspace.
  * @param raw - The automation's `do.input`.
  * @param now - The clock.
  * @param deps - Injected in tests.
  */
-export async function runErrorWatch(orgId: string, raw: Meta = {}, now: Date = new Date(), deps?: Partial<ErrorWatchDeps>): Promise<{ acted: Result[]; problem?: string }> {
+export async function runErrorWatch(orgId: string, raw: Meta = {}, now: Date = new Date(), deps?: Partial<ErrorWatchDeps>): Promise<{ acted: Result[]; problem?: string; check: CheckResult }> {
   const input = watchInput(raw);
   if (!input) {
-    return { acted: [], problem: 'the automation names no recordType for incidents' };
+    const problem = 'the automation names no recordType for incidents';
+    return { acted: [], problem, check: checkResult({ kind: KIND, threshold: '', targets: [], why: problem, at: now }) };
   }
+  const threshold = thresholdLine(input);
   if (input.projects.length === 0) {
-    return { acted: [], problem: 'the automation names no project to watch (do.input.projects)' };
+    const problem = 'the automation names no project to watch (do.input.projects)';
+    return { acted: [], problem, check: checkResult({ kind: KIND, threshold, targets: [], why: problem, at: now }) };
   }
   const d = { ...(await defaultDeps()), ...deps };
   const access = await d.sentry(orgId);
   if (!access.ok) {
-    return { acted: [], problem: access.message };
+    const targets = input.projects.map((p): CheckTarget => ({ label: p.project, outcome: 'unchecked', summary: 'could not read Sentry', observed: {}, why: access.message }));
+    return { acted: [], problem: access.message, check: checkResult({ kind: KIND, threshold, targets, why: access.message, at: now }) };
   }
   const existing = await d.records(orgId, input.recordType);
   const acted: Result[] = [];
+  const targets: CheckTarget[] = [];
   for (const p of input.projects) {
     try {
-      acted.push(...await watchProject(orgId, { ...access.credentials, org: p.org ?? access.credentials.org }, p, input, existing, now, d));
+      const r = await watchProject(orgId, { ...access.credentials, org: p.org ?? access.credentials.org }, p, input, existing, now, d);
+      acted.push(...r.acted);
+      targets.push(r.target);
     } catch (err) {
-      acted.push({ project: p.project, shortId: null, did: `failed: ${(err as Error).message.slice(0, 200)}`, recordId: null });
+      const why = (err as Error).message.slice(0, 200);
+      acted.push({ project: p.project, shortId: null, did: `failed: ${why}`, recordId: null });
+      targets.push({ label: p.project, outcome: 'unchecked', summary: 'the read failed', observed: {}, why });
     }
   }
-  return { acted };
+  return { acted, check: checkResult({ kind: KIND, threshold, targets, at: now }) };
 }
 
-async function watchProject(orgId: string, c: SentryCredentials, p: WatchedProject, input: ErrorWatchInput, existing: Array<{ id: number; title: string; meta: Meta }>, now: Date, d: ErrorWatchDeps): Promise<Result[]> {
+/**
+ * A project's outcome from what the pass did there.
+ * @param acted
+ */
+function projectOutcome(acted: Result[]): CheckTarget['outcome'] {
+  return passOutcome(acted.length === 0
+    ? [{ outcome: 'quiet' }]
+    : acted.map(a => ({ outcome: a.did.startsWith('opened') ? 'opened' : a.did.startsWith('unread') || a.did.startsWith('failed') ? 'unchecked' : 'updated' })));
+}
+
+/**
+ * What the pass saw on one project, in a few words.
+ * @param o - The counts and the newest issue past the threshold.
+ * @param o.issues - Issues with an event in the last hour.
+ * @param o.capped - Whether the read hit its limit.
+ * @param o.past - How many crossed the threshold.
+ * @param o.newest - The newest of those, when any: its short id and its events in the hour.
+ * @param acted - What the pass did there.
+ */
+export function projectSummary(o: { issues: number; capped: boolean; past: number; newest: { shortId: string; eventsLastHour: number } | null }, acted: Result[]): string {
+  if (o.issues === 0) {
+    return 'no errors in the last hour';
+  }
+  const issues = `${o.issues}${o.capped ? '+' : ''} ${o.issues === 1 ? 'issue' : 'issues'} in the last hour`;
+  if (o.past === 0 || !o.newest) {
+    const resolved = acted.filter(a => a.did === 'resolved').length;
+    return `${issues}, none past the threshold${resolved > 0 ? `; ${resolved} resolved` : ''}`;
+  }
+  const did = acted.find(a => a.shortId === o.newest!.shortId)?.did;
+  return `${issues}; ${o.newest.shortId} at ${o.newest.eventsLastHour} events${did ? `: ${did}` : ''}${o.past > 1 ? ` (+${o.past - 1} more past the threshold)` : ''}`;
+}
+
+async function watchProject(orgId: string, c: SentryCredentials, p: WatchedProject, input: ErrorWatchInput, existing: Array<{ id: number; title: string; meta: Meta }>, now: Date, d: ErrorWatchDeps): Promise<{ acted: Result[]; target: CheckTarget }> {
   const winMs = input.windowMinutes * 60_000;
   const q = { project: p.project, environment: p.environment, limit: 25 };
   const [hour, win, before] = await Promise.all([
@@ -206,7 +265,10 @@ async function watchProject(orgId: string, c: SentryCredentials, p: WatchedProje
     d.countErrors(c, { ...q, start: new Date(now.getTime() - 2 * winMs), end: new Date(now.getTime() - winMs) }),
   ]);
   if (!hour.ok) {
-    return [{ project: p.project, shortId: null, did: `unread: ${hour.message}`, recordId: null }];
+    return {
+      acted: [{ project: p.project, shortId: null, did: `unread: ${hour.message}`, recordId: null }],
+      target: { label: p.project, outcome: 'unchecked', summary: 'could not read its issues', observed: {}, why: hour.message.slice(0, 300) },
+    };
   }
   const inWin = new Map((win.ok ? win.data : []).map(i => [i.issueId, i.events]));
   const inBefore = new Map((before.ok ? before.data : []).map(i => [i.issueId, i.events]));
@@ -221,11 +283,18 @@ async function watchProject(orgId: string, c: SentryCredentials, p: WatchedProje
       return i.events >= input.threshold || (w >= input.threshold && w >= 2 * (inBefore.get(i.issueId) ?? 0));
     })
     .slice(0, CANDIDATES);
+  // The newest issue past the threshold, by when it was first seen: what the
+  // check log names when a project is not quiet.
+  let newest: { shortId: string; title: string; eventsLastHour: number; firstSeen: string | null; url: string | null } | null = null;
   for (const hit of candidates) {
     const issue = await d.readIssue(c, hit.issueId);
     if (!issue.ok) {
       out.push({ project: p.project, shortId: hit.shortId, did: `unread: ${issue.message}`, recordId: null });
+      newest ??= { shortId: hit.shortId, title: '', eventsLastHour: hit.events, firstSeen: null, url: null };
       continue;
+    }
+    if (!newest || Date.parse(issue.data.firstSeen ?? '') > Date.parse(newest.firstSeen ?? '')) {
+      newest = { shortId: issue.data.shortId, title: issue.data.title.slice(0, 200), eventsLastHour: hit.events, firstSeen: issue.data.firstSeen ?? null, url: issue.data.url ?? null };
     }
     const firstSeen = Date.parse(issue.data.firstSeen ?? '');
     const isNew = Number.isFinite(firstSeen) && now.getTime() - firstSeen < HOUR_MS && hit.events >= input.threshold;
@@ -319,5 +388,24 @@ async function watchProject(orgId: string, c: SentryCredentials, p: WatchedProje
       out.push({ project: p.project, shortId: String(r.meta.shortId ?? ''), did: 'resolved', recordId: r.id });
     }
   }
-  return out;
+  const counts = { issues: hour.data.length, capped: hour.data.length >= q.limit, past: candidates.length, newest };
+  const recordId = out.find(a => a.recordId !== null && a.shortId === newest?.shortId)?.recordId ?? out.find(a => a.recordId !== null)?.recordId ?? null;
+  return {
+    acted: out,
+    target: {
+      label: p.project,
+      outcome: projectOutcome(out),
+      summary: projectSummary(counts, out),
+      observed: {
+        issuesLastHour: hour.data.length,
+        eventsLastHour: hour.data.reduce((n, i) => n + i.events, 0),
+        pastThreshold: candidates.length,
+        newest,
+        ...(p.environment ? { environment: p.environment } : {}),
+        ...(win.ok ? {} : { windowUnread: win.message.slice(0, 200) }),
+      },
+      ...(recordId !== null ? { recordId } : {}),
+      url: newest?.url ?? null,
+    },
+  };
 }

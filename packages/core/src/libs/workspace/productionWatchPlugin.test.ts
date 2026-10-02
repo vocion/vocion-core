@@ -37,7 +37,7 @@ describe('the production-watch plugin', () => {
   it('stands alone: the watch runs the core job on a schedule, the seat holds the Sentry reads, a person hears once per incident', () => {
     const ws = loadWorkspace(workspace('production-watch'));
 
-    expect(ws.sha).toContain('+production-watch@0.3.0');
+    expect(ws.sha).toContain('+production-watch@0.4.0');
     expect(ws.automations.find(a => a.slug === 'error-watch')).toMatchObject({ status: 'active', when: { schedule: '*/10 * * * *' }, do: { job: 'error-watch', input: { recordType: 'incident', events: { opened: 'incident.opened', updated: 'incident.updated' }, threshold: 20, windowMinutes: 10 } } });
     expect(ws.agents.find(a => a.slug === 'on-call-engineer')?.harness?.grantTools).toEqual(['sentry_issues', 'sentry_issue']);
     expect(ws.notifications).toEqual([expect.objectContaining({ kind: 'incident', event: 'incident.opened', dedupe: 'incident:{incidentId}', source: 'plugin:production-watch' })]);
@@ -68,7 +68,10 @@ describe('the Incidents page', () => {
       groupBy: 'meta.status',
       groupOrder: [{ value: 'open', label: 'Open' }, { value: 'resolved', label: 'Recently resolved', limit: 20 }],
       live: { follow: ['list:incident'] },
-      empty: { text: 'No incidents.', watch: { automation: 'error-watch', items: 'projects', itemLabel: 'project' } },
+      empty: { text: 'No open incidents.', watch: { automation: 'error-watch', items: 'projects', itemLabel: 'project', in: 'Sentry' } },
+      pluginPanel: false,
+      rowsTitle: 'Incidents',
+      blocks: [{ kind: 'monitors', position: 'above', automations: ['error-watch', 'environment-health'] }, { kind: 'checkLog', position: 'below', automations: ['error-watch', 'environment-health'], limit: 40 }],
     });
     expect(page!.fields!.map(f => f.key)).toEqual(['title', 'issue', 'product', 'events', 'lastSeen', 'cause', 'status', 'action']);
     expect(page!.fields!.find(f => f.key === 'issue')).toMatchObject({ from: 'meta.url', format: 'link', labelFrom: 'meta.shortId' });

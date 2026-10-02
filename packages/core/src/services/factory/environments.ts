@@ -49,7 +49,7 @@ export type Health = 'ok' | 'degraded' | 'down';
  * was asked; `advice` is what the answer did not say, a note for an operator
  * that never changes `health`.
  */
-export type HealthReading = { health: Health; status: number | null; detail: string; url: string; checkedAt: string; bodyHash: string | null; read?: { meets: boolean; why: string }; advice?: string };
+export type HealthReading = { health: Health; status: number | null; detail: string; url: string; checkedAt: string; bodyHash: string | null; read?: { meets: boolean; why: string }; advice?: string; /** How long the answer took, in ms, when it answered. */ latencyMs?: number | null };
 
 /** One environment with the repository it is deployed from, resolved to `owner/name`. */
 export type EnvironmentRow = { id: number; title: string; meta: Meta; repo: string | null };
@@ -235,17 +235,19 @@ export async function readHealth(orgId: string, env: Meta, now: Date = new Date(
   const checkedAt = now.toISOString();
   const get = deps?.fetch ?? publicFetch;
   let res: { status: number; body: string };
+  const started = performance.now();
   try {
     res = await get(url);
   } catch (err) {
-    return { health: 'down', status: null, detail: `${url} did not answer: ${(err as Error).message}`.slice(0, 300), url, checkedAt, bodyHash: null };
+    return { health: 'down', status: null, detail: `${url} did not answer: ${(err as Error).message}`.slice(0, 300), url, checkedAt, bodyHash: null, latencyMs: null };
   }
+  const latencyMs = Math.round(performance.now() - started);
   const bodyHash = createHash('sha256').update(`${res.status}\n${res.body}`).digest('hex').slice(0, 16);
   if (res.status >= 500) {
-    return { health: 'down', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash };
+    return { health: 'down', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash, latencyMs };
   }
   if (res.status >= 400) {
-    return { health: 'degraded', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash };
+    return { health: 'degraded', status: res.status, detail: `${url} answered HTTP ${res.status}`, url, checkedAt, bodyHash, latencyMs };
   }
   // AN ADDRESS THAT ANSWERS IS UP (2026-10-01: two production sites answering
   // HTTP 200 were filed as degraded incidents, because their `expect` also
@@ -255,7 +257,7 @@ export async function readHealth(orgId: string, env: Meta, now: Date = new Date(
   const expect = str(check?.expect);
   const answered = `${url} answered HTTP ${res.status}`;
   if (!expect || res.body.includes(expect)) {
-    return { health: 'ok', status: res.status, detail: expect ? `${answered} and says ${expect.slice(0, 80)}` : answered, url, checkedAt, bodyHash };
+    return { health: 'ok', status: res.status, detail: expect ? `${answered} and says ${expect.slice(0, 80)}` : answered, url, checkedAt, bodyHash, latencyMs };
   }
   // The same answer as last time is the same read: the model reads each answer once.
   const last = obj(env.lastHealthRead);
@@ -263,9 +265,9 @@ export async function readHealth(orgId: string, env: Meta, now: Date = new Date(
     ? { meets: last.meets, why: bareWhy(str(last.why) ?? '') }
     : await (deps?.meets ?? expectationMet)({ orgId, expect, status: res.status, body: res.body });
   if (!read) {
-    return { health: 'ok', status: res.status, detail: `${answered}; whether it says "${expect.slice(0, 60)}" could not be read`, url, checkedAt, bodyHash };
+    return { health: 'ok', status: res.status, detail: `${answered}; whether it says "${expect.slice(0, 60)}" could not be read`, url, checkedAt, bodyHash, latencyMs };
   }
-  return { health: 'ok', status: res.status, detail: read.meets ? `${answered}: ${read.why}` : answered, url, checkedAt, bodyHash, read, ...(read.meets ? {} : { advice: read.why }) };
+  return { health: 'ok', status: res.status, detail: read.meets ? `${answered}: ${read.why}` : answered, url, checkedAt, bodyHash, latencyMs, read, ...(read.meets ? {} : { advice: read.why }) };
 }
 
 /**

@@ -446,6 +446,33 @@ const WidgetSchema = z.object({
   data: z.array(z.enum(['rows', 'stats'])).default([]),
 });
 
+/**
+ * A page's generic blocks — reads core owns, drawn above or below the rows
+ * (Chris, 2026-10-02, of the Incidents page: "How can I see what
+ * monitors/tests are configured and enabled? Log of checks with results?").
+ *
+ *   monitors   each scheduled automation named, with what it checked, how
+ *              often, whether it is on (Pause / Resume), and its last check.
+ *   checkLog   the recent runs of those automations, newest first, each as
+ *              what it checked and what it saw (`libs/automations/checkResult.ts`),
+ *              with the detail one tap away.
+ *
+ * `automations` names them by slug; absent, the page's plugin's scheduled
+ * automations. A slug this workspace does not have is left out, so a page
+ * can name a monitor another plugin ships. A closed set, like the configure
+ * tabs: each is a read core owns, and a page only chooses which and where.
+ */
+export const PAGE_BLOCK_KINDS = ['monitors', 'checkLog'] as const;
+export const PageBlockSchema = z.object({
+  kind: z.enum(PAGE_BLOCK_KINDS),
+  title: z.string().min(1).max(60).optional(),
+  position: z.enum(['above', 'below']).default('above'),
+  automations: z.array(SlugSchema).min(1).optional(),
+  /** checkLog: how many runs it lists. */
+  limit: z.number().int().positive().max(200).default(30),
+});
+export type PageBlock = z.infer<typeof PageBlockSchema>;
+
 const ListSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('objects'), objectType: SlugSchema }),
   // What agents DID — tool_call rows (the operations layer is gone in
@@ -834,6 +861,8 @@ export const PageManifestSchema = z.object({
       automation: SlugSchema,
       items: z.string().min(1).optional(),
       itemLabel: z.string().min(1).optional(),
+      /** Where it reads, in the workspace's words ("Sentry"): "Watching a and b in Sentry". */
+      in: z.string().min(1).max(40).optional(),
     }).optional(),
   }).optional(),
   sort: z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).default('desc') }).optional(),
@@ -918,6 +947,13 @@ export const PageManifestSchema = z.object({
   contentFile: z.string().optional(),
 
   widgets: z.array(WidgetSchema).default([]),
+  /** Core's generic blocks above or below the rows — see {@link PageBlockSchema}. */
+  blocks: z.array(PageBlockSchema).default([]),
+  /**
+   * A heading over the rows, for a page whose blocks ask other questions
+   * above and below them ("What is watched", then "Incidents", then "Checks").
+   */
+  rowsTitle: z.string().min(1).max(60).optional(),
 })
   .refine(m => m.archetype !== 'link' || m.href !== undefined, { message: 'a link page needs href — the route it opens', path: ['href'] })
   .refine(m => m.configure === undefined || m.archetype === 'configure', { message: 'configure declares the blocks of a configure page', path: ['configure'] })
