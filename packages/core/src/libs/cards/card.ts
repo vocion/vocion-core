@@ -162,6 +162,17 @@ registerCardKind({ kind: 'choice', renderer: 'choice', refine: choiceProblem });
 registerCardKind({ kind: 'record', renderer: 'record' });
 registerCardKind({ kind: 'link', renderer: 'link', refine: c => (c.href ? null : 'a link card names where it opens (href)') });
 
+/**
+ * Whether a choice card offers "Type your own answer". Absent means yes; only
+ * an explicit `false` turns it off. Every reader (the answer path, the card,
+ * a reload) asks here, so none can read a missing flag as "no".
+ * @param card - The card, or its stored run.
+ * @param card.allowOther - The flag as stored.
+ */
+export function choiceAllowsOther(card: { allowOther?: boolean }): boolean {
+  return card.allowOther !== false;
+}
+
 export type CardCheck = { ok: true; card: Card } | { ok: false; reason: string };
 
 /**
@@ -177,6 +188,9 @@ export function readCard(raw: unknown): CardCheck {
   const kind = cardKind(parsed.data.kind);
   if (!kind) {
     return { ok: false, reason: `no such card kind: ${parsed.data.kind}` };
+  }
+  if (parsed.data.kind !== 'choice' && (parsed.data.options || parsed.data.allowOther !== undefined || parsed.data.answer)) {
+    return { ok: false, reason: `a ${parsed.data.kind} card has no options, allowOther or answer; those belong to a choice card` };
   }
   const problem = kind.refine?.(parsed.data) ?? null;
   return problem ? { ok: false, reason: problem } : { ok: true, card: parsed.data };

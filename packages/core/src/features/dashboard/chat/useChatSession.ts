@@ -1,6 +1,7 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
+import type { CardUpdate } from './recommendedAction';
 import type { AgentOption, AgentRun, CardAnswer, CardChoiceOption, CardDecision, CardField, CardLastAttempt, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
@@ -24,7 +25,7 @@ import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
-import { cardLink, cardShown, draftOf, readRecommendedAction } from './recommendedAction';
+import { cardLink, cardShown, cardUpdated, draftOf, readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
@@ -795,10 +796,10 @@ export function useChatSession({
         return;
       }
       case 'card_update': {
-        const u = evt as unknown as { cardId: string; runId?: number; state?: RecommendedAction['state']; reason?: string };
+        const u = evt as unknown as CardUpdate & { cardId: string };
         appendToLatestAgent(m => ({
           ...m,
-          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? { ...r, ...(u.runId !== undefined ? { runId: u.runId } : {}), ...(u.state ? { state: u.state } : {}), ...(u.reason ? { unfiledReason: u.reason } : {}) } : r)),
+          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? cardUpdated(r, u) : r)),
         }));
         return;
       }

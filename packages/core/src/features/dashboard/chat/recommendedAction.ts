@@ -274,3 +274,24 @@ export function describeCardState(s: CardStateInput, time: (iso: string) => stri
       return { label: s.status, tone: 'muted' };
   }
 }
+
+/** What a `card_update` event can change on a card already drawn. */
+export type CardUpdate = { runId?: number; state?: RecommendedAction['state']; reason?: string; decision?: CardDecision; answer?: CardAnswer };
+
+/**
+ * A drawn card with a `card_update` applied. The decision and the answer ride
+ * along with the proposal id, so a card the person just answered collapses
+ * live and not only after a reload. Keys the update did not carry stay as they were.
+ * @param rec - The card as drawn.
+ * @param update - The event's changes.
+ */
+export function cardUpdated(rec: RecommendedAction, update: CardUpdate): RecommendedAction {
+  return {
+    ...rec,
+    ...(update.runId !== undefined ? { runId: update.runId } : {}),
+    ...(update.state ? { state: update.state } : {}),
+    ...(update.reason ? { unfiledReason: update.reason } : {}),
+    ...(update.decision ? { decision: update.decision } : {}),
+    ...(update.answer ? { answer: update.answer } : {}),
+  };
+}

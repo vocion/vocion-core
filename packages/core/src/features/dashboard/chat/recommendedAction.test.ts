@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardLink, cardShown, describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
+import { cardLink, cardShown, cardUpdated, describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
 
 /**
  * On 2026-09-15 two `client.review.propose` calls 400'd with "Invalid input:
@@ -194,5 +194,20 @@ describe('in-app links on a card', () => {
 
   it('cardShown leaves keys that were not set absent', () => {
     expect(cardShown({})).toEqual({});
+  });
+});
+
+describe('cardUpdated', () => {
+  const drawn = { id: 'card_9', actionId: '', input: {}, label: 'Pick', kind: 'choice', state: 'proposed' as const };
+
+  it('carries the answer and decision onto the card, so it collapses live', () => {
+    const answer = { optionId: 'other', text: 'Chase invoices', at: '2026-10-02T09:00:00.000Z' };
+    const decision = { action: 'choose', at: '2026-10-02T09:00:00.000Z' };
+
+    expect(cardUpdated(drawn, { state: 'decided', answer, decision })).toMatchObject({ state: 'decided', answer, decision, kind: 'choice' });
+  });
+
+  it('leaves what the update does not carry alone', () => {
+    expect(cardUpdated({ ...drawn, runId: 4 }, { reason: 'timeout' })).toMatchObject({ runId: 4, state: 'proposed', unfiledReason: 'timeout' });
   });
 });

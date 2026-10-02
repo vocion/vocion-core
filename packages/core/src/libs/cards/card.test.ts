@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardFromRecommendation, cardKind, readCard, recommendationFromCard, registerCardKind } from './card';
+import { cardFromRecommendation, cardKind, choiceAllowsOther, readCard, recommendationFromCard, registerCardKind } from './card';
 
 function opt(id: string, extra: Record<string, unknown> = {}) {
   return { id, label: `Option ${id}`, ...extra };
@@ -73,6 +73,24 @@ describe('the card contract', () => {
       expect(readCard(choice([opt('A', { actions: boundActions(20) }), opt('B')])).ok).toBe(true);
       expect(readCard(choice([opt('A', { actions: boundActions(21) }), opt('B')])).ok).toBe(false);
       expect(readCard(choice([opt('A', { actions: [] }), opt('B')])).ok).toBe(false);
+    });
+
+    it('reads a missing allowOther as yes, and only an explicit false as no', () => {
+      expect(choiceAllowsOther({})).toBe(true);
+      expect(choiceAllowsOther({ allowOther: true })).toBe(true);
+      expect(choiceAllowsOther({ allowOther: false })).toBe(false);
+    });
+
+    it('reserves other for the typed answer, so no option can take it', () => {
+      expect(readCard(choice([opt('other'), opt('B')])).ok).toBe(false);
+    });
+
+    it('keeps options, allowOther and answer off every other kind', () => {
+      const options = [opt('A'), opt('B')];
+
+      expect(readCard({ id: 'c', kind: 'record', title: 'x', options }).ok).toBe(false);
+      expect(readCard({ id: 'c', kind: 'link', title: 'x', href: '/a', allowOther: true }).ok).toBe(false);
+      expect(readCard({ id: 'c', kind: 'record', title: 'x', answer: { optionId: 'A', text: 'x', at: 'now' } }).ok).toBe(false);
     });
 
     it('the old ask kind is gone', () => {
