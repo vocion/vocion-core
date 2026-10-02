@@ -6,7 +6,7 @@ const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, knowledgeSourceSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { storeLoginCredential } = await import('@/services/ApiTokenService');
 const { recordConnectAttempt } = await import('@/libs/connect/attempts');
-const { connectHref, offerConnectionTool } = await import('./offerConnection');
+const { connectHref, credentialHref, offerConnectionTool } = await import('./offerConnection');
 
 const ORG = 'org_offer';
 function ctxWith(emit: (event: unknown) => void, userId: string | null = 'usr-admin'): RuntimeContext {
@@ -122,6 +122,28 @@ describe('offer_connection', () => {
 
     expect(String(await offerConnectionTool(ctxWith(emit, null)).invoke({ connector: 'github', why: 'x' }))).toMatch(/^Only a workspace admin/);
     expect(String(await offerConnectionTool(ctxWith(emit, 'usr-nobody')).invoke({ connector: 'github', why: 'x' }))).toMatch(/^Only a workspace admin/);
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('offer_connection for a platform with no connector', () => {
+  it('app-login gets a card to the Developers page that returns to this conversation', async () => {
+    const emit = vi.fn();
+    const out = String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'app-login', why: 'So QA can sign in to Northwind.' }));
+    const card = emit.mock.calls[0]![0].card;
+
+    expect(card).toMatchObject({ kind: 'link', title: 'Connect App sign-in', actions: [], state: 'proposed', href: '/dashboard/developers?add=app-login&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7' });
+    expect(card.href).toBe(credentialHref('app-login', 7));
+    expect(out).toMatch(/Never ask for it in chat/);
+  });
+
+  it('a member gets no card, and a platform that is neither a connector nor pasteable is still refused', async () => {
+    const emit = vi.fn();
+
+    expect(String(await offerConnectionTool(ctxWith(emit, 'usr-member')).invoke({ connector: 'app-login', why: 'x' }))).toMatch(/^Only a workspace admin can add App sign-in/);
+    // `vocion` is a real platform with no pasteable credential; `ghosthub` is nothing.
+    expect(String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'vocion', why: 'x' }))).toMatch(/^Refused/);
+    expect(String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'ghosthub', why: 'x' }))).toMatch(/^Refused/);
     expect(emit).not.toHaveBeenCalled();
   });
 });

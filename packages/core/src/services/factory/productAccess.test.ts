@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -59,5 +60,36 @@ describe('production access lives with the product (2026-09-30)', () => {
   it('grants check_live only to a seat that names it', () => {
     expect(checkLiveTools({ orgId: ORG, harnessConfig: {} } as never)).toEqual([]);
     expect(checkLiveTools({ orgId: ORG, harnessConfig: { grantTools: ['check_live'] } } as never).map(t => t.name)).toEqual(['check_live']);
+  });
+});
+
+describe('a QA sign-in found without an id in chat', () => {
+  const FALLBACK_ORG = 'org_access_fallback';
+  const OTHER_ORG = 'org_access_other';
+
+  async function seedEnvironment(orgId: string) {
+    const [envType] = await createObjectType({ slug: 'environment', label: 'Environment' }, orgId);
+    await db.insert(businessObjectSchema).values({ orgId, typeId: envType!.id, title: 'Acme web (production)', metadata: { slug: 'acme-web-production', product: 'acme', stage: 'production', surface: 'web', url: 'https://app.acme.example' } });
+  }
+
+  it('uses the workspace\'s only live app login, never another workspace\'s, and ignores a revoked one', async () => {
+    await seedEnvironment(FALLBACK_ORG);
+    await seedEnvironment(OTHER_ORG);
+    const revoked = await storePlatformKey({ orgId: FALLBACK_ORG, name: 'Old QA', platform: 'app-login', values: { ...LOGIN, email: 'old@acme.example' } });
+    await db.update(apiTokenSchema).set({ revokedAt: new Date() }).where(eq(apiTokenSchema.id, revoked.id));
+    await storePlatformKey({ orgId: OTHER_ORG, name: 'Other QA', platform: 'app-login', values: { ...LOGIN, email: 'other@elsewhere.example' } });
+    await storePlatformKey({ orgId: OTHER_ORG, name: 'Other QA 2', platform: 'app-login', values: { ...LOGIN, email: 'other2@elsewhere.example' } });
+    await storePlatformKey({ orgId: FALLBACK_ORG, name: 'Acme QA', platform: 'app-login', values: { ...LOGIN, email: 'qa@acme.example' } });
+
+    const access = await productAccess(FALLBACK_ORG, 'acme');
+
+    expect(access.environments[0]!.login).toMatchObject({ email: 'qa@acme.example', stored: true });
+    expect(access.environments[0]!.login).not.toHaveProperty('password');
+  });
+
+  it('uses none when two are live, and says to name one', async () => {
+    const access = await productAccess(OTHER_ORG, 'acme');
+
+    expect(access.environments[0]!.login).toEqual({ signInUrl: null, email: null, stored: false, problem: '2 app logins are stored; name one on this environment.' });
   });
 });

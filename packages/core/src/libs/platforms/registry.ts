@@ -1003,6 +1003,14 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     toolProvider: null,
     keyPattern: null,
     keyShapeHint: 'a sign-in URL, an email and a password',
+    // No connector and no provider login: the sign-in is only ever pasted, on
+    // the Developers page, so a chat card can point there.
+    howToConnect: {
+      paste: {
+        credential: 'A QA account sign-in',
+        access: ['A dedicated QA account for the app, never a person\'s own'],
+      },
+    },
     helpText: 'A sign-in to an app this workspace builds, for its QA to use: the sign-in page, the account email and its password. Use a dedicated QA account, never a person\'s own. Stored encrypted; only agents granted product_access can read it.',
     fields: [
       {

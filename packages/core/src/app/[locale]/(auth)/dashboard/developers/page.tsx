@@ -39,7 +39,8 @@ async function publicOrigin(): Promise<string> {
   return `${proto}://${host}`;
 }
 
-export default async function DevelopersPage() {
+export default async function DevelopersPage({ searchParams }: { searchParams: Promise<{ add?: string; returnTo?: string }> }) {
+  const { add, returnTo } = await searchParams;
   const { has } = await requireOrganization();
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
   const origin = await publicOrigin();
@@ -121,7 +122,7 @@ export default async function DevelopersPage() {
           ? 'A Vocion token lets a caller into this workspace — send it as a bearer token to /api/v1 or /api/mcp, and copy it now, because it is shown only once. A key for any other platform goes the other way: Vocion calls that platform for you, so models, embeddings, reranking and image tools bill your account. Store none and those calls stay on ours.'
           : 'Workspace admins issue Vocion tokens and store the platform keys model runs bill to. Ask an admin for a token to call the API or the MCP server.'}
       >
-        {isAdmin && <ApiTokensPanel />}
+        {isAdmin && <ApiTokensPanel addPlatform={add} returnTo={returnTo} />}
       </DashboardSection>
 
       <DashboardSection

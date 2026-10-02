@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { newCardId } from '@/libs/cards/card';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
 import { connectStartHref } from '@/libs/connect/returnTo';
-import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { getPlatform, howToConnectFor, isCredentialPlatformId, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { connectorOfSource } from '@/libs/sources/connectorOf';
 import { getConnector } from '@/libs/sources/registry';
 import { newestLiveCredential } from '@/services/connect/createSourceOnLogin';
@@ -24,6 +24,52 @@ export function connectHref(connectorSlug: string, conversationId: number | unde
 }
 
 /**
+ * The Developers page add form for a platform that has no connector, such as
+ * `app-login`, carrying a way back to this conversation (#1028). The sign-in
+ * is pasted there, never typed in chat.
+ * @param platformId - e.g. "app-login".
+ * @param conversationId - The setup conversation, when the turn has one.
+ * @returns An in-app URL.
+ */
+export function credentialHref(platformId: string, conversationId: number | undefined): string {
+  return `/dashboard/developers?add=${encodeURIComponent(platformId)}&returnTo=${encodeURIComponent(returnPath(conversationId))}`;
+}
+
+/**
+ * A credential-only platform: no connector, but it declares how to paste one.
+ * @param slug - What the model passed as `connector`.
+ * @returns The platform's id and label, or null when the slug is not one.
+ */
+function credentialOnlyPlatform(slug: string): { id: string; label: string } | null {
+  if (getConnector(slug) || !isCredentialPlatformId(slug)) {
+    return null;
+  }
+  const platform = getPlatform(slug);
+  return platform.connectorSlugs.length === 0 && platform.howToConnect?.paste ? { id: platform.id, label: platform.label } : null;
+}
+
+/**
+ * Put the paste-a-credential card in chat for a platform with no connector.
+ * @param ctx - The turn's runtime context.
+ * @param platform - The platform to paste.
+ * @param platform.id - Platform id.
+ * @param platform.label - Display name.
+ * @param why - The card's rationale line.
+ * @returns The text the model reads.
+ */
+async function offerCredential(ctx: RuntimeContext, platform: { id: string; label: string }, why: string): Promise<string> {
+  const membership = ctx.userId ? await memberWorkspace(ctx.userId, ctx.orgId) : null;
+  if (membership?.accountRole !== 'admin') {
+    return `Only a workspace admin can add ${platform.label}. Ask an admin to add it from Developers.`;
+  }
+  const href = credentialHref(platform.id, ctx.conversationId);
+  const source = { agentSlug: ctx.agentSlug, tool: 'offer_connection' };
+  const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${platform.label}`, rationale: why, actions: [], source, href, hrefLabel: `Connect ${platform.label}`, state: 'proposed' };
+  ctx.emit({ type: 'card', card });
+  return `Showed a "Connect ${platform.label}" card (${href}). The person pastes the credential on that page and lands back in this conversation. Never ask for it in chat. Do not claim it is saved until they say so.`;
+}
+
+/**
  * Check the connector, then put its link card in chat.
  * @param ctx - The turn's runtime context.
  * @param input - The connector slug and one sentence on why.
@@ -33,6 +79,10 @@ export function connectHref(connectorSlug: string, conversationId: number | unde
  */
 async function offerConnection(ctx: RuntimeContext, input: { connector: string; why: string }): Promise<string> {
   const connector = getConnector(input.connector);
+  const credentialOnly = credentialOnlyPlatform(input.connector);
+  if (credentialOnly) {
+    return offerCredential(ctx, credentialOnly, input.why);
+  }
   if (!connector) {
     return `Refused: there is no connector "${input.connector}". Call list_capabilities for the connector slugs.`;
   }
@@ -117,7 +167,7 @@ export function offerConnectionTool(ctx: RuntimeContext) {
       name: 'offer_connection',
       description: 'Show the person a one-tap card to connect one tool (GitHub, Jira, Slack…) to this workspace. It opens the connect flow and comes back to this conversation. Use during setup, once per connector the workspace needs.',
       schema: z.object({
-        connector: z.string().min(1).describe('Connector slug from list_capabilities, e.g. "github".'),
+        connector: z.string().min(1).describe('Connector slug from list_capabilities, e.g. "github"; or a credential-only platform such as "app-login" (QA sign-in), pasted on the Developers page.'),
         why: z.string().min(1).max(200).describe('One sentence on what connecting it lets this workspace do.'),
       }),
     },

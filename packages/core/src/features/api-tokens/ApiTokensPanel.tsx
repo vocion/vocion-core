@@ -51,6 +51,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { safeReturnPath } from '@/libs/connect/returnTo';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { API_ERROR_CODE } from '@/types/ApiError';
 
@@ -500,20 +502,24 @@ function RevealedCredentialValues({
   );
 }
 
-export function ApiTokensPanel() {
+export function ApiTokensPanel({ addPlatform, returnTo }: { addPlatform?: string; returnTo?: string } = {}) {
   const [tokens, setTokens] = useState<TokenSummary[]>([]);
   const [platforms, setPlatforms] = useState<PlatformOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [showCreate, setShowCreate] = useState(false);
+  // `?add=<platform>` (a chat card) opens the form on that platform.
+  const [showCreate, setShowCreate] = useState(Boolean(addPlatform));
   /**
    * Whether the table also lists revoked rows. Off by default: a platform
    * capped at one live key revokes the old row on every rotation instead of
    * deleting it, so the history is real but it is not what the page is for.
    */
   const [showRevoked, setShowRevoked] = useState(false);
-  const [platformId, setPlatformId] = useState(VOCION_PLATFORM_ID);
+  const [platformId, setPlatformId] = useState(addPlatform || VOCION_PLATFORM_ID);
+  // Set after a pasted credential saves, so the way back to chat shows once.
+  const [savedForReturn, setSavedForReturn] = useState(false);
+  const backPath = safeReturnPath(returnTo);
   const [name, setName] = useState('');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [expiryChoice, setExpiryChoice] = useState('90');
@@ -600,6 +606,7 @@ export function ApiTokensPanel() {
       } else {
         // No expiry: the platform that issued the key owns its lifetime.
         await client.apiTokens.createPlatformKey({ name, platform: platformId, values: fieldValues });
+        setSavedForReturn(true);
       }
       resetForm();
       await refresh();
@@ -684,6 +691,14 @@ export function ApiTokensPanel() {
   return (
     <div className="space-y-6">
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {savedForReturn && backPath && (
+        <p className="text-sm">
+          Saved.
+          {' '}
+          <Link href={backPath} className="font-medium underline underline-offset-2">Back to your conversation</Link>
+        </p>
+      )}
 
       {fresh && <FreshTokenNotice fresh={fresh} onDismiss={() => setFresh(null)} />}
 

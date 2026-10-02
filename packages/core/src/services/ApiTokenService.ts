@@ -38,7 +38,7 @@ import type { Principal, WorkspaceRole } from '@/services/authz';
 import { Buffer } from 'node:buffer';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import process from 'node:process';
-import { and, desc, eq, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { DEFAULT_PLATFORM_ID, getPlatform, hintField, holdsManyCredentials, isCredentialPlatformId, keyHint, validatePlatformCredential } from '@/libs/platforms/registry';
@@ -647,6 +647,27 @@ export type ResolvedCredential
    * handed out to one.
    */
     | { status: 'minted' };
+
+/**
+ * The ids of an org's live rows on one platform: not revoked, not expired.
+ * A caller that needs "the one sign-in" counts these, and must not guess when
+ * there are two.
+ * @param orgId - The org the caller is acting in.
+ * @param platformId - The platform, e.g. `app-login`.
+ */
+export async function liveCredentialIds(orgId: string, platformId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: apiTokenSchema.id })
+    .from(apiTokenSchema)
+    .where(and(
+      eq(apiTokenSchema.orgId, orgId),
+      eq(apiTokenSchema.platform, platformId),
+      isNull(apiTokenSchema.revokedAt),
+      or(isNull(apiTokenSchema.expiresAt), gt(apiTokenSchema.expiresAt, new Date())),
+    ))
+    .orderBy(desc(apiTokenSchema.createdAt));
+  return rows.map(row => row.id);
+}
 
 /**
  * Decrypt one stored credential, named by id, so a caller can use it.
