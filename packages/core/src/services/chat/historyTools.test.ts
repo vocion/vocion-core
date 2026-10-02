@@ -109,3 +109,25 @@ describe('historyMessages', () => {
     expect((out[1] as { content: string }).content).toContain('do not file it again');
   });
 });
+
+describe('a choice card in history', () => {
+  const asked = { type: 'card', id: 'card_q', kind: 'choice', label: 'What matters most?', actionId: '' };
+
+  function resultFor(card: Record<string, unknown>): string {
+    const messages = historyMessages({ role: 'assistant', content: '', id: 7, runs: [card] });
+    const result = messages.find(m => m.role === 'tool');
+    return result && result.role === 'tool' ? result.content : '';
+  }
+
+  it('replays an answered question as answered, never as a card waiting on decide_proposal', () => {
+    const content = resultFor({ ...asked, state: 'decided', answer: { optionId: 'A', text: 'Ship faster', at: '2026-10-02T10:00:00Z' } });
+
+    expect(content).toBe('Question "What matters most?" (card card_q) was answered: Ship faster.');
+    expect(content).not.toContain('decide_proposal');
+  });
+
+  it('says a skipped question was skipped, and an open one is still on screen so it is not asked again', () => {
+    expect(resultFor({ ...asked, state: 'deferred' })).toBe('Question "What matters most?" (card card_q) was skipped by the person.');
+    expect(resultFor({ ...asked, state: 'proposed' })).toBe('Question "What matters most?" (card card_q) is still open on the person\'s screen; don\'t ask it again.');
+  });
+});

@@ -465,3 +465,66 @@ describe('agent stream route — a follow-up stays in its thread (conversation 3
     expect(await routedTurn(conv.id, 'Ask the change reviewer whether it is ready.')).toBe('change-reviewer');
   });
 });
+
+describe('agent stream route — a choice answer is the person\'s turn (#1028)', () => {
+  const question = { type: 'card' as const, id: 'card_setup', kind: 'choice', label: 'What matters most?', actionId: '', state: 'proposed', options: [{ id: 'A' as const, label: 'Ship faster' }, { id: 'B' as const, label: 'Fewer bugs' }] };
+
+  async function seedAskedQuestion() {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+    await db.insert(conversationMessageSchema).values({ conversationId: conv.id, role: 'assistant', content: '', runsJson: [question] });
+    return conv;
+  }
+
+  function postAnswer(conversationId: number, cardAnswer: unknown) {
+    return POST(new Request('http://localhost/rpc/agent/stream', {
+      method: 'POST',
+      body: JSON.stringify({ agent_slug: 'revenue-lead', conversation_id: conversationId, card_answer: cardAnswer }),
+    }));
+  }
+
+  it('stores the answer as the user\'s message, hands the agent "Answered …", and tells other tabs the card is decided', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(finishes);
+    const conv = await seedAskedQuestion();
+
+    const res = await postAnswer(conv.id, { cardId: 'card_setup', optionId: 'A' });
+    const body = await new Response(res.body).text();
+
+    expect(res.status).toBe(200);
+    expect(body).toContain('"type":"card_update"');
+    expect(body).toContain('"state":"decided"');
+    expect(vi.mocked(runAgentDeep).mock.calls[0]![0].message).toBe('Answered "What matters most?": Ship faster');
+
+    const user = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'user');
+
+    expect(user?.content).toBe('Ship faster');
+    expect(user?.runsJson).toEqual([{ type: 'card_decision', cardId: 'card_setup', action: 'answer', label: 'What matters most?', option: 'A' }]);
+  });
+
+  it('answering twice is a 409 that starts no second turn and adds no second message', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(finishes);
+    const conv = await seedAskedQuestion();
+    await drain(await postAnswer(conv.id, { cardId: 'card_setup', optionId: 'A' }));
+    vi.mocked(runAgentDeep).mockClear();
+
+    const again = await postAnswer(conv.id, { cardId: 'card_setup', optionId: 'B' });
+
+    expect(again.status).toBe(409);
+    expect(again.headers.get('content-type')).not.toContain('text/event-stream');
+    expect(runAgentDeep).not.toHaveBeenCalled();
+    expect((await listMessages({ orgId: ORG, conversationId: conv.id })).filter(r => r.role === 'user')).toHaveLength(1);
+  });
+
+  it('a card that is not in the conversation is 404, a malformed answer is 400, and neither starts a turn', async () => {
+    const conv = await seedAskedQuestion();
+
+    const unknown = await postAnswer(conv.id, { cardId: 'card_elsewhere', optionId: 'A' });
+    const badOption = await postAnswer(conv.id, { cardId: 'card_setup', optionId: 'E' });
+    const longText = await postAnswer(conv.id, { cardId: 'card_setup', optionId: 'other', text: 'x'.repeat(2001) });
+    const longId = await postAnswer(conv.id, { cardId: 'c'.repeat(65), optionId: 'A' });
+    const noOption = await postAnswer(conv.id, { cardId: 'card_setup', optionId: 'D' });
+
+    expect([unknown.status, badOption.status, longText.status, longId.status, noOption.status]).toEqual([404, 400, 400, 400, 400]);
+    expect(runAgentDeep).not.toHaveBeenCalled();
+    expect((await listMessages({ orgId: ORG, conversationId: conv.id })).filter(r => r.role === 'user')).toHaveLength(0);
+  });
+});

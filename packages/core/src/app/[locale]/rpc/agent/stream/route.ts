@@ -48,13 +48,24 @@ export async function POST(request: Request): Promise<Response> {
   if (!userId || !orgId) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
+  const body = await request.json();
+  // A choice answer (#1028) is checked before anything is read from the
+  // database: a malformed one is a 400 and goes no further. It travels with the
+  // conversation it answers in, because the card is found there and nowhere else.
+  const { ChoiceAnswerRequestSchema } = await import('@/services/chat/answerChoice');
+  const answerRequest = body.card_answer === undefined ? null : ChoiceAnswerRequestSchema.safeParse(body.card_answer);
+  if (answerRequest && (!answerRequest.success || typeof body.conversation_id !== 'number')) {
+    return new Response(JSON.stringify({ error: 'A choice answer needs a card id, an option and the conversation it is in.' }), { status: 400 });
+  }
+  const cardAnswer = answerRequest?.success ? answerRequest.data : null;
   // Per-user connection ACL: everything this member's chat retrieves is
   // constrained to their granted sources (restricted connections drop out).
   const { allowedSourceSlugsForUser } = await import('@/services/SourceAccessService');
   const allowedSourceSlugs = await allowedSourceSlugsForUser(orgId, userId);
 
-  const body = await request.json();
-  const message = body.message as string;
+  // The words the person sees as their turn. An answer's are set from the
+  // card once it has been answered (below); until then it is empty.
+  let message = cardAnswer ? '' : body.message as string;
   // Where the person is when they ask (058): the everything-scoped dock off a
   // record page sends it; the model reads it under the message, the log
   // keeps the message as typed.
@@ -103,7 +114,7 @@ export async function POST(request: Request): Promise<Response> {
   let agentSlug = body.agent_slug as string | undefined;
   let routing: import('@/services/agents/router').RoutingDecision | null = null;
   const roster = await listAgents(orgId);
-  if (!agentSlug || body.route === true) {
+  if (!agentSlug || (body.route === true && !cardAnswer)) {
     const agents = roster;
     if (agents.length === 0) {
       return new Response(
@@ -113,7 +124,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const { getWorkspaceLead } = await import('@/services/TeamService');
     const lead = await getWorkspaceLead(orgId);
-    if (body.route === true && typeof message === 'string' && message.trim()) {
+    if (body.route === true && !cardAnswer && typeof message === 'string' && message.trim()) {
       const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn } = await import('@/services/agents/router');
       // A follow-up stays with the agent the thread is with; the router
       // picks only a conversation's first turn, or an agent the person names
@@ -132,7 +143,10 @@ export async function POST(request: Request): Promise<Response> {
         // to the wiki researcher on a keyword score).
         ?? await routeFirstTurn({ orgId, agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
     }
+    // An answer goes back to the agent that asked the question.
+    const asker = cardAnswer ? await (await import('@/services/ConversationService')).threadAgentOf({ orgId, id: body.conversation_id as number }) : null;
     agentSlug = routing?.chosen
+      ?? (asker && agents.some(a => a.slug === asker) ? asker : null)
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
   }
   const routedAgent = routing ? roster.find(a => a.slug === routing!.chosen) ?? null : null;
@@ -148,6 +162,7 @@ export async function POST(request: Request): Promise<Response> {
   // but the conversation is ephemeral.
   const conversationIdRaw = body.conversation_id;
   let conversationId: number | null = null;
+  let choiceAnswered: Extract<Awaited<ReturnType<typeof import('@/services/chat/answerChoice').answerChoice>>, { ok: true }> | null = null;
   // Conversation autonomy (R2 adds the column; until then the client may send
   // it per turn). `act-within-bounds` files recommendations into the review
   // queue as they are emitted — still pending, still a person's decision.
@@ -159,6 +174,23 @@ export async function POST(request: Request): Promise<Response> {
   if (typeof conversationIdRaw === 'number') {
     const existing = await getConversation({ orgId, id: conversationIdRaw });
     conversationId = existing ? existing.id : null;
+    // The answer is settled here, before anything is written or any stream is
+    // opened: a card that is not in this conversation, an answered one and a
+    // bad option each end the request with their status, and no agent turn
+    // starts. The person's turn is then the answer, and the agent is handed
+    // what it did.
+    if (cardAnswer) {
+      if (!existing) {
+        return new Response(JSON.stringify({ error: 'That conversation was not found.' }), { status: 404 });
+      }
+      const { answerChoice } = await import('@/services/chat/answerChoice');
+      const answered = await answerChoice({ orgId, userId, conversationId: existing.id, answer: cardAnswer });
+      if (!answered.ok) {
+        return new Response(JSON.stringify({ error: answered.error }), { status: answered.status });
+      }
+      choiceAnswered = answered;
+      message = answered.answerText;
+    }
     if (existing && 'autonomy' in existing) {
       autonomy = readAutonomy((existing as { autonomy?: unknown }).autonomy);
     }
@@ -227,6 +259,7 @@ export async function POST(request: Request): Promise<Response> {
       content: message,
       userId,
       ...(routing ? { routing } : {}),
+      ...(choiceAnswered ? { runs: choiceAnswered.userRuns } : {}),
     });
     if (attachments.length > 0) {
       await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
@@ -236,9 +269,11 @@ export async function POST(request: Request): Promise<Response> {
   // A correction: last turn the agent said something could not be found, and
   // this message hands it over. The agent is told to own it, and a learning
   // candidate is drafted in the background (`correctionReflector.ts`).
-  let messageForModel = message;
+  // An answer is not a correction; the agent is handed the question, the
+  // answer and what each bound action did (`answerChoice`).
+  let messageForModel = choiceAnswered ? choiceAnswered.modelPrefix : message;
   let absenceCorrected = false;
-  {
+  if (!choiceAnswered) {
     const { correctionNote, detectCorrection, reflectOnCorrection } = await import('@/services/chat/correctionReflector');
     const lastAssistant = [...conversationHistory].reverse().find(t => t.role === 'assistant')?.content;
     const correction = detectCorrection(lastAssistant, message);
@@ -358,6 +393,10 @@ export async function POST(request: Request): Promise<Response> {
       // Always, routed or named: the turn's speaker is a typed frame the
       // transcript consumes, the same fact the assistant row is stamped with.
       writeEvent({ type: 'turn_agent', agent: turnAgent });
+      // The answered card collapses in any other tab that has it open.
+      if (choiceAnswered && cardAnswer) {
+        writeEvent({ type: 'card_update', cardId: cardAnswer.cardId, state: 'decided', answer: choiceAnswered.answer });
+      }
 
       try {
         const turn = () => runAgentDeep({

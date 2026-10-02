@@ -13,6 +13,7 @@ import {
   latestConversationForScope,
   listConversations,
   listMessages,
+  markCardRun,
   renameConversation,
   searchConversations,
   setConversationAutonomy,
@@ -212,7 +213,7 @@ export const recordCardDecision = os
     id: z.number().int().positive(),
     cardId: z.string().min(1),
     label: z.string().min(1),
-    action: z.enum(['approve', 'reject', 'defer', 'undo']),
+    action: z.enum(['approve', 'reject', 'defer', 'undo', 'dismiss']),
     runId: z.number().int().optional(),
   }))
   .handler(async ({ input }) => {
@@ -221,13 +222,23 @@ export const recordCardDecision = os
     if (!conversation) {
       throw ApiError.notFound({ id: input.id });
     }
-    const verb = { approve: 'Approved', reject: 'Rejected', defer: 'Deferred', undo: 'Undid' }[input.action];
+    // A skipped question is closed in the same step as it is written down: the
+    // card moves to `deferred` only while it is still open, so a doubled tap
+    // or a stale tab cannot skip an answered question. No agent turn follows.
+    if (input.action === 'dismiss') {
+      const closed = await markCardRun({ orgId, conversationId: input.id, cardId: input.cardId, expectState: 'proposed', patch: { state: 'deferred' } });
+      if (!closed) {
+        throw ApiError.badRequest('That question is already answered or skipped.');
+      }
+    }
+    const verb = { approve: 'Approved', reject: 'Rejected', defer: 'Deferred', undo: 'Undid', dismiss: 'Skipped' }[input.action];
+    const subject = input.action === 'dismiss' ? `the question "${input.label}"` : `the card "${input.label}"`;
     const row = await appendMessage({
       orgId,
       conversationId: input.id,
       role: 'user',
       userId,
-      content: `${verb} the card "${input.label}"${input.runId !== undefined ? ` (proposal #${input.runId})` : ''}.`,
+      content: `${verb} ${subject}${input.runId !== undefined ? ` (proposal #${input.runId})` : ''}.`,
       runs: [{ type: 'card_decision', cardId: input.cardId, action: input.action, label: input.label, ...(input.runId !== undefined ? { runId: input.runId } : {}) }],
     });
     return { id: row.id };

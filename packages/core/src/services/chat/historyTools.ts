@@ -23,6 +23,11 @@
 
 export type RunEntry = {
   type?: string;
+  /** A card's id, and its kind: a choice card is replayed as a question, not a proposal. */
+  id?: string;
+  kind?: string;
+  /** The person's answer to a choice card. */
+  answer?: { optionId?: string; text?: string };
   name?: string;
   input?: unknown;
   output?: unknown;
@@ -111,6 +116,26 @@ function refusedCall(output: unknown): boolean {
 }
 
 /**
+ * What a replayed choice card says. A question has no proposal: it was answered,
+ * skipped, or it is still open. Without this branch an open question read as "a
+ * card waiting on approval", and "yes" would have been taken as approving it.
+ * @param r - The choice card entry.
+ */
+function choiceResult(r: RunEntry): string {
+  const question = `Question "${r.label}" (card ${r.id ?? 'unknown'})`;
+  if (r.answer?.text) {
+    return `${question} was answered: ${r.answer.text}.`;
+  }
+  if (r.state === 'decided') {
+    return `${question} was answered.`;
+  }
+  if (r.state === 'deferred') {
+    return `${question} was skipped by the person.`;
+  }
+  return `${question} is still open on the person's screen; don't ask it again.`;
+}
+
+/**
  * What a replayed card says it came to — the proposal as it stands NOW when
  * the history was hydrated (`withLiveCardState`), else as the turn stored it.
  * Conversation 360 (2026-09-29): both build cards had run, and the replay
@@ -120,6 +145,9 @@ function refusedCall(output: unknown): boolean {
  * @param r - The card entry.
  */
 function cardResult(r: RunEntry): string {
+  if (r.kind === 'choice') {
+    return choiceResult(r);
+  }
   const n = r.runId ? `proposal #${r.runId}` : 'its proposal';
   const status = r.status ?? (r.state === 'decided' || r.ref ? 'done' : undefined);
   if (r.ref) {

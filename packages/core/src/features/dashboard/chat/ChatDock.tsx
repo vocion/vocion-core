@@ -289,7 +289,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // the turn's follow chips leave it out (Chris, 2026-09-29).
   const pageRecord = useMemo(() => followExcludeOf(effectiveContext?.record ?? (effectiveContext?.path ? recordFromPath(effectiveContext.path) : null) ?? (scopeRef ? scopeRefToRecord(scopeRef) : null)), [effectiveContext, scopeRef]);
   // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
-  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo' | 'dismiss'; runId?: number }) => {
     if (session.conversationId === null) {
       return;
     }

@@ -11,7 +11,7 @@ import { createContext, use } from 'react';
  * with no conversation (a preview, a test) finds no provider and records
  * nothing — the decision itself still went through the action registry.
  */
-export type CardDecision = { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number };
+export type CardDecision = { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo' | 'dismiss'; runId?: number };
 
 const CardDecisionContext = createContext<((d: CardDecision) => void) | null>(null);
 

@@ -48,7 +48,7 @@ export type AgentRun
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
     | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; options?: CardChoiceOption[]; allowOther?: boolean; answer?: CardAnswer; draft?: { prompt: string; missing: string } }
     /** A person's decision on a card, written as a user turn. */
-    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
+    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string; option?: string };
 
 /** A source surfaced by an actor during the turn (bubbles into the trace). */
 export type TraceCitation = {

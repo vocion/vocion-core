@@ -51,7 +51,7 @@ export type ConversationRun
      * in the browser.
      */
     | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; decision?: { action: string; at: string; by?: string }; options?: Array<{ id: 'A' | 'B' | 'C' | 'D'; label: string; description?: string; actions?: Array<{ actionId: string; input: Record<string, unknown> }> }>; allowOther?: boolean; answer?: { optionId: string; text: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
-    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
+    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string; option?: string };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
 export type ConversationTraceNode = {
@@ -743,7 +743,7 @@ export type CardRunPatch = {
   lastAttempt: { at: string; reason: string; summary: string };
 };
 
-type CardRunEntry = Extract<ConversationRun, { type: 'card' }>;
+export type CardRunEntry = Extract<ConversationRun, { type: 'card' }>;
 
 /**
  * The state a stored card run is in. A run written before states existed has
@@ -751,8 +751,39 @@ type CardRunEntry = Extract<ConversationRun, { type: 'card' }>;
  * reading the transcript uses on reload).
  * @param run - The stored card run.
  */
-function cardRunState(run: CardRunEntry): string {
+export function cardRunState(run: CardRunEntry): string {
   return run.state ?? (run.runId !== undefined ? 'filed' : 'proposed');
+}
+
+/**
+ * One persisted card as the transcript stored it, found by its id.
+ *
+ * An answer to a choice card is read against THIS, never against what the
+ * request says the card offered: the options and their bound actions are the
+ * ones the agent wrote, held on the message row. Filtered by org and
+ * conversation, so a card id from somewhere else is simply not found.
+ * @param input
+ * @param input.orgId - The org that owns the conversation.
+ * @param input.conversationId - The conversation the card is in.
+ * @param input.cardId - The card's id.
+ * @returns The card's run entry, or null when this conversation has no such card.
+ */
+export async function readCardRun(input: { orgId: string; conversationId: number; cardId: string }): Promise<CardRunEntry | null> {
+  const holdsCard = JSON.stringify([{ type: 'card', id: input.cardId }]);
+  const [message] = await db
+    .select({ runs: conversationMessageSchema.runsJson })
+    .from(conversationMessageSchema)
+    .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
+    .where(and(
+      eq(conversationSchema.orgId, input.orgId),
+      eq(conversationMessageSchema.conversationId, input.conversationId),
+      eq(conversationMessageSchema.role, 'assistant'),
+      sql`${conversationMessageSchema.runsJson} @> ${holdsCard}::jsonb`,
+    ))
+    .orderBy(desc(conversationMessageSchema.id))
+    .limit(1);
+  const run = message?.runs?.find(entry => entry.type === 'card' && entry.id === input.cardId);
+  return run && run.type === 'card' ? run : null;
 }
 
 /**

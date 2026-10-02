@@ -186,7 +186,7 @@ function ChatShellInner({
   }, [intent, pathname]);
   const session = useChatSession({ agents, initialComposerValue, initialAttachments, suggestions, greeting, resumeConversationId: conversationId, pageContext });
   // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
-  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo' | 'dismiss'; runId?: number }) => {
     if (session.conversationId === null) {
       return;
     }
