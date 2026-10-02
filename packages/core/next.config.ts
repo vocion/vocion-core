@@ -77,7 +77,9 @@ const baseConfig: NextConfig = {
     // step small without slowing it (prerendering took 313 ms on 2 against
     // 392 ms on 17, #670). It matters most on a warm build cache, where the
     // compile is small and this step would otherwise be the build's peak.
-    cpus: 2,
+    // The image build sets NEXT_BUILD_CPUS=1: the deploy runner has 7 GB and
+    // every worker inherits the build's 6 GB heap.
+    cpus: Number(process.env.NEXT_BUILD_CPUS) || 2,
     // Turbopack's build cache (on by default since Next 16.3) lets a repeat
     // build recompile only what changed: the compile peaked at ~3.3 GB warm
     // against 6.6 GB cold (#670). A CI runner starts empty and never reuses

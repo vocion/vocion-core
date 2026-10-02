@@ -134,12 +134,18 @@ RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SH
     VOCION_AGENT_RUNTIME_IMAGE="${VOCION_AGENT_RUNTIME_IMAGE}" \
     node scripts/write-version.mjs
 
+# One prerender worker, and a database that refuses at once (127.0.0.1:9),
+# never a hostname that can sit in DNS. v0.6.0's build on the deploy runner
+# (2 CPU, 7 GB) was killed at "Generating static pages using 2 workers (0/185)"
+# with ResourceExhausted (2026-10-02, run 37024351912): each worker inherits
+# the 6 GB heap the compile needs.
 RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/app/packages/core/.next/cache \
     NODE_OPTIONS=--max-old-space-size=6144 \
+    NEXT_BUILD_CPUS=1 \
     SKIP_ENV_VALIDATION=1 \
     VOCION_TYPES_CHECKED=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
-    DATABASE_URL="postgres://stub@stub/stub" \
+    DATABASE_URL="postgres://stub@127.0.0.1:9/stub" \
     CLERK_SECRET_KEY="sk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA" \
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \
     NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL}" \
