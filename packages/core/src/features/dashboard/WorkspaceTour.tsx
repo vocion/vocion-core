@@ -347,6 +347,11 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
         const link = (t as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null;
         if (link && new URL(link.href, window.location.href).origin === window.location.origin) {
           e.preventDefault();
+          // Stopped here, in the capture phase above React's root, so the
+          // link's own onClick never runs: a preview's "open full page"
+          // closes itself on click, and that URL write raced this push and
+          // won — the tour stayed on the page it had just left.
+          e.stopPropagation();
           const url = new URL(link.href, window.location.href);
           // Advance first: the tapped step's own route guard would otherwise
           // see the new page land before the step moved on, and push back.
