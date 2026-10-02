@@ -153,7 +153,15 @@ export async function reconcileOpenPulls(orgId: string, now: Date, deps: Reconci
       continue;
     }
     const state = read.pr.merged_at ? 'merged' : read.pr.state === 'open' ? 'open' : 'closed';
-    for (const event of await earnedEvents(read.repo, read.pr, read.checkRuns)) {
+    // A LATE EVENT ABOUT HISTORY IS NOT RAISED (request 224, 2026-10-02: the
+    // close of a superseded attempt's PR was re-raised after the feature
+    // shipped). An attempt a later one replaced, or whose request settled, is
+    // read back and stamped, and only a merge is still raised — a merge is a
+    // change to the product, whichever attempt made it.
+    const { attemptIsHistory } = await import('./supersededPulls');
+    const history = await attemptIsHistory(orgId, { id: task.id, meta }).catch(() => null);
+    const { PR_MERGED } = await import('@/libs/github/events');
+    for (const event of (await earnedEvents(read.repo, read.pr, read.checkRuns)).filter(e => !history || e.type === PR_MERGED)) {
       const res = await deps.emit(orgId, event).catch((err: Error) => {
         console.warn('factory reconcile: an event could not be raised', { orgId, url, type: event.type, message: err.message });
         return { deduped: true };

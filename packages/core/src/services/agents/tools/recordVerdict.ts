@@ -336,6 +336,13 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
     return null;
   }
   try {
+    // AN ATTEMPT THAT IS HISTORY IS NEVER BUILT AGAIN, and never files a stop
+    // either: a later attempt replaced it, or the request has settled.
+    const { attemptIsHistory } = await import('@/services/factory/supersededPulls');
+    const history = await attemptIsHistory(orgId, task);
+    if (history) {
+      return `Nothing built again: attempt #${task.id} is history (${history}).`;
+    }
     // ONE LIMIT FOR EVERY AUTOMATIC STEP (backlog 038): a QA send-back retry
     // counts toward the same three per request as a recovery does.
     const { stopIfAtLimit } = await import('@/services/factory/carry');
@@ -484,6 +491,11 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       const task = await findTaskByPr(ctx.orgId, args.pr_url);
       if (!task) {
         return `Not recorded: no engineering task in this workspace carries the pull request ${args.pr_url}. Pass the task's prUrl exactly as it is on the record.`;
+      }
+      const { attemptIsHistory } = await import('@/services/factory/supersededPulls');
+      const history = await attemptIsHistory(ctx.orgId, task);
+      if (history) {
+        return `Read as history: task #${task.id} is not the attempt that decides anything (${history}). Its status stays ${String(task.status ?? task.meta.status ?? 'as it was')}, nothing is built again and no merge is filed. The review is done.`;
       }
       // THE CONTRACT IS THE LIST, NOT THE MODEL. On fire 7061 the reviewer
       // wrote three easy criteria of its own and approved "3 of 3" against a

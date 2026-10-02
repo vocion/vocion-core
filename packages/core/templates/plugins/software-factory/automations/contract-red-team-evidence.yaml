@@ -30,8 +30,13 @@ status: active
 agent: change-reviewer
 when:
   event: pr.checks_completed
+  # Open pull requests only: a closed one is an attempt that was replaced or
+  # given up, and a late check event about it is history (request 224,
+  # 2026-10-02: a review of closed PR #159 sent back a superseded attempt and
+  # queued a build of a feature that had shipped).
   filter:
     conclusion: success
+    state: open
   maxFiresPer10m: 4
 do:
   checkMission: prove-the-contract

@@ -17,9 +17,10 @@
  */
 
 import type { Action, ActionContext, ReviewCard } from './types';
+import type { SettledDescriptor } from '@/libs/factory/requestStates';
 import { z } from 'zod';
 import { nounCode } from '@/libs/codes';
-import { REOPENABLE_REQUEST_STATES } from '@/libs/factory/requestStates';
+import { REOPENABLE_REQUEST_STATES, settledReason } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
 import { codesForRecords } from '@/services/codes';
 import { USABLE_RECORD_STATUSES } from './objects-propose-candidate';
@@ -99,8 +100,8 @@ const dispatchInput = z.object({
 type Meta = Record<string, unknown>;
 type Rec = { id: number; title: string; typeId: number; meta: Meta; status?: string | null };
 
-/** A record with its type's slug, as the factory reads one. */
-export type FactoryRecord = Rec & { typeSlug: string };
+/** A record with its type's slug, as the factory reads one, and its type's `x-settled` when it declares one. */
+export type FactoryRecord = Rec & { typeSlug: string; settled?: SettledDescriptor | null };
 
 /**
  * One record, scoped to the org.
@@ -108,16 +109,21 @@ export type FactoryRecord = Rec & { typeSlug: string };
  * @param id - The object id.
  */
 export async function readRecord(orgId: string, id: number): Promise<FactoryRecord | null> {
-  const { and, eq } = await import('drizzle-orm');
+  const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const { settledDescriptor } = await import('@/services/proposals/ReviewTruthService');
   const [row] = await db
-    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, typeId: businessObjectSchema.typeId, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, typeSlug: businessObjectTypeSchema.slug })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, typeId: businessObjectSchema.typeId, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, typeSlug: businessObjectTypeSchema.slug, settledRaw: sql<unknown>`${businessObjectTypeSchema.schema} -> 'x-settled'` })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)))
     .limit(1);
-  return row ? { ...row, meta: (row.meta ?? {}) as Meta } : null;
+  if (!row) {
+    return null;
+  }
+  const { settledRaw, ...rest } = row;
+  return { ...rest, meta: (row.meta ?? {}) as Meta, settled: settledDescriptor({ 'x-settled': settledRaw }) };
 }
 
 /**
@@ -1250,6 +1256,38 @@ export async function buildUnderway(orgId: string, requestId: number | undefined
 }
 
 /**
+ * AN AUTOMATIC START NEVER BUILDS WHAT HAS SETTLED (request 224, 2026-10-02:
+ * eleven minutes after it shipped, a late QA verdict on a superseded attempt
+ * sent "Build again", run 468 was queued, and the request's state was written
+ * back to `building`). Every automatic build — a recovery, a QA send-back, a
+ * contract change — goes through this one action, so this one guard covers
+ * them all. A person's Build is their word and is never refused here.
+ * @param request - The request the start is for.
+ * @returns The refusal, or null when the request is still open.
+ */
+export function settledRefusal(request: Pick<FactoryRecord, 'id' | 'meta' | 'status' | 'settled'> | null): string | null {
+  const why = request ? settledReason(request) : null;
+  return why ? `Nothing started: request #${request!.id} has settled (${why}), and an automatic step never builds a settled request again. A person's Build does.` : null;
+}
+
+/**
+ * The refusal for an automatic start on a settled request, read before
+ * anything else is loaded; null for a person's start or an open request.
+ * @param orgId - Tenant.
+ * @param input - The dispatch input.
+ */
+async function settledStart(orgId: string, input: z.infer<typeof dispatchInput>): Promise<string | null> {
+  if (!(input.trigger || input.autoRetryOf)) {
+    return null;
+  }
+  let requestId = Number(input.requestId);
+  if (!(requestId > 0) && input.taskId) {
+    requestId = Number((await readRecord(orgId, input.taskId))?.meta.requestId);
+  }
+  return requestId > 0 ? settledRefusal(await readRecord(orgId, requestId)) : null;
+}
+
+/**
  * A start the factory made on its own, as opposed to one a person made or
  * approved. Only these count toward the automatic-attempt limit.
  * @param input - The dispatch input.
@@ -1288,6 +1326,10 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     const underway = await buildUnderway(ctx.orgId, input.requestId, { trigger: input.trigger });
     if (underway) {
       return underway;
+    }
+    const settled = await settledStart(ctx.orgId, input);
+    if (settled) {
+      return settled;
     }
     const { task, plan } = await loadAll(ctx, input);
     const types = await factoryTypes(ctx.orgId);
@@ -1370,6 +1412,12 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       throw new Error(underway);
     }
     const automatic = isAutomatic(input, ctx);
+    // Checked again here: a card approved by the trust ladder after the
+    // request shipped is still the factory's own start.
+    const settled = automatic ? settledRefusal(request) : null;
+    if (settled) {
+      throw new Error(settled);
+    }
     const at = new Date().toISOString();
     // BUILD ON A CLOSED REQUEST REOPENS IT (Chris, 2026-09-29, on #246:
     // "Chris said open so open. It needs a plan so plan. Plan is done kickoff
@@ -1384,6 +1432,14 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       const by = ctx.reviewedBy ?? ctx.invokedBy ?? 'a person';
       await writeMeta(ctx.orgId, request.id, { state: 'in_scope', recommendationState: 'approved', reopenedAt: at, reopenedBy: by, decisionReason: `Reopened by Build (${by}) after it was ${String(request.meta.state ?? 'rejected').replace(/_/g, ' ')}.` });
       request.meta = { ...request.meta, state: 'in_scope', recommendationState: 'approved' };
+    }
+    // A person's Build on a shipped request is their word to build it again:
+    // stamped, so every automatic step reads it as open from here on
+    // (`settledReason`: a reopen after the ship reopens it).
+    if (request && !automatic && str(request.meta, 'shippedAt') && settledReason(request)) {
+      const by = ctx.reviewedBy ?? ctx.invokedBy ?? 'a person';
+      await writeMeta(ctx.orgId, request.id, { reopenedAt: at, reopenedBy: by });
+      request.meta = { ...request.meta, reopenedAt: at, reopenedBy: by };
     }
     // A PERSON'S START SETTLES WHAT IT ANSWERS (Chris, 2026-09-29, #201:
     // approving the re-dispatch left "Needs your decision: Stopped …" and a

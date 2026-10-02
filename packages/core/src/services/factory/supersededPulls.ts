@@ -124,3 +124,49 @@ async function realDeps(orgId: string) {
     },
   };
 }
+
+/**
+ * AN ATTEMPT THAT IS HISTORY (request 224, 2026-10-02). A late check event for an
+ * attempt a later attempt replaced (PR #159, attempt #350, closed and
+ * superseded by #354, which merged and shipped) started a review, the review
+ * sent #350 back, and "Build again" queued a fourth build of a shipped
+ * feature, writing the request back to `building`. An attempt that is no
+ * longer the request's latest, or one whose request has settled, is history:
+ * a verdict, a check or a close about it changes no task, starts nothing and
+ * files no merge (record_verdict, buildAgain, the reconciler).
+ * @param orgId - The workspace.
+ * @param task - The task the verdict is about.
+ * @param task.id
+ * @param task.meta
+ * @returns Why it is history, or null when the verdict decides something.
+ */
+export async function attemptIsHistory(orgId: string, task: { id: number; meta: Record<string, unknown> }): Promise<string | null> {
+  const requestId = Number(task.meta.requestId);
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return null;
+  }
+  const { readRecord } = await import('@/libs/actions/factory-dispatch');
+  const { settledReason } = await import('@/libs/factory/requestStates');
+  const request = await readRecord(orgId, requestId);
+  const settled = request ? settledReason(request) : null;
+  if (settled) {
+    return `request #${requestId} has settled (${settled})`;
+  }
+  const { and, eq, gt, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const [later] = await db
+    .select({ id: businessObjectSchema.id })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(
+      eq(businessObjectSchema.orgId, orgId),
+      eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).task),
+      gt(businessObjectSchema.id, task.id),
+      sql`${businessObjectSchema.metadata} ->> 'requestId' = ${String(requestId)}`,
+    ))
+    .orderBy(businessObjectSchema.id)
+    .limit(1);
+  return later ? `attempt #${later.id} superseded it` : null;
+}

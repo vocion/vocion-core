@@ -27,7 +27,7 @@ import type { BuildReadiness, FactoryRecord } from '@/libs/actions/factory-dispa
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
 import { nounCode } from '@/libs/codes';
-import { CLOSED_REQUEST_STATES as CLOSED } from '@/libs/factory/requestStates';
+import { settledReason } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
 import { codeForRecord } from '@/services/codes';
 import { blockerRefs, blockerResolution } from './blocker';
@@ -481,7 +481,9 @@ async function planningEnded(orgId: string, requestId: number, askedAt: string):
 async function isOpen(orgId: string, request: FactoryRecord): Promise<boolean> {
   // A DUPLICATE IS CLOSED (#232/#234, 2026-09-29): `duplicateOf` ends the
   // record by itself — intake already skipped one; the sweep carried it on.
-  return request.typeSlug === (await factoryTypes(orgId)).request && !CLOSED.has(String(request.meta.state ?? '')) && request.meta.recommendationState !== 'rejected' && !(Number(request.meta.duplicateOf ?? 0) > 0);
+  // SETTLED IS CLOSED: the type's `x-settled`, or a ship (request 224 read
+  // `building` after it shipped, and the sweep went on carrying it).
+  return request.typeSlug === (await factoryTypes(orgId)).request && !settledReason(request) && request.meta.recommendationState !== 'rejected' && !(Number(request.meta.duplicateOf ?? 0) > 0);
 }
 
 /**
