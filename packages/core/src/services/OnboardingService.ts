@@ -5,7 +5,9 @@
  * stored state is when setup was opened, which is what makes auto-open
  * fire once per workspace.
  */
+import type { Card } from '@/libs/cards/card';
 import { and, eq, isNull } from 'drizzle-orm';
+import { CHOICE_OPTION_IDS, newCardId } from '@/libs/cards/card';
 import { db } from '@/libs/DB';
 import { connectorOfSource } from '@/libs/sources/connectorOf';
 import { listConnectors } from '@/libs/sources/registry';
@@ -92,16 +94,63 @@ export async function releaseOnboardingStart(orgId: string, userId: string): Pro
  * @returns Markdown.
  */
 export function onboardingOpeningMessage(input: { workspaceName: string; description: string | null }): string {
-  const ask = input.description
-    ? `You've described it as "${input.description}". Is that still right?`
-    : 'To start: what is this workspace for? Which client or team, and what outcome should it help with?';
+  // The question lives on the opener card, so the prose asks nothing.
+  const known = input.description ? [`You've described it as "${input.description}".`, ''] : [];
   return [
-    `Welcome to **${input.workspaceName}**. I'll set it up with you: what it's for, which tools to connect, and what to turn on.`,
+    `Welcome to **${input.workspaceName}**. I'll set it up with you, one question at a time: what it's for, which tools to connect, and what to turn on.`,
     '',
-    ask,
-    '',
+    ...known,
     'You can say "onboard this workspace" any time to pick this back up.',
   ].join('\n');
+}
+
+/** The most plugins the opener card offers: a choice card holds four options, and "type your own" is the fourth way in. */
+const OPENER_MAX_OPTIONS = 3;
+
+/**
+ * Cut a sentence to a length on a word boundary.
+ * @param text - The sentence.
+ * @param max - The most characters to keep.
+ * @returns The text, whole when it fits.
+ */
+function cutOnWord(text: string, max: number): string {
+  if (text.length <= max) {
+    return text;
+  }
+  const cut = text.slice(0, max + 1);
+  const space = cut.lastIndexOf(' ');
+  return (space > 0 ? cut.slice(0, space) : cut.slice(0, max)).trimEnd();
+}
+
+/**
+ * The setup conversation's first question as a choice card: which plugin's
+ * work the person wants off their plate. Enabled plugins come first, then
+ * catalog plugins that say when they help, each group in catalog order.
+ * No option binds an action: the answer steers the interview, it changes nothing.
+ * @param input
+ * @param input.plugins - The catalog: slug, name and the plugin's `recommend.when` reasons.
+ * @param input.enabled - Slugs already on in this workspace.
+ * @returns A `choice` card.
+ */
+export function openerCard(input: { plugins: Array<{ slug: string; name: string; when: string[] }>; enabled: string[] }): Card {
+  const on = input.plugins.filter(plugin => input.enabled.includes(plugin.slug));
+  const recommended = input.plugins.filter(plugin => !input.enabled.includes(plugin.slug) && plugin.when.length > 0);
+  const picked = [...on, ...recommended].slice(0, OPENER_MAX_OPTIONS);
+  return {
+    id: newCardId(),
+    kind: 'choice',
+    title: 'What do you want me taking off your plate?',
+    body: 'Pick one, or type your own. I\'ll ask one thing at a time.',
+    options: picked.map((plugin, index) => ({
+      id: CHOICE_OPTION_IDS[index]!,
+      label: plugin.name,
+      ...(plugin.when[0] ? { description: cutOnWord(plugin.when[0], 200) } : {}),
+    })),
+    allowOther: true,
+    actions: [],
+    state: 'proposed',
+    source: {},
+  };
 }
 
 /**

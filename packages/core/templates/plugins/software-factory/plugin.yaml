@@ -362,6 +362,8 @@ name: Software factory
 #   `offer_connection` (`app-login`, never typed in chat), then saves the
 #   product's environment, with `qaLoginCredentialId`, in one tap, so the
 #   first shipped change comes back with a screenshot.
+#   Setup recommends github, jira and slack for this plugin
+#   (`recommend.connectors`), so the interview offers each in turn.
 version: 3.2.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
@@ -373,7 +375,7 @@ recommend:
     - the same small change is made by hand in several repositories
     - a person asks what is in flight, what is stuck, and what nobody has answered for a week
     - bug reports, store reviews and support emails about the same product are tracked in different places, or nowhere
-  connectors: []
+  connectors: [github, jira, slack]
 # The plugin's rows sit under their own heading (its pages already say so); a core
 # route it offers — Evals, the reference sets — sits under that heading's "More ›".
 nav: {section: Software factory, order: 0}

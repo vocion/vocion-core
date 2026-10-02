@@ -88,8 +88,11 @@ describe('isOnboardingDue', () => {
 });
 
 describe('onboardingOpeningMessage', () => {
-  it('asks what the workspace is for when there is no description', () => {
-    expect(svc.onboardingOpeningMessage({ workspaceName: 'Northwind Fresh', description: null })).toMatch(/what is this workspace for/i);
+  it('asks nothing in prose when there is no description: the opener card carries the question', () => {
+    const text = svc.onboardingOpeningMessage({ workspaceName: 'Northwind Fresh', description: null });
+
+    expect(text).toContain('Welcome to **Northwind Fresh**');
+    expect(text).not.toContain('?');
   });
 
   it('confirms an existing description instead of asking again', () => {
@@ -97,5 +100,41 @@ describe('onboardingOpeningMessage', () => {
 
     expect(text).toContain('"Northwind engineering"');
     expect(text).not.toMatch(/what is this workspace for/i);
+    expect(text).not.toContain('?');
+  });
+});
+
+describe('openerCard', () => {
+  const catalog = [
+    { slug: 'wiki', name: 'Wiki', when: ['a team keeps answering the same questions'] },
+    { slug: 'data-rooms', name: 'Data rooms', when: [] },
+    { slug: 'software-factory', name: 'Software factory', when: ['a deployment has repositories and wants changes proposed', 'second reason'] },
+    { slug: 'proposals', name: 'Proposals', when: ['sales writes the same proposal again and again'] },
+    { slug: 'growth-loop', name: 'Growth loop', when: ['signups need a nudge'] },
+  ];
+
+  it('puts an enabled plugin first, caps at three options, and describes each by its first reason', () => {
+    const card = svc.openerCard({ plugins: catalog, enabled: ['proposals'] });
+
+    expect(card).toMatchObject({ kind: 'choice', title: 'What do you want me taking off your plate?', allowOther: true, actions: [], body: 'Pick one, or type your own. I\'ll ask one thing at a time.' });
+    expect(card.options!.map(o => o.label)).toEqual(['Proposals', 'Wiki', 'Software factory']);
+    expect(card.options!.map(o => o.id)).toEqual(['A', 'B', 'C']);
+    expect(card.options![2]!.description).toBe('a deployment has repositories and wants changes proposed');
+    expect(card.options!.some(o => o.actions)).toBe(false);
+  });
+
+  it('skips a catalog plugin with no reason to recommend it, and cuts a long reason on a word boundary', () => {
+    const long = `${'word '.repeat(60)}end`;
+    const card = svc.openerCard({ plugins: [catalog[1]!, { slug: 'a', name: 'A', when: [long] }, catalog[0]!], enabled: [] });
+
+    expect(card.options!.map(o => o.label)).toEqual(['A', 'Wiki']);
+    expect(card.options![0]!.description!.length).toBeLessThanOrEqual(200);
+    expect(card.options![0]!.description!.endsWith('word')).toBe(true);
+  });
+
+  it('is still a valid choice card with only two plugins to offer', () => {
+    const card = svc.openerCard({ plugins: [catalog[0]!, catalog[3]!], enabled: [] });
+
+    expect(card.options).toHaveLength(2);
   });
 });

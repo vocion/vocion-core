@@ -6,7 +6,7 @@ vi.mock('@/libs/DB');
 vi.mock('./AuthGuards', () => ({ guardAuth: vi.fn(), guardRole: vi.fn(), loadProject: vi.fn() }));
 const { db } = await import('@/libs/DB');
 const { eq } = await import('drizzle-orm');
-const { conversationSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
+const { conversationMessageSchema, conversationSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { guardAuth, guardRole, loadProject } = await import('./AuthGuards');
 const { start } = await import('./Onboarding');
 
@@ -43,6 +43,18 @@ describe('onboarding.start', () => {
 
     expect(convo!.agentSlug).toBe('workspace-lead');
     expect(await call()).toEqual({ conversationId: null, reason: 'already-started' });
+  });
+
+  it('the opening message carries the opener choice card as a run', async () => {
+    await db.update(projectSchema).set({ onboardingStartedAt: null, onboardingStartedBy: null }).where(eq(projectSchema.id, 'org_onb_r1'));
+    signedInAs('org_onb_r1');
+    const { conversationId } = await call();
+    const [opening] = await db.select().from(conversationMessageSchema).where(eq(conversationMessageSchema.conversationId, conversationId!));
+    const cards = (opening!.runsJson ?? []).filter(run => run.type === 'card');
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ kind: 'choice', label: 'What do you want me taking off your plate?', allowOther: true, state: 'proposed' });
+    expect((cards[0] as { options: unknown[] }).options.length).toBeGreaterThanOrEqual(2);
   });
 
   it('two admins at once: exactly one conversation', async () => {
