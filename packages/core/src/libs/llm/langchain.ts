@@ -79,6 +79,19 @@ export function anthropicAdaptiveThinking(model: string): boolean {
  * until its behaviour is known.
  * @param model - The model id, bare or Bedrock-decorated.
  */
+/**
+ * Whether this Anthropic model takes ONLY adaptive thinking: it answers both
+ * `{ type: 'disabled' }` and a budget with a 400 ("Use thinking.type.adaptive
+ * and output_config.effort"). LangChain's ChatAnthropic sends `disabled` when
+ * no thinking is given, so these models are always sent `adaptive`
+ * (2026-10-02: the Squatch product manager on claude-opus-5-5 failed every
+ * turn). Fable 5, Mythos 5 and the 5 family past its first release.
+ * @param model - The model id, bare or Bedrock-decorated.
+ */
+export function anthropicAdaptiveOnly(model: string): boolean {
+  return /claude-(?:fable-5|mythos-5|(?:sonnet|opus)-5-\d)/.test(model);
+}
+
 export function anthropicThinksUnlessDisabled(model: string): boolean {
   return /claude-(?:sonnet|opus)-5(?!-\d)/.test(model);
 }
@@ -428,7 +441,9 @@ export function buildChatModel(
         // 349, 2026-09-28: the propose_action that stopped mid-payload was on
         // this branch, `max_tokens: 4096`).
         maxTokens: opts.maxTokens ?? defaultAnthropicMaxTokens(model),
-        ...(opts.thinking === 'off' && anthropicThinksUnlessDisabled(model) ? { thinking: { type: 'disabled' as const } } : {}),
+        ...(anthropicAdaptiveOnly(model)
+          ? { thinking: { type: 'adaptive' as const } }
+          : opts.thinking === 'off' && anthropicThinksUnlessDisabled(model) ? { thinking: { type: 'disabled' as const } } : {}),
       }));
     }
     case 'openai': {
