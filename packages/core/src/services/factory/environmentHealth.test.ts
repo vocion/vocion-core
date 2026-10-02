@@ -174,3 +174,26 @@ describe('a down environment is brought back, step by step', () => {
     expect((await meta(env.id)).pipelineLog.some((l: { line: string }) => l.line.includes('its recovery starts again'))).toBe(true);
   });
 });
+
+describe('every pass says what it read', () => {
+  it('names each surface with its status and latency, quiet when it answered, opened on the first bad read; none to read is a pass that could not check', async () => {
+    const org = 'org_environment_health_check';
+
+    expect((await watchEnvironments(org, {}, at(0), deps().d)).check).toMatchObject({ kind: 'HTTP health', outcome: 'unchecked', targets: [], why: 'no environment has a health check' });
+
+    const [type] = await createObjectType({ slug: 'environment', label: 'environment' }, org);
+    await db.insert(businessObjectSchema).values({ orgId: org, typeId: type!.id, title: 'kestrel-app', metadata: { slug: 'kestrel-app', stage: 'production', healthCheck: { url: 'https://app.kestrel.example/' } } });
+    let health: 'ok' | 'down' = 'ok';
+    const d = deps({ health: async () => ({ ...reading(health), url: 'https://app.kestrel.example/', latencyMs: health === 'ok' ? 312 : 2_041 }) }).d;
+
+    const quiet = (await watchEnvironments(org, {}, at(0), d)).check;
+
+    expect(quiet).toMatchObject({ outcome: 'quiet', targets: [{ label: 'app.kestrel.example', outcome: 'quiet', summary: '200 in 312 ms', observed: { environment: 'kestrel-app', health: 'ok', status: 200, latencyMs: 312 }, url: 'https://app.kestrel.example/' }] });
+    expect(quiet.threshold).toMatch(/under 400/);
+
+    health = 'down';
+    const down = (await watchEnvironments(org, {}, at(10), d)).check;
+
+    expect(down).toMatchObject({ outcome: 'opened', targets: [{ outcome: 'opened', summary: '503 in 2041 ms, down: watching' }] });
+  });
+});

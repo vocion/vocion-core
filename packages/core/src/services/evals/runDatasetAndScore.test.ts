@@ -2,7 +2,7 @@
  * Running a dataset once, scored by the grader it names.
  *
  * One grader per dataset, taken from `eval_dataset.provider`. The rules that
- * matter here are mostly about a retry: Temporal activities are at-least-once,
+ * matter here are mostly about a retry: background jobs are at-least-once,
  * so this can genuinely be called twice with the same run group, and the whole
  * value of the trend line rests on the second call not looking like a second
  * measurement — no second run row, no second copy of every case.

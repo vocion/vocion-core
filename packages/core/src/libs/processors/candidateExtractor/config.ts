@@ -3,7 +3,7 @@
  *
  * Model-free on purpose, and the only module the registry loads eagerly.
  * `libs/workspace/applier.ts` validates a manifest's `processor.config` at
- * apply time and sits in the Temporal worker's static import graph through
+ * apply time and sits in the durable executor's static import graph through
  * `MissionService`; if the schema lived next to the model code, validating a
  * manifest would drag LangChain and a Bedrock client into the worker. So this
  * file imports zod and the pure recurrence reader and nothing else, and
@@ -27,7 +27,7 @@ import { READ_PARTS } from '@/libs/time/recurrence';
  *
  * Read eagerly by the registry, so it is a plain number here rather than
  * anything derived from the model stage: importing that would drag LangChain
- * into the Temporal worker, which is the whole reason this file exists.
+ * into the durable executor, which is the whole reason this file exists.
  *
  * It leaves the model stage its whole deadline
  * (`SYNC_BUDGET_DEFAULTS.modelTimeoutMs`, shared by both attempts), plus the

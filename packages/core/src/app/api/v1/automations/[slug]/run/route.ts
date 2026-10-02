@@ -5,7 +5,7 @@ import { authApi, jsonError } from '../../../_shared';
 /**
  * POST /api/v1/automations/<slug>/run — fire an automation now.
  *
- * The on-demand counterpart to the Temporal schedule, and the same code path:
+ * The on-demand counterpart to the durable schedule, and the same code path:
  * it calls `fireAutomation`, so a manual run uses the automation's authored
  * `do.input` and only the overrides passed here differ. That is deliberate —
  * a test run that used its own config would prove nothing about the scheduled

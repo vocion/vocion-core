@@ -39,10 +39,10 @@ describe('dashboardNav registry', () => {
     // business user opens on their own, so it must not sit under MANAGE.
     // Automations is the one configuration row in WORK, under More (Chris,
     // 2026-10-01: "Make it on main nav under More dropdown").
-    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/automation', '/dashboard/rooms']);
+    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/rooms']);
     // Chat and Review are the surface; the rest earn a row by being pinned, Briefings and the Scorecard from the start.
     expect(workCoreRoutes().map(r => r.url)).toEqual(['/dashboard/chat', '/dashboard/inbox']);
-    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/automation', '/dashboard/rooms']);
+    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/rooms']);
     expect(DEFAULT_WORK_PINS).toEqual(['/dashboard/briefings', '/dashboard/scorecard']);
     // Artifacts replaced Canvases, which never earned a row of its own.
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/canvases')).toBe(false);
@@ -84,7 +84,7 @@ describe('dashboardNav registry', () => {
 
     expect(sections.map(s => s.group.title)).toEqual(['Team', 'Knowledge', 'Build', 'Insights', 'Organization']);
     expect(sections.map(s => s.routes.map(r => r.url))).toEqual([
-      ['/dashboard/teams', '/dashboard/missions', '/dashboard/workflows'],
+      ['/dashboard/teams', '/dashboard/missions', '/dashboard/workflows', '/dashboard/automation'],
       ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings', '/dashboard/workspace'],
       ['/dashboard/skills', '/dashboard/evals', '/dashboard/marketplace'],
       ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption'],

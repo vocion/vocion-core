@@ -45,7 +45,9 @@ function dbosContext(DBOS: typeof import('@dbos-inc/dbos-sdk').DBOS): DurableCon
     get workflowId() {
       return DBOS.workflowID ?? '';
     },
-    step: (name, fn) => DBOS.runStep(fn, { name }),
+    step: (name, fn, retry) => DBOS.runStep(fn, retry && retry.attempts > 1
+      ? { name, retriesAllowed: true, maxAttempts: retry.attempts, intervalSeconds: retry.intervalSeconds ?? 10, backoffRate: retry.backoff ?? 2 }
+      : { name }),
     waitFor: (topic, timeoutSeconds) => DBOS.recv(topic, timeoutSeconds),
     waitForEvent: (name, options) => waitForEventVia(ctx, name, options),
     sleep: ms => DBOS.sleepms(ms),
@@ -86,6 +88,13 @@ export function launchDurableExecutor(): Promise<void> {
         registered.set(def.name, DBOS.registerWorkflow(async (input: unknown) => def.run(dbosContext(DBOS), input), { name: def.name }) as (input: unknown) => Promise<unknown>);
       }
     }
+    // Every schedule fires this one workflow; its context names the job.
+    const { JOB_TICK_WORKFLOW, runJob } = await import('./jobs');
+    if (!registered.has(JOB_TICK_WORKFLOW)) {
+      registered.set(JOB_TICK_WORKFLOW, DBOS.registerWorkflow(async (_at: Date, call: unknown) => {
+        await runJob(call as never, dbosContext(DBOS) as never);
+      }, { name: JOB_TICK_WORKFLOW }) as (input: unknown) => Promise<unknown>);
+    }
     await DBOS.launch();
     await DBOS.registerQueue(QUEUE, { concurrency: 50 } as never);
   })();
@@ -97,6 +106,11 @@ let client: Promise<DBOSClient> | null = null;
 function dbosClient(): Promise<DBOSClient> {
   client ??= import('@dbos-inc/dbos-sdk').then(({ DBOSClient }) => DBOSClient.create({ systemDatabaseUrl: databaseUrl(), systemDatabaseSchemaName: SCHEMA, applicationName: APP, systemDatabasePoolSize: 4 }));
   return client;
+}
+
+/** The client, for housekeeping that lists and deletes runs (`prune.ts`). */
+export function dbosClientForAdmin(): Promise<DBOSClient> {
+  return dbosClient();
 }
 
 const STATE: Record<string, DurableRunState> = {
@@ -134,4 +148,50 @@ const engine: DurableEngine = {
 
 export function dbosEngine(): DurableEngine {
   return engine;
+}
+
+/**
+ * Schedules in DBOS's own table (schema `durable`): each fires
+ * `vocion.job.tick` with its job as context, once per tick.
+ */
+export function dbosSchedules(): import('./jobs').ScheduleBackend {
+  const state = (s: { scheduleName: string; schedule: string; status: string; lastFiredAt: string | null; context: unknown }) => ({
+    name: s.scheduleName,
+    cron: s.schedule,
+    paused: s.status !== 'ACTIVE',
+    lastFiredAt: s.lastFiredAt,
+    job: typeof (s.context as { job?: unknown } | null)?.job === 'string' ? (s.context as { job: string }).job : null,
+  });
+  return {
+    async upsert(spec) {
+      const c = await dbosClient();
+      const { JOB_TICK_WORKFLOW } = await import('./jobs');
+      const context = { job: spec.job, input: spec.input ?? {} };
+      const existing = await c.getSchedule(spec.name);
+      if (existing) {
+        await c.updateSchedule(spec.name, { schedule: spec.cron, context, cronTimezone: spec.timezone ?? null });
+        return;
+      }
+      await c.createSchedule({ scheduleName: spec.name, workflowName: JOB_TICK_WORKFLOW, schedule: spec.cron, context, options: { ...(spec.timezone ? { cronTimezone: spec.timezone } : {}), queueName: QUEUE } });
+    },
+    async remove(name) {
+      const c = await dbosClient();
+      if (await c.getSchedule(name)) {
+        await c.deleteSchedule(name);
+      }
+    },
+    async pause(name) {
+      await (await dbosClient()).pauseSchedule(name);
+    },
+    async resume(name) {
+      await (await dbosClient()).resumeSchedule(name);
+    },
+    async describe(name) {
+      const s = await (await dbosClient()).getSchedule(name);
+      return s ? state(s) : null;
+    },
+    async list(prefix) {
+      return ((await (await dbosClient()).listSchedules(prefix ? { scheduleNamePrefix: prefix } : {})) ?? []).map(state);
+    },
+  };
 }

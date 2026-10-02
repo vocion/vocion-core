@@ -48,7 +48,6 @@
         "src/libs/plugins/**",
         "src/libs/retrieval/**",
         "src/libs/llm/**",
-        "src/libs/temporal/**",
         "src/libs/crypto/**",
         "src/libs/docs/**",
         "src/libs/I18n.ts",

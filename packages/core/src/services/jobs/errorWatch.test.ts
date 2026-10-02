@@ -80,12 +80,29 @@ describe('production-watch on today\'s incident', () => {
     expect(facts).toContain(`in release ${SHA} (that release was created 2026-10-01T14:39:14Z)`);
     expect(facts).toContain('aaaaaaa11111 created 2026-10-01T14:39:14Z');
     expect(facts).toContain('the query engine for runtime');
+
+    // The pass says what it saw: the project, its counts, the newest issue past the threshold, the threshold, the outcome.
+    expect(out.check).toMatchObject({
+      kind: 'Sentry issues',
+      outcome: 'opened',
+      threshold: '20 events in the last hour for a new issue, or 20 in 10 min at twice the 10 min before',
+      targets: [{
+        label: 'northwind-api',
+        outcome: 'opened',
+        summary: '2 issues in the last hour; NW-API-3 at 184 events: opened: deploy',
+        observed: { issuesLastHour: 2, eventsLastHour: 185, pastThreshold: 1, newest: { shortId: 'NW-API-3', eventsLastHour: 184 }, environment: 'production' },
+        recordId: 501,
+        url: 'https://northwind.sentry.io/issues/77/',
+      }],
+    });
   });
 
   it('updates the same incident on the next pass, raising nothing until it doubles, and resolves it after a quiet hour', async () => {
     const open = { id: 501, title: 'NW-API-3: EngineInitError', meta: { source: 'sentry', org: 'northwind', project: 'northwind-api', environment: 'production', issueId: '77', shortId: 'NW-API-3', status: 'open', cause: 'deploy', lastEmittedEvents: 150 } };
     const again = harness({ records: async () => [open] });
-    await runErrorWatch('org_1', pluginInput(), NOW, again.deps);
+    const updated = await runErrorWatch('org_1', pluginInput(), NOW, again.deps);
+
+    expect(updated.check.outcome).toBe('updated');
 
     expect(again.cause).not.toHaveBeenCalled();
     expect(again.emitted).toEqual([]);
@@ -101,7 +118,15 @@ describe('production-watch on today\'s incident', () => {
   it('opens nothing for a one-off, and says unknown when the cause cannot be read', async () => {
     const oneOff = harness({ countErrors: async () => ({ ok: true, data: [{ issueId: '76', shortId: 'NW-API-2', title: null, events: 1, firstAt: null, lastAt: null }] }) });
 
-    expect((await runErrorWatch('org_1', pluginInput(), NOW, oneOff.deps)).acted).toEqual([]);
+    const quiet = await runErrorWatch('org_1', pluginInput(), NOW, oneOff.deps);
+
+    expect(quiet.acted).toEqual([]);
+    // A quiet pass is a check that ran, not an empty result.
+    expect(quiet.check).toMatchObject({ outcome: 'quiet', targets: [{ label: 'northwind-api', outcome: 'quiet', summary: '1 issue in the last hour, none past the threshold', observed: { issuesLastHour: 1, pastThreshold: 0, newest: null } }] });
+
+    const silent = await runErrorWatch('org_1', pluginInput(), NOW, harness({ countErrors: async () => ({ ok: true, data: [] }) }).deps);
+
+    expect(silent.check.targets[0]).toMatchObject({ outcome: 'quiet', summary: 'no errors in the last hour' });
 
     const unread = harness({ cause: async () => null });
     await runErrorWatch('org_1', pluginInput(), NOW, unread.deps);
@@ -112,7 +137,16 @@ describe('production-watch on today\'s incident', () => {
   it('says why it read nothing: no project, no record type, no Sentry', async () => {
     expect((await runErrorWatch('org_1', { ...pluginInput(), projects: [] }, NOW, harness().deps)).problem).toMatch(/no project to watch/);
     expect(watchInput({ projects: ['northwind-api'] })).toBeNull();
-    expect((await runErrorWatch('org_1', pluginInput(), NOW, harness({ sentry: async () => ({ ok: false, message: 'No Sentry token is stored for this workspace.' }) }).deps)).problem).toBe('No Sentry token is stored for this workspace.');
+
+    const noSentry = await runErrorWatch('org_1', pluginInput(), NOW, harness({ sentry: async () => ({ ok: false, message: 'No Sentry token is stored for this workspace.' }) }).deps);
+
+    expect(noSentry.problem).toBe('No Sentry token is stored for this workspace.');
+    expect(noSentry.check).toMatchObject({ outcome: 'unchecked', why: 'No Sentry token is stored for this workspace.', targets: [{ label: 'northwind-api', outcome: 'unchecked' }] });
+    expect((await runErrorWatch('org_1', { ...pluginInput(), projects: [] }, NOW, harness().deps)).check).toMatchObject({ outcome: 'unchecked', targets: [], why: expect.stringMatching(/no project to watch/) });
+
+    const unreadable = await runErrorWatch('org_1', pluginInput(), NOW, harness({ countErrors: async () => ({ ok: false, error: 'sentry_unauthorized', status: 403, message: 'Sentry answered 403' }) }).deps);
+
+    expect(unreadable.check.targets[0]).toMatchObject({ outcome: 'unchecked', why: 'Sentry answered 403' });
     expect(causeFacts(ISSUE, null, [])).toContain('No exception was read.');
   });
 });

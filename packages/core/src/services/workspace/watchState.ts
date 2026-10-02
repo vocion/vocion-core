@@ -1,5 +1,7 @@
+import type { CheckOutcome } from '@/libs/automations/checkResult';
 import type { PageManifest } from '@/libs/workspace/pageFields';
 import { and, desc, eq, notInArray } from 'drizzle-orm';
+import { readCheckResult } from '@/libs/automations/checkResult';
 import { db } from '@/libs/DB';
 import { automationRunSchema, automationSchema } from '@/models/Schema';
 
@@ -23,8 +25,12 @@ export type WatchState = {
   state: 'active' | 'paused' | 'off' | 'missing';
   /** When its latest run started, if it has run. */
   lastReadAt: Date | null;
-  /** That run's error, when it failed. */
+  /** That run's error, when it failed, or why its check could not read. */
   lastError: string | null;
+  /** What that run's check came to, when it recorded one (`libs/automations/checkResult.ts`). */
+  lastOutcome: CheckOutcome | null;
+  /** Where it reads, in the page's words ("Sentry"), when the page says. */
+  in: string | null;
 };
 
 type Watch = NonNullable<NonNullable<PageManifest['empty']>['watch']>;
@@ -62,18 +68,21 @@ export function watchedItems(input: Record<string, unknown> | null | undefined, 
  */
 export function watchStateOf(
   row: { name: string; status: string | null; pausedAt: Date | null; doConfig: { input?: Record<string, unknown> } } | null,
-  lastRun: { startedAt: Date; status: string; error: string | null } | null,
+  lastRun: { startedAt: Date; status: string; error: string | null; result?: unknown } | null,
   watch: Watch,
 ): WatchState {
   if (!row) {
-    return { name: watch.automation, items: [], state: 'missing', lastReadAt: null, lastError: null };
+    return { name: watch.automation, items: [], state: 'missing', lastReadAt: null, lastError: null, lastOutcome: null, in: watch.in ?? null };
   }
+  const check = lastRun?.status === 'error' ? null : readCheckResult(lastRun?.result);
   return {
     name: row.name,
     items: watchedItems(row.doConfig.input, watch),
     state: row.pausedAt ? 'paused' : row.status === 'disabled' ? 'off' : 'active',
     lastReadAt: lastRun?.startedAt ?? null,
-    lastError: lastRun?.status === 'error' ? (lastRun.error ?? 'it failed without a message') : null,
+    lastError: lastRun?.status === 'error' ? (lastRun.error ?? 'it failed without a message') : check?.why ?? null,
+    lastOutcome: lastRun?.status === 'error' ? 'unchecked' : check?.outcome ?? null,
+    in: watch.in ?? null,
   };
 }
 
@@ -87,7 +96,7 @@ export async function loadWatchState(orgId: string, watch: Watch): Promise<Watch
     where: and(eq(automationSchema.orgId, orgId), eq(automationSchema.slug, watch.automation)),
   });
   // A skipped fire and a person's pause are on the log, and neither is a read.
-  const [lastRun] = await db.select({ startedAt: automationRunSchema.startedAt, status: automationRunSchema.status, error: automationRunSchema.error })
+  const [lastRun] = await db.select({ startedAt: automationRunSchema.startedAt, status: automationRunSchema.status, error: automationRunSchema.error, result: automationRunSchema.result })
     .from(automationRunSchema)
     .where(and(eq(automationRunSchema.orgId, orgId), eq(automationRunSchema.slug, watch.automation), eq(automationRunSchema.dryRun, false), notInArray(automationRunSchema.kind, ['skipped', 'control'])))
     .orderBy(desc(automationRunSchema.startedAt))

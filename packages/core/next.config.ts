@@ -65,13 +65,10 @@ const baseConfig: NextConfig = {
   // swapped for 25 minutes until the job timed out (2026-09-30, two deploys
   // lost). A local build still refuses to produce an app with a type error.
   typescript: { ignoreBuildErrors: !!process.env.CI || process.env.VOCION_TYPES_CHECKED === '1' },
-  // Temporal's client breaks when bundled (seen under webpack before #670;
-  // it stays external under Turbopack too): its gRPC/proto data files
-  // don't ride into the bundle, so Connection.connect() throws at runtime
-  // (the dashboard then shows "not scheduled yet" for every schedule).
-  // Externalizing keeps it a real node_modules dependency, which `output:
-  // standalone` traces into the runtime image.
-  serverExternalPackages: ['@dbos-inc/dbos-sdk', '@temporalio/client', '@temporalio/common', '@temporalio/proto', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse'],
+  // DBOS and PGlite ship data files and native-ish loaders that break when
+  // bundled; externalizing keeps them real node_modules dependencies, which
+  // `output: standalone` traces into the runtime image.
+  serverExternalPackages: ['@dbos-inc/dbos-sdk', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
   experimental: {
     // `next build` starts one worker per CPU, less one, to collect page data

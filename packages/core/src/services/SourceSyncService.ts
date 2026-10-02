@@ -27,7 +27,7 @@
  *
  * A sync still blocks its caller until it finishes, so a long crawl holds
  * a request open the whole time. Those belong on the Temporal path
- * (`services/temporal/activities/sourceSync.ts`) rather than the RPC route.
+ * (`services/background/sourceSync.ts`) rather than the RPC route.
  */
 
 import type { IngestDoc, IngestResult, ProcessorRunMark } from './IngestionService';

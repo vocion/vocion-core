@@ -4,7 +4,7 @@
  * Two calls, minutes apart, and a row in between that survives whatever
  * happens to the process. `startBatchForRun` writes the row and asks AWS to
  * begin; `advanceBatchJob` asks where it got to and, once it has stopped,
- * writes what it found. The waiting itself belongs to the Temporal workflow —
+ * writes what it found. The waiting itself belongs to the durable job —
  * a workflow can sleep for an hour without holding anything open, and this
  * module should not know how long that is.
  *

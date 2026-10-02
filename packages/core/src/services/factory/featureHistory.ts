@@ -108,10 +108,16 @@ function seenWords(release: ReportReleaseSummary): string | null {
   return s.state === 'seen' ? `seen${count}` : s.state === 'partial' ? `partly seen${count}` : 'not seen';
 }
 
+/** How close a run's tool call must land to a record's stamp to be the call that wrote it. */
+const CALL_NEAR_MS = 120_000;
+
 /**
- * The run that wrote something stamped `at`, or null: the one running when it
- * was stamped, else the one that ended last before it, within a recording
- * pass (a required tool's pass runs after the run it records for).
+ * The run that wrote something stamped `at`, or null. The run with a tool
+ * call landing nearest the stamp wrote it — a planning run and a mockup run
+ * both running when PL-371 was filed are told apart by which one made a call
+ * at that second (FE-370). A run with no calls read is judged by its span:
+ * running at the stamp, or ended within a recording pass before it (a
+ * required tool's pass runs after the run it records for).
  * @param runs - The candidates.
  * @param at - The stamp.
  */
@@ -119,15 +125,23 @@ function writerOf(runs: readonly ReportActivity[], at: number | null): ReportAct
   if (at === null) {
     return null;
   }
+  const nearest = (r: ReportActivity) => Math.min(...(r.calls ?? []).map(c => Math.abs((time(c) ?? 0) - at)));
+  const byCall = runs
+    .filter(r => (r.calls ?? []).length > 0 && nearest(r) <= CALL_NEAR_MS)
+    .sort((a, b) => nearest(a) - nearest(b))[0];
+  if (byCall) {
+    return byCall;
+  }
   const span = (r: ReportActivity) => ({ start: time(r.startedAt ?? r.at) ?? 0, end: time(r.endedAt) ?? Number.POSITIVE_INFINITY });
-  const during = runs.filter((r) => {
+  const uncalled = runs.filter(r => (r.calls ?? []).length === 0);
+  const during = uncalled.filter((r) => {
     const s = span(r);
     return at >= s.start - 1000 && at <= s.end;
   });
   if (during.length > 0) {
     return during.sort((a, b) => span(b).start - span(a).start)[0]!;
   }
-  return runs
+  return uncalled
     .filter(r => span(r).end < at && at - span(r).end <= WROTE_AFTER_MS)
     .sort((a, b) => span(b).end - span(a).end)[0] ?? null;
 }
@@ -195,6 +209,14 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
   const used = new Set<number>();
   const rows: HistoryRow[] = [];
 
+  // When each attempt's turn ended: the next attempt's start, or the merge
+  // for the one that shipped. A run that named the attempt's task after that
+  // — a live check reading the shipped task — is not a review of it.
+  const delivery = readDelivery(input.request.meta);
+  const startOf = (runId: number) => time(input.workerRuns.find(w => w.id === runId)?.createdAt ?? null) ?? 0;
+  const oldestFirst = [...attempts].sort((x, y) => x.n - y.n);
+  const turnEnd = new Map(oldestFirst.map((a, i) => [a.runId, oldestFirst[i + 1] ? startOf(oldestFirst[i + 1]!.runId) : time(delivery?.mergedAt ?? null) ?? Number.POSITIVE_INFINITY] as const));
+
   // EACH ATTEMPT, ONE GROUP: its build, and QA's reviews of it.
   for (const a of attempts) {
     const task = a.taskId !== null ? taskById.get(a.taskId) : undefined;
@@ -212,10 +234,15 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
       href: null,
       live: a.live,
     };
-    // QA's reviews of this attempt: the agent runs that named its task. The
-    // one that wrote the task's verdict carries what it found.
-    const reviewers = a.taskId === null ? [] : agents.filter(r => (r.touched ?? []).includes(a.taskId!) && !used.has(r.id));
-    const writer = verdict ? writerOf(reviewers, time(verdict.at)) : null;
+    // QA's reviews of this attempt: the run that wrote its task's verdict
+    // (a review started by its pull request may name no record at all), and
+    // the runs that named its task during its turn. The writer carries what
+    // QA found.
+    const free = agents.filter(r => !used.has(r.id));
+    const writer = verdict ? writerOf(free, time(verdict.at)) : null;
+    const from = startOf(a.runId);
+    const until = turnEnd.get(a.runId) ?? Number.POSITIVE_INFINITY;
+    const reviewers = free.filter(r => r === writer || (a.taskId !== null && (r.touched ?? []).includes(a.taskId) && (time(r.startedAt ?? r.at) ?? 0) >= from && (time(r.startedAt ?? r.at) ?? 0) < until));
     const reviews: HistoryRow[] = reviewers.map((r) => {
       used.add(r.id);
       return agentRow(r, { attempt: a.n, result: r === writer && verdict ? verdictWords(verdict) : null, tone: r === writer && verdict ? (verdict.value === 'approve' ? 'ok' : 'warn') : undefined });
@@ -291,7 +318,6 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
   }
 
   // THE MERGE AND THE DEPLOY IT STARTED, as the request recorded them.
-  const delivery = readDelivery(input.request.meta);
   if (delivery) {
     rows.push({
       key: 'merge',
@@ -305,9 +331,14 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
       href: delivery.prUrl,
       live: false,
     });
+    const releasedAt = input.releases.map(r => time(typeof r.meta.releasedAt === 'string' ? r.meta.releasedAt : null)).filter((t): t is number => t !== null);
     for (const run of delivery.runs) {
-      const going = run.conclusion === null && run.status !== 'completed';
-      const ok = run.conclusion === 'success';
+      // The deploy run is read once, at the merge; a release recorded after
+      // it started is the evidence it finished, so it never reads
+      // "Deploying" under a live feature.
+      const released = releasedAt.some(t => t >= (time(run.startedAt) ?? Number.POSITIVE_INFINITY));
+      const going = run.conclusion === null && run.status !== 'completed' && !released;
+      const ok = run.conclusion === 'success' || (run.conclusion === null && released);
       rows.push({
         key: `deploy-${run.runId}`,
         kind: 'deploy',
@@ -362,7 +393,13 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
   // in release #375" beside the release) is the same event said twice.
   // A note beside a typed row is folded under it, so nothing it says is lost
   // and nothing is listed twice; the side panel shows it.
-  const typed = rows.filter(r => r.at !== null);
+  // An agent row spans its run; a note written while it ran is its own.
+  const spans = new Map<string, { start: number; end: number }>(agents.map(r => [`agent-${r.id}`, { start: time(r.startedAt ?? r.at) ?? 0, end: time(r.endedAt) ?? time(r.at) ?? 0 }] as const));
+  const gapTo = (r: HistoryRow, at: number) => {
+    const s = spans.get(r.key) ?? { start: time(r.at) ?? 0, end: time(r.at) ?? 0 };
+    return at < s.start ? s.start - at : at > s.end ? at - s.end : 0;
+  };
+  const typed = rows.flatMap(r => [r, ...(r.children ?? [])]).filter(r => r.at !== null && r.kind !== 'attempt');
   for (const [i, line] of readRecovery(input.request.meta).log.entries()) {
     const at = time(line.at);
     if (line.runId || at === null) {
@@ -371,7 +408,7 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
     // A person is named, never their id.
     const text = Object.entries(input.people ?? {}).reduce((s, [id, name]) => s.split(id).join(name), line.text);
     const beside = typed
-      .map(r => ({ r, gap: Math.abs((time(r.at) ?? 0) - at) }))
+      .map(r => ({ r, gap: gapTo(r, at) }))
       .filter(x => x.gap <= NOTE_NEAR_MS)
       .sort((a, b) => a.gap - b.gap)[0]
       ?.r;

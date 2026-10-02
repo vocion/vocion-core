@@ -101,7 +101,7 @@ export function substituteEnvTokens(content: string, file: string): string {
       throw new WorkspaceTemplateError(
         file,
         variableName,
-        `is allowlisted but has no value — set ${variableName} on both the app and the Temporal worker`,
+        `is allowlisted but has no value — set ${variableName} on the app and on the process that applies the workspace`,
       );
     }
     // Substitution happens before the file is parsed, so a value with a

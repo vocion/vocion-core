@@ -1,13 +1,13 @@
 /**
  * Cron expectations — "when should this have fired?", answered in code.
  *
- * `cronstrue` renders a cron as English and Temporal owns the real scheduling,
+ * `cronstrue` renders a cron as English and the durable engine owns the real scheduling,
  * so nothing here decides when work runs. What was missing is the reverse
  * question: given a schedule and a last-fire time, is the silence normal? That
  * is the difference between a card that says "last run 7:00 PM" whether the
  * schedule is twelve days healthy or nineteen hours dead.
  *
- * Pure and UTC. Temporal's `cronExpressions` are evaluated in UTC unless a
+ * Pure and UTC. Durable schedules are evaluated in UTC unless a
  * timezone is set, and none of ours set one, so every field is read against
  * `getUTC*`.
  */

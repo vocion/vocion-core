@@ -126,7 +126,7 @@ cp packages/core/.env.example packages/core/.env.local
 # That provider key is the fallback: a workspace that stores its own is billed on
 # its own account instead. See "API credentials" below.
 
-# 3. Start the platform (Postgres + Langfuse + Temporal)
+# 3. Start the platform (Postgres + Langfuse)
 npm run dev:up
 
 # 4. Apply schema

@@ -7,7 +7,7 @@
  *    default — it reads the rows and reports what it would try, and fetches
  *    nothing. `--apply` copies. Idempotent: a copied row's `url` is in the
  *    store, so a second run does not select it.
- *  - **Sweep** (hourly Temporal schedule): rows whose copy `failed` for a
+ *  - **Sweep** (hourly durable schedule): rows whose copy `failed` for a
  *    reason that might not hold next time, retried while the link is still
  *    valid and under the attempt cap. A refusal (not an image, not public,
  *    too large) or an expired link is never retried.

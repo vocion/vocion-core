@@ -97,7 +97,6 @@ export async function GET() {
     Promise.all([
       checkService('Vocion App', 'http://localhost:3000/version.txt', 'http://localhost:3000'),
       checkService('Langfuse', 'http://localhost:3200/api/public/health', 'http://localhost:3200'),
-      checkService('Temporal UI', 'http://localhost:8233', 'http://localhost:8233'),
     ]),
     getDbStats(),
     getRetrievalStats(),

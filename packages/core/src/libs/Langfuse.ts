@@ -118,7 +118,7 @@ export function getLangfuseClient(): Langfuse | null {
  * Flush queued traces and wait for the send to finish.
  *
  * The SDK batches in the background, so a short-lived process (a
- * serverless request, a script, a Temporal activity) has to flush before
+ * serverless request, a script, a background job) has to flush before
  * it exits or the traces are lost. A no-op when tracing is off.
  *
  * This replaces the old exported `langfuse` singleton — flushing was the

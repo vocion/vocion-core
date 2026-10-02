@@ -4,7 +4,7 @@
  * choosing to press a button. The policy is `services/factory/recovery.ts`;
  * the reads and writes are `services/factory/carry.ts`.
  *
- * Every body is imported on first use: the Temporal worker loads this
+ * Every body is imported on first use: the durable executor loads this
  * registry, and nothing here may pull the logger's top-level await into it.
  */
 

@@ -34,7 +34,7 @@ async function seed() {
   ]);
   await db.insert(automationSchema).values([
     { orgId: ORG, slug: 'factory-request-filed', name: 'A request was filed', description: 'Starts the work a filed request asks for. More words.', whenConfig: { event: 'object.created' }, doConfig: { job: 'x' } },
-    { orgId: ORG, slug: 'factory-daily-plan', name: 'Daily plan', whenConfig: { schedule: '0 6 * * *' }, doConfig: { checkMission: 'close-the-gap' }, pausedAt: ago(5), pausedBy: person!.id, pausedNote: 'quiet week' },
+    { orgId: ORG, slug: 'tell-the-requester-check', name: 'Reply pass', whenConfig: { schedule: '0 6 * * *' }, doConfig: { checkMission: 'close-the-gap' }, pausedAt: ago(5), pausedBy: person!.id, pausedNote: 'quiet week' },
   ]);
   await db.insert(automationRunSchema).values([
     { orgId: ORG, slug: 'factory-request-filed', kind: 'job', status: 'ok', startedAt: ago(10) },
@@ -42,8 +42,8 @@ async function seed() {
     { orgId: ORG, slug: 'factory-request-filed', kind: 'skipped', status: 'error', error: 'matched object.created and could not start: no such job', startedAt: ago(1) },
     // A refusal on purpose is not a fire.
     { orgId: ORG, slug: 'factory-request-filed', kind: 'skipped', status: 'ok', startedAt: ago(0.5) },
-    { orgId: ORG, slug: 'factory-daily-plan', kind: 'mission_check', status: 'ok', startedAt: ago(26) },
-    { orgId: ORG, slug: 'factory-daily-plan', kind: 'control', status: 'ok', result: { kind: 'control', action: 'pause', by: { id: person!.id, name: 'Mara Okafor' } }, startedAt: ago(5) },
+    { orgId: ORG, slug: 'tell-the-requester-check', kind: 'mission_check', status: 'ok', startedAt: ago(26) },
+    { orgId: ORG, slug: 'tell-the-requester-check', kind: 'control', status: 'ok', result: { kind: 'control', action: 'pause', by: { id: person!.id, name: 'Mara Okafor' } }, startedAt: ago(5) },
   ]);
   await db.insert(autonomyPolicySchema).values([
     // The apply wrote this rung from the plugin's own file: part of that
@@ -80,7 +80,7 @@ describe('loadConfigure', async () => {
 
   it('reads each automation\'s newest fire, including one that could not start', () => {
     const filed = input.automations.find(a => a.slug === 'factory-request-filed');
-    const daily = input.automations.find(a => a.slug === 'factory-daily-plan');
+    const daily = input.automations.find(a => a.slug === 'tell-the-requester-check');
 
     expect(filed?.last).toMatchObject({ status: 'error', failedToStart: true, error: 'matched object.created and could not start: no such job' });
     expect(filed?.trigger).toBe('On object.created');
@@ -109,7 +109,7 @@ describe('loadConfigure', async () => {
 
     expect(byAt.map(c => [c.what, c.who, c.href])).toEqual([
       ['Workspace applied · 2 changes', 'Mara Okafor', '/dashboard/workspace'],
-      ['Paused Daily plan', 'Mara Okafor', '/dashboard/automation/factory-daily-plan'],
+      ['Paused Reply pass', 'Mara Okafor', '/dashboard/automation/tell-the-requester-check'],
       ['Merge a branch · docs → Execute within bounds', 'Mara Okafor', '/dashboard/autonomy'],
     ]);
   });

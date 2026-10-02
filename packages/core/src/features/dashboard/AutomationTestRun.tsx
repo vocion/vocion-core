@@ -27,7 +27,7 @@ Report the numbers the tools returned, quoting them: the totals, the window each
  * Test-run control for an automation — "does this actually work, and what
  * would it do?" without waiting for the next scheduled run or opening a shell.
  *
- * Fires the SAME `fireAutomation` path the Temporal schedule uses, so the run
+ * Fires the SAME `fireAutomation` path the durable schedule uses, so the run
  * exercises the automation's authored `do.input`; only what is passed here
  * differs. That is deliberate — a test run with its own config would prove
  * nothing about the scheduled one.

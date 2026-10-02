@@ -467,10 +467,10 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     }
   }
 
-  // Reconcile Temporal Schedules against the authored triggers: workflow
-  // `trigger: {type: schedule}`, mission `schedule`, source `schedule`.
-  // Best-effort — a dev box without Temporal still applies cleanly; the
-  // schedules materialize on the next apply where Temporal is reachable.
+  // Reconcile durable schedules against the authored triggers: automation
+  // `when.schedule`, workflow `trigger: {type: schedule}`, mission
+  // `schedule`, source `schedule`. A schedule that cannot be written is an
+  // error on the result by name; the rest of the apply still lands.
   if (!dryRun) {
     await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs);
   }
@@ -521,9 +521,9 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 type UpsertOutcome = 'created' | 'updated' | 'unchanged' | 'unknown' | 'kept';
 
 /**
- * Ensure/remove Temporal Schedules to match the authored workspace. One
- * connectivity probe up front: if Temporal is unreachable, log one warning
- * and skip — never fail the apply over scheduling.
+ * Ensure/remove durable schedules to match the authored workspace. Each
+ * schedule that cannot be written lands in `errors` by name — never a silent
+ * skip, and never a failed apply over scheduling.
  * @param orgId
  * @param loaded
  * @param errors
@@ -535,7 +535,7 @@ async function reconcileSchedules(
   errors: ApplyResult['errors'],
   configChangedSourceSlugs: Set<string> = new Set(),
 ): Promise<void> {
-  // Schedule-ownership guard. Reconciling Temporal Schedules makes THIS
+  // Schedule-ownership guard. Reconciling schedules makes THIS
   // process the scheduler-of-record. Local dev commonly runs against the
   // prod DB over an SSH tunnel — 127.0.0.1 looks local but ISN'T — so a URL
   // heuristic can't tell dev from prod. Require an explicit opt-in instead:
@@ -547,14 +547,6 @@ async function reconcileSchedules(
     return;
   }
 
-  const { getTemporalClient } = await import('@/libs/temporal/client');
-  try {
-    await getTemporalClient();
-  } catch {
-    console.warn('[workspace:apply] Temporal unreachable — skipping schedule reconciliation (workflow schedules, mission schedules, source syncs). Re-apply with Temporal up to materialize them.');
-    return;
-  }
-
   const { ensureAutomationSchedule, removeAutomationSchedule } = await import('@/services/AutomationService');
   const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
   const { ensureMissionSchedule, removeMissionSchedule } = await import('@/services/MissionScheduleService');
@@ -562,16 +554,15 @@ async function reconcileSchedules(
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
   // A person's pause lives on the row, not in the YAML, and the Schedule
-  // must come out of this pass still paused — created paused if Temporal
-  // never had it, re-asserted paused if it did.
+  // must come out of this pass still paused — re-asserted paused every time.
   const pausedRows = await db
     .select({ slug: automationSchema.slug, pausedNote: automationSchema.pausedNote })
     .from(automationSchema)
     .where(and(eq(automationSchema.orgId, orgId), isNotNull(automationSchema.pausedAt)));
   const pausedBySlug = new Map(pausedRows.map(r => [r.slug, { note: r.pausedNote }]));
 
-  // Automations are the first-class WHEN. Schedule-whens get a Temporal
-  // Schedule; event-whens are matched by EventService at emit time.
+  // Automations are the first-class WHEN. Schedule-whens get a durable
+  // schedule; event-whens are matched by EventService at emit time.
   for (const automation of loaded.automations) {
     try {
       if (automation.status === 'active' && automation.when.schedule) {
@@ -604,7 +595,7 @@ async function reconcileSchedules(
   }
 
   // A mission or automation the workspace no longer ships was just disabled
-  // above; its Schedule has to go with it, or Temporal keeps firing a row
+  // above; its schedule has to go with it, or the engine keeps firing a row
   // whose status says it must not.
   try {
     const { notInArray } = await import('drizzle-orm');
@@ -1644,7 +1635,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, mode: App
  * customer's AWS account is a network call, and apply makes none today — one
  * unreachable AWS endpoint must not stop a workspace file landing its agents,
  * its playbooks and everything else in the same pass. The remote create
- * happens later in a Temporal activity, the same split `libs/sources/upsert.ts`
+ * happens later in a background job, the same split `libs/sources/upsert.ts`
  * and `SourceSyncService` already use.
  *
  * Rows keep any `remoteId` they already have, so re-applying an unchanged file

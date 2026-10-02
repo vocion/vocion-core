@@ -608,10 +608,10 @@ async function writeBackRunCost(run: WorkerRun, now: Date): Promise<void> {
 
 /**
  * Warn through a dynamic import. `libs/Logger` has a top-level await, and
- * this service sits in the Temporal worker's import chain (the reaper
+ * this service sits in the durable executor's import chain (the reaper
  * schedule), which tsx compiles as CommonJS — a static import would stop the
  * worker from starting. Same approach as `libs/Langfuse.ts`;
- * `scripts/temporal-worker.imports.test.ts` guards it.
+ * the import-chain tests guards it.
  * @param message - What happened, in plain words.
  * @param properties - Identifiers and context worth keeping.
  */
@@ -645,7 +645,7 @@ export async function cancelWorkerRun(orgId: string, id: number): Promise<Worker
 
 /**
  * Mark every running or paused run whose lease lapsed as `lost`. Called by the
- * Temporal schedule every few minutes; safe to call any time.
+ * durable schedule every few minutes; safe to call any time.
  * @param now - The clock, injectable for tests.
  * @returns How many runs were reaped.
  */

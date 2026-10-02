@@ -17,7 +17,7 @@
  * - **It is asynchronous and slow.** A job is started, then polled. It cannot
  *   be a `score()` on the provider interface, which returns scores from one
  *   call — which is why this module is not a provider. The durable wait lives
- *   in the Temporal workflow.
+ *   in the durable job.
  * - **The result is per-evaluator averages, not per-case scores.** The
  *   per-session detail goes to the CloudWatch log group named in
  *   `outputConfig`. So a batch score is a different kind of number from an

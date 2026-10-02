@@ -450,6 +450,8 @@ export type ReportActivity = {
   endedAt?: Date | null;
   /** The record ids its tool calls named — this request, one of its tasks. */
   touched?: number[];
+  /** When each of its tool calls landed: which run wrote a record is the one with a call at that moment. */
+  calls?: Date[];
   /** What it cost, when that is recorded. Null is "not recorded", never free. */
   cents?: number | null;
 };

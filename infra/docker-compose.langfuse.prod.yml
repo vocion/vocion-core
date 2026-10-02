@@ -119,7 +119,7 @@ services:
       # is an Enterprise feature on self-hosted instances
       # (langfuse.com/pricing-self-host, checked 2026-09-03). Vocion
       # enforces retention itself instead: set LANGFUSE_RETENTION_DAYS
-      # in .env.production and a daily Temporal job deletes traces past
+      # in .env.production and a daily durable job deletes traces past
       # that age through the public API. Works on Cloud and on the
       # open-source build. See docs/deployment/observability.md.
 
@@ -164,7 +164,7 @@ services:
       #
       # ClickHouse otherwise claims about 90% of the machine's RAM (see
       # infra/aws/clickhouse-memory.xml), and it shares this box with
-      # the app, Postgres, Temporal, Redis, Caddy and the two Langfuse
+      # the app, Postgres, Redis, Caddy and the two Langfuse
       # containers. Trace storage for one client does not need 57 GB,
       # and the app going slow because the trace database took the RAM
       # is a bad trade.
@@ -220,7 +220,7 @@ services:
     deploy:
       replicas: 0
 
-  # Temporal and the OTel collector still come from the platform file
+  # The OTel collector still comes from the platform file
   # with laptop defaults and published host ports (7233, 8233, 4317,
   # 4318). They are open question 3 on vocion-core#95 and are not
   # covered here — including the replica default above, since unlike

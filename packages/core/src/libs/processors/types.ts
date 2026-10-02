@@ -24,7 +24,7 @@
  *
  * The registry (`./registry`) keeps the config schema eager and the `run`
  * implementation behind a dynamic import, so nothing here drags a model client
- * into the Temporal worker's static import graph.
+ * into the durable executor's static import graph.
  */
 
 import type { z } from 'zod';

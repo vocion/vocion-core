@@ -19,8 +19,8 @@
  * `candidateExtractor/`.
  *
  * This file is reached ONLY through the registry's dynamic `import()`. That is
- * what keeps LangChain and the Bedrock client out of the Temporal worker's
- * static graph, and `scripts/temporal-worker.imports.test.ts` fails if it ever
+ * what keeps LangChain and the Bedrock client out of the durable executor's
+ * static graph, and the import-chain tests fails if it ever
  * stops being true.
  */
 

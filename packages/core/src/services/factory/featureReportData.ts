@@ -24,13 +24,13 @@ import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, Re
 import type { FeatureSpend } from './featureSpend';
 import type { FactoryTypes } from '@/libs/factory/types';
 import type { RecordOrigin } from '@/services/objects/related';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { runTitle } from '@/libs/factory/runTitle';
 import { factoryTypes } from '@/libs/factory/types';
 import { runCostCents } from '@/libs/worker/runCost';
-import { actionRunSchema, agentSchema, askSchema, automationSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, askSchema, automationRunSchema, automationSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { failedFireLines } from '@/services/automations/failedFires';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
@@ -459,7 +459,36 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
   // share beside it — a review started by its pull request names no record
   // in its tool calls, and its cost must not be a figure nobody can open.
   const costed = spend?.agentRuns ?? new Map<number, number>();
-  const missionIds = [...new Set([...mission.keys(), ...costed.keys()])];
+  // A review its pull request started names no record in its calls: its
+  // fire carried the attempt's pull request (FE-370's QA of attempt 3 was on
+  // no list). Each such run counts as having named that attempt's task.
+  const prTask = new Map<string, number>();
+  for (const w of workerRuns) {
+    const pr = runChange(w).prUrl;
+    const task = Number((w.input?.record as { id?: unknown } | undefined)?.id);
+    if (pr && Number.isSafeInteger(task) && task > 0) {
+      prTask.set(pr, task);
+    }
+  }
+  if (prTask.size > 0) {
+    const fires = await db
+      .select({ runId: automationRunSchema.targetRunId, url: sql<string | null>`coalesce(${automationRunSchema.input} ->> 'url', ${automationRunSchema.input} ->> 'prUrl')` })
+      .from(automationRunSchema)
+      .where(and(
+        eq(automationRunSchema.orgId, orgId),
+        isNotNull(automationRunSchema.targetRunId),
+        inArray(sql`coalesce(${automationRunSchema.input} ->> 'url', ${automationRunSchema.input} ->> 'prUrl')`, [...prTask.keys()]),
+      ))
+      .limit(200)
+      .catch(() => [] as Array<{ runId: number | null; url: string | null }>);
+    for (const f of fires) {
+      const task = f.url ? prTask.get(f.url) : undefined;
+      if (f.runId !== null && task !== undefined) {
+        touched.set(f.runId, (touched.get(f.runId) ?? new Set()).add(task));
+      }
+    }
+  }
+  const missionIds = [...new Set([...mission.keys(), ...costed.keys(), ...touched.keys()])];
   if (missionIds.length > 0) {
     // The automation that started each run (the first fire in its chain)
     // gives it its words: `label`, `doing`, its name (`runTitle`).
@@ -480,6 +509,20 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
       .where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.id, missionIds)));
     // A review whose fire failed reads failed, whatever the run under it says.
     const fireFailed = await failedFireLines(orgId, rows);
+    // When each run's tool calls landed: the Timeline reads which run wrote
+    // a verdict, a plan or a live check by the call made at that moment.
+    const callRows = await db
+      .select({ missionRunId: toolCallSchema.missionRunId, at: toolCallSchema.createdAt })
+      .from(toolCallSchema)
+      .where(and(eq(toolCallSchema.orgId, orgId), inArray(toolCallSchema.missionRunId, missionIds)))
+      .limit(3000)
+      .catch(() => [] as Array<{ missionRunId: number | null; at: Date }>);
+    const callsOf = new Map<number, Date[]>();
+    for (const c of callRows) {
+      if (c.missionRunId !== null) {
+        callsOf.set(c.missionRunId, [...(callsOf.get(c.missionRunId) ?? []), c.at]);
+      }
+    }
     for (const r of rows) {
       const m = mission.get(r.id);
       const share = costed.get(r.id);
@@ -498,6 +541,7 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
         startedAt: r.createdAt,
         endedAt: r.completedAt ?? null,
         touched: [...(touched.get(r.id) ?? [])],
+        calls: callsOf.get(r.id) ?? [],
         // This feature's share of what the run cost (`featureSpend.ts`); null is not recorded.
         cents: share === undefined ? null : Math.round(share / 1_000_000),
       });

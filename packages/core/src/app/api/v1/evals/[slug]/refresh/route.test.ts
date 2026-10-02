@@ -9,7 +9,7 @@
  * - The run row's group id is the workflow id. The workflow uses its own id as
  *   the run group, so if these two ever diverge a retried activity stops
  *   finding the row and files a second run for work that happened once.
- * - Temporal being down closes the row out. A run that nothing will ever fill
+ * - The durable engine being down closes the row out. A run that nothing will ever fill
  *   in must not read as running forever.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,12 +18,11 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/ApiTokenService', () => ({ authenticateBearer: vi.fn() }));
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 
-const startWorkflow = vi.fn();
-const getTemporalClient = vi.fn(async () => ({ workflow: { start: startWorkflow } }));
+const startJob = vi.fn();
 
-vi.mock('@/libs/temporal/client', async () => {
-  const actual = await vi.importActual<typeof import('@/libs/temporal/client')>('@/libs/temporal/client');
-  return { ...actual, getTemporalClient };
+vi.mock('@/libs/durable/jobs', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/durable/jobs')>('@/libs/durable/jobs');
+  return { ...actual, startJob };
 });
 
 // Availability is a credential question that has nothing to do with this
@@ -69,8 +68,8 @@ function post(slug: string, body?: unknown): Request {
 const paramsFor = (slug: string) => ({ params: Promise.resolve({ slug }) });
 
 beforeEach(async () => {
-  startWorkflow.mockReset();
-  startWorkflow.mockResolvedValue({ workflowId: 'started' });
+  startJob.mockReset();
+  startJob.mockResolvedValue({ id: 'started' });
   mockBearer.mockReset();
   mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
   await db.delete(evalRunSchema);
@@ -111,25 +110,25 @@ describe('POST /api/v1/evals/:slug/refresh', () => {
     const res = await POST(post('pw-refresh'), paramsFor('pw-refresh'));
     const body = await res.json();
 
-    const [, options] = startWorkflow.mock.calls[0]!;
+    const [id] = startJob.mock.calls[0]!;
 
-    expect(options.workflowId).toBe(body.runGroupId);
+    expect(id).toBe(body.runGroupId);
 
     const [run] = await db.select().from(evalRunSchema).where(eq(evalRunSchema.id, body.runId));
 
-    expect(run?.runGroupId).toBe(options.workflowId);
+    expect(run?.runGroupId).toBe(id);
   });
 
   it('passes the dataset and org the workflow needs to do the run', async () => {
     await POST(post('pw-refresh'), paramsFor('pw-refresh'));
 
-    const [, options] = startWorkflow.mock.calls[0]!;
+    const [, call] = startJob.mock.calls[0]!;
 
-    expect(options.args[0]).toMatchObject({ orgId: ORG, datasetSlug: 'pw-refresh' });
+    expect(call).toMatchObject({ job: 'eval.refresh', input: { orgId: ORG, datasetSlug: 'pw-refresh' } });
   });
 
   it('marks the run failed when the workflow cannot be started', async () => {
-    startWorkflow.mockRejectedValue(new Error('temporal unreachable'));
+    startJob.mockRejectedValue(new Error('durable engine unreachable'));
 
     const res = await POST(post('pw-refresh'), paramsFor('pw-refresh'));
 
@@ -154,7 +153,7 @@ describe('POST /api/v1/evals/:slug/refresh', () => {
     const body = await res.json();
 
     expect(body.error.code).toBe('UNKNOWN_PROVIDER');
-    expect(startWorkflow).not.toHaveBeenCalled();
+    expect(startJob).not.toHaveBeenCalled();
   });
 
   it('answers 409 when the dataset\'s grader cannot run, and starts nothing', async () => {
@@ -175,7 +174,7 @@ describe('POST /api/v1/evals/:slug/refresh', () => {
     const body = await res.json();
 
     expect(body.error.code).toBe('PROVIDER_UNAVAILABLE');
-    expect(startWorkflow).not.toHaveBeenCalled();
+    expect(startJob).not.toHaveBeenCalled();
     expect(await db.select().from(evalRunSchema)).toHaveLength(0);
   });
 
@@ -185,6 +184,6 @@ describe('POST /api/v1/evals/:slug/refresh', () => {
     const res = await POST(post('pw-refresh'), paramsFor('pw-refresh'));
 
     expect(res.status).toBe(404);
-    expect(startWorkflow).not.toHaveBeenCalled();
+    expect(startJob).not.toHaveBeenCalled();
   });
 });

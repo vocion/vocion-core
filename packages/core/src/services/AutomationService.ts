@@ -5,12 +5,12 @@
  * do: run workflow | check mission}`. Missions are pure goals and workflows
  * pure procedures — neither carries trigger logic.
  *
- * Schedule-whens materialize as Temporal Schedules (reconciled by
+ * Schedule-whens materialize as durable schedules (reconciled by
  * `workspace:apply`, same idempotent shape as source syncs); event-whens are
  * matched by EventService on emit. Both paths converge on `fireAutomation`.
  */
 
-import type { ScheduleOptions } from '@temporalio/client';
+import type { ScheduleSpec } from '@/libs/durable/jobs';
 import type { AutomationCheckResult } from '@/services/automations/checkSummary';
 import type { CausalChain, SkipReason } from '@/services/automations/fireGuards';
 import type { MirrorFreshness } from '@/services/CrmRecordsService';
@@ -18,15 +18,11 @@ import type { AutomationRunCompletedPayload } from '@/services/EventService';
 import { and, desc, eq, gte, inArray, like, lt, notInArray, sql } from 'drizzle-orm';
 import { cronIntervalMs, humanizeAge, previousFire } from '@/libs/cron/schedule';
 import { db } from '@/libs/DB';
-import {
-  AUTOMATION_FIRE_WORKFLOW,
-  automationCoalescedWorkflowIdFor,
-  automationScheduleIdFor,
-  getTemporalClient,
-  VOCION_WORKFLOWS_TASK_QUEUE,
-} from '@/libs/temporal/client';
+import { pauseSchedule, resumeSchedule, scheduleJob, startJob, unscheduleJob } from '@/libs/durable/jobs';
+import { automationCoalescedWorkflowIdFor, automationScheduleIdFor } from '@/libs/durable/scheduleIds';
 import { apiTokenSchema, automationRunSchema, automationSchema, knowledgeSourceSchema, missionRunSchema, toolCallSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
+import { JOB } from '@/services/background/catalog';
 import { withRunCost } from '@/services/budget/runCost';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
 import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
@@ -65,7 +61,7 @@ export type AutomationSkipResult = {
   /**
    * On `rate_limited`: what became of the held fire. `scheduled` — one
    * coalesced fire will run after the window; `pending` — one already was;
-   * `unreachable` — Temporal was away, so nothing will replay this.
+   * `unreachable` — the durable engine was away, so nothing will replay this.
    */
   coalesce?: 'scheduled' | 'pending' | 'unreachable';
   /** On `rate_limited`: the `automation_run` of the coalesced fire that covered it, once it ran. */
@@ -112,7 +108,7 @@ export function getAutomation(orgId: string, slug: string) {
 
 /**
  * Dispatch an automation's `do` — the single entry point for schedule fires
- * (via Temporal), event matches (via EventService), and on-demand runs from the
+ * (via durable schedules), event matches (via EventService), and on-demand runs from the
  * dashboard or CLI.
  *
  * Every dispatch writes an `automation_run` row before doing the work and
@@ -213,9 +209,9 @@ export async function beginAutomationFire(
     throw new Error(message);
   }
   if (automation.pausedAt) {
-    // The row is the record of a person's pause; Temporal's paused flag and
-    // the event matcher's skip are how it is honoured on the way in. Should a
-    // fire reach here anyway — a schedule Temporal never saw paused, a test
+    // The row is the record of a person's pause; the schedule's paused state
+    // and the event matcher's skip are how it is honoured on the way in. Should
+    // a fire reach here anyway — a schedule never seen paused, a test
     // run, a CLI call — it is refused on the same evidence, and the refusal
     // is written down like the disabled one above.
     const message = `automation "${slug}" is paused${automation.pausedNote ? ` — ${automation.pausedNote}` : ''}`;
@@ -784,27 +780,29 @@ export async function countRecentEventFires(orgId: string, slug: string, now: Da
 }
 
 /**
- * Arrange the one fire that stands in for the held ones: a Temporal
- * `automationFire` workflow with `coalesce: true`, started after the window.
- * Its id is per automation, so a second held fire while one is already
- * waiting finds it there and arranges nothing — that is the coalescing.
+ * Arrange the one fire that stands in for the held ones: an `automation.fire`
+ * job with `coalesce: true`, started after the window by a durable sleep. Its
+ * id is per automation and per window, and the previous window's is checked
+ * too, so a second held fire while one is already waiting arranges nothing —
+ * that is the coalescing.
  * @param orgId - Tenant.
  * @param slug - The automation.
+ * @param now - Evaluation time.
  */
-export async function scheduleCoalescedFire(orgId: string, slug: string): Promise<'scheduled' | 'pending' | 'unreachable'> {
+export async function scheduleCoalescedFire(orgId: string, slug: string, now: Date = new Date()): Promise<'scheduled' | 'pending' | 'unreachable'> {
+  const window = Math.floor(now.getTime() / RATE_LIMIT_WINDOW_MS);
+  const base = automationCoalescedWorkflowIdFor(orgId, slug);
   try {
-    const client = await getTemporalClient();
-    await client.workflow.start(AUTOMATION_FIRE_WORKFLOW, {
-      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-      workflowId: automationCoalescedWorkflowIdFor(orgId, slug),
-      args: [{ orgId, slug, coalesce: true }],
-      startDelay: RATE_LIMIT_WINDOW_MS,
-    });
+    const { durable } = await import('@/libs/durable');
+    for (const id of [`${base}-${window}`, `${base}-${window - 1}`]) {
+      const state = await durable().state(id);
+      if (state === 'pending' || state === 'enqueued') {
+        return 'pending';
+      }
+    }
+    await startJob(`${base}-${window}`, { job: JOB.automationFire, input: { orgId, slug, coalesce: true }, afterMs: RATE_LIMIT_WINDOW_MS });
     return 'scheduled';
   } catch (err) {
-    if (isAlreadyStarted(err)) {
-      return 'pending';
-    }
     // The refusal is on the record either way; what is lost is the replay,
     // and the row says so rather than promising one that will not come.
     console.warn(`[automation] could not arrange the coalesced fire for "${slug}"; the held fires will not be replayed`, { error: (err as Error).message });
@@ -868,12 +866,6 @@ export async function recentSkipsBySlug(orgId: string, now: Date = new Date()): 
   return out;
 }
 
-function isAlreadyStarted(err: unknown): boolean {
-  const name = (err as { name?: string })?.name ?? '';
-  const message = (err as { message?: string })?.message ?? '';
-  return name === 'WorkflowExecutionAlreadyStartedError' || /already started|already exists/i.test(message);
-}
-
 /* ------------------------------------------------------------------ */
 /* Schedule health — is the silence normal?                            */
 /* ------------------------------------------------------------------ */
@@ -903,7 +895,7 @@ export type ScheduleHealth = {
  * @param opts - The schedule, its last fire, and whether it is paused.
  * @param opts.cron - The `when.schedule` cron, or null/undefined for an event-when.
  * @param opts.lastFireAt - `started_at` of the most recent run.
- * @param opts.paused - Temporal reports the schedule paused.
+ * @param opts.paused - The automation is paused.
  * @param opts.now - Evaluation time.
  */
 export function scheduleHealth(opts: {
@@ -1065,7 +1057,7 @@ export type AutomationControlResult = {
   action: 'pause' | 'resume';
   by: { id: string; name: string | null };
   note: string | null;
-  /** How the Temporal Schedule took it. `null` for an event-when — there is none. */
+  /** How the schedule took it. `null` for an event-when — there is none. */
   schedule: 'paused' | 'resumed' | 'unreachable' | null;
   /** On a resume: the pause it lifted. */
   lifted?: { by: string | null; at: string; note: string | null };
@@ -1093,9 +1085,9 @@ export class AutomationPauseStateError extends Error {
  * Pause an automation, and say who and why.
  *
  * Three things, in this order: the row (the record — `beginAutomationFire`
- * and the event matcher both read it), the Temporal Schedule for a
- * schedule-when (so the fire never leaves Temporal), then a `control` run
- * row in the log. Temporal being unreachable does not undo the pause: the
+ * and the event matcher both read it), the durable schedule for a
+ * schedule-when (so the tick never fires), then a `control` run
+ * row in the log. The engine being unreachable does not undo the pause: the
  * row already refuses every fire, and the control row says `unreachable`
  * so the next apply — which re-asserts the pause — is known to be needed.
  * @param orgId - Tenant.
@@ -1125,7 +1117,7 @@ export async function pauseAutomation(
     .where(eq(automationSchema.id, automation.id));
 
   const schedule = automation.whenConfig.schedule
-    ? await setScheduleState(orgId, slug, 'pause', controlNote(opts.by, note))
+    ? await setScheduleState(orgId, slug, 'pause')
     : null;
 
   await recordControl(orgId, slug, now, {
@@ -1168,7 +1160,7 @@ export async function resumeAutomation(
     .where(eq(automationSchema.id, automation.id));
 
   const schedule = automation.whenConfig.schedule
-    ? await setScheduleState(orgId, slug, 'unpause', controlNote(opts.by, note))
+    ? await setScheduleState(orgId, slug, 'unpause')
     : null;
 
   await recordControl(orgId, slug, now, {
@@ -1245,35 +1237,23 @@ function cleanNote(note: string | null | undefined): string | null {
   return trimmed === '' ? null : trimmed.slice(0, 500);
 }
 
-/**
- * The note Temporal keeps on the Schedule, readable in its own UI: who, and why.
- * @param by - The person acting.
- * @param note - Their note, if any.
- */
-function controlNote(by: AutomationActor, note: string | null): string {
-  return `${by.name ?? by.id}${note ? `: ${note}` : ''}`;
-}
-
 async function setScheduleState(
   orgId: string,
   slug: string,
   action: 'pause' | 'unpause',
-  note: string,
 ): Promise<'paused' | 'unreachable'> {
   try {
-    const client = await getTemporalClient();
-    const handle = client.schedule.getHandle(automationScheduleIdFor(orgId, slug));
     if (action === 'pause') {
-      await handle.pause(note);
+      await pauseSchedule(automationScheduleIdFor(orgId, slug));
     } else {
-      await handle.unpause(note);
+      await resumeSchedule(automationScheduleIdFor(orgId, slug));
     }
     return 'paused';
   } catch (err) {
-    // A schedule that does not exist yet (Temporal never saw an apply) has
-    // nothing to pause; the row holds the pause and the next apply carries
-    // it in. Anything else is Temporal being away, and is said so.
-    console.warn(`[automation] could not ${action} the Temporal schedule for "${slug}"; the row holds the state`, { error: (err as Error).message });
+    // A schedule that does not exist yet (never applied) has nothing to
+    // pause; the row holds the pause and the next apply carries it in.
+    // Anything else is the engine being away, and is said so.
+    console.warn(`[automation] could not ${action} the schedule for "${slug}"; the row holds the state`, { error: (err as Error).message });
     return 'unreachable';
   }
 }
@@ -1294,7 +1274,7 @@ async function recordControl(orgId: string, slug: string, at: Date, result: Auto
 }
 
 /* ------------------------------------------------------------------ */
-/* Temporal Schedule lifecycle (schedule-whens only)                   */
+/* Schedule lifecycle (schedule-whens only)                            */
 /* ------------------------------------------------------------------ */
 
 export type AutomationScheduleSpec = {
@@ -1303,117 +1283,69 @@ export type AutomationScheduleSpec = {
   cron: string;
   /**
    * A person's standing pause, from the automation row. When set, the
-   * Schedule is created paused and an existing one is re-asserted paused —
-   * a workspace apply never resumes what a person stopped. When absent the
-   * Schedule's own state is left as it was, so apply never resumes anything.
+   * schedule is re-asserted paused after the upsert — a workspace apply never
+   * resumes what a person stopped. When absent the schedule's own state is
+   * left as it was, so apply never resumes anything.
    */
   paused?: { note: string | null };
 };
 
 /**
- * Build the Temporal `ScheduleOptions` for a schedule-when automation.
- * Pure — unit-testable.
- * @param spec
+ * The schedule for a schedule-when automation. Pure. DBOS does not backfill
+ * missed ticks (an hourly pass that missed nineteen hours fires once, next
+ * hour), and a tick never overlaps its own fire (`fireAutomationActivity`).
+ * @param spec - The automation and its cron.
  */
-export function buildAutomationScheduleOptions(spec: AutomationScheduleSpec): ScheduleOptions {
+export function automationScheduleSpec(spec: AutomationScheduleSpec): ScheduleSpec {
   return {
-    scheduleId: automationScheduleIdFor(spec.orgId, spec.slug),
-    spec: { cronExpressions: [spec.cron] },
-    policies: {
-      // Stated, not inherited. SKIP is also the server default, but a fire
-      // that can claim leads must never run concurrently with itself, and a
-      // safety property that important should not depend on a default we do
-      // not control.
-      overlap: 'SKIP',
-      // An hourly pass that missed nineteen hours must not come back and fire
-      // nineteen times at once. One catch-up fire covers the gap; the strip
-      // and the run log are what show the gap happened.
-      catchupWindow: '1 hour',
-    },
-    action: {
-      type: 'startWorkflow',
-      workflowType: AUTOMATION_FIRE_WORKFLOW,
-      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-      args: [{ orgId: spec.orgId, slug: spec.slug }],
-    },
-    ...(spec.paused ? { state: { paused: true, note: spec.paused.note ?? undefined } } : {}),
+    name: automationScheduleIdFor(spec.orgId, spec.slug),
+    cron: spec.cron,
+    job: JOB.automationFire,
+    input: { orgId: spec.orgId, slug: spec.slug },
   };
 }
 
 /**
- * Create (or update) the automation's Schedule. Idempotent.
- *
- * An update rewrites the spec and the action and touches the state only to
- * re-assert a person's pause. It never unpauses: the person who paused it is
- * the one who resumes it, from the app, on the record.
- * @param spec
+ * Create (or update) the automation's schedule. Idempotent. Touches the
+ * paused state only to re-assert a person's pause; it never unpauses — the
+ * person who paused it is the one who resumes it, from the app, on the record.
+ * @param spec - The automation, its cron and its pause.
  */
 export async function ensureAutomationSchedule(spec: AutomationScheduleSpec): Promise<void> {
-  const client = await getTemporalClient();
-  const options = buildAutomationScheduleOptions(spec);
-  try {
-    await client.schedule.create(options);
-  } catch (err) {
-    if (isAlreadyExists(err)) {
-      const handle = client.schedule.getHandle(options.scheduleId);
-      await handle.update(prev => ({
-        ...prev,
-        spec: options.spec,
-        action: options.action,
-        state: options.state ? { ...prev.state, ...options.state } : prev.state,
-      }));
-      return;
-    }
-    throw err;
+  await scheduleJob(automationScheduleSpec(spec));
+  if (spec.paused) {
+    await pauseSchedule(automationScheduleIdFor(spec.orgId, spec.slug));
   }
 }
 
 /**
- * Delete the automation's Schedule. No-op if it doesn't exist.
+ * Delete the automation's schedule. No-op if it doesn't exist.
  * @param orgId
  * @param slug
  */
 export async function removeAutomationSchedule(orgId: string, slug: string): Promise<void> {
-  const client = await getTemporalClient();
-  try {
-    await client.schedule.getHandle(automationScheduleIdFor(orgId, slug)).delete();
-  } catch (err) {
-    if (!isNotFound(err)) {
-      throw err;
-    }
-  }
+  await unscheduleJob(automationScheduleIdFor(orgId, slug));
 }
 
 /**
- * Describe the automation's schedule (next fire times) — best-effort, for
- * the Automation page. Null when the schedule (or Temporal) is absent.
- * @param orgId
- * @param slug
+ * Whether a schedule fire of this automation is still in flight — the
+ * overlap guard a schedule tick checks before it fires. Rows older than the
+ * abandoned bound do not count (the reconcile sweep closes them).
+ * @param orgId - Tenant.
+ * @param slug - The automation.
+ * @param now - Evaluation time.
  */
-export async function describeAutomationSchedule(
-  orgId: string,
-  slug: string,
-): Promise<{ nextActionTimes: Date[]; paused: boolean } | null> {
-  try {
-    const client = await getTemporalClient();
-    const desc = await client.schedule.getHandle(automationScheduleIdFor(orgId, slug)).describe();
-    return {
-      nextActionTimes: (desc.info.nextActionTimes ?? []).slice(0, 3),
-      paused: desc.state.paused ?? false,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function isAlreadyExists(err: unknown): boolean {
-  const name = (err as { name?: string })?.name ?? '';
-  const message = (err as { message?: string })?.message ?? '';
-  return name === 'ScheduleAlreadyRunning' || /already exists|already running/i.test(message);
-}
-
-function isNotFound(err: unknown): boolean {
-  const name = (err as { name?: string })?.name ?? '';
-  const message = (err as { message?: string })?.message ?? '';
-  return name === 'ScheduleNotFoundError' || /not found/i.test(message);
+export async function scheduleFireInFlight(orgId: string, slug: string, now: Date = new Date()): Promise<number | null> {
+  const [row] = await db
+    .select({ id: automationRunSchema.id })
+    .from(automationRunSchema)
+    .where(and(
+      eq(automationRunSchema.orgId, orgId),
+      eq(automationRunSchema.slug, slug),
+      eq(automationRunSchema.status, 'running'),
+      notInArray(automationRunSchema.kind, NON_FIRE_KINDS),
+      gte(automationRunSchema.startedAt, new Date(now.getTime() - ABANDONED_RUN_AFTER_MS)),
+    ))
+    .limit(1);
+  return row?.id ?? null;
 }

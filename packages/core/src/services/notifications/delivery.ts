@@ -12,8 +12,8 @@ import { getPreferences } from './preferences';
 /**
  * THE DELIVERY PASS (backlog 048) — one queue, every channel.
  *
- * `notify()` kicks it for what it just wrote; the Temporal worker runs it
- * every 15 seconds for everything else (`scripts/temporal-worker.ts`): retries,
+ * `notify()` kicks it for what it just wrote; the durable executor runs it
+ * every 15 seconds for everything else (`services/background/housekeeping.ts`): retries,
  * mail held for grouping, and anything quiet hours held. Rows are claimed with
  * `FOR UPDATE SKIP LOCKED` under a two-minute lease, so the kick and the loop
  * never send one delivery twice, and a process that dies mid-send leaves the

@@ -185,7 +185,7 @@ cp packages/core/.env.example packages/core/.env.local
 # hosted product and is not wired in core (`src/libs/Env.ts`) — leave the
 # variable at its default (`local`).
 
-npm run dev:up          # Postgres + Langfuse + Temporal in Docker
+npm run dev:up          # Postgres + Langfuse in Docker
 npm run db:migrate      # apply the schema
 
 # Create an empty-but-valid workspace beside this checkout

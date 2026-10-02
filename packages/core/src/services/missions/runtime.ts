@@ -21,11 +21,11 @@ import { describeTaskFailure } from './failure';
  * Log through a dynamic import.
  *
  * `libs/Logger` used to open with a top-level await, and this file sits in
- * the Temporal worker's import chain, which tsx compiles as CommonJS, where
+ * the durable executor's import chain, which tsx compiles as CommonJS, where
  * that await stopped the worker booting. The await is gone now, the sink
  * being configured in the background instead, but the import stays dynamic
  * so this file adds no static edge into the logger's import graph, which
- * `scripts/temporal-worker.imports.test.ts` guards. Same approach as
+ * the import-chain tests guards. Same approach as
  * `libs/Langfuse.ts`.
  * @param level - Which logger method to call.
  * @param message - What happened, in plain words.

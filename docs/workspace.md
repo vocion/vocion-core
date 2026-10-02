@@ -346,8 +346,8 @@ are fine.
 
 ### Setting it up
 
-Two variables on every process that reads the workspace — the app **and**
-the Temporal worker:
+Two variables on every process that reads the workspace — the app (which
+is also the durable executor) and the tooling container that applies it:
 
 ```bash
 WORKSPACE_TEMPLATE_VARS=LARKFIELD_API_URL,PORTAL_HOST

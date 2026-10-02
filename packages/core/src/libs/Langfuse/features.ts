@@ -19,7 +19,7 @@ export const FEATURES = {
   OPERATION_RUN: 'operation.run',
   /** Eval-judge calls in `EvalService.runDataset`. */
   EVAL_JUDGE: 'eval.judge',
-  /** Workflow step execution from Temporal Activities. */
+  /** Workflow step execution from background jobs. */
   WORKFLOW_STEP: 'workflow.step',
   /** Haiku-based feedback bucket classifier. */
   FEEDBACK_CLASSIFY: 'feedback.classify',

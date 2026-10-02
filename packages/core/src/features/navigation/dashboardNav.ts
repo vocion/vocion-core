@@ -139,16 +139,16 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // purpose (#342) — Adoption, under Insights, stays the admin's per-person view.
   { url: '/dashboard/scorecard', title: 'Scorecard', group: 'Workspace', icon: Gauge, i18nKey: 'scorecard', pinnable: true, defaultPinned: true, keywords: ['agreement', 'confidence', 'performance', 'alignment', 'how are the agents doing'] },
   { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'], pinnable: true },
-  // Every automation in the workspace, with its switch (Chris, 2026-10-01:
-  // "Make it on main nav under More dropdown"). A WORK row, unpinned, so it
-  // sits under More; the Software factory section offers it under its More too.
-  { url: '/dashboard/automation', title: 'Automations', group: 'Workspace', icon: CalendarClock, i18nKey: 'automations', pinnable: true, offeredBy: 'software-factory', keywords: ['schedules', 'cron', 'triggers', 'automation', 'automations', 'pause', 'resume', 'switch', 'toggle', 'on', 'off'] },
 
   // ── MANAGE · Team — who works for you and the shapes their work takes ───
   { url: '/dashboard/teams', title: 'Teams & agents', tabTitle: 'Teams', tabI18nKey: 'teams', group: 'Team', icon: Network, i18nKey: 'teams_agents', keywords: ['org chart', 'roster', 'teams'] },
   { url: '/dashboard/agents', title: 'Agents', group: 'Team', icon: Users, i18nKey: 'agents', tabOf: '/dashboard/teams', keywords: ['roster', 'leads', 'specialists'] },
   { url: '/dashboard/missions', title: 'Missions', group: 'Team', icon: Compass, i18nKey: 'missions', keywords: ['goals', 'objectives'] },
   { url: '/dashboard/workflows', title: 'Workflows', group: 'Team', icon: GitBranch, i18nKey: 'workflows' },
+  // Automations are workspace plumbing, not daily work (Chris, 2026-10-02:
+  // "move it back to the Manage workspace nav"): a MANAGE row beside Missions
+  // and Workflows, out of the WORK view's More list.
+  { url: '/dashboard/automation', title: 'Automations', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'automation', 'automations', 'pause', 'resume', 'switch', 'toggle', 'on', 'off'] },
 
   // ── MANAGE · Knowledge — what the agents know, and about what ───────────
   { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },

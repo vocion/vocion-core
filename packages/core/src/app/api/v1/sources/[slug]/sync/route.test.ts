@@ -2,7 +2,7 @@
  * `POST /api/v1/sources/:slug/sync`, run this source now.
  *
  * The two answers that matter: **202** with the checkpoint as it stands (the
- * sync itself goes to Temporal, because a crawl takes minutes) and **409** when
+ * sync itself goes to a durable job, because a crawl takes minutes) and **409** when
  * a run already holds the source. There is no window arithmetic here on
  * purpose, the checkpoint reader reports a dead run as `abandoned` itself, so
  * a crashed sync can never make a source permanently unsyncable.

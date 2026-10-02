@@ -33,12 +33,21 @@ export function resetMemoryEngine(): void {
 function contextFor(id: string, run: Run): DurableContext {
   const ctx: DurableContext = {
     workflowId: id,
-    async step(name, fn) {
+    async step(name, fn, retry) {
       if (run.cancelled) {
         throw new DurableCancelledError(id);
       }
       run.steps.push(name);
-      return fn();
+      const attempts = Math.max(1, retry?.attempts ?? 1);
+      for (let n = 1; ; n++) {
+        try {
+          return await fn();
+        } catch (err) {
+          if (n >= attempts) {
+            throw err;
+          }
+        }
+      }
     },
     waitFor<T>(topic: string, timeoutSeconds: number): Promise<T | null> {
       run.steps.push(`recv:${topic}`);
@@ -161,4 +170,62 @@ export function memoryEngine(): DurableEngine {
  */
 export function memoryRunResult(id: string): Promise<unknown> {
   return runs.get(id)?.done ?? Promise.resolve(undefined);
+}
+
+const schedules = new Map<string, { spec: import('./jobs').ScheduleSpec; paused: boolean; lastFiredAt: string | null }>();
+
+/** Schedules held in this process, for tests: `fireMemorySchedule` runs a tick. */
+export function memorySchedules(): import('./jobs').ScheduleBackend {
+  const state = (name: string) => {
+    const s = schedules.get(name);
+    return s ? { name, cron: s.spec.cron, paused: s.paused, lastFiredAt: s.lastFiredAt, job: s.spec.job } : null;
+  };
+  return {
+    async upsert(spec) {
+      const prev = schedules.get(spec.name);
+      schedules.set(spec.name, { spec, paused: prev?.paused ?? false, lastFiredAt: prev?.lastFiredAt ?? null });
+    },
+    async remove(name) {
+      schedules.delete(name);
+    },
+    async pause(name) {
+      const s = schedules.get(name);
+      if (s) {
+        s.paused = true;
+      }
+    },
+    async resume(name) {
+      const s = schedules.get(name);
+      if (s) {
+        s.paused = false;
+      }
+    },
+    async describe(name) {
+      return state(name);
+    },
+    async list(prefix) {
+      return [...schedules.keys()].filter(n => !prefix || n.startsWith(prefix)).map(n => state(n)!);
+    },
+  };
+}
+
+/**
+ * Fire one tick of a memory schedule now (tests).
+ * @param name
+ * @param at
+ */
+export async function fireMemorySchedule(name: string, at: Date = new Date()): Promise<unknown> {
+  const s = schedules.get(name);
+  if (!s || s.paused) {
+    return undefined;
+  }
+  s.lastFiredAt = at.toISOString();
+  const { startJob } = await import('./jobs');
+  const id = `sched-${name}-${at.toISOString()}`;
+  await startJob(id, { job: s.spec.job, input: s.spec.input });
+  return memoryRunResult(id);
+}
+
+export function resetMemorySchedules(): void {
+  schedules.clear();
 }

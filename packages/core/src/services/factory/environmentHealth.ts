@@ -28,10 +28,17 @@
  *
  * Nothing here names a product, stage or surface: the records say how each
  * environment deploys and what its health check must read.
+ *
+ * Every pass also says what it saw (`check`, `libs/automations/checkResult.ts`):
+ * each surface it read, its HTTP status and how long it took, and whether it
+ * was quiet, raised (opened) or moved (updated) a recovery, or could not be
+ * read — so a page can show the reads that found nothing wrong.
  */
 
 import type { EnvironmentRow, HealthReading, WorkflowTriggers } from './environments';
 import type { WorkflowRunSummary } from './githubChecks';
+import type { CheckResult, CheckTarget } from '@/libs/automations/checkResult';
+import { checkResult } from '@/libs/automations/checkResult';
 
 type Meta = Record<string, unknown>;
 type Result = { recordId: number | null; did: string; line: string | null };
@@ -180,6 +187,9 @@ async function closeIncident(orgId: string, incidentId: number, line: string): P
   }
 }
 
+const KIND = 'HTTP health';
+const THRESHOLD = `an HTTP status under 400; ${CONFIRM_READS} bad reads in a row start a recovery`;
+
 /**
  * One pass over every environment that has a health check.
  * @param orgId - The workspace.
@@ -187,30 +197,80 @@ async function closeIncident(orgId: string, incidentId: number, line: string): P
  * @param now - The clock.
  * @param deps - Injected in tests.
  */
-export async function watchEnvironments(orgId: string, input: Meta = {}, now: Date = new Date(), deps?: WatchDeps): Promise<{ acted: Result[] }> {
+export async function watchEnvironments(orgId: string, input: Meta = {}, now: Date = new Date(), deps?: WatchDeps): Promise<{ acted: Result[]; check: CheckResult }> {
   const owner = str(input.owner);
   const { environmentRows, healthFields, noteOnRecord } = await import('./environments');
   const envs = (await environmentRows(orgId)).filter(e => obj(e.meta.healthCheck) && str(e.meta.stage) !== 'local');
   if (envs.length === 0) {
-    return { acted: [] };
+    return { acted: [], check: checkResult({ kind: KIND, threshold: THRESHOLD, targets: [], why: 'no environment has a health check', at: now }) };
   }
   const d = deps ?? await defaultDeps();
   const acted: Result[] = [];
+  const targets: CheckTarget[] = [];
   for (const env of envs) {
+    const seen: { reading?: HealthReading | null } = {};
     try {
-      const r = await watchOne(orgId, env, now, owner, d, { healthFields, noteOnRecord });
+      const r = await watchOne(orgId, env, now, owner, d, { healthFields, noteOnRecord }, seen);
       if (r) {
         acted.push(r);
       }
+      targets.push(healthTarget(env, seen.reading ?? null, r));
     } catch (err) {
       console.warn('environment health: a pass failed', { orgId, environmentId: env.id, message: (err as Error).message });
+      targets.push({ ...healthTarget(env, seen.reading ?? null, null), outcome: 'unchecked', why: (err as Error).message.slice(0, 300) });
     }
   }
-  return { acted };
+  return { acted, check: checkResult({ kind: KIND, threshold: THRESHOLD, targets, at: now }) };
 }
 
-async function watchOne(orgId: string, env: EnvironmentRow, now: Date, owner: string | null, d: WatchDeps, lib: Pick<typeof import('./environments'), 'healthFields' | 'noteOnRecord'>): Promise<Result | null> {
+/**
+ * Where a reading was taken, as a person names the surface: its host, and
+ * its path when it is not the root.
+ * @param url - The URL read.
+ */
+function surfaceLabel(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname && u.pathname !== '/' ? u.pathname : ''}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * One environment's read as the check log shows it.
+ * @param env - The environment.
+ * @param reading - What its health said, when it was read.
+ * @param r - What the pass did about it.
+ */
+export function healthTarget(env: EnvironmentRow, reading: HealthReading | null, r: Result | null): CheckTarget {
+  const name = str(env.meta.slug) ?? env.title;
+  const url = reading?.url ?? str(obj(env.meta.healthCheck)?.url) ?? str(env.meta.url);
+  const label = surfaceLabel(url) ?? name;
+  if (!reading) {
+    return { label, outcome: 'unchecked', summary: 'no URL to read', observed: { environment: name }, why: 'its health check names no URL', recordId: env.id, url };
+  }
+  const answered = reading.status === null ? 'no answer' : `${reading.status}${typeof reading.latencyMs === 'number' ? ` in ${reading.latencyMs} ms` : ''}`;
+  const outcome: CheckTarget['outcome'] = reading.health === 'ok'
+    ? (r ? 'updated' : 'quiet')
+    : (r?.did.endsWith(': watching') ? 'opened' : 'updated');
+  const said = r ? `, ${r.did}` : reading.health === 'ok' ? '' : `, ${reading.health}`;
+  return {
+    label,
+    outcome,
+    summary: `${answered}${said}`,
+    observed: { environment: name, health: reading.health, status: reading.status, latencyMs: reading.latencyMs ?? null, detail: reading.detail, ...(reading.advice ? { advice: reading.advice } : {}) },
+    recordId: env.id,
+    url: reading.url,
+  };
+}
+
+async function watchOne(orgId: string, env: EnvironmentRow, now: Date, owner: string | null, d: WatchDeps, lib: Pick<typeof import('./environments'), 'healthFields' | 'noteOnRecord'>, seen: { reading?: HealthReading | null } = {}): Promise<Result | null> {
   const reading = await d.health(orgId, env.meta);
+  seen.reading = reading;
   if (!reading) {
     return null;
   }

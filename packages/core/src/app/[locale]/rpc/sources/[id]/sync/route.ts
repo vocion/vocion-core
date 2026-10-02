@@ -3,7 +3,7 @@
  *
  * Synchronous: the request hangs for the duration of the crawl. Fine
  * for the web connector with its bounded page count; not fine for
- * Drive/GitHub. The Temporal-backed async variant is queued for the
+ * Drive/GitHub. The durable async variant is queued for the
  * G.2 follow-up.
  *
  * Returns `{ result: { created, updated, unchanged, tombstoned, errors } }`.

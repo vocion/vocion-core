@@ -99,9 +99,8 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
         <ChevronDown className="size-4 shrink-0 -rotate-90 text-muted-foreground transition-transform group-open:rotate-0" aria-hidden />
         <span className="font-semibold">{view.title}</span>
         <span className="text-[13px] text-muted-foreground">
-          {view.measures.length}
-          {view.measures.length === 1 ? ' measure' : ' measures'}
-          {' · '}
+          {/* A plugin that declares no measure is not "0 measures". */}
+          {view.measures.length > 0 && `${view.measures.length} ${view.measures.length === 1 ? 'measure' : 'measures'} · `}
           {view.agents.length}
           {view.agents.length === 1 ? ' agent' : ' agents'}
           {' · '}

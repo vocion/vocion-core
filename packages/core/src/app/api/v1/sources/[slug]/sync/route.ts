@@ -7,7 +7,7 @@ import { authApi, isErrorResponse, requireCapability, writeApiErrorResponse } fr
  *
  * Run this source now. Answers **202** with the checkpoint as it stands
  * (`{ run }`, or `{ run: null }` for a source that has never synced), the sync
- * itself runs on Temporal, because a crawl takes minutes and an HTTP request
+ * itself runs as a durable job, because a crawl takes minutes and an HTTP request
  * should not. Poll `GET /api/v1/sources` for the outcome.
  *
  * **409** when a run already holds the source. A dead run is reported as

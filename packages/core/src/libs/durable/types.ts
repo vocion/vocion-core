@@ -37,7 +37,7 @@ export type DurableContext = {
   /** This run's id: the record key it was started with. */
   readonly workflowId: string;
   /** Run `fn` once; on replay its recorded result is returned without running it again. */
-  step: <T>(name: string, fn: () => Promise<T>) => Promise<T>;
+  step: <T>(name: string, fn: () => Promise<T>, retry?: { attempts: number; intervalSeconds?: number; backoff?: number }) => Promise<T>;
   /** The next message sent to this run on `topic`, or null after the timeout (at most `MAX_WAIT_SECONDS`; wait longer in a loop). */
   waitFor: <T>(topic: string, timeoutSeconds: number) => Promise<T | null>;
   /** The first event matching the wait, or null after the timeout. `name` is unique within the run. */

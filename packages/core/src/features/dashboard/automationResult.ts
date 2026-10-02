@@ -89,7 +89,7 @@ export function summarizeControl(result: AutomationControlResult): string {
   const who = result.by.name ?? result.by.id;
   const head = `${result.action === 'pause' ? 'Paused' : 'Resumed'} by ${who}`;
   const note = result.note ? ` — ${result.note}` : '';
-  const schedule = result.schedule === 'unreachable' ? ' (Temporal was unreachable; the next apply carries the state in)' : '';
+  const schedule = result.schedule === 'unreachable' ? ' (the schedule could not be reached; the next apply carries the state in)' : '';
   return `${head}${note}${schedule}`;
 }
 

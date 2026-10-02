@@ -4,7 +4,7 @@
  * check itself is the plugin's QA, fired by `release.linked` and
  * `release.live_check.requested`; this only answers how a fire ended.
  *
- * Bodies are imported on first use: the Temporal worker loads this registry.
+ * Bodies are imported on first use: the durable executor loads this registry.
  */
 
 /** `automation_run.completed` / `.failed` of the live check: seen, once more, or written down. */

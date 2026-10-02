@@ -21,9 +21,15 @@
 #   first (`sentry_issue`'s `stillHappening`); a stopped one gets a summary and
 #   at most one suggested follow-up. An incident the on-call engineer opens is
 #   done for you, with Undo (trust.yaml), not a card in Review.
+# 0.4.0 — the Incidents page says what is watched and what each check saw
+#   (Chris, 2026-10-02: "How can I see what monitors/tests are configured and
+#   enabled? Log of checks with results?"). Each monitor run writes a typed
+#   `check` (targets, what was seen on each, the threshold, quiet / opened /
+#   updated / could not check); the page lists the monitors with Pause and
+#   their last check above the incidents and the check log below them.
 slug: production-watch
 name: Production Watch
-version: 0.3.0
+version: 0.4.0
 description: Production errors from Sentry become incidents — opened when an issue is new and busy or spiking, each with its cause (a deploy, the code, or unknown) read from the evidence — and an on-call engineer who reads the stack and says what to do; a person hears once per incident.
 depends: []
 surfaces: []
