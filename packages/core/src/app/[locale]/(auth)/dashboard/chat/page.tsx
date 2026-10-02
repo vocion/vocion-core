@@ -18,8 +18,9 @@ import { parseAttachParam } from '@/services/share/intake';
  * shell renders an empty state for that instead of failing to pick a default.
  *
  * Deep-linkable: `?prompt=<text>` pre-fills the composer without sending,
- * `?attach=<ids>` starts uploaded files in it (Share to Vocion), and
- * `?conversation=<id>` resumes a thread — otherwise the page opens a NEW
+ * `?attach=<ids>` starts uploaded files in it (Share to Vocion),
+ * `?connect=ok|error` (a login just finished) sends its prepared message once
+ * on its own and then drops those params, and `?conversation=<id>` resumes a thread — otherwise the page opens a NEW
  * conversation with the one workspace agent (agent-chat-surface.md §9, §9.10).
  * `?agent=<slug>` is still accepted for old links but no longer picks an
  * agent: there is nothing to pick.
@@ -75,7 +76,8 @@ export default async function ChatPage(props: {
         agents={agents}
         greeting={greeting}
         suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
-        initialComposerValue={seededPrompt ?? connectReturnPrompt({ connect, reason, source, connector }) ?? undefined}
+        initialComposerValue={seededPrompt}
+        connectReturnPrompt={seededPrompt ? undefined : connectReturnPrompt({ connect, reason, source, connector }) ?? undefined}
         initialAttachments={initialAttachments.length > 0 ? initialAttachments : undefined}
         conversationId={parseConversationParam(conversation)}
         // `?new=1` — ⌘⇧O or the palette from a page with no chat surface: start
