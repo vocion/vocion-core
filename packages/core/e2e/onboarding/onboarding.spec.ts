@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Page, Request } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import { ADMIN, seedOnboardingWorkspace } from './support/seed';
 
@@ -30,6 +30,15 @@ async function signIn(page: Page) {
   await page.waitForURL(/\/dashboard/);
 }
 
+/**
+ * Whether a request is the chat client's call to open workspace setup.
+ * @param request - Any request the page makes.
+ * @returns True for `onboarding.start`.
+ */
+function isOnboardingStartRequest(request: Request): boolean {
+  return request.url().includes('/rpc/onboarding/start');
+}
+
 test('first admin visit opens setup once; the connect card goes to Sources with a way back', async ({ page }) => {
   // Signing in lands on the dashboard, which redirects to chat and opens setup
   // by itself: wait for that, do not race it with a navigation of our own.
@@ -49,14 +58,17 @@ test('first admin visit opens setup once; the connect card goes to Sources with 
   // still holds exactly the one. The database is not read directly: a PGlite
   // server takes one connection, the app's.
   const mounted = page.waitForResponse(response => response.url().includes('/rpc/conversations/list'));
+  // Armed before the visit, so a start call fired at any point of the page's
+  // mount is seen. If the rule were broken it fires right after mount; 5s is
+  // the bounded window it gets. Resolves true only if a start call was made.
+  const startedAgain = page.waitForRequest(isOnboardingStartRequest, { timeout: 5000 }).then(() => true, () => false);
   await page.goto('/dashboard/chat');
 
   await expect(page.getByRole('textbox', { name: 'Ask anything…' })).toBeVisible();
 
   await mounted;
-  // The start call, if the rule were broken, fires right after mount; give it room to land.
-  await page.waitForTimeout(2000);
 
+  expect(await startedAgain).toBe(false);
   expect(page.url()).not.toContain('conversation=');
 
   const listing = await page.request.post('/rpc/conversations/list', { data: { json: { limit: 50 } } });
