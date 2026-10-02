@@ -174,7 +174,9 @@ export const productionDeps: RequestWorkflowDeps = {
         requestId,
         ...(intent.planId ? { planId: intent.planId } : {}),
         ...(intent.note ? { note: intent.note } : {}),
-        ...(intent.trigger ? { trigger: intent.trigger } : {}),
+        // An ask no person made dispatches as automatic, so it never reopens a
+        // settled request the way a person's Build does.
+        ...(intent.trigger ? { trigger: intent.trigger } : intent.byPerson ? {} : { trigger: 'recovery' as const }),
         contract: { attempt: at.attempt, ...(at.base ? { baseSha: at.base } : {}) },
         reason: `Attempt ${at.attempt}, asked by ${intent.byPerson ? 'a person' : intent.by} (${intent.from}).`,
         fromWorkflow: true,
