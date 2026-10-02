@@ -151,4 +151,12 @@ describe('a choice card asks one question and takes one answer', () => {
     await expect.element(page.getByText('Skipped')).toBeVisible();
     expect(page.getByRole('alert').elements()).toHaveLength(0);
   });
+
+  it('with nothing around it to send with, the card is read-only: the options as text, no buttons, field or Skip', async () => {
+    await render(<ChoiceCard rec={choice} readOnly onAnswer={vi.fn()} onDismiss={vi.fn()} />);
+
+    await expect.element(page.getByText('A. Coding & GitHub')).toBeVisible();
+    expect(page.getByRole('button').elements()).toHaveLength(0);
+    expect(page.getByLabelText('Type your own answer').elements()).toHaveLength(0);
+  });
 });

@@ -25,7 +25,7 @@ import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
-import { refusalSentence, updateCardEverywhere, withCardAnswer, withRefusedAnswer } from './cards/choiceAnswers';
+import { refusalSentence, updateCardEverywhere, withCardAnswer, withRefusedAnswer, withServerCard } from './cards/choiceAnswers';
 import { isIntentTag } from './composerTags';
 import { cardLink, cardShown, cardUpdated, draftOf, readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
@@ -1326,25 +1326,31 @@ export function useChatSession({
   }, [agent.slug, isSearchOnly, settleBoot, resumeStream, waitForReply, bootTarget]);
 
   /**
-   * The server turned a choice answer away before any turn began. A 409 means
-   * the card was answered already (another tab, a double tap): fetch the
-   * conversation, which carries the stored answer, and say nothing alarming.
-   * A 400 or 404 puts the card back to open with the server's sentence on it.
-   * Either way the user and assistant rows this send pushed come off.
+   * The one settle path for an answer that did not clearly succeed. A 400 or
+   * 404 is the server's own refusal: the card reopens with its sentence. Any
+   * other failure (a 409, a dropped fetch) is uncertain, so the server's
+   * stored card decides: answered shows answered, still open reopens with a
+   * sentence. If the server cannot be asked either, the card reopens too,
+   * because an open card the person can retry beats a guess.
+   * The rows this send pushed (the person's turn and an empty reply) come off.
+   * @param cardAnswer - The answer that was sent.
+   * @param status - The HTTP status, or null when no response came back.
+   * @param body - The parsed error body, or null.
    */
-  const settleRefusedAnswer = useCallback(async (resp: Response, cardAnswer: CardAnswerInput) => {
-    const body = await resp.json().catch(() => null) as { error?: unknown } | null;
+  const settleFailedAnswer = useCallback(async (cardAnswer: CardAnswerInput, status: number | null, body: { error?: unknown } | null) => {
     streamingRef.current = false;
     setPhase('idle');
     setActivity(null);
     setTurnOutcome('completed');
+    const sentence = refusalSentence(status, body);
     const id = conversationIdRef.current;
-    const conv = resp.status === 409 && id !== null ? await client.conversations.get({ id }).catch(() => null) : null;
+    const conv = status !== 400 && status !== 404 && id !== null ? await client.conversations.get({ id }).catch(() => null) : null;
     if (conv) {
-      setMessages(hydrateTranscript((conv.messages ?? []) as PersistedMessageRow[], nameOfAgent).messages);
+      const hydrated = hydrateTranscript((conv.messages ?? []) as PersistedMessageRow[], nameOfAgent).messages;
+      setMessages(withServerCard(hydrated, cardAnswer.cardId, sentence, Date.now()));
       return;
     }
-    const sentence = resp.status === 409 ? 'That question was already answered.' : refusalSentence(resp.status, body);
+    // The last two rows are this send's: `streamingRef` allows one send at a time.
     setMessages(prev => withRefusedAnswer(prev.slice(0, -2), cardAnswer.cardId, sentence, Date.now()));
   }, []);
 
@@ -1502,7 +1508,7 @@ export function useChatSession({
         }),
       });
       if (cardAnswer && !resp.ok) {
-        await settleRefusedAnswer(resp, cardAnswer);
+        await settleFailedAnswer(cardAnswer, resp.status, await resp.json().catch(() => null) as { error?: unknown } | null);
         return;
       }
       if (!resp.ok || !resp.body) {
@@ -1586,6 +1592,13 @@ export function useChatSession({
         void resumeStream({ ...reattach }, { continueLatest: true });
         return;
       }
+      // A dropped answer is settled from the server's card, not guessed at.
+      if (cardAnswer && !aborted) {
+        console.warn('useChatSession: the answer did not get through; asking the server what it holds', err);
+        streamStashRef.current = null;
+        await settleFailedAnswer(cardAnswer, null, null);
+        return;
+      }
       streamingRef.current = false;
       setPhase('idle');
       setActivity(null);
@@ -1626,7 +1639,7 @@ export function useChatSession({
         abortRef.current = null;
       }
     }
-  }, [agent, agents, messages, pastedText, attachments, uploading, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId, resumeStream, settleRefusedAnswer]);
+  }, [agent, agents, messages, pastedText, attachments, uploading, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId, resumeStream, settleFailedAnswer]);
 
   /**
    * Attach files to the next message: upload now, chip now. A refused file

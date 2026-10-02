@@ -129,6 +129,9 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
   );
 }
 
+/** Handed to a read-only choice card, which never calls it. */
+function NO_ANSWER(): void {}
+
 /**
  * One card of the stack: a choice card gets its own face (lettered options,
  * your own words, Skip), everything else is the recommended-action card.
@@ -136,12 +139,12 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
  * @param root0.rec - The card as the transcript holds it.
  */
 function StackCard({ rec }: { rec: RecommendedAction }) {
-  const { answer, busy } = useAnswerCard();
+  const sender = useAnswerCard();
   const recordDecision = useRecordCardDecision();
   if (rec.kind !== 'choice') {
     return <RecommendedActionCard rec={rec} />;
   }
-  return <ChoiceCard rec={rec} busy={busy} onAnswer={answer} onDismiss={d => recordDecision({ ...d, action: 'dismiss' })} />;
+  return <ChoiceCard rec={rec} readOnly={sender === null} busy={sender?.busy ?? false} onAnswer={sender?.answer ?? NO_ANSWER} onDismiss={d => recordDecision({ ...d, action: 'dismiss' })} />;
 }
 
 /**

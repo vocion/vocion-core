@@ -749,4 +749,52 @@ describe('useChatSession answering a choice card (#1028)', () => {
     expect(card.state).toBe('proposed');
     expect(card.answerRefused?.error).toBe('Wait for the reply to finish.');
   });
+
+  it('a 409 whose refetch still shows the card open reopens it with a sentence, so the options come back', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}), { status: 409 })));
+    const { result, act } = await openAskedThread(asked(OPEN_CARD));
+
+    await act(async () => {
+      await result.current.sendMessage('Reports', { cardId: 'card_c', optionId: 'B', text: 'Reports' });
+    });
+
+    const card = result.current.messages[0]!.recommendations![0]!;
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(card.state).toBe('proposed');
+    expect(card.answerRefused?.error).toBe('Couldn\'t send your answer. Try again.');
+  });
+
+  it('a dropped fetch asks the server: a card it still has open reopens with a sentence', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    }));
+    const { result, act } = await openAskedThread(asked(OPEN_CARD));
+
+    await act(async () => {
+      await result.current.sendMessage('Reports', { cardId: 'card_c', optionId: 'B', text: 'Reports' });
+    });
+
+    const card = result.current.messages[0]!.recommendations![0]!;
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(card.answer).toBeUndefined();
+    expect(card.answerRefused?.error).toBe('Couldn\'t send your answer. Try again.');
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it('a dropped fetch the server did record shows the stored answer', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    }));
+    const { result, act } = await openAskedThread(asked(OPEN_CARD));
+    vi.mocked(client.conversations.get).mockResolvedValue(asked({ ...OPEN_CARD, state: 'decided', answer: { optionId: 'B', text: 'Reports', at: '2026-10-02T10:00:00.000Z' } }) as never);
+
+    await act(async () => {
+      await result.current.sendMessage('Reports', { cardId: 'card_c', optionId: 'B', text: 'Reports' });
+    });
+
+    expect(result.current.messages[0]!.recommendations![0]).toMatchObject({ state: 'decided', answer: { text: 'Reports' } });
+    expect(result.current.messages[0]!.recommendations![0]!.answerRefused).toBeUndefined();
+  });
 });

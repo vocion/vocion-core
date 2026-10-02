@@ -26,7 +26,7 @@ export function useRecordCardDecision(): (d: CardDecision) => Promise<boolean> |
  * How a choice card sends its answer (#1028). Provided beside
  * `CardDecisionProvider`: the answer is a chat turn carrying `card_answer`, so
  * it needs the live session that owns the send path. Found nowhere (a preview,
- * a test) it sends nothing.
+ * a test) there is nothing to send with, and the card is read-only.
  */
 export type CardAnswerInput = { cardId: string; optionId: 'A' | 'B' | 'C' | 'D' | 'other'; text: string };
 
@@ -40,7 +40,7 @@ const CardAnswerContext = createContext<CardAnswerSender | null>(null);
 
 export const CardAnswerProvider = CardAnswerContext.Provider;
 
-/** The answer sender, or a no-op where no conversation is around the card. */
-export function useAnswerCard(): CardAnswerSender {
-  return use(CardAnswerContext) ?? { answer: () => {}, busy: false };
+/** The answer sender, or null where no conversation is around the card (the card is then read-only). */
+export function useAnswerCard(): CardAnswerSender | null {
+  return use(CardAnswerContext);
 }

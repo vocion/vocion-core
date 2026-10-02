@@ -46,12 +46,21 @@ describe('a choice card in the stack', () => {
     const decide = vi.fn();
     await render(
       <CardDecisionProvider value={decide}>
-        <RecommendedActionStack recs={[choice]} />
+        <CardAnswerProvider value={{ answer: vi.fn(), busy: false }}>
+          <RecommendedActionStack recs={[choice]} />
+        </CardAnswerProvider>
       </CardDecisionProvider>,
     );
 
     await page.getByRole('button', { name: 'Skip' }).click();
 
     expect(decide).toHaveBeenCalledExactlyOnceWith({ cardId: 'card_c', label: 'Which repo first?', action: 'dismiss' });
+  });
+
+  it('with no provider (an artifact view) the card is read-only and never latches', async () => {
+    await render(<RecommendedActionStack recs={[choice]} />);
+
+    await expect.element(page.getByText('B. northwind/api')).toBeVisible();
+    expect(page.getByRole('button').elements()).toHaveLength(0);
   });
 });

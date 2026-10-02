@@ -32,6 +32,8 @@ type ChoiceCardProps = {
   onDismiss: (dismissal: { cardId: string; label: string }) => Promise<boolean> | void;
   /** True while the session is busy with a reply or an upload. */
   busy?: boolean;
+  /** No conversation around the card (an artifact view, a preview): show the question and options as text, with nothing to press. */
+  readOnly?: boolean;
 };
 
 /**
@@ -118,6 +120,18 @@ function submitOther(event: { preventDefault: () => void }, text: string, disabl
   }
 }
 
+function ReadOnlyCard({ rec }: { rec: RecommendedAction }) {
+  return (
+    <div data-testid="choice-card" data-choice-state="read-only" className="mt-2.5 flex flex-col gap-1 rounded-xl border border-border bg-card px-3 py-2.5">
+      <div className="text-sm font-semibold break-words">{rec.label}</div>
+      {rec.body && <p className="text-xs break-words text-muted-foreground">{rec.body}</p>}
+      <ul className="text-sm text-muted-foreground">
+        {(rec.options ?? []).map(o => <li key={o.id}>{`${o.id}. ${o.label}`}</li>)}
+      </ul>
+    </div>
+  );
+}
+
 function OptionButton({ letter, label, description, disabled, onPick }: { letter: string; label: string; description?: string; disabled: boolean; onPick: () => void }) {
   return (
     <button type="button" disabled={disabled} onClick={onPick} aria-label={`${letter} ${label}`} className={OPTION_BUTTON}>
@@ -154,7 +168,7 @@ function OtherField({ disabled, onSend }: { disabled: boolean; onSend: (text: st
   );
 }
 
-export function ChoiceCard({ rec, onAnswer, onDismiss, busy = false }: ChoiceCardProps) {
+export function ChoiceCard({ rec, onAnswer, onDismiss, busy = false, readOnly = false }: ChoiceCardProps) {
   // The refusal the card showed when the person last sent. While it is still
   // the card's current refusal, that send has not come back; a new refusal
   // (or the card changing state) turns the options on again.
@@ -172,6 +186,9 @@ export function ChoiceCard({ rec, onAnswer, onDismiss, busy = false }: ChoiceCar
   }
 
   const sending = (sentWith !== null && sentWith.refusal === rec.answerRefused) || busy;
+  if (readOnly) {
+    return <ReadOnlyCard rec={rec} />;
+  }
   const sendState: SendState = { refusal: rec.answerRefused, setSentWith, onAnswer };
 
   return (

@@ -50,9 +50,22 @@ export function withRefusedAnswer(messages: ChatMessage[], cardId: string, error
  * @param status - The HTTP status.
  * @param body - The parsed JSON body, or null when it was not JSON.
  */
-export function refusalSentence(status: number, body: { error?: unknown } | null): string {
+export function refusalSentence(status: number | null, body: { error?: unknown } | null): string {
   if (typeof body?.error === 'string' && body.error.trim()) {
     return body.error;
   }
-  return status === 404 ? 'That question is no longer in this conversation.' : 'That answer could not be sent. Try again.';
+  return status === 404 ? 'That question is no longer in this conversation.' : 'Couldn\'t send your answer. Try again.';
+}
+
+/**
+ * The transcript as the server holds it, with the answered card left alone.
+ * A card the server still has open is reopened with the sentence and a fresh
+ * refusal stamp, which is what lets the card turn its controls back on.
+ * @param messages - The transcript as fetched.
+ * @param cardId - The card that was answered.
+ * @param sentence - What to say if it is still open.
+ * @param at - A stamp that makes this refusal distinct from the last one.
+ */
+export function withServerCard(messages: ChatMessage[], cardId: string, sentence: string, at: number): ChatMessage[] {
+  return updateCardEverywhere(messages, cardId, rec => (rec.answer || rec.state === 'deferred' ? rec : { ...rec, state: 'proposed', answerRefused: { error: sentence, at } }));
 }
