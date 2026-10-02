@@ -39,7 +39,7 @@ export type CreateSourceOutcome
   = | { ok: true; sourceId: number; slug: string; created: boolean; before?: Record<string, unknown> }
     | { ok: false; reason: string };
 
-type StoredCredential = { id: string; obtainedVia: 'paste' | 'login'; account: string | null };
+type StoredCredential = { id: string; obtainedVia: 'paste' | 'login'; account: string | null; createdAt: Date };
 
 /**
  * The name a person knows the connector by.
@@ -79,7 +79,7 @@ export function configProblem(connector: string, config: Record<string, unknown>
  */
 export async function newestLiveCredential(orgId: string, platformId: string): Promise<StoredCredential | null> {
   const rows = await db
-    .select({ id: apiTokenSchema.id, obtainedVia: apiTokenSchema.obtainedVia, account: apiTokenSchema.account })
+    .select({ id: apiTokenSchema.id, obtainedVia: apiTokenSchema.obtainedVia, account: apiTokenSchema.account, createdAt: apiTokenSchema.createdAt })
     .from(apiTokenSchema)
     .where(and(
       eq(apiTokenSchema.orgId, orgId),
