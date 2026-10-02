@@ -39,6 +39,17 @@ function isOnboardingStartRequest(request: Request): boolean {
   return request.url().includes('/rpc/onboarding/start');
 }
 
+/**
+ * Note a request in `calls` when it is a call to open workspace setup.
+ * @param calls - The start calls seen so far; appended to in place.
+ * @param request - Any request the page makes.
+ */
+function recordStartCall(calls: string[], request: Request): void {
+  if (isOnboardingStartRequest(request)) {
+    calls.push(request.url());
+  }
+}
+
 test('first admin visit opens setup once; the connect card goes to Sources with a way back', async ({ page }) => {
   // Signing in lands on the dashboard, which redirects to chat and opens setup
   // by itself: wait for that, do not race it with a navigation of our own.
@@ -58,17 +69,22 @@ test('first admin visit opens setup once; the connect card goes to Sources with 
   // still holds exactly the one. The database is not read directly: a PGlite
   // server takes one connection, the app's.
   const mounted = page.waitForResponse(response => response.url().includes('/rpc/conversations/list'));
-  // Armed before the visit, so a start call fired at any point of the page's
-  // mount is seen. If the rule were broken it fires right after mount; 5s is
-  // the bounded window it gets. Resolves true only if a start call was made.
-  const startedAgain = page.waitForRequest(isOnboardingStartRequest, { timeout: 5000 }).then(() => true, () => false);
+  // If the rule were broken, the start call fires on mount. The listener,
+  // armed before the visit, records one made at any point while the page
+  // loads; the bounded wait after mount catches one still on its way. A slow
+  // load cannot use up the window, because the wait starts only once the page
+  // is up.
+  const startCalls: string[] = [];
+  page.on('request', request => recordStartCall(startCalls, request));
   await page.goto('/dashboard/chat');
 
   await expect(page.getByRole('textbox', { name: 'Ask anything…' })).toBeVisible();
 
   await mounted;
+  const startedAfterMount = await page.waitForRequest(isOnboardingStartRequest, { timeout: 3000 }).then(() => true, () => false);
 
-  expect(await startedAgain).toBe(false);
+  expect(startCalls).toEqual([]);
+  expect(startedAfterMount).toBe(false);
   expect(page.url()).not.toContain('conversation=');
 
   const listing = await page.request.post('/rpc/conversations/list', { data: { json: { limit: 50 } } });
