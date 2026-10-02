@@ -282,14 +282,57 @@ name: Software factory
 #   made: a remembered value, or {{setupPage}}.
 # 2.45.0 — every record reads by a short typed code (2026-10-01, Chris: "All
 #   these conflicting numbers are confusing"). Each type declares its `code:`
-#   — request FE, plan PL, task TK, release REL, environment ENV, product PRD,
+#   — request FE, plan PL, task TK, release REL, environment ENV, product PROD,
 #   repo REPO — so feature 294 reads FE-294 beside RUN-439 and ACT-5590, in the
 #   app and in chat. The number is the record's id; `#294` still resolves.
-# 2.46.0 — products are filed through their own tool (#1028). `product` opts
-#   into x-agent-file, and the PM's `products-from-repos` skill proposes a
-#   workspace's first products and repos when setup hands it a connected
-#   code host. Every one is a person's approval.
-version: 2.46.0
+# 2.46.0 — a deploy that broke production goes to the Release engineer
+#   (2026-10-01). One automation, `incident-deploy-caused`, on
+#   `incident.opened` with `cause: deploy` — raised by the production-watch
+#   plugin when it is on, never otherwise — and the product's Related lists
+#   the incidents that name it.
+# 2.47.0 — a product reads PROD-<id>, not PRD (Chris, 2026-10-01: "PRD is an
+#   industry term for Product Reqs Doc. Don't use it as a product short code").
+# 2.49.0 — a build is sent only to a repository a person stands behind
+#   (2026-10-01, FE-314/FE-318: a pending repo record for a GitHub 404 was
+#   built from three times, its clone URL made from its title). The repo
+#   type's `url` is `x-verify: repository`, so a proposal for a repository
+#   GitHub does not have is refused with that reason.
+# 2.50.0 — a question gets an answer (2026-10-01, CHAT-423). The PM answers
+#   how and why from the pull request's diff, QA's verdict and an outside
+#   platform's current docs, never from memory; a question's turn writes
+#   nothing (core reads it once, before the turn runs).
+# 2.51.0 — a live check confirms what the feature promised (2026-10-02,
+#   FE-314 / REL-347: QA checked "a visitor can download the shared file", a
+#   line FE-314 never had, and the release read "Not seen live"). A check flow
+#   cites an acceptance line by its number; lines production cannot show are
+#   proven before merge; `expect_response` proves an API's answer; a person
+#   asks for the check again from the feature page (factory.check_live_again).
+# 2.52.0 — a closed pull request is not reviewed (2026-10-02, request 224: a
+#   late check event for a superseded attempt's closed PR started a review,
+#   which sent the attempt back and queued a build of a shipped feature). The
+#   review fires on open pull requests only; core reads a verdict about a
+#   replaced attempt, or a settled request, as history.
+# 2.53.0 — the request flow is this plugin's `workflows/request.yaml`, a
+#   declarative flow the generic engine runs (backlog 054); core keeps no
+#   factory workflow, only the actions the flow calls.
+# 2.54.0 — one status on the request (2026-10-02, Chris: "one enum list … a
+#   hierarchy of status labels that run the logic for those 3 tabs"). The
+#   request type declares `status`: every value in one group, the group is
+#   the Work tab, a null status reads In progress. The factory writes it at
+#   each transition (the request flow's `status` steps write it too); Work,
+#   the feature page and the product page read it.
+# 2.55.0 — a run reads as what it did (2026-10-02, FE-370: the feature page
+#   listed `release-live-check: Every criterion is proven, or it is named as
+#   unproven` and `Task send-t374 (logic): changed 1 file(s)…`). Each
+#   automation that starts an agent run says what a run of it did (`label`,
+#   "Checked it live") and is doing (`doing`); every list of runs titles
+#   them so. A request's Related is its records: the tasks are read for the
+#   pull requests and not listed, and their runs are the Timeline.
+# 2.56.0 — products are filed through their own tool (#1028, 2026-10-02).
+#   `product` opts into x-agent-file, and the PM's `products-from-repos` skill
+#   proposes a workspace's first products and repos when setup hands it a
+#   connected code host. Every one is a person's approval.
+version: 2.56.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

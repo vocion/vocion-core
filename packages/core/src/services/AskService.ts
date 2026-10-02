@@ -524,6 +524,11 @@ function resolveDecision(ask: Ask, decision: string, note: string | null): Resol
  * @param opts.decidedBy - The actor id from the API caller.
  */
 export async function decideAsk(opts: { orgId: string; id: number; decision: string; note?: string | null; decidedBy: string }): Promise<Ask> {
+  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  if (writesRefused()) {
+    throw new AskError('CONFLICT', READ_ONLY_RECEIPT, 409);
+  }
+  noteWrite();
   const ask = await getAsk(opts.orgId, opts.id);
   if (!ask) {
     throw new AskError('NOT_FOUND', `No ask ${opts.id}`, 404);

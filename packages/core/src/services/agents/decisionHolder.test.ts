@@ -18,7 +18,7 @@ const loadRecordStatus = vi.fn();
 vi.mock('@/services/objects/recordStatus', () => ({ loadRecordStatus: (...a: unknown[]) => loadRecordStatus(...a) }));
 
 const saidToDecide = vi.fn(async (): Promise<{ said: boolean; quote: string | null }> => ({ said: false, quote: null }));
-vi.mock('./turnJudge', async orig => ({ ...(await orig<object>()), saidToDecide: (...a: unknown[]) => (saidToDecide as (...x: unknown[]) => unknown)(...a), readIntent: async () => ({ files_new_record: false, changes_page_record: false, changes_existing_record: false, changed_record_type: null }) }));
+vi.mock('./turnJudge', async orig => ({ ...(await orig<object>()), saidToDecide: (...a: unknown[]) => (saidToDecide as (...x: unknown[]) => unknown)(...a), readIntent: async () => ({ changed_record_type: null, asks: 'answer' }) }));
 
 vi.mock('./owedDecision', async orig => ({ ...(await orig<object>()), personMessages: async () => ['merge #127 when it is ready'] }));
 

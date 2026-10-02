@@ -28,7 +28,7 @@ import { planRequirement } from './planRule';
 export const RECOVERY_LIMIT = 3;
 
 /** What a failed engineering run's failure was, as far as the records say. */
-export type FailureClass = 'plan_required' | 'environment' | 'contract_shape' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'stale_plan' | 'refused_other';
+export type FailureClass = 'plan_required' | 'environment' | 'contract_shape' | 'check_not_runnable' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'stale_plan' | 'refused_other';
 
 export type Failure = {
   class: FailureClass;
@@ -44,7 +44,12 @@ export type Failure = {
    * plus what the worker or the engineer said — the brief a new plan starts from.
    */
   stale?: { kind: 'paths_missing' | 'out_of_bounds' | 'derived'; missing: string[]; suggest: string[]; reason: string; detail: string | null };
+  /** `check_not_runnable` only: each check whose command cannot run as written, and what the shell said. */
+  notRunnable?: NotRunnableCheck[];
 };
+
+/** A check command the worker found it cannot run (a shell parse error, a first word it cannot find). */
+export type NotRunnableCheck = { name: string; command: string; reason: string; stderr: string };
 
 /** Why an automatic step was taken. `retry` is QA's send-back (`autoRetryOf`). */
 export type AttemptTrigger = 'request' | 'recovery' | 'plan' | 'retry';
@@ -166,6 +171,54 @@ export function waitingOnOf(meta: Record<string, unknown> | null | undefined): s
  */
 export function settleRecovery(state: RecoveryState, text: string, at: string): RecoveryState {
   return logLine({ ...state, stage: null, line: null, askId: null }, text, at);
+}
+
+/**
+ * The line a request settles on when an attempt passed QA and its merge card
+ * was filed: nothing is recovering any more, and whose move it is now is the
+ * card's (Walk 7, 2026-10-02: #130 read "Recovering (attempt 1 of 3): … the
+ * required checks failed" for hours over QA 8 of 8 and a pending merge card).
+ * Null for a card that did not land (failed, rejected): that is not settled.
+ * @param input - The verdict's count, the merge's class and the card's status.
+ * @param input.proven - Criteria QA proved.
+ * @param input.total - Criteria judged.
+ * @param input.riskClass - The merge's class, when known.
+ * @param input.status - The card's status (`pending`: a person merges).
+ */
+export function mergeCardLine(input: { proven: number; total: number; riskClass: string | null; status: string }): string | null {
+  const qa = `QA approved ${input.proven} of ${input.total}`;
+  const cls = input.riskClass ? ` (${input.riskClass} class)` : '';
+  if (input.status === 'pending') {
+    return `${qa}; the merge waits on a person${cls}.`;
+  }
+  if (input.status === 'approved' || input.status === 'executing' || input.status === 'awaiting_execution') {
+    return `${qa}; the merge is running on its trust rule${cls}.`;
+  }
+  if (input.status === 'done') {
+    return `${qa}; merged on its trust rule${cls}.`;
+  }
+  return null;
+}
+
+/**
+ * Settle a carrying stage on a filed merge card, when the card is newer than
+ * the stage's last attempt (an attempt started after the card is what the
+ * stage is about, and stays). Null when there is nothing to settle.
+ * @param state - The request's recovery.
+ * @param line - What settled it (`mergeCardLine`).
+ * @param cardAt - When the card was filed.
+ * @param at - When this is written.
+ */
+export function settledForMergeCard(state: RecoveryState, line: string, cardAt: string, at: string): RecoveryState | null {
+  if (!state.stage) {
+    return null;
+  }
+  const lastAttempt = Math.max(0, ...state.attempts.map(a => Date.parse(a.at)).filter(Number.isFinite));
+  const card = Date.parse(cardAt);
+  if (Number.isFinite(card) && card < lastAttempt) {
+    return null;
+  }
+  return settleRecovery(state, line, at);
 }
 
 export function logLine(state: RecoveryState, text: string, at: string, runId: number | null = null): RecoveryState {
@@ -350,10 +403,43 @@ export function staleFailure(stale: NonNullable<Failure['stale']>): Failure {
   return { class: 'stale_plan', sentence: bare(staleSentence(stale)), tail: null, failedChecks: [], stale };
 }
 
+/**
+ * THE WORKER SAYS A CHECK CANNOT RUN (FE-224, 2026-10-02). A repo record whose
+ * check command is prose (`npm test (integration suites need ...)`, `the worker
+ * greps changed files for U+2014`) fails every attempt the same way, whatever
+ * the code. The worker asks the shell before any model call and reports it on
+ * `result.failure` (`kind: check_not_runnable`, each check's command and what
+ * the shell said); its failure entries carry the kind as their scope.
+ * @param run - The run.
+ * @param run.result - Its result.
+ * @param run.failures - Its failures.
+ */
+export function typedNotRunnable(run: { result?: Record<string, unknown> | null; failures?: Array<{ scope?: string | null; message?: string | null }> | null }): NotRunnableCheck[] | null {
+  const raw = run.result?.failure;
+  const f = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+  if (f?.kind === 'check_not_runnable') {
+    const checks = (Array.isArray(f.checks) ? f.checks : []).filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === 'object');
+    return checks.map(c => ({ name: String(c.name ?? 'check'), command: String(c.command ?? ''), reason: String(c.reason ?? ''), stderr: String(c.stderr ?? '') }));
+  }
+  const entries = (run.failures ?? []).filter(e => e.scope === 'check_not_runnable');
+  return entries.length > 0 ? entries.map(e => ({ name: String(e.message ?? '').split(':')[0] || 'check', command: '', reason: String(e.message ?? ''), stderr: '' })) : null;
+}
+
 function classifyRaw(run: { status: string; error: string | null; failures?: Array<{ scope?: string | null; message?: string | null }> | null; result?: Record<string, unknown> | null }): Failure {
   const stale = typedStale(run);
   if (stale) {
     return staleFailure(stale);
+  }
+  const notRunnable = typedNotRunnable(run);
+  if (notRunnable) {
+    const names = [...new Set(notRunnable.map(c => c.name))];
+    return {
+      class: 'check_not_runnable',
+      sentence: `the repo record's command for ${names.join(', ')} cannot run as written (${notRunnable.map(c => `${c.name}: ${bare(c.reason)}`).join('; ')}), so no attempt can pass it`,
+      tail: notRunnable.map(c => `${c.name}: \`${c.command}\`${c.stderr ? `\n${c.stderr}` : ''}`).join('\n').slice(-1500) || null,
+      failedChecks: names,
+      notRunnable,
+    };
   }
   const failures = (run.failures ?? []).map(f => ({ scope: String(f.scope ?? ''), message: String(f.message ?? '') }));
   const error = String(run.error ?? '');
@@ -425,6 +511,8 @@ export function unblockFor(failure: Failure): string {
       return 'check that the worker is running and can reach the repository, then press Build';
     case 'contract_shape':
       return 'make the contract Vocion writes and the one the worker reads agree (a Vocion deploy or a worker rebuild); the build starts again on its own after either';
+    case 'check_not_runnable':
+      return `write ${failure.failedChecks.length === 1 ? 'a command' : 'commands'} the shell can run for ${failure.failedChecks.join(', ')} on the repo record (or remove the command so the worker's built-in check runs); the build starts again on its own once the record changes`;
     default:
       return `answer what the run refused on: ${failure.sentence}`;
   }
@@ -454,6 +542,8 @@ export function nextAfter(failure: Failure): string {
       return 'the factory sends it again if the contract has changed since, and asks you if it has not';
     case 'contract_shape':
       return 'the pipeline\'s owner fixes the disagreement, and the build starts again on its own once the worker or Vocion changes';
+    case 'check_not_runnable':
+      return 'the repo record\'s owner fixes the check command, and the build continues on its own once the record changes';
     default:
       return 'the factory asks you, because it cannot answer this refusal itself';
   }
@@ -464,7 +554,8 @@ export type RecoveryDecision
     | { do: 'hold'; why: string; unblock: string }
     | { do: 'replan'; why: string; brief: string }
     | { do: 'dispatch'; why: string; note: string | null }
-    | { do: 'escalate'; why: string; unblock: string };
+    | { do: 'escalate'; why: string; unblock: string }
+    | { do: 'configure'; why: string; unblock: string };
 
 /**
  * What the factory does about a failed run, within the limit.
@@ -508,6 +599,13 @@ export function recoveryDecision(input: { failure: Failure; attempts: number; li
     return (input.environmentDelta ?? []).length > 0
       ? { do: 'dispatch', why: `the worker changed since it refused the contract (${(input.environmentDelta ?? []).join('; ')})`, note: null }
       : { do: 'hold', why: `Held: ${failure.sentence}. That is a disagreement between Vocion's code and the worker's, not a question for a person`, unblock: unblockFor(failure) };
+  }
+  // A CHECK THAT CANNOT RUN IS CONFIGURATION, NOT CODE (FE-224, 2026-10-02:
+  // three retries, about $8, against commands no code change could make run).
+  // Never an attempt: the repo record's owner is told which command on which
+  // record is broken, and the build continues once the record changes.
+  if (failure.class === 'check_not_runnable') {
+    return { do: 'configure', why: `Stopped: ${failure.sentence}. That is the repo record's configuration, not the code`, unblock: unblockFor(failure) };
   }
   if (input.attempts >= limit) {
     return { do: 'escalate', why: `Stopped after ${input.attempts} attempt${input.attempts === 1 ? '' : 's'}: ${failure.sentence}`, unblock: unblockFor(failure) };

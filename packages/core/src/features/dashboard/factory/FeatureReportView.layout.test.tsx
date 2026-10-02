@@ -10,10 +10,10 @@ import '@/styles/global.css';
 /**
  * The feature page, drawn — at a desk and on a phone.
  *
- * The reader is a product owner (Chris, 2026-09-28): the introduction, where
- * it is and the one move, the gallery, the connected work, then Plan,
- * Implementation, Acceptance, Release and Activity as a few lines each, with
- * the full record one tap away in the preview pane. This measures geometry
+ * The reader is a product owner (Chris, 2026-09-28; 2026-10-02): the
+ * introduction, where it is and the one move, the gallery, "Did it work?",
+ * the Timeline and Related — each section answering one question, the full
+ * record one tap away in the preview pane. This measures geometry
  * and order rather than class names — the next person to restyle it should
  * find out here whether they reintroduced a horizontal scroll, a red warning
  * over a record disagreement, or a Build button over a live build.
@@ -130,11 +130,14 @@ async function draw(report: ReturnType<typeof fixture>) {
 }
 
 describe('the feature page, in the order a product owner reads it', () => {
-  it('goes introduction, status, gallery, then plan, implementation, acceptance, release, activity', async () => {
+  it('goes introduction and status, gallery, did it work, timeline — one question each (2026-10-02)', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const order = ['report-story', 'report-state', 'report-visuals', 'report-plan', 'report-implementation', 'report-acceptance', 'report-release', 'report-activity']
+    // One "Timeline", never two sections called "Activity" (FE-370).
+    expect(document.querySelectorAll('#report-activity, #report-activity-list, #report-implementation')).toHaveLength(0);
+
+    const order = ['report-story', 'report-state', 'report-visuals', 'report-outcome', 'report-timeline']
       .map(id => document.getElementById(id));
 
     expect(order.every(el => el !== null)).toBe(true);
@@ -168,24 +171,28 @@ describe('the feature page, in the order a product owner reads it', () => {
     expect(document.querySelector('#report-notices .bg-brand-fail')).toBeNull();
   });
 
-  it('keeps run completed, checks, merged, acceptance and released apart', async () => {
+  it('says the pull request that shipped and its own checks under "Did it work?", and the cost at the timeline\'s foot', async () => {
     await page.viewport(1440, 900);
     // Merged means the merge ran (a done git.merge), never a commit on the task.
     await draw(fixture({ actionRuns: [{ id: 4950, actionId: 'git.merge', status: 'done', input: { taskId: 77, externalRef: { url: LONG_PR } }, decidedBy: 'usr-owner', decidedAt: T('2026-09-05T10:00:00Z'), approvedByAgent: null, note: null, createdAt: T('2026-09-05T09:00:00Z'), executedAt: T('2026-09-05T10:00:00Z') }] }));
 
-    const steps = [...document.querySelectorAll('[data-testid="report-ladder"] [data-step]')].map(el => [el.getAttribute('data-step'), el.getAttribute('data-state')]);
+    const pr = document.querySelector('[data-testid="report-shipped-pr"]')!.textContent;
 
-    expect(steps).toEqual([['run', 'no'], ['checks', 'yes'], ['merged', 'yes'], ['acceptance', 'unknown'], ['released', 'unknown']]);
-    expect(document.querySelector('[data-testid="report-cost"]')!.textContent).toContain('$14.50 spent');
+    expect(pr).toContain('PR #1284');
+    expect(pr).toContain('1/1 checks');
+    expect(pr).toContain('merged');
+    expect(document.querySelector('[data-testid="report-outcome-line"]')!.textContent).toContain('Release not verified');
+    expect(document.querySelector('[data-testid="timeline-cost-foot"]')!.textContent).toBe('$8.30 in all · builds $8.30 · agents not recorded · chat not recorded');
+    expect(document.querySelector('[data-testid="feature-timeline"] [data-testid="timeline-cost"]')!.textContent).toBe('$8.30');
   });
 
   it('shows acceptance as N of M verified with no pass that has no evidence', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const acceptance = document.querySelector('#report-acceptance')!;
+    const acceptance = document.querySelector('#report-outcome')!;
 
-    expect(acceptance.textContent).toContain('0 of 1 verified');
+    expect(acceptance.textContent).toContain('0 of 1 criteria verified');
     expect(acceptance.textContent).toContain('Unverified');
     expect(acceptance.textContent).not.toContain('Passed');
     expect(acceptance.querySelector('[data-preview-key="feature_section:41.criterion-0"]')).not.toBeNull();
@@ -195,9 +202,9 @@ describe('the feature page, in the order a product owner reads it', () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    document.querySelector<HTMLButtonElement>('[data-preview-key="feature_section:41.activity"]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-testid="timeline-see-all"]')!.click();
 
-    expect(new URLSearchParams(window.location.search).get('preview')).toBe('feature_section:41.activity');
+    expect(new URLSearchParams(window.location.search).get('preview')).toBe('feature_section:41.timeline');
 
     closePreview();
 
@@ -208,7 +215,7 @@ describe('the feature page, in the order a product owner reads it', () => {
     await page.viewport(390, 844);
     await draw(fixture());
 
-    expect(document.body.textContent).toContain('Pull request #1284');
+    expect(document.body.textContent).toContain('PR #1284');
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
 
@@ -260,8 +267,8 @@ describe('the action follows the state', () => {
     await expect.element(run).toHaveTextContent('RUN-503');
     expect(run.element().getAttribute('data-preview-key')).toBe('worker_run:503');
     await expect.element(page.getByTestId('report-status')).toHaveTextContent('Current state');
-    // The Implementation lists the live run as a row too.
-    expect(document.querySelector('[data-testid="report-runs"] [data-run-row="503"][data-live="true"]')).not.toBeNull();
+    // The Timeline lists the live attempt as its newest row too.
+    expect(document.querySelector('[data-testid="feature-timeline"] [data-testid="timeline-row"][data-live="true"]')?.textContent).toContain('Attempt 1 of 1 · building');
   });
 
   it('offers Build again, never Dismiss, once an attempt has run', async () => {
@@ -460,17 +467,15 @@ describe('the pieces that carried over', () => {
   });
 });
 
-describe('where it started and what it is connected to (Chris, 2026-09-30, #269)', () => {
-  it('closes its Activity with the chat it was requested in, newest first, and draws Related with that chat first', async () => {
+describe('where it started and what it is connected to (Chris, 2026-09-30, #269; 2026-10-02)', () => {
+  it('closes its Timeline with the chat it was requested in, newest first, and draws Related with that chat first, after it', async () => {
     await page.viewport(1440, 900);
-    const report = {
-      ...fixture(),
+    const report = fixture({
       activity: [
-        { kind: 'mission_run' as const, id: 901, title: 'Scheduled check: Every asker hears back', at: T('2026-09-03T12:00:00Z'), status: 'completed', detail: null, count: 6 },
-        { kind: 'worker_run' as const, id: 435, title: 'Room PDF export', at: T('2026-09-03T10:00:00Z'), status: 'running', detail: null },
+        { kind: 'mission_run' as const, id: 901, title: 'tell-the-requester-check: Every asker hears back', at: T('2026-09-03T12:00:00Z'), status: 'completed', runStatus: 'completed', detail: null, label: 'Reply pass', doing: 'Reply pass', touched: [41] },
         { kind: 'conversation' as const, id: 812, title: 'Requested in chat by Dana Okafor', at: T('2026-09-01T09:00:00Z'), status: null, detail: 'Board pack as a PDF', origin: true },
       ],
-    };
+    });
     await render(
       <div className="px-6 py-4">
         <FeatureReportView
@@ -483,14 +488,14 @@ describe('where it started and what it is connected to (Chris, 2026-09-30, #269)
       </div>,
     );
 
-    await expect.element(page.getByTestId('feature-activity')).toHaveTextContent(/^Activity/);
+    await expect.element(page.getByTestId('report-timeline')).toHaveTextContent(/^Timeline/);
 
-    const rows = [...document.querySelectorAll('[data-testid="activity-row"]')];
+    const titles = [...document.querySelectorAll('[data-testid="feature-timeline"] [data-testid="timeline-title"]')].map(t => t.textContent);
 
-    expect(rows[0]?.textContent).toContain('Scheduled check: Every asker hears back · ran 6 times');
-    expect(rows[0]?.textContent).toContain('last ');
-    expect(rows.at(-1)?.getAttribute('data-origin')).toBe('true');
-    expect(rows.at(-1)?.textContent).toContain('Requested in chat by Dana Okafor · Board pack as a PDF');
+    expect(titles).toEqual(['Attempt 1 of 1 · failed', 'Reply pass', 'Requested in chat by Dana Okafor']);
+    // The run's code is metadata beside the time, never its title.
+    expect(document.querySelector('[data-testid="feature-timeline"]')!.textContent).toContain('RUN-901');
+    expect(document.getElementById('report-timeline')!.compareDocumentPosition(document.getElementById('report-related')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const labels = [...document.querySelectorAll('[data-testid="feature-related"] dt')].map(d => d.textContent);
 

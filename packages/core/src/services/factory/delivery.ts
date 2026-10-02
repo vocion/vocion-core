@@ -211,7 +211,10 @@ export async function recordMerge(orgId: string, payload: Meta, deps?: DeliveryD
     };
     const delivery = await readRuns(orgId, base, d, now);
     await writeMeta(orgId, requestId, { delivery });
-    await settleOnMerge(orgId, requestId, `Merged ${base.pr ?? url}${by ? ` by ${by}` : ''}; the runs it started on GitHub carry it to the release.`);
+    const mergedLine = `Merged ${base.pr ?? url}${by ? ` by ${by}` : ''}; the runs it started on GitHub carry it to the release.`;
+    await settleOnMerge(orgId, requestId, mergedLine);
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, requestId, 'merged', { line: mergedLine });
     out.push({ requestId, did: 'recorded' });
     // GitHub lists a run a moment after the push: read once more shortly,
     // off the event's path. The reconcile keeps it current after that.

@@ -4,6 +4,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ConversationListRow } from '@/features/dashboard/chat/ConversationListRow';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { formatMoney } from '@/libs/workspace/pageFields';
+import { centsOf } from '@/services/budget/runCost';
 import { searchConversations } from '@/services/ConversationService';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +28,16 @@ function bucketOf(when: Date, now: Date): string {
     return 'Earlier this week';
   }
   return when.toLocaleDateString(undefined, { month: 'long', year: when.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+}
+
+/**
+ * What the thread's turns cost, for its row: nothing when no turn recorded a
+ * cost (threads from before 2026-10-02), never a made-up $0.00.
+ * @param microCents - The thread's recorded spend.
+ */
+function spentLabel(microCents: number | null): string {
+  const cents = centsOf(microCents);
+  return cents === null ? '' : ` · ${formatMoney(cents)}`;
 }
 
 /**
@@ -111,7 +123,7 @@ export default async function ConversationsPage(props: {
                             id={row.id}
                             title={row.title}
                             snippet={row.snippet}
-                            meta={`${row.messageCount === 1 ? '1 message' : `${row.messageCount} messages`}${row.scopeRef ? ' · about a record' : ''}`}
+                            meta={`${row.messageCount === 1 ? '1 message' : `${row.messageCount} messages`}${row.scopeRef ? ' · about a record' : ''}${spentLabel(row.microCents)}`}
                             time={row.updatedAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                             surface={row.surface}
                           />

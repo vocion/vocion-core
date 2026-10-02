@@ -634,9 +634,7 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       schema: filingSchema(spec),
     },
   );
-  // Which type this tool files, so the owed-write pass can pick it
-  // (`owedWriteBackstop.ts`) without parsing a name.
-  return Object.assign(built, { filesType: spec.slug });
+  return built;
 }
 
 /**

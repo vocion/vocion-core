@@ -1,0 +1,26 @@
+# EVERY TEN MINUTES, PRODUCTION ERRORS PAST A THRESHOLD BECOME INCIDENTS
+# (core job `error-watch`, services/jobs/errorWatch.ts). New in the last hour
+# with `threshold` events, or spiking (`threshold` in `windowMinutes`, twice
+# the window before), opens or updates one `incident` per issue with its cause
+# read by a model; an hour quiet resolves it; `incident.opened` and
+# `incident.updated` are raised for whatever listens. The projects it watches
+# are this input: override this automation by slug in the workspace with
+# yours. Off on Automations, nothing is read.
+slug: error-watch
+name: Production errors become incidents
+description: >-
+  Every ten minutes, read Sentry for the watched projects and open or update
+  an incident for an issue that is new and busy or spiking.
+status: active
+agent: on-call-engineer
+when:
+  schedule: '*/10 * * * *'
+do:
+  job: error-watch
+  input:
+    recordType: incident
+    events: {opened: incident.opened, updated: incident.updated}
+    threshold: 20
+    windowMinutes: 10
+    # Set by the workspace: [{project: <slug>, environment: production, product: <product slug>}]
+    projects: []

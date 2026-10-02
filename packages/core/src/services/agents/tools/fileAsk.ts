@@ -23,7 +23,6 @@ import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { ASK_KINDS, ASK_RISKS, getAsk } from '@/services/AskService';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
-import { anchoredAskCheck } from '../anchoredFiling';
 import { askHeldByThePersonHere } from '../decisionHolder';
 
 /**
@@ -70,13 +69,6 @@ export function fileAskTool(ctx: RuntimeContext) {
         due_at?: string;
         confidence: number;
       };
-      // A CONFLICT FOUND WHILE DOING THE WORK IS AN EDIT (anchoredFiling.ts):
-      // on the page of the record the person asked to change, an ask whose
-      // answer the agent already has is refused with the edit to make instead.
-      const refusal = await anchoredAskCheck(ctx, { kind: args.kind, options: args.options, objectRefs: args.object_refs });
-      if (refusal) {
-        return refusal;
-      }
       // THE PERSON ASKING IS THE OWNER (backlog 044): a decision the person in
       // this turn holds is asked here, not filed for "the owner"; a merge that
       // runs itself on its trust rule is asked of nobody.

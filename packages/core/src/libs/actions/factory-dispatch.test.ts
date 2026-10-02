@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, pathsFromComponents, pickResumeBase, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
+import { contractFromTask, contractGaps, deriveContract, factoryDispatchAction, fitName, higherRisk, keptBranchOf, pathsFromComponents, pickResumeBase, repoCloneUrl, repoFullName, riskFromPaths, underwayNow, underwayRefusal } from './factory-dispatch';
 
 // The engineering_task record as the worker's contract (snake_case), and what
 // stops a task from being started. Every name and path below is invented.
@@ -395,5 +395,174 @@ describe('a start of something already running is answered, not refused (convers
     expect(underwayNow(building)).toEqual({ line: 'RUN-432 (started by ACT-5381) is queued', workerRunId: 432 });
     expect(underwayRefusal(building)).toBe('already building: RUN-432 (started by ACT-5381) is queued. Nothing new was started — follow that run.');
     expect(underwayNow([])).toBeNull();
+  });
+});
+
+describe('a planning hold ends at the build it was holding for (Walk 8, FE-364, 2026-10-02)', () => {
+  it('lets the recovery of a failed build through, though the start that planned first is under 15 minutes old', () => {
+    const now = new Date('2026-10-02T05:06:36Z');
+    const earlier = [
+      // newest first: the plan's build, whose run just failed
+      { id: 6140, status: 'done', executedAt: new Date('2026-10-02T04:58:10Z'), result: { workerRunId: 473 }, workerStatus: 'failed' },
+      // the person's start that went to planning
+      { id: 6138, status: 'done', executedAt: new Date('2026-10-02T04:56:51Z'), result: { planning: true, why: 'the allowed paths span 3 packages' }, workerStatus: null },
+    ];
+
+    expect(underwayNow(earlier as never, { trigger: 'recovery', now })).toBeNull();
+  });
+
+  it('still holds a second start while planning is under way and nothing has been built', () => {
+    const now = new Date('2026-10-02T04:58:00Z');
+    const earlier = [{ id: 6138, status: 'done', executedAt: new Date('2026-10-02T04:56:51Z'), result: { planning: true }, workerStatus: null }];
+
+    expect(underwayNow(earlier as never, { trigger: 'request', now })?.line).toMatch(/planning first/);
+  });
+});
+
+describe('the repo is the record\'s url, never its title (runs 443–445, 2026-10-01)', () => {
+  const request = { title: 'Fix the image build', product: 'northwind', acceptance: ['The image builds.'] };
+  const plan = { repoSlugs: ['apps/northwind-api'], components: ['apps/northwind-api — build'] };
+
+  it('reads owner/name from the url, a clone url from cloneUrl or url', () => {
+    expect(repoFullName({ title: 'Northwind (portal) monorepo', url: 'https://github.com/Acme/northwind-core' })).toBe('Acme/northwind-core');
+    expect(repoFullName({ title: 'Acme/northwind-core' })).toBe('Acme/northwind-core');
+    expect(repoFullName({ title: 'Northwind (portal) monorepo' })).toBeNull();
+    expect(repoCloneUrl({ title: 'x', url: 'https://github.com/Acme/northwind-core/' })).toBe('https://github.com/Acme/northwind-core.git');
+    expect(repoCloneUrl({ title: 'x', cloneUrl: 'https://git.example.test/acme/core.git', url: 'https://github.com/Acme/other' })).toBe('https://git.example.test/acme/core.git');
+    expect(repoCloneUrl({ title: 'Northwind (portal) monorepo' })).toBeNull();
+  });
+
+  it('a record titled in prose builds from its url', () => {
+    const c = deriveContract({ given: {}, request, plan, repo: { title: 'Northwind (portal) monorepo', url: 'https://github.com/Acme/northwind-core', checks: [{ name: 'test' }] } });
+
+    expect(c.repoSlug).toBe('Acme/northwind-core');
+    expect(c.repo).toBe('https://github.com/Acme/northwind-core.git');
+    expect(contractFromTask({ id: 1, title: 't', meta: c }, { product: 'northwind' }).repo).toBe('https://github.com/Acme/northwind-core.git');
+  });
+
+  it('a record with no url and a prose title names no repo, so the dispatch refuses before a worker sees it', () => {
+    const c = deriveContract({ given: {}, request, plan, repo: { title: 'Northwind (portal) monorepo', checks: [{ name: 'test' }] } });
+
+    expect(c.repoSlug).toBeNull();
+    expect(contractGaps(c)).toContain('repo');
+    expect(contractFromTask({ id: 1, title: 't', meta: { ...c, repoSlug: 'Northwind (portal) monorepo' } }, { product: 'northwind' }).repo).toBeNull();
+  });
+
+  it('with no repo record, a plan\'s guess is not a repo', () => {
+    const c = deriveContract({ given: { repoSlug: 'Acme/guess' }, request, plan: { ...plan, repoSlugs: ['Acme/guess'] }, repo: null });
+
+    expect(c.repoSlug).toBeNull();
+    expect(contractGaps(c)).toContain('repo');
+  });
+
+  it('a required check the record does not declare is left out, and said', () => {
+    const c = deriveContract({ given: { requiredChecks: ['unit', 'test'] }, request, plan, repo: { title: 'Acme/northwind-core', checks: [{ name: 'test' }, { name: 'lint' }] } });
+
+    expect(c.requiredChecks).toEqual(['test']);
+    expect(c.checksDropped).toEqual(['unit']);
+  });
+
+  it('a record that declares no checks makes up none', () => {
+    const c = deriveContract({ given: { requiredChecks: ['unit'] }, request, plan, repo: { title: 'Acme/northwind-core' } });
+
+    expect(c.requiredChecks).toEqual([]);
+    expect(contractGaps(c)).toContain('requiredChecks');
+  });
+});
+
+describe('the contract says where each field came from (FE-314, 2026-10-01)', () => {
+  it('names the record and field of the repo and checks, and the plan for the paths', () => {
+    const c = deriveContract({
+      given: {},
+      request: { title: 'Fix the image build', product: 'northwind', acceptance: ['The image builds.'] },
+      plan: { components: ['apps/northwind-api — build'] },
+      repo: { title: 'Northwind (portal) monorepo', recordCode: 'REPO-27', url: 'https://github.com/Acme/northwind-core', checks: [{ name: 'test' }], riskDefaults: { 'apps/northwind-api/**': 'infra' } },
+    });
+
+    expect(c.contractSources).toMatchObject({
+      repo: 'REPO-27 url',
+      requiredChecks: 'REPO-27 checks',
+      allowedPaths: 'the plan\'s components',
+      riskClass: 'REPO-27 riskDefaults',
+      acceptanceContract: 'the request\'s acceptance',
+    });
+  });
+
+  it('says why there is no repo', () => {
+    expect((deriveContract({ given: {}, request: { title: 'x' }, plan: null, repo: null }).contractSources as Record<string, string>).repo).toMatch(/^none: no approved repo record/);
+    expect((deriveContract({ given: {}, request: { title: 'x' }, plan: null, repo: { title: 'Northwind (portal) monorepo', recordCode: 'REPO-12' } }).contractSources as Record<string, string>).repo).toBe('none: REPO-12 has no url, and its title is not owner/name');
+  });
+});
+
+describe('a retry continues the branch its failed run kept', () => {
+  // A run whose checks failed kept its work on a wip branch and said "continue from this branch".
+  const failed = (id: number, planId: number | null, keptBranch: string | null = `factory/acme-t${id}-wip-${id + 100}`) => ({ id, createdAt: new Date('2026-10-02T02:30:00Z'), meta: { planId, attempt: 1, workerRunId: id + 100, runStatus: 'failed', branch: keptBranch, keptBranch } });
+
+  it('the recovered run\'s kept branch is the base, over an older proven attempt', () => {
+    const proven = { id: 230, meta: { branch: 'factory/t230', planId: 348, verdict: { proven: 4, total: 8 } } };
+    const r = pickResumeBase([proven], 348, null, failed(353, 348));
+
+    expect(r?.id).toBe(353);
+    expect(r?.meta.branch).toBe('factory/acme-t353-wip-453');
+  });
+
+  it('a run that kept nothing, or was built to another plan, or before the plan\'s approval, falls back to the usual pick', () => {
+    expect(pickResumeBase([], 348, null, failed(353, 348, null))).toBeNull();
+    expect(pickResumeBase([], 348, null, failed(353, 236))).toBeNull();
+    expect(pickResumeBase([], 348, '2026-10-02T03:00:00Z', failed(353, 348))).toBeNull();
+    expect(keptBranchOf({ keptBranch: 'main' })).toBeNull();
+  });
+
+  it('the contract starts from the kept branch at the next attempt and says what it continues', () => {
+    const resume = pickResumeBase([], 348, null, failed(353, 348));
+    const meta = deriveContract({ given: {}, request: { title: 'Copy link', acceptance: ['A visible confirmation appears'] }, plan: { approach: 'Add a control to the row.' }, repo: null, resume, note: 'The last attempt failed its required checks (test).' });
+
+    expect(meta.baseSha).toBe('factory/acme-t353-wip-453');
+    expect(meta.attempt).toBe(2);
+    expect(meta.resumedFrom).toBe(353);
+    expect(String(meta.objective)).toContain('continues branch factory/acme-t353-wip-453, the work task #353 kept');
+    expect(contractFromTask({ id: 0, title: 'Copy link', meta }, { product: 'acme' }).base_sha).toBe('factory/acme-t353-wip-453');
+  });
+});
+
+describe('every automatic retry continues the latest kept work at the next attempt (FE-130, FE-132)', () => {
+  // Each dispatch creates its task, then stamps the plan approved a moment later.
+  const approach = 'Continue from the earlier branch; fix what QA found.';
+
+  it('a checks-failed recovery continues the failed run\'s kept branch though the plan was stamped after its task', () => {
+    // FE-130: task #356 created 03:28:07.5, plan #313 stamped 03:28:08.474 by the same dispatch.
+    const failed = { id: 356, createdAt: new Date('2026-10-02T03:28:07.525Z'), builtTo: approach, meta: { planId: 313, attempt: 1, workerRunId: 467, runStatus: 'failed', branch: 'factory/send-t356-wip-467', keptBranch: 'factory/send-t356-wip-467', baseSha: 'factory/send-t261-see-which' } };
+    const resume = pickResumeBase([], 313, '2026-10-02T03:28:08.474Z', failed, approach);
+    const meta = deriveContract({ given: {}, request: { title: 'Remind who has not opened', acceptance: ['a'] }, plan: { approach }, repo: null, resume, note: 'The last attempt failed its required checks (no-runtime-ddl).' });
+
+    expect(resume?.id).toBe(356);
+    expect(meta.baseSha).toBe('factory/send-t356-wip-467');
+    expect(meta.attempt).toBe(2);
+    expect(contractFromTask({ id: 0, title: 'x', meta }, { product: 'send' }).base_sha).toBe('factory/send-t356-wip-467');
+  });
+
+  it('a QA send-back continues the sent-back attempt\'s branch though the plan was stamped after its task', () => {
+    // FE-132: task #359 created 03:33:47.123, plan #358 stamped 03:33:47.148 by the same dispatch.
+    const sentBack = { id: 359, createdAt: new Date('2026-10-02T03:33:47.123Z'), builtTo: approach, meta: { planId: 358, attempt: 1, workerRunId: 469, branch: 'factory/send-t359-send-someone', verdict: { proven: 5, total: 8 } } };
+    const resume = pickResumeBase([sentBack], 358, '2026-10-02T03:33:47.148Z', null, approach);
+    const meta = deriveContract({ given: {}, request: { title: 'Request a file', acceptance: ['a'] }, plan: { approach }, repo: null, previous: sentBack, resume });
+
+    expect(resume?.id).toBe(359);
+    expect(meta.baseSha).toBe('factory/send-t359-send-someone');
+    expect(meta.attempt).toBe(2);
+  });
+
+  it('the attempt after that one counts on, under the same plan text', () => {
+    const second = { id: 360, createdAt: new Date('2026-10-02T03:54:55.598Z'), builtTo: approach, meta: { planId: 313, attempt: 2, workerRunId: 470, keptBranch: 'factory/send-t360-wip-470', baseSha: 'factory/send-t356-wip-467' } };
+    const resume = pickResumeBase([], 313, '2026-10-02T03:54:55.632Z', second, approach);
+
+    expect(deriveContract({ given: {}, request: { title: 'x', acceptance: ['a'] }, plan: { approach }, repo: null, resume }).attempt).toBe(3);
+  });
+
+  it('an attempt whose contract carried the plan before it was rewritten is never the base (#130 rename)', () => {
+    const old = { id: 225, createdAt: new Date('2026-10-02T05:00:00Z'), builtTo: 'Edit apps/send-api.', meta: { branch: 'factory/t225', planId: 136, verdict: { proven: 5, total: 8 } } };
+
+    expect(pickResumeBase([old], 136, '2026-10-02T01:00:00Z', null, 'Edit apps/stamp-api.')).toBeNull();
+    expect(pickResumeBase([], 136, null, { ...old, meta: { ...old.meta, keptBranch: 'factory/t225-wip' } }, 'Edit apps/stamp-api.')).toBeNull();
   });
 });

@@ -2,6 +2,7 @@ import type { PageField, PageRow } from '@/libs/workspace/pages';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { REQUEST_STATUSES, withRequestStatus } from '@/libs/objects/requestStatuses.fixture';
 import { deriveProductBoard } from '@/libs/workspace/productBoard';
 import '@/styles/global.css';
 
@@ -48,18 +49,18 @@ const PRODUCTS: PageRow[] = [
   { id: 7, title: 'Send', status: null, createdAt: null, meta: { slug: 'send', icon: 'send', tagline: 'Send big files and know when they were opened', stage: 'dogfood', health: 'ok', healthSource: 'deploy check', healthCheckedAt: '2026-09-23T09:00:00Z', accountableUser: 'owner@northwind.example' } },
   { id: 8, title: 'Slate', status: null, createdAt: null, meta: { slug: 'slate', icon: 'layers', tagline: 'Record your screen', stage: 'live' } },
 ];
-const REQUESTS: PageRow[] = [
+const REQUESTS: PageRow[] = ([
   { id: 1, title: 'a', status: null, createdAt: NOW, meta: { product: 'send', state: 'triaged', recommendationState: 'proposed' } },
   { id: 2, title: 'b', status: null, createdAt: NOW, meta: { product: 'send', state: 'triaged', recommendationState: 'proposed' } },
   { id: 3, title: 'c', status: null, createdAt: NOW, meta: { product: 'send', state: 'building' } },
   { id: 4, title: 'd', status: null, createdAt: NOW, meta: { product: 'send', state: 'new' } },
-];
+] as PageRow[]).map(withRequestStatus);
 const RELEASES: PageRow[] = [
   { id: 20, title: 'Email delivery tracking and bounce handling', status: null, createdAt: null, meta: { product: 'send', releasedAt: '2026-09-24T04:00:00Z' } },
 ];
 
 async function board() {
-  const rows = deriveProductBoard(PRODUCTS, { now: NOW, requests: REQUESTS, releases: RELEASES });
+  const rows = deriveProductBoard(PRODUCTS, { now: NOW, statuses: REQUEST_STATUSES, requests: REQUESTS, releases: RELEASES });
   render(
     <div className="mx-auto max-w-[1200px] p-6">
       <PageBlocks rows={rows} fields={FIELDS} primary={PRIMARY} rowLink="/dashboard/p/products/{id}" rowActions={[{ label: 'Wiki', href: '/dashboard/p/wiki' }]} rowActionsAs="menu" now={NOW.getTime()} />

@@ -171,6 +171,8 @@ async function closeIncident(orgId: string, incidentId: number, line: string): P
       return;
     }
     await writeMeta(orgId, incidentId, { state: RESOLVED_REQUEST_STATE });
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, incidentId, 'resolved', { line: `Closed: ${line}` });
     const { settleOnRequest } = await import('./carry');
     await settleOnRequest(orgId, incidentId, `Closed: ${line}`);
   } catch (err) {

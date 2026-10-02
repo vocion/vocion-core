@@ -2,6 +2,7 @@ import type { PageRow } from '@/libs/workspace/pageFields';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { REQUEST_STATUSES, withRequestStatus } from '@/libs/objects/requestStatuses.fixture';
 import { buildProductOverview } from '@/libs/workspace/productOverview';
 import { recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
 import '@/styles/global.css';
@@ -48,7 +49,8 @@ async function draw(environments: PageRow[] = [], writes: import('@/services/obj
     requests: [
       row(10, 'Resume interrupted uploads', { product: 'send', state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build' }),
       row(11, 'Email delivery tracking', { product: 'send', state: 'building' }),
-    ],
+    ].map(withRequestStatus),
+    work: { statuses: REQUEST_STATUSES },
     releases: [row(20, 'Share button', { product: 'send', releasedAt: '2026-09-23T00:00:00Z', liveSummary: '3 of 4 live states reached', liveCheckedAt: '2026-09-23T01:00:00Z', liveEvidence: [{ status: 'reached' }, { status: 'reached' }, { status: 'reached' }, { status: 'not_reached' }], prUrls: ['https://github.com/Acme/northwind-core/pull/9'] })],
     ownerName: 'Dana Reyes',
     links: { workSlug: 'work', releasesSlug: 'releases', record: recordLinker(recordLinksOf([{ slug: 'feature', archetype: 'report', report: { subject: 'request' } }] as never)) },

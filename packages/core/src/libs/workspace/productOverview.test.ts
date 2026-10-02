@@ -1,6 +1,7 @@
 import type { PageRow } from './pageFields';
 import type { OverviewLinks } from './productOverview';
 import { describe, expect, it } from 'vitest';
+import { REQUEST_STATUSES, withRequestStatus } from '@/libs/objects/requestStatuses.fixture';
 import { subtitleLines } from './pageFields';
 import { buildProductOverview, changeOf, liveHealthOf, measuresOf, pipelineOf } from './productOverview';
 import { recordLinker, recordLinksOf } from './recordHref';
@@ -39,14 +40,14 @@ const SEND = row(2, 'Send', {
   theme: { name: 'Delivery', checkedOn: '2026-09-01' },
 });
 
-const REQUESTS: PageRow[] = [
+const REQUESTS: PageRow[] = ([
   row(10, 'Resume interrupted uploads', { product: 'send', state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build', expectedResult: 'Interrupted uploads resume instead of failing.', mainRisk: 'Touches the upload flow.', decisionCost: 5, why: ['user_request'] }),
   row(11, 'Email delivery tracking', { product: 'send', state: 'building' }),
   row(12, 'Stuck build', { product: 'send', state: 'building', blocker: { what: 'a missing API key', owner: 'person' } }),
   row(13, 'Dark mode', { product: 'send', state: 'triaged' }),
   row(14, 'Share button', { product: 'send', state: 'shipped', answeredAt: '2026-09-23T00:00:00Z' }),
   row(15, 'Slate thing', { product: 'slate', state: 'triaged', recommendationState: 'proposed' }),
-];
+] as PageRow[]).map(withRequestStatus);
 
 const RELEASES: PageRow[] = [
   row(20, 'Email delivery tracking and bounce handling', { product: 'send', releasedAt: '2026-09-24T04:00:00Z', healthAfter: 'ok' }),
@@ -55,7 +56,7 @@ const RELEASES: PageRow[] = [
 ];
 
 function build(over: Partial<Parameters<typeof buildProductOverview>[0]> = {}) {
-  return buildProductOverview({ product: SEND, products: [CORE, SEND], requests: REQUESTS, releases: RELEASES, ownerName: 'Dana Reyes', links: LINKS, now: NOW, ...over });
+  return buildProductOverview({ product: SEND, products: [CORE, SEND], requests: REQUESTS, releases: RELEASES, ownerName: 'Dana Reyes', links: LINKS, now: NOW, ...over, work: { statuses: REQUEST_STATUSES, ...over.work } });
 }
 
 describe('the header is the product, not the record', () => {
@@ -119,7 +120,8 @@ describe('work in progress is Work\'s own rows', () => {
     const o = build();
 
     expect(o.work.inProgress.map(w => w.title).sort()).toEqual(['Email delivery tracking', 'Stuck build']);
-    expect(o.work.inProgress.find(w => w.title === 'Stuck build')?.status).toBe('Blocked');
+    // The status is the badge; the obstacle somebody wrote down is the line under it.
+    expect(o.work.inProgress.find(w => w.title === 'Stuck build')).toMatchObject({ status: 'Building', next: expect.stringContaining('a missing API key') });
     expect(o.work.queued).toBe(2);
     expect(o.work.workHref).toBe('/dashboard/p/work?product=send#in-progress');
     expect(o.work.backlogHref).toBe('/dashboard/p/work?product=send#proposed');

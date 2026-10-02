@@ -1,6 +1,11 @@
 import type { PageRow } from './pageFields';
+import type { WorkQueueOptions } from './workQueue';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isDismissed, isProbeRow, laneOf, stageOf, stateOf, visualArtifactId, visualGap, whyLine, workLine, workStateOf } from './workQueue';
+import { parse } from 'yaml';
+import { readStatusModel, withFollowedStatus } from '@/libs/objects/statusModel';
+import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, placeOfRow, visualArtifactId, visualGap, whyLine, workLine, workStateOf } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -13,108 +18,109 @@ import { acceptanceLine, acceptanceOf, blockerOf, contractGap, costLine, deriveW
 
 const NOW = new Date('2026-09-21T16:00:00Z');
 
+/** The software factory's request type: its status, groups and transitions are what Work reads. */
+const MODEL = readStatusModel(parse(readFileSync(join(process.cwd(), 'templates/plugins/software-factory/objects/request/type.yaml'), 'utf8')).schema)!;
+
+/**
+ * A request row. A row given a `state` carries the status a write of that
+ * state carries (the type's `state:` transitions, as `objects.update_meta`
+ * writes it); a row given `status` keeps it.
+ * @param id
+ * @param title
+ * @param meta
+ * @param createdAt
+ */
 function row(id: number, title: string, meta: Record<string, unknown>, createdAt = NOW): PageRow {
-  return { id, title, status: null, createdAt, meta };
+  return { id, title, status: null, createdAt, meta: withFollowedStatus(MODEL, meta, NOW.toISOString()) };
 }
 
-describe('lanes', () => {
-  it('reads the seven states as three lanes', () => {
-    expect(laneOf(row(1, 'a', { state: 'new' }))).toBe('proposed');
-    expect(laneOf(row(2, 'b', { state: 'triaged' }))).toBe('proposed');
-    expect(laneOf(row(3, 'c', { state: 'in_scope' }))).toBe('proposed');
-    expect(laneOf(row(4, 'd', { state: 'building' }))).toBe('progress');
-    expect(laneOf(row(5, 'e', { state: 'shipped' }))).toBe('done');
-    expect(laneOf(row(6, 'f', { state: 'answered' }))).toBe('done');
+const derive = (rows: PageRow[], opts: WorkQueueOptions = {}) => deriveWorkQueue(rows, { statuses: MODEL, ...opts });
+const place = (r: PageRow) => placeOfRow(r, MODEL);
+const badge = (r: PageRow, opts: { staged?: boolean } = {}) => workStateOf(place(r), opts).label;
+const lineOf = (r: PageRow, now = NOW, opts: { staged?: boolean; ahead?: number } = {}) => workLine(r, place(r), now, opts);
+
+describe('lanes: the status field and its groups (Chris, 2026-10-02)', () => {
+  it('reads each status as the group the type puts it in', () => {
+    const lane = (status: string) => laneOf(row(1, status, { status }), MODEL);
+
+    for (const s of ['new', 'triaged', 'deciding', 'queued', 'deferred']) {
+      expect(lane(s)).toBe('proposed');
+    }
+    for (const s of ['planning', 'building', 'in_qa', 'changes_asked', 'awaiting_merge', 'deploying', 'stopped']) {
+      expect(lane(s)).toBe('progress');
+    }
+    for (const s of ['shipped', 'seen_live', 'answered']) {
+      expect(lane(s)).toBe('done');
+    }
+    for (const s of ['out_of_scope', 'duplicate']) {
+      expect(lane(s)).toBe('archived');
+    }
   });
 
-  it('puts an outcome with no state at all in Proposed, because it is owed and has not started', () => {
-    expect(laneOf(row(7, 'No nightly e2e runner for Send against production', {}))).toBe('proposed');
+  it('puts a null or unknown status In progress, as Chris asked', () => {
+    expect(laneOf(row(7, 'No nightly e2e runner', {}), MODEL)).toBe('progress');
+    expect(laneOf(row(8, 'odd', { status: 'something_new' }), MODEL)).toBe('progress');
+    expect(badge(row(7, 'none', {}))).toBe('In progress');
+    expect(lineOf(row(7, 'none', {}))).toBe('No status recorded yet · today');
   });
 
-  it('keeps a building outcome in progress when its recommendation is undecided, and flags it', () => {
-    const building = row(8, 'Rename Send to Stamp', { state: 'building', recommendationState: 'proposed', recommendedOutcome: 'build', taskCount: 5, runningTaskCount: 2 });
+  it('never infers the lane from the other fields: a status that says shipped is Done whatever state says (FE-224)', () => {
+    const shipped = row(224, 'copy link', { state: 'building', status: 'shipped', shippedAt: '2026-09-21T03:19:08Z', recovery: { stage: 'recovering' } });
 
-    // The lane answers "has a worker got to it", which is yes. That a person
-    // still owes a decision is a state on the row, not a lane of its own.
-    expect(laneOf(building)).toBe('progress');
-    expect(stateOf(building, 'progress')).toBe('Building');
-    expect(flagsOf(building, 'progress')).toContain('waiting on you');
+    expect(laneOf(shipped, MODEL)).toBe('done');
+    expect(badge(shipped)).toBe('Shipped');
   });
 
-  it('tells waiting from blocked: no running task is a wait with a name, Blocked needs an obstacle somebody wrote down', () => {
-    // Review, 2026-09-24: "zero running tasks with tasks written reads as
-    // Blocked" mislabelled work awaiting dispatch, awaiting QA and ready to
-    // merge as failure. Stage, activity and blocker are three facts.
-    const dispatch = row(20, 'Nightly deploy run', { state: 'building', taskCount: 3, runningTaskCount: 0 });
-    const qa = row(23, 'Retry uploads', { state: 'building', taskCount: 1, runningTaskCount: 0, awaitingReviewTaskCount: 1 });
-    const merge = row(24, 'Retry uploads', { state: 'building', taskCount: 1, runningTaskCount: 0, acceptedTaskCount: 1 });
-    const moving = row(21, 'Rename Send', { state: 'building', taskCount: 3, runningTaskCount: 1 });
-    const starting = row(22, 'Just claimed', { state: 'building', taskCount: 0 });
-    const blocked = row(25, 'Connect staging', { state: 'building', taskCount: 2, runningTaskCount: 0, blocker: { what: 'The staging account is not connected', owner: 'chris@example.test', next: 'connect it on /dashboard/connectors' } });
+  it('labels and tones come from the type', () => {
+    expect(workStateOf(place(row(130, 'reminders', { status: 'awaiting_merge' })))).toEqual({ label: 'Waiting on your merge', tone: 'warn' });
+    expect(workStateOf(place(row(1, 'a', { status: 'stopped' })))).toEqual({ label: 'Stopped · needs you', tone: 'bad' });
+    expect(workStateOf(place(row(2, 'b', { status: 'seen_live' })))).toEqual({ label: 'Shipped · seen live', tone: 'ok' });
+    expect(workStateOf(place(row(3, 'c', { status: 'building' })))).toEqual({ label: 'Building', tone: 'info' });
+  });
 
-    expect(isBlocked(dispatch)).toBe(false);
-    expect(stateOf(dispatch, 'progress', { now: NOW })).toBe('Awaiting dispatch');
-    // Nothing sends written tasks by itself, so this is never "no action needed" (backlog 032).
-    expect(workLine(dispatch, 'progress', NOW)).toBe('3 tasks written, none sent to a worker. Build again sends them · today');
-    expect(stateOf(qa, 'progress')).toBe('Awaiting QA');
-    expect(workLine(qa, 'progress', NOW)).toBe('Engineering finished. Awaiting QA; no action needed from you · today');
-    expect(stageOf(qa)).toBe('qa');
-    expect(stateOf(merge, 'progress')).toBe('Ready to merge');
+  it('a row waiting on your merge says what the status was written with, and leads the lane (FE-130)', () => {
+    const merge = row(130, 'Remind who has not opened it', { status: 'awaiting_merge', statusLine: 'QA approved 8 of 8; the merge waits on a person (infra class).', statusAt: '2026-09-21T05:31:31Z', taskCount: 9, runningTaskCount: 0, askedAt: '2026-09-20T00:00:00Z' });
+    const building = row(131, 'Copy link', { status: 'building', statusLine: 'RUN-478 is building attempt 2.', statusAt: '2026-09-21T15:00:00Z', askedAt: '2026-09-01T00:00:00Z' });
+    const out = derive([building, merge], { now: NOW });
 
-    // QA sent it back: the reader's move, not "no action needed" (2026-09-26).
-    const changes = row(26, 'Find a document', { state: 'building', taskCount: 9, runningTaskCount: 0, changesRequestedTaskCount: 1 });
+    expect(out.map(r => r.id)).toEqual([130, 131]);
+    expect(out[0]!.meta.state).toBe('Waiting on your merge');
+    expect(out[0]!.meta.workLine).toBe('QA approved 8 of 8; the merge waits on a person (infra class) · today');
+    expect(out[0]!.meta.needsYou).toBe(true);
+    expect(out[1]!.meta.workLine).toBe('RUN-478 is building attempt 2. No action needed from you · today');
+    expect(out[1]!.meta.needsYou).toBeUndefined();
+  });
 
-    expect(stateOf(changes, 'progress')).toBe('Changes asked');
-    expect(workLine(changes, 'progress', NOW)).toBe('QA sent it back with what would settle each criterion. Build again carries it · today');
-    expect(workLine(merge, 'progress', NOW)).toBe('QA approved. The merge is waiting on a person · today');
+  it('tells a status from an obstacle: Blocked is a flag and a line, written down by somebody', () => {
+    const blocked = row(25, 'Connect staging', { status: 'building', taskCount: 2, runningTaskCount: 0, blocker: { what: 'The staging account is not connected', owner: 'chris@example.test', next: 'connect it on /dashboard/connectors' } });
 
-    // The review ended without a verdict: said as that, never "no action needed" (task 177).
-    const stuck = row(26, 'Find a document', { state: 'building', taskCount: 9, runningTaskCount: 0, reviewFailedTaskCount: 1 });
-
-    expect(stateOf(stuck, 'progress')).toBe('QA could not finish');
-    expect(workLine(stuck, 'progress', NOW)).toBe('The review ended without a verdict. Build again starts a fresh attempt · today');
-    expect(isBlocked(moving)).toBe(false);
-    expect(stateOf(moving, 'progress')).toBe('Building');
-    expect(isBlocked(starting)).toBe(false);
-    // Blocked: an obstacle, its owner and the one move — nothing derived.
-    expect(isBlocked(blocked)).toBe(true);
+    expect(isBlocked(blocked, place(blocked))).toBe(true);
     expect(blockerOf(blocked)).toEqual({ what: 'The staging account is not connected', owner: 'chris@example.test', next: 'connect it on /dashboard/connectors' });
-    expect(stateOf(blocked, 'progress')).toBe('Blocked');
-    expect(workLine(blocked, 'progress', NOW)).toBe('The staging account is not connected. chris@example.test to connect it on /dashboard/connectors · today');
-    // A blocker on finished work is history, not a state.
-    expect(isBlocked(row(26, 'done', { state: 'shipped', blocker: { what: 'was stuck once' } }))).toBe(false);
-  });
+    expect(badge(blocked)).toBe('Building');
+    expect(flagsOf(blocked, place(blocked))).toContain('blocked');
+    expect(lineOf(blocked)).toBe('The staging account is not connected. chris@example.test to connect it on /dashboard/connectors · today');
 
-  it('reads the stage off the records, six steps and two exits', () => {
-    expect(stageOf(row(1, 'a', { state: 'new' }))).toBe('asked');
-    expect(stageOf(row(2, 'b', { state: 'triaged' }))).toBe('asked');
-    expect(stageOf(row(3, 'c', { state: 'in_scope' }))).toBe('decided');
-    expect(stageOf(row(4, 'd', { state: 'in_scope', taskCount: 2 }))).toBe('planned');
-    expect(stageOf(row(5, 'e', { state: 'building', taskCount: 2, runningTaskCount: 1 }))).toBe('building');
-    expect(stageOf(row(6, 'f', { state: 'building', taskCount: 2, acceptedTaskCount: 2 }))).toBe('qa');
-    expect(stageOf(row(7, 'g', { state: 'shipped' }))).toBe('released');
-    expect(stageOf(row(8, 'h', { state: 'answered' }))).toBe('answered');
-    expect(stageOf(row(9, 'i', { state: 'deferred' }))).toBe('deferred');
-    expect(deriveWorkQueue([row(6, 'f', { state: 'building', taskCount: 2, acceptedTaskCount: 2 })], { now: NOW })[0]?.meta?.stage).toBe('qa');
+    // A blocker on finished work is history, not a state.
+    const done = row(26, 'done', { status: 'shipped', blocker: { what: 'was stuck once' } });
+
+    expect(isBlocked(done, place(done))).toBe(false);
   });
 
   it('a deferred outcome is a decision, not a rejection: kept, badged, last in Proposed, with its reason and date', () => {
     const deferred = row(40, 'Dark mode', { state: 'deferred', deferReason: 'Not until Send is in dogfood. Revisit when two customers ask.', deferredUntil: '2026-10-15T00:00:00Z', askedAt: '2026-09-01T00:00:00Z' });
     const queued = row(41, 'Fix uploads', { state: 'triaged', why: ['user_asks'], priority: 80, askedAt: '2026-09-20T00:00:00Z' });
 
-    expect(laneOf(deferred)).toBe('proposed');
-    expect(stateOf(deferred, 'proposed')).toBe('Deferred');
-    expect(workLine(deferred, 'proposed', NOW)).toBe('Deferred until 2026-10-15: Not until Send is in dogfood.');
-    expect(deriveWorkQueue([deferred, queued], { now: NOW }).map(r => r.id)).toEqual([41, 40]);
+    expect(laneOf(deferred, MODEL)).toBe('proposed');
+    expect(badge(deferred)).toBe('Deferred');
+    expect(lineOf(deferred)).toBe('Deferred until 2026-10-15: Not until Send is in dogfood.');
+    expect(derive([deferred, queued], { now: NOW }).map(r => r.id)).toEqual([41, 40]);
   });
 
   it('a shipped outcome says whether it helped, or when that will be known', () => {
-    expect(stateOf(row(50, 'a', { state: 'shipped', result: 'helped' }), 'done')).toBe('Shipped · helped');
-    expect(stateOf(row(51, 'b', { state: 'shipped', result: 'did_not_help' }), 'done')).toBe('Shipped · did not help');
-    expect(stateOf(row(52, 'c', { state: 'shipped' }), 'done')).toBe('Shipped');
-    expect(workLine(row(53, 'd', { state: 'shipped', result: 'helped', resultNote: 'Upload failures fell from 4.1% to 0.3% (PostHog, 7 days). Nobody has reported a lost upload since.', answeredAt: '2026-09-20T16:00:00Z' }), 'done', NOW)).toBe('Upload failures fell from 4.1% to 0.3% (PostHog, 7 days).');
-    expect(workLine(row(54, 'e', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z', checkAfter: '2026-09-28T00:00:00Z' }), 'done', NOW)).toBe('yesterday · result checked 2026-09-28');
-    expect(workLine(row(55, 'f', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z', checkAfter: '2026-09-10T00:00:00Z' }), 'done', NOW)).toBe('yesterday · result not checked yet');
+    expect(lineOf(row(53, 'd', { state: 'shipped', shippedAt: '2026-09-20T16:00:00Z', result: 'helped', resultNote: 'Upload failures fell from 4.1% to 0.3% (PostHog, 7 days). Nobody has reported a lost upload since.' }))).toBe('Helped: Upload failures fell from 4.1% to 0.3% (PostHog, 7 days).');
+    expect(lineOf(row(51, 'b', { state: 'shipped', shippedAt: '2026-09-20T16:00:00Z', result: 'did_not_help' }))).toBe('yesterday · did not help');
+    expect(lineOf(row(54, 'e', { state: 'shipped', shippedAt: '2026-09-20T16:00:00Z', checkAfter: '2026-09-28T00:00:00Z' }))).toBe('yesterday · result checked 2026-09-28');
+    expect(lineOf(row(55, 'f', { state: 'shipped', shippedAt: '2026-09-20T16:00:00Z', checkAfter: '2026-09-10T00:00:00Z' }))).toBe('yesterday · result not checked yet');
   });
 
   it('sorts what has stopped above what is running', () => {
@@ -124,7 +130,7 @@ describe('lanes', () => {
     ];
 
     // Newer, but blocked — so it leads regardless of age.
-    expect(deriveWorkQueue(rows, { now: NOW }).map(r => r.id)).toEqual([31, 30]);
+    expect(derive(rows, { now: NOW }).map(r => r.id)).toEqual([31, 30]);
   });
 
   it('sorts an undecided recommendation above the queue behind it', () => {
@@ -133,17 +139,24 @@ describe('lanes', () => {
       row(41, 'needs a decision', { state: 'new', recommendationState: 'proposed', askedAt: '2026-09-20T00:00:00Z' }),
     ];
 
-    expect(deriveWorkQueue(rows, { now: NOW }).map(r => r.id)).toEqual([41, 40]);
+    expect(derive(rows, { now: NOW }).map(r => r.id)).toEqual([41, 40]);
   });
 
-  it('does not hold finished work in progress over a recommendation nobody closed', () => {
-    expect(laneOf(row(9, 'shipped anyway', { state: 'shipped', recommendationState: 'proposed' }))).toBe('done');
+  it('leaves the archive out of the queue entirely: out of scope, dismissed, duplicate', () => {
+    const rows = [
+      row(10, 'declined', { state: 'out_of_scope' }),
+      row(12, 'dismissed', { state: 'triaged', recommendationState: 'rejected' }),
+      row(13, 'repeat', { state: 'new', duplicateOf: 11 }),
+      row(11, 'queued', { state: 'new' }),
+    ];
+
+    expect(derive(rows, { now: NOW }).map(r => r.id)).toEqual([11]);
   });
 
-  it('leaves the archive out of the queue entirely', () => {
-    const rows = [row(10, 'declined', { state: 'out_of_scope' }), row(11, 'queued', { state: 'new' })];
+  it('draws one lane of work when the type declares no status', () => {
+    const out = deriveWorkQueue([row(1, 'a', { state: 'new' })], { now: NOW });
 
-    expect(deriveWorkQueue(rows, { now: NOW }).map(r => r.id)).toEqual([11]);
+    expect(out.map(r => r.meta.laneKey)).toEqual(['progress']);
   });
 });
 
@@ -163,7 +176,7 @@ describe('probes', () => {
     });
 
     expect(isProbeRow(real)).toBe(false);
-    expect(deriveWorkQueue([real], { now: NOW }).map(r => r.id)).toEqual([78]);
+    expect(derive([real], { now: NOW }).map(r => r.id)).toEqual([78]);
   });
 
   it('keeps probes out of the lanes and out of the counts', () => {
@@ -172,7 +185,7 @@ describe('probes', () => {
       row(93, 'e2e to7nx6: export button does nothing on my phone', { source: 'e2e-suite', state: 'answered' }),
       row(87, 'Send a link by email, and use the phone share sheet', { state: 'shipped', actualCents: 592 }),
     ];
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
     expect(out.map(r => r.id)).toEqual([87]);
     expect(out[0]!.meta.doneCount).toBe(1);
@@ -188,7 +201,7 @@ describe('next is visibly ordered', () => {
   ];
 
   it('numbers one, two, three and says how many are left', () => {
-    const out = deriveWorkQueue(reasoned, { now: NOW });
+    const out = derive(reasoned, { now: NOW });
 
     expect(out.map(r => r.meta.rank)).toEqual(['1', '2', '3', '4']);
     expect(out.map(r => r.title)).toEqual(['first', 'second', 'third', 'fourth']);
@@ -202,7 +215,7 @@ describe('next is visibly ordered', () => {
       row(5, 'no reason', { state: 'new' }, new Date('2026-09-01T00:00:00Z')),
       row(1, 'reasoned', { state: 'new', why: ['production_bug'] }, new Date('2026-09-10T00:00:00Z')),
     ];
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
     expect(out.map(r => [r.title, r.meta.rank])).toEqual([['reasoned', '1'], ['no reason', undefined]]);
   });
@@ -212,9 +225,9 @@ describe('next is visibly ordered', () => {
       row(88, 'The planner writes task contracts without reading the repository', { state: 'new' }),
       row(89, 'One page that shows a feature from ask to announcement', { state: 'in_scope' }),
       row(94, 'Review is an event stream, not a queue of decisions', { state: 'in_scope' }),
-      row(86, 'No nightly e2e runner for Send against production', {}),
+      row(86, 'No nightly e2e runner for Send against production', { state: 'new' }),
     ];
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
     expect(out[0]!.meta.lane).toBe('Proposed');
     expect(out[0]!.meta.laneNote).toBe('nothing ranked, no reason recorded on 4');
@@ -233,7 +246,7 @@ describe('the lanes carry what they could not draw', () => {
       waiting(13, { askedBy: { name: 'Ada Northwind', email: 'ada@northwind.example' }, source: 'chat' }),
       row(14, 'ranked', { state: 'triaged', priority: 70, why: ['user_request'], askedAt: '2026-09-01T00:00:00Z' }),
     ];
-    const out = deriveWorkQueue(rows, { now: NOW, decideShown: 2 });
+    const out = derive(rows, { now: NOW, decideShown: 2 });
 
     expect(out.map(r => [r.id, r.meta.state])).toEqual([
       [13, 'Decide'],
@@ -255,7 +268,7 @@ describe('the lanes carry what they could not draw', () => {
       row(38, 'Vocion fail endpoint cannot carry the kept branch', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build', decisionCost: 2 }),
       row(79, 'Vocion: records cannot be updated or removed over REST', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build', decisionCost: 2 }),
     ];
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
     expect(out).toHaveLength(3);
     expect(out[0]!.meta.lane).toBe('Proposed');
@@ -263,25 +276,26 @@ describe('the lanes carry what they could not draw', () => {
     expect(out[0]!.meta.waitingCount).toBe(3);
   });
 
-  it('caps recently done and points the rest at Activity', () => {
-    const rows = Array.from({ length: 9 }, (_, i) => row(
+  it('caps recently done, counts the whole lane, and points the rest at Activity', () => {
+    const rows = Array.from({ length: 23 }, (_, i) => row(
       100 + i,
       `shipped ${i}`,
       { state: 'shipped', answeredAt: new Date(NOW.getTime() - i * 3_600_000).toISOString() },
     ));
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
-    expect(out).toHaveLength(5);
+    expect(out).toHaveLength(20);
     expect(out[0]!.meta.lane).toBe('Done');
-    expect(out[0]!.meta.laneNote).toBe('4 more in Activity');
-    expect(out[0]!.meta.doneCount).toBe(9);
-    expect(out.map(r => r.title)).toEqual(['shipped 0', 'shipped 1', 'shipped 2', 'shipped 3', 'shipped 4']);
+    expect(out[0]!.meta.laneNote).toBe('3 more in Activity');
+    expect(out[0]!.meta.doneCount).toBe(23);
+    expect(out[0]!.meta.laneTotal).toBe(23);
+    expect(out[0]!.title).toBe('shipped 0');
   });
 
   it('drops work that finished outside the window', () => {
     const old = row(1, 'ancient', { state: 'shipped', answeredAt: '2026-01-01T00:00:00Z' });
 
-    expect(deriveWorkQueue([old], { now: NOW })).toEqual([]);
+    expect(derive([old], { now: NOW })).toEqual([]);
   });
 
   it('orders the lanes In progress, Proposed, Done', () => {
@@ -291,7 +305,7 @@ describe('the lanes carry what they could not draw', () => {
       row(3, 'building', { state: 'building' }),
       row(4, 'queued', { state: 'new' }),
     ];
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
     // Waiting and queued are one lane now, and the decision leads it.
     expect(out.map(r => r.meta.laneKey)).toEqual(['progress', 'proposed', 'proposed', 'done']);
@@ -348,7 +362,7 @@ describe('what a row cannot show', () => {
       row(21, 'has one', { surface: 'ui', state: 'new', visuals: { beforeArtifactIds: [1] } }),
       row(22, 'not visual', { surface: 'infra', state: 'new' }),
     ];
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
     expect(out[0]!.meta.laneNote ?? '').not.toContain('without a visual');
     expect(out.map(r => r.meta.visualGap)).toContain('no mock');
@@ -415,7 +429,7 @@ describe('the contract between a person and the factory', () => {
 
     expect(acceptanceOf(request, { tasks: [task], shippedTaskIds: [90] })).toMatchObject({ total: 2, proven: 2 });
 
-    const [drawn] = deriveWorkQueue([{ ...request, meta: { ...request.meta, shippedAt: NOW.toISOString() } }], {
+    const [drawn] = derive([{ ...request, meta: { ...request.meta, shippedAt: NOW.toISOString() } }], {
       now: NOW,
       tasks: [{ id: 90, title: 't', status: null, createdAt: NOW, meta: task.meta }],
       releases: [{ id: 5, title: 'r', status: null, createdAt: NOW, meta: { taskIds: [90] } }],
@@ -435,7 +449,7 @@ describe('the contract between a person and the factory', () => {
   });
 
   it('carries the line onto the row', () => {
-    const out = deriveWorkQueue([row(11, 'k', { state: 'new', acceptance: [crit('x')] })], { now: NOW });
+    const out = derive([row(11, 'k', { state: 'new', acceptance: [crit('x')] })], { now: NOW });
 
     expect(out[0]!.meta.acceptanceLine).toBe('1 criterion');
   });
@@ -471,7 +485,7 @@ describe('a finished outcome whose contract does not hold', () => {
   });
 
   it('carries the gate onto the row', () => {
-    const out = deriveWorkQueue([
+    const out = derive([
       row(6, 'f', { state: 'shipped', answeredAt: NOW.toISOString(), acceptance: [crit('a', true), crit('b')] }),
     ], { now: NOW });
 
@@ -502,20 +516,20 @@ describe('the sentences on a row', () => {
   it('says only what the badge does not, so no row repeats its own state', () => {
     // The badge reads "Not triaged"; a line under it saying so again is the
     // repetition the three-lane redraw existed to lose.
-    expect(stateOf(row(1, 'a', { state: 'new' }), 'proposed')).toBe('Not triaged');
+    expect(badge(row(1, 'a', { state: 'new' }))).toBe('Not triaged');
     // What it adds is the one thing the badge cannot: when it arrived.
-    expect(workLine(row(1, 'a', { state: 'new' }), 'proposed', NOW)).toBe('Filed today');
-    expect(workLine(row(2, 'b', { state: 'in_scope', askedAt: '2026-09-18T09:00:00Z' }), 'proposed', NOW)).toBe('Filed 3 days ago');
-    expect(workLine(row(3, 'c', { state: 'building', taskCount: 5, runningTaskCount: 2 }), 'progress', NOW)).toBe('5 tasks underway. No action needed from you · today');
-    expect(workLine(row(4, 'd', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z' }), 'done', NOW)).toBe('yesterday');
+    expect(lineOf(row(1, 'a', { state: 'new' }), NOW)).toBe('Filed today');
+    expect(lineOf(row(2, 'b', { state: 'in_scope', askedAt: '2026-09-18T09:00:00Z' }), NOW)).toBe('Filed 3 days ago');
+    expect(lineOf(row(3, 'c', { state: 'building', taskCount: 5, runningTaskCount: 2 }), NOW)).toBe('Building. No action needed from you · today');
+    expect(lineOf(row(4, 'd', { state: 'shipped', shippedAt: '2026-09-20T16:00:00Z' }), NOW)).toBe('yesterday');
   });
 
   it('says what a decision is for, since the badge only says one is owed', () => {
     const waiting = row(5, 'e', { state: 'new', recommendationState: 'proposed', recommendedOutcome: 'build' });
 
-    expect(stateOf(waiting, 'proposed')).toBe('Decide');
+    expect(badge(waiting)).toBe('Decide');
     // The action and how long it has waited, not who recommended it.
-    expect(workLine(waiting, 'proposed', NOW)).toMatch(/^Decide whether to build it( · waiting (since today|\d+ days?))?$/);
+    expect(lineOf(waiting, NOW)).toMatch(/^Decide whether to build it( · waiting (since today|\d+ days?))?$/);
   });
 
   it('says money the way the lane makes sense of it', () => {
@@ -523,19 +537,24 @@ describe('the sentences on a row', () => {
     expect(costLine(row(2, 'b', { estimateCents: 8500, actualCents: 2412 }), 'progress')).toBe('$24.12 of about $85.00');
     expect(costLine(row(3, 'c', { actualCents: 84 }), 'done')).toBe('$0.84');
     expect(costLine(row(4, 'd', {}), 'proposed')).toBeNull();
+    // The whole spend (engineering, agents and chat) once the request carries it.
+    expect(costLine(row(5, 'e', { actualCents: 277, spentCents: 410 }), 'done')).toBe('$4.10');
   });
 
   it('shows a conditional fact only when it is true, and never twice', () => {
-    expect(flagsOf(row(1, 'a', {}), 'proposed')).toEqual([]);
-    expect(flagsOf(row(2, 'b', { severity: 'p1', sizeClass: 'major' }), 'proposed')).toEqual(['urgent', 'major']);
-    expect(flagsOf(row(3, 'c', { kind: 'incident' }), 'progress')).toEqual(['urgent']);
-    // The row's own badge already reads "Decide", so the flag does not repeat it.
-    expect(flagsOf(row(4, 'd', { recommendationState: 'proposed' }), 'proposed')).toEqual([]);
-    expect(flagsOf(row(5, 'e', { recommendationState: 'proposed' }), 'progress')).toEqual(['waiting on you']);
+    expect(flagsOf(row(1, 'a', {}), place(row(1, 'a', {})))).toEqual([]);
+    expect(flagsOf(row(2, 'b', { severity: 'p1', sizeClass: 'major' }), place(row(2, 'b', { severity: 'p1', sizeClass: 'major' })))).toEqual(['urgent', 'major']);
+    expect(flagsOf(row(3, 'c', { kind: 'incident' }), place(row(3, 'c', { kind: 'incident' })))).toEqual(['urgent']);
+    // The row's own badge already says whose move it is, so no flag repeats it.
+    expect(flagsOf(row(4, 'd', { recommendationState: 'proposed' }), place(row(4, 'd', { recommendationState: 'proposed' })))).toEqual([]);
+
+    const blocked = row(5, 'e', { status: 'building', blocker: { what: 'no staging account' } });
+
+    expect(flagsOf(blocked, place(blocked))).toEqual(['blocked']);
   });
 
   it('leaves a row with nothing to say empty rather than writing "not recorded"', () => {
-    const [only] = deriveWorkQueue([row(1, 'bare', { state: 'new' })], { now: NOW });
+    const [only] = derive([row(1, 'bare', { state: 'new' })], { now: NOW });
 
     expect(only!.meta.whyLine).toBeUndefined();
     expect(only!.meta.costLine).toBeUndefined();
@@ -580,24 +599,24 @@ describe('which picture the card shows', () => {
   });
 
   it('puts the chosen picture on the row the page draws', () => {
-    const [drawn] = deriveWorkQueue([row(8, 'h', { state: 'new', visuals: { beforeArtifactIds: [11] } })], { now: NOW });
+    const [drawn] = derive([row(8, 'h', { state: 'new', visuals: { beforeArtifactIds: [11] } })], { now: NOW });
 
     expect(drawn!.meta.visual).toBe(11);
   });
 
-  it('a row a gate sent back reads Returned to the seat, with the first missing thing, and is not waiting on a person', () => {
+  it('a row a gate sent back says so on its line, with the first missing thing; the badge stays its status', () => {
     const rows = [row(50, 'sent back', { state: 'triaged', recommendationState: 'proposed', returnedTo: 'product-manager', gate: { name: 'decision-ready', failed: [{ field: 'acceptance', why: 'acceptance has 1 item; at least 3 needed' }, { field: 'why', why: 'why is not on the record' }] } })];
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
-    expect(out[0]!.meta.state).toBe('Returned to PM');
+    expect(out[0]!.meta.state).toBe('Decide');
     expect(out[0]!.meta.workLine).toBe('Sent back to PM by the "decision-ready" gate: acceptance has 1 item; at least 3 needed (+1 more) · today');
   });
 
   it('a row the judge sent back names the thing that failed', () => {
     const rows = [row(51, 'judged back', { state: 'triaged', returnedTo: 'product-manager', gate: { name: 'decision-ready', judged: 'return', reasonCode: 'untestable-criteria', example: '"done when it works"' } })];
-    const out = deriveWorkQueue(rows, { now: NOW });
+    const out = derive(rows, { now: NOW });
 
-    expect(out[0]!.meta.state).toBe('Returned to PM');
+    expect(out[0]!.meta.state).toBe('Triaged');
     expect(out[0]!.meta.workLine).toBe('Sent back to PM by the "decision-ready" gate: "done when it works" · today');
   });
 });
@@ -607,52 +626,28 @@ describe('every row says what happened, and when (backlog 032)', () => {
   const ago = (days: number) => new Date(NOW.getTime() - days * DAY).toISOString();
 
   it('stops promising "no action needed" once nothing has moved for a day', () => {
-    const fresh = row(60, 'a', { state: 'building', taskCount: 2, runningTaskCount: 1, rollupsUpdatedAt: ago(0.2) });
-    const still = row(61, 'b', { state: 'building', taskCount: 2, runningTaskCount: 1, rollupsUpdatedAt: ago(3) }, new Date(ago(9)));
+    const fresh = row(60, 'a', { status: 'building', statusLine: 'RUN-7 is building attempt 1.', statusAt: ago(0.2) });
+    const still = row(61, 'b', { status: 'building', statusLine: 'RUN-8 is building attempt 1.', statusAt: ago(3) }, new Date(ago(9)));
 
-    expect(workLine(fresh, 'progress', NOW)).toBe('2 tasks underway. No action needed from you · today');
-    expect(workLine(still, 'progress', NOW)).toBe('2 tasks underway. Nothing has moved in 3 days · 3 days ago');
+    expect(lineOf(fresh, NOW)).toBe('RUN-7 is building attempt 1. No action needed from you · today');
+    expect(lineOf(still, NOW)).toBe('RUN-8 is building attempt 1. Nothing has moved in 3 days · 3 days ago');
   });
 
-  it('reads tasks written and never sent as stalled after a day, and offers Build again (#40)', () => {
-    const stalled = row(62, 'Rename Send to Stamp', { state: 'building', taskCount: 5, runningTaskCount: 0, decidedAt: ago(4) }, new Date(ago(8)));
+  it('a line a person\'s move answers never says "no action needed"', () => {
+    const stopped = row(62, 'Room order', { status: 'stopped', statusLine: 'Stopped after 3 attempts: the required checks failed (test).', statusAt: ago(4) });
 
-    expect(stateOf(stalled, 'progress', { now: NOW })).toBe('Stalled');
-    expect(workLine(stalled, 'progress', NOW)).toBe('5 tasks written, none sent to a worker. Build again sends them · 4 days ago');
-    expect(workLine(stalled, 'progress', NOW)).not.toMatch(/no action needed/i);
-
-    const [drawn] = deriveWorkQueue([stalled], { now: NOW });
-
-    expect(drawn!.meta.state).toBe('Stalled');
+    expect(lineOf(stopped, NOW)).toBe('Stopped after 3 attempts: the required checks failed (test) · 4 days ago');
   });
 
   it('says what a gate sent back in its first clause, with the day, never "no action needed" (#121)', () => {
     const why = '6 of 6 acceptance criteria are not met — Pressing Send mails the link to the address given; A note typed into the dialog arrives; …. Check each one against the running product and record the evidence';
     const returned = row(63, 'Send a file by email', { state: 'triaged', returnedTo: 'qa', gate: { name: 'contract-met', at: ago(3), failed: [{ field: 'acceptance', why }] } });
 
-    expect(workLine(returned, 'proposed', NOW)).toBe('Sent back to QA by the "contract-met" gate: 6 of 6 acceptance criteria are not met · 3 days ago');
-  });
-
-  it('dates the factory\'s own stage off its log, and closes its sentence (#201)', () => {
-    const planning = row(64, 'Org scope', { state: 'building', recovery: { stage: 'planning', line: 'Planning — the change spans 2 packages (apps/api, apps/web)', planRequestedAt: ago(0.1), log: [{ at: ago(0.1), text: 'Planning first.', runId: null }] } });
-
-    expect(workLine(planning, 'progress', NOW)).toBe('Planning — the change spans 2 packages (apps/api, apps/web). No action needed from you · today');
-  });
-
-  it('a plan waiting on a person names who approves it, and never adds "no action needed" (2026-10-01, plan #276)', () => {
-    const line = 'Planning — plan #76 is written and waiting for dana@northwind.example to approve it.';
-    const waiting = row(65, 'Org scope', { state: 'building', recovery: { stage: 'planning', line, waitingOn: { who: 'dana@northwind.example', line, actionRunId: 12 }, log: [{ at: ago(0.1), text: 'Plan #76 written.', runId: null }] } });
-
-    expect(workLine(waiting, 'progress', NOW)).toBe(`${line.replace(/\.$/, '')} · today`);
-
-    // Once the stage's line moves on, the name it carried no longer speaks.
-    const moved = row(66, 'Org scope', { state: 'building', recovery: { stage: 'planning', line: 'Planning — the plan was sent back.', waitingOn: { who: 'dana@northwind.example', line, actionRunId: 12 }, log: [{ at: ago(0.1), text: 'Sent back.', runId: null }] } });
-
-    expect(workLine(moved, 'progress', NOW)).toBe('Planning — the plan was sent back. No action needed from you · today');
+    expect(lineOf(returned, NOW)).toBe('Sent back to QA by the "contract-met" gate: 6 of 6 acceptance criteria are not met · 3 days ago');
   });
 
   it('dates a staged decision like a leading one', () => {
-    const [, , , staged] = deriveWorkQueue([1, 2, 3, 4].map(i => row(70 + i, `d${i}`, { state: 'new', recommendationState: 'proposed', recommendedOutcome: 'build', recommendedAt: ago(i) })), { now: NOW, decideShown: 3 });
+    const [, , , staged] = derive([1, 2, 3, 4].map(i => row(70 + i, `d${i}`, { state: 'new', recommendationState: 'proposed', recommendedOutcome: 'build', recommendedAt: ago(i) })), { now: NOW, decideShown: 3 });
 
     expect(staged!.meta.workLine).toBe('Behind 3 decisions, moves up as they land · waiting 4 days');
   });
@@ -660,7 +655,7 @@ describe('every row says what happened, and when (backlog 032)', () => {
   it('dates finished work by the day it shipped, never by the last recount (#39)', () => {
     const shipped = row(65, 'Multi-team membership', { state: 'shipped', shippedAt: ago(8), rollupsUpdatedAt: ago(4) });
 
-    expect(workLine(shipped, 'done', NOW)).toBe('8 days ago');
+    expect(lineOf(shipped, NOW)).toBe('8 days ago');
   });
 });
 
@@ -670,41 +665,16 @@ describe('a dismissed proposal', () => {
     const outOfScope = row(51, 'oos', { state: 'out_of_scope', recommendationState: 'rejected' });
     const rejected = row(52, 'rej', { state: 'triaged', recommendationState: 'rejected' });
 
-    expect(deriveWorkQueue([open, outOfScope, rejected], { now: NOW }).map(r => r.id)).toEqual([50]);
-  });
-});
-
-describe('the factory carrying it (backlog 038)', () => {
-  it('reads Planning, Recovering (attempt N of 3) and Stopped, each with what happens next', () => {
-    const planning = row(40, 'Fleet status', { state: 'triaged', recovery: { stage: 'planning', line: 'Planning — the allowed paths span 2 packages.' } });
-
-    expect(laneOf(planning)).toBe('progress');
-    expect(stateOf(planning, 'progress')).toBe('Planning');
-    expect(workLine(planning, 'progress', NOW)).toBe('Planning — the allowed paths span 2 packages. No action needed from you · today');
-
-    const attempt = { n: 1, kind: 'build', trigger: 'recovery', line: 'x', at: NOW.toISOString(), runId: 7, taskId: 70, failure: null };
-    const recovering = row(41, 'Invite link', { state: 'building', taskCount: 2, runningTaskCount: 1, recovery: { stage: 'recovering', line: 'Recovering (attempt 2 of 3): the required checks failed (test).', attempts: [attempt, { ...attempt, n: 2 }] } });
-
-    expect(stateOf(recovering, 'progress')).toBe('Recovering (attempt 2 of 3)');
-
-    const stopped = row(42, 'Room order', { state: 'building', taskCount: 3, recovery: { stage: 'stopped', line: 'Stopped after 3 attempts: the required checks failed (test). What would unblock it: read the check.', attempts: [attempt, attempt, attempt] } });
-
-    expect(stateOf(stopped, 'progress')).toBe('Stopped after 3 attempts');
-    expect(workLine(stopped, 'progress', NOW)).toBe('Stopped after 3 attempts: the required checks failed (test). A person decides next · today');
-  });
-
-  it('lets a wait with a person on it speak for itself', () => {
-    const qa = row(43, 'Invite link', { state: 'building', taskCount: 1, awaitingReviewTaskCount: 1, recovery: { stage: 'recovering', line: 'Recovering (attempt 2 of 3): x', attempts: [] } });
-
-    expect(stateOf(qa, 'progress')).toBe('Awaiting QA');
+    expect(derive([open, outOfScope, rejected], { now: NOW }).map(r => r.id)).toEqual([50]);
   });
 });
 
 describe('a Build card already up (journey 4, 2026-09-28: #214\'s card #4945 pending, the row read as queued)', () => {
   it('makes the row a decision, says which card and how long it has waited, and leads the lane', () => {
-    const filed = row(214, 'Download CSV of document viewers', { state: 'new' }, new Date('2026-09-20T10:00:00Z'));
+    // Filing the card wrote the request's status (`build_card` → Decide).
+    const filed = row(214, 'Download CSV of document viewers', { state: 'new', status: 'deciding' }, new Date('2026-09-20T10:00:00Z'));
     const older = row(213, 'Older queued request', { state: 'new' }, new Date('2026-09-10T10:00:00Z'));
-    const out = deriveWorkQueue([older, filed], { now: NOW, pendingBuilds: [{ requestId: 214, runId: 4945, at: new Date('2026-09-21T09:00:00Z') }] });
+    const out = derive([older, filed], { now: NOW, pendingBuilds: [{ requestId: 214, runId: 4945, at: new Date('2026-09-21T09:00:00Z') }] });
     const card = out.find(r => r.id === 214)!;
 
     expect(card.meta.state).toBe('Decide');
@@ -715,7 +685,7 @@ describe('a Build card already up (journey 4, 2026-09-28: #214\'s card #4945 pen
   });
 
   it('leaves a row with no card as it was', () => {
-    const out = deriveWorkQueue([row(213, 'Queued', { state: 'new' })], { now: NOW, pendingBuilds: [{ requestId: 214, runId: 4945, at: NOW }] });
+    const out = derive([row(213, 'Queued', { state: 'new' })], { now: NOW, pendingBuilds: [{ requestId: 214, runId: 4945, at: NOW }] });
 
     expect(out[0]!.meta.state).toBe('Not triaged');
     expect(out[0]!.meta.pendingBuildRunId).toBeUndefined();
@@ -724,8 +694,8 @@ describe('a Build card already up (journey 4, 2026-09-28: #214\'s card #4945 pen
 
 describe('a duplicate is closed (#232, #234)', () => {
   it('leaves the queue once it names the request it duplicates, whatever its state', () => {
-    expect(isDismissed(row(232, 'Note on a send', { state: 'new', duplicateOf: 233 }))).toBe(true);
-    expect(isDismissed(row(233, 'Pin a note', { state: 'new' }))).toBe(false);
+    expect(laneOf(row(232, 'Note on a send', { state: 'new', duplicateOf: 233 }), MODEL)).toBe('archived');
+    expect(laneOf(row(233, 'Pin a note', { state: 'new' }), MODEL)).toBe('proposed');
   });
 });
 
@@ -736,9 +706,9 @@ describe('the Now line on a Work row (Chris, 2026-09-30: "Live indicator. Stream
   const nowOf = (rows: PageRow[], id: number) => rows.find(r => r.id === id)!.meta.now as { line: string; live: boolean; href: string | null };
 
   it('carries what is running for the row, and its line changes when the run does', () => {
-    const waiting = deriveWorkQueue([building], { now: NOW, live: new Map([[265, queued]]) });
-    const going = deriveWorkQueue([building], { now: NOW, live: new Map([[265, claimed]]) });
-    const idle = deriveWorkQueue([building], { now: NOW, live: new Map([[265, null]]) });
+    const waiting = derive([building], { now: NOW, live: new Map([[265, queued]]) });
+    const going = derive([building], { now: NOW, live: new Map([[265, claimed]]) });
+    const idle = derive([building], { now: NOW, live: new Map([[265, null]]) });
 
     expect(nowOf(waiting, 265)).toEqual({ line: 'Waiting for a worker · queued 3 min', live: true, href: '/dashboard/p/runs/432' });
     expect(nowOf(going, 265)).toEqual({ line: 'Engineer building · Running the checks · 4 min', live: true, href: '/dashboard/p/runs/432' });
@@ -748,64 +718,32 @@ describe('the Now line on a Work row (Chris, 2026-09-30: "Live indicator. Stream
   it('carries no Now line on a row that is not in progress, or when the page read none', () => {
     const proposed = row(300, 'Share a document', { state: 'in_scope' });
 
-    expect(deriveWorkQueue([proposed], { now: NOW, live: new Map() })[0]!.meta.now).toBeUndefined();
-    expect(deriveWorkQueue([building], { now: NOW })[0]!.meta.now).toBeUndefined();
+    expect(derive([proposed], { now: NOW, live: new Map() })[0]!.meta.now).toBeUndefined();
+    expect(derive([building], { now: NOW })[0]!.meta.now).toBeUndefined();
   });
 
   it('leads the lane with the rows that need a person', () => {
     const older = row(1, 'Older, running', { state: 'building', taskCount: 1, runningTaskCount: 1 }, new Date('2026-09-20T10:00:00Z'));
-    const merge = row(2, 'Newer, ready to merge', { state: 'building', taskCount: 1, acceptedTaskCount: 1 }, new Date('2026-09-21T10:00:00Z'));
-    const out = deriveWorkQueue([older, merge], { now: NOW });
+    const merge = row(2, 'Newer, waiting on your merge', { status: 'awaiting_merge', taskCount: 1, acceptedTaskCount: 1 }, new Date('2026-09-21T10:00:00Z'));
+    const out = derive([older, merge], { now: NOW });
 
     expect(out.filter(r => r.meta.laneKey === 'progress').map(r => r.id)).toEqual([2, 1]);
     expect(out.find(r => r.id === 2)!.meta.needsYou).toBe(true);
   });
 });
 
-describe('each state carries its tone (backlog 045)', () => {
-  // What the Work page's hand-kept `tones:` list drew before the states
-  // carried their own: the same tones, now from one definition.
-  const BEFORE: Record<string, string> = { 'Blocked': 'bad', 'Building': 'info', 'Awaiting dispatch': 'muted', 'Stalled': 'warn', 'Awaiting QA': 'info', 'Ready to merge': 'warn', 'Changes asked': 'warn', 'QA could not finish': 'bad', 'Planning': 'info', 'Recovering (attempt 1 of 3)': 'info', 'Recovering (attempt 3 of 3)': 'warn', 'Stopped after 2 attempts': 'bad', 'Decide': 'warn', 'Staged': 'muted', 'Deferred': 'muted', 'Returned to PM': 'warn', 'Shipped': 'ok', 'Shipped · helped': 'ok', 'Shipped · did not help': 'bad', 'Answered': 'muted', 'Queued': 'muted', 'Triaged': 'muted', 'In scope': 'muted', 'Not triaged': 'muted' };
-  const attempt = (n: number) => Array.from({ length: n }, (_, i) => ({ trigger: 'recovery', kind: 'build', at: `2026-09-2${i}T00:00:00Z` }));
-  const cases: Array<[PageRow, Parameters<typeof workStateOf>[1], { staged?: boolean }?]> = [
-    [row(1, 'a', { state: 'building', taskCount: 2, runningTaskCount: 0, blocker: { what: 'x', owner: 'y', next: 'z' } }), 'progress'],
-    [row(2, 'a', { state: 'building', taskCount: 1, runningTaskCount: 1 }), 'progress'],
-    [row(3, 'a', { state: 'building', taskCount: 3, runningTaskCount: 0 }), 'progress'],
-    [row(4, 'a', { state: 'building', taskCount: 3, runningTaskCount: 0 }, new Date('2026-09-10T00:00:00Z')), 'progress'],
-    [row(5, 'a', { state: 'building', taskCount: 1, awaitingReviewTaskCount: 1, runningTaskCount: 0 }), 'progress'],
-    [row(6, 'a', { state: 'building', taskCount: 1, acceptedTaskCount: 1, runningTaskCount: 0 }), 'progress'],
-    [row(7, 'a', { state: 'building', taskCount: 1, changesRequestedTaskCount: 1, runningTaskCount: 0 }), 'progress'],
-    [row(8, 'a', { state: 'building', taskCount: 1, reviewFailedTaskCount: 1, runningTaskCount: 0 }), 'progress'],
-    [row(9, 'a', { state: 'building', recovery: { stage: 'planning', limit: 3, attempts: [], log: [] } }), 'progress'],
-    [row(10, 'a', { state: 'building', recovery: { stage: 'recovering', limit: 3, attempts: attempt(1), log: [] } }), 'progress'],
-    [row(11, 'a', { state: 'building', recovery: { stage: 'recovering', limit: 3, attempts: attempt(3), log: [] } }), 'progress'],
-    [row(12, 'a', { state: 'building', recovery: { stage: 'stopped', limit: 3, attempts: attempt(2), log: [] } }), 'progress'],
-    [row(13, 'a', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build' }), 'proposed'],
-    [row(14, 'a', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build' }), 'proposed', { staged: true }],
-    [row(15, 'a', { state: 'deferred' }), 'proposed'],
-    [row(16, 'a', { state: 'building', returnedTo: 'product-manager' }), 'progress'],
-    [row(17, 'a', { state: 'shipped' }), 'done'],
-    [row(18, 'a', { state: 'shipped', result: 'helped' }), 'done'],
-    [row(19, 'a', { state: 'shipped', result: 'did_not_help' }), 'done'],
-    [row(20, 'a', { state: 'answered' }), 'done'],
-    [row(21, 'a', {}), 'proposed'],
-    [row(22, 'a', { state: 'triaged' }), 'proposed'],
-    [row(23, 'a', { state: 'in_scope' }), 'proposed'],
-    [row(24, 'a', { state: 'new' }), 'proposed'],
-  ];
+describe('each status carries its tone, from the type (backlog 045)', () => {
+  it('draws every declared status in the tone the type gives it, and an undeclared one muted', () => {
+    for (const value of MODEL.groups.flatMap(g => g.in)) {
+      expect(workStateOf(place(row(1, value, { status: value }))).tone).toBe(MODEL.tones[value]);
+    }
 
-  it('draws every state in the tone the page listed for it', () => {
-    const drawn = Object.fromEntries(cases.map(([r, lane, opts]) => {
-      const s = workStateOf(r, lane, { now: NOW, ...opts });
-      return [s.label, s.tone];
-    }));
-
-    expect(drawn).toEqual(BEFORE);
+    expect(workStateOf(place(row(2, 'x', { status: 'unheard_of' })))).toEqual({ label: 'unheard_of', tone: 'muted' });
   });
 
   it('writes the tone beside the state, where the badge reads it', () => {
-    const [out] = deriveWorkQueue([row(30, 'a', { state: 'building', taskCount: 1, acceptedTaskCount: 1, runningTaskCount: 0 })], { now: NOW });
+    const [out] = derive([row(30, 'a', { status: 'awaiting_merge' })], { now: NOW });
 
-    expect(out?.meta).toMatchObject({ state: 'Ready to merge', stateTone: 'warn' });
+    expect(out?.meta).toMatchObject({ state: 'Waiting on your merge', stateTone: 'warn', status: 'awaiting_merge' });
   });
 });

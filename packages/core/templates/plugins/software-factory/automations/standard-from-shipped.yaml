@@ -17,6 +17,8 @@
 # and a wiki write raises no PR.
 slug: standard-from-shipped
 name: A shipped feature becomes a standard, or one line under one
+label: Wrote the standard
+doing: Writing the standard
 description: >-
   When a factory branch's pull request merges, the PM reads what shipped
   against the product's standards page and either promotes the change into

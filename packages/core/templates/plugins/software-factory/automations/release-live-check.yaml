@@ -14,13 +14,16 @@
 # browser runs where the agents' tools run (`services/factory/liveCheck.ts`).
 slug: release-live-check
 name: Check the release on the live product
+label: Checked it live
+doing: Checking it live
 description: >-
   Fires when a release that changed something people use is linked, and once
   more when the first check did not see the change. QA reads each shipped
-  feature's acceptance criteria and the product's production access, looks at
-  the live app, and runs check_live with setup flows (the state the change
-  needs, made as the QA account), a check flow per criterion with a shoot, and
-  cleanup flows that remove what setup made. The release gets its live shots,
+  feature's acceptance lines and the product's production access, looks at
+  the live app, and runs check_live with a check flow per line the live
+  product can show (cited by its number, with a shoot, and expect_response for
+  an API), the lines it cannot show named as proven before merge, and setup and
+  cleanup flows only when a line needs state made as the QA account. The release gets its live shots,
   liveEvidence, liveState and the announcement image; each feature its
   liveCheck and its Live pictures. Never touches the product's code or data
   beyond what setup made.
@@ -47,13 +50,20 @@ do:
     the mock build, whose records do not exist on production. Call
     product_access for {{product}}: the URLs, the QA sign-in's email, and
     each environment's liveSetup (how its state is prepared).
-    Write the live flows: setup flows that make the state each criterion
-    needs as the QA account (upload a small test record, open its link once
-    as a visitor with signed_in false, remember the addresses you need);
-    one check flow per acceptance line a person can see, with request_id,
-    the criterion in the request's words, and a shoot of the state; cleanup
-    flows that remove everything setup made. When you do not know the live
-    page yet, run check_live with explore true first and read pageText.
+    Write the live flows. One check flow per acceptance line the live
+    product can show, citing it by its number (line: n, with request_id when
+    the release shipped more than one request); check_live writes the
+    line's words from the record and refuses a number that is not there,
+    listing the lines. A line about an API is proven with expect_response
+    (goto the page that calls it, expect_response {path, status}, shoot).
+    Name the lines production cannot show (a CI run, an image's contents, a
+    pre-merge guarantee) in not_observable with why; QA's pre-merge verdict
+    covers them. Setup flows only when a line needs state made as the QA
+    account (upload a small test record, open its link as a visitor with
+    signed_in false, remember the addresses you need), and then cleanup
+    flows that remove everything setup made; a check flow may run alone.
+    When you do not know the live page or the lines yet, run check_live
+    with explore true first and read pageText and acceptance.
     Then run check_live without explore. If it did not see the change, read
     what each page showed and the first failure, fix the flows, and run it
     once more. Do not change any record yourself: check_live writes the

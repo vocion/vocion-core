@@ -17,13 +17,40 @@
  */
 
 import type { Action, ActionContext, ReviewCard } from './types';
+import type { SettledDescriptor } from '@/libs/factory/requestStates';
 import { z } from 'zod';
 import { nounCode } from '@/libs/codes';
-import { REOPENABLE_REQUEST_STATES } from '@/libs/factory/requestStates';
+import { REOPENABLE_REQUEST_STATES, settledReason } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
 import { codesForRecords } from '@/services/codes';
+import { USABLE_RECORD_STATUSES } from './objects-propose-candidate';
 
 export const DISPATCH_ACTION_ID = 'factory.dispatch_task';
+
+/**
+ * The request a build ask names, when its workspace runs the factory as a
+ * durable workflow and the ask is not that workflow's own dispatch; else null.
+ * @param orgId - Tenant.
+ * @param input - The dispatch input.
+ * @param input.requestId - The request, when named.
+ * @param input.taskId - The task, when named instead.
+ * @param input.fromWorkflow - Set by the workflow on its own dispatch.
+ */
+async function funnelledRequest(orgId: string, input: { requestId?: number; taskId?: number; fromWorkflow?: boolean }): Promise<number | null> {
+  if (input.fromWorkflow) {
+    return null;
+  }
+  const { durableOn } = await import('@/libs/durable/flags');
+  if (!(await durableOn(orgId, 'factory'))) {
+    return null;
+  }
+  if (input.requestId) {
+    return input.requestId;
+  }
+  const task = input.taskId ? await readRecord(orgId, input.taskId) : null;
+  const id = Number(task?.meta.requestId);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 /**
  * THE CONTRACT, carried on the card. On 2026-09-26 the PM said "I've written
@@ -42,6 +69,8 @@ const inlineContract = z.object({
   riskClass: z.string().optional(),
   repoSlug: z.string().optional(),
   baseSha: z.string().optional(),
+  /** Which attempt this is, when the request's workflow numbers it (backlog 054). */
+  attempt: z.coerce.number().int().positive().optional(),
   taskId: z.string().optional().describe('A readable id for the worker, e.g. send-0012.'),
   tokenBudget: z.coerce.number().positive().optional(),
   wallClockBudget: z.coerce.number().positive().optional(),
@@ -93,13 +122,15 @@ const dispatchInput = z.object({
    * plan is superseded and planned again with this as the brief, before any run.
    */
   replan: z.string().trim().min(1).max(1500).optional(),
+  /** The request's own durable workflow is dispatching (backlog 054): it runs, never funnels back. */
+  fromWorkflow: z.boolean().optional(),
 }).refine(v => v.taskId !== undefined || v.requestId !== undefined, { message: 'Name the engineering task (taskId), or the request (requestId) — the contract is filled from the request, its plan and the repo.' });
 
 type Meta = Record<string, unknown>;
 type Rec = { id: number; title: string; typeId: number; meta: Meta; status?: string | null };
 
-/** A record with its type's slug, as the factory reads one. */
-export type FactoryRecord = Rec & { typeSlug: string };
+/** A record with its type's slug, as the factory reads one, and its type's `x-settled` when it declares one. */
+export type FactoryRecord = Rec & { typeSlug: string; settled?: SettledDescriptor | null };
 
 /**
  * One record, scoped to the org.
@@ -107,16 +138,21 @@ export type FactoryRecord = Rec & { typeSlug: string };
  * @param id - The object id.
  */
 export async function readRecord(orgId: string, id: number): Promise<FactoryRecord | null> {
-  const { and, eq } = await import('drizzle-orm');
+  const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const { settledDescriptor } = await import('@/services/proposals/ReviewTruthService');
   const [row] = await db
-    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, typeId: businessObjectSchema.typeId, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, typeSlug: businessObjectTypeSchema.slug })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, typeId: businessObjectSchema.typeId, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, typeSlug: businessObjectTypeSchema.slug, settledRaw: sql<unknown>`${businessObjectTypeSchema.schema} -> 'x-settled'` })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)))
     .limit(1);
-  return row ? { ...row, meta: (row.meta ?? {}) as Meta } : null;
+  if (!row) {
+    return null;
+  }
+  const { settledRaw, ...rest } = row;
+  return { ...rest, meta: (row.meta ?? {}) as Meta, settled: settledDescriptor({ 'x-settled': settledRaw }) };
 }
 
 /**
@@ -128,6 +164,40 @@ export function planIsApproved(meta: Meta): boolean {
     return false;
   }
   return meta.status === 'approved' || (typeof meta.approvedBy === 'string' && meta.approvedBy.trim() !== '');
+}
+
+/**
+ * A PLAN NO LONGER STANDS when its row or its fields say rejected or
+ * superseded (#130, 2026-10-02: a stale re-plan superseded plan #276 in its
+ * fields while its row still read approved, so its old approve card counted as
+ * "waiting on a person" and held the approved plan's build for nine hours).
+ * @param plan - The plan.
+ * @param plan.status - Its row status.
+ * @param plan.meta - Its fields.
+ */
+export function planClosed(plan: { status?: string | null; meta: Meta }): boolean {
+  return [plan.status, plan.meta.status].some(s => s === 'rejected' || s === 'superseded');
+}
+
+/**
+ * The request's newest approved plan that still stands, or null: what a build
+ * that names no plan is built with, so a plan-first rule the request already
+ * answered never plans again (#130, 2026-10-02).
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ */
+async function requestApprovedPlan(orgId: string, requestId: number): Promise<FactoryRecord | null> {
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return null;
+  }
+  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const types = await factoryTypes(orgId);
+  const rows = await listBusinessObjects(orgId, types.plan).catch(() => []) as Array<{ id: number; title: string; typeId: number; status: string | null; metadata: unknown }>;
+  const plan = rows
+    .map(r => ({ id: r.id, title: r.title, typeId: r.typeId, status: r.status, meta: (r.metadata ?? {}) as Meta, typeSlug: types.plan }))
+    .filter(p => Number(p.meta.requestId) === requestId && !planClosed(p) && planIsApproved(p.meta))
+    .sort((a, b) => b.id - a.id)[0];
+  return plan ?? null;
 }
 
 /**
@@ -188,10 +258,91 @@ export async function seatModelPolicy(orgId: string, slug: string): Promise<{ mo
   return { model, ...(effort ? { effort } : {}) };
 }
 
+/** How much of the plan's approach a contract carries (`contractFromTask`). */
+const CONTRACT_PLAN_CHARS = 2000;
+
 const str = (m: Meta, k: string): string | null => (typeof m[k] === 'string' && (m[k] as string).trim() !== '' ? (m[k] as string).trim() : null);
 const list = (m: Meta, k: string): string[] => (Array.isArray(m[k])
   ? (m[k] as unknown[]).map(v => (typeof v === 'string' ? v : (v && typeof v === 'object' && typeof (v as Meta).statement === 'string' ? (v as Meta).statement as string : ''))).filter(Boolean)
   : []);
+
+/** `owner/name`, the only free text a repository may be named by. */
+const OWNER_NAME = /^[\w.-]+\/[\w.-]+$/;
+/** The worker's own rule for a clone URL (factory/contracts/schema.json). */
+const CLONE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[\w./-]+$/;
+
+/**
+ * THE REPOSITORY A REPO RECORD NAMES, as `owner/name` (2026-10-01, runs 443–445:
+ * a candidate record titled "Stamp (send) monorepo" became the contract's repo
+ * `https://github.com/Stamp (send) monorepo.git`, and the worker refused it three
+ * times). Read from the record's `cloneUrl` or `url`, else a title that is itself
+ * `owner/name`; never from free text. Null when the record names none.
+ * @param repo - The repo record's metadata, with its `title`.
+ */
+export function repoFullName(repo: Meta | null): string | null {
+  return repoNameSource(repo)?.name ?? null;
+}
+
+/**
+ * {@link repoFullName}, with the record field it was read from.
+ * @param repo - The repo record's metadata, with its `title`.
+ */
+function repoNameSource(repo: Meta | null): { name: string; field: 'cloneUrl' | 'url' | 'title' } | null {
+  if (!repo) {
+    return null;
+  }
+  for (const key of ['cloneUrl', 'url'] as const) {
+    const v = str(repo, key);
+    const m = v ? /^https:\/\/[A-Za-z0-9.-]+\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(v) : null;
+    if (m) {
+      return { name: `${m[1]}/${m[2]}`, field: key };
+    }
+  }
+  const title = str(repo, 'title');
+  return title && OWNER_NAME.test(title) ? { name: title, field: 'title' } : null;
+}
+
+/**
+ * The URL the worker clones, from the repo record: its `cloneUrl`, its `url`
+ * (with `.git`), else `github.com/<owner>/<name>` from {@link repoFullName}.
+ * Null when the record names no repository a worker could clone.
+ * @param repo - The repo record's metadata, with its `title`.
+ */
+export function repoCloneUrl(repo: Meta | null): string | null {
+  if (!repo) {
+    return null;
+  }
+  const clone = str(repo, 'cloneUrl');
+  if (clone && CLONE_URL.test(clone)) {
+    return clone;
+  }
+  const url = str(repo, 'url')?.replace(/\/+$/, '') ?? null;
+  if (url && CLONE_URL.test(url)) {
+    return url.endsWith('.git') ? url : `${url}.git`;
+  }
+  const name = repoFullName(repo);
+  return name ? `https://github.com/${name}.git` : null;
+}
+
+/**
+ * The repo as a card says it: the repository and the record field it came from.
+ * @param m - The contract as task metadata.
+ */
+function repoLine(m: Meta): string {
+  const named = str(m, 'repoSlug') ?? str(m, 'repo');
+  const from = str((m.contractSources ?? {}) as Meta, 'repo');
+  return named ? `${named}${from ? ` (from ${from})` : ''}` : from ?? 'not named';
+}
+
+/**
+ * Whether a contract's repo names one a worker can clone: a clone URL, or `owner/name`.
+ * @param meta - The contract as task metadata.
+ */
+function namesRepo(meta: Meta): boolean {
+  const url = str(meta, 'repo');
+  const slug = str(meta, 'repoSlug');
+  return Boolean((url && CLONE_URL.test(url)) || (slug && OWNER_NAME.test(slug)));
+}
 
 /**
  * What the contract is missing, in the words the worker would refuse it with.
@@ -214,7 +365,7 @@ export function contractGaps(meta: Meta): string[] {
   if (!str(meta, 'riskClass')) {
     gaps.push('riskClass');
   }
-  if (!str(meta, 'repo') && !str(meta, 'repoSlug')) {
+  if (!namesRepo(meta)) {
     gaps.push('repo');
   }
   const qa = (meta.qa ?? {}) as Meta;
@@ -242,8 +393,10 @@ export function contractGaps(meta: Meta): string[] {
  */
 export function contractFromTask(task: { id: number; title: string; meta: Meta }, opts: { product: string | null; plan?: { id: number; approach: string | null; approvedBy: string; approvedAt: string }; modelPolicy?: { model: string; effort?: string } | null }): Record<string, unknown> {
   const m = task.meta;
+  // Only a clone URL or `owner/name` becomes the repo: a free-text name never does.
   const repoSlug = str(m, 'repoSlug');
-  const repo = str(m, 'repo') ?? (repoSlug ? `https://github.com/${repoSlug}.git` : null);
+  const given = str(m, 'repo');
+  const repo = (given && CLONE_URL.test(given) ? given : null) ?? (repoSlug && OWNER_NAME.test(repoSlug) ? `https://github.com/${repoSlug}.git` : null);
   const product = str(m, 'productSlug') ?? opts.product ?? 'product';
   const out: Record<string, unknown> = {
     task_id: str(m, 'taskId') ?? `${product}-t${task.id}`,
@@ -296,7 +449,7 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
       plan_id: String(opts.plan.id),
       approved_by: opts.plan.approvedBy,
       approved_at: opts.plan.approvedAt,
-      ...(opts.plan.approach ? { summary: opts.plan.approach.slice(0, 2000) } : {}),
+      ...(opts.plan.approach ? { summary: opts.plan.approach.slice(0, CONTRACT_PLAN_CHARS) } : {}),
     };
   } else if (m.plan && typeof m.plan === 'object') {
     out.plan = m.plan;
@@ -501,7 +654,11 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     roots.add(root);
   }
   const paths = [...new Set([...basePaths, ...uiSrc, ...uiApps.map(root => `${root}/src/**`), ...[...roots].map(r => `${r}/tests/**`)])];
-  const givenChecks = list(g, 'requiredChecks').filter(c => repoChecks.length === 0 ? /^[\w:.-]+$/.test(c) : repoChecks.includes(c));
+  // A CHECK IS ONE THE REPO RECORD DECLARES (2026-10-01, run 443: "unit" was
+  // required and the repository has no such check). A name the record does not
+  // declare is dropped and said on the contract (`checksDropped`), never sent.
+  const givenChecks = list(g, 'requiredChecks').filter(c => repoChecks.includes(c));
+  const checksDropped = list(g, 'requiredChecks').filter(c => !repoChecks.includes(c));
   const checks = givenChecks.length > 0 ? givenChecks : repoChecks;
   const givenRisk = str(g, 'riskClass');
   const risk = givenRisk && (WORKER_RISK as readonly string[]).includes(givenRisk)
@@ -510,8 +667,12 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   // AN OWNER IN THE SLUG (#130 run 416, 2026-09-29: plan #136 named its repo
   // "squatch-core", and the worker cloned https://github.com/squatch-core.git).
   // A bare name is qualified from the repo record's title (owner/name).
+  // THE REPO IS THE RECORD'S, NEVER ITS TITLE (2026-10-01, runs 443–445): the
+  // name is read from the record's url (`repoFullName`), and with no approved
+  // record there is no repo, so the dispatch refuses with that reason.
   const planRepo = Array.isArray(p.repoSlugs) ? String((p.repoSlugs as unknown[])[0] ?? '') || null : null;
-  const repoTitle = str(repo, 'title');
+  const repoTitle = repoFullName(input.repo);
+  const cloneUrl = repoCloneUrl(input.repo);
   const qualified = (s: string | null) => (s && !s.includes('/') && repoTitle?.includes('/') && repoTitle.split('/').pop() === s ? repoTitle : s);
   // THE REPO RECORD IS THE REPO (#201 runs 426–427, 2026-09-30: plan #254
   // named its repo "apps/stamp-api", a folder, and the worker cloned
@@ -521,7 +682,7 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
   const known = (s: string | null) => (s && repoTitle && qualified(s) === repoTitle ? repoTitle : null);
   const repoSlug = repoTitle
     ? known(str(g, 'repoSlug')) ?? known(planRepo) ?? repoTitle
-    : qualified(str(g, 'repoSlug')) ?? qualified(planRepo);
+    : null;
   // THE LAST ATTEMPT'S VERDICT IS THIS ATTEMPT'S BRIEF. QA sent #157 back
   // with "0 of 8 proven" and a line per criterion saying what would settle it
   // (2026-09-26); a rebuild that starts from the request alone repeats the
@@ -541,9 +702,11 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     ? `\n\nWhat the person reported (open each to see what they saw):\n${input.reported!.map(r => `- ${r.title}: ${r.file ?? r.url}${r.file ? ` (${r.url})` : ''}`).join('\n')}`
     : '';
   const resumeProven = resume ? (resume.meta.verdict as { proven?: number; total?: number } | undefined) : undefined;
-  const continued = resume
-    ? `\n\nThis attempt continues branch ${String(resume.meta.branch)} (task #${resume.id}, ${resumeProven?.proven ?? 0} of ${resumeProven?.total ?? '?'} criteria proven). Keep what is proven; change only what the open criteria need.`
-    : '';
+  const continued = !resume
+    ? ''
+    : (resumeProven?.proven ?? 0) > 0 || !keptBranchOf(resume.meta)
+        ? `\n\nThis attempt continues branch ${String(resume.meta.branch)} (task #${resume.id}, ${resumeProven?.proven ?? 0} of ${resumeProven?.total ?? '?'} criteria proven). Keep what is proven; change only what the open criteria need.`
+        : `\n\nThis attempt continues branch ${String(resume.meta.branch)}, the work task #${resume.id} kept when its run ended without landing. Keep that work; fix what stopped it before anything else.`;
   const objective = (str(g, 'objective') ?? [str(r, 'outcome'), str(p, 'approach')].filter(Boolean).join(' ')) + reported + carried + continued + asked;
   // A ui change is refused without a QA flow (the worker screenshots it
   // before and after). The request says where it lives; that page is the flow.
@@ -576,6 +739,26 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     .map(c => ({ name: c.name!, command: c.command!.trim() }));
   const humanOwned = list(repo, 'humanOwned');
   const engineerRules = list(repo, 'engineerRules');
+  // WHERE EACH FIELD CAME FROM (FE-314, 2026-10-01: the PM said "the repo
+  // record is fine… the broken URL is in the contract the factory wrote", and
+  // could not see the repo had come from a candidate record's title). One read
+  // of the task says which record and field each part of the contract is from.
+  const repoRef = str(repo, 'recordCode') ?? 'the repo record';
+  const nameFrom = repoNameSource(input.repo);
+  const contractSources: Record<string, string> = {
+    repo: !input.repo
+      ? 'none: no approved repo record names this product\'s repository'
+      : !repoSlug
+          ? `none: ${repoRef} has no url, and its title is not owner/name`
+          : `${repoRef} ${nameFrom?.field ?? 'url'}`,
+    requiredChecks: givenChecks.length > 0
+      ? `the card, as declared by ${repoRef} checks`
+      : repoChecks.length > 0 ? `${repoRef} checks` : `none: ${input.repo ? `${repoRef} declares no checks` : 'no repo record'}`,
+    allowedPaths: givenPaths.length > 0 ? 'the card' : componentPaths.length > 0 ? 'the plan\'s components' : productPaths.length > 0 ? `${repoRef} productPaths` : 'none',
+    riskClass: givenRisk && (WORKER_RISK as readonly string[]).includes(givenRisk) ? 'the card' : riskFromPaths(paths, riskMap) ? `${repoRef} riskDefaults` : 'the default (logic)',
+    acceptanceContract: list(g, 'acceptanceContract').length > 0 ? 'the card' : riskLines.length > 0 ? 'the request\'s acceptance and the plan\'s risks' : 'the request\'s acceptance',
+    objective: str(g, 'objective') ? 'the card' : 'the request\'s outcome and the plan\'s approach',
+  };
   return {
     ...g,
     ...(qa ? { qa } : {}),
@@ -596,6 +779,9 @@ export function deriveContract(input: { given: Meta; request: Meta & { title?: s
     requiredChecks: checks,
     riskClass: risk,
     repoSlug,
+    repo: repoSlug ? cloneUrl : null,
+    ...(checksDropped.length > 0 ? { checksDropped } : {}),
+    contractSources,
   };
 }
 
@@ -618,14 +804,17 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
   if (!slug && !product) {
     return null;
   }
-  const { and, eq } = await import('drizzle-orm');
+  const { and, eq, inArray } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  // ONLY A REPO A PERSON STANDS BEHIND (2026-10-01, FE-314/FE-318): a pending
+  // candidate for a repository that does not exist was read by product, and
+  // three builds were sent to it. Candidates and rejected records are never read.
   const rows = await db
-    .select({ title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
+    .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).repo)));
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).repo), inArray(businessObjectSchema.status, [...USABLE_RECORD_STATUSES])));
   // By its title (owner/name), its short slug, then the product it builds,
   // then the repos the product record lists (#959: a product names its repos;
   // a repo record need not name the product back).
@@ -633,7 +822,12 @@ export async function readRepo(orgId: string, slug: string | null, product?: str
   const hit = (slug ? named(slug) : undefined)
     ?? rows.find(x => product && (x.meta as Meta).product === product)
     ?? (product ? (await productRepoNames(orgId, product)).map(named).find(Boolean) : undefined);
-  return hit ? { ...(hit.meta as Meta), title: hit.title } : null;
+  if (!hit) {
+    return null;
+  }
+  // Its code rides along, so a contract says which record each field came from.
+  const code = (await codesForRecords(orgId, [hit.id]).catch(() => new Map<number, string>())).get(hit.id) ?? `#${hit.id}`;
+  return { ...(hit.meta as Meta), title: hit.title, recordId: hit.id, recordCode: code };
 }
 
 /**
@@ -717,26 +911,66 @@ export type BuildReadiness = {
 };
 
 /**
+ * An earlier attempt at a request, as {@link pickResumeBase} weighs it.
+ * `builtTo` is the plan text its run's contract carried: null when that
+ * contract had none, undefined when it could not be read.
+ */
+export type Attempt = { id: number; meta: Meta; createdAt?: Date | null; builtTo?: string | null };
+
+/**
  * The attempt a retry continues from: the one under this plan that proved the
  * most, whatever came after it (#224, 2026-09-29: attempt 2 proved 6 of 8 on
  * PR #121; attempt 3 started again from main, edited a component the library
  * page does not render, and proved 1 of 8). An attempt that proved nothing is
  * a wrong direction, never a base; one under another plan was built to other
  * paths. Newest wins a tie.
- * An attempt built before the plan's current approval was built to the plan
- * as it read then (#130: plan #136 was rewritten in place for the Send →
- * Stamp rename, and the resume picked a branch cut to the old paths).
+ * An attempt built to the plan as it read before a rewrite is no base either
+ * (#130: plan #136 was rewritten in place for the Send → Stamp rename, and the
+ * resume picked a branch cut to the old paths). What an attempt was built to
+ * is the plan text its own contract carried (`builtTo`); the plan's approval
+ * time is only the fallback when that contract cannot be read, because every
+ * dispatch stamps the approval again a moment AFTER it creates its task
+ * (FE-130 and FE-132, 2026-10-02: tasks #356 and #359 were created 0.9 s and
+ * 25 ms before their own dispatch's stamp, so the next retry read both as
+ * "built before the approval" and started again from origin/main at attempt 1).
  * @param rows - The request's sent-back and superseded attempts.
  * @param planId - The plan this build answers, or null when it has none.
  * @param planApprovedAt - When that plan was last approved (ISO), if known.
+ * @param recovered - The task whose failed run this build recovers: its kept branch, when it has one, is the base.
+ * @param planApproach - The plan's approach as it reads now; compared with each attempt's `builtTo`.
  */
-export function pickResumeBase(rows: Array<{ id: number; meta: Meta; createdAt?: Date | null }>, planId: number | null, planApprovedAt?: string | null): { id: number; meta: Meta } | null {
+export function pickResumeBase(rows: Array<Attempt>, planId: number | null, planApprovedAt?: string | null, recovered?: Attempt | null, planApproach?: string | null): { id: number; meta: Meta } | null {
   const proven = (m: Meta) => Number((m.verdict as { proven?: unknown } | undefined)?.proven ?? 0) || 0;
   const samePlan = (m: Meta) => (Number(m.planId) > 0 ? Number(m.planId) : null) === planId;
   const since = planApprovedAt ? Date.parse(planApprovedAt) : Number.NaN;
-  const afterApproval = (r: { createdAt?: Date | null }) => Number.isNaN(since) || !r.createdAt || r.createdAt.getTime() >= since;
+  const planText = planApproach === undefined ? undefined : (planApproach ?? '').slice(0, CONTRACT_PLAN_CHARS);
+  const afterApproval = (r: Attempt) => r.builtTo !== undefined && planText !== undefined
+    ? (r.builtTo ?? '') === planText
+    : Number.isNaN(since) || !r.createdAt || r.createdAt.getTime() >= since;
+  // A RETRY CONTINUES THE BRANCH ITS FAILED RUN KEPT (FE-224, 2026-10-02:
+  // runs 462 to 465 each kept their work on a factory/...-wip-<run> branch and
+  // said "Continue from this branch", and each recovery started again from
+  // origin/main, throwing the last attempt away). The run a recovery answers
+  // is the newest work, built on whatever base it was given, so its kept
+  // branch is where the next attempt starts, under the same plan as always.
+  const kept = recovered ? keptBranchOf(recovered.meta) : null;
+  if (recovered && kept && samePlan(recovered.meta) && afterApproval(recovered)) {
+    return { id: recovered.id, meta: { ...recovered.meta, branch: kept } };
+  }
   const eligible = rows.filter(r => typeof r.meta.branch === 'string' && r.meta.branch.startsWith('factory/') && proven(r.meta) > 0 && samePlan(r.meta) && afterApproval(r));
   return eligible.sort((a, b) => proven(b.meta) - proven(a.meta) || b.id - a.id)[0] ?? null;
+}
+
+/**
+ * The branch a failed run's work is on: the one it pushed (`keptBranch`,
+ * written by the runner when it keeps work), else the factory branch it was
+ * itself continuing (`baseSha`) when it stopped before keeping anything (a
+ * check that could not run stops it before any model call). Null when neither.
+ * @param meta - The task's metadata.
+ */
+export function keptBranchOf(meta: Meta): string | null {
+  const b = str(meta, 'keptBranch') ?? str(meta, 'baseSha');
+  return b && b.startsWith('factory/') ? b : null;
 }
 
 /**
@@ -744,28 +978,49 @@ export function pickResumeBase(rows: Array<{ id: number; meta: Meta; createdAt?:
  * next build continues from ({@link pickResumeBase}).
  * @param orgId - The workspace.
  * @param requestId - The request.
- * @param planId - The plan this build answers.
- * @param planApprovedAt - When that plan was last approved.
+ * @param plan - The plan this build answers: its id, approval and approach as they read now.
+ * @param plan.id - The plan.
+ * @param plan.approvedAt - When it was last approved.
+ * @param plan.approach - Its approach, which each attempt's contract is compared with.
+ * @param recoveryOfRun - The failed run this build recovers, whose kept branch it continues.
  */
-async function sentBackTask(orgId: string, requestId: number, planId: number | null, planApprovedAt?: string | null): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
-  const { and, eq, inArray, sql } = await import('drizzle-orm');
+async function sentBackTask(orgId: string, requestId: number, plan: { id: number; approvedAt: string | null; approach: string | null } | null, recoveryOfRun?: number): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
+  const { and, eq, inArray, or, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
-  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } = await import('@/models/Schema');
+  // One read: the sent-back and superseded attempts, and the task whose run
+  // this recovery answers whatever its status (a failed run leaves it
+  // `rejected`), each with the plan text its own run's contract carried.
+  const runId = sql`case when ${businessObjectSchema.metadata}->>'workerRunId' ~ '^[0-9]+$' then (${businessObjectSchema.metadata}->>'workerRunId')::int end`;
   const rows = await db
-    .select({ id: businessObjectSchema.id, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, createdAt: businessObjectSchema.createdAt })
+    .select({
+      id: businessObjectSchema.id,
+      status: businessObjectSchema.status,
+      meta: businessObjectSchema.metadata,
+      createdAt: businessObjectSchema.createdAt,
+      contractRead: sql<boolean>`${workerRunSchema.id} is not null`,
+      builtTo: sql<string | null>`${workerRunSchema.input}->'task'->'plan'->>'summary'`,
+    })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .leftJoin(workerRunSchema, and(eq(workerRunSchema.orgId, businessObjectSchema.orgId), sql`${workerRunSchema.id} = ${runId}`))
     .where(and(
       eq(businessObjectSchema.orgId, orgId),
       eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).task),
       sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
-      inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']),
+      recoveryOfRun
+        ? or(inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']), sql`${businessObjectSchema.metadata}->>'workerRunId' = ${String(recoveryOfRun)}`)
+        : inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']),
     ))
     .orderBy(sql`${businessObjectSchema.id} desc`)
     .limit(20);
-  const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta, createdAt: r.createdAt }));
+  const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta, createdAt: r.createdAt, ...(r.contractRead ? { builtTo: r.builtTo ?? null } : {}) }));
   const latest = all.find(r => r.status === 'changes_requested') ?? null;
-  return { latest: latest ? { id: latest.id, meta: latest.meta } : null, resume: pickResumeBase(all, planId, planApprovedAt) };
+  const recovered = recoveryOfRun ? all.find(r => String(r.meta.workerRunId) === String(recoveryOfRun)) ?? null : null;
+  return {
+    latest: latest ? { id: latest.id, meta: latest.meta } : null,
+    resume: pickResumeBase(all.filter(r => r.status === 'changes_requested' || r.status === 'abandoned'), plan ? plan.id : null, plan?.approvedAt ?? null, recovered, plan ? plan.approach : undefined),
+  };
 }
 
 /**
@@ -788,8 +1043,10 @@ async function productEnvironments(orgId: string, product: string | null): Promi
 
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
   const stored = input.taskId ? await readRecord(ctx.orgId, input.taskId) : null;
-  const plan = input.planId ? await readRecord(ctx.orgId, input.planId) : null;
   const requestId = stored ? Number(stored.meta.requestId) : Number(input.requestId);
+  // A build that names no plan is built with the request's approved one: the
+  // plan-first rule is answered by it, and a stale one is still planned again.
+  const plan = input.planId ? await readRecord(ctx.orgId, input.planId) : await requestApprovedPlan(ctx.orgId, requestId);
   const request = Number.isFinite(requestId) ? await readRecord(ctx.orgId, requestId) : null;
   let task = stored;
   const planRepo = plan && Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') || null : null;
@@ -797,7 +1054,7 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     ? await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? (stored ? str(stored.meta, 'repoSlug') : null) ?? (request ? str(request.meta, 'ownerRepo') : null), request ? str(request.meta, 'product') : null)
     : null;
   if (!stored && request) {
-    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null, plan ? str(plan.meta, 'approvedAt') : null);
+    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? { id: plan.id, approvedAt: str(plan.meta, 'approvedAt'), approach: str(plan.meta, 'approach') } : null, input.recoveryOfRun);
     const { reportedLinks } = await import('@/services/objects/reported');
     const reported = await reportedLinks(ctx.orgId, request.id).catch(() => []);
     const environments = await productEnvironments(ctx.orgId, str(request.meta, 'product'));
@@ -937,6 +1194,12 @@ export function underwayRefusal(earlier: readonly EarlierStart[], opts: { trigge
  */
 export function underwayNow(earlier: readonly EarlierStart[], opts: { trigger?: string | null; now?: Date } = {}): { line: string; workerRunId: number | null } | null {
   const now = (opts.now ?? new Date()).getTime();
+  // A PLANNING HOLD ENDS AT THE BUILD IT WAS HOLDING FOR (Walk 8, FE-364,
+  // 2026-10-02: the start at 04:56 planned first, the plan's build ran as
+  // RUN-473, and when 473 failed at 05:06 the recovery was answered "planning
+  // first" by that same start and nothing was dispatched). Newest first: once
+  // a later start produced a worker run, an older planning start holds nothing.
+  let built = false;
   for (const run of earlier) {
     // A plan's own build continues the start that asked for the plan, even
     // while that start is still executing (#201, 2026-09-30: run 5335 went to
@@ -952,7 +1215,11 @@ export function underwayNow(earlier: readonly EarlierStart[], opts: { trigger?: 
     if (Number.isInteger(workerRunId) && workerRunId > 0 && run.workerStatus && BUILDING_WORKER_STATUSES.includes(run.workerStatus)) {
       return { line: `${nounCode('run', workerRunId)} (started by ${nounCode('action', run.id)}) is ${run.workerStatus}`, workerRunId };
     }
-    if (run.result.planning === true && opts.trigger !== 'plan' && run.executedAt && now - run.executedAt.getTime() < PLANNING_HOLD_MS) {
+    if (Number.isInteger(workerRunId) && workerRunId > 0) {
+      built = true;
+      continue;
+    }
+    if (!built && run.result.planning === true && opts.trigger !== 'plan' && run.executedAt && now - run.executedAt.getTime() < PLANNING_HOLD_MS) {
       const minutes = Math.max(0, Math.round((now - run.executedAt.getTime()) / 60_000));
       const why = typeof run.result.why === 'string' ? ` (${run.result.why})` : '';
       return { line: `${nounCode('action', run.id)} started it ${minutes === 0 ? 'under a minute' : `${minutes} min`} ago and it is planning first${why}; the plan's approval starts the build`, workerRunId: null };
@@ -1051,6 +1318,38 @@ export async function buildUnderway(orgId: string, requestId: number | undefined
 }
 
 /**
+ * AN AUTOMATIC START NEVER BUILDS WHAT HAS SETTLED (request 224, 2026-10-02:
+ * eleven minutes after it shipped, a late QA verdict on a superseded attempt
+ * sent "Build again", run 468 was queued, and the request's state was written
+ * back to `building`). Every automatic build — a recovery, a QA send-back, a
+ * contract change — goes through this one action, so this one guard covers
+ * them all. A person's Build is their word and is never refused here.
+ * @param request - The request the start is for.
+ * @returns The refusal, or null when the request is still open.
+ */
+export function settledRefusal(request: Pick<FactoryRecord, 'id' | 'meta' | 'status' | 'settled'> | null): string | null {
+  const why = request ? settledReason(request) : null;
+  return why ? `Nothing started: request #${request!.id} has settled (${why}), and an automatic step never builds a settled request again. A person's Build does.` : null;
+}
+
+/**
+ * The refusal for an automatic start on a settled request, read before
+ * anything else is loaded; null for a person's start or an open request.
+ * @param orgId - Tenant.
+ * @param input - The dispatch input.
+ */
+async function settledStart(orgId: string, input: z.infer<typeof dispatchInput>): Promise<string | null> {
+  if (!(input.trigger || input.autoRetryOf)) {
+    return null;
+  }
+  let requestId = Number(input.requestId);
+  if (!(requestId > 0) && input.taskId) {
+    requestId = Number((await readRecord(orgId, input.taskId))?.meta.requestId);
+  }
+  return requestId > 0 ? settledRefusal(await readRecord(orgId, requestId)) : null;
+}
+
+/**
  * A start the factory made on its own, as opposed to one a person made or
  * approved. Only these count toward the automatic-attempt limit.
  * @param input - The dispatch input.
@@ -1071,17 +1370,21 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   // ONE BUILD CARD PER REQUEST: a card's own label hash never splits one
   // request into two runs, and a model cannot write the factory's triggers.
   ownsDedupKey: true,
-  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst', 'replan'],
+  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst', 'replan', 'fromWorkflow'],
   policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : input.trigger ? `${DISPATCH_ACTION_ID}.${TRIGGER_KEY[input.trigger]}` : DISPATCH_ACTION_ID),
   // Already building, planning or starting: answered with the run, never refused.
   async underway(ctx, input) {
-    if (!input.requestId) {
+    if (!input.requestId || await funnelledRequest(ctx.orgId, input)) {
       return null;
     }
     const u = underwayNow(await earlierStarts(ctx.orgId, input.requestId), { trigger: input.trigger });
     return u ? { line: u.line, href: u.workerRunId ? `/dashboard/p/runs/${u.workerRunId}` : null } : null;
   },
   async precheck(ctx, input) {
+    // The request's workflow decides what a build ask needs (underway, settled, ready).
+    if (await funnelledRequest(ctx.orgId, input)) {
+      return undefined;
+    }
     const { externalWorkersEnabled } = await import('@/services/WorkerRunService');
     if (!externalWorkersEnabled()) {
       return 'External workers are not enabled on this deployment (VOCION_EXTERNAL_WORKERS=1), so nothing can take the build.';
@@ -1089,6 +1392,10 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     const underway = await buildUnderway(ctx.orgId, input.requestId, { trigger: input.trigger });
     if (underway) {
       return underway;
+    }
+    const settled = await settledStart(ctx.orgId, input);
+    if (settled) {
+      return settled;
     }
     const { task, plan } = await loadAll(ctx, input);
     const types = await factoryTypes(ctx.orgId);
@@ -1107,7 +1414,9 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     if (gaps.length > 0) {
       return task.id > 0
         ? `Engineering task #${task.id} is not ready to build: it has no ${gaps.join(', ')}. Fill them on the task, then start it.`
-        : `This request is not ready to build: nothing says its ${gaps.join(', ')}. Approve a plan that names the files, or give the repo record productPaths for ${str(task.meta, 'product') ?? 'this product'}.`;
+        : gaps.includes('repo')
+          ? `This request is not ready to build: no approved repo record names its repository (a pending or rejected record is never built from, and a record is read by its url, never its title). Approve or add the repo record for ${str(task.meta, 'product') ?? 'this product'} with its url${gaps.length > 1 ? `; it also has no ${gaps.filter(g => g !== 'repo').join(', ')}` : ''}.`
+          : `This request is not ready to build: nothing says its ${gaps.join(', ')}. Approve a plan that names the files, or give the repo record productPaths for ${str(task.meta, 'product') ?? 'this product'}.`;
     }
     if (input.planId && (!plan || plan.typeSlug !== types.plan)) {
       return `No architecture plan #${input.planId} in this workspace.`;
@@ -1142,7 +1451,8 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         { label: 'Change', value: str(m, 'objective') ?? '' },
         { label: 'Paths', value: list(m, 'allowedPaths').join(', ') },
         { label: 'Checks', value: list(m, 'requiredChecks').join(', ') },
-        { label: 'Repo', value: str(m, 'repoSlug') ?? str(m, 'repo') ?? 'not named' },
+        ...(list(m, 'checksDropped').length > 0 ? [{ label: 'Checks left out', value: `${list(m, 'checksDropped').join(', ')}: the repo record does not declare ${list(m, 'checksDropped').length === 1 ? 'it' : 'them'}` }] : []),
+        { label: 'Repo', value: repoLine(m) },
         { label: 'Budget', value: budget },
         { label: 'Done when', value: `${list(m, 'acceptanceContract').length} criteria` },
       ],
@@ -1153,6 +1463,23 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     };
   },
   async execute(ctx, input) {
+    // ONE OWNER PER REQUEST (backlog 054): where the factory runs as a durable
+    // workflow, a build ask is told to the request's workflow, which alone
+    // dispatches; it numbers the attempt and picks the branch it continues.
+    const funnelled = await funnelledRequest(ctx.orgId, input);
+    if (funnelled) {
+      const { askRequestWorkflow } = await import('@/services/factory/requestWorkflowStart');
+      const { decidedByMachine } = await import('@/libs/actions/decider');
+      const by = ctx.reviewedBy ?? ctx.proposedBy ?? ctx.invokedBy ?? 'factory';
+      return askRequestWorkflow(ctx.orgId, funnelled, {
+        by,
+        byPerson: ctx.origin?.byPerson === true || !decidedByMachine(by),
+        from: input.autoRetryOf ? 'qa' : input.trigger ?? 'build',
+        note: input.note ?? null,
+        planId: input.planId ?? null,
+        trigger: input.trigger ?? null,
+      });
+    }
     const { createWorkerRun } = await import('@/services/WorkerRunService');
     const loaded = await loadAll(ctx, input);
     const { request } = loaded;
@@ -1168,6 +1495,12 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       throw new Error(underway);
     }
     const automatic = isAutomatic(input, ctx);
+    // Checked again here: a card approved by the trust ladder after the
+    // request shipped is still the factory's own start.
+    const settled = automatic ? settledRefusal(request) : null;
+    if (settled) {
+      throw new Error(settled);
+    }
     const at = new Date().toISOString();
     // BUILD ON A CLOSED REQUEST REOPENS IT (Chris, 2026-09-29, on #246:
     // "Chris said open so open. It needs a plan so plan. Plan is done kickoff
@@ -1177,11 +1510,21 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     // start never reopens what a person closed.
     // What undo puts back, read before a reopen changes it.
     const before = request ? { state: request.meta.state ?? null, recommendationState: request.meta.recommendationState ?? null, decidedAt: request.meta.decidedAt ?? null, acceptanceFrozenAt: request.meta.acceptanceFrozenAt ?? null } : null;
+    const { markStatus, statusSnapshot } = await import('@/services/objects/statusField');
+    const previousStatus = request ? await statusSnapshot(ctx.orgId, request.id) : null;
     const reopened = Boolean(request && !automatic && (REOPENABLE_REQUEST_STATES.has(String(request.meta.state ?? '')) || request.meta.recommendationState === 'rejected'));
     if (request && reopened) {
       const by = ctx.reviewedBy ?? ctx.invokedBy ?? 'a person';
       await writeMeta(ctx.orgId, request.id, { state: 'in_scope', recommendationState: 'approved', reopenedAt: at, reopenedBy: by, decisionReason: `Reopened by Build (${by}) after it was ${String(request.meta.state ?? 'rejected').replace(/_/g, ' ')}.` });
       request.meta = { ...request.meta, state: 'in_scope', recommendationState: 'approved' };
+    }
+    // A person's Build on a shipped request is their word to build it again:
+    // stamped, so every automatic step reads it as open from here on
+    // (`settledReason`: a reopen after the ship reopens it).
+    if (request && !automatic && str(request.meta, 'shippedAt') && settledReason(request)) {
+      const by = ctx.reviewedBy ?? ctx.invokedBy ?? 'a person';
+      await writeMeta(ctx.orgId, request.id, { reopenedAt: at, reopenedBy: by });
+      request.meta = { ...request.meta, reopenedAt: at, reopenedBy: by };
     }
     // A PERSON'S START SETTLES WHAT IT ANSWERS (Chris, 2026-09-29, #201:
     // approving the re-dispatch left "Needs your decision: Stopped …" and a
@@ -1207,7 +1550,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
           : `QA sent the build of plan #${supersededPlan.id} back to planning: ${input.replan}`).slice(0, 1000);
         const { startPlanning } = await import('@/services/factory/carry');
         const planning = await startPlanning(ctx.orgId, { request, plan: null, why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
-        return { planning: true, workerRunId: null, requestId: request.id, record: { objectType: request.typeSlug, id: request.id }, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
+        return { planning: true, workerRunId: null, requestId: request.id, record: { objectType: request.typeSlug, id: request.id }, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, previousStatus, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
       }
     }
     // BUILD IS ONE PATH THROUGH THE PLAN GATE (backlog 038: run 401 went out
@@ -1225,7 +1568,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       }
       const { startPlanning } = await import('@/services/factory/carry');
       const planning = await startPlanning(ctx.orgId, { request, plan, why: gate.why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
-      return { planning: true, workerRunId: null, requestId: request.id, record: { objectType: request.typeSlug, id: request.id }, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
+      return { planning: true, workerRunId: null, requestId: request.id, record: { objectType: request.typeSlug, id: request.id }, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous, previousStatus, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
     }
     let createdTaskId: number | null = null;
     if (!input.taskId) {
@@ -1308,15 +1651,17 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         ...(request.meta.acceptanceFrozenAt ? {} : { acceptanceFrozenAt: approvedAt }),
         recovery,
       });
+      // Building: a person's start reopens a finished request; an automatic one never does.
+      await markStatus(ctx.orgId, request.id, 'building', { line: `${nounCode('run', run.id)} is building task #${task.id}.`, reopen: !automatic, at: approvedAt });
     }
-    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, ...(request ? { record: { objectType: request.typeSlug, id: request.id } } : {}), previousTask, previousPlan, previousRequestState: before ? before.state : null, previousRequest: before ? { recommendationState: before.recommendationState, decidedAt: before.decidedAt, acceptanceFrozenAt: before.acceptanceFrozenAt } : null, previousRecovery };
+    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, ...(request ? { record: { objectType: request.typeSlug, id: request.id } } : {}), previousTask, previousPlan, previousRequestState: before ? before.state : null, previousRequest: before ? { recommendationState: before.recommendationState, decidedAt: before.decidedAt, acceptanceFrozenAt: before.acceptanceFrozenAt } : null, previousRecovery, previousStatus };
   },
   async undo(ctx, _input, result) {
     // Planning started instead of a build: nothing ran, so the request goes
     // back to where it stood. A plan already being written stays a draft.
     if (result.planning) {
       if (result.requestId) {
-        await writeMeta(ctx.orgId, Number(result.requestId), { recovery: result.previousRecovery ?? null });
+        await writeMeta(ctx.orgId, Number(result.requestId), { recovery: result.previousRecovery ?? null, ...((result.previousStatus ?? {}) as Meta) });
       }
       const sp = result.supersededPlan as { id?: number; status?: unknown } | null | undefined;
       if (sp?.id) {
@@ -1342,7 +1687,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       await writeMeta(ctx.orgId, Number(result.planId), { status: pp.status ?? 'proposed', approvedBy: pp.approvedBy ?? null, approvedAt: pp.approvedAt ?? null });
     }
     if (result.requestId && result.previousRequestState !== undefined) {
-      await writeMeta(ctx.orgId, Number(result.requestId), { state: result.previousRequestState, ...((result.previousRequest ?? {}) as Meta), ...(result.previousRecovery !== undefined ? { recovery: result.previousRecovery } : {}) });
+      await writeMeta(ctx.orgId, Number(result.requestId), { state: result.previousRequestState, ...((result.previousRequest ?? {}) as Meta), ...(result.previousRecovery !== undefined ? { recovery: result.previousRecovery } : {}), ...((result.previousStatus ?? {}) as Meta) });
     }
     return { cancelledRun: runId };
   },

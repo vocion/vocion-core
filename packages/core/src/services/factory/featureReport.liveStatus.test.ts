@@ -173,6 +173,8 @@ describe('the Now line says the step in a person\'s words (2026-10-01)', () => {
     const live = pickLive({ workerRuns: [], missionRuns: [run], context: { planning: false, reviewing: null } });
 
     expect(live).toMatchObject({ kind: 'working', label: 'Draw the mockup a request owes', step: null, runLabel: 'RUN-6732' });
-    expect(pickLive({ workerRuns: [], missionRuns: [{ ...run, label: null }], context: { planning: false, reviewing: null } })!.label).toBe(run.title);
+    // With no automation's words, the machine title (`<slug>: <charter>`) never reads (runTitle).
+    expect(pickLive({ workerRuns: [], missionRuns: [{ ...run, label: null }], context: { planning: false, reviewing: null } })!.label).toBe('Agent run · running');
+    expect(pickLive({ workerRuns: [], missionRuns: [{ ...run, label: null, title: 'Draft the board pack' }], context: { planning: false, reviewing: null } })!.label).toBe('Draft the board pack · running');
   });
 });

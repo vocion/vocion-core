@@ -313,7 +313,26 @@ async function learningEagernessFor(orgId: string): Promise<number | null> {
   }
 }
 
-export async function proposeAction(input: {
+/**
+ * Propose an action — the one place every agent write lands. A turn the
+ * person spent asking a question is read-only (`agents/turnScope.ts`): the
+ * write is refused with what to do instead, and a write that lands is counted
+ * on the turn.
+ * @param input - See {@link proposeActionInTurn}.
+ */
+export async function proposeAction(input: Parameters<typeof proposeActionInTurn>[0]): Promise<ProposeResult> {
+  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  if (writesRefused()) {
+    throw new ActionError('read_only_turn', READ_ONLY_RECEIPT);
+  }
+  const res = await proposeActionInTurn(input);
+  if (res.outcome !== 'already_decided') {
+    noteWrite();
+  }
+  return res;
+}
+
+async function proposeActionInTurn(input: {
   orgId: string;
   actionId: string;
   input: Record<string, unknown>;
@@ -434,15 +453,18 @@ export async function proposeAction(input: {
   // schema cannot check lives here, and refusing costs the caller nothing but
   // a message it can act on.
   // What was asked for is already happening: say so, start nothing, refuse nothing.
+  // Whose decision it is, by the principal: an agent's proposal is the
+  // agent's, whoever's thread it was filed in (`ActionContext.proposedBy`).
+  const proposedBy = input.principal.kind === 'agent' ? input.principal.id : (input.invokedBy ?? input.principal.id);
   const underway = await action.underway?.(
-    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, ...(input.turn ? { turn: input.turn } : {}) },
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy, ...(input.turn ? { turn: input.turn } : {}) },
     parsed,
   );
   if (underway) {
     return { runId: 0, status: 'done', outcome: 'already_underway', underway };
   }
   const refusal = await action.precheck?.(
-    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, ...(input.turn ? { turn: input.turn } : {}) },
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy, ...(input.turn ? { turn: input.turn } : {}) },
     parsed,
   );
   if (refusal) {
@@ -464,6 +486,11 @@ export async function proposeAction(input: {
   // answers for no one record: it neither refreshes an open card nor stands
   // behind a decided one. Refreshing on it rewrote whichever record the first
   // such card had made (#124, 2026-09-30); such a filing is a new card.
+  // Whose decision it is, the same for a fresh run and a refreshed one: an
+  // agent's proposal rides the ladder; a person's own (their word, a token)
+  // runs within their autonomy.
+  const gated = decision.gate === 'approve'
+    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number');
   const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
   if (dedupKey && keyIdentifiesOneRecord) {
     const refreshed = await db.transaction(async (tx) => {
@@ -537,6 +564,14 @@ export async function proposeAction(input: {
           return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed' };
         }
       }
+      // A PERSON'S WORD RUNS THE CARD THAT WAS WAITING (FE-130, 2026-10-02:
+      // "continue the existing branch and build it" matched the build card
+      // already up, refreshed it, and left it pending with "nothing runs
+      // until you approve it"). Not gated, it executes as a fresh run would.
+      if (!gated) {
+        await db.update(actionRunSchema).set({ status: 'approved' }).where(eq(actionRunSchema.id, refreshed.id));
+        return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed' };
+      }
       return { runId: refreshed.id, status: 'pending', outcome: 'refreshed' };
     }
 
@@ -568,8 +603,6 @@ export async function proposeAction(input: {
   // and executed at 0.45 confidence past a 0.6 bar (found 2026-09-18). A
   // machine run with no envelope, and a person or token holding the grant,
   // still write within their autonomy as before.
-  const gated = decision.gate === 'approve'
-    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number');
   const [run] = await db
     .insert(actionRunSchema)
     .values({

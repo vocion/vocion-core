@@ -127,6 +127,13 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
               key={s.id}
               type="button"
               onClick={() => setOpen(i)}
+              // The page itself never zooms (layout.tsx), so a pinch here opens
+              // the picture full screen, where it pinches.
+              onTouchStart={(e) => {
+                if (e.touches.length >= 2) {
+                  setOpen(i);
+                }
+              }}
               aria-label={`Open ${s.caption ?? s.title} full screen`}
               data-testid="report-slide"
               className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
@@ -200,9 +207,9 @@ function ArrowButton({ side, disabled, onClick }: { side: 'left' | 'right'; disa
 }
 
 /**
- * Full screen, one picture at a time. Swipe or arrow keys between them; tap
- * (or click) the picture to zoom to its natural size and pan with a finger or
- * the scroll wheel; tap again to fit. Escape or the one close button leaves,
+ * Full screen, one picture at a time. Swipe or arrow keys between them;
+ * pinch (or tap, or a trackpad pinch) to zoom, drag to look around while
+ * zoomed, tap again to fit. Escape or the one close button leaves,
  * landing the page's carousel on the picture you were looking at.
  * @param props
  * @param props.slides - The pictures.
@@ -279,21 +286,15 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
         className={`flex min-h-0 flex-1 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${zoomed ? 'overflow-x-hidden' : 'overflow-x-auto'}`}
       >
         {slides.map((s, i) => (
-          <div key={s.id} className={`h-full w-full shrink-0 snap-center ${i === idx && zoomed ? 'touch-pan-x touch-pan-y overflow-auto' : 'flex items-center justify-center overflow-hidden p-2'}`}>
-            <button
-              type="button"
-              onClick={() => setZoomed(z => !z)}
-              aria-label={i === idx && zoomed ? 'Fit to screen' : 'Zoom in'}
-              className={i === idx && zoomed ? 'block cursor-zoom-out' : 'flex max-h-full max-w-full cursor-zoom-in items-center justify-center'}
-              style={i === idx && zoomed ? { width: 'max(200%, 100%)' } : { height: '100%' }}
-            >
-              <img
-                src={s.src}
-                alt={s.caption ?? s.title}
-                data-testid={i === idx ? 'report-lightbox-image' : undefined}
-                className={i === idx && zoomed ? 'block h-auto w-full max-w-none' : 'max-h-full max-w-full object-contain'}
-              />
-            </button>
+          <div key={s.id} className="flex h-full w-full shrink-0 snap-center items-center justify-center overflow-hidden p-2">
+            <ZoomableImage
+              // Remounted when it leaves view, so the next visit opens fitted.
+              key={i === idx ? 'in-view' : 'out'}
+              src={s.src}
+              alt={s.caption ?? s.title}
+              testId={i === idx ? 'report-lightbox-image' : undefined}
+              onZoomChange={z => i === idx && setZoomed(z)}
+            />
           </div>
         ))}
       </div>
@@ -303,9 +304,147 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
           {current.caption ?? current.title}
         </span>
         {current.source && <SourceLine source={current.source} tone="dark" onOpen={() => onClose(idx)} />}
-        <span className="mt-1 block text-[11px] opacity-50">{zoomed ? 'Tap to fit' : 'Tap to zoom · swipe for the next'}</span>
+        <span className="mt-1 block text-[11px] opacity-50">{zoomed ? 'Pinch or tap to fit · drag to look around' : 'Pinch or tap to zoom · swipe for the next'}</span>
       </div>
     </div>,
     document.body,
+  );
+}
+
+const MAX_ZOOM = 5;
+const TAP_ZOOM = 2.5;
+
+/**
+ * A picture that pinches (Chris, 2026-10-02: "enable pinch zoom on the
+ * images", mobile). The app turns browser zoom off (layout.tsx), so the
+ * gesture is ours: two fingers scale about their midpoint, one finger pans
+ * while zoomed, a tap toggles fit and 2.5x, a trackpad pinch (ctrl + wheel)
+ * zooms on desktop. At 1x the strip still swipes between pictures.
+ * @param props
+ * @param props.src - The image.
+ * @param props.alt - Its description.
+ * @param props.testId - Test id for the image.
+ * @param props.onZoomChange - Called with whether it is zoomed past 1x.
+ */
+function ZoomableImage({ src, alt, testId, onZoomChange }: { src: string; alt: string; testId?: string; onZoomChange: (zoomed: boolean) => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
+  const gesture = useRef<{ kind: 'pinch' | 'pan' | null; dist: number; scale: number; x: number; y: number; mx: number; my: number; moved: boolean }>({ kind: null, dist: 0, scale: 1, x: 0, y: 0, mx: 0, my: 0, moved: false });
+  const zoomed = view.scale > 1.01;
+  // While fingers are down the picture follows them; once they lift it eases.
+  const [touching, setTouching] = useState(false);
+
+  useEffect(() => {
+    onZoomChange(zoomed);
+  }, [zoomed, onZoomChange]);
+
+  const clampTo = useCallback((scale: number, x: number, y: number) => {
+    const el = box.current;
+    const s = Math.max(1, Math.min(MAX_ZOOM, scale));
+    if (!el || s <= 1.01) {
+      return { scale: 1, x: 0, y: 0 };
+    }
+    const mx = (el.clientWidth * (s - 1)) / 2;
+    const my = (el.clientHeight * (s - 1)) / 2;
+    return { scale: s, x: Math.max(-mx, Math.min(mx, x)), y: Math.max(-my, Math.min(my, y)) };
+  }, []);
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el) {
+      return undefined;
+    }
+    const dist = (t: TouchList) => Math.hypot(t[0]!.clientX - t[1]!.clientX, t[0]!.clientY - t[1]!.clientY);
+    const onStart = (e: TouchEvent) => {
+      const g = gesture.current;
+      setTouching(true);
+      setView((v) => {
+        if (e.touches.length >= 2) {
+          g.kind = 'pinch';
+          g.dist = dist(e.touches);
+          g.scale = v.scale;
+          g.x = v.x;
+          g.y = v.y;
+          const r = el.getBoundingClientRect();
+          g.mx = (e.touches[0]!.clientX + e.touches[1]!.clientX) / 2 - (r.left + r.width / 2);
+          g.my = (e.touches[0]!.clientY + e.touches[1]!.clientY) / 2 - (r.top + r.height / 2);
+        } else if (v.scale > 1.01) {
+          g.kind = 'pan';
+          g.mx = e.touches[0]!.clientX;
+          g.my = e.touches[0]!.clientY;
+          g.x = v.x;
+          g.y = v.y;
+        } else {
+          g.kind = null;
+        }
+        g.moved = false;
+        return v;
+      });
+    };
+    const onMove = (e: TouchEvent) => {
+      const g = gesture.current;
+      if (g.kind === 'pinch' && e.touches.length >= 2) {
+        e.preventDefault();
+        g.moved = true;
+        const scale = g.scale * (dist(e.touches) / (g.dist || 1));
+        // Keep the point under the fingers where it was.
+        const k = scale / g.scale;
+        setView(clampTo(scale, g.mx - (g.mx - g.x) * k, g.my - (g.my - g.y) * k));
+      } else if (g.kind === 'pan' && e.touches.length === 1) {
+        e.preventDefault();
+        g.moved = true;
+        setView(v => clampTo(v.scale, g.x + e.touches[0]!.clientX - g.mx, g.y + e.touches[0]!.clientY - g.my));
+      }
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        gesture.current.kind = null;
+        setTouching(false);
+      }
+    };
+    const onWheel = (e: WheelEvent) => {
+      // A trackpad pinch arrives as ctrl + wheel.
+      if (!e.ctrlKey) {
+        return;
+      }
+      e.preventDefault();
+      setView(v => clampTo(v.scale * Math.exp(-e.deltaY / 100), v.x, v.y));
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [clampTo]);
+
+  return (
+    <div ref={box} className={`relative flex h-full w-full items-center justify-center overflow-hidden ${zoomed ? 'touch-none' : 'touch-pan-x'}`}>
+      <button
+        type="button"
+        onClick={() => {
+          if (gesture.current.moved) {
+            gesture.current.moved = false;
+            return;
+          }
+          setView(v => (v.scale > 1.01 ? { scale: 1, x: 0, y: 0 } : clampTo(TAP_ZOOM, 0, 0)));
+        }}
+        aria-label={zoomed ? 'Fit to screen' : 'Zoom in'}
+        className={`flex h-full max-h-full w-full max-w-full items-center justify-center ${zoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
+      >
+        <img
+          src={src}
+          alt={alt}
+          data-testid={testId}
+          draggable={false}
+          className="max-h-full max-w-full object-contain select-none"
+          style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`, transition: touching ? 'none' : 'transform 150ms ease-out' }}
+        />
+      </button>
+    </div>
   );
 }

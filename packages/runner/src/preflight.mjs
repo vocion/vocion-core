@@ -136,3 +136,76 @@ export function pathsMissingFailure(check) {
     error: `paths missing: ${reason}. Nothing was changed and no model was called. The plan or contract names directories the tree does not have (renamed or removed since it was written); plan again against the tree as it is.`,
   };
 }
+
+// A check that cannot run is the repo record's configuration, not the code (FE-224, 2026-10-02:
+// REPO-27's commands were prose, `npm test (integration suites need environment.services: ...)`
+// and `the worker greps changed files for U+2014`; four runs spent the model on the change, failed
+// `sh: 1: Syntax error` and `sh: 1: the: not found`, and recovery retried them as if the code were
+// wrong). Before any model call, each command check is asked two things the shell can answer:
+// does it parse (`sh -n`), and is its first word a command the runner can find (`command -v`).
+
+/** Shell words that open a compound command; they parse with `sh -n` and are not looked up. */
+const SHELL_WORDS = new Set(['if', 'for', 'while', 'until', 'case', 'exec', 'time']);
+
+/**
+ * The command a shell command line runs first: its first word after any `NAME=value` assignments.
+ * Null when that word is not a plain name or path (a subshell, a group, a redirection), which is
+ * left to the shell itself.
+ * @param {string} command
+ * @returns {string | null}
+ */
+export function commandHead(command) {
+  for (const word of String(command || '').trim().split(/\s+/)) {
+    if (/^[A-Z_]\w*=/i.test(word)) {
+      continue;
+    }
+    return /^[\w./@+-]+$/.test(word) && !SHELL_WORDS.has(word) ? word : null;
+  }
+  return null;
+}
+
+/**
+ * The command checks that cannot run as written, each with what the shell said. `run(args)` runs
+ * `sh` with those arguments where the check would run, returning `{ code, stdout, stderr }`.
+ * Built-in checks (the em-dash scan, a package.json script) are the runner's own and always run.
+ * @param {Array<{ name: string, kind: string, command?: string }>} steps checkPlan's steps
+ * @param {(args: string[]) => { code: number, stdout?: string, stderr?: string }} run
+ * @returns {Array<{ name: string, command: string, reason: string, stderr: string, exit_code: number }>}
+ */
+export function notRunnableChecks(steps, run) {
+  const out = [];
+  for (const step of steps || []) {
+    if (step.kind !== 'command' || !step.command) {
+      continue;
+    }
+    const parsed = run(['-n', '-c', step.command]);
+    if (parsed.code !== 0) {
+      out.push({ name: step.name, command: step.command, reason: 'it is not a shell command: it does not parse', stderr: String(parsed.stderr || parsed.stdout || '').trim().slice(-1000), exit_code: parsed.code });
+      continue;
+    }
+    const head = commandHead(step.command);
+    if (!head) {
+      continue;
+    }
+    const found = run(['-c', 'command -v "$1" >/dev/null 2>&1', 'sh', head]);
+    if (found.code !== 0) {
+      out.push({ name: step.name, command: step.command, reason: `its first word, ${head}, is not a command the runner can find`, stderr: `sh: ${head}: not found`, exit_code: 127 });
+    }
+  }
+  return out;
+}
+
+/**
+ * The typed failure for checks that cannot run: `result.failure.kind = check_not_runnable`, which
+ * Vocion's recovery reads as configuration (no retry; the repo record's owner fixes it), plus the
+ * run's error and one failure entry per check, scoped by the kind.
+ * @param {ReturnType<typeof notRunnableChecks>} bad
+ */
+export function checkNotRunnableFailure(bad) {
+  const lines = bad.map(c => `${c.name}: \`${c.command}\`: ${c.reason}${c.stderr ? ` (${c.stderr.split('\n').slice(-1)[0]})` : ''}`);
+  return {
+    error: `check not runnable: the repo record's command for ${bad.map(c => c.name).join(', ')} cannot run as written; nothing was built. ${lines.join('; ')}`,
+    failures: bad.map((c, i) => ({ scope: 'check_not_runnable', message: lines[i] })),
+    failure: { kind: 'check_not_runnable', checks: bad.map(({ name, command, reason, stderr, exit_code }) => ({ name, command, reason, stderr, exit_code })) },
+  };
+}

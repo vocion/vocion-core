@@ -284,6 +284,33 @@
                       "minimum": 0,
                       "maximum": 30,
                       "description": "Wait this many seconds: time a visitor spends on a page before the product counts the visit."
+                    },
+                    "expect_response": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "path",
+                        "status"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300,
+                          "description": "The request's path, e.g. /v1/documents: a response whose path is this or ends with it counts (any host the page called)."
+                        },
+                        "status": {
+                          "type": "integer",
+                          "minimum": 100,
+                          "maximum": 599
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+                          "description": "The method; any but a CORS preflight when omitted."
+                        }
+                      },
+                      "description": "Pass when a response the page received during this flow answered as promised; otherwise fail with what it answered (\"GET /v1/documents returned 500\") or that no such request was made. Waits up to 10 seconds."
                     }
                   }
                 }

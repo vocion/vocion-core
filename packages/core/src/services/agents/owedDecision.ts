@@ -1,35 +1,10 @@
 /**
- * THE PERSON SAID WHAT TO DO; THE TURN DOES IT.
+ * WHAT IS WAITING ON THE PERSON, AND WHAT THEY SAID.
  *
- * Conversation 378 (2026-09-29), request #201's feature page. The product
- * manager had put up a re-dispatch card (proposal #5201) and a Stopped ask
- * (#221) was open on the request. The person wrote "approve, fix and run".
- * The turn read one record, explained, and ENDED on "Let me write the plan
- * now." — nothing decided, nothing run. The person wrote "write it". That
- * turn thought three times, wrote nothing a person could read, and a
- * tool-less answer pass with no conversation in front of it answered "I
- * don't have enough context… the tool results came back empty", then a card
- * went up asking the person to approve asking them for context. Chris: "I
- * JUST ASKED VOCION TO DO EXACTLY THAT".
- *
- * Three shapes, one rule — an instruction is carried out, in code. Whether
- * the person gave one, and whether a reply only announced it, is a model's
- * reading (`turnJudge.ts`), never a word match (Chris, 2026-09-29):
- *
- *   1. a turn that ended announcing an action it did not take, when the
- *      person asked for action, continues once with its tools (`AgentService`);
- *   2. a decision taken on a person's behalf (`decide_proposal`,
- *      `decide_ask`) needs a model reading of their own words that says they
- *      told it to (`turnJudge.saidToDecide`);
- *   3. {@link decideOwed}: when the person decided something waiting on them
- *      and the turn decided nothing, one pass with the decide tools bound and
- *      a call REQUIRED carries it out, the way the owed-write pass files a
- *      record (`owedWriteBackstop.ts`).
+ * The decisions open on a record's page (its asks and pending proposals),
+ * described for an agent, and the person's own recent messages — what
+ * `turnJudge.saidToDecide` reads before a decide tool acts for them.
  */
-
-import type { BaseMessage } from '@langchain/core/messages';
-import type { StructuredToolInterface } from '@langchain/core/tools';
-import type { OwedWriteModel, OwedWriteTurn } from './owedWriteBackstop';
 
 /**
  * The person's own words: the message before the page context the route
@@ -62,26 +37,6 @@ export function describeOpenDecisions(decisions: readonly OpenDecision[]): strin
   return decisions.map(d => d.kind === 'proposal'
     ? `- proposal #${d.id} (${d.actionId ?? 'an action'}): ${d.title} — decide_proposal id ${d.id}`
     : `- ask #${d.id}: ${d.title}${d.options && d.options.length > 0 ? ` — answers: ${d.options.map(o => `${o.id} ("${o.label}")`).join(', ')}` : ' — answers: approve, reject'} — decide_ask id ${d.id}`).join('\n');
-}
-
-/**
- * Cards still waiting in this conversation's replay (`withLiveCardState`
- * stamped each card's proposal as it stands now).
- * @param history - The stored turns.
- */
-export function pendingCards(history: ReadonlyArray<{ role: string; runs?: unknown }>): OpenDecision[] {
-  const out: OpenDecision[] = [];
-  for (const t of history) {
-    if (t.role !== 'assistant' || !Array.isArray(t.runs)) {
-      continue;
-    }
-    for (const r of t.runs as Array<{ type?: string; runId?: number; status?: string; state?: string; label?: string; actionId?: string }>) {
-      if (r?.type === 'card' && typeof r.runId === 'number' && (r.status ?? 'pending') === 'pending' && r.state !== 'unfiled') {
-        out.push({ kind: 'proposal', id: r.runId, title: String(r.label ?? `proposal #${r.runId}`), actionId: r.actionId });
-      }
-    }
-  }
-  return out;
 }
 
 /**
@@ -127,102 +82,20 @@ function proposalTitle(actionId: string, input: Record<string, unknown> | null, 
 }
 
 /**
- * One list, each decision once: the page record's, then the conversation's cards.
- * @param lists - Decisions from each source.
+ * Did the person, in their own words on the page they are on, tell the agent
+ * to take this decision? The one consent read every decide path uses: their
+ * latest messages and the page's record, so "build this" means that record.
+ * @param ctx - The turn.
+ * @param ctx.orgId - The workspace.
+ * @param ctx.conversationId - The conversation.
+ * @param ctx.turnMessage - This turn's message.
+ * @param ctx.pageContext - The page they are on.
+ * @param decision - The decision, as a sentence.
  */
-export function mergeDecisions(...lists: ReadonlyArray<readonly OpenDecision[]>): OpenDecision[] {
-  const seen = new Set<string>();
-  const out: OpenDecision[] = [];
-  for (const d of lists.flat()) {
-    const key = `${d.kind}:${d.id}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(d);
-    }
-  }
-  return out;
-}
-
-/** The tools that decide something for a person. */
-export const DECIDE_TOOLS = ['decide_proposal', 'decide_ask'] as const;
-
-/** A decision the tool took (not a refusal). */
-const DECIDED = /^(?:Approved|Rejected|Deferred|Decided)\b/;
-
-/**
- * Did the turn decide something for the person?
- * @param toolCalls - The turn's tool calls.
- */
-export function decidedInTurn(toolCalls: ReadonlyArray<{ tool: string; output?: string }>): boolean {
-  return toolCalls.some(c => (DECIDE_TOOLS as readonly string[]).includes(c.tool) && DECIDED.test((c.output ?? '').trim()));
-}
-
-export type OwedDecisionCall = { tool: string; input: Record<string, unknown>; output: string };
-export type OwedDecisionResult = { calls: OwedDecisionCall[]; lines: string[] };
-
-/**
- * Carry out the decision the person's words took, once: the decide tools
- * (and update_object, for a change they asked to land first) bound, a call
- * required on the first step, at most three steps. Every call is the
- * registry's own tool, so it rides that tool's gates — the person's words
- * ({@link personSaid}), the review queue, the tool-call row.
- * @param opts - The turn.
- * @param opts.request - The person's message this turn.
- * @param opts.history - Earlier messages, oldest first.
- * @param opts.answer - What the turn answered.
- * @param opts.systemPrompt - The agent's own prompt.
- * @param opts.decisions - What is waiting on the person.
- * @param opts.tools - The tools the pass may call (decide_proposal, decide_ask, update_object), as the registry built them.
- * @param opts.model - A chat model for the pass.
- */
-export async function decideOwed(opts: {
-  request: string;
-  history: ReadonlyArray<OwedWriteTurn>;
-  answer: string;
-  systemPrompt?: string;
-  decisions: readonly OpenDecision[];
-  tools: readonly StructuredToolInterface[];
-  model: OwedWriteModel;
-}): Promise<OwedDecisionResult> {
-  const result: OwedDecisionResult = { calls: [], lines: [] };
-  if (!opts.model.bindTools || opts.tools.length === 0 || opts.decisions.length === 0) {
-    return result;
-  }
-  const { HumanMessage, SystemMessage, ToolMessage } = await import('@langchain/core/messages');
-  const byName = new Map(opts.tools.map(t => [t.name, t]));
-  const words = personWords(opts.request);
-  const convo = opts.history.slice(-6).map(t => `${t.role === 'user' ? 'Person' : 'You'}: ${t.content.slice(0, 3_000)}`).join('\n\n');
-  const messages: BaseMessage[] = [
-    new SystemMessage(`${opts.systemPrompt ?? ''}\n\nDECISION PASS: the person told you what to do — "${words.slice(0, 300)}" — and this turn ended without doing it. The decisions waiting on them are listed below. Carry out what they said, now: decide each decision their words cover, with decide_proposal for a proposal and decide_ask for an ask, their words as the note. If their words also ask for a change to land first ("fix", "add the line"), make it with update_object BEFORE deciding, because approving can freeze what it carries. Decide nothing they did not say. When two decisions would start the same work, decide the one that carries it (the proposal) and leave the other: one start, not two. Make the calls; no prose.`),
-    new HumanMessage(`${convo ? `The conversation so far:\n\n${convo}\n\n` : ''}The person, this turn: ${words.slice(0, 2_000)}\n\nYour answer this turn:\n${opts.answer.slice(0, 3_000) || '(nothing)'}\n\nWaiting on the person:\n${describeOpenDecisions(opts.decisions)}`),
-  ];
-  // A call is required on the first step; after it the pass may stop. Three
-  // steps at most — a change, a decision, and one retry of a refusal.
-  for (let step = 0; step < 3; step++) {
-    const model = opts.model.bindTools([...opts.tools], step === 0 ? { tool_choice: 'any' } : undefined);
-    const res = await model.invoke(messages);
-    const calls = (res.tool_calls ?? []).filter(c => byName.has(c.name));
-    if (calls.length === 0) {
-      break;
-    }
-    messages.push(res);
-    for (const [i, call] of calls.entries()) {
-      const id = call.id ?? `owed-decision-${step}-${i}`;
-      const output = await byName.get(call.name)!.invoke({ type: 'tool_call', id, name: call.name, args: call.args } as never).then(
-        r => (typeof r === 'string' ? r : String((r as { content?: unknown }).content ?? '')),
-        (err: Error) => `Refused: ${err.message}`,
-      );
-      result.calls.push({ tool: call.name, input: call.args, output });
-      if ((DECIDE_TOOLS as readonly string[]).includes(call.name) && DECIDED.test(output.trim())) {
-        result.lines.push(output.trim().split(/(?<=\.)\s/)[0]!);
-      }
-      messages.push(new ToolMessage({ content: output, tool_call_id: id }));
-    }
-    if (decidedInTurn(result.calls) && !calls.some(c => !(DECIDE_TOOLS as readonly string[]).includes(c.name))) {
-      break;
-    }
-  }
-  return result;
+export async function personSaidToDecide(ctx: { orgId: string; conversationId?: number | null; turnMessage?: string; pageContext?: import('@/services/chat/pageContext').PageContext }, decision: string): Promise<{ said: boolean; quote: string | null }> {
+  const { saidToDecide } = await import('./turnJudge');
+  const page = ctx.pageContext?.record?.label ?? ctx.pageContext?.title ?? null;
+  return saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision, page });
 }
 
 /**

@@ -146,7 +146,8 @@ export async function relatedOf(orgId: string, objectId: number, opts: { relatio
   }
   // A derived field whose stored value disagrees with its records is said
   // under the relation it is read from (`x-derived`), never silently preferred.
-  const items = [...read.items];
+  const hidden = new Set(read.relations.filter(r => r.hidden).map(r => r.key));
+  const items = read.items.filter(i => !hidden.has(i.relation));
   for (const [field, d] of Object.entries(derivedOf(read.schema))) {
     const lines = driftOf(field, read.meta[field], deriveValue(d, (read.found.get(d.relation) ?? []).map(r => r.meta)));
     const rel = read.relations.find(r => r.key === d.relation);

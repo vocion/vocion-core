@@ -5,7 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 /**
- * Migration 0161 against workspaces that already exist.
+ * Migration 0165 against workspaces that already exist.
  *
  * Setup opens by itself while `onboarding_started_at` is null. Without a
  * backfill, every workspace already in production would open a setup
@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  */
 
 const MIGRATION_SQL = readFileSync(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations/0161_project_onboarding.sql'),
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations/0165_project_onboarding.sql'),
   'utf8',
 );
 
@@ -42,15 +42,15 @@ async function readOnboarding(db: PGlite): Promise<Array<{ id: string; started: 
   return rows.rows.map(row => ({ id: row.id, started: row.started, startedBy: row.started_by }));
 }
 
-describe('migration 0161: project onboarding columns', () => {
+describe('migration 0165: project onboarding columns', () => {
   it('marks every workspace that existed before setup shipped as started, so a mature workspace never pops setup', async () => {
     await database.exec(`INSERT INTO "project" ("id") VALUES ('proj_revops'), ('proj_factory')`);
 
     await database.exec(MIGRATION_SQL);
 
     expect(await readOnboarding(database)).toEqual([
-      { id: 'proj_factory', started: true, startedBy: 'backfill:0161' },
-      { id: 'proj_revops', started: true, startedBy: 'backfill:0161' },
+      { id: 'proj_factory', started: true, startedBy: 'backfill:0165' },
+      { id: 'proj_revops', started: true, startedBy: 'backfill:0165' },
     ]);
   });
 

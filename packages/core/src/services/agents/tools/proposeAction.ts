@@ -86,7 +86,7 @@ export async function filingOnPersonsWord(ctx: RuntimeContext): Promise<boolean>
     return true;
   }
   const intent = await (ctx.turnIntent ?? Promise.resolve(null)).catch(() => null);
-  return intent?.files_new_record === true;
+  return intent?.asks === 'file';
 }
 
 export async function runProposal(
@@ -168,9 +168,12 @@ export async function runProposal(
   // its own still rides the trust ladder, as a card.
   const asPerson = Boolean(ctx.userId) && !ctx.missionRunId && !factoryStep && !isAgentsOwnSchedule(ctx)
     && (await (async () => {
-      const { personMessages } = await import('../owedDecision');
-      const { saidToDecide } = await import('../turnJudge');
-      return (await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `${action_id} ${JSON.stringify(action_input).slice(0, 400)} — ${rationale.slice(0, 200)}` })).said;
+      const { personSaidToDecide } = await import('../owedDecision');
+      // The action, its target and its effect (`consentDecision`), so consent
+      // to one decision is never read as consent to another (action 5949).
+      const { consentDecision } = await import('../consentDecision');
+      const decision = await consentDecision(ctx.orgId, action_id, action_input as Record<string, unknown>, rationale.slice(0, 200));
+      return (await personSaidToDecide(ctx, decision)).said;
     })().catch(() => false));
   try {
     const res = await proposeAction({

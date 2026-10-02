@@ -10,9 +10,8 @@
  * request with those specs" and filed request #232 (action run 5042). The
  * person asked for a change and got a second record.
  *
- * The owed-change pass (`owedWriteBackstop.changeOwedRecord`) already makes a
- * change on a record's page land on THAT record. Nothing stopped the other
- * half: a filing beside it. So a filing (`objects.propose_candidate`, from
+ * A change on a record's page belongs on THAT record, never in a filing
+ * beside it. So a filing (`objects.propose_candidate`, from
  * `file_<type>` or propose_action alike — both go through `runProposal`) made
  * in a person's turn is refused, with what to do instead, when:
  *
@@ -30,7 +29,6 @@
 
 import type { TurnIntent } from './turnJudge';
 import type { RuntimeContext } from './types';
-import { owedChangeTarget } from './owedWriteBackstop';
 
 /**
  * The answer to send instead of filing, or null to file.
@@ -44,13 +42,13 @@ export function anchoredFilingRefusal(opts: { message: string; intent: TurnInten
   const text = (opts.message ?? '').split('\n\n--- ')[0] ?? '';
   // What they meant is the turn's intent read, never their wording.
   const { intent } = opts;
-  if (!text.trim() || intent.files_new_record) {
+  if (!text.trim() || intent.asks === 'file') {
     return null;
   }
   const kind = opts.objectType.replace(/[_-]+/g, ' ');
   const anchor = opts.anchor;
   if (anchor && anchor.objectType === opts.objectType) {
-    if (!intent.changes_page_record) {
+    if (intent.asks !== 'change') {
       return null;
     }
     return `Not filed: the person is on ${kind} #${anchor.id}'s page and asked to change it, so the change belongs on ${kind} #${anchor.id}, not on a new ${kind}. Write it with update_object (object_type "${opts.objectType}", id ${anchor.id}), each field you change with its whole new value; it lands as a new version of #${anchor.id}. File a separate ${kind} only when the person asks for a new or separate one.`;
@@ -59,11 +57,28 @@ export function anchoredFilingRefusal(opts: { message: string; intent: TurnInten
   // change misfiled (#232); a plan for the request they asked to restart is
   // not (conversation 391, #246). When the read names no kind, nothing is
   // refused: not knowing is never a reason to block the person.
-  if (!intent.changes_existing_record || intent.changed_record_type !== opts.objectType) {
+  if (intent.asks !== 'change' || intent.changed_record_type !== opts.objectType) {
     return null;
   }
   const said = text.trim().split('\n')[0]!.slice(0, 80);
   return `Not filed: the person asked to change something already there ("${said}${said.length === 80 ? '…' : ''}"), and no ${kind} is open on their page, so there is nothing new to file. Find the ${kind} they mean (lookup_objects, type "${opts.objectType}") and write the change to it with update_object. If none matches, ask them which ${kind} they mean, in one question, and file a new one only when they say it is new.`;
+}
+
+/**
+ * The record a change on this page belongs to: the page's `object`, by id
+ * and, once the page record is typed (`services/chat/pageRecord.ts`), its
+ * type — `/dashboard/p/feature/124` is request 124. Null for a page about no
+ * record.
+ * @param ref - The page context's record.
+ * @param ref.type - Its ref type (`object` is a record).
+ * @param ref.id - Its id.
+ * @param ref.objectType - Its object type, once typed.
+ */
+export function owedChangeTarget(ref: { type: string; id: string; objectType?: string } | null | undefined): { id: number; objectType: string | null } | null {
+  if (ref?.type !== 'object' || !/^\d+$/.test(ref.id)) {
+    return null;
+  }
+  return { id: Number(ref.id), objectType: ref.objectType ?? null };
 }
 
 /**
@@ -134,128 +149,4 @@ async function intentOf(ctx: RuntimeContext, message: string): Promise<TurnInten
   }
   const { readIntent } = await import('./turnJudge');
   return readIntent({ orgId: ctx.orgId, message, page: ctx.pageContext?.record?.label ?? null });
-}
-
-/* ------------------------------------------------------------------ */
-/* An ask about the record the person is changing                      */
-/* ------------------------------------------------------------------ */
-
-/** How far ahead the recommended option has to be for the choice to be the agent's. */
-const CLEAR_LEAD = 0.2;
-
-type AskOption = string | { label?: string; recommended?: boolean; confidence?: number };
-
-/**
- * Whether a ruling's options already carry the answer: a recommended option
- * whose confidence leads every other scored one by {@link CLEAR_LEAD}. Two
- * readings that are equally good carry no such lead.
- * @param options - The ask's options.
- */
-export function hasClearFavourite(options: readonly AskOption[] | undefined): boolean {
-  const scored = (options ?? []).filter((o): o is Exclude<AskOption, string> => typeof o === 'object' && o !== null);
-  const pick = scored.find(o => o.recommended === true && typeof o.confidence === 'number');
-  if (!pick) {
-    return false;
-  }
-  const rivals = scored.filter(o => o !== pick && typeof o.confidence === 'number').map(o => o.confidence as number);
-  return pick.confidence! - (rivals.length > 0 ? Math.max(...rivals) : 0) >= CLEAR_LEAD;
-}
-
-/**
- * A CONFLICT FOUND WHILE DOING THE WORK IS AN EDIT, NOT AN ASK.
- *
- * Request #224, 2026-09-29 16:34Z: asked on the feature page to add mocks,
- * the designer drew, found that a criterion did not fit the drawing, and filed
- * a ruling — recommending its own answer at 0.85 over 0.3 — instead of
- * changing the request. Chris: *"if we needed to adjust the plan, that should
- * go to the feature text and refresh that page."*
- *
- * So in a person's turn on a record's page, an ask ABOUT that record (its
- * refs name it, or it names none) is refused with what to write instead when:
- *
- *   - it is a `ruling` whose recommended option clearly leads — the agent
- *     already has the answer, so it is an edit; or
- *   - it is an `input` or `ruling` and the person's words asked for work on
- *     the record ("add mocks to this", "change it") — the agent is doing the
- *     work and a gap in it is the agent's to close — unless the options are
- *     equally good, which is the one choice that is the person's.
- *
- * The person asking for a choice always gets one. Approvals, recommendations,
- * credentials, merges and gates are never touched: those are decisions only
- * a person can make.
- * @param opts - The ask and where it was filed.
- * @param opts.message - The person's message this turn.
- * @param opts.intent
- * @param opts.anchor - The page's record, typed (`owedChangeTarget`), or null.
- * @param opts.kind - The ask's kind.
- * @param opts.options - Its options.
- * @param opts.objectRefs - The records it names.
- */
-export function anchoredAskRefusal(opts: {
-  message: string;
-  intent: TurnIntent;
-  anchor: { id: number; objectType: string | null } | null;
-  kind: string | undefined;
-  options?: readonly AskOption[];
-  objectRefs?: ReadonlyArray<{ type: string; id: string | number }>;
-}): string | null {
-  const text = (opts.message ?? '').split('\n\n--- ')[0] ?? '';
-  const anchor = opts.anchor;
-  if (!anchor || !text.trim() || opts.intent.wants_to_choose) {
-    return null;
-  }
-  if (opts.kind !== 'ruling' && opts.kind !== 'input') {
-    return null;
-  }
-  const refs = opts.objectRefs ?? [];
-  if (refs.length > 0 && !refs.some(r => Number(r.id) === anchor.id)) {
-    return null;
-  }
-  const favourite = opts.kind === 'ruling' && hasClearFavourite(opts.options);
-  const working = opts.intent.changes_page_record || opts.intent.wants_work_on_record;
-  const equal = opts.kind === 'ruling' && !favourite && (opts.options?.length ?? 0) >= 2;
-  if (!favourite && !(working && !equal)) {
-    return null;
-  }
-  const kind = (anchor.objectType ?? 'record').replace(/[_-]+/g, ' ');
-  const why = favourite
-    ? 'you already recommend one answer well ahead of the others, so the choice is yours to make'
-    : 'the person asked you to do this work on it, so a gap you found in it is yours to close';
-  return `Not asked: this is about ${kind} #${anchor.id}, the record on the person's page, and ${why}. Edit ${kind} #${anchor.id} instead — update_object${anchor.objectType ? ` (object_type "${anchor.objectType}", id ${anchor.id})` : ` (id ${anchor.id})`} with the corrected field (e.g. the acceptance criterion, whole) — which lands as a new version on their page, and say what you changed in one line. Ask only when two readings are equally good and the choice is the person's.`;
-}
-
-/**
- * Should this ask be refused as an edit in disguise? Reads the person's
- * message and the page's record; never throws, and never gates an
- * unattended run (no person is on a page there).
- * @param ctx - The turn.
- * @param input - The ask as `file_ask` received it.
- * @param input.kind - Its kind.
- * @param input.options - Its options.
- * @param input.objectRefs - The records it names.
- */
-export async function anchoredAskCheck(ctx: RuntimeContext, input: { kind?: string; options?: readonly AskOption[]; objectRefs?: ReadonlyArray<{ type: string; id: string | number }> }): Promise<string | null> {
-  if (ctx.missionRunId) {
-    return null;
-  }
-  try {
-    const target = owedChangeTarget(ctx.pageContext?.record);
-    if (!target) {
-      return null;
-    }
-    const message = ctx.turnMessage ?? await latestPersonMessage(ctx);
-    if (!message) {
-      return null;
-    }
-    let anchor = target;
-    if (!target.objectType) {
-      const { getBusinessObject } = await import('@/services/BusinessObjectService');
-      const row = await getBusinessObject(target.id, ctx.orgId);
-      anchor = { id: target.id, objectType: (row as { type?: { slug?: string } } | null)?.type?.slug ?? null };
-    }
-    return anchoredAskRefusal({ message, intent: await intentOf(ctx, message), anchor, kind: input.kind ?? 'approval', options: input.options, objectRefs: input.objectRefs });
-  } catch (err) {
-    console.warn('anchored ask check failed', { orgId: ctx.orgId, message: (err as Error).message });
-    return null;
-  }
 }

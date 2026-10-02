@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyFailure, closestSibling, contractDelta, environmentDelta, intakeDecision, markHandled, noteAttempt, personActed, planGate, readRecovery, RECOVERY_LIMIT, recoveryDecision, recoveryStage, replanBrief, staleFailure, stalePlanRoots } from './recovery';
+import { classifyFailure, closestSibling, contractDelta, environmentDelta, intakeDecision, markHandled, mergeCardLine, noteAttempt, personActed, planGate, readRecovery, RECOVERY_LIMIT, recoveryDecision, recoveryStage, replanBrief, settledForMergeCard, staleFailure, stalePlanRoots } from './recovery';
 
 // Every name, path and number below is invented. The failure texts are the
 // worker's own refusal shapes (factory/worker/worker.mjs), not a live run's.
@@ -363,5 +363,71 @@ describe('the recovery log is kept in time order (#294)', () => {
     ];
 
     expect(read({ recovery: { log: stored } }).log.map(l => l.text)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+});
+
+describe('a check that cannot run is configuration, not code', () => {
+  // The worker's typed shape (runner preflight.mjs checkNotRunnableFailure), with invented commands.
+  const run = {
+    status: 'failed',
+    error: 'check not runnable: the repo record\'s command for test, no-em-dashes cannot run as written; nothing was built.',
+    failures: [{ scope: 'check_not_runnable', message: 'test: `npm test (suites need postgres)`: it is not a shell command: it does not parse' }],
+    result: { failure: { kind: 'check_not_runnable', checks: [
+      { name: 'test', command: 'npm test (suites need postgres)', reason: 'it is not a shell command: it does not parse', stderr: 'sh: 1: Syntax error: "(" unexpected' },
+      { name: 'no-em-dashes', command: 'the worker greps for U+2014', reason: 'its first word, the, is not a command the runner can find', stderr: 'sh: the: not found' },
+    ] } },
+  };
+
+  it('reads the worker\'s typed kind, with each command and what the shell said', () => {
+    const f = classifyFailure(run);
+
+    expect(f.class).toBe('check_not_runnable');
+    expect(f.failedChecks).toEqual(['test', 'no-em-dashes']);
+    expect(f.sentence).toContain('the repo record\'s command for test, no-em-dashes cannot run as written');
+    expect(f.tail).toContain('Syntax error');
+    expect(f.notRunnable?.[1]?.command).toBe('the worker greps for U+2014');
+  });
+
+  it('is never retried, whether attempts are left or not, and says who fixes what', () => {
+    const f = classifyFailure(run);
+    for (const attempts of [0, RECOVERY_LIMIT]) {
+      const d = recoveryDecision({ failure: f, attempts });
+
+      expect(d.do).toBe('configure');
+      expect(d.do === 'configure' && d.why).toContain('the repo record\'s configuration, not the code');
+      expect(d.do === 'configure' && d.unblock).toContain('on the repo record');
+    }
+  });
+
+  it('a check that ran and failed is still the code\'s, and is sent again with its output', () => {
+    const f = classifyFailure({ status: 'failed', error: 'verification failed: required checks failed: test', failures: [{ scope: 'check:test', message: 'expected 2 rows, got 1' }] });
+
+    expect(f.class).toBe('checks_failed');
+    expect(recoveryDecision({ failure: f, attempts: 0 }).do).toBe('dispatch');
+  });
+});
+
+describe('an attempt that passed QA settles the stage on its merge card (Walk 7, 2026-10-02, #130)', () => {
+  const recovering = noteAttempt(readRecovery({}), { at: '2026-10-02T03:54:55Z', kind: 'build', trigger: 'recovery', runId: 470, taskId: 360, line: 'sending it again because the required checks failed (no-runtime-ddl)' });
+
+  it('says whose move the card is, in one line', () => {
+    expect(mergeCardLine({ proven: 8, total: 8, riskClass: 'infra', status: 'pending' })).toBe('QA approved 8 of 8; the merge waits on a person (infra class).');
+    expect(mergeCardLine({ proven: 5, total: 5, riskClass: 'logic', status: 'done' })).toBe('QA approved 5 of 5; merged on its trust rule (logic class).');
+    expect(mergeCardLine({ proven: 5, total: 5, riskClass: null, status: 'awaiting_execution' })).toBe('QA approved 5 of 5; the merge is running on its trust rule.');
+    expect(mergeCardLine({ proven: 5, total: 5, riskClass: 'logic', status: 'failed' })).toBeNull();
+  });
+
+  it('clears "Recovering" with the line in the log, and keeps an attempt that started after the card', () => {
+    expect(recoveryStage({ recovery: recovering })?.stage).toBe('recovering');
+
+    const settled = settledForMergeCard(recovering, 'QA approved 8 of 8; the merge waits on a person (infra class).', '2026-10-02T04:21:38Z', '2026-10-02T04:21:39Z');
+
+    expect(settled?.stage).toBeNull();
+    expect(settled?.line).toBeNull();
+    expect(recoveryStage({ recovery: settled })).toBeNull();
+    expect(settled?.log.at(-1)?.text).toBe('QA approved 8 of 8; the merge waits on a person (infra class).');
+    expect(settled?.attempts).toHaveLength(1);
+    expect(settledForMergeCard(recovering, 'x', '2026-10-02T03:00:00Z', '2026-10-02T04:21:39Z')).toBeNull();
+    expect(settledForMergeCard(readRecovery({}), 'x', '2026-10-02T04:21:38Z', '2026-10-02T04:21:39Z')).toBeNull();
   });
 });

@@ -59,5 +59,17 @@ export function namesAction(req: ToolRequirement, input: unknown): boolean {
  * @param call.error - Its error, when it threw.
  */
 export function callMeets(req: ToolRequirement, call: { tool: string; input: unknown; output: unknown; error: string | null }): boolean {
-  return call.tool === req.tool && !call.error && !isRefusal(call.output) && namesAction(req, call.input);
+  return call.tool === req.tool && !call.error && !isRefusal(call.output) && !isDryRun(call.input) && namesAction(req, call.input);
+}
+
+/**
+ * A call made in its tool's look-only mode wrote nothing, so it is not the
+ * work an automation requires (Walk 7, 2026-10-02: release #355's QA run
+ * called check_live twice with explore, saw the change live, recorded
+ * nothing, and the release read "ended without a live check").
+ * @param input - The call's input.
+ */
+export function isDryRun(input: unknown): boolean {
+  const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  return i.explore === true || i.dry_run === true;
 }

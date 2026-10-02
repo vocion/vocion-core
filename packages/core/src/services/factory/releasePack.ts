@@ -244,8 +244,11 @@ export async function linkRelease(orgId: string, releaseId: number, opts: { disp
   await nameOnce(orgId, releaseId, evidence).catch((err: Error) => {
     console.warn('[release] could not name the release', { releaseId, error: err.message });
   });
+  const { markStatus } = await import('@/services/objects/statusField');
   for (const r of pack.requestMeta) {
     await mergeMeta(orgId, r.id, r.set);
+    // Shipped, unless it already reads finished (a re-link never undoes "seen live").
+    await markStatus(orgId, r.id, 'shipped', { line: `Shipped in release #${releaseId}.`, keepFinished: true });
   }
   const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
   await recomputeRollupsForObject(orgId, releaseId).catch(() => undefined);

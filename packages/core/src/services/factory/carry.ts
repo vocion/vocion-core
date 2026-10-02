@@ -27,11 +27,12 @@ import type { BuildReadiness, FactoryRecord } from '@/libs/actions/factory-dispa
 import type { ProposeResult } from '@/services/ActionService';
 import type { AskDecidedPayload, ObjectCreatedPayload } from '@/services/EventService';
 import { nounCode } from '@/libs/codes';
-import { CLOSED_REQUEST_STATES as CLOSED } from '@/libs/factory/requestStates';
+import { settledReason } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
 import { codeForRecord } from '@/services/codes';
+import { markStatus } from '@/services/objects/statusField';
 import { blockerRefs, blockerResolution } from './blocker';
-import { attemptsOf, classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
+import { attemptsOf, classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, settledForMergeCard, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
 /** The seat whose judgement the factory's own proposals represent. */
 const PM = 'product-manager';
@@ -180,6 +181,35 @@ async function filingPerson(orgId: string, conversationId: number | null, actor:
 }
 
 /**
+ * An attempt passed QA and its merge card is filed: the request is not
+ * recovering or planning any more, so its stage settles on one true line —
+ * "QA approved 8 of 8; the merge waits on a person (infra class)." Read fresh
+ * and written only when there was a stage to settle.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param line - The line (`mergeCardLine`).
+ * @param cardAt - When the card was filed.
+ * @param at - When this is written.
+ * @param waitsOnPerson - The card is pending: a person merges (else it merges on its trust rule).
+ * @returns Whether it settled a stage or moved the request's status.
+ */
+export async function settleOnMergeCard(orgId: string, requestId: number, line: string, cardAt: string, at: string, waitsOnPerson = true): Promise<boolean> {
+  const { readRecord, writeMeta } = await lib();
+  const request = await readRecord(orgId, requestId);
+  if (!request) {
+    return false;
+  }
+  // The status says whose move it is (FE-130 read "Awaiting dispatch" over
+  // QA 8 of 8 and a merge card waiting on a person).
+  const marked = await markStatus(orgId, requestId, waitsOnPerson ? 'merge_waits' : 'merge_running', { line, at });
+  const next = settledForMergeCard(readRecovery(request.meta), line, cardAt, at);
+  if (next) {
+    await writeMeta(orgId, requestId, { recovery: next });
+  }
+  return next !== null || marked !== null;
+}
+
+/**
  * Read the request fresh, change its recovery state, write it back. Fresh
  * every time, because a dispatch this step proposed has written it since.
  * @param orgId - Tenant.
@@ -192,8 +222,14 @@ async function updateRecovery(orgId: string, requestId: number, change: (s: Reco
   if (!request) {
     return null;
   }
-  const next = change(readRecovery(request.meta));
+  const before = readRecovery(request.meta);
+  const next = change(before);
   await writeMeta(orgId, requestId, { recovery: next });
+  // A STOP IS THE REQUEST'S STATUS (`x-transitions: stopped`), from whichever
+  // step stopped it: a limit reached, a pipeline owner's fix, a check command.
+  if (next.stage === 'stopped' && before.stage !== 'stopped') {
+    await markStatus(orgId, requestId, 'stopped', { line: next.line });
+  }
   return next;
 }
 
@@ -322,6 +358,7 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   const { db } = await import('@/libs/DB');
   const { actionRunSchema, askSchema, workerRunSchema } = await import('@/models/Schema');
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const { planClosed } = await lib();
   const toRow = (r: { id: number; title: string; status: string | null; metadata: unknown; createdAt: Date | null }): Row => ({ id: r.id, title: r.title, status: r.status, meta: (r.metadata ?? {}) as Meta, createdAt: r.createdAt });
   const types = await factoryTypes(orgId);
   const tasks = ((await listBusinessObjects(orgId, types.task).catch(() => [])) as Array<Parameters<typeof toRow>[0]>).map(toRow).filter(t => Number(t.meta.requestId) === requestId);
@@ -344,7 +381,7 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   // A card for a plan whose row was rejected or superseded is moot, not a
   // person's move (2026-09-30, #130: approve card #5158 for rejected plan #136
   // held the request for fourteen hours).
-  const planIds = plans.filter(p => String(p.meta.status ?? '') !== 'approved' && !['rejected', 'superseded'].includes(String(p.status ?? ''))).map(p => String(p.id));
+  const planIds = plans.filter(p => String(p.meta.status ?? '') !== 'approved' && !planClosed(p)).map(p => String(p.id));
   const pending = await db.select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input }).from(actionRunSchema).where(and(
     eq(actionRunSchema.orgId, orgId),
     inArray(actionRunSchema.actionId, [DISPATCH, APPROVE_PLAN]),
@@ -361,7 +398,7 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   // The ROW's status decides (2026-09-30, #130: plan #136's row read rejected
   // while its metadata still said in_review, and the request sat "waiting on a
   // person" for a plan nobody could approve).
-  const waiting = plans.some(p => String(p.meta.status ?? '') === 'in_review' && !['rejected', 'superseded'].includes(String(p.status ?? ''))) || pending.some((a) => {
+  const waiting = plans.some(p => String(p.meta.status ?? '') === 'in_review' && !planClosed(p)) || pending.some((a) => {
     const i = (a.input ?? {}) as Meta;
     return a.actionId === DISPATCH
       ? Number(i.requestId) === requestId || taskIds.includes(String(i.taskId))
@@ -480,7 +517,47 @@ async function planningEnded(orgId: string, requestId: number, askedAt: string):
 async function isOpen(orgId: string, request: FactoryRecord): Promise<boolean> {
   // A DUPLICATE IS CLOSED (#232/#234, 2026-09-29): `duplicateOf` ends the
   // record by itself — intake already skipped one; the sweep carried it on.
-  return request.typeSlug === (await factoryTypes(orgId)).request && !CLOSED.has(String(request.meta.state ?? '')) && request.meta.recommendationState !== 'rejected' && !(Number(request.meta.duplicateOf ?? 0) > 0);
+  // SETTLED IS CLOSED: the type's `x-settled`, or a ship (request 224 read
+  // `building` after it shipped, and the sweep went on carrying it).
+  return request.typeSlug === (await factoryTypes(orgId)).request && !settledReason(request) && request.meta.recommendationState !== 'rejected' && !(Number(request.meta.duplicateOf ?? 0) > 0);
+}
+
+/**
+ * Open, and moved on by these handlers: not a request its durable workflow
+ * owns (backlog 054). The one check every handler that would start, retry,
+ * re-plan or sweep a request on its own asks; a handler that only turns a
+ * person's or a plan's ask into a dispatch still runs, since the dispatch
+ * tells the workflow.
+ * @param orgId - Tenant.
+ * @param request - The request.
+ */
+async function carriedHere(orgId: string, request: FactoryRecord): Promise<boolean> {
+  return (await isOpen(orgId, request)) && !(await ownedHere(orgId, request));
+}
+
+/**
+ * Whether the request's durable workflow owns it (backlog 054).
+ * @param orgId - Tenant.
+ * @param request - The request.
+ */
+async function ownedHere(orgId: string, request: FactoryRecord): Promise<boolean> {
+  const { ownedByWorkflow } = await import('./requestWorkflowStart');
+  return ownedByWorkflow(orgId, request.meta);
+}
+
+/**
+ * STOP A REQUEST FOR A PERSON, from its workflow: the same one ask the
+ * recovery files, naming why and that Build again continues it.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param why - Why it stopped.
+ */
+export async function stopRequestForPerson(orgId: string, requestId: number, why: string): Promise<void> {
+  const { readRecord } = await lib();
+  const request = await readRecord(orgId, requestId);
+  if (request) {
+    await escalate(orgId, request, why, 'press Build again with a note on what to change; the workflow continues the latest branch');
+  }
 }
 
 /**
@@ -650,6 +727,90 @@ async function holdForPipeline(orgId: string, request: FactoryRecord, run: { id:
 }
 
 /**
+ * A CHECK THAT CANNOT RUN STOPS ON ITS REPO RECORD (FE-224, 2026-10-02: four
+ * runs failed `sh: 1: Syntax error` and `sh: 1: the: not found` on REPO-27's
+ * prose check commands, and recovery retried the code three times, about $8).
+ * One typed stop, no attempt spent and no card: the line names each broken
+ * command, the record it is on, and who fixes it (the record's owner, else the
+ * seat that owns the pipeline). `checkConfigStop` on the request remembers the
+ * commands, so the sweep continues the build once the record changes
+ * (`resumeAfterCheckFix`).
+ * @param orgId - Tenant.
+ * @param request - The request.
+ * @param run - The run that could not run its checks.
+ * @param run.id - Its id.
+ * @param run.input - Its input, whose contract names the repository and the commands.
+ * @param why - What stopped it.
+ * @param failure - The failure, with each command that cannot run.
+ * @param now - The clock.
+ */
+async function stopOnRepoRecord(orgId: string, request: FactoryRecord, run: { id: number; input: Meta }, why: string, failure: Failure, now: Date): Promise<string> {
+  const task = (run.input.task ?? {}) as Meta;
+  const { readRepo, writeMeta } = await lib();
+  const slug = (await import('./environments')).fullNameOf(task.repo) ?? null;
+  const repo = await readRepo(orgId, slug, typeof request.meta.product === 'string' ? request.meta.product : null).catch(() => null);
+  const ref = (repo && typeof repo.recordCode === 'string' && repo.recordCode) || (slug ? `the repo record for ${slug}` : 'the repo record');
+  const owners = repo && Array.isArray(repo.owners) ? (repo.owners as unknown[]).filter((o): o is string => typeof o === 'string' && o.trim() !== '') : [];
+  const who = owners[0] ?? (await pipelineOwner(orgId)).name;
+  const given = new Map((Array.isArray(task.checks) ? task.checks as Array<{ name?: unknown; command?: unknown }> : []).map(c => [String(c.name ?? ''), String(c.command ?? '')]));
+  const checks = (failure.notRunnable ?? []).map(c => ({ name: c.name, command: c.command || given.get(c.name) || '' }));
+  const broken = checks.map(c => `${c.name} (\`${c.command}\`)`).join(', ');
+  const line = `${why.replace(/[.\s]+$/, '')}. ${who} fixes the check command${checks.length === 1 ? '' : 's'} on ${ref}: ${broken}; the build continues on its own once the record changes. Nothing was built and nothing was spent on the model.`;
+  const at = now.toISOString();
+  await writeMeta(orgId, request.id, { checkConfigStop: { runId: run.id, repo: ref, recordId: repo?.recordId ?? null, owner: who, checks, at } });
+  await updateRecovery(orgId, request.id, s => logLine({ ...s, stage: 'stopped', line, askId: null, waitingOn: { who, line, actionRunId: null } }, line, at, run.id));
+  return line;
+}
+
+/**
+ * THE BUILD CONTINUES ONCE THE CHECK COMMAND IS FIXED. A request stopped on a
+ * check that could not run (`stopOnRepoRecord`) is read again by the sweep:
+ * when the contract the records give now carries a different command for any
+ * check that could not run, the stop clears and the build is sent again as a
+ * recovery of that run, so it continues the branch the work is on.
+ * @param orgId - Tenant.
+ * @param request - The request (stopped, nothing live).
+ * @param now - The clock.
+ */
+export async function resumeAfterCheckFix(orgId: string, request: FactoryRecord, now: Date = new Date()): Promise<CarryResult | null> {
+  const stop = request.meta.checkConfigStop && typeof request.meta.checkConfigStop === 'object' ? request.meta.checkConfigStop as Meta : null;
+  const runId = Number(stop?.runId);
+  if (!stop || !Number.isInteger(runId) || runId <= 0) {
+    return null;
+  }
+  const { previewContract, writeMeta } = await lib();
+  const work = await workFor(orgId, request.id);
+  // A newer run since the stop (a person pressed Build) answered it, one way or another.
+  if (work.runs[0] && work.runs[0].id !== runId) {
+    await writeMeta(orgId, request.id, { checkConfigStop: null });
+    return null;
+  }
+  const planId = (await approvedPlan(work.plans))?.id;
+  const base = { requestId: request.id, ...(planId ? { planId } : {}) };
+  const preview = await previewContract(orgId, base);
+  const current = new Map((Array.isArray(preview?.checks) ? preview!.checks as Array<{ name?: unknown; command?: unknown }> : []).map(c => [String(c.name ?? ''), String(c.command ?? '')]));
+  const was = (Array.isArray(stop.checks) ? stop.checks as Array<{ name?: unknown; command?: unknown }> : []).map(c => ({ name: String(c.name ?? ''), command: String(c.command ?? '') }));
+  const changed = was.filter(c => (current.get(c.name) ?? '') !== c.command);
+  if (changed.length === 0) {
+    return null;
+  }
+  const line = `The check command${changed.length === 1 ? '' : 's'} for ${changed.map(c => c.name).join(', ')} on ${String(stop.repo ?? 'the repo record')} changed since ${nounCode('run', runId)} could not run ${changed.length === 1 ? 'it' : 'them'}; building again.`;
+  await writeMeta(orgId, request.id, { checkConfigStop: null });
+  await updateRecovery(orgId, request.id, s => logLine({ ...s, stage: null, line: null, waitingOn: null }, line, now.toISOString(), runId));
+  const out = await propose(orgId, DISPATCH, { ...base, trigger: 'recovery', recoveryOfRun: runId, recoveryClass: 'check_not_runnable', reason: line }, {
+    confidence: 0.9,
+    rationale: `${nounCode('run', runId)} stopped because a check command could not run; the repo record now gives a different command.`,
+    reason: 'The configuration that stopped it changed; Undo cancels it until a worker claims it.',
+  });
+  if (!out.ok) {
+    const stopped = await escalate(orgId, request, `Stopped: the check command was fixed, but the build could not start: ${out.error}`, 'fix what the dispatch refused on, then press Build');
+    return { requestId: request.id, did: 'check fixed:refused', line: stopped };
+  }
+  await recordRunLine(orgId, runId, line);
+  return { requestId: request.id, did: `check fixed:${out.res.status}`, line };
+}
+
+/**
  * Whether the factory may take another automatic step on this request, and
  * when it may not, the stop filed as one ask. For callers outside this module
  * (QA's automatic Build again).
@@ -694,17 +855,27 @@ export async function startPlanning(orgId: string, opts: { request: { id: number
   const { planIsApproved } = await lib();
   const previous = opts.request.meta.recovery ?? null;
   const work = await workFor(orgId, opts.request.id);
-  const open = opts.plan && !['rejected', 'superseded'].includes(String(opts.plan.meta.status ?? ''))
+  const { planClosed } = await lib();
+  const open = opts.plan && !planClosed(opts.plan)
     ? opts.plan
-    : [...work.plans].filter(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? ''))).sort((a, b) => b.id - a.id)[0] ?? null;
+    : [...work.plans].filter(p => !planClosed(p)).sort((a, b) => b.id - a.id)[0] ?? null;
   await updateRecovery(orgId, opts.request.id, (s) => {
     const base = opts.counted ? s : personActed(s, opts.at, `Build pressed by ${opts.by}.`);
     return opts.counted
       ? noteAttempt(base, { at: opts.at, kind: 'plan', trigger: opts.trigger ?? 'recovery', runId: null, taskId: null, line: opts.why })
       : logLine({ ...base, stage: 'planning', line: `Planning — ${opts.why}`, planRequestedAt: opts.at }, `Planning first: ${opts.why}`, opts.at);
   });
+  // A person's Build reopens a finished request; an automatic plan never does.
+  await markStatus(orgId, opts.request.id, 'planning', { line: `Planning first: ${opts.why}`, reopen: !opts.counted, at: opts.at });
   if (open && planIsApproved(open.meta)) {
-    await buildFromApprovedPlan(orgId, { planId: open.id, requestId: opts.request.id, approvedBy: String(open.meta.approvedBy ?? 'a person'), byPerson: false });
+    const built = await buildFromApprovedPlan(orgId, { planId: open.id, requestId: opts.request.id, approvedBy: String(open.meta.approvedBy ?? 'a person'), byPerson: false });
+    // NEVER "PLANNING" WITH NOTHING PLANNING (#130, 2026-10-02): the plan is
+    // already approved, so when its build does not start the request says why.
+    if (built.line === null) {
+      const planName = await codeForRecord(orgId, open.id).catch(() => null) ?? `plan #${open.id}`;
+      const line = `${planName} is approved; the build did not start: ${built.did}.`;
+      await updateRecovery(orgId, opts.request.id, s => logLine({ ...s, line }, line, new Date().toISOString()));
+    }
     return { planId: open.id, via: 'approval', previous };
   }
   if (open) {
@@ -862,6 +1033,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   }
   const line = `Filed; the Build card is waiting on a person (${nounCode('action', out.res.runId)}).`;
   await updateRecovery(orgId, id, s => logLine(s, line, at));
+  await markStatus(orgId, id, 'build_card', { line, at });
   await mark({ at, outcome: 'card' });
   return { requestId: id, did: `card:${out.res.status}`, line };
 }
@@ -1151,6 +1323,9 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   const task = await readRecord(orgId, rec.id);
   const requestId = Number(task?.meta.requestId);
   const request = task && Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
+  if (task && request && (await ownedHere(orgId, request))) {
+    return skip(requestId, 'the request\'s workflow owns it');
+  }
   if (!task || !request || !(await isOpen(orgId, request))) {
     return skip(Number.isInteger(requestId) ? requestId : null, 'no open request for this run');
   }
@@ -1199,6 +1374,8 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   let line: string;
   if (decision.do === 'escalate') {
     line = await escalate(orgId, request, decision.why, decision.unblock, handledAs);
+  } else if (decision.do === 'configure') {
+    line = await stopOnRepoRecord(orgId, request, { id: run.id, input: (run.input ?? {}) as Meta }, decision.why, handledAs, now);
   } else if (decision.do === 'hold') {
     line = await holdForPipeline(orgId, request, { id: run.id, input: (run.input ?? {}) as Meta }, decision.why, handledAs, now);
   } else if (decision.do === 'replan') {
@@ -1222,6 +1399,10 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
       line = await escalate(orgId, request, `Stopped: the recovery for ${nounCode('run', run.id)} could not start — ${out.error}`, unblockFor(failure), failure);
     } else if (out.res.status === 'pending') {
       line = `${input.reason} It is on a card for a person (${nounCode('action', out.res.runId)}).`;
+      await updateRecovery(orgId, requestId, s => logLine(s, line, now.toISOString(), run.id));
+    } else if (out.res.outcome === 'already_underway') {
+      // Nothing new started: say what is, never "sending it again" over no run.
+      line = `${nounCode('run', run.id)} failed (${failure.sentence}); not sent again because ${out.res.underway?.line ?? 'another start is under way'}.`;
       await updateRecovery(orgId, requestId, s => logLine(s, line, now.toISOString(), run.id));
     } else {
       // The dispatch wrote the attempt (and its line) itself.
@@ -1375,7 +1556,7 @@ export async function replanStaleStops(orgId: string, now: Date = new Date()): P
   for (const stop of stops) {
     const requestId = Number(/^factory-recovery:(\d+):/.exec(String(stop.sourceRef ?? ''))?.[1]);
     const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-    if (!request || !(await isOpen(orgId, request))) {
+    if (!request || !(await carriedHere(orgId, request))) {
       continue;
     }
     const work = await workFor(orgId, requestId);
@@ -1478,7 +1659,11 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
   for (const stop of stops) {
     const requestId = Number(/^factory-recovery:(\d+):/.exec(String(stop.sourceRef ?? ''))?.[1]);
     const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-    if (!request || !(await isOpen(orgId, request))) {
+    if (!request || !(await carriedHere(orgId, request))) {
+      continue;
+    }
+    // A stop on a check command waits for the repo record, not for a worker or a deploy (`resumeAfterCheckFix`).
+    if (request.meta.checkConfigStop) {
       continue;
     }
     const work = await workFor(orgId, requestId);
@@ -1576,7 +1761,7 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
       continue;
     }
     const request = await readRecord(orgId, id);
-    if (!request || !(await isOpen(orgId, request))) {
+    if (!request || !(await carriedHere(orgId, request))) {
       continue;
     }
     const state = readRecovery(request.meta);
@@ -1588,6 +1773,17 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
       acted.push({ requestId: id, did: 'blocker cleared', line: cleared });
     }
     if (work.runs.some(r => LIVE_RUN.has(r.status)) || work.waiting || work.openAsks.length > 0) {
+      continue;
+    }
+    // A stop on a check that could not run continues once its command is fixed.
+    if (state.stage === 'stopped' && request.meta.checkConfigStop) {
+      const r = await resumeAfterCheckFix(orgId, request, now).catch((err: Error) => {
+        console.warn('factory sweep: the check-fix check failed', { orgId, requestId: id, message: err.message });
+        return null;
+      });
+      if (r) {
+        acted.push(r);
+      }
       continue;
     }
     // A REQUEST INTAKE COULD NOT START IS CARRIED ON (2026-10-01, #294).
@@ -1765,7 +1961,7 @@ export async function planningRunEnded(orgId: string, payload: Record<string, un
     return skip(null, 'no request on the run');
   }
   const request = await (await lib()).readRecord(orgId, requestId);
-  if (!request || !(await isOpen(orgId, request))) {
+  if (!request || !(await carriedHere(orgId, request))) {
     return skip(requestId, 'request closed');
   }
   const state = readRecovery(request.meta);

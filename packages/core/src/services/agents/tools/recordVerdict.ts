@@ -336,12 +336,26 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
     return null;
   }
   try {
+    // AN ATTEMPT THAT IS HISTORY IS NEVER BUILT AGAIN, and never files a stop
+    // either: a later attempt replaced it, or the request has settled.
+    const { attemptIsHistory } = await import('@/services/factory/supersededPulls');
+    const history = await attemptIsHistory(orgId, task);
+    if (history) {
+      return `Nothing built again: attempt #${task.id} is history (${history}).`;
+    }
     // ONE LIMIT FOR EVERY AUTOMATIC STEP (backlog 038): a QA send-back retry
     // counts toward the same three per request as a recovery does.
-    const { stopIfAtLimit } = await import('@/services/factory/carry');
-    const stopped = await stopIfAtLimit(orgId, requestId, `${route.by ?? 'QA'} sent attempt #${task.id} back`);
-    if (stopped) {
-      return stopped;
+    // A request its durable workflow owns is counted there (backlog 054): the
+    // send-back is told to the workflow, which numbers the next attempt.
+    const { readRecord } = await import('@/libs/actions/factory-dispatch');
+    const { ownedByWorkflow } = await import('@/services/factory/requestWorkflowStart');
+    const owner = await readRecord(orgId, requestId);
+    if (!owner || !(await ownedByWorkflow(orgId, owner.meta))) {
+      const { stopIfAtLimit } = await import('@/services/factory/carry');
+      const stopped = await stopIfAtLimit(orgId, requestId, `${route.by ?? 'QA'} sent attempt #${task.id} back`);
+      if (stopped) {
+        return stopped;
+      }
     }
     const { proposeAction } = await import('@/services/ActionService');
     const planId = Number(task.meta.planId);
@@ -485,6 +499,11 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       if (!task) {
         return `Not recorded: no engineering task in this workspace carries the pull request ${args.pr_url}. Pass the task's prUrl exactly as it is on the record.`;
       }
+      const { attemptIsHistory } = await import('@/services/factory/supersededPulls');
+      const history = await attemptIsHistory(ctx.orgId, task);
+      if (history) {
+        return `Read as history: task #${task.id} is not the attempt that decides anything (${history}). Its status stays ${String(task.status ?? task.meta.status ?? 'as it was')}, nothing is built again and no merge is filed. The review is done.`;
+      }
       // THE CONTRACT IS THE LIST, NOT THE MODEL. On fire 7061 the reviewer
       // wrote three easy criteria of its own and approved "3 of 3" against a
       // contract of eight; a verdict whose criteria the grader picks can
@@ -545,6 +564,13 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value, proven, total } } as never);
       const count = `${proven} of ${total} criteria proven`;
       if (value !== 'approve') {
+        // QA sent it back: the request's status says so before any retry
+        // goes out (a retry's own start then reads Building).
+        const sentBackFor = Number(task.meta.requestId);
+        if (Number.isInteger(sentBackFor) && sentBackFor > 0) {
+          const { markStatus } = await import('@/services/objects/statusField');
+          await markStatus(ctx.orgId, sentBackFor, `qa_${value}`, { line: `QA sent it back: ${count}.` });
+        }
         let retry: string | null = null;
         if (value === 'changes') {
           const planOf = (m: Record<string, unknown>) => (Number(m.planId) > 0 ? Number(m.planId) : null);
@@ -594,6 +620,17 @@ export function recordVerdictTool(ctx: RuntimeContext) {
           invokedBy: `agent:${by}`,
           proposal: { confidence: MERGE_PROPOSAL_CONFIDENCE, rationale: verdict.note, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: `${count}. ${verdict.note}`.slice(0, 160) },
         });
+        // THE REQUEST'S STAGE SETTLES ON THE CARD (Walk 7, 2026-10-02): a recovery
+        // stage left from an earlier failure of this attempt is no longer true once
+        // QA approved it; the card says whose move it is now.
+        const requestId = Number(task.meta.requestId);
+        const { mergeCardLine } = await import('@/services/factory/recovery');
+        const settled = mergeCardLine({ proven, total, riskClass, status: res.status });
+        if (settled && Number.isInteger(requestId) && requestId > 0) {
+          const { settleOnMergeCard } = await import('@/services/factory/carry');
+          const now = new Date().toISOString();
+          await settleOnMergeCard(ctx.orgId, requestId, settled, now, now, res.status === 'pending').catch((err: Error) => console.warn('record_verdict: settling the request\'s stage failed', { orgId: ctx.orgId, requestId, message: err.message }));
+        }
         const mirrored = await mirrorVerdictOnPull(ctx.orgId, by, reviewMirrorInput({ url: task.url, value, note: verdict.note, proven, total, findings, taskId: task.id }), count);
         return `Verdict recorded on task #${task.id}: approve, ${count}, at ${commitSha.slice(0, 12)}. The merge card is filed (run #${res.runId}, ${res.status}); a person merges. ${mirrored}`;
       } catch (err) {

@@ -27,6 +27,7 @@ import {
 } from '@/libs/temporal/client';
 import { apiTokenSchema, automationRunSchema, automationSchema, knowledgeSourceSchema, missionRunSchema, toolCallSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
+import { withRunCost } from '@/services/budget/runCost';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
 import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
 
@@ -444,7 +445,7 @@ async function dispatchDo(
   }
 
   const { getMission, scheduledCheckBrief, startMission } = await import('@/services/MissionService');
-  const { queueSnapshot, summarizeMissionCheck } = await import('@/services/automations/checkSummary');
+  const { queueSnapshot } = await import('@/services/automations/checkSummary');
   const missionSlug = doCfg.checkMission!;
   const template = await getMission(orgId, missionSlug);
   if (!template) {
@@ -492,6 +493,40 @@ async function dispatchDo(
   // wrote, with the tool bound and chosen: the only possible output is the
   // call. A miss after that is an error on the fire, where a person sees it,
   // never a silent "completed".
+  // What runs after the check — the recording pass, the summary — is the
+  // check's spend too (`budget/runCost.ts`).
+  const checked = run;
+  return withRunCost({ missionRunId: checked.id }, () => afterCheck(orgId, slug, doCfg, template, checked, triggerInput, invokedBy, before, startedAt))
+    .finally(() => {
+      void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(orgId)).catch(() => {});
+    });
+}
+
+/**
+ * The check's backstops and its summary, once its run has ended.
+ * @param orgId - Tenant.
+ * @param slug - The automation.
+ * @param doCfg - Its `do`.
+ * @param doCfg.requireTool
+ * @param template - The mission it checks.
+ * @param run - The check's run.
+ * @param triggerInput - What the fire was for.
+ * @param invokedBy - Who started the fire.
+ * @param before - The queue before the check.
+ * @param startedAt - When the check started.
+ */
+async function afterCheck(
+  orgId: string,
+  slug: string,
+  doCfg: { requireTool?: string },
+  template: NonNullable<Awaited<ReturnType<typeof import('@/services/MissionService').getMission>>>,
+  run: Awaited<ReturnType<typeof import('@/services/MissionService').startMission>>,
+  triggerInput: Record<string, unknown> | undefined,
+  invokedBy: string | undefined,
+  before: Awaited<ReturnType<typeof import('@/services/automations/checkSummary').queueSnapshot>>,
+  startedAt: Date,
+): Promise<{ kind: 'mission_check'; runId: number; result?: unknown }> {
+  const { summarizeMissionCheck } = await import('@/services/automations/checkSummary');
   if (doCfg.requireTool && !(await calledRequiredTool(orgId, run.id, doCfg.requireTool))) {
     const { forceRequiredTool, missionRunReport } = await import('@/services/automations/requiredToolPass');
     const forced = await forceRequiredTool({

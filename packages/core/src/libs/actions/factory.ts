@@ -149,6 +149,15 @@ export const gitMergeAction: Action = {
     const { mergePull } = await import('@/services/factory/githubMerge');
     const judged = typeof input.verdictCommitSha === 'string' ? input.verdictCommitSha : typeof input.commitSha === 'string' ? input.commitSha : null;
     const res = await mergePull(ctx.orgId, url, judged);
+    // VOCION KNOWS ITS OWN MERGE AT ONCE (2026-10-01, FE-314: merged 23:51:30,
+    // the page read "Nothing running" over a running deploy until the next
+    // GitHub sync raised pr.merged at 23:55). The same event, same dedupe key.
+    if (res.pull) {
+      const { mergedPullEvent } = await import('@/libs/github/events');
+      const { emitEvent } = await import('@/services/EventService');
+      const event = mergedPullEvent(res.repo, res.pull);
+      await emitEvent({ orgId: ctx.orgId, type: event.type, payload: event.payload, dedupeKey: event.dedupeKey, invokedBy: 'action:git.merge' }).catch((err: Error) => console.warn('[git.merge] pr.merged was not raised; the sync will raise it', { url, message: err.message }));
+    }
     return { merged: true, pullRequest: url, mergeSha: res.sha, alreadyMerged: res.already };
   },
   async undo(ctx, raw) {

@@ -19,9 +19,10 @@
  * link away: the plan record, the run page, the release.
  */
 
-import type { FeatureDrawerKey, FeatureReport, ReportAttempt, ReportCheck, ReportEntry, ReportSection, TimelineEntry } from './featureReport';
+import type { FeatureDrawerKey, FeatureReport, HistoryCost, HistoryRow, ReportAttempt, ReportCheck, ReportEntry, ReportSection } from './featureReport';
 import { nounCode } from '@/libs/codes';
-import { formatAge, formatStamp, money } from './featureReport';
+import { historyCostLine } from './featureHistory';
+import { formatStamp, money } from './featureReport';
 
 /** What a drawer shows: the pane's heading, one line under it, a few facts and the body. */
 export type FeatureDrawer = {
@@ -31,9 +32,15 @@ export type FeatureDrawer = {
   body: string;
   /** The full page of what this drawer summarises (the plan record, the latest run), for the pane's link out. */
   href?: string;
+  /**
+   * The Timeline, drawn in the pane by the same component the page draws it
+   * with, at full density (`FeatureTimeline`). The body is the same list as
+   * text, for a surface that reads a drawer plainly.
+   */
+  timeline?: { rows: HistoryRow[]; cost: HistoryCost };
 };
 
-const DRAWER_KEY = /^(?:status|plan|implementation|acceptance|release|activity|work|cost|details|criterion-\d+)$/;
+const DRAWER_KEY = /^(?:status|plan|implementation|acceptance|release|timeline|activity|work|cost|details|criterion-\d+)$/;
 
 /**
  * Read `<requestId>.<key>` back into its parts, or null for anything else.
@@ -175,17 +182,18 @@ function sectionMd(s: ReportSection | undefined, opts: { heading?: boolean; abse
 }
 
 /**
- * One timeline entry as a line. A run links to its page, which the timeline
- * itself does not carry.
- * @param e - The entry.
+ * One Timeline row as a line, its rows under it indented: the title as a
+ * link to what it opens, its code, when, and what it cost.
+ * @param r - The row.
+ * @param depth - How deep it sits.
  */
-function timelineLine(e: TimelineEntry): string {
-  const runId = e.kind === 'run' ? /^run-(\d+)$/.exec(e.key)?.[1] : undefined;
-  const href = e.href ?? (runId ? runPage(Number(runId)) : null);
-  // A pull request reads as `repo#12`, not as its URL spelled out.
-  const words = e.title.replace(/https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/g, prName);
-  const title = href ? `[${words}](${href})` : words;
-  return `- **${formatStamp(e.at)}**${e.cents !== null ? ` · ${money(e.cents)}` : ''} — ${title}${e.detail ? `\n  ${e.detail.replace(/\s+/g, ' ').slice(0, 280)}` : ''}`;
+function historyLine(r: HistoryRow, depth = 0): string {
+  const href = r.open ? peek(r.open.type, r.open.id) : r.href;
+  const title = href ? `[${r.title}](${href})` : r.title;
+  const meta = [r.code, r.at ? formatStamp(new Date(r.at)) : null, r.cents !== null ? money(r.cents) : null].filter(Boolean).join(' · ');
+  const line = `${'  '.repeat(depth)}- ${title}${meta ? ` · ${meta}` : ''}`;
+  const notes = (r.notes ?? []).map(n => `${'  '.repeat(depth + 1)}- _${n.replace(/\s+/g, ' ').slice(0, 280)}_`);
+  return [line, ...notes, ...(r.children ?? []).map(c => historyLine(c, depth + 1))].join('\n');
 }
 
 /**
@@ -229,11 +237,9 @@ function attemptMd(a: ReportAttempt, of: number): string {
  * (a criterion past the end of the list).
  * @param report - The assembled report.
  * @param key - Which drawer.
- * @param now - The clock, for "2 days ago".
  */
-export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now: Date = new Date()): FeatureDrawer | null {
+export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey): FeatureDrawer | null {
   const section = (k: string) => report.sections.find(s => s.key === k);
-  const ago = (d: Date) => formatAge(now.getTime() - d.getTime());
   const self = (k: FeatureDrawerKey) => peek('feature_section', featureDrawerId(report.requestId, k));
   switch (key) {
     case 'status': {
@@ -351,48 +357,34 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
         ...(internal ? { href: internal } : {}),
       };
     }
+    // ONE LIST (Chris, 2026-10-02): the old event log ("activity") and
+    // "Connected work" ("work") open the Timeline, so their links still land.
+    case 'timeline':
     case 'activity':
+    case 'work':
       return {
-        title: 'Activity',
-        subtitle: `${report.timeline.length} event${report.timeline.length === 1 ? '' : 's'}, oldest first`,
-        body: report.timeline.length === 0 ? 'Nothing on this work is dated, so there is no order to show.' : report.timeline.map(timelineLine).join('\n'),
+        title: 'Timeline',
+        // The cost is the list's own foot; the pane's line under the title stays empty.
+        body: report.history.length === 0 ? 'Nothing has happened on this work yet.' : [...report.history.map(r => historyLine(r)), '', historyCostLine(report.historyCost, money)].join('\n'),
+        timeline: { rows: report.history, cost: report.historyCost },
       };
-    case 'work': {
-      const items = report.activity ?? [];
-      const word = { conversation: 'Conversation', mission_run: 'Agent run', worker_run: 'Run' } as const;
-      const conversations = items.filter(i => i.kind === 'conversation').length;
-      const runs = items.filter(i => i.kind !== 'conversation').reduce((n, i) => n + (i.count ?? 1), 0);
-      const count = [
-        conversations > 0 ? `${conversations} conversation${conversations === 1 ? '' : 's'}` : null,
-        runs > 0 ? `${runs} run${runs === 1 ? '' : 's'}` : null,
-      ].filter(Boolean).join(' and ');
-      return {
-        title: 'Connected work',
-        subtitle: items.length === 0 ? undefined : `${count} tied to this work, newest first`,
-        body: items.length === 0
-          ? 'No conversation or run names this work.'
-          : items.map((i) => {
-              // A run with no title of its own reads by its code (RUN-6414), already its title.
-              const title = i.title;
-              // A repeated agent run is one line, opening its newest run.
-              const repeats = i.count && i.count > 1 ? ` · ran ${i.count} times` : '';
-              return `- [${title}](${peek(i.kind, i.id)}) · ${word[i.kind]}${repeats}${i.status ? ` · ${i.status}` : ''}${i.detail ? ` · ${i.detail}` : ''} · ${repeats ? 'last ' : ''}${ago(i.at)}`;
-            }).join('\n'),
-      };
-    }
     case 'cost': {
       const impl = report.implementation;
       const n = impl.attempts.length;
+      const agentLines = (report.activity ?? [])
+        .filter(i => i.kind !== 'worker_run' && typeof i.cents === 'number')
+        .map(i => `- [${i.origin ? 'Requested in chat' : i.title}](${peek(i.kind, i.id)}): ${money(i.cents!)}`);
       return {
         title: 'Cost',
         subtitle: impl.costLine,
         body: [
           // The spend is the line above; the working behind it is what is left.
           sectionMd(section('money'), { heading: false, omit: ['Spent'] }),
-          report.notices.filter(nt => nt.key === 'cost-disagree').map(nt => `> ${nt.evidence}`).join('\n\n'),
           n > 0
             ? `## By run\n\n${impl.attempts.map(a => `- [${nounCode('run', a.runId)} · ${a.outcome}](${runPage(a.runId)}): ${a.cents === null ? 'no charge recorded' : money(a.cents)}`).join('\n')}`
             : '',
+          // The agent runs and chats the figure counts, each with its share.
+          agentLines.length > 0 ? `## Agents and chat\n\n${agentLines.join('\n')}` : '',
         ].filter(Boolean).join('\n\n'),
       };
     }

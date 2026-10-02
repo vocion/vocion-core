@@ -1,0 +1,14 @@
+# The trust ladder for Production Watch.
+#
+# An incident the on-call engineer opens is done for you (2026-10-01: an
+# incident it filed sat in Review as a card until a person turned it down, on
+# an outage it was meant to report). It is the plugin's own record of what
+# production did, and opening one reaches nobody: the watch's one
+# notification is what a person hears. It lands on Incidents with Undo, where
+# Undo dismisses it.
+rules:
+  - action: objects.propose_candidate.incident
+    autoApproveAbove: 0.5
+    enabled: true
+    rung: execute-within-bounds
+    risk: low

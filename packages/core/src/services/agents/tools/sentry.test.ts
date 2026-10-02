@@ -74,4 +74,19 @@ describe('the Sentry tools', () => {
     expect(out.latestEvent.appFrames).toEqual(['/app/packages/core/dist/auth/plugin.js:210 in Object.?']);
     expect(out.latestEvent.request).toEqual({ method: 'GET', url: 'https://api.northwind.example/v1/orgs', status: 500 });
   });
+
+  it('say first whether the issue is still happening, with the releases since its last event', async () => {
+    stubFetch({
+      '/organizations/northwind/issues/NW-API-3/': { id: '77', shortId: 'NW-API-3', title: 'EngineInitError: ', project: { slug: 'northwind-api' }, count: '184', status: 'unresolved', firstSeen: '2026-01-10T14:43:54Z', lastSeen: '2026-01-10T15:47:00Z' },
+      '/organizations/northwind/issues/77/events/latest/': { eventID: 'e1', tags: [], entries: [] },
+      '/projects/northwind/northwind-api/releases/': [{ version: 'bbb222bbb222ff', dateCreated: '2026-01-10T16:14:00Z' }, { version: 'aaa111aaa111ff', dateCreated: '2026-01-10T14:39:00Z' }],
+    });
+    vi.useFakeTimers({ now: new Date('2026-01-10T19:30:00Z'), toFake: ['Date'] });
+    const [, issue] = sentryTools(ctx(['sentry_issues', 'sentry_issue']));
+    const out = JSON.parse(await issue!.invoke({ id: 'NW-API-3' }) as string);
+    vi.useRealTimers();
+
+    expect(out.stillHappening).toMatchObject({ state: 'stopped', quietMinutes: 223, releasesSince: [{ version: 'bbb222bbb222ff' }] });
+    expect(out.note).toMatch(/^Not happening now: the last event was 3h 43m ago\. 1 release went out since \(bbb222bbb222\)\./);
+  });
 });

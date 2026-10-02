@@ -29,6 +29,10 @@
  *     drawn hands-off, and a drawing that drew nothing is tried once more or
  *     written down. Subscribed by the software-factory plugin.
  *     `services/jobs/mockupDefault.ts`.
+ *   - `error-watch` — production errors from the error tracker become records
+ *     of the type the automation names, opened or updated past a threshold,
+ *     each with its cause read by the classifier, and the events it names
+ *     raised for whatever listens. `services/jobs/errorWatch.ts`.
  *   - `live-check-ended` — QA's live check of a release ended: seen, checked
  *     once more carrying why, or "could not reach the change" written on the
  *     release and its features. `services/jobs/liveCheck.ts`.
@@ -38,6 +42,7 @@
  */
 
 import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport';
+import { ERROR_WATCH_JOB, runErrorWatch } from './errorWatch';
 import { factoryCarryJobs } from './factoryCarry';
 import { INDEX_ARTIFACT_JOB, runIndexArtifactJob } from './indexArtifact';
 import { liveCheckJobs } from './liveCheck';
@@ -54,6 +59,7 @@ const JOBS: Record<string, BuiltInJob> = {
   [REFRESH_EVALS_JOB]: runRefreshEvalsJob,
   [INDEX_ARTIFACT_JOB]: runIndexArtifactJob,
   [SWEEP_IDLE_CONVERSATIONS_JOB]: (orgId, input) => runSweepIdleConversationsJob(orgId, input),
+  [ERROR_WATCH_JOB]: (orgId, input) => runErrorWatch(orgId, input),
   ...factoryCarryJobs,
   ...mockupDefaultJobs,
   ...liveCheckJobs,

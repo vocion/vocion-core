@@ -10,10 +10,10 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { askSchema, businessObjectSchema, workerRunSchema } = await import('@/models/Schema');
+const { actionRunSchema, askSchema, businessObjectSchema, workerRunSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
-const { reconcileOpenPulls, recheckFixedBranches, settleClosedRequests, watchQueuedRuns } = await import('./reconcile');
+const { reconcileOpenPulls, recheckFixedBranches, settleClosedRequests, settleWaitingMerges, watchQueuedRuns } = await import('./reconcile');
 
 const ORG = 'org_factory_reconcile';
 const REPO = 'Acme/northwind-core';
@@ -166,5 +166,51 @@ describe('a closed request leaves no stage behind', () => {
     expect(rec.stage).toBeNull();
     expect(rec.line).toBeNull();
     expect(rec.log.at(-1)?.text).toMatch(/^Closed \(shipped\)/);
+  });
+});
+
+describe('a merge waiting on a person is what the request says', () => {
+  // Walk 7, 2026-10-02: #130 had QA 8 of 8 and a pending merge card (infra class) and its
+  // stage still read "Recovering (attempt 1 of 3): … the required checks failed (no-runtime-ddl)".
+  const recovering = (attemptAt: string) => ({
+    stage: 'recovering',
+    line: 'Recovering (attempt 1 of 3): sending it again because the required checks failed (no-runtime-ddl)',
+    attempts: [{ n: 1, at: attemptAt, kind: 'build', trigger: 'recovery', runId: 470, taskId: null, line: 'Recovered: sending it again because the required checks failed (no-runtime-ddl).', failure: null }],
+    since: '2026-10-02T03:28:07.522Z',
+    limit: 3,
+    askId: null,
+    planRequestedAt: null,
+    handledRunIds: [],
+    log: [{ at: attemptAt, text: 'Recovered: sending it again because the required checks failed (no-runtime-ddl) (attempt 1 of 3).', runId: 470 }],
+  });
+  const approved = { value: 'approve', proven: 8, total: 8 };
+
+  async function seed(attemptAt: string, cardAt: string, cardStatus = 'pending', verdict: Record<string, unknown> = approved) {
+    const [r] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.request!, title: 'Remind who has not opened', metadata: { state: 'building', recovery: recovering(attemptAt) } }).returning();
+    const [t] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.engineering_task!, title: 'Attempt', status: 'accepted', metadata: { requestId: r!.id, status: 'accepted', verdict } }).returning();
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: cardStatus, input: { taskId: t!.id, riskClass: 'infra' }, createdAt: new Date(cardAt) });
+    return r!.id;
+  }
+
+  it('settles a stage older than the pending card on one true line, and leaves a newer attempt alone', async () => {
+    const waiting = await seed('2026-10-02T03:54:55Z', '2026-10-02T04:21:38Z');
+    const newer = await seed('2026-10-02T05:00:00Z', '2026-10-02T04:21:38Z');
+    const notApproved = await seed('2026-10-02T03:54:55Z', '2026-10-02T04:21:38Z', 'pending', { value: 'changes', proven: 6, total: 8 });
+
+    const out = await settleWaitingMerges(ORG, new Date('2026-10-02T06:00:00Z'));
+
+    expect(out.find(r => r.requestId === waiting)).toMatchObject({ did: 'settled on its merge card', line: 'QA approved 8 of 8; the merge waits on a person (infra class).' });
+    expect(out.map(r => r.requestId)).not.toContain(newer);
+    expect(out.map(r => r.requestId)).not.toContain(notApproved);
+
+    const rec = ((await read(waiting)).metadata as { recovery: { stage: unknown; line: unknown; log: Array<{ text: string }> } }).recovery;
+
+    expect(rec.stage).toBeNull();
+    expect(rec.line).toBeNull();
+    expect(rec.log.at(-1)?.text).toBe('QA approved 8 of 8; the merge waits on a person (infra class).');
+    expect(((await read(newer)).metadata as { recovery: { stage: unknown } }).recovery.stage).toBe('recovering');
+
+    // Once settled, the next pass has nothing to do.
+    expect((await settleWaitingMerges(ORG, new Date('2026-10-02T06:05:00Z'))).map(r => r.requestId)).not.toContain(waiting);
   });
 });

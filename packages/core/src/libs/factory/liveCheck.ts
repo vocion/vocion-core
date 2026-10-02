@@ -27,6 +27,7 @@
  */
 
 import { z } from 'zod';
+import { featureProof } from '@/libs/workspace/featureProof';
 
 /** The role a live shot carries on the release, beside QA's pre-merge `qa-screenshot`. */
 export const LIVE_ROLE = 'live-screenshot';
@@ -40,7 +41,7 @@ export type LivePhase = typeof LIVE_PHASES[number];
  * one contract both sides hold to (`liveCheck.test.ts` reads the runner's
  * list and compares).
  */
-export const LIVE_STEP_VERBS = ['click', 'fill', 'wait_for', 'shoot', 'upload', 'offline', 'goto', 'remember', 'pause'] as const;
+export const LIVE_STEP_VERBS = ['click', 'fill', 'wait_for', 'shoot', 'upload', 'offline', 'goto', 'remember', 'pause', 'expect_response'] as const;
 
 /** The viewports a flow may name — the runner's. */
 export const LIVE_VIEWPORTS = ['desktop', 'phone'] as const;
@@ -66,7 +67,7 @@ export const LIVE_ATTEMPTS = 2;
  * the place it failed, never read back out of the message; the message itself
  * is the `detail`, one click away.
  */
-export const LIVE_REASON_KINDS = ['sign_in_failed', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run'] as const;
+export const LIVE_REASON_KINDS = ['sign_in_failed', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run', 'not_checked'] as const;
 export type LiveReasonKind = typeof LIVE_REASON_KINDS[number];
 
 /** One reason, typed: its kind, the flow and step it stopped at, and the check's own words. */
@@ -74,8 +75,8 @@ export type LiveReason = {
   kind: LiveReasonKind;
   /** The flow it stopped in. */
   flow?: string | null;
-  /** The step it stopped at: 1-based, its verb and what it named. */
-  step?: { n: number; verb: string; target: string } | null;
+  /** The step it stopped at: 1-based, its verb, what it named, and the runner's own words for why. */
+  step?: { n: number; verb: string; target: string; error?: string } | null;
   /** The page, for a page that was not there. */
   path?: string | null;
   /** The check's own words, kept whole for whoever fixes it. */
@@ -84,6 +85,9 @@ export type LiveReason = {
 
 /** A step failure as the runner reports it (`shootFlow`'s `stepFailures`). */
 export type RunnerStepFailure = { index: number; verb: string; target: string; error: string };
+
+/** A response a flow's `expect_response` saw, as the runner reports it (`shootFlow`'s `responses`). */
+export type RunnerResponseProof = { method: string; path: string; status: number };
 
 const quoteTarget = (t: string) => (t ? `"${t.slice(0, 60)}"` : '');
 
@@ -106,6 +110,8 @@ function stepDoing(verb: string, target: string): string {
       return `opening ${quoteTarget(target) || 'a page'}`;
     case 'remember':
       return 'reading a value off the page';
+    case 'expect_response':
+      return `checking the response to ${quoteTarget(target) || 'a request'}`;
     default:
       return verb;
   }
@@ -121,7 +127,7 @@ function stepDoing(verb: string, target: string): string {
  * @param detail - The check's own words for it.
  */
 export function stepReason(phase: LivePhase, flow: string, f: RunnerStepFailure, detail: string): LiveReason {
-  const step = { n: f.index + 1, verb: f.verb, target: String(f.target ?? '') };
+  const step = { n: f.index + 1, verb: f.verb, target: String(f.target ?? ''), ...(f.error ? { error: f.error.slice(0, 200) } : {}) };
   if (phase !== 'check') {
     return { kind: 'setup_failed', flow, step, detail };
   }
@@ -142,9 +148,14 @@ export function liveReasonSentence(r: LiveReason): string {
     case 'page_not_found':
       return `The page QA opened was not there on the live product${r.path ? ` (${r.path})` : ''}`;
     case 'not_visible':
+      if (r.step?.verb === 'expect_response') {
+        return `QA reached the page, but the API did not answer as promised${r.step.error ? `: ${r.step.error.replace(/[.\s]+$/, '')}` : at ? `: it stopped at ${at}` : ''}`;
+      }
       return `QA reached the page, but the change was not visible${r.step?.verb === 'wait_for' && r.step.target ? `: it waited for ${quoteTarget(r.step.target)} and it never appeared` : at ? `: it stopped at ${at}` : ''}`;
     case 'app_error':
       return 'The page showed an error instead of the change';
+    case 'not_checked':
+      return r.detail.replace(/[.\s]+$/, '');
     default:
       return `The live check could not run: ${r.detail.replace(/[.\s]+$/, '')}`;
   }
@@ -163,25 +174,45 @@ export function readLiveReason(v: unknown): LiveReason | null {
   return {
     kind: r.kind as LiveReasonKind,
     flow: typeof r.flow === 'string' ? r.flow : null,
-    step: step && Number.isInteger(step.n) && typeof step.verb === 'string' ? { n: Number(step.n), verb: step.verb, target: String(step.target ?? '') } : null,
+    step: step && Number.isInteger(step.n) && typeof step.verb === 'string' ? { n: Number(step.n), verb: step.verb, target: String(step.target ?? ''), ...(typeof step.error === 'string' ? { error: step.error } : {}) } : null,
     path: typeof r.path === 'string' ? r.path : null,
     detail: r.detail,
   };
 }
 
+/** `expect_response`: a response the page receives during the flow answered as promised (the runner's contract). */
+export const ExpectResponseSchema = z.object({
+  path: z.string().trim().min(1).max(300),
+  status: z.number().int().min(100).max(599),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']).optional(),
+}).strict();
+
 const stepSchema = z.record(z.string(), z.unknown()).superRefine((step, ctx) => {
   const keys = Object.keys(step);
   if (keys.length !== 1 || !(LIVE_STEP_VERBS as readonly string[]).includes(keys[0]!)) {
     ctx.addIssue({ code: 'custom', message: `a step names exactly one of ${LIVE_STEP_VERBS.join(', ')}; got ${keys.join(', ') || 'nothing'}` });
+    return;
+  }
+  if (keys[0] === 'expect_response') {
+    const r = ExpectResponseSchema.safeParse(step.expect_response);
+    if (!r.success) {
+      ctx.addIssue({ code: 'custom', message: `expect_response takes {path, status, method?}, e.g. {"path": "/v1/documents", "status": 200}: ${r.error.issues.map(i => `${i.path.join('.') || 'value'} ${i.message}`).join('; ')}` });
+    }
   }
 });
 
 export const LiveFlowSchema = z.object({
-  name: z.string().trim().min(1).max(60),
+  // A long name is clipped, never refused (release #369: a 61-character name failed the recording call).
+  name: z.string().trim().min(1).transform(v => v.slice(0, 60)),
   phase: z.enum(LIVE_PHASES).default('check'),
   /** The feature a check flow proves; omitted when the release shipped one. */
   request_id: z.number().int().positive().optional(),
-  /** The acceptance line a check flow's shots prove, in the request's words. */
+  /**
+   * The acceptance line a check flow proves, by its number (1-based) in the request's `acceptance`.
+   * The check fills in `criterion` from the record; a number the request does not have is refused.
+   */
+  line: z.number().int().positive().optional(),
+  /** The acceptance line's words, as the record has them: written by the check from `line`, never by QA. */
   criterion: z.string().trim().max(300).optional(),
   /** Run signed in as the product's QA account (default), or as a visitor with no session. */
   signed_in: z.boolean().default(true),
@@ -201,6 +232,167 @@ export type LiveFlow = z.infer<typeof LiveFlowSchema>;
  */
 export function orderedFlows<T extends { phase: LivePhase }>(flows: readonly T[]): T[] {
   return LIVE_PHASES.flatMap(p => flows.filter(f => f.phase === p));
+}
+
+/**
+ * ONE ACCEPTANCE LINE, BY ITS NUMBER (2026-10-02, FE-314 / REL-347): QA wrote a check for "A visitor
+ * can open the shared link and download the file", a line FE-314 never had, and the release read
+ * "Not seen live" while its one live-observable promise (signed-in GET /v1/documents returns 200)
+ * held. A check flow now cites a line of the request by its position; the words come from the
+ * record, so a check can only prove what the feature promised.
+ */
+export type AcceptanceLine = {
+  /** 1-based, as QA cites it. */
+  n: number;
+  text: string;
+  /** QA's pre-merge verdict proved it, with evidence (`featureProof`). */
+  provenBeforeMerge: boolean;
+};
+
+/**
+ * A request's acceptance lines, numbered, read the one way every surface reads them
+ * (`libs/workspace/featureProof.ts`).
+ * @param meta - The request's metadata.
+ */
+export function acceptanceLines(meta: Record<string, unknown>): AcceptanceLine[] {
+  return featureProof({ request: { id: 0, meta }, tasks: [] }).acceptance.map((c, i) => ({ n: i + 1, text: c.statement, provenBeforeMerge: c.state === 'passed' }));
+}
+
+/** A line QA says the live product cannot show: proven before merge, or not proven at all. */
+export type BeforeMergeLine = { requestId: number; line: number; text: string; why: string; proven: boolean };
+
+/** A line QA names as one production cannot show, as the tool takes it. */
+export const NotObservableSchema = z.object({
+  request_id: z.number().int().positive().optional(),
+  line: z.number().int().positive(),
+  why: z.string().trim().min(1).max(300),
+});
+export type NotObservable = z.infer<typeof NotObservableSchema>;
+
+/** The words a person reads for a line production cannot show that QA proved before the merge. */
+export const PROVEN_BEFORE_MERGE = 'proven before merge by QA\'s verdict';
+
+/**
+ * The lines of one request, numbered, as the refusal and the tool's answer list them.
+ * @param requestId - The request.
+ * @param lines - Its lines.
+ */
+export function linesList(requestId: number, lines: readonly AcceptanceLine[]): string {
+  return lines.length === 0
+    ? `request #${requestId} has no acceptance lines`
+    : `request #${requestId}'s acceptance lines:\n${lines.map(l => `  ${l.n}. ${l.text}${l.provenBeforeMerge ? ` (${PROVEN_BEFORE_MERGE})` : ''}`).join('\n')}`;
+}
+
+export type ResolvedLines
+  = | {
+    ok: true;
+    /** The flows, each check flow's `criterion` written from the line it cites. */
+    flows: LiveFlow[];
+    beforeMerge: BeforeMergeLine[];
+    /** Lines no check flow cited and QA did not name as ones production cannot show (only ever non-empty while exploring). */
+    uncovered: Array<{ requestId: number; line: AcceptanceLine }>;
+  }
+  | { ok: false; refusal: string };
+
+/**
+ * Tie each check flow to the acceptance line it cites, and each line QA says production cannot show
+ * to its record. A reference the record does not have is refused with the request's lines, numbered,
+ * so QA corrects itself; nothing is run or written on a refusal. A recording run must account for
+ * every line (cited by a check flow, or named in not_observable). An exploring run may leave its
+ * check flows uncited and lines unaccounted (it is learning the page), but never cite a line that is not there.
+ * @param flows - QA's flows.
+ * @param notObservable - The lines QA says the live product cannot show.
+ * @param linesByRequest - Each request the release shipped, and its lines.
+ * @param opts - `explore`: an exploring run.
+ * @param opts.explore - Whether this run only explores.
+ */
+export function resolveLines(flows: readonly LiveFlow[], notObservable: readonly NotObservable[], linesByRequest: ReadonlyMap<number, AcceptanceLine[]>, opts: { explore?: boolean } = {}): ResolvedLines {
+  const shipped = [...linesByRequest.keys()];
+  const only = shipped.length === 1 ? shipped[0]! : null;
+  const all = () => shipped.map(id => linesList(id, linesByRequest.get(id) ?? [])).join('\n');
+  const fix = 'Cite a line by its number (line: n, with request_id when the release shipped more than one request), and name the lines the live product cannot show in not_observable.';
+  const whose = (what: string, requestId: number | undefined): { id: number; lines: AcceptanceLine[] } | string => {
+    const id = requestId ?? only;
+    if (id === null) {
+      return `${what} names no request_id, and this release shipped ${shipped.length === 0 ? 'no request' : `requests ${shipped.map(n => `#${n}`).join(', ')}`}`;
+    }
+    const lines = linesByRequest.get(id);
+    return lines ? { id, lines } : `${what} names request #${id}, which this release did not ship (it shipped ${shipped.map(n => `#${n}`).join(', ') || 'none'})`;
+  };
+  const cited = new Set<string>();
+  const out: LiveFlow[] = [];
+  for (const flow of flows) {
+    if (flow.phase !== 'check') {
+      out.push(flow);
+      continue;
+    }
+    const what = `check flow "${flow.name}"`;
+    const { criterion: _ignored, ...rest } = flow;
+    if (flow.line === undefined) {
+      const w = flow.request_id !== undefined || only !== null ? whose(what, flow.request_id) : null;
+      if (typeof w === 'string') {
+        return { ok: false, refusal: `${w}.\n${all()}\n${fix}` };
+      }
+      if (!opts.explore && w && w.lines.length > 0) {
+        return { ok: false, refusal: `${what} cites no acceptance line.\n${linesList(w.id, w.lines)}\n${fix}` };
+      }
+      out.push(rest);
+      continue;
+    }
+    const w = whose(what, flow.request_id);
+    if (typeof w === 'string') {
+      return { ok: false, refusal: `${w}.\n${all()}\n${fix}` };
+    }
+    const line = w.lines.find(l => l.n === flow.line);
+    if (!line) {
+      return { ok: false, refusal: `${what} cites line ${flow.line} of request #${w.id}, which ${w.lines.length === 0 ? 'has no acceptance lines' : `has ${w.lines.length}`}.\n${linesList(w.id, w.lines)}\n${fix}` };
+    }
+    cited.add(`${w.id}:${line.n}`);
+    out.push({ ...rest, request_id: w.id, criterion: line.text.slice(0, 300) });
+  }
+  const beforeMerge: BeforeMergeLine[] = [];
+  for (const n of notObservable) {
+    const what = `not_observable line ${n.line}`;
+    const w = whose(what, n.request_id);
+    if (typeof w === 'string') {
+      return { ok: false, refusal: `${w}.\n${all()}\n${fix}` };
+    }
+    const line = w.lines.find(l => l.n === n.line);
+    if (!line) {
+      return { ok: false, refusal: `${what} of request #${w.id} is not there: it ${w.lines.length === 0 ? 'has no acceptance lines' : `has ${w.lines.length}`}.\n${linesList(w.id, w.lines)}\n${fix}` };
+    }
+    // A line a check flow proves on production is checked there, whatever else was said of it.
+    if (!cited.has(`${w.id}:${line.n}`) && !beforeMerge.some(b => b.requestId === w.id && b.line === line.n)) {
+      beforeMerge.push({ requestId: w.id, line: line.n, text: line.text, why: n.why, proven: line.provenBeforeMerge });
+    }
+  }
+  const uncovered = shipped.flatMap(id => (linesByRequest.get(id) ?? [])
+    .filter(l => !cited.has(`${id}:${l.n}`) && !beforeMerge.some(b => b.requestId === id && b.line === l.n))
+    .map(line => ({ requestId: id, line })));
+  // EVERY LINE IS ACCOUNTED FOR (Walk 7, 2026-10-02: release #363 read "1 of 6 states reached"
+  // because QA cited one line and named no other). A recording call that leaves a line neither
+  // cited by a check flow nor named in not_observable is refused, listing those lines, so the run
+  // fixes it in the same turn. Exploring stays free: it is how QA learns the lines.
+  if (!opts.explore && uncovered.length > 0) {
+    const byRequest = shipped.filter(id => uncovered.some(u => u.requestId === id));
+    const missing = byRequest.map(id => `request #${id}: ${uncovered.filter(u => u.requestId === id).map(u => `line ${u.line.n} (${u.line.text.slice(0, 160)})`).join('; ')}`).join('\n');
+    return { ok: false, refusal: `${uncovered.length === 1 ? 'An acceptance line is' : `${uncovered.length} acceptance lines are`} neither cited by a check flow nor named in not_observable:\n${missing}\nEvery line is one or the other: add a check flow citing it (line: n), or name it in not_observable with why production cannot show it, and call check_live again.\n${byRequest.map(id => linesList(id, linesByRequest.get(id) ?? [])).join('\n')}` };
+  }
+  return { ok: true, flows: out, beforeMerge, uncovered };
+}
+
+/**
+ * The row a line no check reached on production stands as: one QA never cited, or one production
+ * cannot show that QA's verdict did not prove before merge. Either way it is unproven, said why.
+ * @param requestId - The request.
+ * @param line - The line.
+ * @param cannotShow - QA said production cannot show it (and the verdict did not prove it).
+ */
+export function uncheckedRow(requestId: number, line: AcceptanceLine, cannotShow: boolean): LiveRow {
+  const detail = cannotShow
+    ? `Line ${line.n} of request #${requestId} cannot be seen on the live product, and QA's verdict did not prove it before merge`
+    : `QA did not check line ${line.n} of request #${requestId} on the live product, and did not say production cannot show it`;
+  return { requestId, flow: `line ${line.n}`, line: line.n, criterion: line.text, viewport: 'desktop', artifactId: null, status: 'not_reached', reason: detail, why: { kind: 'not_checked', detail }, url: null };
 }
 
 /** One shot as the runner's `shootFlow` returns it. */
@@ -254,6 +446,8 @@ export function keptShots(flowPath: string, result: { shots: RunnerShot[]; stepF
 export type LiveRow = {
   requestId: number | null;
   flow: string;
+  /** The acceptance line it proves, by its number in the request. */
+  line?: number;
   criterion: string | null;
   viewport: string;
   artifactId: number | null;
@@ -264,6 +458,8 @@ export type LiveRow = {
   url: string | null;
   /** The shot's own label, when the flow named it. */
   label?: string;
+  /** What the flow's `expect_response` steps saw answer as promised: "GET /v1/documents returned 200". */
+  proved?: string[];
 };
 
 export type LiveState = 'seen' | 'partial' | 'not_seen';
@@ -287,13 +483,22 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
  * check. Nothing reached is a failure said with its reason, never a pass.
  * @param rows - The check flows' states.
  * @param problems - What stopped a flow from running at all (setup, sign-in, the browser).
+ * @param beforeMerge - The lines production cannot show, and whether QA's verdict proved them.
  */
-export function liveVerdict(rows: readonly LiveRow[], problems: readonly (string | LiveReason)[] = []): LiveVerdict {
+export function liveVerdict(rows: readonly LiveRow[], problems: readonly (string | LiveReason)[] = [], beforeMerge: readonly BeforeMergeLine[] = []): LiveVerdict {
   const total = rows.length;
   const reached = rows.filter(r => r.status === 'reached').length;
   const miss = rows.find(r => r.status === 'not_reached');
+  // Lines production cannot show, that QA's verdict proved before the merge: said, never counted as
+  // unreached (a line it did not prove stands as an unreached row instead, `uncheckedRow`).
+  const proven = beforeMerge.filter(b => b.proven).length;
+  const tail = proven > 0 ? `. ${plural(proven, 'more line')} ${PROVEN_BEFORE_MERGE}` : '';
+  const proved = [...new Set(rows.filter(r => r.status === 'reached').flatMap(r => r.proved ?? []))];
   if (total > 0 && reached === total) {
-    return { state: 'seen', line: `Seen live: ${reached} of ${plural(total, 'state')} reached`, reason: null, why: null, reached, total };
+    return { state: 'seen', line: `Seen live: ${reached} of ${plural(total, 'state')} reached${proved.length > 0 ? ` (${proved.slice(0, 3).join('; ')})` : ''}${tail}`, reason: null, why: null, reached, total };
+  }
+  if (total === 0 && proven > 0 && problems.length === 0) {
+    return { state: 'seen', line: `Nothing to see on the live product: ${plural(proven, 'line')} ${PROVEN_BEFORE_MERGE}`, reason: null, why: null, reached, total };
   }
   // Typed where it happened, said as a sentence; a reason only in words (recorded before it was
   // typed) is said in its own words, as it was.
@@ -301,9 +506,9 @@ export function liveVerdict(rows: readonly LiveRow[], problems: readonly (string
   const why = typeof first === 'string' ? null : { ...first, detail: first.detail.slice(0, 400) };
   const reason = (why?.detail ?? (first as string)).slice(0, 400);
   if (reached === 0) {
-    return { state: 'not_seen', line: notSeenLine(why ?? reason), reason, why, reached, total };
+    return { state: 'not_seen', line: `${notSeenLine(why ?? reason)}${tail}`, reason, why, reached, total };
   }
-  return { state: 'partial', line: `Partly seen live: ${reached} of ${plural(total, 'state')} reached. Not reached: ${why ? liveReasonSentence(why) : reason}`, reason, why, reached, total };
+  return { state: 'partial', line: `Partly seen live: ${reached} of ${plural(total, 'state')} reached. Not reached: ${why ? liveReasonSentence(why) : reason}${tail}`, reason, why, reached, total };
 }
 
 /**
@@ -353,6 +558,8 @@ export type RequestLiveMark = {
   flows: LiveFlow[];
   /** Why it was not seen, typed; its `detail` is the check's own words. */
   why?: LiveReason | null;
+  /** The lines production cannot show, and whether QA's verdict proved them before the merge. */
+  beforeMerge?: BeforeMergeLine[];
 };
 
 type Meta = Record<string, unknown>;

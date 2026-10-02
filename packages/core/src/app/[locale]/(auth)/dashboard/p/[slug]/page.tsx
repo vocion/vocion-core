@@ -13,6 +13,7 @@ import { PageFeed } from '@/features/dashboard/pages/PageFeed';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
+import { WatchEmpty } from '@/features/dashboard/pages/WatchEmpty';
 import { PausedAutomations } from '@/features/dashboard/plugins/PausedAutomations';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
@@ -25,7 +26,7 @@ import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
-import { activeQueryFilters, applyQueryFilters, groupTabKey, LIVE_FALLBACK_EVERY_S } from '@/libs/workspace/pageFields';
+import { activeQueryFilters, applyQueryFilters, groupTabKey, LIVE_FALLBACK_EVERY_S, orderGroups } from '@/libs/workspace/pageFields';
 import {
   applyFilter,
   applyWindow,
@@ -60,12 +61,14 @@ import { loadPendingBuilds } from '@/services/factory/pendingBuilds';
 import { loadReleaseLinked } from '@/services/factory/releaseData';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
+import { loadStatusModel } from '@/services/objects/statusField';
 import { readPageForOrg } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
 import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 import { loadObjectRows } from '@/services/workspace/objectRows';
 import { resolveRowImages } from '@/services/workspace/pageImages';
+import { loadWatchState } from '@/services/workspace/watchState';
 
 /**
  * Workspace page renderer — `/dashboard/p/<slug>`.
@@ -605,7 +608,10 @@ export default async function WorkspacePage(props: {
       // the queue reads the attempts and the releases that name them.
       ? await (async () => {
           const tasks = await loadObjectRows(orgId, 'engineering_task');
+          // Each row's lane and badge are its status, as the type declares them.
+          const statuses = manifest.source?.kind === 'objects' ? await loadStatusModel(orgId, manifest.source.objectType).catch(() => null) : null;
           return deriveWorkQueue(loaded, {
+            statuses,
             now: new Date(now),
             tasks,
             releases: await loadObjectRows(orgId, 'release'),
@@ -613,7 +619,7 @@ export default async function WorkspacePage(props: {
             pendingBuilds: await loadPendingBuilds(orgId),
             // What is running for each row right now, in one read for the
             // page (the Now line); the page re-reads on its `live` interval.
-            live: await loadWorkLive(orgId, loaded, tasks, new Date(now)),
+            live: await loadWorkLive(orgId, loaded, tasks, new Date(now), statuses),
           });
         })()
       : manifest.derive === 'releaseOutcome'
@@ -628,6 +634,7 @@ export default async function WorkspacePage(props: {
                 now: new Date(now),
                 requests: await loadObjectRows(orgId, 'request'),
                 releases: await loadObjectRows(orgId, 'release'),
+                statuses: await loadStatusModel(orgId, 'request').catch(() => null),
               })
             : loaded;
     const pickable = (manifest.queryFilters ?? []).filter(q => q.picker);
@@ -722,9 +729,16 @@ export default async function WorkspacePage(props: {
   }
   const series = (manifest.series ?? []).map(sr => computeSeries(windowed, sr, new Date(now)));
 
+  // A declared order puts the groups a person reads first first (open
+  // incidents above resolved ones), each under its label and limit.
   const groups: Array<{ label: string | null; rows: PageRow[] }> = manifest.groupBy
-    ? groupRows(windowed, manifest.groupBy)
+    ? orderGroups(groupRows(windowed, manifest.groupBy), manifest.groupOrder)
     : [{ label: null, rows: windowed }];
+  // A page with nothing to show says what is watching for it, and when it
+  // last read, rather than "Nothing here yet" (`empty.watch`).
+  const emptyState = manifest.empty && windowed.length === 0
+    ? { text: manifest.empty.text, watch: manifest.empty.watch ? await loadWatchState(orgId, manifest.empty.watch).catch(() => null) : null }
+    : null;
 
   // "Load more" pagination — the plain, ungrouped list only: a page with
   // lanes or tabs already shows each lane's own rows in full, and a cursor
@@ -964,7 +978,9 @@ export default async function WorkspacePage(props: {
         </p>
       )}
 
-      {manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && (() => {
+      {emptyState && <WatchEmpty text={emptyState.text} watch={emptyState.watch} now={now} />}
+
+      {!emptyState && manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && (() => {
         const Rows = manifest.layout === 'block' ? PageBlocks : PageTable;
         // A feed is the Ledger pattern: its own shape, so its own props.
         if (manifest.layout === 'feed') {
@@ -1011,7 +1027,8 @@ export default async function WorkspacePage(props: {
             groups={groups.map((g, gi) => ({
               key: groupTabKey(g.label, gi),
               label: g.label ?? '',
-              count: g.rows.length,
+              // A source that caps its rows says how many the group holds.
+              count: typeof g.rows[0]?.meta?.laneTotal === 'number' ? g.rows[0].meta.laneTotal : g.rows.length,
               note: typeof g.rows[0]?.meta?.laneNote === 'string' ? g.rows[0].meta.laneNote : null,
               children: panel(g, gi, null),
             }))}

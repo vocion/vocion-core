@@ -1,5 +1,7 @@
 slug: factory-request-intake
 name: A request arrived
+label: Triaged it
+doing: Triaging it
 description: >-
   The intake shape for the request noun: something outside posted a
   `request.created` event — a form on a product site, a store-review poller,

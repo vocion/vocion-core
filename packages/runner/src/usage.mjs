@@ -19,3 +19,23 @@ export function withUsage(pending, unsent) {
   const sum = k => (pending[k] || 0) + (unsent[k] || 0);
   return { model: pending.model || unsent.model, inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens'), cacheReadTokens: sum('cacheReadTokens'), cents: sum('cents') };
 }
+
+/**
+ * A resumed Claude Code session reports `modelUsage` as its total since the session began. This
+ * pass's share is that total less what the session had reported before it, field by field.
+ * @param {Record<string, Record<string, number>>} now - modelUsage after this pass.
+ * @param {Record<string, Record<string, number>>} before - modelUsage the session reported before it.
+ * @returns {Record<string, Record<string, number>>} Per model, the numeric fields' differences.
+ */
+export function usageDelta(now = {}, before = {}) {
+  const out = {};
+  for (const [m, u] of Object.entries(now || {})) {
+    const prior = (before || {})[m] || {};
+    const row = {};
+    for (const [k, v] of Object.entries(u || {})) {
+      row[k] = typeof v === 'number' ? Math.max(0, v - (Number(prior[k]) || 0)) : v;
+    }
+    out[m] = row;
+  }
+  return out;
+}

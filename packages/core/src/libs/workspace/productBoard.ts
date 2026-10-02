@@ -1,7 +1,8 @@
 import type { PageRow } from './pageFields';
 import type { WorkQueueOptions } from './workQueue';
+import type { StatusModel } from '@/libs/objects/statusModel';
 import { groupTabKey } from './pageFields';
-import { deriveWorkQueue, isWaitingOnPerson } from './workQueue';
+import { deriveWorkQueue, waitsOnYou } from './workQueue';
 
 /**
  * THE PRODUCT CARD, derived. A card answers, in this order: what is it, what
@@ -29,7 +30,7 @@ import { deriveWorkQueue, isWaitingOnPerson } from './workQueue';
 export const HEALTH_FRESH_HOURS = 48;
 
 /** The request/release rows a card is derived from, when the page loaded them. */
-export type ProductBoardContext = { requests?: PageRow[]; releases?: PageRow[] };
+export type ProductBoardContext = { requests?: PageRow[]; releases?: PageRow[]; statuses?: StatusModel | null };
 
 function num(row: PageRow, key: string): number {
   const v = (row.meta ?? {})[key];
@@ -175,7 +176,7 @@ export function releasesFor(product: PageRow, releases: PageRow[]): PageRow[] {
  * @param now - The clock.
  * @param extra - The work queue's live reads, when the caller has them.
  */
-export function productWork(product: PageRow, context: ProductBoardContext, now: Date, extra: Pick<WorkQueueOptions, 'tasks' | 'live' | 'pendingBuilds'> = {}): ProductWork {
+export function productWork(product: PageRow, context: ProductBoardContext, now: Date, extra: Pick<WorkQueueOptions, 'tasks' | 'live' | 'pendingBuilds' | 'statuses'> = {}): ProductWork {
   if (!context.requests) {
     const inProgress = num(product, 'inFlight');
     const open = num(product, 'openRequests');
@@ -189,15 +190,15 @@ export function productWork(product: PageRow, context: ProductBoardContext, now:
     };
   }
   const mine = requestsFor(product, context.requests);
-  const rows = deriveWorkQueue(mine, { ...extra, now, proposedShown: Number.POSITIVE_INFINITY, doneShown: Number.POSITIVE_INFINITY, decideShown: Number.POSITIVE_INFINITY });
+  const rows = deriveWorkQueue(mine, { ...extra, statuses: extra.statuses ?? context.statuses, now, proposedShown: Number.POSITIVE_INFINITY, doneShown: Number.POSITIVE_INFINITY, decideShown: Number.POSITIVE_INFINITY });
   const lane = (r: PageRow) => r.meta.laneKey;
   const proposed = rows.filter(r => lane(r) === 'proposed');
   const progress = rows.filter(r => lane(r) === 'progress');
   return {
     rows,
-    decisions: proposed.filter(r => isWaitingOnPerson(r) && str(r, 'state') !== 'Deferred').length,
+    decisions: proposed.filter(waitsOnYou).length,
     inProgress: progress.length,
-    blocked: progress.filter(r => r.meta.state === 'Blocked').length,
+    blocked: progress.filter(r => r.meta.blocked === true).length,
     queued: proposed.length,
     tracked: mine.length > 0 || releasesFor(product, context.releases ?? []).length > 0,
   };
@@ -325,6 +326,6 @@ export function productCard(row: PageRow, all: PageRow[], context: ProductBoardC
  */
 export function deriveProductBoard(rows: PageRow[], options: { now?: Date } & ProductBoardContext = {}): PageRow[] {
   const now = options.now ?? new Date();
-  const context: ProductBoardContext = { requests: options.requests, releases: options.releases };
+  const context: ProductBoardContext = { requests: options.requests, releases: options.releases, statuses: options.statuses };
   return rows.map(row => ({ ...row, meta: { ...row.meta, ...productCard(row, rows, context, now) } }));
 }

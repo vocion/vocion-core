@@ -353,15 +353,26 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     progress: input.progress ? boundProgress(input.progress) : run.progress,
     cursor: input.cursor ?? run.cursor,
     counts: input.counts ? { ...run.counts, ...input.counts } : run.counts,
-    tokens: run.tokens + tokens,
-    cents: run.cents + (input.usage?.cents ?? 0),
+    // Added in the statement, not from the row read above: a heartbeat that
+    // read the run before another one landed must not overwrite it.
+    tokens: sql`${workerRunSchema.tokens} + ${tokens}`,
+    cents: sql`${workerRunSchema.cents} + ${input.usage?.cents ?? 0}`,
     // The model that actually did the work wins over whatever create guessed.
     model: input.usage?.model ?? run.model,
     langfuseTraceId: input.langfuseTraceId ?? run.langfuseTraceId,
     workerVersion: input.workerVersion?.trim().slice(0, 200) || run.workerVersion,
     failures,
     updatedAt: now,
-  }).where(eq(workerRunSchema.id, run.id)).returning();
+    // ONLY WHILE IT RUNS (2026-10-02, run 451 on FE-314). A heartbeat already
+    // in flight when the run failed passed the status check above, landed
+    // after the failure had written the task's cost, and added the same usage
+    // again: the run read $3.36, its task $1.68, and the feature page said
+    // "Two cost records disagree". The status is checked in the write itself,
+    // so a heartbeat that loses that race changes nothing and is told so.
+  }).where(and(eq(workerRunSchema.id, run.id), inArray(workerRunSchema.status, ['running', 'paused']))).returning();
+  if (!updated) {
+    throw new WorkerRunError('CONFLICT', `Run ${run.id} ended while this heartbeat was in flight; heartbeats are only accepted while running or paused`, 409);
+  }
   if (input.usage && tokens > 0) {
     const usage: TokenUsage = {
       inputTokens: input.usage.inputTokens,
@@ -438,8 +449,14 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
   const failures = opts.failures?.length
     ? [...run.failures, ...opts.failures.map(f => ({ ...f, at: now.toISOString() }))].slice(-MAX_FAILURES)
     : run.failures;
+  // A PERSON'S CANCEL IS FINAL (2026-10-01, RUN-449: cancelled from the
+  // kill switch, the worker reported it as a failure, and recovery built
+  // FE-308 twice more after the next deploy). A run that was asked to stop
+  // settles cancelled, as `completeWorkerRun` does, and is announced the
+  // same way, so nothing that heals failures picks it up.
+  const cancelled = run.stopRequested;
   const [updated] = await db.update(workerRunSchema).set({
-    status: 'failed',
+    status: cancelled ? 'cancelled' : 'failed',
     error: opts.error,
     failures,
     // What a failed run kept — its draft PR, and the links to its transcript
@@ -453,7 +470,7 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
   // A failed attempt still cost money, and the record's actual is the honest
   // sum over every attempt it took.
   await writeBackRunCost(updated!, now);
-  await announceEnded(updated!, 'worker_run.failed', opts.error);
+  await announceEnded(updated!, cancelled ? 'worker_run.completed' : 'worker_run.failed', opts.error);
   return updated!;
 }
 
@@ -582,6 +599,8 @@ async function writeBackRunCost(run: WorkerRun, now: Date): Promise<void> {
       },
     }).where(eq(businessObjectSchema.id, object.id));
     await recomputeRollups({ orgId: run.orgId, childType: record.type, childId: record.id, now });
+    // The feature's whole spend moves with it (`factory/featureSpend.ts`).
+    void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(run.orgId)).catch(() => {});
   } catch (err) {
     warn('worker run cost write-back failed', { runId: run.id, record, error: err instanceof Error ? err.message : String(err) });
   }

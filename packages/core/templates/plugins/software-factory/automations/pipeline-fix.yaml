@@ -11,6 +11,8 @@
 # (`pipeline-fix-ended`), never taken on its word.
 slug: pipeline-fix
 name: The pipeline's owner fixes the pipeline
+label: Fixed the pipeline
+doing: Fixing the pipeline
 description: >-
   When the fix for a red CI or a pipeline that could not run lives in the
   pipeline itself, the Release engineer reads the evidence, writes the fix as a

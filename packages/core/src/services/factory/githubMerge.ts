@@ -6,6 +6,7 @@
  * commit QA judged with every check green; Undo opens the revert pull request.
  */
 
+import type { GithubPullRequest } from '@/libs/github/events';
 import { parsePullUrl, tokenForRepo } from '@/services/agents/tools/githubPullRead';
 
 const HEADERS = (token: string) => ({ 'authorization': `Bearer ${token}`, 'x-github-api-version': '2022-11-28', 'user-agent': 'vocion', 'accept': 'application/vnd.github+json' });
@@ -50,7 +51,7 @@ async function pullFor(orgId: string, url: string): Promise<Pull> {
  * @param url - The pull request.
  * @param judgedSha - The commit QA's verdict is about.
  */
-export async function mergePull(orgId: string, url: string, judgedSha: string | null): Promise<{ merged: true; sha: string | null; already: boolean }> {
+export async function mergePull(orgId: string, url: string, judgedSha: string | null): Promise<{ merged: true; sha: string | null; already: boolean; repo: string; pull: GithubPullRequest | null }> {
   const p = await pullFor(orgId, url);
   const base = `https://api.github.com/repos/${p.owner}/${p.repo}`;
   const res = await fetch(`${base}/pulls/${p.number}`, { headers: HEADERS(p.token), signal: AbortSignal.timeout(20_000) });
@@ -59,7 +60,7 @@ export async function mergePull(orgId: string, url: string, judgedSha: string | 
   }
   const meta = await res.json() as { merged?: boolean; merge_commit_sha?: string | null; state?: string; head?: { sha?: string } };
   if (meta.merged) {
-    return { merged: true, sha: meta.merge_commit_sha ?? null, already: true };
+    return { merged: true, sha: meta.merge_commit_sha ?? null, already: true, repo: `${p.owner}/${p.repo}`, pull: null };
   }
   if (meta.state !== 'open') {
     throw new Error(`${url} is ${meta.state ?? 'not open'}, so there is nothing to merge`);
@@ -87,7 +88,25 @@ export async function mergePull(orgId: string, url: string, judgedSha: string | 
     throw new Error(`GitHub refused the merge (HTTP ${put.status}): ${why.slice(0, 200)}`);
   }
   const done = await put.json() as { sha?: string };
-  return { merged: true, sha: done.sha ?? null, already: false };
+  // The pull request as merged, for the `pr.merged` this merge raises at once.
+  const after = await fetch(`${base}/pulls/${p.number}`, { headers: HEADERS(p.token), signal: AbortSignal.timeout(20_000) }).then(r => (r.ok ? r.json() as Promise<GithubPullRequest> : null), () => null);
+  return { merged: true, sha: done.sha ?? null, already: false, repo: `${p.owner}/${p.repo}`, pull: after?.merged_at ? after : null };
+}
+
+/**
+ * What a pull request is, as GitHub has it: its title, whether and when it
+ * merged. What a revert card says it would undo, and what its guard reads.
+ * @param orgId - The workspace.
+ * @param url - The pull request.
+ */
+export async function readPull(orgId: string, url: string): Promise<{ title: string; merged: boolean; mergedAt: string | null; state: string }> {
+  const p = await pullFor(orgId, url);
+  const res = await fetch(`https://api.github.com/repos/${p.owner}/${p.repo}/pulls/${p.number}`, { headers: HEADERS(p.token), signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) {
+    throw new Error(`GitHub did not return ${url} (HTTP ${res.status})`);
+  }
+  const meta = await res.json() as { title?: string; merged?: boolean; merged_at?: string | null; state?: string };
+  return { title: String(meta.title ?? ''), merged: Boolean(meta.merged), mergedAt: meta.merged_at ?? null, state: String(meta.state ?? 'unknown') };
 }
 
 /**

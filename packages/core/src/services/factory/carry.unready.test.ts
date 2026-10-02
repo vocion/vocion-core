@@ -34,6 +34,10 @@ beforeAll(async () => {
   // Harbor lists its repo; the repo record does not name Harbor back.
   await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.product!, title: 'Harbor', metadata: { slug: 'harbor', name: 'Harbor', repos: ['harbor-app'], accountableUser: 'dana@northwind.example' } });
   await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.repo!, title: 'Acme/harbor-app', metadata: { slug: 'harbor-app', checks: [{ name: 'test' }], productPaths: { harbor: ['apps/harbor/src/**'] } } });
+  // Quay's only repo record is a pending candidate, and another was rejected.
+  await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.product!, title: 'Quay', metadata: { slug: 'quay', name: 'Quay' } });
+  await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.repo!, title: 'Quay (web) monorepo', status: 'candidate', metadata: { slug: 'quay', product: 'quay', url: 'https://github.com/quay-example/quay', checks: [{ name: 'test' }] } });
+  await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.repo!, title: 'Acme/quay-old', status: 'rejected', metadata: { slug: 'quay-old', product: 'quay', checks: [{ name: 'test' }] } });
   // Lantern is built nowhere this factory knows.
   await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.product!, title: 'Lantern', metadata: { slug: 'lantern', name: 'Lantern', accountableUser: 'eli@northwind.example' } });
   // Beacon's repo names no checks.
@@ -62,6 +66,17 @@ async function meta(id: number) {
 async function dispatchesFor(id: number) {
   return (await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.actionId, 'factory.dispatch_task')))).filter(a => (a.input as { requestId?: number }).requestId === id);
 }
+
+describe('a proposed or rejected repo record is never built from (FE-314, 2026-10-01)', () => {
+  it('reads neither, and the build is refused for having no repo', async () => {
+    expect(await readRepo(ORG, 'quay', 'quay')).toBeNull();
+    expect(await readRepo(ORG, 'quay-old', null)).toBeNull();
+
+    const r = await request('quay');
+
+    expect(await buildReadiness(ORG, r.id)).toMatchObject({ ready: false, cause: 'no_repo' });
+  });
+});
 
 describe('the repo is read from the product', () => {
   it('a product that lists its repo builds from it, though the repo names no product', async () => {
@@ -172,5 +187,11 @@ describe('waiting names who (2026-10-01, plan #276)', () => {
 
     expect(m.recovery.line).toBe(`Planning — AP-${plan!.id} is written and waiting for dana@northwind.example to approve it.`);
     expect(m.recovery.waitingOn).toMatchObject({ who: 'dana@northwind.example', line: m.recovery.line });
+  });
+});
+
+describe('the repo record a contract was read from rides with it', () => {
+  it('carries the record\'s id and code', async () => {
+    expect(await readRepo(ORG, 'harbor-app', null)).toMatchObject({ title: 'Acme/harbor-app', recordId: expect.any(Number), recordCode: expect.stringMatching(/\d+$/) });
   });
 });

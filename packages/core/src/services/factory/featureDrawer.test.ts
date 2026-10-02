@@ -36,13 +36,11 @@ function report(over: Partial<FeatureReportInput> = {}) {
     artifacts: [],
     now: NOW,
   };
-  return {
-    ...assembleFeatureReport({ ...base, ...over }),
-    activity: [
-      { kind: 'conversation' as const, id: 12, title: 'Scoping the export', at: T('2026-09-02T09:00:00Z'), status: 'wrote', detail: null },
-      { kind: 'mission_run' as const, id: 88, title: 'RUN-88', at: T('2026-09-05T09:00:00Z'), status: 'completed', detail: '3 steps' },
-    ],
-  };
+  const activity = [
+    { kind: 'conversation' as const, id: 12, title: 'Scoping the export', at: T('2026-09-02T09:00:00Z'), status: 'wrote', detail: null },
+    { kind: 'mission_run' as const, id: 88, title: 'RUN-88', at: T('2026-09-05T09:00:00Z'), status: 'completed', detail: '3 steps' },
+  ];
+  return { ...assembleFeatureReport({ ...base, activity, ...over }), activity };
 }
 
 /**
@@ -52,7 +50,7 @@ function report(over: Partial<FeatureReportInput> = {}) {
  * @param r
  */
 function count(key: FeatureDrawerKey, phrase: string, r = report()): number {
-  const d = featureDrawer(r, key, NOW)!;
+  const d = featureDrawer(r, key)!;
   const all = [d.title, d.subtitle ?? '', ...(d.facts ?? []).flatMap(f => [f.label, f.value]), d.body].join('\n');
   return all.split(phrase).length - 1;
 }
@@ -68,7 +66,7 @@ describe('drawer ids', () => {
 
 describe('the plan drawer (Chris, 2026-09-28, #126: the title and status twice, reasons "listed below" and none listed)', () => {
   it('is titled once, carries one status line, and lists the reasons in the sentence that names them', () => {
-    const d = featureDrawer(report(), 'plan', NOW)!;
+    const d = featureDrawer(report(), 'plan')!;
 
     expect(d.title).toBe('Plan');
     expect(d.subtitle).toBe('Approved by Chris · 02 Sep 2026, 18:00 UTC');
@@ -78,7 +76,7 @@ describe('the plan drawer (Chris, 2026-09-28, #126: the title and status twice, 
   });
 
   it('then the approach, what changes, the risks and the plan record — in that order', () => {
-    const d = featureDrawer(report(), 'plan', NOW)!;
+    const d = featureDrawer(report(), 'plan')!;
     const order = ['## Approach', 'Render from the room model.', '## What changes', '1. a renderer', '2. a menu entry', '## Risks', '- Fonts differ from the screen', '[Open the plan record](/dashboard/objects/31)'];
 
     expect(order.map(s => d.body.indexOf(s))).toEqual([...order.map(s => d.body.indexOf(s))].sort((a, b) => a - b));
@@ -94,7 +92,7 @@ describe('the plan drawer (Chris, 2026-09-28, #126: the title and status twice, 
   });
 
   it('with no plan, says so in its one line and names the reasons it was needed', () => {
-    const d = featureDrawer(report({ plans: [] }), 'plan', NOW)!;
+    const d = featureDrawer(report({ plans: [] }), 'plan')!;
 
     expect(d.subtitle).toBe('A plan was required and none is on the record.');
     expect(d.body).toContain('A plan was required because the allowed paths span 2 packages');
@@ -104,7 +102,7 @@ describe('the plan drawer (Chris, 2026-09-28, #126: the title and status twice, 
 
 describe('the implementation drawer', () => {
   it('lists every run as a row, newest first: status, which attempt, cost, pull request, checks and why it stopped, each opening in the pane', () => {
-    const d = featureDrawer(report(), 'implementation', NOW)!;
+    const d = featureDrawer(report(), 'implementation')!;
 
     expect(d.title).toBe('Implementation');
     expect(d.subtitle).toBe('2 attempts · $4.29 spent · Not estimated');
@@ -117,7 +115,7 @@ describe('the implementation drawer', () => {
   });
 
   it('then the five delivery facts, each a link to its evidence', () => {
-    const d = featureDrawer(report(), 'implementation', NOW)!;
+    const d = featureDrawer(report(), 'implementation')!;
 
     expect(d.facts).toBeUndefined();
     expect(d.body).toContain([
@@ -134,13 +132,13 @@ describe('the implementation drawer', () => {
 
   it('prints the pull request once per attempt that opened it, never as a bare URL', () => {
     expect(count('implementation', '](https://github.com/example/northwind-portal/pull/12)')).toBe(2);
-    expect(featureDrawer(report(), 'implementation', NOW)!.body).not.toMatch(/\[https:\/\//);
+    expect(featureDrawer(report(), 'implementation')!.body).not.toMatch(/\[https:\/\//);
   });
 });
 
 describe('the other drawers say each thing once', () => {
   it('status: the sentence is the line; the delivery facts are not repeated here', () => {
-    const d = featureDrawer(report(), 'status', NOW)!;
+    const d = featureDrawer(report(), 'status')!;
 
     expect(d.title).toBe('Delivery status');
     expect(d.facts).toBeUndefined();
@@ -149,7 +147,7 @@ describe('the other drawers say each thing once', () => {
   });
 
   it('acceptance: each criterion with its state, the evidence as a peek, and how it is reviewed', () => {
-    const d = featureDrawer(report(), 'acceptance', NOW)!;
+    const d = featureDrawer(report(), 'acceptance')!;
 
     expect(d.title).toBe('Acceptance');
     expect(d.subtitle).toBe('1 of 2 verified · still a draft');
@@ -159,13 +157,13 @@ describe('the other drawers say each thing once', () => {
   });
 
   it('one criterion: its evidence, or plainly none', () => {
-    expect(featureDrawer(report(), 'criterion-0', NOW)!.body).toContain('[open it](?preview=artifact:700)');
-    expect(featureDrawer(report(), 'criterion-1', NOW)!.body).toContain('No evidence is attached');
-    expect(featureDrawer(report(), 'criterion-9', NOW)).toBeNull();
+    expect(featureDrawer(report(), 'criterion-0')!.body).toContain('[open it](?preview=artifact:700)');
+    expect(featureDrawer(report(), 'criterion-1')!.body).toContain('No evidence is attached');
+    expect(featureDrawer(report(), 'criterion-9')).toBeNull();
   });
 
   it('release: says where it stands once — not as a line, a fact and a paragraph', () => {
-    const d = featureDrawer(report(), 'release', NOW)!;
+    const d = featureDrawer(report(), 'release')!;
 
     expect(d.title).toBe('Release');
     expect(d.subtitle).toBe('Nothing has merged yet, so nothing can be live.');
@@ -174,37 +172,39 @@ describe('the other drawers say each thing once', () => {
 
     const merged = report({ tasks: [{ id: 77, title: 'Room PDF export', status: 'accepted', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41, prUrl: 'https://github.com/example/northwind-portal/pull/12', commitSha: 'abc1234' } }] });
 
-    expect(featureDrawer(merged, 'release', NOW)!.subtitle).not.toBe(d.subtitle);
+    expect(featureDrawer(merged, 'release')!.subtitle).not.toBe(d.subtitle);
   });
 
-  it('work: every conversation and run, each a peek, a run with no title named as what it is', () => {
-    const d = featureDrawer(report(), 'work', NOW)!;
+  it('timeline: the old activity and work keys open the one list, newest first, each row a peek, the cost at its foot (2026-10-02)', () => {
+    const r = report();
+    for (const key of ['timeline', 'activity', 'work'] as const) {
+      const d = featureDrawer(r, key)!;
 
-    expect(d.subtitle).toBe('1 conversation and 1 run tied to this work, newest first');
+      expect(d.title).toBe('Timeline');
+      expect(d.timeline?.rows).toBe(r.history);
+    }
+    const d = featureDrawer(r, 'timeline')!;
+
+    expect(d.body).toContain('[Built attempt 2 · 2/2 checks · PR #12](?preview=worker_run:501)');
+    expect(d.body).toContain('[Built attempt 1 · failed `typecheck`](?preview=worker_run:500)');
+    expect(d.body.indexOf('Attempt 2 of 2')).toBeLessThan(d.body.indexOf('Attempt 1 of 2'));
     expect(d.body).toContain('[Scoping the export](?preview=conversation:12)');
-    expect(d.body).toContain('[RUN-88](?preview=mission_run:88)');
-    expect(d.body).not.toContain('Mission run 88');
-  });
-
-  it('activity: the whole timeline, oldest first, each run linked to its page', () => {
-    const d = featureDrawer(report(), 'activity', NOW)!;
-
-    expect(d.body.indexOf('Asked by Dana Okafor')).toBeLessThan(d.body.indexOf('Run 501'));
-    expect(d.body).toMatch(/\[Run 501 · task-engineer · attempt 2 · completed\]\(\/dashboard\/p\/runs\/501\)/);
-    expect(d.body).toContain('[Pull request northwind-portal#12](https://github.com/example/northwind-portal/pull/12)');
+    expect(d.body).toContain('[Agent run](?preview=mission_run:88)');
+    expect(d.body).not.toContain('[RUN-88]');
+    expect(d.body).toContain('$4.29 in all · builds $4.29 · agents not recorded · chat not recorded');
   });
 
   it('a run still going leads the drawer as its own row (Chris, 2026-09-29: "Why doesn\'t that show up?")', () => {
     const r = report();
     const live = { ...r.implementation.attempts[0]!, runId: 502, n: 3, outcome: 'Running', live: true, ago: '4 min ago' };
-    const d = featureDrawer({ ...r, implementation: { ...r.implementation, attempts: [live, ...r.implementation.attempts] } }, 'implementation', NOW)!;
+    const d = featureDrawer({ ...r, implementation: { ...r.implementation, attempts: [live, ...r.implementation.attempts] } }, 'implementation')!;
 
     expect(d.body.indexOf('## Running now')).toBeLessThan(d.body.indexOf('## Runs, newest first'));
     expect(d.body).toContain('## Running now\n\n- [RUN-502 · Running](?preview=worker_run:502) · attempt 3 of 3 · started 4 min ago');
   });
 
   it('cost: the spend is the line, not the line and the body; each attempt links its run', () => {
-    const d = featureDrawer(report(), 'cost', NOW)!;
+    const d = featureDrawer(report(), 'cost')!;
 
     expect(d.subtitle).toBe('$4.29 spent · Not estimated');
     expect(d.body).not.toContain('**Spent:**');
@@ -213,7 +213,7 @@ describe('the other drawers say each thing once', () => {
   });
 
   it('details: the ask, triage, the contracts and the approvals, the asked date said once', () => {
-    const d = featureDrawer(report(), 'details', NOW)!;
+    const d = featureDrawer(report(), 'details')!;
 
     for (const heading of ['## The ask', '## Triage', '## The contract', '## Approvals']) {
       expect(d.body).toContain(heading);
@@ -224,7 +224,7 @@ describe('the other drawers say each thing once', () => {
 
   it('no drawer repeats the feature\'s name, which the page it opens on already carries', () => {
     for (const key of ['status', 'plan', 'implementation', 'acceptance', 'release', 'activity', 'work', 'cost', 'details'] as const) {
-      expect(featureDrawer(report(), key, NOW)!.title).not.toContain('Export a room as a PDF');
+      expect(featureDrawer(report(), key)!.title).not.toContain('Export a room as a PDF');
     }
   });
 });

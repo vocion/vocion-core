@@ -787,6 +787,6 @@ registerPreview('feature_section', {
     if (!drawer) {
       return null;
     }
-    return { ref, sourceLabel: 'Feature', title: drawer.title, subtitle: drawer.subtitle, facts: drawer.facts, ...(drawer.href ? { href: drawer.href } : {}), ...body(drawer.body, LOG_LIMIT) };
+    return { ref, sourceLabel: 'Feature', title: drawer.title, subtitle: drawer.subtitle, facts: drawer.facts, ...(drawer.href ? { href: drawer.href } : {}), ...(drawer.timeline ? { timeline: drawer.timeline } : {}), ...body(drawer.body, LOG_LIMIT) };
   },
 });

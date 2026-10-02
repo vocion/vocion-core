@@ -254,6 +254,16 @@ function prEvent(type: GithubEventType, repo: string, pr: GithubPullRequest, ext
 }
 
 /**
+ * `pr.merged` for a pull request, in the one shape the sync and Vocion's own
+ * merge both emit, so whichever lands second is absorbed by its dedupe key.
+ * @param repo - `owner/name`.
+ * @param pr - The pull request as the API returns it, after the merge.
+ */
+export function mergedPullEvent(repo: string, pr: GithubPullRequest): GithubEvent {
+  return prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at, mergedBy: pr.merged_by?.login ?? '' });
+}
+
+/**
  * The lifecycle events a pull request earned since the watermark, judged
  * from its timestamps alone: opened when it was created inside the window,
  * synchronized when it moved inside the window without being created there
@@ -276,7 +286,7 @@ export function pullRequestLifecycleEvents(repo: string, pr: GithubPullRequest, 
     events.push(prEvent(PR_SYNCHRONIZED, repo, pr));
   }
   if (pr.merged_at && at(pr.merged_at)) {
-    events.push(prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at, mergedBy: pr.merged_by?.login ?? '' }));
+    events.push(mergedPullEvent(repo, pr));
   } else if (pr.state === 'closed' && !pr.merged_at && at(pr.closed_at)) {
     events.push(prEvent(PR_CLOSED, repo, pr, { closedAt: pr.closed_at ?? '' }));
   }
@@ -469,7 +479,7 @@ export function eventsFromWebhook(eventName: string, body: unknown, deployBranch
     } else if (action === 'synchronize') {
       out.events.push(prEvent(PR_SYNCHRONIZED, repo, pr));
     } else if (action === 'closed' && pr.merged_at) {
-      out.events.push(prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at, mergedBy: pr.merged_by?.login ?? '' }));
+      out.events.push(mergedPullEvent(repo, pr));
     } else if (action === 'closed') {
       out.events.push(prEvent(PR_CLOSED, repo, pr, { closedAt: pr.closed_at ?? '' }));
     }

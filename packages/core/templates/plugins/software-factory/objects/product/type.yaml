@@ -8,8 +8,8 @@ description: >-
   belongs to one; every task serves one; the permanent gates — pricing, plan
   limits, the promises — are read from here.
 icon: package
-# Its records read PRD-<id> in the app and in chat (core: libs/codes.ts).
-code: PRD
+# Its records read PROD-<id> in the app and in chat (core: libs/codes.ts).
+code: PROD
 schema:
   type: object
   # FILED THROUGH ITS OWN TOOL (core: services/agents/tools/fileRecord.ts),
@@ -26,6 +26,8 @@ schema:
   # 2026-09-30: the product's own `urls`/`repos` drifted from them — #246's
   # live link was a guessed host).
   x-related:
+    # Production incidents that name this product (production-watch, when on).
+    - {key: incidents, label: Incidents, from: backlinks, type: incident, field: product, match: slug}
     - key: environments
       label: Environments
       from: backlinks

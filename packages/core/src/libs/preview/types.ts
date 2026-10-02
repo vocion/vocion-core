@@ -58,6 +58,12 @@ export type PreviewDoc = {
    */
   run?: import('@/libs/worker/runLog').RunGlance;
   /**
+   * A feature's Timeline, drawn by the component its page draws it with, at
+   * full density (`FeatureTimeline`), after the subtitle and in place of the
+   * body (Chris, 2026-10-02: one list, two densities).
+   */
+  timeline?: { rows: import('@/services/factory/featureReport').HistoryRow[]; cost: import('@/services/factory/featureReport').HistoryCost };
+  /**
    * What is worth keeping and not worth leading with — a run's brief, the
    * Claude Code block — each a collapsed row after everything else.
    * Markdown.

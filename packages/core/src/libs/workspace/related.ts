@@ -52,6 +52,12 @@ export const RelationSchema = z.object({
   type: z.string().min(1).max(60).optional(),
   /** Read from the records of this earlier relation, not this record. */
   of: z.string().min(1).max(40).optional(),
+  /**
+   * Read, not listed: a relation a later one reads from (`of`) whose records
+   * live elsewhere on the page — a feature's tasks, whose runs are its
+   * Timeline (Chris, 2026-10-02: Related is records only).
+   */
+  hidden: z.boolean().optional(),
   /** artifacts: only this record role. */
   role: z.string().min(1).max(40).optional(),
   limit: z.number().int().min(1).max(50).default(10),

@@ -325,6 +325,21 @@ describe('proposing against an already-decided run', () => {
     expect(await db.select().from(actionRunSchema)).toHaveLength(1);
   });
 
+  it('a person proposing what is already waiting runs that card, once (FE-130)', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'build-it' }, principal: agent(2) });
+
+    expect(first.status).toBe('pending');
+
+    const person: Principal = { kind: 'user', id: 'usr_person', role: 'member', scope: { orgId: ORG } } as Principal;
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'build-it' }, principal: person });
+
+    expect(second.runId).toBe(first.runId);
+    expect(second.outcome).toBe('refreshed');
+    expect(second.status).toBe('done');
+    expect(candidatesExecuted).toBe(1);
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
   it('the refresh is the completion edge of a regeneration: it clears the stamp', async () => {
     const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
     // Mid-regeneration, as the regenerate route leaves the row.

@@ -19,7 +19,7 @@
 
 import type { Buffer } from 'node:buffer';
 import type { Browser, BrowserContext } from 'playwright';
-import type { LiveFlow, LiveReason, LiveRow, LiveVerdict, RunnerShot } from '@/libs/factory/liveCheck';
+import type { AcceptanceLine, BeforeMergeLine, LiveFlow, LiveReason, LiveRow, LiveVerdict, NotObservable, RunnerResponseProof, RunnerShot } from '@/libs/factory/liveCheck';
 import type { Author } from '@/services/ArtifactService';
 import type { EnvironmentAccess } from '@/services/factory/productAccess';
 import fs from 'node:fs';
@@ -28,7 +28,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage, SETUP_PAGE_VAR, stepReason } from '@/libs/factory/liveCheck';
+import { acceptanceLines, keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage, resolveLines, SETUP_PAGE_VAR, stepReason, uncheckedRow } from '@/libs/factory/liveCheck';
 import { businessObjectSchema } from '@/models/Schema';
 
 type Meta = Record<string, unknown>;
@@ -47,7 +47,7 @@ export type RunnerQa = {
     vars: Record<string, string>;
     allow: (url: string) => boolean;
     withText: boolean;
-  }) => Promise<{ shots: RunnerShot[]; stepFailures: Array<{ index: number; verb: string; target: string; error: string }>; httpStatus?: number | null }>;
+  }) => Promise<{ shots: RunnerShot[]; stepFailures: Array<{ index: number; verb: string; target: string; error: string }>; httpStatus?: number | null; responses?: RunnerResponseProof[] }>;
   stepFailureText: (f: { index: number; verb: string; target: string; error: string }) => string;
   viewportContextOptions: (viewport: string) => Record<string, unknown>;
   isSignInPath: (pathname: string) => boolean;
@@ -105,6 +105,12 @@ export type LiveCheckResult = {
   problems: string[];
   /** What was written, in one line, or why nothing was. */
   written: string;
+  /** Each request the release shipped and its acceptance lines, numbered: what a check flow cites. */
+  acceptance: Array<{ requestId: number; lines: AcceptanceLine[] }>;
+  /** The lines QA said production cannot show, as the release and the features now carry them. */
+  beforeMerge: BeforeMergeLine[];
+  /** Set when the flows cited a line the record does not have: nothing ran or was written. */
+  refused?: string;
 };
 
 const short = (e: unknown, n = 240) => String((e as Error)?.message ?? e ?? '').split('\n')[0]!.slice(0, n);
@@ -226,6 +232,7 @@ function ids(v: unknown): number[] {
  * @param input.releaseId - The release record.
  * @param input.flows - QA's flows, validated (`LiveFlowSchema`).
  * @param input.explore - Run and report; write nothing, attach nothing.
+ * @param input.notObservable - The acceptance lines QA says the live product cannot show.
  * @param opts - Who ran it.
  * @param opts.author - Who the shots are recorded as.
  * @param opts.provenance - The run it ran in, for each shot's source line.
@@ -235,7 +242,7 @@ function ids(v: unknown): number[] {
  */
 export async function runLiveCheck(
   orgId: string,
-  input: { releaseId: number; flows: LiveFlow[]; explore?: boolean },
+  input: { releaseId: number; flows: LiveFlow[]; explore?: boolean; notObservable?: NotObservable[] },
   opts: { author: Author; provenance?: { agentSlug?: string | null; missionRunId?: number | null } },
   deps: Partial<LiveCheckDeps> = {},
 ): Promise<LiveCheckResult> {
@@ -248,9 +255,10 @@ export async function runLiveCheck(
   const problems: string[] = [];
   // What stopped flows from running, typed where it happened (`LiveReason`).
   const blocking: Array<string | LiveReason> = [];
+  const acceptance: LiveCheckResult['acceptance'] = [];
   const fail = (why: string): LiveCheckResult => {
     const verdict = liveVerdict([], [why]);
-    return { ok: false, releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems: [why], written: `nothing written: ${why}` };
+    return { ok: false, releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems: [why], written: `nothing written: ${why}`, acceptance, beforeMerge: [] };
   };
   if (!release) {
     return fail(`release #${input.releaseId} does not exist in this workspace`);
@@ -258,12 +266,28 @@ export async function runLiveCheck(
   if (!product) {
     return fail(`release #${input.releaseId} names no product, so there is no live product to check`);
   }
+  const requestIds = ids(release.meta.requestIds);
+  const onlyRequest = requestIds.length === 1 ? requestIds[0]! : null;
+  // WHAT THE FEATURES PROMISED, from their records: a check flow cites one of these lines by its
+  // number, and a line it cites that is not there is refused before anything runs.
+  const linesByRequest = new Map<number, AcceptanceLine[]>();
+  for (const id of requestIds) {
+    const request = await readMeta(orgId, id);
+    if (request) {
+      linesByRequest.set(id, acceptanceLines(request.meta));
+      acceptance.push({ requestId: id, lines: linesByRequest.get(id)! });
+    }
+  }
+  const resolved = resolveLines(input.flows, input.notObservable ?? [], linesByRequest, { explore });
+  if (!resolved.ok) {
+    const verdict = liveVerdict([], [resolved.refusal]);
+    return { ok: false, releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems: [], written: 'nothing run or written: the flows do not account for the request\'s lines as the record has them', acceptance, beforeMerge: [], refused: resolved.refusal };
+  }
+  const { beforeMerge, uncovered } = resolved;
   const { productAccess } = await import('@/services/factory/productAccess');
   const access = await productAccess(orgId, product, { reveal: true });
   const envs = access.environments;
-  const flows = orderedFlows(input.flows);
-  const requestIds = ids(release.meta.requestIds);
-  const onlyRequest = requestIds.length === 1 ? requestIds[0]! : null;
+  const flows = orderedFlows(resolved.flows);
   const vars: Record<string, string> = {};
   const origins = allowedOrigins(envs);
   const allow = (url: string) => {
@@ -325,7 +349,8 @@ export async function runLiveCheck(
         const report: LiveRunReport = { phase: flow.phase, flow: flow.name, viewport, ok: false, failure: null, shots: [] };
         runs.push(report);
         const requestId = flow.request_id ?? onlyRequest;
-        const missRow = (reason: string, why: LiveReason) => rows.push({ requestId, flow: flow.name, criterion: flow.criterion ?? null, viewport, artifactId: null, status: 'not_reached', reason: reason.slice(0, 400), why: { ...why, detail: why.detail.slice(0, 400) }, url: null });
+        const cites = flow.line !== undefined ? { line: flow.line } : {};
+        const missRow = (reason: string, why: LiveReason) => rows.push({ requestId, flow: flow.name, ...cites, criterion: flow.criterion ?? null, viewport, artifactId: null, status: 'not_reached', reason: reason.slice(0, 400), why: { ...why, detail: why.detail.slice(0, 400) }, url: null });
         // Typed where it happened; a bare reason is a check that could not run.
         const note = (why: string, typed: Omit<LiveReason, 'detail'> = { kind: 'could_not_run' }) => {
           report.failure = why;
@@ -383,6 +408,8 @@ export async function runLiveCheck(
             }
             continue;
           }
+          // What the flow's expect_response steps saw answer as promised, said as a person reads it.
+          const proved = (result.responses ?? []).map(r => `${r.method} ${r.path} returned ${r.status}${flow.signed_in ? ' signed in' : ' to a visitor'}`);
           for (const { shot, status, reason, kind } of keptShots(flow.path, result)) {
             let artifactId: number | null = null;
             const why = reason && status !== 'reached' && setupFailed ? `${reason} (setup did not finish: ${setupFailed})` : reason;
@@ -391,7 +418,7 @@ export async function runLiveCheck(
               : setupWhy ?? (kind === 'not_visible' || missing ? typedFailure(why) : { kind: kind ?? 'could_not_run', flow: flow.name, detail: why });
             const pageUrl = `${new URL(String(env.url)).origin}${shot.at || ''}`;
             if (!explore) {
-              artifactId = await attachShot(orgId, input.releaseId, d, { file: shot.file, flow, viewport, label: shot.label, status, reason: why ?? null, pageUrl, author: opts.author, provenance: opts.provenance }).catch((e) => {
+              artifactId = await attachShot(orgId, input.releaseId, d, { file: shot.file, flow, viewport, label: shot.label, status, reason: why ?? null, pageUrl, author: opts.author, provenance: opts.provenance, proved: status === 'reached' ? proved : [] }).catch((e) => {
                 const p = `a live shot could not be stored on the release: ${short(e)}`;
                 if (!problems.includes(p)) {
                   problems.push(p);
@@ -399,7 +426,7 @@ export async function runLiveCheck(
                 return null;
               });
             }
-            rows.push({ requestId, flow: flow.name, criterion: flow.criterion ?? null, viewport, artifactId, status, ...(why ? { reason: why.slice(0, 400) } : {}), ...(typed ? { why: { ...typed, detail: typed.detail.slice(0, 400) } } : {}), url: pageUrl, ...(shot.label ? { label: shot.label } : {}) });
+            rows.push({ requestId, flow: flow.name, ...cites, criterion: flow.criterion ?? null, viewport, artifactId, status, ...(why ? { reason: why.slice(0, 400) } : {}), ...(typed ? { why: { ...typed, detail: typed.detail.slice(0, 400) } } : {}), url: pageUrl, ...(shot.label ? { label: shot.label } : {}), ...(status === 'reached' && proved.length > 0 ? { proved } : {}) });
             report.shots.push({ label: shot.label, at: shot.at, status, reason: why ?? null, artifactId, pageText: shot.text ?? '' });
           }
         } catch (e) {
@@ -414,10 +441,19 @@ export async function runLiveCheck(
     fs.rmSync(outDir, { recursive: true, force: true });
   }
 
-  const verdict = liveVerdict(rows, blocking);
   if (explore) {
-    return { ok: verdict.state === 'seen', releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems, written: 'nothing written: this was an exploring run' };
+    const verdict = liveVerdict(rows, blocking, beforeMerge);
+    return { ok: verdict.state === 'seen', releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems, written: 'nothing written: this was an exploring run', acceptance, beforeMerge };
   }
+  // A line nothing checked on production stands unproven, said why: one QA never cited, and one QA
+  // said production cannot show that its verdict did not prove before the merge.
+  for (const u of uncovered) {
+    rows.push(uncheckedRow(u.requestId, u.line, false));
+  }
+  for (const b of beforeMerge.filter(x => !x.proven)) {
+    rows.push(uncheckedRow(b.requestId, { n: b.line, text: b.text, provenBeforeMerge: false }, true));
+  }
+  const verdict = liveVerdict(rows, blocking, beforeMerge);
   const attempt = (Number.isInteger(release.meta.liveAttempts) ? Number(release.meta.liveAttempts) : 0) + 1;
   const checkedAt = d.now().toISOString();
   const pick = pickAnnouncementImage(rows);
@@ -430,9 +466,10 @@ export async function runLiveCheck(
     liveReason: verdict.reason,
     liveWhy: verdict.why,
     liveAttempts: attempt,
+    liveBeforeMerge: beforeMerge,
     ...(pick ? { announcementImageArtifactId: pick } : {}),
   });
-  await markFeatures(orgId, input.releaseId, requestIds, { rows, blocking, flows, checkedAt, attempt });
+  await markFeatures(orgId, input.releaseId, requestIds, { rows, blocking, flows, checkedAt, attempt, beforeMerge });
   return {
     ok: verdict.state === 'seen',
     releaseId: input.releaseId,
@@ -443,6 +480,8 @@ export async function runLiveCheck(
     runs,
     problems,
     written: `release #${input.releaseId}: ${verdict.line}${pick ? `; the announcement leads with artifact #${pick}` : ''}`,
+    acceptance,
+    beforeMerge,
   };
 }
 
@@ -464,11 +503,12 @@ export async function runLiveCheck(
  * @param s.provenance - The run it was taken in.
  * @param s.provenance.agentSlug - The seat.
  * @param s.provenance.missionRunId - The run.
+ * @param s.proved - What its expect_response steps saw answer as promised.
  */
-async function attachShot(orgId: string, releaseId: number, d: LiveCheckDeps, s: { file: string; flow: LiveFlow; viewport: string; label: string; status: 'reached' | 'not_reached'; reason: string | null; pageUrl: string; author: Author; provenance?: { agentSlug?: string | null; missionRunId?: number | null } }): Promise<number> {
+async function attachShot(orgId: string, releaseId: number, d: LiveCheckDeps, s: { file: string; flow: LiveFlow; viewport: string; label: string; status: 'reached' | 'not_reached'; reason: string | null; pageUrl: string; author: Author; provenance?: { agentSlug?: string | null; missionRunId?: number | null }; proved?: string[] }): Promise<number> {
   const stored = await d.store(orgId, fs.readFileSync(s.file));
   const what = s.flow.criterion ?? s.label ?? s.flow.name;
-  const caption = `${what}${s.status === 'reached' ? '' : ` (not reached: ${s.reason ?? 'unknown'})`}`.slice(0, 300);
+  const caption = `${what}${s.status === 'reached' ? (s.proved?.length ? ` (${s.proved.join('; ')})` : '') : ` (not reached: ${s.reason ?? 'unknown'})`}`.slice(0, 300);
   const { createArtifact } = await import('@/services/ArtifactService');
   const { artifact } = await createArtifact({
     orgId,
@@ -507,15 +547,17 @@ async function attachShot(orgId: string, releaseId: number, d: LiveCheckDeps, s:
  * @param w.flows - The flows.
  * @param w.checkedAt - When.
  * @param w.attempt - Which attempt.
+ * @param w.beforeMerge - The lines production cannot show.
  */
-async function markFeatures(orgId: string, releaseId: number, requestIds: number[], w: { rows: LiveRow[]; blocking: Array<string | LiveReason>; flows: LiveFlow[]; checkedAt: string; attempt: number }): Promise<void> {
+async function markFeatures(orgId: string, releaseId: number, requestIds: number[], w: { rows: LiveRow[]; blocking: Array<string | LiveReason>; flows: LiveFlow[]; checkedAt: string; attempt: number; beforeMerge: BeforeMergeLine[] }): Promise<void> {
   for (const requestId of requestIds) {
     const request = await readMeta(orgId, requestId);
     if (!request) {
       continue;
     }
     const own = w.rows.filter(r => r.requestId === requestId || r.requestId === null);
-    const verdict = liveVerdict(own, w.blocking);
+    const beforeMerge = w.beforeMerge.filter(b => b.requestId === requestId);
+    const verdict = liveVerdict(own, w.blocking, beforeMerge);
     const shots = own.filter(r => r.status === 'reached' && r.artifactId !== null).map(r => r.artifactId!);
     const visuals = (request.meta.visuals && typeof request.meta.visuals === 'object' ? request.meta.visuals : {}) as Meta;
     const after = [...new Set([...ids(visuals.afterArtifactIds), ...shots])];
@@ -528,9 +570,13 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
         attempt: w.attempt,
         flows: w.flows.filter(f => f.request_id === undefined || f.request_id === requestId),
         why: verdict.why,
+        beforeMerge,
       },
       ...(shots.length > 0 ? { visuals: { ...visuals, afterArtifactIds: after } } : {}),
     });
+    // Seen live, or shipped and not confirmed: the status says which.
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, requestId, verdict.state === 'seen' ? 'live_seen' : 'shipped', { line: verdict.line.slice(0, 500) });
     const { noteOnRequest } = await import('./carry');
     await noteOnRequest(orgId, requestId, `${verdict.line} (release #${releaseId}, attempt ${w.attempt}).`).catch(() => undefined);
   }
@@ -567,6 +613,8 @@ export async function liveCheckGaveUp(orgId: string, releaseId: number, reason: 
       continue;
     }
     await mergeMeta(orgId, requestId, { liveCheck: { ...mark, state: 'not_seen', line, releaseId, checkedAt } });
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, requestId, 'shipped', { line });
     const { noteOnRequest } = await import('./carry');
     await noteOnRequest(orgId, requestId, `${line} (release #${releaseId}).`).catch(() => undefined);
   }

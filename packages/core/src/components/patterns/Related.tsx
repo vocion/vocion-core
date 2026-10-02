@@ -33,11 +33,15 @@ function ItemLink({ item }: { item: RelatedItem }) {
 }
 
 function Item({ item, action }: { item: RelatedItem; action: boolean }) {
+  // The title wraps as text and its note follows it on the same line, not in
+  // a column of its own; the preview stays pinned to the right.
   const line = (
-    <span className="group/row inline-flex min-w-0 items-center gap-1.5" data-related-item={item.key}>
-      <ItemLink item={item} />
-      {item.note && <span className="text-[12px] text-muted-foreground">{item.note}</span>}
-      {action && item.preview && <OpenInPreview recordRef={item.preview} label={`Open ${item.title} in preview`} />}
+    <span className="group/row flex min-w-0 items-start gap-1.5" data-related-item={item.key}>
+      <span className="min-w-0 flex-1">
+        <ItemLink item={item} />
+        {item.note && <span className="ml-1.5 text-[12px] whitespace-nowrap text-muted-foreground">{item.note}</span>}
+      </span>
+      {action && item.preview && <OpenInPreview recordRef={item.preview} label={`Open ${item.title} in preview`} className="shrink-0" />}
     </span>
   );
   if (!item.details || item.details.length === 0) {

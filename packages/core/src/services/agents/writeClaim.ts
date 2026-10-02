@@ -67,11 +67,3 @@ function failed(output: string | undefined): boolean {
 export function writeLanded(call: WriteClaimToolCall): boolean {
   return isWriteTool(call.tool) && !failed(call.output);
 }
-
-/**
- * Did any write succeed in this turn?
- * @param toolCalls - The turn's tool calls.
- */
-export function wroteInTurn(toolCalls: ReadonlyArray<WriteClaimToolCall>): boolean {
-  return toolCalls.some(writeLanded);
-}

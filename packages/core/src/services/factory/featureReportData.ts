@@ -21,22 +21,25 @@
  */
 
 import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, ReportAsk, ReportObject, ReportWorkerRun } from './featureReport';
+import type { FeatureSpend } from './featureSpend';
 import type { FactoryTypes } from '@/libs/factory/types';
 import type { RecordOrigin } from '@/services/objects/related';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
-import { collapseActivity } from '@/libs/factory/activityRows';
+import { runTitle } from '@/libs/factory/runTitle';
 import { factoryTypes } from '@/libs/factory/types';
 import { runCostCents } from '@/libs/worker/runCost';
-import { actionRunSchema, agentSchema, askSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, askSchema, automationSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { failedFireLines } from '@/services/automations/failedFires';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
+import { codesForRecords } from '@/services/codes';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
 import { recordOrigin } from '@/services/objects/related';
 import { REPORTED_ROLE, reportedAttachments } from '@/services/objects/reported';
-import { assembleFeatureReport } from './featureReport';
+import { assembleFeatureReport, executedRun, runChange } from './featureReport';
+import { loadFeatureSpend, splitOf } from './featureSpend';
 import { loadLiveMissionRuns, taskOfRun, toolCallNamedId } from './liveStatusData';
 import { loadPullSignals, mergeRiskClassOf, mergeRunsItself } from './pullSignals';
 
@@ -300,9 +303,13 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   ];
   const current = [...tasks].sort((a, b) => b.id - a.id)[0] ?? null;
   const product = typeof request.meta.product === 'string' ? request.meta.product : null;
+  // WHAT IT COST, in one place (`featureSpend.ts`): its worker runs, the
+  // agent runs that served it and the chat turns about it. The same figure
+  // the request carries for the Work page.
+  const spend = (await loadFeatureSpend(orgId).catch(() => null))?.get(requestId) ?? null;
   const [live, activity, link, pulls, mergeRule, liveBases] = await Promise.all([
     loadLiveMissionRuns(orgId, [{ recordId: requestId, childIds: [...taskIds] }], now),
-    loadActivity(orgId, requestId, taskIds, workerRuns, origin),
+    loadActivity(orgId, requestId, taskIds, workerRuns, origin, spend),
     recordLinkerForOrg(orgId),
     loadPullSignals(orgId, pullUrls).catch(() => undefined),
     current
@@ -319,7 +326,15 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
       : Promise.resolve([] as string[]),
   ]);
   const watcher = await pipelineWatcher(orgId).catch(() => null);
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases, watcher });
+  const workflow = await workflowStatusOf(orgId, request.meta);
+  // The Current state's label is the request's status, as its type words it.
+  const { loadStatusModel } = await import('@/services/objects/statusField');
+  const { placeOf } = await import('@/libs/objects/statusModel');
+  const statuses = await loadStatusModel(orgId, types.request).catch(() => null);
+  const place = statuses ? placeOf(statuses, request.meta) : null;
+  // The records' codes (PL-371, REL-375), so the Timeline names them as every surface does.
+  const codes = await codesForRecords(orgId, [...plans, ...releases, ...tasks].map(r => r.id)).catch(() => new Map<number, string>());
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases, watcher, workflow, place: place && place.value !== null ? { label: place.label, tone: place.tone } : null, activity, codes, spend: spend ? splitOf(spend) : undefined });
   return { ...report, activity };
 }
 
@@ -374,21 +389,21 @@ async function authorNames(orgId: string, refs: Array<{ kind: string | null; id:
 }
 
 /**
- * Every conversation and run tied to this feature, newest first, repeated
- * agent runs collapsed into one row (`libs/factory/activityRows.ts`). A
- * conversation or mission run counts when one of its tool calls named this
+ * Every conversation and run tied to this feature, newest first, each run
+ * its own row. A conversation or mission run counts when one of its tool calls named this
  * request (or one of its tasks) by id — a record it read, wrote or carded —
- * never on a resemblance. Engineering runs are the tasks' own worker runs.
+ * never on a resemblance — or when the feature's cost counts it. Engineering runs are the tasks' own worker runs.
  * @param orgId - Tenant.
  * @param requestId - The request.
  * @param taskIds - Its tasks.
  * @param workerRuns - Its tasks' worker runs.
  * @param origin - The conversation it was requested in, when it was (`recordOrigin`).
+ * @param spend - What its agent runs and chats cost (`featureSpend.ts`); each one it counts is listed with its share.
  */
-async function loadActivity(orgId: string, requestId: number, taskIds: Set<number>, workerRuns: ReportWorkerRun[], origin: RecordOrigin | null = null): Promise<ReportActivity[]> {
+async function loadActivity(orgId: string, requestId: number, taskIds: Set<number>, workerRuns: ReportWorkerRun[], origin: RecordOrigin | null = null, spend: FeatureSpend | null = null): Promise<ReportActivity[]> {
   const ids = [String(requestId), ...[...taskIds].map(String)];
   const calls = await db
-    .select({ conversationId: toolCallSchema.conversationId, missionRunId: toolCallSchema.missionRunId, tool: toolCallSchema.tool, at: toolCallSchema.createdAt })
+    .select({ conversationId: toolCallSchema.conversationId, missionRunId: toolCallSchema.missionRunId, tool: toolCallSchema.tool, at: toolCallSchema.createdAt, named: toolCallNamedId })
     .from(toolCallSchema)
     .where(and(
       eq(toolCallSchema.orgId, orgId),
@@ -398,7 +413,13 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
     .limit(400);
   const conv = new Map<number, { at: Date; writes: number; steps: number }>();
   const mission = new Map<number, { at: Date; writes: number; steps: number }>();
+  // Which of the feature's records each agent run named: the request, or an
+  // attempt's task — how the Timeline puts QA's review under its attempt.
+  const touched = new Map<number, Set<number>>();
   for (const c of calls) {
+    if (c.missionRunId !== null && Number(c.named) > 0) {
+      touched.set(c.missionRunId, (touched.get(c.missionRunId) ?? new Set()).add(Number(c.named)));
+    }
     const into = c.conversationId !== null ? conv : c.missionRunId !== null ? mission : null;
     const key = c.conversationId ?? c.missionRunId;
     if (!into || key === null) {
@@ -412,37 +433,88 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
     into.set(key, cur);
   }
   const out: ReportActivity[] = [];
-  if (conv.size > 0) {
+  // A chat the feature's cost counts is on the list too, with its share.
+  const talked = spend?.conversations ?? new Map<number, number>();
+  const convIds = [...new Set([...conv.keys(), ...talked.keys()])];
+  if (convIds.length > 0) {
     const rows = await db
-      .select({ id: conversationSchema.id, title: conversationSchema.title, agentSlug: conversationSchema.agentSlug })
+      .select({ id: conversationSchema.id, title: conversationSchema.title, agentSlug: conversationSchema.agentSlug, updatedAt: conversationSchema.updatedAt })
       .from(conversationSchema)
-      .where(and(eq(conversationSchema.orgId, orgId), inArray(conversationSchema.id, [...conv.keys()])));
+      .where(and(eq(conversationSchema.orgId, orgId), inArray(conversationSchema.id, convIds)));
     for (const r of rows) {
-      const c = conv.get(r.id)!;
-      out.push({ kind: 'conversation', id: r.id, title: r.title?.trim() || nounCode('conversation', r.id), at: c.at, status: c.writes > 0 ? 'wrote' : 'read', detail: `${r.agentSlug ?? 'agent'} · ${c.steps} step${c.steps === 1 ? '' : 's'}` });
+      const c = conv.get(r.id);
+      const share = talked.get(r.id);
+      out.push({
+        kind: 'conversation',
+        id: r.id,
+        title: r.title?.trim() || nounCode('conversation', r.id),
+        at: c?.at ?? r.updatedAt,
+        status: c ? (c.writes > 0 ? 'wrote' : 'read') : null,
+        detail: [r.agentSlug ?? 'agent', c ? `${c.steps} step${c.steps === 1 ? '' : 's'}` : null].filter(Boolean).join(' · '),
+        cents: share === undefined ? null : Math.round(share / 1_000_000),
+      });
     }
   }
-  if (mission.size > 0) {
+  // Every agent run the feature's cost counts is in its Timeline, with its
+  // share beside it — a review started by its pull request names no record
+  // in its tool calls, and its cost must not be a figure nobody can open.
+  const costed = spend?.agentRuns ?? new Map<number, number>();
+  const missionIds = [...new Set([...mission.keys(), ...costed.keys()])];
+  if (missionIds.length > 0) {
+    // The automation that started each run (the first fire in its chain)
+    // gives it its words: `label`, `doing`, its name (`runTitle`).
     const rows = await db
-      .select({ id: missionRunSchema.id, title: missionRunSchema.title, status: missionRunSchema.status, causedBy: missionRunSchema.causedBy })
+      .select({
+        id: missionRunSchema.id,
+        title: missionRunSchema.title,
+        status: missionRunSchema.status,
+        causedBy: missionRunSchema.causedBy,
+        createdAt: missionRunSchema.createdAt,
+        completedAt: missionRunSchema.completedAt,
+        name: automationSchema.name,
+        label: sql<string | null>`${automationSchema.doConfig} ->> 'label'`,
+        doing: sql<string | null>`${automationSchema.doConfig} ->> 'doing'`,
+      })
       .from(missionRunSchema)
-      .where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.id, [...mission.keys()])));
+      .leftJoin(automationSchema, and(eq(automationSchema.orgId, missionRunSchema.orgId), eq(automationSchema.slug, sql`${missionRunSchema.causedBy} -> 0 ->> 'automationSlug'`)))
+      .where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.id, missionIds)));
     // A review whose fire failed reads failed, whatever the run under it says.
     const fireFailed = await failedFireLines(orgId, rows);
     for (const r of rows) {
-      const m = mission.get(r.id)!;
-      out.push({ kind: 'mission_run', id: r.id, title: r.title?.trim() || nounCode('run', r.id), at: m.at, status: fireFailed.get(r.id) ?? r.status ?? null, detail: `${m.steps} step${m.steps === 1 ? '' : 's'}` });
+      const m = mission.get(r.id);
+      const share = costed.get(r.id);
+      const name = r.name?.trim() || null;
+      out.push({
+        kind: 'mission_run',
+        id: r.id,
+        title: r.title?.trim() || nounCode('run', r.id),
+        at: m?.at ?? r.createdAt,
+        status: fireFailed.get(r.id) ?? r.status ?? null,
+        detail: m ? `${m.steps} step${m.steps === 1 ? '' : 's'}` : null,
+        runStatus: fireFailed.has(r.id) ? 'failed' : r.status ?? null,
+        label: r.label?.trim() || name,
+        doing: r.doing?.trim() || name,
+        stored: r.title,
+        startedAt: r.createdAt,
+        endedAt: r.completedAt ?? null,
+        touched: [...(touched.get(r.id) ?? [])],
+        // This feature's share of what the run cost (`featureSpend.ts`); null is not recorded.
+        cents: share === undefined ? null : Math.round(share / 1_000_000),
+      });
     }
   }
   for (const w of workerRuns) {
-    out.push({ kind: 'worker_run', id: w.id, title: w.summary?.split('\n')[0]?.slice(0, 90) || nounCode('run', w.id), at: w.completedAt ?? w.claimedAt ?? w.createdAt, status: w.status, detail: [w.model, w.cents !== null ? `$${(w.cents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ') || null });
+    // Titled by what it did, never by the worker's log line (`runTitle`).
+    const n = [...workerRuns].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).indexOf(w) + 1;
+    const change = runChange(w);
+    out.push({ kind: 'worker_run', id: w.id, title: runTitle({ kind: 'build', status: w.status, executed: executedRun(w), attempt: n, prUrl: change.prUrl, checks: change.checks }), at: w.completedAt ?? w.claimedAt ?? w.createdAt, status: w.status, detail: [w.model, w.cents !== null ? `$${(w.cents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ') || null, cents: w.cents });
   }
   if (!origin) {
-    return collapseActivity(out);
+    return newestFirst(out);
   }
   // WHERE IT STARTED (Chris, 2026-09-30, #269): the conversation it was
   // requested in, from the record's own origin, in its place in time — the
-  // oldest entry, so it closes the list (`libs/factory/activityRows.ts`).
+  // oldest entry, so it closes the list.
   const asked: ReportActivity = {
     kind: 'conversation',
     id: origin.conversationId,
@@ -451,6 +523,35 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
     status: null,
     detail: origin.title,
     origin: true,
+    // The chat it was requested in keeps what its turns about this cost.
+    cents: talked.has(origin.conversationId) ? Math.round(talked.get(origin.conversationId)! / 1_000_000) : null,
   };
-  return collapseActivity([asked, ...out.filter(a => !(a.kind === 'conversation' && a.id === origin.conversationId))]);
+  return newestFirst([asked, ...out.filter(a => !(a.kind === 'conversation' && a.id === origin.conversationId))]);
+}
+
+/**
+ * Newest first, strictly: where it started is the oldest entry, so it closes
+ * the list (Chris, 2026-09-30, #269). Every run keeps its own row — the
+ * Timeline titles each by what it did and found (`featureHistory.ts`).
+ * @param rows - The rows.
+ */
+function newestFirst(rows: ReportActivity[]): ReportActivity[] {
+  return [...rows].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+}
+
+/**
+ * The status of the durable workflow that owns a request, when one does
+ * (backlog 054). Null when none owns it or it cannot be read.
+ * @param orgId - Tenant.
+ * @param meta - The request's metadata.
+ */
+async function workflowStatusOf(orgId: string, meta: Record<string, unknown>): Promise<{ stage: string; line: string } | null> {
+  const { durableMarkOf, ownedByWorkflow } = await import('./requestWorkflowStart');
+  const mark = durableMarkOf(meta);
+  if (!mark || !(await ownedByWorkflow(orgId, meta))) {
+    return null;
+  }
+  const { durable } = await import('@/libs/durable');
+  const s = await durable().status(mark.workflowId).catch(() => null);
+  return s ? { stage: s.stage, line: s.line } : null;
 }

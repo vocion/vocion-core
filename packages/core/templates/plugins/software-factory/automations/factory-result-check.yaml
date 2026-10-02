@@ -5,6 +5,8 @@
 # not prove the outcome").
 slug: factory-result-check
 name: Did it help
+label: Checked whether it helped
+doing: Checking whether it helped
 description: >-
   Weekday morning pass over shipped requests past their `checkAfter`: read the
   source `howWeCheck` names — a PostHog or Sentry figure, a reproduction, the

@@ -60,6 +60,20 @@ describe('WorkerRunService — a finished run is announced', () => {
     expect(event!.payload).toMatchObject({ workerRunId: run.id, status: 'failed', summary: 'checks red', attempt: 1, recordType: null, recordId: null });
   });
 
+  it('settles a run a person cancelled as cancelled when the worker reports it failed, and raises no failure', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    await svc.cancelWorkerRun(ORG, run.id);
+    const ended = await svc.failWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', error: 'stopped by Vocion before the task finished (stop)' });
+
+    expect(ended.status).toBe('cancelled');
+
+    const events = await db.select().from(eventLogSchema);
+
+    expect(events.map(e => e.type)).toEqual(['worker_run.completed']);
+    expect(events[0]!.payload).toMatchObject({ workerRunId: run.id, status: 'cancelled' });
+  });
+
   it('says cancelled, not completed, on the completed event for a run that was asked to stop', async () => {
     const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
     await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });

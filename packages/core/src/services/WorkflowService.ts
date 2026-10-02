@@ -91,7 +91,8 @@ export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRu
     createdBy: opts.invokedBy ?? 'mcp',
   }).returning();
 
-  return runLoop(run!.id);
+  await startDurableRun(opts.orgId, run!.id);
+  return settled(run!.id);
 }
 
 export async function resumeWorkflow(runId: number, orgId: string, payload?: { input?: string }): Promise<WorkflowRunSummary> {
@@ -158,7 +159,17 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
     throw new WorkflowRunNotResumableError(runId, 'another request already resumed it, or its status changed since this request read it');
   }
 
-  return runLoop(runId);
+  // The run's durable owner advances it: a message to the run waiting on its
+  // mailbox, or — for a run paused before runs were durable — a start, which
+  // advances from the cursor just claimed.
+  const { durable, durableIdFor } = await import('@/libs/durable');
+  const id = durableIdFor(orgId, 'workflow-run', runId);
+  if ((await durable().state(id)) === 'pending') {
+    await durable().signal(id, 'resume', { resumedAt: new Date().toISOString() });
+  } else {
+    await startDurableRun(orgId, runId);
+  }
+  return settled(runId);
 }
 
 export async function cancelWorkflow(runId: number, orgId: string, reason?: string): Promise<WorkflowRunSummary> {
@@ -170,6 +181,9 @@ export async function cancelWorkflow(runId: number, orgId: string, reason?: stri
   if (!run) {
     throw new Error(`workflow_run ${runId} not found`);
   }
+  // A person's cancel ends the durable run too, so nothing resumes it.
+  const { durable, durableIdFor } = await import('@/libs/durable');
+  await durable().cancel(durableIdFor(orgId, 'workflow-run', runId)).catch((err: Error) => console.warn('[workflow] the durable run was not cancelled', { runId, message: err.message }));
   return summarize(run);
 }
 
@@ -205,16 +219,50 @@ export async function listWorkflowRuns(orgId: string, filters?: { workflowSlug?:
 }
 
 /**
- * Inner execution loop. Picks up at currentStep, runs forward until either:
+ * Start the run's durable owner (idempotent: one owner per run).
+ * @param orgId - The workspace.
+ * @param runId - The workflow run.
+ */
+async function startDurableRun(orgId: string, runId: number): Promise<void> {
+  const { durable, durableIdFor } = await import('@/libs/durable');
+  await import('@/services/workflows/durableWorkflowRun');
+  await durable().start('vocion.workflow-run', durableIdFor(orgId, 'workflow-run', runId), { runId });
+}
+
+/**
+ * The run as it stands once it stops moving on its own (paused, ended or
+ * failed), or as it is after `waitMs` while a long step still runs.
+ * @param runId - The workflow run.
+ * @param waitMs - How long a caller is held.
+ */
+async function settled(runId: number, waitMs = 60_000): Promise<WorkflowRunSummary> {
+  const started = Date.now();
+  let delay = 20;
+  for (;;) {
+    const [row] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
+    if (!row) {
+      throw new Error(`workflow_run ${runId} not found`);
+    }
+    if (row.status !== 'running' || Date.now() - started > waitMs) {
+      return summarize(row);
+    }
+    await new Promise(r => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 500);
+  }
+}
+
+/**
+ * One segment of a run: picks up at currentStep and runs forward until either:
  *   - steps array exhausted → status = completed
  *   - an approve step is hit → status = paused (caller resumes later)
  *   - a step throws → status = failed
  *
- * Called on initial start AND on resume. Stays a pure function of
- * (run state + workflow definition) so it's safe to call repeatedly.
+ * The durable run (`workflows/durableWorkflowRun.ts`) calls it on start and
+ * after each resume. A pure function of (run state + workflow definition), so
+ * a segment replayed after a crash picks up from the persisted cursor.
  * @param runId
  */
-async function runLoop(runId: number): Promise<WorkflowRunSummary> {
+export async function advanceWorkflowRun(runId: number): Promise<WorkflowRunSummary> {
   const [run] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
   if (!run) {
     throw new Error(`workflow_run ${runId} not found after start`);

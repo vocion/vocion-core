@@ -115,7 +115,7 @@ export const githubOpenPullAction: Action<typeof openPullInput> = {
   dedupKeyFor: input => `${OPEN_PULL_ACTION_ID}:${input.repo}:${input.branch ?? `${input.title}:${input.files.map(f => f.path).sort().join(',')}`}`.slice(0, 400),
   ownsDedupKey: true,
   async precheck(ctx, input) {
-    const may = await mayOpenPipelinePull(ctx.orgId, ctx.invokedBy);
+    const may = await mayOpenPipelinePull(ctx.orgId, ctx.proposedBy ?? ctx.invokedBy);
     if (!may.ok) {
       return may.why;
     }

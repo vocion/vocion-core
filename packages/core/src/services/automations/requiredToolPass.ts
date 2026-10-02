@@ -123,6 +123,9 @@ export async function forceRequiredTool(opts: {
   let tries = 2;
   for (let attempt = 0; attempt < tries; attempt++) {
     const res = await model.invoke(messages as never);
+    // A recording pass is a paid call like any turn, and spend the run it
+    // closes should carry (`budget/runCost.ts`). It charged nothing before.
+    await chargeRecordingPass(opts.orgId, opts.agentSlug, res);
     const call = (res.tool_calls ?? []).find(c => c.name === toolName);
     if (!call) {
       return { called: false, answer: answer || 'the model returned no tool call' };
@@ -216,4 +219,26 @@ export function listedShots(raw: string): Array<{ title: string; link: string }>
   // URL-state criterion were cut, so QA recorded them "not provided" (review
   // 5750). Each is fetched smaller (800px) so the pass costs about the same.
   return [...text.matchAll(/- ([^\n]+?): (https?:\/\/\S+\/dashboard\/artifacts\/\d+)/g)].slice(0, 24).map(m => ({ title: m[1]!, link: m[2]! }));
+}
+
+/**
+ * Charge one recording-pass call to the agent it speaks for. Never throws: the
+ * call already happened, and the accounting failing must not fail the pass.
+ * @param orgId - Tenant.
+ * @param agentSlug - The agent whose report it records.
+ * @param response - What the model returned.
+ */
+async function chargeRecordingPass(orgId: string, agentSlug: string, response: unknown): Promise<void> {
+  try {
+    const { modelIdOf, tokenUsageOf } = await import('@/libs/llm/usage');
+    const usage = tokenUsageOf(response);
+    if (!usage) {
+      return;
+    }
+    const { resolvedModelId } = await import('@/libs/llm');
+    const { chargeUsage } = await import('@/services/BudgetService');
+    await chargeUsage({ orgId, agentSlug: agentSlug || undefined, model: modelIdOf(response) ?? resolvedModelId('extractor'), usage });
+  } catch (error) {
+    console.warn('[automation] recording pass was not charged', { orgId, agentSlug, error: (error as Error).message });
+  }
 }

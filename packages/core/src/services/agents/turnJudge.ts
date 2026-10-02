@@ -1,57 +1,53 @@
 /**
- * WHAT THE PERSON MEANT, AND HOW THE TURN ENDED — read by a model, never by
- * matching words (Chris, 2026-09-29: "we should be using LLM to determine or
- * route based on intent. NEVER HARD CODE WORD MATCHES … ANYWHERE.").
+ * WHAT THE PERSON MEANT — read by a model, never by matching words (Chris,
+ * 2026-09-29: "we should be using LLM to determine or route based on intent.
+ * NEVER HARD CODE WORD MATCHES … ANYWHERE.").
  *
- * The turn loop used to decide from regexes whether a message asked for a
- * change ("expand the scope" matched no verb, conversation 382), whether a
- * reply was only a promise, claimed a write, or wrote a tool call as text.
- * Each of those is a question about meaning. Here each is asked of a small
- * model once, bound to one tool whose schema is the typed answer, and the
- * loop routes on the fields:
+ * Two readings, each one call to a small model bound to one tool whose
+ * schema is the typed answer:
  *
- *   - `readIntent` — at the start of the turn, in parallel with it: does the
- *     person want the record on their page changed, a new record filed, a
- *     decision taken on something waiting, an act rather than an answer?
- *   - `judgeAnswer` — when a pass ends: did it answer, or end on a promise;
- *     does it say it did something the tool log does not show; did it write
- *     a call out as text; did it stop mid-thought?
+ *   - `readIntent` — once, before the turn runs: answer, change, file,
+ *     decide or work. An answer turn is read-only (`turnScope.ts`).
+ *   - `saidToDecide` — before a decide tool acts on one item for a person:
+ *     did their own words say to take exactly that decision?
  *
- * A reader that fails returns "no signal" (every flag false), so the turn is
- * never held up by its own judge; the log says it failed.
+ * A reader that fails returns "no signal", so the turn is never held up by
+ * its own judge, and a failed intent read never makes a turn read-only.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { z } from 'zod';
 
+export const TURN_ASKS = ['answer', 'change', 'file', 'decide', 'work'] as const;
+
 export const TurnIntentSchema = z.object({
-  changes_page_record: z.boolean().describe('The person wants the record on the page they are on changed: its fields, scope, acceptance, outcome, story, title — however they phrase it ("expand the scope", "get it into the spec", "add X to it").'),
-  files_new_record: z.boolean().describe('The person wants a new or separate record filed or created (a request, a bug, a task, a ticket) — including splitting something out into its own.'),
-  decides: z.boolean().describe('The person says what to do with something waiting on them — approve, reject, dismiss, build, merge, defer, send it back — in this message, or this message confirms one they named just before ("do it", "write it").'),
-  wants_action: z.boolean().describe('The person wants something done rather than an answer to a question.'),
-  changes_existing_record: z.boolean().describe('The person wants a record that already exists changed (on this page or elsewhere), not a new one.'),
-  wants_to_choose: z.boolean().describe('The person wants to be handed a choice or options to decide themselves ("which one", "let me decide").'),
-  wants_work_on_record: z.boolean().describe('The person wants work done on the record on the page — mockups, images, a design, attachments.'),
-  changed_record_type: z.string().max(60).nullable().describe('When they want an existing record changed, its type as one lower-case slug (e.g. request); null otherwise.'),
-  record_type: z.string().max(60).nullable().describe('When they want a record filed, its type as one lower-case slug from the types named below (e.g. request, bug); null otherwise.'),
+  asks: z.enum(TURN_ASKS).describe([
+    'What the person wants from this turn, as ONE of:',
+    'answer — to know or understand something: a question, an explanation, a status, how something works, how it would be done, what it would take, why it is so. Asking how a change would be made is still a question. This is the default when they ask rather than tell.',
+    'change — an existing record changed (its fields, scope, acceptance, story, title), however they phrase it ("expand the scope", "add X to it").',
+    'file — a new or separate record filed, or new work started that does not exist yet. A request phrased politely as a question ("can we add dark mode?") is a filing.',
+    'decide — something waiting on them decided: approve, reject, dismiss, build, merge, defer, stop, cancel, send back; or this message confirms one named just before ("do it").',
+    'work — some other act done on the record or for them: a mockup, a document, an image, a run, a send.',
+  ].join(' ')),
+  changed_record_type: z.string().max(60).nullable().describe('With change: the type of the record they want changed, as one lower-case slug (e.g. request); null otherwise.'),
+  record_type: z.string().max(60).nullable().describe('With file: its type as one lower-case slug from the types named below (e.g. request, bug); null otherwise.'),
   summary: z.string().max(200).describe('What they want, in one short line.'),
 });
 export type TurnIntent = z.infer<typeof TurnIntentSchema>;
 
-export const NO_INTENT: TurnIntent = { changes_page_record: false, files_new_record: false, decides: false, wants_action: false, changes_existing_record: false, wants_to_choose: false, wants_work_on_record: false, changed_record_type: null, record_type: null, summary: '' };
+/**
+ * No reading (the read failed, or there is no person's turn). `unread` keeps
+ * a failed read from making a turn read-only: a judge that cannot read never
+ * stops the person who asked.
+ */
+export const NO_INTENT: TurnIntent & { unread: true } = { asks: 'answer', changed_record_type: null, record_type: null, summary: '', unread: true };
 
-export const AnswerJudgementSchema = z.object({
-  answered: z.boolean().describe('The reply gives the person an actual answer or result — not only a promise, a fragment or nothing.'),
-  ends_on_promise: z.boolean().describe('The reply ends by saying it will do or look at something it has not done yet in this turn.'),
-  promise: z.string().max(300).nullable().describe('That closing promise, quoted exactly; null when there is none.'),
-  claims_unrecorded_work: z.boolean().describe('The reply says something was filed, changed, withdrawn, sent, dispatched or put up as a card that the list of steps does not show as done. A step the reply itself says is waiting, queued or pending is not such a claim.'),
-  claim: z.string().max(300).nullable().describe('That claim, quoted exactly; null when there is none.'),
-  wrote_call_as_text: z.string().max(80).nullable().describe('The name of a tool the reply wrote out as text (its name, or a block of its arguments) instead of calling; null when none.'),
-  cut_off: z.boolean().describe('The reply stops mid-sentence or mid-thought.'),
-  hides_failure: z.boolean().describe('A step listed as failed is one the reply does not tell the person about.'),
-});
-export type AnswerJudgement = z.infer<typeof AnswerJudgementSchema>;
-
-export const NO_JUDGEMENT: AnswerJudgement = { answered: true, ends_on_promise: false, promise: null, claims_unrecorded_work: false, claim: null, wrote_call_as_text: null, cut_off: false, hides_failure: false };
+/**
+ * The person asked for an act, not an answer.
+ * @param intent - The turn's reading.
+ */
+export function asksForAct(intent: Pick<TurnIntent, 'asks'>): boolean {
+  return intent.asks !== 'answer';
+}
 
 type Model = Pick<BaseChatModel, 'bindTools'>;
 
@@ -84,7 +80,7 @@ async function classifier(orgId: string): Promise<Model> {
  * @param input.recordTypes - The record types the agent can file, for `record_type`.
  * @param model - Injected in tests.
  */
-export async function readIntent(input: { orgId: string; message: string; previous?: { person?: string; agent?: string }; page?: string | null; waiting?: string; recordTypes?: string[] }, model?: Model): Promise<TurnIntent> {
+export async function readIntent(input: { orgId: string; message: string; previous?: { person?: string; agent?: string }; page?: string | null; waiting?: string; recordTypes?: string[] }, model?: Model): Promise<TurnIntent & { unread?: true }> {
   try {
     const out = await ask(model ?? await classifier(input.orgId), TurnIntentSchema, 'report_intent', 'Report what the person wants from this turn.', 'You read one message a person sent to an agent in a work app and report, as typed fields, what they want. Judge the meaning, not the wording. Answer only through the tool.', [
       input.page ? `The person is on the page of ${input.page}.` : 'The person is not on a record\'s page.',
@@ -101,44 +97,8 @@ export async function readIntent(input: { orgId: string; message: string; previo
   }
 }
 
-/**
- * How a pass of the turn ended.
- * @param input - The pass.
- * @param input.orgId - The workspace.
- * @param input.message - The person's message.
- * @param input.reply - What the agent has written so far.
- * @param input.steps - What the turn did, one line per tool call with its outcome.
- * @param input.cards - How many cards were put up.
- * @param input.failed - Steps that failed (a hand-off that did not complete), one line each.
- * @param model - Injected in tests.
- */
-export async function judgeAnswer(input: { orgId: string; message: string; reply: string; steps: string[]; cards: number; failed?: string[] }, model?: Model): Promise<AnswerJudgement> {
-  try {
-    const out = await ask(model ?? await classifier(input.orgId), AnswerJudgementSchema, 'report_reply', 'Report how the agent\'s reply ends and whether it matches what was done.', 'You check an agent\'s reply against the steps it actually took in this turn, and report as typed fields. Judge the meaning, not the wording. Quote the reply exactly where a field asks for a quote. Answer only through the tool.', [
-      `The person said: ${input.message.slice(0, 2_000)}`,
-      `Steps taken this turn (tool, outcome):\n${input.steps.length > 0 ? input.steps.slice(-30).join('\n') : '(none)'}`,
-      `Cards put up for the person: ${input.cards}`,
-      `Steps that failed: ${input.failed && input.failed.length > 0 ? input.failed.join('; ') : '(none)'}`,
-      `The reply so far:\n${input.reply.slice(-6_000) || '(empty)'}`,
-    ].join('\n\n'));
-    return out ?? NO_JUDGEMENT;
-  } catch (err) {
-    console.warn('turn judge: reply judgement failed', { orgId: input.orgId, message: (err as Error).message });
-    return NO_JUDGEMENT;
-  }
-}
-
-/**
- * One line per step for the judge: the tool and what it answered. Whether a
- * step landed is the judge's reading of that answer, not a string check.
- * @param calls - The turn's tool calls.
- */
-export function stepLines(calls: ReadonlyArray<{ tool: string; output?: string }>): string[] {
-  return calls.map(c => `${c.tool} → ${(c.output ?? '(no output)').replace(/\s+/g, ' ').slice(0, 200)}`);
-}
-
 export const SaidToDecideSchema = z.object({
-  said: z.boolean().describe('The person\'s own words (the latest message, or the one before it when the latest only confirms it) tell the agent to take exactly this decision.'),
+  said: z.boolean().describe('The person\'s own words (the latest message, or the one before it when the latest only confirms it) tell the agent to take exactly this decision — this action, on this target. Words about the same work that ask for a different action are not consent to this one.'),
   quote: z.string().max(300).nullable().describe('Their words that say it, quoted exactly; null when they did not.'),
 });
 
@@ -151,14 +111,16 @@ export const SaidToDecideSchema = z.object({
  * @param input.orgId - The workspace.
  * @param input.messages - The person's recent messages, newest first (the latest, then the one before).
  * @param input.decision - The decision, as a sentence ("approve proposal #5201: Build vanity links").
+ * @param input.page - The record the person is on, so "build this" reads as that record (2026-10-02: "Plan this again and build it" on FE-224 read as no consent without it).
  * @param model - Injected in tests.
  */
-export async function saidToDecide(input: { orgId: string; messages: string[]; decision: string }, model?: Model): Promise<{ said: boolean; quote: string | null }> {
+export async function saidToDecide(input: { orgId: string; messages: string[]; decision: string; page?: string | null }, model?: Model): Promise<{ said: boolean; quote: string | null }> {
   if (input.messages.length === 0) {
     return { said: false, quote: null };
   }
   try {
-    const out = await ask(model ?? await classifier(input.orgId), SaidToDecideSchema, 'report_consent', 'Report whether the person said to take this decision.', 'An agent is about to take a decision on a person\'s behalf. You decide from the person\'s own words only whether they told it to take exactly this decision. A question about it, a maybe, a different decision, or a decision about something else is not consent. Answer only through the tool.', [
+    const out = await ask(model ?? await classifier(input.orgId), SaidToDecideSchema, 'report_consent', 'Report whether the person said to take this decision.', 'An agent is about to take a decision on a person\'s behalf. You decide from the person\'s own words only whether they told it to take exactly this decision: this action, on this target, with this effect. A question about it, a maybe, a different decision, or a decision about something else is not consent. Consent to one action is never consent to another on the same work: a person who asked to defer, close, file or change a record has not asked for a revert, a merge, a deploy, a delete or any other change to production unless they named that action themselves. Answer only through the tool.', [
+      input.page ? `The person is on the page of ${input.page}; "this" or "it" in their words means that record.` : '',
       `The decision: ${input.decision}`,
       `The person, latest message: ${input.messages[0]!.slice(0, 2_000)}`,
       input.messages[1] ? `The person, message before: ${input.messages[1].slice(0, 2_000)}` : '',

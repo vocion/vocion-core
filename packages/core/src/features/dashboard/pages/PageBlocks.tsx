@@ -184,8 +184,9 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   const lines = subtitleLines(rest, row, now);
   // A card whose facts open their OWN places cannot also be one big link — a
   // link inside a link is a tap that does two things. Its title opens the
-  // row instead, and each linked fact opens where it says.
-  const split = [...layout.subtitle, ...layout.columns].some(f => f.href !== undefined);
+  // row instead, and each linked fact opens where it says. A `link` field
+  // to a URL is an anchor of its own (a tracker's issue), so it splits too.
+  const split = [...layout.subtitle, ...layout.columns].some(f => f.href !== undefined || (f.format === 'link' && !f.to));
   const mark = <InlineMark row={row} field={layout.thumb} now={now} />;
   const title = layout.primary
     ? <FieldValue row={row} field={layout.primary} now={now} links={links} />

@@ -1,0 +1,295 @@
+# The request flow: one owner per request, from its first Build to live
+# (backlog 054). In a workspace with `durable: [factory]`, every way into a
+# build (Build, chat, intake, an ask's answer, a recovery, QA's send-back, an
+# approved plan) is a `factory.build_requested` event; this flow alone
+# dispatches. It owns the attempt number and the branch each attempt
+# continues, and every wait has a timeout and a stated stop.
+#
+# Core runs it with the generic flow engine (libs/durable/flow.ts): `do` runs
+# an action through ActionService and the trust ladder, `wait_event` waits on
+# event_log with a catch-up `since`, `when`/`loop` steer on typed values. What
+# the factory knows about its world is in the actions this flow calls
+# (factory.dispatch_task, factory.read_attempt, factory.stop_request,
+# factory.read_release_live, factory.check_live_again).
+#
+# A run snapshots this file when it starts, so editing it changes new runs
+# only. Times are seconds.
+name: software-factory/request
+description: One request from Build to live, retrying on the kept branch, with a stop for a person.
+vars:
+  attempt: 0
+  automatic: 0
+  base: null
+  baseLine: from main
+  intent: null
+  since: null
+status_with:
+  attempt: '{{vars.attempt}}'
+  base: '{{vars.base}}'
+# THE REQUEST'S OWN STATUS moves with the run's (Chris, 2026-10-02): each
+# `status` step's stage — or its `mark` — is a transition the request type's
+# `x-transitions` gives a value (objects/request/type.yaml), so Work, the
+# feature page and this run say the same thing.
+status_record: '{{input.requestId}}'
+steps:
+  # The first wait catches up from just before the run was started, so the
+  # ask that started it is never missed.
+  - set:
+      since: {from: input.since}
+  - loop:
+      max: 1000
+      steps:
+        # The next build ask, unless one is already in hand.
+        - when:
+            - if: {path: vars.intent, exists: false}
+              then:
+                - wait_event:
+                    any:
+                      - types: [factory.build_requested]
+                        match: {requestId: '{{input.requestId}}'}
+                    timeout: 7776000
+                    since: '{{vars.since}}'
+                  as: asked
+                - set:
+                    since: null
+                - when:
+                    - if: {path: vars.asked, exists: false}
+                      then:
+                        - status: {stage: idle, line: No build was asked for in 90 days; the run ended.}
+                        - end: {stage: idle}
+                - set:
+                    intent: {from: vars.asked.payload}
+
+        # A person's ask resets the automatic count; three automatic attempts
+        # in a row stop and ask a person once.
+        - set:
+            automatic: {if: {cond: {path: vars.intent.byPerson, equals: true}, then: 0, else: {add: [{from: vars.automatic}, 1]}}}
+        - when:
+            - if: {all: [{path: vars.intent.byPerson, notEquals: true}, {path: vars.automatic, gt: 3}]}
+              then:
+                - set:
+                    why: {value: 'Stopped after 3 automatic attempts in a row; Build again continues {{vars.baseLine}}.'}
+                - do: factory.stop_request
+                  input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                - status: {stage: stopped, line: '{{vars.why}}'}
+                - set: {intent: null}
+                - next: true
+
+        # The attempt: numbered here, continuing the latest kept branch.
+        - set:
+            attempt: {add: [{from: vars.attempt}, 1]}
+            continuing: {if: {cond: {path: vars.base, exists: true}, then: {value: ', continuing {{vars.base}}'}, else: ''}}
+            askedBy: {if: {cond: {path: vars.intent.byPerson, equals: true}, then: a person, else: {from: vars.intent.by}}}
+            trigger: {first: [{from: vars.intent.trigger}, {if: {cond: {path: vars.intent.byPerson, equals: true}, then: null, else: recovery}}]}
+        - status: {stage: starting, line: 'Attempt {{vars.attempt}} ({{vars.intent.from}}){{vars.continuing}}.'}
+        # An ask raised while the dispatch runs is not lost (FE-370): later
+        # waits catch up from here.
+        - set:
+            dispatchedAt: {now: true}
+        - do: factory.dispatch_task
+          by: '{{vars.intent.by}}'
+          input:
+            requestId: '{{input.requestId}}'
+            planId: '{{vars.intent.planId}}'
+            note: '{{vars.intent.note}}'
+            trigger: '{{vars.trigger}}'
+            contract: {attempt: '{{vars.attempt}}', baseSha: '{{vars.base}}'}
+            reason: 'Attempt {{vars.attempt}}, asked by {{vars.askedBy}} ({{vars.intent.from}}).'
+            fromWorkflow: true
+          as: dispatched
+        - set: {intent: null}
+        - when:
+            - if: {path: vars.dispatched.status, notEquals: done}
+              then:
+                - set:
+                    attempt: {add: [{from: vars.attempt}, -1]}
+                    why: {first: [{from: vars.dispatched.error}, {value: 'The build did not start ({{vars.dispatched.status}}).'}]}
+                - do: factory.stop_request
+                  input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                - status: {stage: stopped, line: '{{vars.why}}'}
+                - next: true
+            # Planning is not an attempt: the plan's approval asks for the build.
+            - if: {path: vars.dispatched.result.planning, equals: true}
+              then:
+                - set:
+                    attempt: {add: [{from: vars.attempt}, -1]}
+                - status: {stage: planning, line: 'Planning first: {{vars.dispatched.result.why}}.'}
+                - wait_event:
+                    any:
+                      - types: [factory.build_requested]
+                        match: {requestId: '{{input.requestId}}'}
+                    timeout: 10800
+                    since: '{{vars.dispatchedAt}}'
+                  as: planned
+                - when:
+                    - if: {path: vars.planned, exists: true}
+                      then:
+                        - set: {intent: {from: vars.planned.payload}}
+                        - next: true
+                - set:
+                    why: The plan did not arrive within 3 hours.
+                - do: factory.stop_request
+                  input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                - status: {stage: stopped, line: '{{vars.why}}'}
+                - next: true
+            - if: {path: vars.dispatched.result.workerRunId, exists: false}
+              then:
+                - set:
+                    attempt: {add: [{from: vars.attempt}, -1]}
+                    why: The build started no worker run.
+                - do: factory.stop_request
+                  input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                - status: {stage: stopped, line: '{{vars.why}}'}
+                - next: true
+
+        - set:
+            runId: {from: vars.dispatched.result.workerRunId}
+        - status:
+            stage: building
+            line: 'RUN-{{vars.runId}} is building attempt {{vars.attempt}}.'
+            with: {workerRunId: '{{vars.runId}}', taskId: '{{vars.dispatched.result.taskId}}'}
+        - wait_event:
+            any:
+              - types: [worker_run.completed, worker_run.failed]
+                match: {workerRunId: '{{vars.runId}}'}
+            timeout: 28800
+            since: '{{vars.dispatchedAt}}'
+          as: ended
+        - do: factory.read_attempt
+          input: {workerRunId: '{{vars.runId}}', automatic: '{{vars.automatic}}'}
+          as: read
+        - set:
+            base: {first: [{from: vars.read.result.branch}, {from: vars.base}]}
+        - set:
+            baseLine: {first: [{from: vars.base}, from main]}
+        - when:
+            - if: {path: vars.ended, exists: false}
+              then:
+                - set:
+                    why: {value: 'RUN-{{vars.runId}} did not finish within 8 hours.'}
+                - do: factory.stop_request
+                  input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                - status: {stage: stopped, line: '{{vars.why}}'}
+                - next: true
+            # A person's cancel is final: nothing retries it.
+            - if: {path: vars.read.result.status, equals: cancelled}
+              then:
+                - status: {stage: stopped, line: 'RUN-{{vars.runId}} was cancelled; Build again continues {{vars.baseLine}}.'}
+                - next: true
+            - if: {any: [{path: vars.read.result.status, notEquals: completed}, {path: vars.read.result.prUrl, exists: false}]}
+              then:
+                - when:
+                    - if: {path: vars.read.result.decision.do, equals: dispatch}
+                      then:
+                        - set:
+                            intent:
+                              value: {requestId: '{{input.requestId}}', by: 'factory:recovery', byPerson: false, from: recovery, note: '{{vars.read.result.failure}}', trigger: recovery}
+                        - next: true
+                - set:
+                    why: {from: vars.read.result.decision.why}
+                - do: factory.stop_request
+                  input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                - status: {stage: stopped, line: '{{vars.why}}'}
+                - next: true
+
+        # QA reviews; it can send the attempt back, or the merge land, before
+        # this wait opens, so it catches up from the run's end.
+        - set:
+            prUrl: {from: vars.read.result.prUrl}
+        - status: {stage: review, line: 'QA is reviewing {{vars.prUrl}}.', with: {prUrl: '{{vars.prUrl}}'}}
+        - set:
+            reviewFrom: {now: true}
+        - wait_event:
+            any:
+              - types: [factory.build_requested]
+                match: {requestId: '{{input.requestId}}'}
+              - types: [pr.merged]
+                match: {url: '{{vars.prUrl}}'}
+              - types: [pr.closed]
+                match: {url: '{{vars.prUrl}}'}
+            timeout: 2592000
+            since: '{{vars.reviewFrom}}'
+          as: reviewed
+        - when:
+            - if: {path: vars.reviewed, exists: false}
+              then:
+                - set:
+                    why: {value: '{{vars.prUrl}} was neither merged nor sent back within 30 days.'}
+                - do: factory.stop_request
+                  input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                - status: {stage: stopped, line: '{{vars.why}}'}
+                - next: true
+            - if: {path: vars.reviewed.type, equals: factory.build_requested}
+              then:
+                - set: {intent: {from: vars.reviewed.payload}}
+                - next: true
+            - if: {path: vars.reviewed.type, equals: pr.closed}
+              then:
+                - set:
+                    why: {value: '{{vars.prUrl}} was closed without merging.'}
+                - do: factory.stop_request
+                  input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                - status: {stage: stopped, line: '{{vars.why}}'}
+                - next: true
+
+        # Merged: the deploy records a release, and the live check is done
+        # only when a result is recorded on the release (release #369).
+        - status: {stage: deploying, line: 'Merged {{vars.prUrl}}; deploying.', with: {prUrl: '{{vars.prUrl}}'}}
+        - wait_event:
+            any:
+              - types: [release.linked]
+                match: {requestIds: ['{{input.requestId}}']}
+            timeout: 21600
+            since: '{{vars.reviewFrom}}'
+          as: released
+        - when:
+            - if: {path: vars.released, exists: false}
+              then:
+                - status: {stage: merged, line: 'Merged {{vars.prUrl}}; no release recorded it within 6 hours.'}
+                - end: {stage: merged}
+        - set:
+            releaseId: {from: vars.released.payload.releaseId}
+            tries: 0
+        # Shipped already (the release wrote it); checking live moves no status.
+        - status: {stage: live, mark: checking_live, line: 'Live in REL-{{vars.releaseId}}; checking it on the live product.', with: {releaseId: '{{vars.releaseId}}'}}
+        - set:
+            liveSince: {now: true}
+        - loop:
+            max: 2
+            steps:
+              - set:
+                  tries: {add: [{from: vars.tries}, 1]}
+              - wait_event:
+                  any:
+                    - types: [automation_run.completed, automation_run.failed]
+                      match: {slug: release-live-check}
+                  timeout: 1800
+                  since: '{{vars.liveSince}}'
+                as: liveEnded
+              - do: factory.read_release_live
+                input: {releaseId: '{{vars.releaseId}}'}
+                as: recorded
+              - when:
+                  - if: {path: vars.recorded.result.state, equals: seen}
+                    then:
+                      - status: {stage: live, line: '{{vars.recorded.result.line}}', with: {releaseId: '{{vars.releaseId}}', liveState: seen}}
+                      - end: {stage: live}
+                  - if: {path: vars.recorded.result.state, exists: true}
+                    then:
+                      - status: {stage: live_unconfirmed, line: '{{vars.recorded.result.line}}', with: {releaseId: '{{vars.releaseId}}', liveState: '{{vars.recorded.result.state}}'}}
+                      - end: {stage: live_unconfirmed}
+              - when:
+                  - if: {path: vars.tries, lt: 2}
+                    then:
+                      - set:
+                          liveSince: {now: true}
+                      - do: factory.check_live_again
+                        input:
+                          releaseId: '{{vars.releaseId}}'
+                          reason: the last QA run ended without recording a live check; record one with check_live (not explore), citing every acceptance line or naming it not observable
+        - set:
+            why: {value: 'REL-{{vars.releaseId}} is live, but no live check was recorded after 2 tries.'}
+        - do: factory.stop_request
+          input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+        - status: {stage: live_unchecked, line: '{{vars.why}}', with: {releaseId: '{{vars.releaseId}}'}}
+        - end: {stage: live_unchecked}
