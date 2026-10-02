@@ -36,10 +36,10 @@ describe('workspace_setup tells the model the ONE next step', () => {
     const otherBranch = text.indexOf('For any other workspace');
 
     expect(otherBranch).toBeGreaterThan(text.indexOf('8. What first'));
-    expect(text.indexOf('plugin.enable')).toBeGreaterThan(otherBranch);
+    expect(text.lastIndexOf('plugin.enable')).toBeGreaterThan(otherBranch);
     expect(text.indexOf('the task tool')).toBeGreaterThan(otherBranch);
     expect(text.indexOf('1. Repos')).toBeLessThan(text.indexOf('offer_connection'));
-    expect(text.slice(0, text.indexOf('1. Repos'))).not.toMatch(/plugin\.enable|task tool|offer_connection/);
+    expect(text.slice(0, text.indexOf('1. Repos'))).not.toMatch(/the task tool|offer_connection/);
   });
 });
 
@@ -76,6 +76,17 @@ describe('the setup interview', () => {
 
     expect(line).toMatch(/file_request/);
     expect(line).toMatch(/never ask it again/i);
+  });
+
+  it('a software workspace whose plugin is off binds plugin.enable for software-factory before step 1, with no task tool before step 8', () => {
+    const text = renderSetupStatus({ ...described, connectedConnectors: ['github'], enabledPlugins: [], done: true });
+    const bind = text.indexOf('{"slug": "software-factory"}');
+    const softwarePath = text.slice(0, text.indexOf('For any other workspace'));
+
+    expect(bind).toBeGreaterThan(-1);
+    expect(bind).toBeLessThan(text.indexOf('1. Repos'));
+    expect(text.slice(0, text.indexOf('plugin.enable'))).toMatch(/software/);
+    expect(softwarePath.slice(0, softwarePath.indexOf('8. What first'))).not.toContain('task tool');
   });
 
   it('names only bindable actions for options, and never raises a rung', () => {
