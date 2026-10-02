@@ -261,9 +261,10 @@ export const productionDeps: RequestWorkflowDeps = {
   },
   async readLive(orgId, releaseId) {
     const { readRecord } = await import('@/libs/actions/factory-dispatch');
+    // What the live check records on the release (`services/factory/liveCheck.ts`).
     const release = await readRecord(orgId, releaseId);
-    const live = (release?.meta.liveCheck ?? null) as { state?: unknown; line?: unknown } | null;
-    return live && typeof live.state === 'string' ? { state: live.state, line: String(live.line ?? live.state) } : null;
+    const state = release?.meta.liveState;
+    return typeof state === 'string' && state ? { state, line: String(release!.meta.liveSummary ?? release!.meta.liveWhy ?? state) } : null;
   },
   async askLive(orgId, releaseId, why) {
     const { proposeAction } = await import('@/services/ActionService');
