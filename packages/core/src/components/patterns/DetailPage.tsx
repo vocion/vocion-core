@@ -391,9 +391,11 @@ export function FactList(props: { facts: ReadonlyArray<Maybe<Fact>>; layout?: 'r
   return (
     <dl data-pattern="fact-list" className={cn('divide-y divide-rule', props.className)}>
       {facts.map((f, i) => (
-        <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="group/row flex items-start gap-4 py-2 text-sm" data-fact={f.key}>
-          <dt className="w-32 shrink-0 text-[12px] leading-5 text-muted-foreground">{f.label}</dt>
-          <dd className="min-w-0 flex-1 break-words text-foreground">{value(f)}</dd>
+        // On a phone the label sits above its value, so the value gets the
+        // whole width instead of wrapping in a narrow column (Chris, 2026-10-02).
+        <div key={f.key ?? (typeof f.label === 'string' ? f.label : i)} className="group/row grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-0.5 py-2 text-sm sm:flex sm:gap-4" data-fact={f.key}>
+          <dt className="col-span-2 text-[12px] leading-5 text-muted-foreground sm:w-32 sm:shrink-0">{f.label}</dt>
+          <dd className="min-w-0 break-words text-foreground sm:flex-1">{value(f)}</dd>
           {f.preview && <OpenInPreview recordRef={f.preview} className="-my-0.5" />}
         </div>
       ))}
