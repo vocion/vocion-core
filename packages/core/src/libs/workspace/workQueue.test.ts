@@ -263,19 +263,28 @@ describe('the lanes carry what they could not draw', () => {
     expect(out[0]!.meta.waitingCount).toBe(3);
   });
 
-  it('caps recently done and points the rest at Activity', () => {
-    const rows = Array.from({ length: 9 }, (_, i) => row(
+  it('caps recently done, counts the whole lane, and points the rest at Activity', () => {
+    const rows = Array.from({ length: 23 }, (_, i) => row(
       100 + i,
       `shipped ${i}`,
       { state: 'shipped', answeredAt: new Date(NOW.getTime() - i * 3_600_000).toISOString() },
     ));
     const out = deriveWorkQueue(rows, { now: NOW });
 
-    expect(out).toHaveLength(5);
+    expect(out).toHaveLength(20);
     expect(out[0]!.meta.lane).toBe('Done');
-    expect(out[0]!.meta.laneNote).toBe('4 more in Activity');
-    expect(out[0]!.meta.doneCount).toBe(9);
-    expect(out.map(r => r.title)).toEqual(['shipped 0', 'shipped 1', 'shipped 2', 'shipped 3', 'shipped 4']);
+    expect(out[0]!.meta.laneNote).toBe('3 more in Activity');
+    expect(out[0]!.meta.doneCount).toBe(23);
+    expect(out[0]!.meta.laneTotal).toBe(23);
+    expect(out[0]!.title).toBe('shipped 0');
+  });
+
+  it('a shipped request is Done though its state still reads building (FE-224); reopened is open', () => {
+    const shipped = row(224, 'copy link', { state: 'building', shippedAt: '2026-10-02T03:19:08Z' });
+    const reopened = row(225, 'again', { state: 'building', shippedAt: '2026-10-01T03:19:08Z', reopenedAt: '2026-10-02T01:00:00Z' });
+
+    expect(laneOf(shipped)).toBe('done');
+    expect(laneOf(reopened)).toBe('progress');
   });
 
   it('drops work that finished outside the window', () => {

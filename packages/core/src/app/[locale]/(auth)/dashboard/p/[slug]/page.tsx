@@ -1022,7 +1022,8 @@ export default async function WorkspacePage(props: {
             groups={groups.map((g, gi) => ({
               key: groupTabKey(g.label, gi),
               label: g.label ?? '',
-              count: g.rows.length,
+              // A source that caps its rows says how many the group holds.
+              count: typeof g.rows[0]?.meta?.laneTotal === 'number' ? g.rows[0].meta.laneTotal : g.rows.length,
               note: typeof g.rows[0]?.meta?.laneNote === 'string' ? g.rows[0].meta.laneNote : null,
               children: panel(g, gi, null),
             }))}

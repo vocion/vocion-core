@@ -61,7 +61,7 @@ export type WorkLane = typeof WORK_LANES[number];
 
 /** How many rows each lane draws before the heading carries the remainder. */
 export const PROPOSED_SHOWN = 6;
-export const DONE_SHOWN = 5;
+export const DONE_SHOWN = 20;
 /**
  * How many undecided recommendations read "Decide" at once. Twenty-five
  * Decide badges down one phone screen is not a queue of decisions, it is a
@@ -273,6 +273,14 @@ export function isDismissed(row: PageRow): boolean {
 export function laneOf(row: PageRow): WorkLane {
   const state = str(row, 'state');
   if (state && DONE_STATES.has(state)) {
+    return 'done';
+  }
+  // SHIPPED IS DONE, whatever the state field says (2026-10-02: FE-224 shipped
+  // in REL-355 and read "building", so it sat under In progress and Done read
+  // 5 while 15 Stamp features had shipped). Reopened after shipping is open.
+  const shippedAt = str(row, 'shippedAt');
+  const reopenedAt = str(row, 'reopenedAt');
+  if (shippedAt && !(reopenedAt && Date.parse(reopenedAt) > Date.parse(shippedAt))) {
     return 'done';
   }
   // The factory carrying it — planning, recovering, stopped at the limit — is
@@ -1312,6 +1320,8 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           ...figures,
           lane: laneLabel(lane),
           laneKey: lane,
+          // How many rows the lane holds, past its cap: the tab counts these.
+          laneTotal: ordered.length,
           laneNote: note ?? undefined,
           order: laneIndex * 1000 + i,
           // The one line the row leads with: the outcome (what a person can
