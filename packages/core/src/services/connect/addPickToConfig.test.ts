@@ -31,6 +31,13 @@ describe('addPickToConfig', () => {
     expect(saved.intakeStatuses).toEqual(['Ready']);
   });
 
+  it('clears the daily limit when the pick says no limit, so "everything now" undoes "one a day"', () => {
+    const saved = addPickToConfig('jira', { intakeStatuses: ['Ready'], intakePerDay: 1 }, { intakeStatuses: ['To Do'], intakePerDay: null });
+
+    expect(saved.intakeStatuses).toEqual(['To Do']);
+    expect(saved).not.toHaveProperty('intakePerDay');
+  });
+
   it('leaves the fields a pick does not name as they were', () => {
     const saved = addPickToConfig('jira', { intakeStatuses: ['To Do'], baseUrl: 'https://northwind.atlassian.net' }, { projectKeys: ['ENG'] });
 

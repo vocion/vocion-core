@@ -1290,6 +1290,13 @@ export const AutomationManifestSchema = z.object({
   description: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
   /**
+   * What this automation is FOR, when core's code must treat it differently.
+   * `tracker-intake` marks the pass that files requests from tracker issues on
+   * its own: the filing tool caps and stamps only that role's filings, so
+   * core never names a plugin's automation by slug.
+   */
+  role: z.enum(['tracker-intake']).optional(),
+  /**
    * Owning agent slug. For `checkMission` the owner is implied by the
    * mission's own `agent`, so this is optional; for `job`/`workflow`
    * automations, which carry no mission, set it so the schedule rolls up to a

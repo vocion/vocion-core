@@ -348,7 +348,8 @@ name: Software factory
 #   for each issue in an intake status that has none yet, at most `intakePerDay`
 #   a calendar day in the workspace's time zone, highest priority first (the
 #   tracker search orders by priority, and `file_request` refuses past the
-#   day's cap). Core's
+#   day's cap, counting only what that automation filed: it declares
+#   `role: tracker-intake`, and its filings are stamped). Core's
 #   `autonomy.lower` takes a rung to a target and never raises it; the answer
 #   "ask me even before merging pipeline fixes" binds it.
 version: 3.2.0

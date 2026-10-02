@@ -31,6 +31,10 @@ describe('jiraConfigSchema intake rules', () => {
     expect(jiraConfigSchema.safeParse({ ...BASE, intakePerDay: 21 }).success).toBe(false);
   });
 
+  it('accepts null for the daily limit, which means no limit', () => {
+    expect(jiraConfigSchema.safeParse({ ...BASE, intakePerDay: null }).success).toBe(true);
+  });
+
   it('leaves both unset by default, which is today\'s behaviour', () => {
     const parsed = jiraConfigSchema.parse(BASE);
 

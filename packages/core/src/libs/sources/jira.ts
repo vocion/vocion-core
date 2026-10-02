@@ -69,9 +69,11 @@ export const jiraConfigSchema = z.object({
   intakeStatuses: z.array(z.string().min(1)).max(10).optional(),
   /**
    * The most requests the factory files from the tracker in one calendar day
-   * (the workspace's time zone), highest priority first. Absent, no daily cap.
+   * (the workspace's time zone), highest priority first. Absent or null, no
+   * daily cap; null is what "everything in this status now" saves, to clear an
+   * earlier "one a day".
    */
-  intakePerDay: z.number().int().min(1).max(20).optional(),
+  intakePerDay: z.number().int().min(1).max(20).nullable().optional(),
 });
 
 /** How many `nextPageToken` pages one sync may walk before bailing out. */

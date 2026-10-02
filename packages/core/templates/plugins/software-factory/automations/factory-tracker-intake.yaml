@@ -16,6 +16,7 @@ description: >-
   Hourly on weekdays, file a request for each tracker issue in a status the
   person chose for the factory to pick up, within the daily limit they chose.
 status: active
+role: tracker-intake
 agent: product-manager
 when:
   schedule: '0 * * * 1-5'

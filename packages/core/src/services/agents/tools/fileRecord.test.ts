@@ -20,7 +20,7 @@ import { loadWorkspace } from '@/libs/workspace/loader';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema, missionRunSchema, trustRuleSchema } = await import('@/models/Schema');
+const { automationSchema, businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema, missionRunSchema, trustRuleSchema } = await import('@/models/Schema');
 const { and, eq } = await import('drizzle-orm');
 const { filingTypeOf, loadFilingTypes, filingSchema } = await import('./fileRecord');
 const { buildDomainTools } = await import('./registry');
@@ -379,6 +379,15 @@ describe('one run, one filing (#234)', () => {
   });
 });
 
+/**
+ * The intake stamp on the filed record whose title names a ticket.
+ * @param rows - Filed records, title and metadata.
+ * @param needle - Text in the record's title.
+ */
+function intakeStampOf(rows: Array<{ title: string; metadata: Record<string, unknown> | null }>, needle: string): unknown {
+  return rows.find(r => r.title.includes(needle))?.metadata?.intake;
+}
+
 describe('file_request and the tracker intake cap (the daily limit setup saved on the Jira source)', () => {
   const SITE = 'https://northwind.atlassian.net';
   const TICKET = { ...ASK_353, title: 'Show a sender who opened the file (from NW-31)', evidence: { urls: [`${SITE}/browse/NW-31`] } };
@@ -401,17 +410,22 @@ describe('file_request and the tracker intake cap (the daily limit setup saved o
     } as unknown as RuntimeContext;
   }
 
-  it('refuses an automation\'s second ticket of the day, and still files the same ticket from chat', async () => {
+  it('refuses the intake automation\'s second ticket of the day, stamps its first, and files the same ticket from chat unstamped', async () => {
     await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'jira-northwind', kind: 'plugin', configJson: { _connector: 'jira', baseUrl: SITE, projectKeys: ['NW'], intakePerDay: 1 } });
-    const [requestType] = await db.select().from(businessObjectTypeSchema).where(and(eq(businessObjectTypeSchema.orgId, ORG), eq(businessObjectTypeSchema.slug, 'request')));
-    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: requestType!.id, title: 'Already picked up today', metadata: { evidence: { urls: [`${SITE}/browse/NW-30`] } } });
+    await db.insert(automationSchema).values({ orgId: ORG, slug: 'factory-tracker-intake', name: 'Pick up the roadmap', whenConfig: { schedule: '0 * * * 1-5' }, doConfig: { checkMission: 'close-the-gap', role: 'tracker-intake' } } as never);
     const [run] = await db.insert(missionRunSchema).values({ orgId: ORG, title: 'Pick up the roadmap', brief: 'x', team: [], causedBy: [{ automationSlug: 'factory-tracker-intake' }] } as never).returning({ id: missionRunSchema.id });
     const filingTypes = await loadFilingTypes(ORG, ['request']);
+    const intakeTool = buildDomainTools(ctxWith(filingTypes, run!.id)).find(t => t.name === 'file_request')!;
 
-    const fromAutomation = String(await buildDomainTools(ctxWith(filingTypes, run!.id)).find(t => t.name === 'file_request')!.invoke(TICKET));
-    const fromChat = String(await buildDomainTools(ctxWith(filingTypes)).find(t => t.name === 'file_request')!.invoke(TICKET));
+    const first = String(await intakeTool.invoke(TICKET));
+    const second = String(await intakeTool.invoke({ ...TICKET, title: 'Show a sender who opened the file (from NW-32)', evidence: { urls: [`${SITE}/browse/NW-32`] } }));
+    const fromChat = String(await buildDomainTools(ctxWith(filingTypes)).find(t => t.name === 'file_request')!.invoke({ ...TICKET, title: 'Show a sender who opened the file (from NW-33)', evidence: { urls: [`${SITE}/browse/NW-33`] } }));
+    const rows = await db.select({ title: businessObjectSchema.title, metadata: businessObjectSchema.metadata }).from(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG));
 
-    expect(fromAutomation).toMatch(/^The factory already picked up 1 of 1 tickets from jira-northwind today \(\d{4}-\d{2}-\d{2}\)\. The rest wait for tomorrow\.$/);
+    expect(first).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+/);
+    expect(second).toMatch(/^The factory already picked up 1 of 1 tickets from jira-northwind today \(\d{4}-\d{2}-\d{2}\)\. The rest wait for tomorrow\.$/);
     expect(fromChat).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+/);
+    expect(intakeStampOf(rows, 'NW-31')).toMatchObject({ source: 'jira-northwind' });
+    expect(intakeStampOf(rows, 'NW-33')).toBeUndefined();
   });
 });

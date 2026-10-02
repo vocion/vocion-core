@@ -75,6 +75,7 @@ describe('the shipped catalogue', () => {
     const intake = ws.automations.find(a => a.slug === 'factory-tracker-intake');
 
     expect(intake?.when.schedule).toBe('0 * * * 1-5');
+    expect(intake?.role).toBe('tracker-intake');
     expect(intake?.do.checkMission).toBe('close-the-gap');
     expect(intake?.do.prompt).toContain('intakeStatuses');
     expect(intake?.do.prompt).toContain('intakePerDay');

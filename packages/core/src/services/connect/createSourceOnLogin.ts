@@ -182,6 +182,11 @@ export function addPickToConfig(connector: string, existing: Record<string, unkn
   const merged: Record<string, unknown> = { ...existing };
   for (const [key, value] of Object.entries(pick)) {
     const current = existing[key];
+    if (replaced.has(key) && value === null) {
+      // "No limit" restated: the key goes, so an earlier answer cannot linger.
+      delete merged[key];
+      continue;
+    }
     const union = Array.isArray(value) && Array.isArray(current) && !replaced.has(key);
     merged[key] = union ? [...new Set([...current, ...value])] : value;
   }
@@ -285,7 +290,7 @@ async function saveWithin(
 ): Promise<{ sourceId: number; slug: string }> {
   let saved: { id: number; slug: string };
   if (target.kind === 'create') {
-    saved = await addSource({ orgId: input.orgId, kind: input.connector, slug: target.slug, configJson: input.config, tx });
+    saved = await addSource({ orgId: input.orgId, kind: input.connector, slug: target.slug, configJson: addPickToConfig(input.connector, {}, input.config), tx });
   } else {
     const configJson = { ...addPickToConfig(input.connector, target.existing, input.config), _connector: input.connector };
     const [row] = await tx

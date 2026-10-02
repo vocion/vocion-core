@@ -1358,6 +1358,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
       ...(automation.do as { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> }),
       ...(automation.label ? { label: automation.label } : {}),
       ...(automation.doing ? { doing: automation.doing } : {}),
+      ...(automation.role ? { role: automation.role } : {}),
     },
     ownerAgentSlug: automation.agent ?? null,
   };

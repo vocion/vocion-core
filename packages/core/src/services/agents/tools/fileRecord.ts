@@ -62,7 +62,7 @@ import { noteTurnRead, readsThisTurn } from '@/services/gates/turnReads';
 import { readBeforeFiling, referenceReadOf } from '@/services/objects/referenceRead';
 import { renderWikiPageBody } from '@/services/wiki/WikiService';
 import { persistToolCall } from '../toolCallRecord';
-import { automationSlugOfRun, intakeCapRefusal } from './intakeCap';
+import { automationSlugOfRun, intakeFiling } from './intakeCap';
 import { filingOnPersonsWord, runProposal } from './proposeAction';
 
 type JsonSchema = Record<string, unknown>;
@@ -595,9 +595,9 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
         return offJob;
       }
       const { title, fields } = filingInputOf(spec, args);
-      const overCap = await intakeCapRefusal(ctx, fields);
-      if (overCap) {
-        return overCap;
+      const intake = await intakeFiling(ctx, fields);
+      if (intake.refusal) {
+        return intake.refusal;
       }
       const meant = await referenceToCorrect(ctx, spec, fields);
       if (meant) {
@@ -618,7 +618,7 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
         actionId: 'objects.propose_candidate',
         // dedupOn is the TYPE's, never the model's: the call that forgot it
         // was refused, and the one that guessed it split one ask in two.
-        input: { objectType: spec.slug, title, fields, dedupOn: spec.dedupOn },
+        input: { objectType: spec.slug, title, fields: intake.stamp ? { ...fields, intake: intake.stamp } : fields, dedupOn: spec.dedupOn },
         confidence,
         rationale,
         suggestedDecision: 'approve',

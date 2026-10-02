@@ -22,7 +22,7 @@ import type { JiraAuth } from '@/libs/sources/jira';
 import { Buffer } from 'node:buffer';
 import { adfToText, jiraFetch, jqlQuote, resolveJiraAuth } from '@/libs/sources/jira';
 import { getCredentialsForConnector } from '@/services/SourceCredentialService';
-import { projectKeysOf } from '../provider';
+import { projectKeyOf, projectKeysOf } from '../provider';
 
 type AdfNode = { type: string; text?: string; content?: AdfNode[]; attrs?: Record<string, unknown> };
 
@@ -171,9 +171,9 @@ export async function jiraTrackerProvider(orgId: string, source: FamilySource): 
         throw new Error(`The ${source.slug} source lists no project keys, so there is nothing to search.`);
       }
       const projects = `project in (${projectKeys.map(jqlQuote).join(', ')})`;
-      const trimmed = query.trim();
-      // The ordering goes AFTER the bounded clause, never inside the wrap, so a
-      // query cannot reach past the configured projects and the ORDER BY stays valid JQL.
+      // An ORDER BY inside the wrap is invalid JQL, so any the caller wrote is
+      // dropped; ordering is `orderBy`'s job and goes after the bounded clause.
+      const trimmed = query.replace(/\border\s+by\b[\s\S]*$/i, '').trim();
       const bounded = trimmed ? `${projects} AND (${trimmed})` : projects;
       const jql = orderBy === 'priority' ? `${bounded} ${PRIORITY_ORDER}` : trimmed ? bounded : `${bounded} ORDER BY updated DESC`;
       const rows: TrackerSearchRow[] = [];
@@ -181,6 +181,11 @@ export async function jiraTrackerProvider(orgId: string, source: FamilySource): 
       do {
         const page = await json<JiraSearchPage>('/rest/api/3/search/jql', { method: 'POST', body: JSON.stringify({ jql, maxResults: Math.min(limit, 50), fields: SEARCH_FIELDS.split(','), ...(nextPageToken ? { nextPageToken } : {}) }) });
         for (const issue of page.issues ?? []) {
+          // The wrap alone does not hold the bound: a query like `x) OR (y`
+          // escapes it. So every row is checked against the configured projects.
+          if (!projectKeys.includes(projectKeyOf(issue.key) ?? '')) {
+            continue;
+          }
           rows.push({ key: issue.key, summary: issue.fields?.summary ?? '', status: issue.fields?.status?.name ?? 'Unknown', assignee: userName(issue.fields?.assignee), updated: issue.fields?.updated ?? null, url: issueUrl(issue.key), priority: issue.fields?.priority?.name ?? null });
           if (rows.length >= limit) {
             return rows;

@@ -54,6 +54,24 @@ async function lowerOne(service: AutonomyService, tx: DbTransaction, ctx: { orgI
 }
 
 /**
+ * Every listed action, lowered one after another on the caller's transaction.
+ * Sequential on purpose: one transaction is one connection.
+ * @param tx - The transaction every step is written on.
+ * @param service - The autonomy service.
+ * @param ctx - The workspace and who is lowering.
+ * @param ctx.orgId
+ * @param ctx.by
+ * @param input - The actions and the target rung.
+ */
+async function lowerInTransaction(tx: DbTransaction, service: AutonomyService, ctx: { orgId: string; by: string }, input: z.infer<typeof autonomyLowerInput>): Promise<Lowered[]> {
+  const done: Lowered[] = [];
+  for (const actionId of input.actionIds) {
+    done.push(await lowerOne(service, tx, ctx, actionId, input.to));
+  }
+  return done;
+}
+
+/**
  * Lower every listed action in one transaction, so the set lands together or
  * not at all. The adoption events are recorded after it commits.
  * @param ctx - The workspace and who is lowering.
@@ -63,14 +81,7 @@ async function lowerOne(service: AutonomyService, tx: DbTransaction, ctx: { orgI
  */
 async function lowerAll(ctx: { orgId: string; by: string }, input: z.infer<typeof autonomyLowerInput>): Promise<Lowered[]> {
   const service = await loadAutonomyService();
-  const lowered = await db.transaction(async (tx) => {
-    const done: Lowered[] = [];
-    // Sequential on purpose: one transaction is one connection.
-    for (const actionId of input.actionIds) {
-      done.push(await lowerOne(service, tx, ctx, actionId, input.to));
-    }
-    return done;
-  });
+  const lowered = await db.transaction(tx => lowerInTransaction(tx, service, ctx, input));
   for (const move of lowered.filter(item => item.from !== item.to)) {
     await service.trackMove(ctx.orgId, ctx.by, 'autonomy.demoted', { ...move, automatic: false });
   }

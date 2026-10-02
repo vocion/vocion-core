@@ -67,6 +67,16 @@ describe('the Jira provider', () => {
     expect(rows.map(r => [r.key, r.priority])).toEqual([['NW-9', 'Highest'], ['NW-4', null]]);
   });
 
+  it('drops an issue from another project when a query escapes the wrap, and strips an ORDER BY the caller wrote', async () => {
+    calls.answers.set('POST /rest/api/3/search/jql', { issues: [{ key: 'NW-1', fields: { summary: 'Ours', status: { name: 'To Do' } } }, { key: 'SECRET-9', fields: { summary: 'Not ours', status: { name: 'To Do' } } }] });
+    const provider = await jiraTrackerProvider('org_1', source);
+
+    const rows = await provider.searchIssues('x) OR (y ORDER BY created DESC', 10);
+
+    expect(rows.map(r => r.key)).toEqual(['NW-1']);
+    expect(calls.list[0]!.body).toMatchObject({ jql: 'project in ("NW", "OPS") AND (x) OR (y)' });
+  });
+
   it('reads an issue whole — text from ADF, comments, attachments, links and the transitions open to it', async () => {
     calls.answers.set('GET /rest/api/3/issue/NW-7', {
       key: 'NW-7',
