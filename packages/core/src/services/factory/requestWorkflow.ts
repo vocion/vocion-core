@@ -83,6 +83,11 @@ export async function runRequest(ctx: DurableContext, input: RequestWorkflowInpu
     const ev = await waitFirst('intent', [forIntent], IDLE_LIMIT, since);
     return ev ? (ev.payload as BuildIntent) : null;
   };
+  // When this run reached a point, recorded once so a replay reads the same
+  // time. Behind a patch: runs started before it replay without these steps.
+  const clock = async (label: string): Promise<string | undefined> => (await ctx.patched('wait-since-step'))
+    ? ctx.step(`clock-${label}`, async () => new Date().toISOString())
+    : undefined;
   const stop = async (why: string): Promise<BuildIntent | null> => {
     await ctx.step(`stop-${attempt}-${wait}`, () => deps.stop(orgId, requestId, why));
     await status('stopped', why);
@@ -99,6 +104,10 @@ export async function runRequest(ctx: DurableContext, input: RequestWorkflowInpu
     attempt += 1;
     await status('starting', `Attempt ${attempt} (${intent.from})${base ? `, continuing ${base}` : ''}.`);
     const asked: BuildIntent = intent;
+    // AN EVENT RAISED WHILE THE DISPATCH RUNS IS NOT LOST (FE-370, 2026-10-02:
+    // the plan was written and approved, and its build asked for, before the
+    // wait for it opened). Waits after the dispatch catch up from here.
+    const dispatchedAt = await clock(`dispatch-${attempt}`);
     const out = await ctx.step(`dispatch-${attempt}`, () => deps.dispatch(orgId, requestId, asked, { attempt, base }));
     intent = null;
     if (out.kind === 'refused') {
@@ -110,12 +119,12 @@ export async function runRequest(ctx: DurableContext, input: RequestWorkflowInpu
       // Planning is not an attempt: the plan's approval asks for the build.
       attempt -= 1;
       await status('planning', out.line);
-      const ev = await waitFirst('plan', [forIntent], PLAN_LIMIT);
+      const ev = await waitFirst('plan', [forIntent], PLAN_LIMIT, dispatchedAt);
       intent = ev ? (ev.payload as BuildIntent) : await stop('The plan did not arrive within 3 hours.');
       continue;
     }
     await status('building', `RUN-${out.workerRunId} is building attempt ${attempt}.`, { workerRunId: out.workerRunId, taskId: out.taskId });
-    const ended = await waitFirst(`run-${attempt}`, [{ types: ['worker_run.completed', 'worker_run.failed'], match: { workerRunId: out.workerRunId } }], RUN_LIMIT);
+    const ended = await waitFirst(`run-${attempt}`, [{ types: ['worker_run.completed', 'worker_run.failed'], match: { workerRunId: out.workerRunId } }], RUN_LIMIT, dispatchedAt);
     const run = await ctx.step(`read-${attempt}`, () => deps.readRun(orgId, out.workerRunId, automatic));
     base = run.branch ?? base;
     if (!ended) {
@@ -137,7 +146,9 @@ export async function runRequest(ctx: DurableContext, input: RequestWorkflowInpu
       continue;
     }
     await status('review', `QA is reviewing ${run.prUrl}.`, { prUrl: run.prUrl });
-    const next = await waitFirst(`review-${attempt}`, [forIntent, { types: ['pr.merged'], match: { url: run.prUrl } }, { types: ['pr.closed'], match: { url: run.prUrl } }], REVIEW_LIMIT);
+    // From the run's end: QA can send it back, or the merge land, before this wait opens.
+    const reviewFrom = await clock(`review-${attempt}`);
+    const next = await waitFirst(`review-${attempt}`, [forIntent, { types: ['pr.merged'], match: { url: run.prUrl } }, { types: ['pr.closed'], match: { url: run.prUrl } }], REVIEW_LIMIT, reviewFrom);
     if (!next) {
       intent = await stop(`${run.prUrl} was neither merged nor sent back within 30 days.`);
       continue;
@@ -151,7 +162,7 @@ export async function runRequest(ctx: DurableContext, input: RequestWorkflowInpu
       continue;
     }
     await status('deploying', `Merged ${run.prUrl}; deploying.`, { prUrl: run.prUrl });
-    const released = await waitFirst('release', [{ types: ['release.linked'], match: { requestIds: [requestId] } }], RELEASE_LIMIT);
+    const released = await waitFirst('release', [{ types: ['release.linked'], match: { requestIds: [requestId] } }], RELEASE_LIMIT, reviewFrom);
     if (!released) {
       await status('merged', `Merged ${run.prUrl}; no release recorded it within 6 hours.`);
       return { stage: 'merged' };

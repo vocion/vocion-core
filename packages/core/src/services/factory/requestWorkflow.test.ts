@@ -141,6 +141,32 @@ describe('one workflow owns a request from Build to live (backlog 054)', () => {
     expect(script.stops[0]).toMatch(/3 automatic attempts/);
   });
 
+  it('an ask raised while the dispatch runs is not lost (FE-370: the plan approved before the wait opened)', async () => {
+    const { script, name } = harness([], {});
+    const outcomes: AttemptOutcome[] = [{ kind: 'planning', line: 'Planning first' }, { kind: 'building', workerRunId: 801, taskId: 8 }];
+    defineDurable({
+      name: `${name}.race`,
+      run: (ctx, input: { orgId: string; requestId: number; since: string }) => runRequest(ctx, input, {
+        dispatch: async (_o, _r, intent, at) => {
+          script.dispatches.push({ intent, attempt: at.attempt, base: at.base });
+          const out = outcomes.shift()!;
+          if (out.kind === 'planning') {
+            // The planner is fast: its plan is approved and the build asked for before this step returns.
+            await ask(44, { by: 'factory:plan', byPerson: false, from: 'plan', planId: 88, trigger: 'plan' });
+          }
+          return out;
+        },
+        readRun: async () => opened('b', 'pr/44'),
+        stop: async () => {},
+      }),
+    });
+    await ask(44);
+    const id = await start(`${name}.race`, 44);
+    await until(id, 'building');
+
+    expect(script.dispatches.map(d => d.intent.from)).toEqual(['build', 'plan']);
+  });
+
   it('planning is not an attempt: the plan\'s ask starts attempt 1', async () => {
     const { script, name } = harness([{ kind: 'planning', line: 'Planning first: three packages' }, { kind: 'building', workerRunId: 701, taskId: 7 }], {});
     await ask(43);
