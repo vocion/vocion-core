@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn() }));
-vi.mock('@/libs/connect/state', () => ({ verifyState: vi.fn() }));
+vi.mock('@/libs/connect/state', () => ({ verifyState: vi.fn(), stateIssuedAt: (state: { exp: number }) => new Date(state.exp - 600000) }));
 vi.mock('@/services/connect/completeLogin', () => ({ completeLogin: vi.fn(), recordFailedLogin: vi.fn() }));
 vi.mock('@/services/connect/createSourceOnLogin', () => ({ createSourceWhenNoConfigNeeded: vi.fn() }));
 const env: Record<string, string | undefined> = {};
@@ -98,7 +98,7 @@ describe('GET /api/connect/[provider]/callback', () => {
 
     expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'invalid_code', connector: 'slack', source: 'slack-1727000000' });
     expect(completeLogin).not.toHaveBeenCalled();
-    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack', reason: 'invalid_code' }));
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack', reason: 'invalid_code', stateIssuedAt: new Date(payload.exp - 600000) }));
   });
 
   it('records a vendor exchange that throws as a dated failed attempt on the card, and lands with an error', async () => {

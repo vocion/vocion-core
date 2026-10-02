@@ -203,4 +203,22 @@ describe('recordFailedLogin', () => {
     expect(run.lastAttempt.summary).toBe('GitHub denied access');
     expect((await lastConnectAttempts(ORG)).get('github')).toMatchObject({ ok: false, reason: 'access_denied' });
   });
+
+  it('drops a failure that arrives after the same login succeeded, so the newest attempt stays the success', async () => {
+    const stateIssuedAt = new Date(Date.now() - 60_000);
+    await completeLogin({ orgId: ORG, userId: USER, provider: stubProvider(), connectorSlug: 'github', exchanged });
+
+    // The back button replays the callback: the vendor code is spent, the exchange refuses.
+    await recordFailedLogin({ orgId: ORG, userId: USER, provider: stubProvider(), connectorSlug: 'github', reason: 'code_refused', stateIssuedAt });
+
+    expect((await lastConnectAttempts(ORG)).get('github')).toMatchObject({ ok: true });
+  });
+
+  it('still records a failure from a login started after the last success', async () => {
+    await completeLogin({ orgId: ORG, userId: USER, provider: stubProvider(), connectorSlug: 'github', exchanged });
+
+    await recordFailedLogin({ orgId: ORG, userId: USER, provider: stubProvider(), connectorSlug: 'github', reason: 'access_denied', stateIssuedAt: new Date(Date.now() + 60_000) });
+
+    expect((await lastConnectAttempts(ORG)).get('github')).toMatchObject({ ok: false, reason: 'access_denied' });
+  });
 });

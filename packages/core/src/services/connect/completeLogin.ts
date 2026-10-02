@@ -16,12 +16,12 @@ import type { DbTransaction } from '@/libs/DbTransaction';
 import type { CredentialPlatform } from '@/libs/platforms/registry';
 import type { SealedLoginValues } from '@/services/ApiTokenService';
 import type { RawCredentials } from '@/services/SourceCredentialService';
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { recordConnectAttempt } from '@/libs/connect/attempts';
 import { connectFailureSummary } from '@/libs/connect/attemptWording';
 import { db } from '@/libs/DB';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
-import { apiTokenSchema, knowledgeSourceSchema } from '@/models/Schema';
+import { apiTokenSchema, knowledgeSourceSchema, sourceAuditSchema } from '@/models/Schema';
 import { sealLoginValues, storeLoginCredential } from '@/services/ApiTokenService';
 import { markCardRun } from '@/services/ConversationService';
 import { sourceIsOfConnector } from './connectorSources';
@@ -209,7 +209,36 @@ type FailedLoginInput = {
   connectorSlug: string;
   reason: string;
   card?: ChatCard;
+  /**
+   * When the login's state was signed. A success for this connector recorded
+   * after it means this failure is a replayed callback or the losing side of a
+   * race, and it is not written.
+   */
+  stateIssuedAt?: Date;
 };
+
+/**
+ * Whether this connector already has a successful attempt newer than the
+ * state, i.e. the login this failure belongs to has already worked.
+ * @param tx - The failure's transaction.
+ * @param input - The failure.
+ */
+async function succeededSinceStateIssued(tx: DbTransaction, input: FailedLoginInput): Promise<boolean> {
+  if (!input.stateIssuedAt) {
+    return false;
+  }
+  const [row] = await tx
+    .select({ id: sourceAuditSchema.id })
+    .from(sourceAuditSchema)
+    .where(and(
+      eq(sourceAuditSchema.orgId, input.orgId),
+      eq(sourceAuditSchema.event, 'connected'),
+      sql`${sourceAuditSchema.metadata}->>'connector' = ${input.connectorSlug}`,
+      gt(sourceAuditSchema.at, input.stateIssuedAt),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
 
 /**
  * The writes of a failed login, inside one transaction.
@@ -217,6 +246,9 @@ type FailedLoginInput = {
  * @param input - The failure, as `recordFailedLogin` received it.
  */
 async function writeFailure(tx: DbTransaction, input: FailedLoginInput): Promise<void> {
+  if (await succeededSinceStateIssued(tx, input)) {
+    return;
+  }
   await recordConnectAttempt({ orgId: input.orgId, userId: input.userId, provider: input.provider.id, providerLabel: input.provider.label, connector: input.connectorSlug, ok: false, reason: input.reason, tx });
   if (input.card) {
     await markCardRun({
@@ -233,7 +265,9 @@ async function writeFailure(tx: DbTransaction, input: FailedLoginInput): Promise
 /**
  * A refused or failed login: record the attempt, with its date, and put it on
  * the card. The card stays `proposed`: a failed login is not a rejection, and
- * the person can try again from the same card.
+ * the person can try again from the same card. A failure that arrives after a
+ * success of the same login (a replayed callback, the loser of a race) is
+ * dropped, so the newest attempt stays the success.
  * @param input - Who tried, with what outcome.
  * @param input.orgId - The workspace.
  * @param input.userId - The admin who tried.
@@ -241,6 +275,7 @@ async function writeFailure(tx: DbTransaction, input: FailedLoginInput): Promise
  * @param input.connectorSlug - The connector it was for.
  * @param input.reason - The short reason code.
  * @param input.card - The chat card it came from, when it did.
+ * @param input.stateIssuedAt - When the login's state was signed.
  */
 export async function recordFailedLogin(input: FailedLoginInput): Promise<void> {
   await db.transaction(tx => writeFailure(tx, input));

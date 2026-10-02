@@ -25,13 +25,13 @@ import { providerFor } from '@/libs/connect/registry';
 import { returnUrl } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
-import { verifyState } from '@/libs/connect/state';
+import { stateIssuedAt, verifyState } from '@/libs/connect/state';
 import { completeLogin, recordFailedLogin } from '@/services/connect/completeLogin';
 import { createSourceWhenNoConfigNeeded } from '@/services/connect/createSourceOnLogin';
 
 type Landing = { source?: string; connector?: string; returnTo?: string | null };
 type ChatCard = { conversationId: number; cardId: string };
-type FailedLogin = { orgId: string; userId: string; provider: ConnectProvider; connectorSlug: string; reason: string; card?: ChatCard };
+type FailedLogin = { orgId: string; userId: string; provider: ConnectProvider; connectorSlug: string; reason: string; card?: ChatCard; stateIssuedAt?: Date };
 
 /**
  * Redirect the person to where the connect ends. A missing origin still lands
@@ -71,9 +71,10 @@ async function failAndLand(request: NextRequest, origin: string, failed: FailedL
  * @param request - The callback request.
  * @param origin - The configured public origin, or `''`.
  * @param done - What `completeLogin` needs.
+ * @param issuedAt - When the login's state was signed.
  * @param landing - Where to land.
  */
-async function storeAndLand(request: NextRequest, origin: string, done: Parameters<typeof completeLogin>[0], landing: Landing) {
+async function storeAndLand(request: NextRequest, origin: string, done: Parameters<typeof completeLogin>[0], issuedAt: Date, landing: Landing) {
   const { orgId, userId, provider, connectorSlug, card } = done;
   let outcome: Awaited<ReturnType<typeof completeLogin>>;
   try {
@@ -85,11 +86,11 @@ async function storeAndLand(request: NextRequest, origin: string, done: Paramete
       connector: connectorSlug,
       message: error instanceof Error ? error.message : String(error),
     });
-    return failAndLand(request, origin, { orgId, userId, provider, connectorSlug, card, reason: 'store_failed' }, landing);
+    return failAndLand(request, origin, { orgId, userId, provider, connectorSlug, card, reason: 'store_failed', stateIssuedAt: issuedAt }, landing);
   }
   if (!outcome.ok) {
     console.error('[connect] login not finished', { provider: provider.id, connector: connectorSlug, reason: outcome.reason });
-    return failAndLand(request, origin, { orgId, userId, provider, connectorSlug, card, reason: outcome.reason }, landing);
+    return failAndLand(request, origin, { orgId, userId, provider, connectorSlug, card, reason: outcome.reason, stateIssuedAt: issuedAt }, landing);
   }
   // A connector that needs no picks has its source now; one that does is finished in chat or on the Connectors form.
   await createSourceWhenNoConfigNeeded({ orgId, userId, connector: connectorSlug, linkedSourceIds: outcome.linkedSourceIds });
@@ -134,6 +135,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   }
 
   // Every check on who is asking has passed: from here a failure is recorded.
+  const issuedAt = stateIssuedAt(payload);
   const card = payload.conversationId !== undefined && payload.cardId
     ? { conversationId: payload.conversationId, cardId: payload.cardId }
     : undefined;
@@ -146,10 +148,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   }
   const landing: Landing = { source: payload.sourceSlug, connector: connectorSlug, returnTo: payload.returnTo };
   if (payload.sourceSlug && !source) {
-    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'source_missing', card }, landing);
+    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'source_missing', card, stateIssuedAt: issuedAt }, landing);
   }
   if (!origin) {
-    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'server_unconfigured', card }, landing);
+    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'server_unconfigured', card, stateIssuedAt: issuedAt }, landing);
   }
   const query: Record<string, string> = {};
   req.nextUrl.searchParams.forEach((value, key) => {
@@ -167,16 +169,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       connector: connectorSlug,
       message: error instanceof Error ? error.name : 'unknown',
     });
-    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'provider_unreachable', card }, landing);
+    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'provider_unreachable', card, stateIssuedAt: issuedAt }, landing);
   }
   if (!exchanged.ok) {
     console.error('[connect] vendor exchange refused', { provider: provider.id, connector: connectorSlug, reason: exchanged.reason });
-    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: exchanged.reason, card }, landing);
+    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: exchanged.reason, card, stateIssuedAt: issuedAt }, landing);
   }
   return storeAndLand(
     req,
     origin,
     { orgId, userId, provider, connectorSlug, sourceSlug: source?.slug, exchanged: { credentials: exchanged.credentials, displayName: exchanged.displayName }, card },
+    issuedAt,
     landing,
   );
 }

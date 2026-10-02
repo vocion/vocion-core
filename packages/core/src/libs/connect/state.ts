@@ -38,6 +38,15 @@ export type ConnectStateRefusal = 'malformed' | 'bad_signature' | 'expired';
 
 const TTL_MS = 10 * 60 * 1000;
 
+/**
+ * When a state was signed. The state carries only its expiry, and the lifetime
+ * is fixed, so the start is the expiry minus the lifetime.
+ * @param payload - A verified state.
+ */
+export function stateIssuedAt(payload: Pick<ConnectStatePayload, 'exp'>): Date {
+  return new Date(payload.exp - TTL_MS);
+}
+
 function secret(): string {
   const value = Env.AUTH_SECRET;
   if (!value) {
