@@ -33,8 +33,8 @@ import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { providerForConnector } from '@/libs/connect/registry';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
-import { platformForConnectorSlug } from '@/libs/platforms/registry';
-import { knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
+import { holdsManyCredentials, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { sealLoginValues, storeLoginCredential } from '@/services/ApiTokenService';
 import { sourceIsOfConnector } from './connectorSources';
 
@@ -43,6 +43,7 @@ export type SkippedLogin = { orgId: string; connector: string; why: string };
 export type MoveLoginsReport = { moved: MovedLogin[]; skipped: SkippedLogin[] };
 
 type InstallToMove = { orgId: string; connector: string };
+type MoveOutcome = { moved: MovedLogin | null; skipped: SkippedLogin | null };
 type LiveCredential = { ciphertext: string; nonce: string; authTag: string; dekId: number; displayName: string };
 
 /** Every enabled install whose connector can be logged in to with a click. */
@@ -143,15 +144,51 @@ async function writeMove(
  * @param install - Which org and connector.
  * @param why - A short reason, never a credential value.
  */
-function skippedInstall(install: InstallToMove, why: string): { moved: null; skipped: SkippedLogin } {
+function skippedInstall(install: InstallToMove, why: string): MoveOutcome {
   return { moved: null, skipped: { ...install, why } };
+}
+
+/**
+ * Whether storing this login would revoke a row the person holds. A one-live
+ * platform keeps one live row, so storing a login revokes any other: a pasted
+ * key, or a login on a different account. Sources on that row would end up on a
+ * revoked token, so the move leaves the install alone instead. The same
+ * account's own login is rotated in place and revokes nothing.
+ * @param orgId - The workspace.
+ * @param platform - The connector's credential platform.
+ * @param account - The account of the login about to be stored.
+ */
+async function wouldRevokeAnotherKey(orgId: string, platform: CredentialPlatform, account: string): Promise<boolean> {
+  if (holdsManyCredentials(platform.id)) {
+    return false;
+  }
+  const live = await db
+    .select({ obtainedVia: apiTokenSchema.obtainedVia, account: apiTokenSchema.account })
+    .from(apiTokenSchema)
+    .where(and(eq(apiTokenSchema.orgId, orgId), eq(apiTokenSchema.platform, platform.id), isNull(apiTokenSchema.revokedAt)));
+  return live.some(row => row.obtainedVia !== 'login' || row.account !== account);
+}
+
+/**
+ * Move one install's login, turning any failure into a skip that names the org
+ * and the error's name or code, never its message (a message can carry a value).
+ * @param install - Which org and connector.
+ */
+async function moveOne(install: InstallToMove): Promise<MoveOutcome> {
+  try {
+    return await moveOneInstall(install);
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    const label = typeof code === 'string' ? code : error instanceof Error ? error.name : 'unknown';
+    return skippedInstall(install, `move failed: ${label}`);
+  }
 }
 
 /**
  * Move one install's login across, or say why it was left.
  * @param install - Which org and connector.
  */
-async function moveOne(install: InstallToMove): Promise<{ moved: MovedLogin | null; skipped: SkippedLogin | null }> {
+async function moveOneInstall(install: InstallToMove): Promise<MoveOutcome> {
   const provider = providerForConnector(install.connector);
   const platform = platformForConnectorSlug(install.connector);
   if (!provider || !platform) {
@@ -168,6 +205,9 @@ async function moveOne(install: InstallToMove): Promise<{ moved: MovedLogin | nu
   const account = provider.summarize(bag)?.account;
   if (!account) {
     return skippedInstall(install, 'credential is not a login the provider can read');
+  }
+  if (await wouldRevokeAnotherKey(install.orgId, platform, account)) {
+    return skippedInstall(install, 'a pasted key is already live for this one-live platform');
   }
   // Sealed first: the vault reads the org's key through the pool, which must not wait on the transaction.
   const sealed = await sealLoginValues(install.orgId, bag);

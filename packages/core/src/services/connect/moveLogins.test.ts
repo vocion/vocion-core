@@ -8,10 +8,14 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+vi.mock('@/services/ApiTokenService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/ApiTokenService')>();
+  return { ...original, sealLoginValues: vi.fn(original.sealLoginValues) };
+});
 
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, knowledgeSourceSchema, projectSchema, tenantAccountSchema, sourceCredentialSchema } = await import('@/models/Schema');
-const { storePlatformKey } = await import('@/services/ApiTokenService');
+const { sealLoginValues, storePlatformKey } = await import('@/services/ApiTokenService');
 const { storeCredentialForSource } = await import('@/services/SourceCredentialService');
 const { moveLoginsToCredentialStore } = await import('./moveLogins');
 
@@ -35,7 +39,7 @@ async function loginRows() {
 describe('moveLoginsToCredentialStore', () => {
   beforeAll(async () => {
     await db.insert(tenantAccountSchema).values({ id: 'acct-move', name: 'Northwind', slug: 'northwind-move' });
-    await db.insert(projectSchema).values(['org_move', 'org_unreadable'].map(id => ({ id, accountId: 'acct-move', slug: id, name: id })));
+    await db.insert(projectSchema).values(['org_move', 'org_unreadable', 'org_pasted', 'org_boom', 'org_fine'].map(id => ({ id, accountId: 'acct-move', slug: id, name: id })));
   });
 
   it('stores the login once, links every unlinked source non-exclusively, and leaves the old row live', async () => {
@@ -90,5 +94,43 @@ describe('moveLoginsToCredentialStore', () => {
     const [source] = await db.select().from(knowledgeSourceSchema).where(and(eq(knowledgeSourceSchema.orgId, 'org_unreadable'), isNull(knowledgeSourceSchema.apiTokenId)));
 
     expect(source).toBeDefined();
+  });
+
+  it('never revokes a pasted key already live on a one-live platform', async () => {
+    const pasted = await storePlatformKey({ orgId: 'org_pasted', platform: 'github', name: 'Pasted PAT', apiKey: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789', createdBy: 'user_admin' });
+    await db.insert(knowledgeSourceSchema).values({ orgId: 'org_pasted', slug: 'github-pasted', kind: 'plugin', configJson: { _connector: 'github' }, apiTokenId: pasted.id });
+    await storeCredentialForSource({ orgId: 'org_pasted', sourceSlug: 'github', raw: { ...GITHUB_BAG, account: 'acme' } });
+
+    const report = await moveLoginsToCredentialStore();
+
+    const [row] = await db.select().from(apiTokenSchema).where(eq(apiTokenSchema.id, pasted.id));
+
+    expect(row!.revokedAt).toBeNull();
+
+    const [source] = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.slug, 'github-pasted'));
+
+    expect(source!.apiTokenId).toBe(pasted.id);
+    expect(await db.select().from(apiTokenSchema).where(and(eq(apiTokenSchema.orgId, 'org_pasted'), eq(apiTokenSchema.obtainedVia, 'login')))).toHaveLength(0);
+    expect(report.skipped.filter(entry => entry.orgId === 'org_pasted')).toEqual([{ orgId: 'org_pasted', connector: 'github', why: 'a pasted key is already live for this one-live platform' }]);
+  });
+
+  it('one org failing is reported and the rest still move', async () => {
+    for (const orgId of ['org_boom', 'org_fine']) {
+      await storeCredentialForSource({ orgId, sourceSlug: 'github', raw: GITHUB_BAG });
+      await db.insert(knowledgeSourceSchema).values({ orgId, slug: 'github-main', kind: 'plugin', configJson: { _connector: 'github' } });
+    }
+    const original = vi.mocked(sealLoginValues).getMockImplementation()!;
+    vi.mocked(sealLoginValues).mockImplementation(async (orgId, values) => {
+      if (orgId === 'org_boom') {
+        throw new Error('vault exploded with ghs_secret');
+      }
+      return original(orgId, values);
+    });
+
+    const report = await moveLoginsToCredentialStore();
+    vi.mocked(sealLoginValues).mockImplementation(original);
+
+    expect(report.moved.map(entry => entry.orgId)).toContain('org_fine');
+    expect(report.skipped.filter(entry => entry.orgId === 'org_boom')).toEqual([{ orgId: 'org_boom', connector: 'github', why: 'move failed: Error' }]);
   });
 });
