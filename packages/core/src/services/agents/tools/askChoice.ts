@@ -21,7 +21,7 @@ type AskChoiceInput = z.infer<typeof askChoiceInput>;
 /** A question asked longer ago than this belongs to a turn that is over, even when no newer turn is on record. */
 const ASKED_EXPIRES_MS = 30 * 60_000;
 
-type AskedRecord = { question: string; turnNumber: number | null; at: number };
+type AskedRecord = { question: string; turnNumber: number; at: number };
 
 /**
  * The first question each conversation asked in its current turn, keyed by
@@ -54,7 +54,7 @@ function sweepExpired(now: number): void {
  * @param now - Epoch ms.
  * @returns The first question's text.
  */
-function questionAskedThisTurn(key: string, turnNumber: number | null, now: number): string | undefined {
+function questionAskedThisTurn(key: string, turnNumber: number, now: number): string | undefined {
   const record = askedThisTurn.get(key);
   if (!record || record.turnNumber !== turnNumber || now - record.at > ASKED_EXPIRES_MS) {
     return undefined;
@@ -120,12 +120,26 @@ async function askChoice(ctx: RuntimeContext, input: AskChoiceInput): Promise<st
   const now = Date.now();
   sweepExpired(now);
   const turnNumber = latestTurnIn(ctx.orgId, ctx.conversationId);
+  // A choice card renders and takes an answer only in the web chat, which is
+  // the one place a turn opens a stream. Slack and email turns carry a
+  // conversation id but no stream, so a card there could never be answered.
+  if (turnNumber === null) {
+    return 'ask_choice works only in the web chat. Ask your question in a plain sentence here.';
+  }
   const first = questionAskedThisTurn(key, turnNumber, now);
   if (first !== undefined) {
     return `You already asked "${first}" this turn. Stop and wait for the answer; ask the next question after it.`;
   }
+  // Take the turn's slot before the first await: two calls running side by
+  // side must not both pass the check above while one checks its bindings.
+  const reservation: AskedRecord = { question: input.question, turnNumber, at: now };
+  askedThisTurn.set(key, reservation);
   const problem = await boundActionProblem(ctx, input.options);
   if (problem) {
+    // A refused question did not use the turn: the agent may fix it and ask again.
+    if (askedThisTurn.get(key) === reservation) {
+      askedThisTurn.delete(key);
+    }
     return problem;
   }
   const card: Card = {
@@ -139,7 +153,6 @@ async function askChoice(ctx: RuntimeContext, input: AskChoiceInput): Promise<st
     state: 'proposed',
     source: { agentSlug: ctx.agentSlug, tool: 'ask_choice' },
   };
-  askedThisTurn.set(key, { question: input.question, turnNumber, at: now });
   ctx.emit({ type: 'card', card });
   return 'Asked. Stop here: the person\'s answer arrives as their next message, as Answered "<question>": <answer>.';
 }
