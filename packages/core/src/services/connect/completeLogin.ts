@@ -16,7 +16,7 @@ import type { DbTransaction } from '@/libs/DbTransaction';
 import type { CredentialPlatform } from '@/libs/platforms/registry';
 import type { SealedLoginValues } from '@/services/ApiTokenService';
 import type { RawCredentials } from '@/services/SourceCredentialService';
-import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { recordConnectAttempt } from '@/libs/connect/attempts';
 import { connectFailureSummary } from '@/libs/connect/attemptWording';
 import { db } from '@/libs/DB';
@@ -24,6 +24,7 @@ import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { apiTokenSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { sealLoginValues, storeLoginCredential } from '@/services/ApiTokenService';
 import { markCardRun } from '@/services/ConversationService';
+import { sourceIsOfConnector } from './connectorSources';
 
 export type LoginOutcome
   = | { ok: true; tokenId: string; linkedSourceIds: number[] }
@@ -49,8 +50,7 @@ async function sourcesToLink(
   tx: DbTransaction,
   input: { orgId: string; connectorSlug: string; platform: CredentialPlatform; account: string; replacedIds: string[]; sourceSlug?: string },
 ): Promise<Array<{ id: number; apiTokenId: string | null }>> {
-  // Same rule `findSourceBySlug` uses: `_connector`, else the row's own slug.
-  const ofThisConnector = sql`coalesce(${knowledgeSourceSchema.configJson}->>'_connector', ${knowledgeSourceSchema.slug}) = ${input.connectorSlug}`;
+  const ofThisConnector = sourceIsOfConnector(input.connectorSlug);
   const sameAccountLogins = tx
     .select({ id: apiTokenSchema.id })
     .from(apiTokenSchema)
