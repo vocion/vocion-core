@@ -1404,6 +1404,14 @@ export const missionRunSchema = pgTable('mission_run', {
    * never fired by its own run's residue (`services/automations/fireGuards.ts`).
    */
   causedBy: jsonb('caused_by').$type<Array<{ automationSlug: string; automationRunId?: number; missionRunId?: number }>>(),
+  /**
+   * What the run's model calls cost — every call made while it ran (its
+   * turns, the specialists they delegated to, a recording pass), counted
+   * where each is charged (`services/budget/runCost.ts`). NULL on a run from
+   * before this was recorded (migration 0164): not recorded, never $0.00.
+   */
+  tokens: bigint('tokens', { mode: 'number' }).default(0),
+  microCents: bigint('micro_cents', { mode: 'number' }).default(0),
   rating: text('rating'),
   feedbackNote: text('feedback_note'),
   feedbackBy: text('feedback_by'),
@@ -1606,6 +1614,13 @@ export const conversationSchema = pgTable(
      */
     contextJson: jsonb('context_json').$type<import('@/services/chat/pageContext').PageContext>(),
     /**
+     * What every costed turn in the thread spent — the sum of its messages'
+     * `micro_cents`, kept in the same write that counts the message. NULL
+     * while no turn has recorded a cost (threads from before migration 0164).
+     */
+    tokens: bigint('tokens', { mode: 'number' }),
+    microCents: bigint('micro_cents', { mode: 'number' }),
+    /**
      * How recommended actions behave in this thread (0094): `ask` — each
      * recommendation is a card the person taps into the review queue;
      * `act-within-bounds` — recommendations are proposed as they arrive and
@@ -1730,6 +1745,13 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    * user messages (which don't produce a trace).
    */
   langfuseTraceId: text('langfuse_trace_id'),
+  /**
+   * What an assistant turn's model calls cost — its own and those of any
+   * specialist it delegated to in that turn (`services/budget/runCost.ts`).
+   * NULL on user messages and on turns from before migration 0164.
+   */
+  tokens: bigint('tokens', { mode: 'number' }),
+  microCents: bigint('micro_cents', { mode: 'number' }),
   /**
    * How the turn ended — one of `services/chat/turnStatus.ts`'s values:
    * `complete`, `incomplete`, `failed`, `refused`, `stopped`, `truncated`,

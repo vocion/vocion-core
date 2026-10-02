@@ -537,6 +537,8 @@ describe('the sentences on a row', () => {
     expect(costLine(row(2, 'b', { estimateCents: 8500, actualCents: 2412 }), 'progress')).toBe('$24.12 of about $85.00');
     expect(costLine(row(3, 'c', { actualCents: 84 }), 'done')).toBe('$0.84');
     expect(costLine(row(4, 'd', {}), 'proposed')).toBeNull();
+    // The whole spend (engineering, agents and chat) once the request carries it.
+    expect(costLine(row(5, 'e', { actualCents: 277, spentCents: 410 }), 'done')).toBe('$4.10');
   });
 
   it('shows a conditional fact only when it is true, and never twice', () => {

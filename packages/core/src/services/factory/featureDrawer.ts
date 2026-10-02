@@ -371,16 +371,20 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey): Fea
     case 'cost': {
       const impl = report.implementation;
       const n = impl.attempts.length;
+      const agentLines = (report.activity ?? [])
+        .filter(i => i.kind !== 'worker_run' && typeof i.cents === 'number')
+        .map(i => `- [${i.origin ? 'Requested in chat' : i.title}](${peek(i.kind, i.id)}): ${money(i.cents!)}`);
       return {
         title: 'Cost',
         subtitle: impl.costLine,
         body: [
           // The spend is the line above; the working behind it is what is left.
           sectionMd(section('money'), { heading: false, omit: ['Spent'] }),
-          report.notices.filter(nt => nt.key === 'cost-disagree').map(nt => `> ${nt.evidence}`).join('\n\n'),
           n > 0
             ? `## By run\n\n${impl.attempts.map(a => `- [${nounCode('run', a.runId)} · ${a.outcome}](${runPage(a.runId)}): ${a.cents === null ? 'no charge recorded' : money(a.cents)}`).join('\n')}`
             : '',
+          // The agent runs and chats the figure counts, each with its share.
+          agentLines.length > 0 ? `## Agents and chat\n\n${agentLines.join('\n')}` : '',
         ].filter(Boolean).join('\n\n'),
       };
     }

@@ -641,7 +641,10 @@ export function costLine(row: PageRow, lane: WorkLane): string | null {
   // and nothing spent yet is not worth a line.
   const positive = (n: number | null): number | null => (n !== null && n > 0 ? n : null);
   const estimate = positive(num(row, 'estimateCents'));
-  const actual = positive(num(row, 'actualCents'));
+  // The feature's whole spend — engineering, agents and chat — as the request
+  // carries it (`services/factory/featureSpend.ts`); the engineering rollup
+  // until that is first written.
+  const actual = positive(num(row, 'spentCents') ?? num(row, 'actualCents'));
   if (lane === 'done') {
     return actual === null ? null : dollars(actual);
   }

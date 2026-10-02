@@ -13,6 +13,7 @@ import { db } from '@/libs/DB';
 import { AUTOMATION_FIRE_WORKFLOW, automationRefireWorkflowIdFor, getTemporalClient, VOCION_WORKFLOWS_TASK_QUEUE } from '@/libs/temporal/client';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { automationRunSchema, missionRunSchema, missionSchema, toolCallSchema, workflowSchema } from '@/models/Schema';
+import { withRunCost } from './budget/runCost';
 import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
 import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
@@ -372,7 +373,8 @@ export async function startMission(opts: {
         status: 'pending' as const,
         dependsOn: [],
       }]
-    : await planMission({ orgId: opts.orgId, brief, goal, team, userId: opts.invokedBy });
+    // The planner's turn is the run's spend too (`budget/runCost.ts`).
+    : await withRunCost({ missionRunId: run!.id }, () => planMission({ orgId: opts.orgId, brief, goal, team, userId: opts.invokedBy }));
   await db.update(missionRunSchema).set({ plan: { tasks }, status: 'running' }).where(eq(missionRunSchema.id, run!.id));
   await executeMissionRun(run!.id, opts.orgId);
 

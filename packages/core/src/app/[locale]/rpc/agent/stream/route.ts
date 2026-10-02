@@ -15,6 +15,7 @@
 
 import type { Card } from '@/libs/cards/card';
 import type { AgentEvent } from '@/services/agents/types';
+import type { RunCostScope } from '@/services/budget/runCost';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
@@ -25,6 +26,7 @@ import { track } from '@/services/adoption/track';
 import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
+import { withRunCost } from '@/services/budget/runCost';
 import { cardAsRecommendation, surfaceCard } from '@/services/cards/surface';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
@@ -269,6 +271,8 @@ export async function POST(request: Request): Promise<Response> {
       // Why it ended that way, in the runtime's own words — persisted beside
       // the status so a reloaded turn can still say what happened.
       let endingReason: string | null = null;
+      // What the turn spent, counted while it runs (`budget/runCost.ts`).
+      const counted: { cost: RunCostScope | null } = { cost: null };
       const safeEnqueue = (chunk: Uint8Array) => {
         if (!closed) {
           try {
@@ -350,7 +354,7 @@ export async function POST(request: Request): Promise<Response> {
       writeEvent({ type: 'turn_agent', agent: turnAgent });
 
       try {
-        await runAgentDeep({
+        const turn = () => runAgentDeep({
           allowedSourceSlugs,
           orgId,
           agentSlug,
@@ -365,6 +369,17 @@ export async function POST(request: Request): Promise<Response> {
           modelPrefs,
           onEvent: sendEvent,
         });
+        // What this turn cost — its own model calls and every specialist it
+        // delegated to — is counted while it runs and written with the
+        // answer (`services/budget/runCost.ts`).
+        if (conversationId === null) {
+          await turn();
+        } else {
+          await withRunCost({ conversationId }, async (scope) => {
+            counted.cost = scope;
+            return turn();
+          });
+        }
       } catch (err) {
         const m = (err as Error).message ?? 'agent error';
         // The turn died here. Whatever text the collector holds is a fragment,
@@ -489,7 +504,12 @@ export async function POST(request: Request): Promise<Response> {
                 status: ending,
                 ...(endingReason ? { statusReason: endingReason } : {}),
                 agentSlug,
+                ...(counted.cost ? { cost: { tokens: counted.cost.tokens, microCents: counted.cost.microCents } } : {}),
               });
+              // The features this turn was about are re-totalled with it.
+              if (counted.cost && counted.cost.microCents > 0) {
+                void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(orgId)).catch(() => {});
+              }
               // The thread's name, once its first answer has landed — in the
               // background, after the row is written, so the stream never waits
               // on it. It only ever replaces a title nobody chose

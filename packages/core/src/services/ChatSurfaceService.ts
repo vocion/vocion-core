@@ -6,6 +6,7 @@ import { db } from '@/libs/DB';
 import { chatPermalink } from '@/libs/surfaces/slackRead';
 import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
+import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
 import { classifyFeedback, feedbackNote } from '@/services/chat/feedbackSignal';
 import { withPageContext } from '@/services/chat/pageContext';
@@ -298,7 +299,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   ].filter(Boolean).join('');
 
   try {
-    const result = await deps.runAgent({
+    // What the turn spent is counted while it runs and written with the
+    // answer (`services/budget/runCost.ts`).
+    const { cost, result } = await withRunCost({ conversationId }, async scope => ({ cost: scope, result: await deps.runAgent({
       orgId,
       agentSlug,
       message,
@@ -306,7 +309,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       conversationId,
       conversationHistory: history,
       ...(pageContext ? { pageContext } : {}),
-    });
+    }) }));
     let text = result.response.trim() || '(no reply)';
 
     // Something was missing, and the channel has not been told yet. The
@@ -323,7 +326,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
 
     // The reply went out, so the turn finished: say so rather than leaving a
     // NULL that a reader has to guess at (#114).
-    await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete' });
+    await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete', cost: { tokens: cost.tokens, microCents: cost.microCents } });
     const posted = await adapter.reply(target, text);
     await recordSlackPost({
       orgId,

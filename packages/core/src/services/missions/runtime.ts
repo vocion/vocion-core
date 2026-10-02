@@ -13,6 +13,7 @@ import { and, eq, notInArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { missionRunSchema, missionSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
+import { withRunCost } from '@/services/budget/runCost';
 import { clampAutonomyLevel, taskNeedsApproval } from './autonomy';
 import { describeTaskFailure } from './failure';
 
@@ -84,6 +85,21 @@ function taskMessage(opts: { brief: string; goal?: string | null; task: Task; pr
  * @param orgId
  */
 export async function executeMissionRun(runId: number, orgId: string): Promise<string> {
+  // Every model call the run makes is counted on its row (`budget/runCost.ts`),
+  // and the features it served are re-totalled once it stops.
+  try {
+    return await withRunCost({ missionRunId: runId }, () => executeInScope(runId, orgId));
+  } finally {
+    void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(orgId)).catch(() => {});
+  }
+}
+
+/**
+ * The run itself, inside its cost scope.
+ * @param runId - The run.
+ * @param orgId - Tenant.
+ */
+async function executeInScope(runId: number, orgId: string): Promise<string> {
   // Set once the tasks reach an outcome, so a failure to write that outcome
   // down is not mistaken for the work itself failing.
   let outcome: 'completed' | 'failed' | null = null;

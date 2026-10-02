@@ -605,8 +605,8 @@ describe('the timeline', () => {
 });
 
 describe('the money line', () => {
-  it('sums the task estimates and actuals and reports the variance both ways', () => {
-    const report = assembleFeatureReport(input());
+  it('counts what the runs charged against the estimate and reports the variance both ways', () => {
+    const report = assembleFeatureReport(input({ workerRuns: [run(), run({ id: 502, attempt: 2, cents: 830 })] }));
 
     expect(report.money.estimateCents).toBe(900);
     expect(report.money.actualCents).toBe(1450);
@@ -620,6 +620,17 @@ describe('the money line', () => {
     expect(cost.facts).toHaveLength(1);
     expect(cost.facts[0]!.value).toBe('$14.50 · estimated $9.00');
     expect(cost.detailLists[0]!.items.join(' ')).toContain('Variance: +$5.50 (+61%)');
+  });
+
+  it('adds the agent runs and chat turns that served it, and shows the split', () => {
+    const report = assembleFeatureReport(input({ workerRuns: [run(), run({ id: 502, attempt: 2, cents: 830 })], spend: { agentCents: 133, chatCents: 12 } }));
+
+    expect(report.money.engineeringCents).toBe(1450);
+    expect(report.money.actualCents).toBe(1595);
+    expect(report.money.actualSource).toBe('summed over 2 runs: $14.50 engineering, $1.33 agents, $0.12 chat');
+    expect(section(report, 'money').facts[0]!.value).toBe('$15.95 (engineering $14.50 · agents $1.33 · chat $0.12) · estimated $9.00');
+    expect(report.implementation.costLine).toContain('$15.95 (engineering $14.50 · agents $1.33 · chat $0.12) spent');
+    expect(report.summary.totalCents).toBe(1595);
   });
 
   it('falls back to what the runs charged when no task carries an actual', () => {
@@ -642,16 +653,21 @@ describe('the money line', () => {
     const noEstimate = { ...task, meta: { ...task.meta, estimateCents: undefined } };
     const bare = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, estimateCents: undefined } }, tasks: [noEstimate] }));
 
-    expect(bare.implementation.costLine).toBe('$14.50 spent · Not estimated');
+    expect(bare.implementation.costLine).toBe('$6.20 spent · Not estimated');
     expect(section(bare, 'money').detailLists[0]!.items.join(' ')).not.toContain('Variance');
 
-    expect(assembleFeatureReport(input()).implementation.costLine).toBe('$14.50 spent · estimated $9.00, +$5.50 (+61%)');
+    expect(assembleFeatureReport(input()).implementation.costLine).toBe('$6.20 spent · estimated $9.00, −$2.80 (-31%)');
   });
 
-  it('flags a task rollup that disagrees with what the runs charged', () => {
+  it('reads the runs as the one figure, so a stale task copy is not a second opinion', () => {
+    // FE-314 (2026-10-02): "Two cost records disagree: the tasks say $10.00,
+    // the runs charged $11.68". The tasks' figure is a copy written when a run
+    // ends; the runs are what was charged.
     const report = assembleFeatureReport(input());
 
-    expect(report.contradictions.find(c => c.includes('roll up'))).toBe('The tasks roll up $14.50 spent and the runs charged $6.20. One of the two is stale.');
+    expect(report.money.actualCents).toBe(620);
+    expect(report.contradictions.find(c => c.includes('roll up'))).toBeUndefined();
+    expect(report.notices.find(n => n.key === 'cost-disagree')).toBeUndefined();
   });
 });
 

@@ -210,6 +210,12 @@ export type FeatureReportInput = {
    */
   missionRuns?: LiveMissionRunInput[];
   /**
+   * What the agent runs that served it and the chat turns about it cost
+   * (`featureSpend.ts`), beside its own worker runs. Absent, only the worker
+   * runs are known.
+   */
+  spend?: { agentCents: number; chatCents: number };
+  /**
    * What GitHub and the merge action recorded about each pull request the
    * tasks carry — merged, closed, CI (`services/factory/pullSignals.ts`).
    * Absent, nothing is known, and nothing is said as a "no".
@@ -403,6 +409,10 @@ export type MoneyLine = {
   variancePct: number | null;
   /** What was actually charged across the worker runs, whatever the task rollup says. */
   runCents: number;
+  /** The three parts of `actualCents`: engineering (worker runs), agents and chat. */
+  engineeringCents: number | null;
+  agentCents: number;
+  chatCents: number;
   estimateSource: string;
   actualSource: string;
 };
@@ -1846,14 +1856,20 @@ function releaseSection(releases: ReportObject[]): ReportSection {
 }
 
 /**
- * Estimate against actual, with both figures' sources named. The task
- * rollup and the sum of what the runs actually charged are reported
- * separately and a disagreement is flagged rather than averaged away.
+ * Estimate against actual, with both figures' sources named. The actual is
+ * ONE figure from one source (`featureSpend.ts`): what the worker runs
+ * charged, each at its own final account — the same figure each run row
+ * shows — plus the agent runs that served it and the chat turns about it.
+ * The tasks' `actualCents` is a copy written when a run ends, so it is the
+ * fallback only where no run is linked, never a second opinion.
  * @param request - The request, whose rollups are the fallback.
  * @param tasks - The tasks.
  * @param runs - The runs.
+ * @param spend - What its agent runs and chat turns cost.
+ * @param spend.agentCents - The agent runs' share.
+ * @param spend.chatCents - The chat turns' share.
  */
-export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: ReportWorkerRun[]): MoneyLine {
+export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: ReportWorkerRun[], spend?: { agentCents: number; chatCents: number }): MoneyLine {
   const runCents = runs.reduce((a, r) => a + (r.cents ?? 0), 0);
   const taskEstimates = tasks.map(t => num(t.meta, 'estimateCents')).filter((n): n is number => n !== null);
   const taskActuals = tasks.map(t => num(t.meta, 'actualCents')).filter((n): n is number => n !== null);
@@ -1872,9 +1888,24 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
   // A sum over more than one attempt is not an estimate of this work, so it
   // is reported and never divided into. A single contract is the work.
   const comparable = workEstimate !== null || taskEstimates.length === 1;
-  const actualCents = taskActuals.length > 0
-    ? taskActuals.reduce((a, b) => a + b, 0)
-    : runs.length > 0 ? runCents : num(request.meta, 'actualCents');
+  // ONE SOURCE (2026-10-02). The page said "Two cost records disagree: the
+  // tasks say $10.00, the runs charged $11.68" (FE-314) because it read the
+  // tasks' copy first and the runs second. The copy is written once, when a
+  // run ends; run 451's figure moved after that, when a heartbeat already in
+  // flight landed behind the failure and added the same usage again. The runs
+  // are what was charged, so they are the figure, and there is nothing left to
+  // disagree with.
+  const engineeringCents = runs.length > 0
+    ? runCents
+    : taskActuals.length > 0 ? taskActuals.reduce((a, b) => a + b, 0) : num(request.meta, 'actualCents');
+  const agentCents = spend?.agentCents ?? 0;
+  const chatCents = spend?.chatCents ?? 0;
+  const actualCents = engineeringCents === null && agentCents === 0 && chatCents === 0
+    ? null
+    : (engineeringCents ?? 0) + agentCents + chatCents;
+  const parts = agentCents > 0 || chatCents > 0
+    ? `: ${money(engineeringCents ?? 0)} engineering, ${money(agentCents)} agents, ${money(chatCents)} chat`
+    : '';
   return {
     estimateCents,
     actualCents,
@@ -1883,6 +1914,9 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
       ? null
       : Math.round(((actualCents - estimateCents) / estimateCents) * 100),
     runCents,
+    engineeringCents,
+    agentCents,
+    chatCents,
     estimateSource: workEstimate !== null
       ? 'estimated for this work before it started'
       : summed === null
@@ -1890,9 +1924,42 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
         : taskEstimates.length === 1
           ? 'the one task contract written for it'
           : `added up from ${taskEstimates.length} attempt contracts — not an estimate of this work, so it is not compared against`,
-    actualSource: taskActuals.length > 0
-      ? `summed over ${taskActuals.length} task${taskActuals.length === 1 ? '' : 's'}`
-      : runs.length > 0 ? `summed over ${runs.length} run${runs.length === 1 ? '' : 's'}` : 'nothing has been charged',
+    actualSource: (runs.length > 0
+      ? `summed over ${runs.length} run${runs.length === 1 ? '' : 's'}`
+      : taskActuals.length > 0
+        ? `summed over ${taskActuals.length} task${taskActuals.length === 1 ? '' : 's'}`
+        : engineeringCents !== null ? 'as the request records it' : agentCents > 0 || chatCents > 0 ? 'no engineering run has charged anything' : 'nothing has been charged') + parts,
+  };
+}
+
+/**
+ * What was spent, with its split when agents or chat spent anything:
+ * "$4.10 (engineering $2.77 · agents $1.33 · chat $0.00)". Null when nothing is recorded.
+ * @param line - The money line.
+ */
+export function spentLabel(line: Pick<MoneyLine, 'actualCents' | 'engineeringCents' | 'agentCents' | 'chatCents'>): string | null {
+  if (line.actualCents === null) {
+    return null;
+  }
+  if (line.agentCents === 0 && line.chatCents === 0) {
+    return money(line.actualCents);
+  }
+  return `${money(line.actualCents)} (engineering ${money(line.engineeringCents ?? 0)} · agents ${money(line.agentCents)} · chat ${money(line.chatCents)})`;
+}
+
+/**
+ * The Timeline's foot from the money line: the same total and split the
+ * Cost section shows. A part with nothing recorded says so.
+ * @param line - The money line.
+ */
+function footOf(line: MoneyLine): HistoryCost {
+  return {
+    totalCents: line.actualCents ?? 0,
+    split: [
+      { key: 'builds', label: 'Builds', cents: line.engineeringCents },
+      { key: 'agents', label: 'Agents', cents: line.agentCents > 0 ? line.agentCents : null },
+      { key: 'chat', label: 'Chat', cents: line.chatCents > 0 ? line.chatCents : null },
+    ],
   };
 }
 
@@ -1910,7 +1977,7 @@ function moneySection(line: MoneyLine): ReportSection {
   // occupy the same visual weight as the actual product change."* So: what it
   // has cost and what it was expected to cost, in a sentence; the workings
   // one tap down.
-  const spent = line.actualCents === null ? null : money(line.actualCents);
+  const spent = spentLabel(line);
   const estimated = line.estimateCents === null ? null : money(line.estimateCents);
   s.facts = [{
     label: spent === null ? 'Estimated' : 'Spent',
@@ -1929,7 +1996,10 @@ function moneySection(line: MoneyLine): ReportSection {
       ...(line.varianceCents === null
         ? []
         : [`Variance: ${line.varianceCents >= 0 ? '+' : ''}${money(line.varianceCents)}${line.variancePct === null ? '' : ` (${line.variancePct >= 0 ? '+' : ''}${line.variancePct}%)`}.`]),
-      `Charged across the runs: ${money(line.runCents)}.`,
+      `Charged across the engineering runs: ${money(line.runCents)}.`,
+      ...(line.agentCents > 0 || line.chatCents > 0
+        ? [`Agent runs that served it: ${money(line.agentCents)}. Chat turns about it: ${money(line.chatCents)}. A run or turn that served several features is split evenly between them.`]
+        : []),
     ],
   });
   return s;
@@ -2227,9 +2297,8 @@ const WORKED_STAGES: ReadonlySet<string> = new Set(['running', 'awaiting_review'
  * record's own blocker — is red, and that is the status line's job.
  * @param input - The report's inputs.
  * @param mergedPrs - Pull requests the records say merged.
- * @param line - The money line.
  */
-function findNotices(input: FeatureReportInput, mergedPrs: Set<string>, line: MoneyLine): ReportNotice[] {
+function findNotices(input: FeatureReportInput, mergedPrs: Set<string>): ReportNotice[] {
   const out: ReportNotice[] = [];
   const quiet = (key: string, known: string, blocks: string, action: ReportNotice['action'], evidence: string) =>
     out.push({ key, severity: 'inconsistency', known, blocks, action, evidence });
@@ -2243,19 +2312,6 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>, line: Mo
         'This does not block anything: the merged change is on the record. The run\'s own status is stale.',
         { label: 'Review delivery status', drawer: 'status' },
         `Run ${run.id} is recorded as ${run.status}, and its pull request ${change.prUrl} merged. Both facts stand; the worker's completion call can time out after the pull request is open.`,
-      );
-    }
-  }
-  const rolledUp = input.tasks.map(t => num(t.meta, 'actualCents')).filter((n): n is number => n !== null);
-  if (rolledUp.length > 0 && input.workerRuns.length > 0) {
-    const sum = rolledUp.reduce((a, b) => a + b, 0);
-    if (sum !== line.runCents) {
-      quiet(
-        'cost-disagree',
-        `Two cost records disagree: the tasks say ${money(sum)}, the runs charged ${money(line.runCents)}.`,
-        'This does not block delivery. Which figure is current is not established.',
-        { label: 'Review cost', drawer: 'cost' },
-        `The tasks roll up ${money(sum)} spent and the runs charged ${money(line.runCents)}. One of the two is stale.`,
       );
     }
   }
@@ -3409,7 +3465,7 @@ function buildImplementation(input: FeatureReportInput, mergedPrs: Set<string>, 
     ? null
     : `${line.varianceCents >= 0 ? '+' : '−'}${money(Math.abs(line.varianceCents))}${line.variancePct === null ? '' : ` (${line.variancePct >= 0 ? '+' : ''}${line.variancePct}%)`}`;
   const costLine = [
-    spent === null ? 'Nothing spent yet' : `${money(spent)} spent`,
+    spent === null ? 'Nothing spent yet' : `${spentLabel({ ...line, actualCents: spent })} spent`,
     estimate === null ? 'Not estimated' : variance === null ? `estimated ${estimate}` : `estimated ${estimate}, ${variance}`,
   ].join(' · ');
   return {
@@ -3808,7 +3864,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   if (delivered) {
     mergedPrs.add(delivered.prUrl);
   }
-  const line = moneyLine(input.request, input.tasks, runs);
+  const line = moneyLine(input.request, input.tasks, runs, input.spend);
   // What every picture's source line is read from (`carouselSource.ts`).
   const pictures: PictureContext = { runs, releases: input.releases };
   // BUILD IS NEVER OFFERED OVER A LIVE BUILD (2026-09-28). A run still going,
@@ -3836,7 +3892,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const surfaceUrl = resolveLiveUrl(str((input.request.meta.visuals ?? {}) as Record<string, unknown>, 'surfaceUrl'), input.liveBases ?? []);
   const timeline = buildTimeline(normalised, mergedPrs);
   const history = buildHistory(normalised, { implementation, release, mergedPrs });
-  const notices = findNotices(normalised, mergedPrs, line);
+  const notices = findNotices(normalised, mergedPrs);
   const read = withActiveRun(buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl, live }), implementation);
   const status = input.place ? { ...read, headline: input.place.label, tone: input.place.tone } : read;
   const facts = workFactsOf(normalised, { mergedPrs, state, release, status });
@@ -3877,7 +3933,9 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
       // A run reads as an attempt, not as "Run 501 · task-engineer · …".
       .map(e => ({ ...e, title: e.kind === 'run' ? e.title.replace(/^Run \d+ · .+ · attempt (\S+) · (\w+)$/, 'Engineering attempt $1 $2') : e.title, ago: formatAge(input.now.getTime() - e.at!.getTime()) })),
     history: history.rows,
-    historyCost: history.cost,
+    // ONE TOTAL: the Timeline's foot says the money line's figures, so the
+    // page never shows two sums of the same spend (`featureSpend.ts`).
+    historyCost: input.spend ? footOf(line) : history.cost,
     expectedBenefit: str(input.request.meta, 'expectedResult'),
     surfaceUrl,
     // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's

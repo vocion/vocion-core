@@ -100,6 +100,7 @@ import { and, eq, inArray, notLike, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { tokenCostMicroCents, totalTokens } from '@/libs/pricing';
 import { agentBudgetSchema, agentSchema } from '@/models/Schema';
+import { noteRunCost } from '@/services/budget/runCost';
 
 export type BudgetPeriod = 'daily' | 'monthly';
 
@@ -626,6 +627,10 @@ export async function chargeUsage(opts: {
   }
   rows.push({ orgId: opts.orgId, agentSlug: ORG_SCOPE_SLUG, period, currentTokens: tokens, currentMicroCents: microCents });
 
+  // The run this call belongs to counts it too, whether or not the budget
+  // write lands: a run's cost is what it spent, not what the counters saw
+  // (`services/budget/runCost.ts`).
+  await noteRunCost(tokens, microCents);
   await writeChargeWithRetry(rows, period, tokens, microCents);
 }
 
