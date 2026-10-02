@@ -352,6 +352,11 @@ name: Software factory
 #   `role: tracker-intake`, and its filings are stamped). Core's
 #   `autonomy.lower` takes a rung to a target and never raises it; the answer
 #   "ask me even before merging pipeline fixes" binds it.
+#   Setup also looks at the board (#1028,
+#   2026-10-02). The PM's `sweep-the-tracker` says what is open, then offers
+#   one pick per cleanup group (stale, already shipped, duplicates); a pick
+#   binds nothing, and each `tracker.transition_issue` is proposed for the
+#   person's approval.
 version: 3.2.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []

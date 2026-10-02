@@ -74,6 +74,7 @@ skills:
   - mirror-the-tracker
   - tell-the-requester
   - products-from-repos
+  - sweep-the-tracker
 objectTypes:
   - request
   - architecture_plan
