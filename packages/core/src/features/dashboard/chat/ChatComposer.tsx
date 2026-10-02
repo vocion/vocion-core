@@ -820,6 +820,7 @@ export function ChatComposer({
             <button
               type="submit"
               disabled={!sendEnabled}
+              data-testid="composer-send"
               className={`${streaming ? '' : 'ml-auto sm:ml-0'} ${streaming
                 ? `${COMPOSER_CONTROL} border border-brand-amber/60 bg-brand-amber-tint text-brand-amber-deep hover:border-brand-amber hover:bg-brand-amber hover:text-white disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground/50`
                 : `${COMPOSER_CONTROL} bg-brand-amber text-white hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50`}`}
