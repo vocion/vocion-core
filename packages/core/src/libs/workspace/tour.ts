@@ -57,6 +57,14 @@ const StepSchema = z.object({
   selectorText: z.string().optional(),
   /** Label for the Next button, e.g. "Draft it". */
   nextLabel: z.string().optional(),
+  /**
+   * Text staged in the chat composer when the step opens — not sent. The
+   * audience reads the line and taps send themselves, so a tour can walk
+   * someone through saying something to an agent without asking them to
+   * type it on a tablet. Pair with `advance: click` on
+   * `[data-testid=composer-send]`.
+   */
+  prefill: z.string().optional(),
   /** Autoplay: how long the step holds before moving on. Defaults from the body's length. */
   dwellMs: z.number().int().positive().optional(),
   /** Override the tour's `mask` for this step. */
