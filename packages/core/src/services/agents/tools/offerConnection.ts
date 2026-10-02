@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { newCardId } from '@/libs/cards/card';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
 import { connectStartHref } from '@/libs/connect/returnTo';
-import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
 import { connectorHasLiveSource, newestLiveCredential } from '@/services/connect/createSourceOnLogin';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
@@ -86,14 +86,17 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     const body = how ? { body: pasteBody(how.paste) } : {};
     const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, rationale: input.why, ...body, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
     ctx.emit({ type: 'card', card });
-    return connectedWording(name, href, false);
+    return connectedWording(name, href, null);
   }
   // A live login with no source yet: the next step is picking what to sync,
   // not another login.
   const platform = platformForConnectorSlug(connector.slug);
   const live = platform ? await newestLiveCredential(ctx.orgId, platform.id) : null;
   if (live?.obtainedVia === 'login') {
-    return `Already logged in to ${name} as ${live.account ?? 'the connected account'}. Ask which repos or project keys they want, then save the source with source.connect.`;
+    const account = live.account ?? 'the connected account';
+    return login.settingsAfterLogin.length === 0
+      ? `Already logged in to ${name} as ${account}, but it has no source yet. Send them to Connectors to add it.`
+      : `Already logged in to ${name} as ${account}. Ask which ${settingNames(login.settingsAfterLogin)} they want, then save the source with source.connect.`;
   }
   const returnTo = returnPath(ctx.conversationId);
   const cardId = newCardId();
@@ -105,7 +108,7 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     kind: 'link',
     title: `Connect ${name}`,
     rationale: input.why,
-    ...(login.access.length > 0 ? { body: `Asks for: ${login.access.join(', ')}` } : {}),
+    body: `${login.access.length > 0 ? `Asks for: ${login.access.join(', ')}. ` : ''}${afterLoginText(login.settingsAfterLogin)}`,
     actions: [],
     source,
     href,
@@ -116,7 +119,7 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     state: 'proposed',
   };
   ctx.emit({ type: 'card', card });
-  return connectedWording(name, href, true);
+  return connectedWording(name, href, login.settingsAfterLogin);
 }
 
 /**
@@ -128,18 +131,31 @@ function returnPath(conversationId: number | undefined): string {
 }
 
 /**
+ * The declared settings as a phrase: "repositories", "site and project keys".
+ * @param settings - The login's `settingsAfterLogin`.
+ */
+function settingNames(settings: readonly { label: string }[]): string {
+  return settings.map(setting => setting.label).join(' and ');
+}
+
+/**
  * What the model reads after the card is shown, including what the login does
- * next: a connector that needs nothing more has its source made by the login
- * itself; one that needs picks (GitHub repos, a Jira site and project keys)
- * lands back here and waits to be asked.
+ * next, read from the connector's declaration: with no settings left the login
+ * itself makes the source; otherwise the person lands back here and waits to
+ * be asked for the declared settings.
  * @param name - The connector's display name.
  * @param href - The card's button target.
- * @param login - Whether the button starts a provider login (else it opens the token form).
+ * @param settingsAfterLogin - The login's declared settings, or null when the button opens the token form instead.
  */
-function connectedWording(name: string, href: string, login: boolean): string {
-  const how = login
-    ? `If ${name} needs nothing more, logging in creates its source. If it needs repos, a site or project keys, the person lands back in this conversation: ask which repos or project keys they want, then save the source with source.connect.`
-    : `The button opens the ${name} token form; saving it there connects ${name}. The person lands back in this conversation.`;
+function connectedWording(name: string, href: string, settingsAfterLogin: readonly { label: string }[] | null): string {
+  let how: string;
+  if (settingsAfterLogin === null) {
+    how = `The button opens the ${name} token form; saving it there connects ${name}. The person lands back in this conversation.`;
+  } else if (settingsAfterLogin.length === 0) {
+    how = `Logging in is all ${name} needs: the login creates its source, and the person lands back in this conversation.`;
+  } else {
+    how = `The person lands back in this conversation after logging in: ask which ${settingNames(settingsAfterLogin)} they want, then save the source with source.connect.`;
+  }
   return `Showed a "Connect ${name}" card (${href}). ${how} Do not claim it is connected until they say so or list_capabilities shows it.`;
 }
 

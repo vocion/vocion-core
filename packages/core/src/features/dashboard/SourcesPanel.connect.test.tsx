@@ -126,6 +126,13 @@ describe('the add form follows the connector declaration', () => {
     await expect.element(page.getByText(/Needs access to: pull_requests:read/)).toBeVisible();
   });
 
+  it('says what the source still needs after the login, from the declaration', async () => {
+    await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: null, lastAttempt: null }, jira: { providerLabel: 'Atlassian', loggedInAs: null, lastAttempt: null } }} />);
+    await page.getByRole('button', { name: 'Connect GitHub' }).click();
+
+    await expect.element(page.getByTestId('connect-after-login')).toHaveTextContent('After logging in you choose: repositories.');
+  });
+
   it('shows only the paste fields for a connector with no login', async () => {
     await render(<SourcesPanel connectInfo={{}} />);
     await page.getByRole('button', { name: 'Connect HubSpot' }).click();

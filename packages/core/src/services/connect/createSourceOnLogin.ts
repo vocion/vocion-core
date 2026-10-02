@@ -11,7 +11,7 @@ import type { DbTransaction } from '@/libs/DbTransaction';
 import { and, asc, desc, eq, gt, isNull, like, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
-import { platformForConnectorSlug } from '@/libs/platforms/registry';
+import { loginIsEnough, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
@@ -395,12 +395,13 @@ export async function undoCreatedSource(orgId: string, result: { sourceId: numbe
 }
 
 /**
- * Whether a finished login makes the connector's source by itself, because
- * nothing more is needed to make one.
+ * Whether a finished login makes the connector's source by itself. The
+ * connector's login declaration says so (`settingsAfterLogin` is empty); the
+ * config schema is not probed.
  * @param connector - Connector slug.
  */
 export function loginMakesItsSource(connector: string): boolean {
-  return configProblem(connector, {}) === null;
+  return loginIsEnough(connector);
 }
 
 /**

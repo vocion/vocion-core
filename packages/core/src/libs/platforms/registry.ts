@@ -218,8 +218,13 @@ export type CredentialPlatform = {
       provider: 'github' | 'atlassian' | 'slack';
       /** The access the login asks for, one line each, in the vendor's words. */
       access: readonly string[];
-      /** True when logging in only grants the right to make a token, and a second call makes it. */
-      createsTokenAfterLogin: boolean;
+      /**
+       * The settings the source still needs after the login, by config key, each with the
+       * name a person knows it by. Empty means login alone is enough and the login makes the
+       * source itself. This is the one answer: the callback, the form, the chat card and the
+       * agent's next step all read it.
+       */
+      settingsAfterLogin: readonly { key: string; label: string }[];
     };
     /** Pasting is always possible. What to paste, and where to get one by hand. */
     paste: {
@@ -420,7 +425,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['github'],
     howToConnect: {
-      login: { provider: 'github', access: ['The repositories you choose during install'], createsTokenAfterLogin: false },
+      login: { provider: 'github', access: ['The repositories you choose during install'], settingsAfterLogin: [{ key: 'repos', label: 'repositories' }] },
       paste: {
         credential: 'Personal access token',
         access: ['pull_requests:read', 'checks:read', 'contents:read', 'metadata:read', 'actions:read (for run.failed on the deploy branch)'],
@@ -493,7 +498,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'many',
     connectorSlugs: ['jira'],
     howToConnect: {
-      login: { provider: 'atlassian', access: ['read:jira-work', 'read:jira-user', 'offline_access'], createsTokenAfterLogin: false },
+      login: { provider: 'atlassian', access: ['read:jira-work', 'read:jira-user', 'offline_access'], settingsAfterLogin: [{ key: 'baseUrl', label: 'site' }, { key: 'projectKeys', label: 'project keys' }] },
       paste: {
         credential: 'API token',
         access: [],
@@ -817,7 +822,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'many',
     connectorSlugs: ['slack'],
     howToConnect: {
-      login: { provider: 'slack', access: ['channels:read', 'channels:history', 'groups:read', 'groups:history'], createsTokenAfterLogin: false },
+      login: { provider: 'slack', access: ['channels:read', 'channels:history', 'groups:read', 'groups:history'], settingsAfterLogin: [] },
       paste: {
         credential: 'Bot token',
         access: ['channels:history', 'channels:read', 'The bot has to be in each channel you sync'],
@@ -1258,4 +1263,25 @@ export function keyHint(key: string): string {
  */
 export function howToConnectFor(connectorSlug: string): CredentialPlatform['howToConnect'] | null {
   return platformForConnectorSlug(connectorSlug)?.howToConnect ?? null;
+}
+
+/**
+ * Whether logging in is all it takes: the connector declares a login and
+ * names no setting the source still needs.
+ * @param connectorSlug - A source's connector slug, e.g. `slack`.
+ */
+export function loginIsEnough(connectorSlug: string): boolean {
+  const login = howToConnectFor(connectorSlug)?.login;
+  return Boolean(login) && login!.settingsAfterLogin.length === 0;
+}
+
+/**
+ * What happens after the login, in a person's words, from the declaration:
+ * the one sentence the form and the chat card both show.
+ * @param settings - The login's `settingsAfterLogin`.
+ */
+export function afterLoginText(settings: readonly { label: string }[]): string {
+  return settings.length === 0
+    ? 'Logging in is all it takes; the source is added for you.'
+    : `After logging in you choose: ${settings.map(setting => setting.label).join(', ')}.`;
 }

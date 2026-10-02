@@ -60,7 +60,7 @@ describe('offer_connection', () => {
       state: 'proposed',
       rationale: 'So the factory can read Northwind\'s repos.',
     });
-    expect(card.body).toMatch(/^Asks for: .+/);
+    expect(card.body).toMatch(/^Asks for: .+\. After logging in you choose: repositories\.$/);
     expect(card.lastAttempt).toBeUndefined();
     expect(JSON.stringify(card)).not.toMatch(/approve/i);
     expect(String(out)).toContain('Do not claim it is connected');
@@ -104,9 +104,27 @@ describe('offer_connection', () => {
     const emit = vi.fn();
     const out = String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'github', why: 'x' }));
 
-    expect(out).toContain('ask which repos or project keys');
+    expect(out).toContain('ask which repositories they want');
     expect(out).toContain('source.connect');
     expect(out).not.toMatch(/set-?up/i);
+  });
+
+  it('reads what the login still needs from the declaration: Jira asks for a site and project keys, Slack for nothing', async () => {
+    const jira = vi.fn();
+    const jiraText = String(await offerConnectionTool(ctxWith(jira)).invoke({ connector: 'jira', why: 'x' }));
+
+    expect(jira.mock.calls[0]![0].card.body).toContain('After logging in you choose: site, project keys.');
+    expect(jiraText).toContain('ask which site and project keys they want');
+
+    const slack = vi.fn();
+    const [source] = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.slug, 'slack'));
+    await db.update(apiTokenSchema).set({ revokedAt: new Date() }).where(eq(apiTokenSchema.id, source!.apiTokenId!));
+    const slackText = String(await offerConnectionTool(ctxWith(slack)).invoke({ connector: 'slack', why: 'x' }));
+
+    expect(slack.mock.calls[0]![0].card.body).toContain('Logging in is all it takes');
+    expect(slackText).toContain('the login creates its source');
+
+    await db.update(apiTokenSchema).set({ revokedAt: null }).where(eq(apiTokenSchema.id, source!.apiTokenId!));
   });
 
   it('already logged in and no source: no card, and the text asks which repos to sync', async () => {
@@ -115,7 +133,7 @@ describe('offer_connection', () => {
     const out = String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'github', why: 'x' }));
 
     expect(emit).not.toHaveBeenCalled();
-    expect(out).toBe('Already logged in to GitHub as northwind. Ask which repos or project keys they want, then save the source with source.connect.');
+    expect(out).toBe('Already logged in to GitHub as northwind. Ask which repositories they want, then save the source with source.connect.');
   });
 
   it('refuses an unknown connector and shows no card', async () => {

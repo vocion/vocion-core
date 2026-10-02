@@ -104,20 +104,6 @@ async function linkSources(
   return ids;
 }
 
-/**
- * Run the provider's second step when it has one. Most providers do not: their
- * login is the credential.
- * @param provider - The provider that logged the person in.
- * @param credentials - The bag the exchange produced.
- */
-async function finishedBag(provider: ConnectProvider, credentials: RawCredentials): Promise<{ ok: true; credentials: RawCredentials } | { ok: false; reason: string }> {
-  if (!provider.finish) {
-    return { ok: true, credentials };
-  }
-  const finished = await provider.finish(credentials);
-  return finished.ok ? finished : { ok: false, reason: `token_step_failed:${finished.missing}` };
-}
-
 type LoginInput = {
   orgId: string;
   userId: string;
@@ -165,16 +151,15 @@ export async function approveLoginCard(input: { orgId: string; userId: string; c
  * The writes of a successful login, inside the caller's transaction.
  * @param tx - The transaction to write in.
  * @param input - The login, as `completeLogin` received it.
- * @param resolved - The platform, the finished bag and the account.
+ * @param resolved - The platform, the account and the sealed bag.
  * @param resolved.platform - The credential platform for the connector.
- * @param resolved.credentials - The bag to store, after any second step.
  * @param resolved.account - The account the login is on.
  * @param resolved.sealed - The bag, encrypted before the transaction opened.
  */
 async function writeLogin(
   tx: DbTransaction,
   input: LoginInput,
-  resolved: { platform: CredentialPlatform; credentials: RawCredentials; account: string; sealed: SealedLoginValues },
+  resolved: { platform: CredentialPlatform; account: string; sealed: SealedLoginValues },
 ): Promise<LoginOutcome> {
   const { platform, account } = resolved;
   const stored = await storeLoginCredential({
@@ -182,7 +167,7 @@ async function writeLogin(
     platform: platform.id,
     name: input.exchanged.displayName,
     account,
-    values: resolved.credentials,
+    values: input.exchanged.credentials,
     sealed: resolved.sealed,
     createdBy: input.userId,
     tx,
@@ -217,14 +202,10 @@ export async function completeLogin(input: LoginInput): Promise<LoginOutcome> {
   if (!platform) {
     return { ok: false, reason: 'no_credential_platform' };
   }
-  const finished = await finishedBag(input.provider, input.exchanged.credentials);
-  if (!finished.ok) {
-    return finished;
-  }
-  const account = input.provider.summarize(finished.credentials)?.account ?? input.exchanged.displayName;
+  const account = input.provider.summarize(input.exchanged.credentials)?.account ?? input.exchanged.displayName;
   // Sealed first: the vault reads the org's key through the pool, which must not wait on this transaction.
-  const sealed = await sealLoginValues(input.orgId, finished.credentials);
-  return db.transaction(tx => writeLogin(tx, input, { platform, credentials: finished.credentials, account, sealed }));
+  const sealed = await sealLoginValues(input.orgId, input.exchanged.credentials);
+  return db.transaction(tx => writeLogin(tx, input, { platform, account, sealed }));
 }
 
 type FailedLoginInput = {

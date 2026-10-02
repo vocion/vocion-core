@@ -167,18 +167,11 @@ describe('completeLogin', () => {
     expect(await loginRows()).toHaveLength(1);
   });
 
-  it('runs the second step and stores the finished bag; a failed step stores nothing', async () => {
-    const finishing = stubProvider({ finish: async (bag: Record<string, unknown>) => ({ ok: true, credentials: { ...bag, token: 'made-after' } }) });
-    const failing = stubProvider({ finish: async () => ({ ok: false, missing: 'an API token' }) });
+  it('refuses a connector with no credential platform and stores nothing', async () => {
+    const outcome = await completeLogin({ orgId: ORG, userId: USER, provider: stubProvider(), connectorSlug: 'no-such-connector', exchanged });
 
-    const failed = await completeLogin({ orgId: ORG, userId: USER, provider: failing, connectorSlug: 'github', exchanged });
-
-    expect(failed).toEqual({ ok: false, reason: 'token_step_failed:an API token' });
+    expect(outcome).toEqual({ ok: false, reason: 'no_credential_platform' });
     expect(await loginRows()).toHaveLength(0);
-
-    await completeLogin({ orgId: ORG, userId: USER, provider: finishing, connectorSlug: 'github', exchanged });
-
-    expect(await loginRows()).toHaveLength(1);
   });
 
   it('writes no login row when a later step in the same login throws', async () => {

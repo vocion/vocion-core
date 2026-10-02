@@ -147,7 +147,7 @@ describe('GET /api/connect/[provider]/callback', () => {
   });
 
   it('makes no source when the login was not stored', async () => {
-    vi.mocked(completeLogin).mockResolvedValue({ ok: false, reason: 'token_step_failed:an API token' });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: false, reason: 'no_credential_platform' });
 
     await GET(request(), context());
 
@@ -180,13 +180,13 @@ describe('GET /api/connect/[provider]/callback', () => {
     expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'access_denied', card: { conversationId: 7, cardId: 'card_1' } }));
   });
 
-  it('records a login the provider could not finish with the step\'s own reason', async () => {
-    vi.mocked(completeLogin).mockResolvedValue({ ok: false, reason: 'token_step_failed:an API token' });
+  it('records a login that could not be stored with its own reason', async () => {
+    vi.mocked(completeLogin).mockResolvedValue({ ok: false, reason: 'no_credential_platform' });
 
     const res = await GET(request(), context());
 
-    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'token_step_failed:an API token' }));
-    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'token_step_failed_an_API_token' });
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'no_credential_platform' }));
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'no_credential_platform' });
   });
 
   it('lands back in the conversation the connect started from, success or refusal', async () => {

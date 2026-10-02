@@ -3,7 +3,7 @@
 import type { FailedAttempt } from './LastAttemptLine';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { client } from '@/libs/Orpc';
-import { howToConnectFor } from '@/libs/platforms/registry';
+import { afterLoginText, howToConnectFor } from '@/libs/platforms/registry';
 
 /**
  * What the Connectors page knows about one connector's login, worked out on
@@ -143,6 +143,7 @@ export function ConnectChoice({ connector, info, pasteChecked, onPasteChange }: 
       {login.access.length > 0 && (
         <p className="text-xs text-muted-foreground">{`Asks for: ${login.access.join(', ')}`}</p>
       )}
+      <p className="text-xs text-muted-foreground" data-testid="connect-after-login">{afterLoginText(login.settingsAfterLogin)}</p>
       {pasteChecked && <PasteGuide paste={how.paste} />}
     </div>
   );

@@ -6,8 +6,6 @@
  * that reaches the database. Nothing here is server-only.
  */
 
-const TOKEN_STEP_PREFIX = 'token_step_failed:';
-
 /**
  * The reason part of a failed attempt in plain words, e.g. "GitHub denied
  * access". Reason codes are the ones the OAuth callback emits; an unknown code
@@ -18,9 +16,6 @@ const TOKEN_STEP_PREFIX = 'token_step_failed:';
 export function connectFailureSummary(providerLabel: string, reason: string | null): string {
   if (!reason) {
     return `${providerLabel} refused the login`;
-  }
-  if (reason.startsWith(TOKEN_STEP_PREFIX)) {
-    return `${providerLabel} logged in, but ${reason.slice(TOKEN_STEP_PREFIX.length)} is still missing`;
   }
   switch (reason) {
     case 'access_denied':

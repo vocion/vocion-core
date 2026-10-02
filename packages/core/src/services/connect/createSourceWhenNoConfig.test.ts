@@ -17,6 +17,7 @@ const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, sourceDekSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { sealLoginValues, storeLoginCredential } = await import('@/services/ApiTokenService');
 const { memberWorkspace } = await import('@/services/WorkspaceAccessService');
+const { howToConnectFor } = await import('@/libs/platforms/registry');
 const { createSourceWhenNoConfigNeeded } = await import('./createSourceOnLogin');
 
 const ORG = 'org_login_autosource';
@@ -54,6 +55,21 @@ describe('createSourceWhenNoConfigNeeded', () => {
 
     expect(result).toEqual({ created: true });
     expect(await sources()).toMatchObject([{ apiTokenId: loginId }]);
+  });
+
+  it('follows the declaration, not the config schema: a login that declares a setting is left for the person', async () => {
+    await seedLogin('slack');
+    const login = howToConnectFor('slack')!.login as { settingsAfterLogin: readonly { key: string; label: string }[] };
+    const declared = login.settingsAfterLogin;
+    login.settingsAfterLogin = [{ key: 'channels', label: 'channels' }];
+    try {
+      const result = await createSourceWhenNoConfigNeeded({ orgId: ORG, userId: ADMIN, connector: 'slack', linkedSourceIds: [] });
+
+      expect(result).toEqual({ created: false });
+      expect(await sources()).toHaveLength(0);
+    } finally {
+      login.settingsAfterLogin = declared;
+    }
   });
 
   it('leaves a connector that needs repos or a site for the person to pick', async () => {
