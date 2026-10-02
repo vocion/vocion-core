@@ -503,3 +503,45 @@ describe('a retry continues the branch its failed run kept', () => {
     expect(contractFromTask({ id: 0, title: 'Copy link', meta }, { product: 'acme' }).base_sha).toBe('factory/acme-t353-wip-453');
   });
 });
+
+describe('every automatic retry continues the latest kept work at the next attempt (FE-130, FE-132)', () => {
+  // Each dispatch creates its task, then stamps the plan approved a moment later.
+  const approach = 'Continue from the earlier branch; fix what QA found.';
+
+  it('a checks-failed recovery continues the failed run\'s kept branch though the plan was stamped after its task', () => {
+    // FE-130: task #356 created 03:28:07.5, plan #313 stamped 03:28:08.474 by the same dispatch.
+    const failed = { id: 356, createdAt: new Date('2026-10-02T03:28:07.525Z'), builtTo: approach, meta: { planId: 313, attempt: 1, workerRunId: 467, runStatus: 'failed', branch: 'factory/send-t356-wip-467', keptBranch: 'factory/send-t356-wip-467', baseSha: 'factory/send-t261-see-which' } };
+    const resume = pickResumeBase([], 313, '2026-10-02T03:28:08.474Z', failed, approach);
+    const meta = deriveContract({ given: {}, request: { title: 'Remind who has not opened', acceptance: ['a'] }, plan: { approach }, repo: null, resume, note: 'The last attempt failed its required checks (no-runtime-ddl).' });
+
+    expect(resume?.id).toBe(356);
+    expect(meta.baseSha).toBe('factory/send-t356-wip-467');
+    expect(meta.attempt).toBe(2);
+    expect(contractFromTask({ id: 0, title: 'x', meta }, { product: 'send' }).base_sha).toBe('factory/send-t356-wip-467');
+  });
+
+  it('a QA send-back continues the sent-back attempt\'s branch though the plan was stamped after its task', () => {
+    // FE-132: task #359 created 03:33:47.123, plan #358 stamped 03:33:47.148 by the same dispatch.
+    const sentBack = { id: 359, createdAt: new Date('2026-10-02T03:33:47.123Z'), builtTo: approach, meta: { planId: 358, attempt: 1, workerRunId: 469, branch: 'factory/send-t359-send-someone', verdict: { proven: 5, total: 8 } } };
+    const resume = pickResumeBase([sentBack], 358, '2026-10-02T03:33:47.148Z', null, approach);
+    const meta = deriveContract({ given: {}, request: { title: 'Request a file', acceptance: ['a'] }, plan: { approach }, repo: null, previous: sentBack, resume });
+
+    expect(resume?.id).toBe(359);
+    expect(meta.baseSha).toBe('factory/send-t359-send-someone');
+    expect(meta.attempt).toBe(2);
+  });
+
+  it('the attempt after that one counts on, under the same plan text', () => {
+    const second = { id: 360, createdAt: new Date('2026-10-02T03:54:55.598Z'), builtTo: approach, meta: { planId: 313, attempt: 2, workerRunId: 470, keptBranch: 'factory/send-t360-wip-470', baseSha: 'factory/send-t356-wip-467' } };
+    const resume = pickResumeBase([], 313, '2026-10-02T03:54:55.632Z', second, approach);
+
+    expect(deriveContract({ given: {}, request: { title: 'x', acceptance: ['a'] }, plan: { approach }, repo: null, resume }).attempt).toBe(3);
+  });
+
+  it('an attempt whose contract carried the plan before it was rewritten is never the base (#130 rename)', () => {
+    const old = { id: 225, createdAt: new Date('2026-10-02T05:00:00Z'), builtTo: 'Edit apps/send-api.', meta: { branch: 'factory/t225', planId: 136, verdict: { proven: 5, total: 8 } } };
+
+    expect(pickResumeBase([old], 136, '2026-10-02T01:00:00Z', null, 'Edit apps/stamp-api.')).toBeNull();
+    expect(pickResumeBase([], 136, null, { ...old, meta: { ...old.meta, keptBranch: 'factory/t225-wip' } }, 'Edit apps/stamp-api.')).toBeNull();
+  });
+});

@@ -229,6 +229,9 @@ export async function seatModelPolicy(orgId: string, slug: string): Promise<{ mo
   return { model, ...(effort ? { effort } : {}) };
 }
 
+/** How much of the plan's approach a contract carries (`contractFromTask`). */
+const CONTRACT_PLAN_CHARS = 2000;
+
 const str = (m: Meta, k: string): string | null => (typeof m[k] === 'string' && (m[k] as string).trim() !== '' ? (m[k] as string).trim() : null);
 const list = (m: Meta, k: string): string[] => (Array.isArray(m[k])
   ? (m[k] as unknown[]).map(v => (typeof v === 'string' ? v : (v && typeof v === 'object' && typeof (v as Meta).statement === 'string' ? (v as Meta).statement as string : ''))).filter(Boolean)
@@ -417,7 +420,7 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
       plan_id: String(opts.plan.id),
       approved_by: opts.plan.approvedBy,
       approved_at: opts.plan.approvedAt,
-      ...(opts.plan.approach ? { summary: opts.plan.approach.slice(0, 2000) } : {}),
+      ...(opts.plan.approach ? { summary: opts.plan.approach.slice(0, CONTRACT_PLAN_CHARS) } : {}),
     };
   } else if (m.plan && typeof m.plan === 'object') {
     out.plan = m.plan;
@@ -879,25 +882,42 @@ export type BuildReadiness = {
 };
 
 /**
+ * An earlier attempt at a request, as {@link pickResumeBase} weighs it.
+ * `builtTo` is the plan text its run's contract carried: null when that
+ * contract had none, undefined when it could not be read.
+ */
+export type Attempt = { id: number; meta: Meta; createdAt?: Date | null; builtTo?: string | null };
+
+/**
  * The attempt a retry continues from: the one under this plan that proved the
  * most, whatever came after it (#224, 2026-09-29: attempt 2 proved 6 of 8 on
  * PR #121; attempt 3 started again from main, edited a component the library
  * page does not render, and proved 1 of 8). An attempt that proved nothing is
  * a wrong direction, never a base; one under another plan was built to other
  * paths. Newest wins a tie.
- * An attempt built before the plan's current approval was built to the plan
- * as it read then (#130: plan #136 was rewritten in place for the Send →
- * Stamp rename, and the resume picked a branch cut to the old paths).
+ * An attempt built to the plan as it read before a rewrite is no base either
+ * (#130: plan #136 was rewritten in place for the Send → Stamp rename, and the
+ * resume picked a branch cut to the old paths). What an attempt was built to
+ * is the plan text its own contract carried (`builtTo`); the plan's approval
+ * time is only the fallback when that contract cannot be read, because every
+ * dispatch stamps the approval again a moment AFTER it creates its task
+ * (FE-130 and FE-132, 2026-10-02: tasks #356 and #359 were created 0.9 s and
+ * 25 ms before their own dispatch's stamp, so the next retry read both as
+ * "built before the approval" and started again from origin/main at attempt 1).
  * @param rows - The request's sent-back and superseded attempts.
  * @param planId - The plan this build answers, or null when it has none.
  * @param planApprovedAt - When that plan was last approved (ISO), if known.
  * @param recovered - The task whose failed run this build recovers: its kept branch, when it has one, is the base.
+ * @param planApproach - The plan's approach as it reads now; compared with each attempt's `builtTo`.
  */
-export function pickResumeBase(rows: Array<{ id: number; meta: Meta; createdAt?: Date | null }>, planId: number | null, planApprovedAt?: string | null, recovered?: { id: number; meta: Meta; createdAt?: Date | null } | null): { id: number; meta: Meta } | null {
+export function pickResumeBase(rows: Array<Attempt>, planId: number | null, planApprovedAt?: string | null, recovered?: Attempt | null, planApproach?: string | null): { id: number; meta: Meta } | null {
   const proven = (m: Meta) => Number((m.verdict as { proven?: unknown } | undefined)?.proven ?? 0) || 0;
   const samePlan = (m: Meta) => (Number(m.planId) > 0 ? Number(m.planId) : null) === planId;
   const since = planApprovedAt ? Date.parse(planApprovedAt) : Number.NaN;
-  const afterApproval = (r: { createdAt?: Date | null }) => Number.isNaN(since) || !r.createdAt || r.createdAt.getTime() >= since;
+  const planText = planApproach === undefined ? undefined : (planApproach ?? '').slice(0, CONTRACT_PLAN_CHARS);
+  const afterApproval = (r: Attempt) => r.builtTo !== undefined && planText !== undefined
+    ? (r.builtTo ?? '') === planText
+    : Number.isNaN(since) || !r.createdAt || r.createdAt.getTime() >= since;
   // A RETRY CONTINUES THE BRANCH ITS FAILED RUN KEPT (FE-224, 2026-10-02:
   // runs 462 to 465 each kept their work on a factory/...-wip-<run> branch and
   // said "Continue from this branch", and each recovery started again from
@@ -929,45 +949,48 @@ export function keptBranchOf(meta: Meta): string | null {
  * next build continues from ({@link pickResumeBase}).
  * @param orgId - The workspace.
  * @param requestId - The request.
- * @param planId - The plan this build answers.
- * @param planApprovedAt - When that plan was last approved.
+ * @param plan - The plan this build answers: its id, approval and approach as they read now.
+ * @param plan.id - The plan.
+ * @param plan.approvedAt - When it was last approved.
+ * @param plan.approach - Its approach, which each attempt's contract is compared with.
  * @param recoveryOfRun - The failed run this build recovers, whose kept branch it continues.
  */
-async function sentBackTask(orgId: string, requestId: number, planId: number | null, planApprovedAt?: string | null, recoveryOfRun?: number): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
-  const { and, eq, inArray, sql } = await import('drizzle-orm');
+async function sentBackTask(orgId: string, requestId: number, plan: { id: number; approvedAt: string | null; approach: string | null } | null, recoveryOfRun?: number): Promise<{ latest: { id: number; meta: Meta } | null; resume: { id: number; meta: Meta } | null }> {
+  const { and, eq, inArray, or, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
-  const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+  const { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } = await import('@/models/Schema');
+  // One read: the sent-back and superseded attempts, and the task whose run
+  // this recovery answers whatever its status (a failed run leaves it
+  // `rejected`), each with the plan text its own run's contract carried.
+  const runId = sql`case when ${businessObjectSchema.metadata}->>'workerRunId' ~ '^[0-9]+$' then (${businessObjectSchema.metadata}->>'workerRunId')::int end`;
   const rows = await db
-    .select({ id: businessObjectSchema.id, status: businessObjectSchema.status, meta: businessObjectSchema.metadata, createdAt: businessObjectSchema.createdAt })
+    .select({
+      id: businessObjectSchema.id,
+      status: businessObjectSchema.status,
+      meta: businessObjectSchema.metadata,
+      createdAt: businessObjectSchema.createdAt,
+      contractRead: sql<boolean>`${workerRunSchema.id} is not null`,
+      builtTo: sql<string | null>`${workerRunSchema.input}->'task'->'plan'->>'summary'`,
+    })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .leftJoin(workerRunSchema, and(eq(workerRunSchema.orgId, businessObjectSchema.orgId), sql`${workerRunSchema.id} = ${runId}`))
     .where(and(
       eq(businessObjectSchema.orgId, orgId),
       eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).task),
       sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
-      inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']),
+      recoveryOfRun
+        ? or(inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']), sql`${businessObjectSchema.metadata}->>'workerRunId' = ${String(recoveryOfRun)}`)
+        : inArray(businessObjectSchema.status, ['changes_requested', 'abandoned']),
     ))
     .orderBy(sql`${businessObjectSchema.id} desc`)
     .limit(20);
-  const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta, createdAt: r.createdAt }));
+  const all = rows.map(r => ({ id: r.id, status: r.status, meta: (r.meta ?? {}) as Meta, createdAt: r.createdAt, ...(r.contractRead ? { builtTo: r.builtTo ?? null } : {}) }));
   const latest = all.find(r => r.status === 'changes_requested') ?? null;
-  // The task whose run this recovery answers, whatever its status (a failed run leaves it `rejected`).
-  const [recovered] = recoveryOfRun
-    ? await db
-        .select({ id: businessObjectSchema.id, meta: businessObjectSchema.metadata, createdAt: businessObjectSchema.createdAt })
-        .from(businessObjectSchema)
-        .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-        .where(and(
-          eq(businessObjectSchema.orgId, orgId),
-          eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).task),
-          sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
-          sql`${businessObjectSchema.metadata}->>'workerRunId' = ${String(recoveryOfRun)}`,
-        ))
-        .limit(1)
-    : [];
+  const recovered = recoveryOfRun ? all.find(r => String(r.meta.workerRunId) === String(recoveryOfRun)) ?? null : null;
   return {
     latest: latest ? { id: latest.id, meta: latest.meta } : null,
-    resume: pickResumeBase(all, planId, planApprovedAt, recovered ? { id: recovered.id, meta: (recovered.meta ?? {}) as Meta, createdAt: recovered.createdAt } : null),
+    resume: pickResumeBase(all.filter(r => r.status === 'changes_requested' || r.status === 'abandoned'), plan ? plan.id : null, plan?.approvedAt ?? null, recovered, plan ? plan.approach : undefined),
   };
 }
 
@@ -1002,7 +1025,7 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     ? await readRepo(ctx.orgId, str((input.contract ?? {}) as Meta, 'repoSlug') ?? planRepo ?? (stored ? str(stored.meta, 'repoSlug') : null) ?? (request ? str(request.meta, 'ownerRepo') : null), request ? str(request.meta, 'product') : null)
     : null;
   if (!stored && request) {
-    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? plan.id : null, plan ? str(plan.meta, 'approvedAt') : null, input.recoveryOfRun);
+    const { latest: previous, resume } = await sentBackTask(ctx.orgId, request.id, plan ? { id: plan.id, approvedAt: str(plan.meta, 'approvedAt'), approach: str(plan.meta, 'approach') } : null, input.recoveryOfRun);
     const { reportedLinks } = await import('@/services/objects/reported');
     const reported = await reportedLinks(ctx.orgId, request.id).catch(() => []);
     const environments = await productEnvironments(ctx.orgId, str(request.meta, 'product'));
