@@ -58,8 +58,8 @@ export const ChoiceOptionSchema = z.object({
   id: z.enum(['A', 'B', 'C', 'D']),
   label: z.string().min(1).max(120),
   description: z.string().max(200).optional(),
-  /** Picking this option runs this action as the person: the pick is the approval of exactly this input. */
-  action: z.object({ actionId: z.string().min(1), input: z.record(z.string(), z.unknown()).default({}) }).optional(),
+  /** Picking this option runs these actions as the person, in order: the pick is the approval of exactly these inputs. Amended 2026-10-02 from one action to a list, so one cleanup pick (Task 9) can approve several tracker changes. */
+  actions: z.array(z.object({ actionId: z.string().min(1), input: z.record(z.string(), z.unknown()).default({}) })).min(1).max(20).optional(),
 });
 // On CardSchema:
 options: z.array(ChoiceOptionSchema).max(4).optional(),
@@ -80,7 +80,8 @@ answer: z.object({ optionId: z.string(), text: z.string(), at: z.string(), by: z
   - `readCard` accepts a choice card with options A, B.
   - It rejects one option, five options, ids `A, C`, and a choice card with `actions`.
   - `cardKind('ask')` is undefined, so grep the package for any `'ask'` card-kind use first. There is none at plan time.
-  - The collector keeps `options` (including a bound `action`), `allowOther` and `answer`.
+  - The collector keeps `options` (including bound `actions`), `allowOther` and `answer`.
+  - `readCard` rejects an option with 21 bound actions.
 - [ ] **Step 2: Run them.** `npx vitest run src/libs/cards/card.test.ts src/services/chat/runCollector.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run them.** Expected: PASS.
@@ -157,17 +158,17 @@ export type AnsweredChoice =
   | { ok: true; question: string; answerText: string; modelPrefix: string; userRuns: ConversationRun[]; actionOutcome: string | null }
   | { ok: false; status: 404 | 409 | 400; error: string };
 /**
- * Mark a choice card answered and run its bound action as the person (#1028).
+ * Mark a choice card answered and run its bound actions as the person, in order (#1028).
  * The card and its binding are read from the persisted run, never from the request.
  * - unknown card in this conversation → 404; already answered or skipped → 409;
  *   an option the card doesn't have, or 'other' when allowOther is false or text is empty → 400.
  * - `markCardRun(... expectState: 'proposed', patch: {state:'decided', answer})` decides the race:
  *   the loser gets 409 and runs nothing.
- * - A bound action is proposed and approved as the person through the same path a card button
+ * - Each bound action is proposed and approved as the person through the same path a card button
  *   uses (`ActionService.proposeAction`, then `ReviewService.decide` with `reviewedBy: userId`).
  *   Read `src/routers/Review.ts:168` and `:415` and call the services, not the routes.
- *   Its outcome, or its failure message, becomes `actionOutcome`. A failed action never un-answers the card.
- * - modelPrefix: `Answered "<question>": <answerText>` plus, when an action ran, `\n(<actionId> ran: <outcome>)`
+ *   One failing action does not stop the rest. Each outcome, or failure message, is one line of `actionOutcome`. A failed action never un-answers the card.
+ * - modelPrefix: `Answered "<question>": <answerText>` plus, for each action that ran, `\n(<actionId> ran: <outcome>)`
  *   or `\n(<actionId> failed: <message>)`.
  * - userRuns: `[{ type: 'card_decision', cardId, action: 'answer', label: question, option: optionId }]`.
  */
@@ -194,6 +195,7 @@ export async function answerChoice(input: { orgId: string; userId: string; conve
   5. **The race.** Two concurrent `answerChoice` calls (`Promise.all`) give exactly one `ok: true` and one 409, and the bound action executed once. Count `action_run` rows, or stub the action's execute with a counter on a test-registered action.
   6. **The binding comes from the persisted run.** The `ChoiceAnswer` type has no action field, so the test asserts the action that ran is the persisted one.
   7. **A bound action whose execute throws.** The card is still answered, `ok: true`, and `modelPrefix` contains `failed:` and the message.
+  7b. **Two bound actions, the first throws.** The second still runs, and `modelPrefix` has one `failed:` line and one `ran:` line, in order.
   8. **History.** An answered choice card replays as `was answered: <label>`, never `decide_proposal`.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement** `answerChoice`, the route wiring, `dismiss` and the history branch.
@@ -250,18 +252,19 @@ export async function answerChoice(input: { orgId: string; userId: string; conve
   - options: up to 3 plugins. Enabled plugins come first, then catalog plugins with a non-empty `recommend.when`, each group in catalog order. `label` = plugin `name`, `description` = its first `when` entry, cut at 200 characters on a word boundary.
   - `allowOther: true`, no bound actions
   - hint: `Pick one, or type your own. I'll ask one thing at a time.`
-- `HOW_TO_ASK`, verbatim: `Ask every setup question with ask_choice: one per turn, options built from what you know, broad first and narrower with each answer. After a connector connects, call browse_connection and turn what it returns into the next ask_choice; bind source.connect to the options so the pick saves the source. When something doesn't line up — a missing status, a noisy list, a failed login — say what you found in one sentence and offer the ways forward as the options.`
+- `HOW_TO_ASK`, verbatim: `Ask every setup question with ask_choice: one per turn, options built from what you know, broad first and narrower with each answer. After a connector connects, call browse_connection and turn what it returns into the next ask_choice; bind source.connect to the options so the pick saves the source. When something doesn't line up — a missing status, a noisy list, a failed login — say what you found in one sentence and offer the ways forward as the options. Never ask for a password or token in chat: offer the connection instead.`
 - The `STEP_GUIDE` steps (describe, connect, grow) stay. Their wording moves from prose questions to `ask_choice`:
   - **describe:** after the opener's answer, ask narrower questions with `ask_choice`. When you can say what the workspace is for in a sentence, offer it as option A bound to `workspace.describe` with that sentence, and option B `Let me say it differently`.
   - **connect:** for each connector the chosen plugin's `recommend.connectors` lists that isn't connected, `offer_connection`, one at a time, most useful first. You may offer any other connector the conversation points to.
-  - **grow:** for a software workspace, ask in this order:
+  - **grow:** for a software workspace, ask in this order (amended 2026-10-02 from the recorded test in #1028, "The software path, start to first shipped change"):
     1. which repos (from `browse_connection` repos, bound `source.connect`)
-    2. which tracker project holds the roadmap (from projects, bound `source.connect` with `baseUrl` and `projectKeys`)
-    3. how work enters the factory (Task 7)
-    4. how hands-on it is with pull requests (Task 7)
-    5. what to do first
-
-    Then suggest products (Task 6).
+    2. suggest products from those repos (Task 6)
+    3. which tracker project holds the roadmap (from projects, bound `source.connect` with `baseUrl`, `projectKeys` and the `sourceSlug` the earlier result named, when there is one)
+    4. what is in that project, and the cleanup sweep (Task 9)
+    5. how to work the roadmap: which statuses, in what order, how many a day (Task 7)
+    6. what the factory may do on its own (Task 7). A hands-off answer is saved as the goal (Task 11), never as a raised rung.
+    7. where the app runs and how QA signs in (Task 10)
+    8. what to do first. Options A–C are the highest-ranked open tickets in the intake statuses, never ones in progress, in QA or done. A typed answer is a new request: file it with `file_request` the way `intake-from-chat` does, say so in one sentence, and start on it in the same conversation. Never ask the question again.
 
 - [ ] **Step 1: Write the failing tests.**
   1. `openerCard` puts an enabled plugin first, caps at 3 options, and uses each plugin's first `when` entry as the description.
@@ -269,6 +272,7 @@ export async function answerChoice(input: { orgId: string; userId: string; conve
   3. Every `renderSetupStatus` output contains `HOW_TO_ASK` verbatim.
   4. The `connect` step names `recommend.connectors`.
   5. software-factory's manifest has `recommend.connectors` equal to `['github', 'jira', 'slack']`, read through `loadPlugin`.
+  6. The `grow` step lists its eight questions in the order above, and its "what to do first" line says a typed answer is filed with `file_request` and is not asked again.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run them.** Expected: PASS. Then run `npx vitest run src/libs/workspace src/services/OnboardingService src/routers/Onboarding`. Expected: PASS.
@@ -315,6 +319,7 @@ export const objectsCreateGroupAction: Action<typeof objectsCreateGroupInput>;
   - it never says it creates anything itself
   - it checks `lookup_objects` first, so existing products and repos aren't suggested
   - when a product would own repos that already have a product, it says so on the card
+  - (amended 2026-10-02) it never suggests work, features or gaps that the connected tracker already has in progress, in QA or done: it searches the tracker with `tracker_search_issues` first. The recorded test's gap analysis proposed tickets that were already shipped.
 
 - [ ] **Step 1: Write the failing tests** (PGlite, with the software-factory `product` and `repo` types seeded the way `objects-propose-candidate` tests seed types; grep for one):
   1. A product with two repos creates three records, each repo's `product` field equal to the product's slug, in one go.
@@ -339,25 +344,30 @@ export const objectsCreateGroupAction: Action<typeof objectsCreateGroupInput>;
 - Test: `src/libs/actions/autonomy-lower.test.ts`, `src/libs/sources/jira.config.test.ts` (extend or create), `src/libs/workspace/plugins.test.ts` (the automation loads)
 
 **Interfaces:**
-- **Intake question.** Asked in the `grow` step. It is built from `browse_connection` statuses for the chosen project.
+- **Roadmap question (amended 2026-10-02: order and pace, from the recorded test).** `How should I work the roadmap?` Asked in the `grow` step, built from `browse_connection` statuses for the chosen project.
   - Options:
+    - `One a day, highest priority first` (bound `source.connect` with the Jira config, `sourceSlug`, `intakeStatuses: [<status>]`, `intakePerDay: 1`)
+    - `Everything in <status> now, highest priority first` (same binding, no `intakePerDay`)
     - `Only tickets I point you at` (no binding, today's behaviour)
-    - `Pick up tickets in <status>` (bound `source.connect` with the Jira config plus `intakeStatuses: [<status>]`)
   - When no status is named like the person's word (for example "Ready"), the card says so and offers the closest statuses.
-- **PR question.** `How hands-on should I be with pull requests?`
+  - `jiraConfigSchema` gains `intakePerDay: z.number().int().min(1).max(20).optional()` beside `intakeStatuses`, with a `configFields` entry, `How many a day the factory picks up`. Both fields use the `replace` pick policy (ledger ruling), so a later answer replaces the earlier one.
+  - The automation files at most `intakePerDay` requests from the tracker per calendar day, in the workspace's time zone, highest tracker priority first. It counts what it already filed that day by the tracker URL in `evidence.urls`. Its summary names the date it counted for.
+- **Autonomy question (amended 2026-10-02).** `What may I do on my own?`
   - Options:
     - `Ask me before every build and merge` (no binding, today's trust ladder)
-    - `Ask me even before merging pipeline fixes` (bound `autonomy.lower` with `{actionIds: ['git.merge.pipeline']}`)
+    - `Ship on green once I've earned it` (bound `autonomy.set_goal`, Task 11, with `{actionIds: ['git.merge'], goal: 'execute-within-bounds'}`. The rung does not move.)
+    - `Ask me even before merging pipeline fixes` (bound `autonomy.lower` with `{actionIds: ['git.merge.pipeline'], to: 'execute-with-approval'}`)
   - The hint, verbatim: `The factory starts by asking. It earns building and merging on its own as its work lands clean, and you can see that on the Autonomy page.`
-  - **No option raises autonomy.**
-- `autonomy.lower` input: `{ actionIds: z.array(z.string().min(1)).min(1).max(10) }`.
-  - Execute: `demote(orgId, actionId, by, 'chosen during setup')` for each id.
+  - **No option raises autonomy.** The recorded test's "ship it and tell me when it's done" becomes a goal the factory earns its way to.
+- `autonomy.lower` input: `{ actionIds: z.array(z.string().min(1)).min(1).max(10), to: z.enum(RUNGS) }` (`RUNGS` from `src/services/autonomy/rungs.ts`). Amended 2026-10-02 by ledger ruling: a target rung, not one step per call, so a retry never lowers twice.
+  - Execute, in one transaction: for each id, a rung at or below `to` is left as it is and reported; a rung above `to` is demoted with `demote(orgId, actionId, by, 'chosen during setup')` until it reaches `to`. `AT_BOTTOM` never reaches the person.
   - Returns `{ lowered: [{actionId, from, to}] }`.
   - Undo is refused with `Raising autonomy is earned; promote it from the Autonomy page when its evidence supports it.`
 
 - [ ] **Step 1: Write the failing tests.**
   1. `jiraConfigSchema` accepts `intakeStatuses: ['To Do']` and rejects `intakeStatuses: ['']`.
-  2. `autonomy.lower` on `git.merge.pipeline` moves its rung down one, as read back through `effectivePolicy`.
+  2. `autonomy.lower` on `git.merge.pipeline` with `to: 'execute-with-approval'` lands on that rung, as read back through `effectivePolicy`. Running it again changes nothing and reports the same rung.
+  2b. `jiraConfigSchema` accepts `intakePerDay: 1` and rejects `0` and `21`.
   3. `autonomy.lower` never raises: the action module never imports `promote`.
   4. Undo is refused with the sentence above.
   5. software-factory loads with the new automation, and its schedule parses.
@@ -392,6 +402,12 @@ export const objectsCreateGroupAction: Action<typeof objectsCreateGroupInput>;
      - the hint `PORT has no status named Ready; the closest is To Do.`
   8. **`pick up tickets in to do`.** The PR question from Task 7.
   9. **`ask me before every build`.** The reply `Set up. …`.
+- **Amended 2026-10-02 (Jamie's recorded test, #1028).** After turn 7, the script walks the new steps, each turn on a distinct substring (ledger ruling):
+  - the sweep (Task 9): the fixture has two stale tickets; answer `Leave the board as it is` and assert no tracker write was recorded
+  - the roadmap question: answer `One a day, highest priority first`; assert the Jira source has `intakePerDay: 1`
+  - the autonomy question: answer `Ship on green once I've earned it`; assert `git.merge`'s rung is unchanged and its goal reads `execute-within-bounds`
+  - access (Task 10): the app-login connect card (stubbed paste), then a typed URL, then the confirm card; assert an `environment` record with that URL and a QA sign-in
+  - what to do first: a typed answer, `sort the users page by first name`; assert one request filed with that text
 - Assertions, through the app's own API. PGlite takes one connection, so never read the DB directly:
   - each card collapses to its answer
   - the Connectors list shows the GitHub source with `northwind/portal` and the Jira source with `PORT` and `intakeStatuses: ['To Do']`
@@ -403,6 +419,85 @@ export const objectsCreateGroupAction: Action<typeof objectsCreateGroupInput>;
 - [ ] **Step 2: Run it** with the local recipe from the connect plan's Task 14, with `VOCION_LLM_PROVIDER=scripted`, `VOCION_LLM_SCRIPT=e2e/interview/scripts/interview.json` and `VOCION_CONNECT_SCRIPT=e2e/interview/scripts/connect.json`. Expected: 1 passed.
 - [ ] **Step 3: Run `onboarding`, `chat-incomplete` and `connect` again.** Expected: all pass. The opener is now a card, so update `onboarding.spec.ts` where it relied on the prose question. That is a real behaviour change.
 - [ ] **Step 4: Commit.** `test(onboarding): e2e: the software setup interview, providers and model scripted`
+
+---
+
+### Task 9: A look at the tracker, and a cleanup sweep
+
+Added 2026-10-02 from Jamie's recorded test (#1028, "Show what is in the tracker, then offer a cleanup sweep").
+
+**Files:**
+- Create: `templates/plugins/software-factory/skills/sweep-the-tracker/SKILL.md`, mounted on the PM seat beside `intake-from-the-tracker`
+- Modify: software-factory `plugin.yaml` changelog
+- Test: `src/libs/workspace/plugins.test.ts` (the skill loads and the PM mounts it)
+
+**Interfaces:**
+- Read in the `grow` step, right after the tracker project is chosen. The procedure:
+  1. Read the project with `tracker_search_issues` (bounded to the source's projects) and say in one message what is there: open tickets by status, and the date of the oldest open one.
+  2. Find up to three groups: **stale** (open, not updated in 60 days, dated against today with today's date stated), **already shipped** (open, but a linked pull request merged), and **duplicates** (open, same title once case and punctuation are ignored; keep the oldest).
+  3. One `ask_choice`: an option per non-empty group, each bound to `tracker.transition_issue` once per ticket (at most 20; say how many more remain when there are more), plus `Leave the board as it is` with no binding.
+  4. When every group is empty, say the board is tidy in one sentence and ask nothing.
+- Wording rules: it drafts by asking, and the person's pick makes the changes. It never moves a ticket without a pick. It never offers a ticket that is in QA or done.
+
+- [ ] **Step 1: Write the failing test.** software-factory loads, `sweep-the-tracker` is in its skills, and the PM seat mounts it.
+- [ ] **Step 2: Run it.** Expected: FAIL.
+- [ ] **Step 3: Write the skill and the changelog line.**
+- [ ] **Step 4: Run it.** Expected: PASS.
+- [ ] **Step 5: Commit.** `feat(factory): setup shows what is on the board and offers a cleanup, one pick per change set`
+
+---
+
+### Task 10: Where the app runs, and how QA signs in
+
+Added 2026-10-02 from Jamie's recorded test (#1028, "Prove the first change on the running app").
+
+**Files:**
+- Modify: `src/services/agents/tools/workspaceSetup.ts` (`STEP_GUIDE` grow step 7 wording)
+- Modify: `templates/plugins/software-factory/skills/products-from-repos/SKILL.md` or a new `skills/record-the-environments/SKILL.md`, whichever keeps one skill per job; read both first
+- Test: `src/services/agents/tools/workspaceSetup.test.ts` (extend), `src/libs/workspace/plugins.test.ts` when a skill is added
+
+**Interfaces:**
+- Grow step 7, in order:
+  1. `offer_connection` for `app-login`, so the QA sign-in is pasted on the Connectors page and never typed in chat.
+  2. `ask_choice`: `Where does <product> run for testing?`. Options come from what is known (repo homepages, deployment URLs the code host returns), plus `Type your own`.
+  3. A confirm card: A `Save <url> as <product>'s <stage> environment`, bound to `objects.create_group` (Task 6) with the existing product as the parent and one `environment` child carrying `stage`, `url` and `qaLoginCredentialId` (the newest live app-login credential), linked `product` ← `slug`. B `That's not right`.
+- Before writing, read `src/services/factory/productAccess.ts` and confirm it reads the QA sign-in from `environment.qaLoginCredentialId`. If it reads it from somewhere else, bind that instead and say so in the report.
+- Core still never names `environment`, `product` or `repo`: the type slugs live in the skill and the step guide's plugin text, not in core code.
+
+- [ ] **Step 1: Write the failing tests.** The grow step's line 7 names `app-login` before the URL question, and says the password is never typed in chat. When a skill is added, it loads.
+- [ ] **Step 2: Run them.** Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run them.** Expected: PASS.
+- [ ] **Step 5: Commit.** `feat(onboarding): setup records where the app runs and how QA signs in, so the first change comes back with a picture`
+
+---
+
+### Task 11: A hands-off answer is saved as a goal, never as a rung
+
+Added 2026-10-02 from Jamie's recorded test (#1028, "Ask what the factory may do").
+
+**Files:**
+- Create: `migrations/0167_autonomy_goal.sql` (renumber at the rebase if main has taken 0167): `ALTER TABLE "autonomy_policy" ADD COLUMN IF NOT EXISTS "goal_rung" text;`, then `"goal_set_by" text` and `"goal_set_at" timestamp`, each `IF NOT EXISTS`, with `--> statement-breakpoint` between them and a journal entry
+- Modify: `src/models/Schema.ts` (`autonomyPolicySchema`: `goalRung`, `goalSetBy`, `goalSetAt`)
+- Create: `src/libs/actions/autonomy-set-goal.ts`, registered in the registry
+- Modify: the Autonomy page (grep the route that renders `effectivePolicy` rungs) to show the goal beside the rung
+- Test: `src/libs/actions/autonomy-set-goal.test.ts`, the Autonomy page's test (extend)
+
+**Interfaces:**
+- `autonomy.set_goal` input: `{ actionIds: z.array(z.string().min(1)).min(1).max(10), goal: z.enum(RUNGS) }`. Grant `manage_workspace`, external false.
+  - Execute: for each id, upsert the policy row, keeping its current `rung` (the default rung when the row is new), and set `goalRung`, `goalSetBy` (the person who picked) and `goalSetAt`. It never changes `rung` and never imports `promote`.
+  - Undo clears the goal and leaves the rung alone.
+- The Autonomy page shows, under the rung: `Goal: <rung label>, set by <name> on <date>`. When the page already shows what evidence the next rung needs, the goal line sits beside it.
+
+- [ ] **Step 1: Write the failing tests.**
+  1. `autonomy.set_goal` on `git.merge` with `execute-within-bounds` leaves the rung read through `effectivePolicy` unchanged, and stores the goal with who and when.
+  2. The action module never imports `promote` (a source-text assertion).
+  3. Undo clears the goal, and the rung is still unchanged.
+  4. The Autonomy page renders `Goal: …, set by … on <date>` for a row with a goal, and nothing for a row without one.
+- [ ] **Step 2: Run them.** Expected: FAIL.
+- [ ] **Step 3: Implement.** Run `npm run check:migrations`.
+- [ ] **Step 4: Run them.** Expected: PASS.
+- [ ] **Step 5: Commit.** `feat(autonomy): a person can name the rung the factory is working toward; reaching it is still earned`
 
 ---
 
