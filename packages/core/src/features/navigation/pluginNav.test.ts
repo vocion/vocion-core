@@ -13,7 +13,7 @@ function plugin(over: Partial<PluginManifest> & { slug: string }): PluginManifes
     depends: [],
     surfaces: [],
     nav: { section: 'Workspace', order: 0 },
-    recommend: { when: [], connectors: [] },
+    recommend: { when: [], connectors: [], setupSkills: [] },
     notifications: [],
     ...over,
   };

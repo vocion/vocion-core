@@ -364,6 +364,9 @@ name: Software factory
 #   first shipped change comes back with a screenshot.
 #   Setup recommends github, jira and slack for this plugin
 #   (`recommend.connectors`), so the interview offers each in turn.
+#   Setup runs on the workspace lead, which does not mount the PM's skills, so
+#   the plugin names the three setup procedures in `recommend.setupSkills` and
+#   core mounts them on the lead while the plugin is on.
 version: 3.2.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
@@ -376,6 +379,7 @@ recommend:
     - a person asks what is in flight, what is stuck, and what nobody has answered for a week
     - bug reports, store reviews and support emails about the same product are tracked in different places, or nowhere
   connectors: [github, jira, slack]
+  setupSkills: [products-from-repos, sweep-the-tracker, record-the-environments]
 # The plugin's rows sit under their own heading (its pages already say so); a core
 # route it offers — Evals, the reference sets — sits under that heading's "More ›".
 nav: {section: Software factory, order: 0}

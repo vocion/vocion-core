@@ -340,7 +340,14 @@ export const PluginManifestSchema = z.object({
   recommend: z.object({
     when: z.array(z.string().min(1)).default([]),
     connectors: z.array(z.string().min(1)).default([]),
-  }).default({ when: [], connectors: [] }),
+    /**
+     * Skills (folders under this plugin's `skills/`) the plugin's setup needs
+     * on the workspace lead. Setup runs on the lead, which does not mount a
+     * specialist's skills; core mounts these on it while the plugin is on and
+     * never names one. Checked against the plugin's folders when it loads.
+     */
+    setupSkills: z.array(z.string().min(1)).default([]),
+  }).default({ when: [], connectors: [], setupSkills: [] }),
   /**
    * The moments this plugin tells a person about — the only events that
    * notify while it is on. Few on purpose: noise is the failure (backlog 048).

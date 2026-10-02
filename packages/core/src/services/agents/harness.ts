@@ -46,6 +46,7 @@ import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store'
 import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { readInitiative } from '@/services/agents/initiative';
+import { setupSkillsForAgent, withSetupSkills } from '@/services/agents/setupSkills';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { enabledPluginsForOrg } from '@/services/PluginService';
@@ -486,7 +487,8 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
     .from(playbookSchema)
     .where(eq(playbookSchema.orgId, orgId));
   const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
-  const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
+  const skillSlugs = withSetupSkills(row.skillSlugs ?? [], hasAnyFolders ? await setupSkillsForAgent(orgId, agentSlug) : []);
+  const hasMounts = hasAnyFolders && (skillSlugs.length > 0 || (row.playbookSlugs ?? []).length > 0);
 
   return { ...definition, model, hasMounts };
 }
@@ -771,7 +773,7 @@ export async function buildInitialFiles(
   try {
     mounted = await mountSkills({
       orgId,
-      skillSlugs: row.skillSlugs ?? [],
+      skillSlugs: withSetupSkills(row.skillSlugs ?? [], await setupSkillsForAgent(orgId, agentSlug)),
       playbookSlugs: row.playbookSlugs ?? [],
     });
   } catch (error) {

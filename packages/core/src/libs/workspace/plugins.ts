@@ -93,6 +93,10 @@ export function loadPlugin(slug: string): LoadedPlugin {
     const messages = result.error.issues.map(i => `${i.path.length > 0 ? i.path.map(String).join('.') : '(root)'}: ${i.message}`);
     throw new Error(`plugin manifest validation failed at ${file}:\n  - ${messages.join('\n  - ')}`);
   }
+  const unshipped = result.data.recommend.setupSkills.filter(skill => !existsSync(join(dir, 'skills', skill)));
+  if (unshipped.length > 0) {
+    throw new Error(`plugin manifest validation failed at ${file}:\n  - recommend.setupSkills: ${unshipped.join(', ')} ${unshipped.length > 1 ? 'are' : 'is'} not a folder under this plugin's skills/`);
+  }
   if (result.data.slug !== slug) {
     throw new Error(`plugin at ${dir} declares slug "${result.data.slug}" but lives in a directory named "${slug}" — the two must agree`);
   }
