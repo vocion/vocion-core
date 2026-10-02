@@ -256,7 +256,8 @@ async function linkCredential(tx: DbTransaction, input: { orgId: string; sourceI
 
 /**
  * The writes of one save, in the caller's transaction: the source row (new, or
- * the existing config with the pick added) and its credential link.
+ * the existing config with the pick added) and its credential link. An
+ * existing source keeps the credential it already has.
  * @param tx - The transaction to write in.
  * @param input - The pick.
  * @param target - Where it lands.
@@ -269,6 +270,7 @@ async function saveWithin(
   credential: StoredCredential,
 ): Promise<{ sourceId: number; slug: string }> {
   let saved: { id: number; slug: string };
+  let keptCredentialId: string | null = null;
   if (target.kind === 'create') {
     saved = await addSource({ orgId: input.orgId, kind: input.connector, slug: target.slug, configJson: input.config, tx });
   } else {
@@ -277,10 +279,15 @@ async function saveWithin(
       .update(knowledgeSourceSchema)
       .set({ configJson })
       .where(and(eq(knowledgeSourceSchema.orgId, input.orgId), eq(knowledgeSourceSchema.slug, target.slug)))
-      .returning({ id: knowledgeSourceSchema.id });
+      .returning({ id: knowledgeSourceSchema.id, apiTokenId: knowledgeSourceSchema.apiTokenId });
     saved = { id: row!.id, slug: target.slug };
+    keptCredentialId = row!.apiTokenId;
   }
-  await linkCredential(tx, { orgId: input.orgId, sourceId: saved.id, connector: input.connector, credential });
+  // Adding to a source never re-points it: it stays on the key or login it already reads. Only a new
+  // source, or one with no credential at all (it would resolve none), takes the newest live login.
+  if (keptCredentialId === null) {
+    await linkCredential(tx, { orgId: input.orgId, sourceId: saved.id, connector: input.connector, credential });
+  }
   return { sourceId: saved.id, slug: saved.slug };
 }
 

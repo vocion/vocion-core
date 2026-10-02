@@ -236,4 +236,24 @@ describe('source.connect', () => {
     expect(rows).toHaveLength(3);
     expect(untouched.configJson).toEqual({ repos: ['northwind/api'], deployBranch: 'staging', _connector: 'github' });
   });
+
+  it('adding to a source never re-points it: a source on a pasted key stays on it when a login exists', async () => {
+    const pasted = await storePlatformKey({ orgId: ORG, platform: 'jira', name: 'Jira key', values: { email: 'dev@northwind.example', apiToken: 'jira-api-token-1234567890' }, createdBy: ADMIN });
+    const loginId = await seedLogin('jira');
+    const [onPasted] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'jira-pasted', kind: 'plugin', apiTokenId: pasted.id, configJson: { baseUrl: 'https://northwind.atlassian.net', projectKeys: ['OPS'], _connector: 'jira' } }).returning();
+
+    const result = await createSourceOnLogin({ orgId: ORG, actorUserId: ADMIN, connector: 'jira', sourceSlug: 'jira-pasted', config: { baseUrl: 'https://northwind.atlassian.net', projectKeys: ['WEB'] } });
+
+    expect(result).toMatchObject({ ok: true, created: false });
+
+    const [after] = (await sources()).filter(row => row.id === onPasted!.id);
+
+    expect(after!.apiTokenId).toBe(pasted.id);
+    expect(after!.configJson).toMatchObject({ projectKeys: ['OPS', 'WEB'] });
+
+    const fresh = await createSourceOnLogin({ orgId: ORG, actorUserId: ADMIN, createNew: true, connector: 'jira', config: { baseUrl: 'https://other.atlassian.net', projectKeys: ['X'] } });
+    const [created] = (await sources()).filter(row => row.id === (fresh as { sourceId: number }).sourceId);
+
+    expect(created!.apiTokenId).toBe(loginId);
+  });
 });
