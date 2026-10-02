@@ -17,7 +17,7 @@
  *     --project-slug support-demo \
  *     --project-name "Support reply demo"
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from '@/libs/Auth';
@@ -32,15 +32,25 @@ type Args = {
   accountName: string;
   projectSlug: string;
   projectName: string;
+  /** Ids derived from the slugs and the email instead of drawn at random. */
+  stableIds: boolean;
 };
 
 const parseArgs = (): Args => {
   const map = new Map<string, string>();
-  for (let i = 2; i < process.argv.length; i += 2) {
+  const flags = new Set<string>();
+  for (let i = 2; i < process.argv.length; i += 1) {
     const key = process.argv[i]?.replace(/^--/, '');
     const value = process.argv[i + 1];
-    if (key && value !== undefined) {
+    if (!key) {
+      continue;
+    }
+    // A bare flag (`--stable-ids`) has no value; everything else is a pair.
+    if (value === undefined || value.startsWith('--')) {
+      flags.add(key);
+    } else {
       map.set(key, value);
+      i += 1;
     }
   }
   const get = (k: string, fallback?: string) => {
@@ -67,6 +77,7 @@ const parseArgs = (): Args => {
     accountName: get('account-name'),
     projectSlug,
     projectName: get('project-name', map.get('account-name') ?? 'Default project'),
+    stableIds: flags.has('stable-ids'),
   };
 };
 
@@ -88,9 +99,18 @@ async function main() {
   }
 
   const accountSlug = slugify(args.accountName);
-  const accountId = `acct-${randomUUID()}`;
-  const projectId = `proj-${randomUUID()}`;
-  const userId = `usr-${randomUUID()}`;
+  // --stable-ids: the same inputs give the same ids, so a database rebuilt
+  // from them keeps every session valid — a session names a user and a
+  // project by id, and a demo box that reseeds on every deploy signed every
+  // signed-in tablet out when those ids changed (2026-10-02). The ids are
+  // UUID-shaped (v5-style, from a SHA-256) so nothing downstream can tell.
+  const stable = (kind: string, key: string) => {
+    const h = createHash('sha256').update(`vocion-seed:${kind}:${key}`).digest('hex');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+  };
+  const accountId = `acct-${args.stableIds ? stable('account', accountSlug) : randomUUID()}`;
+  const projectId = `proj-${args.stableIds ? stable('project', `${accountSlug}/${args.projectSlug}`) : randomUUID()}`;
+  const userId = `usr-${args.stableIds ? stable('user', args.email) : randomUUID()}`;
   const passwordHash = await hashPassword(args.password);
 
   await db.transaction(async (tx) => {
