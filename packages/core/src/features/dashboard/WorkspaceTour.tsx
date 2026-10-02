@@ -185,10 +185,21 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
   // URL so a reload or End doesn't restart it.
   const tourParam = searchParams.get('tour');
   const autoplayParam = searchParams.get('autoplay') === '1';
+  // What is running now, for the effect below: it is keyed on the URL, not
+  // on the tour's state, and must not restart when the state changes.
+  const runningRef = useRef({ active, slug });
+  useEffect(() => {
+    runningRef.current = { active, slug };
+  });
   useEffect(() => {
     if (tourParam) {
       const wanted = tourParam === '1' ? tours[0] : tours.find(t => t.slug === tourParam);
-      if (wanted) {
+      // The param can come back after the tour has begun: Next's router keeps
+      // its own copy of the URL, and a live page's refresh or a preview
+      // opening (`?preview=`) re-syncs it with `?tour=` still on. The stale
+      // param is stripped again; the tour it names is left where it is.
+      const alreadyRunning = wanted !== undefined && runningRef.current.active && runningRef.current.slug === wanted.slug;
+      if (wanted && !alreadyRunning) {
         // Scheduled, not called: starting a tour is a response to the URL,
         // and the render that read the URL should finish first.
         queueMicrotask(() => begin(wanted.slug, 0, autoplayParam));
