@@ -435,9 +435,9 @@ Added 2026-10-02 from Jamie's recorded test (#1028, "Show what is in the tracker
 - Read in the `grow` step, right after the tracker project is chosen. The procedure:
   1. Read the project with `tracker_search_issues` (bounded to the source's projects) and say in one message what is there: open tickets by status, and the date of the oldest open one.
   2. Find up to three groups: **stale** (open, not updated in 60 days, dated against today with today's date stated), **already shipped** (open, but a linked pull request merged), and **duplicates** (open, same title once case and punctuation are ignored; keep the oldest).
-  3. One `ask_choice`: an option per non-empty group, each bound to `tracker.transition_issue` once per ticket (at most 20; say how many more remain when there are more), plus `Leave the board as it is` with no binding.
+  3. One `ask_choice`: an option per non-empty group, plus `Leave the board as it is`. No option is bound: a tracker change is external, and a choice option may bind only changes inside Vocion (ledger ruling, Task 3). When a group is picked, propose one `tracker.transition_issue` per ticket in it (at most 20; say how many more remain) through the normal proposal path, so the person approves each exact change.
   4. When every group is empty, say the board is tidy in one sentence and ask nothing.
-- Wording rules: it drafts by asking, and the person's pick makes the changes. It never moves a ticket without a pick. It never offers a ticket that is in QA or done.
+- Wording rules: it drafts by asking. The pick says which change set to draft, and each change still waits for the person's approval. It never moves a ticket on its own. It never offers a ticket that is in QA or done.
 
 - [ ] **Step 1: Write the failing test.** software-factory loads, `sweep-the-tracker` is in its skills, and the PM seat mounts it.
 - [ ] **Step 2: Run it.** Expected: FAIL.
