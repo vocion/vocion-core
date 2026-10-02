@@ -135,7 +135,7 @@ describe('useChatSession', () => {
 
     await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    expect(result.current.messages[1]?.recommendations).toEqual([{ id: 'card_1', actionId: 'objects.propose_candidate', input: { objectType: 'request' }, label: 'File this as a request', runId: 3691, state: 'filed' }]);
+    expect(result.current.messages[1]?.recommendations).toEqual([{ id: 'card_1', kind: 'action', actionId: 'objects.propose_candidate', input: { objectType: 'request' }, label: 'File this as a request', runId: 3691, state: 'filed' }]);
   });
 
   it('resumes the thread the URL names (`?conversation=<id>`) even on a fresh session', async () => {

@@ -44,6 +44,19 @@ export const CardSchema = z.object({
   href: z.string().min(1).optional(),
   /** The words on that link: "Open feature". */
   hrefLabel: z.string().min(1).optional(),
+  /**
+   * A second way in, beside `href`: "Paste a token" next to "Connect with
+   * GitHub". Same rule as `href` — a path inside the app.
+   */
+  secondaryHref: z.string().min(1).optional(),
+  /** The words on that second link. */
+  secondaryHrefLabel: z.string().min(1).optional(),
+  /**
+   * The last connect attempt that failed, already worded for a person
+   * ("GitHub denied access"). `at` is an ISO time so the card can say the
+   * date it happened; `reason` is the short code the log carries.
+   */
+  lastAttempt: z.object({ at: z.string(), reason: z.string(), summary: z.string() }).optional(),
   /** The record the card's action created when it ran — the id the next turn needs. */
   ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),

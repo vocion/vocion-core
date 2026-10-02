@@ -8,6 +8,7 @@
  *   - `toHistoryTurns` drops tool entries before replaying to the agent.
  */
 
+import type { CardState } from '@/libs/cards/card';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { PageContext } from '@/services/chat/pageContext';
@@ -48,7 +49,7 @@ export type ConversationRun
      * lookup result three times on 2026-09-24 because the card lived only
      * in the browser.
      */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; decision?: { action: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
@@ -731,4 +732,97 @@ export async function tailMessages(opts: { orgId: string; conversationId: number
     .orderBy(desc(conversationMessageSchema.id))
     .limit(Math.min(Math.max(opts.limit ?? 2, 1), 20));
   return rows.reverse();
+}
+
+/** A drizzle transaction, as `db.transaction` hands it to its callback. */
+export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** What a later step may write onto a card that was already drawn. */
+export type CardRunPatch = {
+  state: CardState;
+  decision: { action: string; at: string; by?: string };
+  lastAttempt: { at: string; reason: string; summary: string };
+};
+
+type CardRunEntry = Extract<ConversationRun, { type: 'card' }>;
+
+/**
+ * The state a stored card run is in. A run written before states existed has
+ * none: it is `filed` once it has a proposal and `proposed` before (the same
+ * reading the transcript uses on reload).
+ * @param run - The stored card run.
+ */
+function cardRunState(run: CardRunEntry): string {
+  return run.state ?? (run.runId !== undefined ? 'filed' : 'proposed');
+}
+
+/**
+ * Patch one persisted card, in place, inside one transaction.
+ *
+ * A login marks its card approved, or a failed one writes its last attempt on
+ * it, long after the turn that drew the card. The message row is locked
+ * (`FOR UPDATE`) before `expectState` is read, so two patches racing on the
+ * same card cannot both see `proposed` and both win. Only the named card's
+ * run changes; every other run on the message is written back untouched.
+ *
+ * Pass `tx` to run inside a larger all-or-nothing transaction; without it the
+ * patch opens its own.
+ * @param input
+ * @param input.orgId - The org that owns the conversation.
+ * @param input.conversationId - The conversation the card is in; a card id from another one is not found.
+ * @param input.cardId - The card's id.
+ * @param input.expectState - Patch only if the card is in this state.
+ * @param input.patch - The keys to write onto the card run.
+ * @param input.tx - An open transaction to run inside, if the caller has one.
+ * @returns True when the card was found (and in `expectState`) and patched.
+ */
+export async function markCardRun(input: { orgId: string; conversationId: number; cardId: string; expectState?: CardState; patch: Partial<CardRunPatch>; tx?: DbTransaction }): Promise<boolean> {
+  if (input.tx) {
+    return patchCardRun(input.tx, input);
+  }
+  return db.transaction(tx => patchCardRun(tx, input));
+}
+
+/**
+ * The body of `markCardRun`: find the message holding the card, lock it,
+ * re-check the expected state and write the patched runs back.
+ * @param tx - The transaction to work in.
+ * @param input - The same input `markCardRun` took.
+ * @param input.orgId
+ * @param input.conversationId
+ * @param input.cardId
+ * @param input.expectState
+ * @param input.patch
+ */
+async function patchCardRun(tx: DbTransaction, input: { orgId: string; conversationId: number; cardId: string; expectState?: CardState; patch: Partial<CardRunPatch> }): Promise<boolean> {
+  const holdsCard = JSON.stringify([{ type: 'card', id: input.cardId }]);
+  const [message] = await tx
+    .select({ id: conversationMessageSchema.id, runs: conversationMessageSchema.runsJson })
+    .from(conversationMessageSchema)
+    .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
+    .where(and(
+      eq(conversationSchema.orgId, input.orgId),
+      eq(conversationMessageSchema.conversationId, input.conversationId),
+      eq(conversationMessageSchema.role, 'assistant'),
+      sql`${conversationMessageSchema.runsJson} @> ${holdsCard}::jsonb`,
+    ))
+    .orderBy(desc(conversationMessageSchema.id))
+    .limit(1)
+    .for('update', { of: conversationMessageSchema });
+  if (!message?.runs) {
+    return false;
+  }
+  // One statement finds and locks the row, so the runs read here are the
+  // locked row's: the `expectState` check below cannot be raced.
+  const index = message.runs.findIndex(run => run.type === 'card' && run.id === input.cardId);
+  const run = message.runs[index];
+  if (!run || run.type !== 'card') {
+    return false;
+  }
+  if (input.expectState !== undefined && cardRunState(run) !== input.expectState) {
+    return false;
+  }
+  const runs = message.runs.map((entry, at) => (at === index ? { ...run, ...input.patch } : entry));
+  await tx.update(conversationMessageSchema).set({ runsJson: runs }).where(eq(conversationMessageSchema.id, message.id));
+  return true;
 }

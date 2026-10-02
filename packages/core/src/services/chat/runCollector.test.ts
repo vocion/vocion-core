@@ -91,4 +91,40 @@ describe('RunCollector', () => {
 
     expect(c.finalise().runs.find(r => r.type === 'card')).toMatchObject({ rationale: 'So the factory can read the repos.' });
   });
+
+  it('keeps everything a link card shows, so a reload draws the same card', () => {
+    const c = new RunCollector();
+    const link = {
+      id: 'card_1',
+      kind: 'link',
+      label: 'Connect GitHub',
+      actionId: '',
+      body: 'Your repos live there.',
+      fields: [{ label: 'Account', value: 'northwind' }],
+      state: 'proposed',
+      href: '/api/connect/github/start?connector=github',
+      hrefLabel: 'Connect GitHub',
+      secondaryHref: '/dashboard/connectors?add=github&paste=1',
+      secondaryHrefLabel: 'Paste a token',
+      lastAttempt: { at: '2026-10-01T16:12:00.000Z', reason: 'access_denied', summary: 'GitHub denied access' },
+    };
+    c.onCard(link);
+    // The same card surfaced again, now carrying a newer attempt, is still one run.
+    c.onCard({ ...link, lastAttempt: { at: '2026-10-01T16:20:00.000Z', reason: 'timeout', summary: 'GitHub did not answer' } });
+
+    const runs = c.finalise().runs.filter(r => r.type === 'card');
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      id: 'card_1',
+      kind: 'link',
+      body: 'Your repos live there.',
+      fields: [{ label: 'Account', value: 'northwind' }],
+      href: '/api/connect/github/start?connector=github',
+      hrefLabel: 'Connect GitHub',
+      secondaryHref: '/dashboard/connectors?add=github&paste=1',
+      secondaryHrefLabel: 'Paste a token',
+      lastAttempt: { reason: 'access_denied', summary: 'GitHub denied access' },
+    });
+  });
 });

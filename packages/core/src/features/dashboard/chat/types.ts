@@ -46,7 +46,7 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; href?: string; hrefLabel?: string; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: { prompt: string; missing: string } }
     /** A person's decision on a card, written as a user turn. */
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
@@ -100,6 +100,15 @@ export type TraceNode = {
   anchor?: number;
 };
 
+/** One labelled line a card shows, with an optional link on its value. */
+export type CardField = { label: string; value: string; href?: string };
+
+/** The last connect attempt that failed, worded for a person; `at` is an ISO time. */
+export type CardLastAttempt = { at: string; reason: string; summary: string };
+
+/** How the person decided a card, and when. */
+export type CardDecision = { action: string; at: string; by?: string };
+
 /** A2UI: a one-tap recommended action rendered as a card in the answer. */
 export type RecommendedAction = {
   /** The card's id (backlog 025) — how a `card_update` and a decision find it. Absent on a pre-card row. */
@@ -125,6 +134,16 @@ export type RecommendedAction = {
   draft?: { prompt: string; missing: string };
   /** The words on that link: "Open feature". */
   hrefLabel?: string;
+  /** What kind of card this is (`action`, `link`, ...). Absent on a row from before cards were typed. */
+  kind?: string;
+  /** The sentence or two under the title. */
+  body?: string;
+  fields?: CardField[];
+  /** A second way in beside `href`, such as "Paste a token". */
+  secondaryHref?: string;
+  secondaryHrefLabel?: string;
+  lastAttempt?: CardLastAttempt;
+  decision?: CardDecision;
 };
 
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */

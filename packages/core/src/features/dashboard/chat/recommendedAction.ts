@@ -1,4 +1,4 @@
-import type { RecommendedAction } from './types';
+import type { CardDecision, CardField, CardLastAttempt, RecommendedAction } from './types';
 
 /**
  * The event boundary for `recommended_action`.
@@ -36,6 +36,32 @@ export function cardLink(href: unknown, label: unknown): { href: string; hrefLab
     return {};
   }
   return { href: h, ...(text(label) ? { hrefLabel: text(label) } : {}) };
+}
+
+/**
+ * Everything a card shows beyond its title and button, copied from a stored
+ * card run or a live `card` event onto the client's card — so a reload and
+ * the live stream draw the same card. Both links go through `cardLink`, so
+ * neither can leave the product. Absent keys stay absent.
+ * @param card - A stored card run or the card from the wire.
+ * @param card.kind
+ * @param card.body
+ * @param card.fields
+ * @param card.secondaryHref
+ * @param card.secondaryHrefLabel
+ * @param card.lastAttempt
+ * @param card.decision
+ */
+export function cardShown(card: { kind?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision }): Partial<RecommendedAction> {
+  const second = cardLink(card.secondaryHref, card.secondaryHrefLabel);
+  return {
+    ...(card.kind ? { kind: card.kind } : {}),
+    ...(card.body ? { body: card.body } : {}),
+    ...(card.fields ? { fields: card.fields } : {}),
+    ...('href' in second ? { secondaryHref: second.href, ...(second.hrefLabel ? { secondaryHrefLabel: second.hrefLabel } : {}) } : {}),
+    ...(card.lastAttempt ? { lastAttempt: card.lastAttempt } : {}),
+    ...(card.decision ? { decision: card.decision } : {}),
+  };
 }
 
 /**
