@@ -29,7 +29,7 @@
 export const PLAN_RISK_PREFIX = 'The plan\'s risk is handled: ';
 
 /** One judged line, as `record_verdict` stores it on a task (`verdict.criteria`). */
-export type JudgedCriterion = { criterion: string; status: 'proven' | 'unproven' | 'unchecked'; evidence?: string };
+export type JudgedCriterion = { criterion: string; status: 'proven' | 'unproven' | 'unchecked'; evidence?: string; tests?: string[] };
 
 /** A record with only what the proof reads. */
 export type ProofRecord = { id: number; meta: Record<string, unknown> };
@@ -134,7 +134,7 @@ export function alignToContract(contract: string[], judged: JudgedCriterion[]): 
   return contract.map((line, idx) => {
     const i = byText[idx]!;
     const j = i >= 0 ? judged[i] : undefined;
-    return j ? { criterion: line, status: j.status, ...(j.evidence ? { evidence: j.evidence } : {}) } : { criterion: line, status: 'unchecked' as const };
+    return j ? { criterion: line, status: j.status, ...(j.evidence ? { evidence: j.evidence } : {}), ...(Array.isArray(j.tests) && j.tests.length ? { tests: j.tests } : {}) } : { criterion: line, status: 'unchecked' as const };
   });
 }
 

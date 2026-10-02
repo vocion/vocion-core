@@ -34,7 +34,7 @@ import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa } from './contract.mjs';
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown } from './events.mjs';
-import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, namedTestStatus, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testNamePattern, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
+import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
 import { captureEvidence, containerCredentials, productionBase, publishArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
@@ -1142,31 +1142,63 @@ function modelDisplayName(id) {
 
 /**
  * The engineer's named tests (criteria-tests.json), each kept only when it is in the branch, then
- * run by itself here, and the output stored in Vocion on the task: QA runs nothing, so the proof
- * it opens is this run's output. A named test that does not pass is dropped from the pull request.
+ * proven on the branch here, and the output stored in Vocion on the task: QA runs nothing, so the
+ * proof it opens is this run's output. A named test that does not pass is dropped from the pull request.
+ *
+ * WHAT RAN, NOT WHAT A PATTERN GUESSED (Walk 10, 2026-10-02, FE-381 task 383): each named test
+ * ran alone with `-t <its name>`, and three parametric names ("... ($document at $width px)")
+ * matched none of the expanded tests, so the file printed "39 skipped" and QA spent the attempt
+ * sending it back. Each file now runs once, whole, with the JSON reporter beside the verbose one;
+ * every test that ran is recorded with an id on the stored run (`spec.tests`), a named test is
+ * matched against that list (a parametric name matches its cases), and record_verdict refuses a
+ * cited test that is not on it. A runner with no JSON report falls back to reading the verbose
+ * line, as before.
  */
 async function provenByTests(recordId, runId) {
   if (!fs.existsSync(CRITERIA_TESTS_FILE)) {
-    return { proofs: [], runLink: null, notRun: [], allSkipped: [] };
+    return { proofs: [], runLink: null, notRun: [], allSkipped: [], tests: [] };
   }
   const read = (rel) => {
     const f = path.join(REPO_DIR, rel); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
   };
   const { proofs, refused } = criterionTests(fs.readFileSync(CRITERIA_TESTS_FILE, 'utf8'), read);
-  const runs = proofs.map((p) => {
-    // The package the test lives in (apps/<x> or packages/<x>), where vitest runs.
-    const parts = p.file.split('/');
+  // The package the test lives in (apps/<x> or packages/<x>), where vitest runs.
+  const whereOf = (file) => {
+    const parts = file.split('/');
     const ws = ['apps', 'packages'].includes(parts[0]) && parts.length > 2 && fs.existsSync(path.join(REPO_DIR, parts[0], parts[1], 'package.json')) ? path.join(parts[0], parts[1]) : '.';
-    const rel = ws === '.' ? p.file : parts.slice(2).join('/');
-    // -t is a regular expression: a name with a bracket or a question mark must match itself.
-    const args = ['vitest', 'run', rel, '-t', testNamePattern(p.name), '--reporter=verbose'];
+    return { ws, rel: ws === '.' ? file : parts.slice(2).join('/') };
+  };
+  const ran = new Map();
+  for (const file of [...new Set(proofs.map(p => p.file))]) {
+    const { ws, rel } = whereOf(file);
+    const report = path.join(os.tmpdir(), `vocion-named-tests-${runId}-${ran.size}.json`);
+    const args = ['vitest', 'run', rel, '--reporter=verbose', '--reporter=json', `--outputFile.json=${report}`];
     // Plain text: the stored run is read by QA and by people, and color codes made it noise.
     // The services' env (DATABASE_URL, TEST_DATABASE_URL) is in process.env since startServices, so sh passes it on.
     const r = sh('npx', args, { cwd: path.join(REPO_DIR, ws), timeoutSeconds: 300, env: { NO_COLOR: '1', FORCE_COLOR: '0' } });
-    const output = `${r.stdout}\n${r.stderr}`;
-    const { status, line } = namedTestStatus(output, p.name, r.code);
+    let results = [];
+    try {
+      results = testResultsOf(JSON.parse(fs.readFileSync(report, 'utf8')), fs.realpathSync(REPO_DIR));
+    } catch {
+      results = [];
+    }
+    fs.rmSync(report, { force: true });
+    ran.set(file, { ws, rel, code: r.code, output: `${r.stdout}\n${r.stderr}`, results, command: `cd ${ws} && npx vitest run ${rel} --reporter=verbose --reporter=json` });
+  }
+  const tests = numberTests([...ran.values()].flatMap(f => f.results));
+  const runs = proofs.map((p) => {
+    const f = ran.get(p.file);
+    const inFile = tests.filter(t => t.file === p.file);
+    if (inFile.length) {
+      const matched = matchingTests(p.name, p.file, inFile);
+      const status = namedVerdict(matched);
+      const reason = status === 'skipped' ? skipReason(read(p.file), p.name, process.env) : '';
+      return { ...p, passed: status === 'passed', status, matched, line: '', reason, command: f.command, output: f.output.slice(-6000) };
+    }
+    // No JSON report (another runner, a crash before it wrote): the verbose line, as before.
+    const { status, line } = namedTestStatus(f.output, p.name, f.code);
     const reason = status === 'skipped' ? skipReason(read(p.file), p.name, process.env) : '';
-    return { ...p, passed: status === 'passed', status, line, reason, command: `cd ${ws} && npx ${args.map(a => (/[\s()[\]?*+|^$\\]/.test(a) ? JSON.stringify(a) : a)).join(' ')}`, output: output.slice(-6000) };
+    return { ...p, passed: status === 'passed', status, line, reason, command: f.command, output: f.output.slice(-6000) };
   });
   const notRun = runs.filter(r => !r.passed);
   const allSkipped = criteriaAllSkipped(runs);
@@ -1177,17 +1209,20 @@ async function provenByTests(recordId, runId) {
   }
   let runLink = null;
   if (runs.length && vocion.enabled && recordId) {
-    const md = testRunMarkdown(runs, runId);
+    const md = testRunMarkdown(runs, runId, tests);
     const passedCount = runs.filter(r => r.passed).length;
     const skippedCount = runs.filter(r => r.status === 'skipped').length;
-    const caption = `${passedCount} of ${runs.length} named tests passed on the branch${skippedCount ? `, ${skippedCount} not run (skipped)` : ''}${allSkipped.length ? `; ${allSkipped.length} criteria with no named test that ran` : ''}`;
-    const res = await publishArtifact((p, body) => vocion.post(p, body), { recordType: 'object', recordId: String(recordId), recordRole: 'qa-test-run', kind: 'markdown', title: `Named tests, run ${runId}`, spec: { md, title: `Named tests, run ${runId}`, summary: caption, caption } });
+    const unmatched = runs.filter(r => r.status === 'not-found').length;
+    const caption = `${passedCount} of ${runs.length} named tests passed on the branch${skippedCount ? `, ${skippedCount} not run (skipped)` : ''}${unmatched ? `, ${unmatched} matched no test that ran` : ''}${allSkipped.length ? `; ${allSkipped.length} criteria with no named test that ran` : ''}${tests.length ? `; ${tests.length} tests ran in ${ran.size} file${ran.size === 1 ? '' : 's'}` : ''}`;
+    const listed = tests.slice(0, 400).map(t => ({ id: t.id, file: t.file, name: t.name.slice(0, 300), status: t.status }));
+    const named = runs.map(r => ({ criterion: r.criterion.slice(0, 300), file: r.file, name: r.name.slice(0, 300), status: r.status, matched: (r.matched || []).map(t => t.id) }));
+    const res = await publishArtifact((p, body) => vocion.post(p, body), { recordType: 'object', recordId: String(recordId), recordRole: 'qa-test-run', kind: 'markdown', title: `Named tests, run ${runId}`, spec: { md, title: `Named tests, run ${runId}`, summary: caption, caption, tests: listed, named } });
     if (res.ok && res.id) {
       runLink = `${cfg.vocionUrl}/dashboard/artifacts/${res.id}`;
     }
   }
-  log('criteria.tests', { kept: proofs.length, passed: runs.filter(r => r.passed).length, not_run: notRun.map(r => `${r.name.slice(0, 80)}: ${verdictText(r)}`).slice(0, 8), refused: refused.slice(0, 8), stored: Boolean(runLink) });
-  return { proofs: runs.filter(r => r.passed), runLink, notRun, allSkipped };
+  log('criteria.tests', { kept: proofs.length, passed: runs.filter(r => r.passed).length, ran: tests.length, not_run: notRun.map(r => `${r.name.slice(0, 80)}: ${verdictText(r)}`).slice(0, 8), refused: refused.slice(0, 8), stored: Boolean(runLink) });
+  return { proofs: runs.filter(r => r.passed), runLink, notRun, allSkipped, tests };
 }
 
 function land(task, runId, verification, claude, prepared, evidence = null, tests = { proofs: [], runLink: null }) {

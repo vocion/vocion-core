@@ -4,7 +4,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { artifactSchema, toolCallSchema } = await import('@/models/Schema');
-const { unopenedShots, unreadTestRun } = await import('./recordVerdict');
+const { citedTestsRefusal, latestTestRun, unopenedShots, unreadTestRun } = await import('./recordVerdict');
 
 const ORG = 'org_opened';
 const ctx = (missionRunId?: number) => ({ orgId: ORG, missionRunId } as never);
@@ -48,5 +48,40 @@ describe('unreadTestRun', () => {
     expect(refusal).toMatch(/\/dashboard\/artifacts\/\d+/);
     expect(await unreadTestRun(run as never, 185)).toBeNull();
     expect(await unreadTestRun({ orgId: ORG } as never, 999)).toBeNull();
+  });
+});
+
+// Walk 10 (2026-10-02, FE-381 task 383): QA judged criteria on test names that matched nothing
+// that ran. The worker now stores every test that ran (`spec.tests`); QA cites from that list.
+describe('cite what ran', () => {
+  const tests = [
+    { id: 't1', file: 'apps/web/tests/lib/header.test.ts', name: 'the header > no stray dot (\'doc_q3\' at 375 px)', status: 'passed' },
+    { id: 't2', file: 'apps/web/tests/lib/header.test.ts', name: 'the header > no stray dot (\'doc_a\' at 1280 px)', status: 'passed' },
+    { id: 't3', file: 'apps/web/tests/lib/header.test.ts', name: 'the header > breaks', status: 'failed' },
+  ];
+
+  it('hands over the list of every test that ran with the stored output, and reads it back', async () => {
+    await db.insert(artifactSchema).values({ orgId: ORG, kind: 'markdown', title: 'Named tests, run 483', recordType: 'object', recordId: '383', recordRole: 'qa-test-run', spec: { md: '# Named tests, run 483\n\n## Passed: No stray dot', tests } } as never);
+
+    const run = await latestTestRun(ORG, 383);
+
+    expect(run?.tests.map(t => t.id)).toEqual(['t1', 't2', 't3']);
+
+    const refusal = await unreadTestRun({ orgId: ORG, missionRunId: 902 } as never, 383);
+
+    expect(refusal).toMatch(/with the tests that prove it by id/);
+    expect(refusal).toMatch(/Every test that ran on the branch; cite these by id in a criterion's `tests`:\n- t1 passed: apps\/web\/tests\/lib\/header\.test\.ts › the header > no stray dot/);
+  });
+
+  it('refuses a cited test that did not run, with the list; refuses proven on a test that did not pass; accepts ids and full names that ran', () => {
+    const run = { id: 2736, tests };
+    const unknown = citedTestsRefusal([{ criterion: 'Header order', status: 'unproven', tests: ['the type sits before the page count ($document at $width px)'] }], run);
+
+    expect(unknown).toMatch(/^Not recorded: "Header order" cites the test "the type sits before the page count \(\$document at \$width px\)", which is not one of the tests that ran on this branch \(artifact #2736\)/);
+    expect(unknown).toContain('- t2 passed: apps/web/tests/lib/header.test.ts › the header > no stray dot (\'doc_a\' at 1280 px)');
+    expect(citedTestsRefusal([{ criterion: 'Breaks', status: 'proven', tests: ['t3'] }], run)).toMatch(/is marked proven on t3 .* which failed on this branch/);
+    expect(citedTestsRefusal([{ criterion: 'No stray dot', status: 'proven', tests: ['t1', 'the header > no stray dot (\'doc_a\' at 1280 px)'] }], run)).toBeNull();
+    expect(citedTestsRefusal([{ criterion: 'No stray dot', status: 'proven', evidence: 'https://x.example/a' }], run)).toBeNull();
+    expect(citedTestsRefusal([{ criterion: 'No stray dot', status: 'proven', tests: ['t1'] }], null)).toMatch(/has no stored list of the tests that ran/);
   });
 });

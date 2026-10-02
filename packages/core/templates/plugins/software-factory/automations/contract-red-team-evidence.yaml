@@ -61,6 +61,11 @@ do:
     frozen criteria AND the plan's risk lines ("The plan's risk is handled:
     …"). Judge the risk lines too, usually by a named test.
 
+    The task's stored test run lists every test that ran on the branch, each
+    with an id: cite the tests that prove a criterion by id in its `tests`.
+    A named test that matched no test that ran is the engineer's naming gap,
+    not a skipped test; judge the criterion on the tests that did run.
+
     End by calling record_verdict with every criterion judged proven, unproven
     or unchecked, the evidence for each proven one, and one sentence for the
     person who merges. approve only when every criterion is proven. The server

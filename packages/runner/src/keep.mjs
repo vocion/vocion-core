@@ -268,33 +268,146 @@ export function testsSection(proofs, blobFor = null, runLink = null, notRun = []
 }
 
 /**
- * The stored output of each named test, run by itself on the branch: the proof QA opens (it runs
- * nothing itself). 2026-09-27, #131 attempt 184: QA refused named tests with "no openable CI log".
- * @param runs - [{ criterion, file, name, command, passed, output }].
+ * The stored output of each named test, run on the branch: the proof QA opens (it runs nothing
+ * itself). 2026-09-27, #131 attempt 184: QA refused named tests with "no openable CI log".
+ *
+ * EVERY TEST THAT RAN, LISTED (Walk 10, 2026-10-02, FE-381 task 383): the engineer named three
+ * parametric tests by their source name ("... ($document at $width px)"); `-t` matched none of
+ * the expanded names, the file printed "39 skipped", and QA sent the attempt back calling them
+ * skipped. Each file now runs whole with the JSON reporter, a named test is matched against the
+ * tests that actually ran (a template matches its expansions), and the list of every test that
+ * ran, each with an id, closes the run: QA cites tests from it, and a name that matched nothing
+ * reads "No test matched", never "skipped".
+ * @param runs - [{ criterion, file, name, command, passed, status, matched?, output }].
  * @param runId - The worker run.
+ * @param tests - [{ id, file, name, status }]: every test that ran in the named files.
  */
-export function testRunMarkdown(runs, runId) {
+export function testRunMarkdown(runs, runId, tests = []) {
   const allSkipped = criteriaAllSkipped(runs);
+  const mark = { passed: '✓', failed: '×', skipped: '↓' };
+  const listed = t => `\`${t.id}\` ${mark[t.status] || '?'} ${t.status}: ${t.name}`;
   return [
     `# Named tests, run ${runId}`,
     '',
-    'Each test that proves a criterion no screenshot can show, run by itself on this branch. The verdict is read from the named test\'s own line. The other tests in the same file are filtered out by `-t` and left out of the output below: they did not run here, and that says nothing about them.',
+    tests.length
+      ? 'Each file that holds a test proving a criterion no screenshot can show, run whole on this branch. A named test is matched against the tests that actually ran (a parametric name matches each of its cases); the verdict is theirs. Every test that ran is listed at the end with an id: cite tests by that id.'
+      : 'Each test that proves a criterion no screenshot can show, run by itself on this branch. The verdict is read from the named test\'s own line. The other tests in the same file are filtered out by `-t` and left out of the output below: they did not run here, and that says nothing about them.',
     '',
     ...(allSkipped.length ? ['## Criteria with no named test that ran', '', ...allSkipped.map(c => `- **${c.criterion}**: every named test was skipped (${c.reasons.join('; ')})`), ''] : []),
     ...runs.flatMap(r => [
       `## ${r.status ? statusHeading(r) : (r.passed ? 'Passed' : 'Did not pass')}: ${r.criterion}`,
       '',
       `Test: \`${r.name}\` in \`${r.file}\``,
+      ...(r.matched
+        ? (r.matched.length
+            ? ['', `Matched ${r.matched.length === 1 ? 'the test' : `${r.matched.length} tests`} that ran:`, '', ...r.matched.slice(0, 12).map(t => `- ${listed(t)}`), ...(r.matched.length > 12 ? [`- and ${r.matched.length - 12} more`] : [])]
+            : ['', `No test that ran in \`${r.file}\` has this name. Pick from the tests that ran there, listed under "Every test that ran".`])
+        : []),
       ...(r.line ? ['', `Its own line: \`${r.line.trim().slice(0, 300)}\``] : []),
       '',
       `\`${r.command}\``,
       '',
       '```',
-      namedTestOutput(r.output, r.name).trim().split('\n').slice(-40).join('\n'),
+      (r.matched ? matchedOutput(r.output, r.matched) : namedTestOutput(r.output, r.name)).trim().split('\n').slice(-40).join('\n'),
       '```',
       '',
     ]),
+    ...(tests.length
+      ? ['## Every test that ran', '', 'Cite a test by its id (record_verdict `tests`, e.g. `["t3"]`). A test not on this list did not run on this branch.', '', ...[...new Set(tests.map(t => t.file))].flatMap(f => [`### ${f}`, '', ...tests.filter(t => t.file === f).map(t => `- ${listed(t)}`), ''])]
+      : []),
   ].join('\n');
+}
+
+/**
+ * The lines of a whole-file run that matter for one named test: its matched tests' own lines and
+ * the totals, so the stored output is the proof rather than the file's every line.
+ * @param output - The verbose reporter's output.
+ * @param matched - The tests it matched.
+ */
+export function matchedOutput(output, matched) {
+  const titles = matched.map(t => t.title || t.name);
+  const lines = String(output || '').split('\n');
+  const kept = lines.filter(l => titles.some(t => t && l.includes(t)) || /^\s*(?:Test Files|Tests|RUN)\b/.test(l) || /\bFAIL\b|AssertionError|Error:/.test(l));
+  return kept.length ? kept.join('\n') : lines.slice(-20).join('\n');
+}
+
+/**
+ * The tests a vitest JSON report (`--reporter=json`) says ran, each with its file relative to the
+ * repository, its full name ("describe > it") and its status: passed, failed or skipped (pending,
+ * todo and disabled read as skipped).
+ * @param report - The parsed report.
+ * @param repoDir - The repository root, to make each file relative.
+ */
+export function testResultsOf(report, repoDir) {
+  const root = String(repoDir || '').replace(/\/+$/, '');
+  const out = [];
+  for (const f of Array.isArray(report?.testResults) ? report.testResults : []) {
+    const abs = String(f?.name || '');
+    const file = root && abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : abs;
+    for (const a of Array.isArray(f?.assertionResults) ? f.assertionResults : []) {
+      const title = String(a?.title || '');
+      const ancestors = Array.isArray(a?.ancestorTitles) ? a.ancestorTitles.map(String) : [];
+      const status = a?.status === 'passed' ? 'passed' : a?.status === 'failed' ? 'failed' : 'skipped';
+      out.push({ file, title, name: [...ancestors, title].join(' > '), status });
+    }
+  }
+  return out;
+}
+
+/** Each test with an id, t1 onwards, in the order it ran. */
+export function numberTests(results) {
+  return (results || []).map((t, i) => ({ id: `t${i + 1}`, ...t }));
+}
+
+/**
+ * A parametric test name as a pattern over its expanded names, or null when it is a plain name:
+ * vitest and jest expand `$name` / `$a.b` / `$0` from each case and printf `%s %d %i %f %j %o %O
+ * %c %#`; `%%` is a literal percent.
+ * @param name - The name as written in the source.
+ */
+export function testTemplate(name) {
+  const token = /\$[A-Za-z_$][\w$]*(?:\.[\w$]+)*|\$\d+|%[sdifjoOc#$]|%%/g;
+  const text = String(name || '');
+  if (!/\$\w|%[sdifjoOc#$]/.test(text)) {
+    return null;
+  }
+  let pattern = '';
+  let last = 0;
+  for (const m of text.matchAll(token)) {
+    pattern += text.slice(last, m.index).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    pattern += m[0] === '%%' ? '%' : '.+?';
+    last = m.index + m[0].length;
+  }
+  pattern += text.slice(last).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${pattern}$`, 's');
+}
+
+/**
+ * The tests that ran in a file that a named test means: its own title, its full name
+ * ("describe > it"), the end of a full name, or, for a parametric name, every expansion of it.
+ * @param name - The name the engineer wrote.
+ * @param file - Its file, relative to the repository.
+ * @param tests - Every test that ran.
+ */
+export function matchingTests(name, file, tests) {
+  const n = String(name || '').trim();
+  const tpl = testTemplate(n);
+  return (tests || []).filter(t => t.file === file && (t.title === n || t.name === n || t.name.endsWith(` > ${n}`) || (tpl && (tpl.test(t.title) || tpl.test(t.name)))));
+}
+
+/**
+ * One verdict for the tests a name matched: failed when any failed, passed when the rest passed
+ * and at least one did, skipped when every one was skipped, not-found when none matched.
+ * @param matched - From {@link matchingTests}.
+ */
+export function namedVerdict(matched) {
+  if (!matched || !matched.length) {
+    return 'not-found';
+  }
+  if (matched.some(t => t.status === 'failed')) {
+    return 'failed';
+  }
+  return matched.some(t => t.status === 'passed') ? 'passed' : 'skipped';
 }
 
 function statusHeading(r) {
@@ -307,7 +420,7 @@ function statusHeading(r) {
   if (r.status === 'failed') {
     return 'Failed';
   }
-  return 'Not run: no test by that name ran (check the name and the -t pattern)';
+  return 'No test matched';
 }
 
 /** "passed", "not run: skipped (<reason>)", "failed", "not run: not found". */
@@ -321,7 +434,7 @@ export function verdictText(r) {
   if (r.status === 'failed') {
     return 'failed';
   }
-  return 'not run: no test by that name ran';
+  return 'no test matched: the name is none of the tests that ran in its file';
 }
 
 /**

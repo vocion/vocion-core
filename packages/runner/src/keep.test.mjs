@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 // node --test packages/runner/src/keep.test.mjs
 import { describe, it } from 'node:test';
-import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, humanOwned, keepDecision, namedTestOutput, namedTestPassed, namedTestStatus, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testNamePattern, testRunMarkdown, testsSection, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
+import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, humanOwned, keepDecision, matchingTests, namedTestOutput, namedTestPassed, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testNamePattern, testResultsOf, testRunMarkdown, testsSection, testTemplate, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 
 const EM_DASH = String.fromCharCode(0x2014);
 const task = {
@@ -370,5 +370,64 @@ describe('the plan\'s paths are scope, not a fence (2026-09-30)', () => {
     const d = keepDecision(['packages/core/src/services/theme.ts', '.github/workflows/ci.yml'], f => !humanOwned(f));
     assert.deepEqual(d.kept, ['packages/core/src/services/theme.ts']);
     assert.deepEqual(d.outside, ['.github/workflows/ci.yml']);
+  });
+});
+
+// Walk 10 (2026-10-02, FE-381 task 383): three parametric names ("... ($document at $width px)")
+// were run with -t, matched none of the expanded tests, the file read "39 skipped", and QA sent
+// the attempt back. A name is now matched against the tests that actually ran.
+describe('a named test is matched against the tests that ran (vitest JSON)', () => {
+  const report = { testResults: [
+    { name: '/workspace/repo/apps/web/tests/lib/header.test.ts', assertionResults: [
+      { ancestorTitles: ['the header'], title: 'no stray dot (\'doc_q3\' at 375 px)', status: 'passed' },
+      { ancestorTitles: ['the header'], title: 'no stray dot (\'doc_a\' at 1280 px)', status: 'passed' },
+      { ancestorTitles: ['the header'], title: 'adds 1 and 2', status: 'passed' },
+      { ancestorTitles: ['the header'], title: 'plain one', status: 'passed' },
+      { ancestorTitles: ['the header'], title: 'skipped one', status: 'pending' },
+      { ancestorTitles: ['the header'], title: 'breaks', status: 'failed' },
+    ] },
+  ] };
+  const tests = numberTests(testResultsOf(report, '/workspace/repo'));
+  const file = 'apps/web/tests/lib/header.test.ts';
+
+  it('reads every test with its repo-relative file, full name, status and an id', () => {
+    assert.deepEqual(tests[0], { id: 't1', file, title: 'no stray dot (\'doc_q3\' at 375 px)', name: 'the header > no stray dot (\'doc_q3\' at 375 px)', status: 'passed' });
+    assert.equal(tests[4].status, 'skipped');
+    assert.equal(tests.length, 6);
+  });
+
+  it('matches a parametric name to each of its cases, and a plain name to itself or its full name', () => {
+    assert.deepEqual(matchingTests('no stray dot ($document at $width px)', file, tests).map(t => t.id), ['t1', 't2']);
+    assert.deepEqual(matchingTests('adds %i and %i', file, tests).map(t => t.id), ['t3']);
+    assert.deepEqual(matchingTests('plain one', file, tests).map(t => t.id), ['t4']);
+    assert.deepEqual(matchingTests('the header > plain one', file, tests).map(t => t.id), ['t4']);
+    assert.deepEqual(matchingTests('plain one', 'apps/web/tests/other.test.ts', tests), []);
+    assert.equal(testTemplate('plain one'), null);
+    assert.equal(testTemplate('costs 100%% of $total').test('costs 100% of 12'), true);
+  });
+
+  it('one verdict per name: failed, passed, skipped, or no test matched', () => {
+    assert.equal(namedVerdict(matchingTests('no stray dot ($document at $width px)', file, tests)), 'passed');
+    assert.equal(namedVerdict(matchingTests('breaks', file, tests)), 'failed');
+    assert.equal(namedVerdict(matchingTests('skipped one', file, tests)), 'skipped');
+    assert.equal(namedVerdict(matchingTests('a name nobody wrote', file, tests)), 'not-found');
+  });
+
+  it('the stored run says "No test matched", never skipped, and lists every test that ran with its id', () => {
+    const matched = matchingTests('no stray dot ($document at $width px)', file, tests);
+    const runs = [
+      { criterion: 'No stray dot', file, name: 'no stray dot ($document at $width px)', passed: true, status: 'passed', matched, command: 'cd apps/web && npx vitest run tests/lib/header.test.ts', output: ' ✓ tests/lib/header.test.ts > the header > no stray dot (\'doc_q3\' at 375 px) 1ms\n ✓ tests/lib/header.test.ts > the header > plain one 1ms\n      Tests  4 passed | 1 skipped | 1 failed (6)' },
+      { criterion: 'Header order', file, name: 'a name nobody wrote', passed: false, status: 'not-found', matched: [], command: 'x', output: '' },
+    ];
+    const md = testRunMarkdown(runs, 483, tests);
+    assert.match(md, /## Passed: No stray dot/);
+    assert.match(md, /Matched 2 tests that ran:\n\n- `t1` ✓ passed: the header > no stray dot \('doc_q3' at 375 px\)\n- `t2`/);
+    assert.match(md, /## No test matched: Header order/);
+    assert.doesNotMatch(md, /skipped: Header order|Not run.*Header order/);
+    assert.match(md, /## Every test that ran\n\nCite a test by its id/);
+    assert.match(md, /- `t6` × failed: the header > breaks/);
+    // The excerpt is the matched tests' own lines and the totals, not the file's every line.
+    assert.doesNotMatch(md.split('## No test matched')[0], /plain one 1ms/);
+    assert.equal(verdictText(runs[1]), 'no test matched: the name is none of the tests that ran in its file');
   });
 });

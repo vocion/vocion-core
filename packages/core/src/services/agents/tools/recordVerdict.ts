@@ -52,7 +52,7 @@ export { alignToContract, contractOf };
 export const VERDICT_VALUES = ['approve', 'changes', 'reject'] as const;
 export const CRITERION_STATUSES = ['proven', 'unproven', 'unchecked'] as const;
 
-export type VerdictCriterion = { criterion: string; status: typeof CRITERION_STATUSES[number]; evidence?: string };
+export type VerdictCriterion = { criterion: string; status: typeof CRITERION_STATUSES[number]; evidence?: string; tests?: string[] };
 export type VerdictFinding = { against: 'criterion' | 'path' | 'check'; ref: string; severity: 'block' | 'fix' | 'note'; what: string; closeBy?: string };
 
 /** What a verdict's value moves the task to. */
@@ -95,7 +95,10 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
   if (total === 0) {
     return { proven, total, refusal: 'Not recorded: a verdict lists every acceptance criterion on the contract, judged proven, unproven or unchecked. Pass them as `criteria`.' };
   }
-  const provenWithoutEvidence = criteria.filter(c => c.status === 'proven' && !c.evidence?.trim());
+  // A cited test from the stored run is evidence in itself; whether it exists and passed is
+  // {@link citedTestsRefusal}'s to say.
+  const cites = (c: VerdictCriterion) => Array.isArray(c.tests) && c.tests.length > 0;
+  const provenWithoutEvidence = criteria.filter(c => c.status === 'proven' && !c.evidence?.trim() && !cites(c));
   if (provenWithoutEvidence.length > 0) {
     return { proven, total, refusal: `Not recorded: "${provenWithoutEvidence[0]!.criterion}" is marked proven with no evidence. Name the link, check or screenshot that settles it, or mark it unproven.` };
   }
@@ -104,7 +107,7 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
   // match") and QA opened no image: that is the engineer's account of its
   // work, not evidence. Proven cites something a person can open in one move
   // — a link (the screenshot's page) or a named test.
-  const unreachable = criteria.filter(c => c.status === 'proven' && !reachable(c.evidence ?? '', shotIds));
+  const unreachable = criteria.filter(c => c.status === 'proven' && !cites(c) && !reachable(c.evidence ?? '', shotIds));
   if (unreachable.length > 0) {
     return { proven, total, refusal: `Not recorded: "${unreachable[0]!.criterion}" is marked proven on "${(unreachable[0]!.evidence ?? '').slice(0, 80)}", which is a description, not evidence. Cite the screenshot's link (open it with fetch_image first) or the named test, or mark it unproven.` };
   }
@@ -124,6 +127,58 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
     }
   }
   return { proven, total, refusal: null };
+}
+
+/** One test the worker's stored run says ran on the branch (`spec.tests` of the qa-test-run). */
+export type RanTest = { id: string; file: string; name: string; status: string };
+
+/**
+ * The tests that ran, as a list a reviewer picks from.
+ * @param tests - The stored run's tests.
+ * @param max - At most this many lines.
+ */
+export function ranTestList(tests: RanTest[], max = 80): string {
+  const lines = tests.slice(0, max).map(t => `- ${t.id} ${t.status}: ${t.file} › ${t.name}`);
+  return [...lines, ...(tests.length > max ? [`- and ${tests.length - max} more (open the run)`] : [])].join('\n');
+}
+
+/**
+ * CITE WHAT RAN (Walk 10, 2026-10-02, FE-381 task 383): QA judged three
+ * criteria on test names that matched nothing that ran and spent an attempt
+ * sending them back. A criterion's `tests` are ids (or exact names) from the
+ * worker's stored list of every test that ran on the branch; one not on the
+ * list is refused with the list, and a proven criterion may not stand on a
+ * test that did not pass.
+ * @param criteria - The criteria, aligned to the contract.
+ * @param run - The task's stored run: its artifact id and the tests that ran; null when there is none.
+ * @param run.id - The artifact.
+ * @param run.tests - The tests that ran.
+ * @returns The refusal, or null.
+ */
+export function citedTestsRefusal(criteria: VerdictCriterion[], run: { id: number; tests: RanTest[] } | null): string | null {
+  const citing = criteria.filter(c => Array.isArray(c.tests) && c.tests.length > 0);
+  if (citing.length === 0) {
+    return null;
+  }
+  if (!run || run.tests.length === 0) {
+    return `Not recorded: "${citing[0]!.criterion}" cites tests (${citing[0]!.tests!.slice(0, 3).join(', ')}), and this task has no stored list of the tests that ran on its branch. Cite the screenshot's link or the test file in evidence instead, or mark it unproven.`;
+  }
+  const find = (cite: string) => {
+    const c = cite.trim();
+    return run.tests.find(t => t.id === c) ?? run.tests.find(t => t.name === c || t.name.endsWith(` > ${c}`));
+  };
+  for (const c of citing) {
+    for (const cite of c.tests!) {
+      const t = find(cite);
+      if (!t) {
+        return `Not recorded: "${c.criterion}" cites the test "${cite.slice(0, 160)}", which is not one of the tests that ran on this branch (artifact #${run.id}). Cite tests from this list by id, or mark the criterion unproven:\n${ranTestList(run.tests)}`;
+      }
+      if (c.status === 'proven' && t.status !== 'passed') {
+        return `Not recorded: "${c.criterion}" is marked proven on ${t.id} (${t.name.slice(0, 160)}), which ${t.status === 'failed' ? 'failed' : 'was skipped'} on this branch. A test that did not pass proves nothing; cite one that passed or mark the criterion unproven.`;
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -421,22 +476,41 @@ export async function unreadTestRun(ctx: RuntimeContext, taskId: number): Promis
   if (ctx.testRunShown) {
     return null;
   }
+  const run = await latestTestRun(ctx.orgId, taskId);
+  if (!run || !run.md) {
+    return null;
+  }
+  ctx.testRunShown = true;
+  const { appBaseUrl } = await import('@/libs/links');
+  // The list of what ran is handed over whole, beside the output, so a citation is picked from it.
+  const list = run.tests.length > 0 ? `\n\nEvery test that ran on the branch; cite these by id in a criterion's \`tests\`:\n${ranTestList(run.tests, 120)}` : '';
+  return `Not recorded: task #${taskId} has a stored run of its named tests, and this verdict was written without reading it. Its output is below. For each criterion a test covers, judge it on this output and cite ${appBaseUrl()}/dashboard/artifacts/${run.id}${run.tests.length > 0 ? ', with the tests that prove it by id' : ''}; then record the verdict again.\n\n${run.md.slice(0, run.tests.length > 0 ? 6000 : 8000)}${list}`;
+}
+
+/**
+ * The task's latest stored run of its named tests: the artifact, its markdown and the tests that
+ * ran on the branch (`spec.tests`, written by the worker), or null.
+ * @param orgId - The workspace.
+ * @param taskId - The task.
+ */
+export async function latestTestRun(orgId: string, taskId: number): Promise<{ id: number; md: string; tests: RanTest[] } | null> {
   const { and, desc, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { artifactSchema } = await import('@/models/Schema');
   const [run] = await db
     .select({ id: artifactSchema.id, spec: artifactSchema.spec })
     .from(artifactSchema)
-    .where(and(eq(artifactSchema.orgId, ctx.orgId), eq(artifactSchema.recordId, String(taskId)), sql`${artifactSchema.recordRole} = 'qa-test-run'`))
+    .where(and(eq(artifactSchema.orgId, orgId), eq(artifactSchema.recordId, String(taskId)), sql`${artifactSchema.recordRole} = 'qa-test-run'`))
     .orderBy(desc(artifactSchema.id))
     .limit(1);
-  const md = typeof run?.spec?.md === 'string' ? run.spec.md : '';
-  if (!run || !md) {
+  if (!run) {
     return null;
   }
-  ctx.testRunShown = true;
-  const { appBaseUrl } = await import('@/libs/links');
-  return `Not recorded: task #${taskId} has a stored run of its named tests, and this verdict was written without reading it. Its output is below. For each criterion a test covers, judge it on this output and cite ${appBaseUrl()}/dashboard/artifacts/${run.id}; then record the verdict again.\n\n${md.slice(0, 8000)}`;
+  const spec = (run.spec ?? {}) as Record<string, unknown>;
+  const tests = (Array.isArray(spec.tests) ? spec.tests : [])
+    .filter((t): t is RanTest => Boolean(t) && typeof (t as RanTest).id === 'string' && typeof (t as RanTest).name === 'string')
+    .map(t => ({ id: t.id, file: String(t.file ?? ''), name: t.name, status: String(t.status ?? '') }));
+  return { id: run.id, md: typeof spec.md === 'string' ? spec.md : '', tests };
 }
 
 export async function unopenedShots(ctx: RuntimeContext, taskId: number): Promise<string | null> {
@@ -529,7 +603,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // refusal (screenshots it has not opened, the stored test run it has not
       // read), then the citations are judged against it.
       const handover = [await unopenedShots(ctx, task.id), await unreadTestRun(ctx, task.id)].filter(Boolean).join('\n\n');
-      const refusal = handover || ruled;
+      const cited = handover ? null : citedTestsRefusal(criteria, await latestTestRun(ctx.orgId, task.id));
+      const refusal = handover || cited || ruled;
       if (refusal) {
         return contract.length > 0 ? `${refusal}\n\nThe contract on task #${task.id}, which is what is graded:\n${contract.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : refusal;
       }
@@ -648,7 +723,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         criteria: z.union([z.array(z.object({
           criterion: z.string().min(1).describe('The acceptance criterion, as written on the contract.'),
           status: z.enum(CRITERION_STATUSES),
-          evidence: z.string().optional().describe('The link, check or screenshot that settles it. Required for proven.'),
+          evidence: z.string().optional().describe('The link, check or screenshot that settles it. Required for proven, unless tests names the tests that prove it.'),
+          tests: z.array(z.string()).optional().describe('The tests that prove it, by id (e.g. "t3") from the stored run\'s list of every test that ran on the branch. A test not on that list is refused with the list; a proven criterion needs tests that passed.'),
         })), z.string()]).describe('Every acceptance criterion, in contract order, as a list.'),
         findings: z.union([z.array(z.object({
           against: z.enum(['criterion', 'path', 'check']),

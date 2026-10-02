@@ -31,6 +31,14 @@ describe('judgeVerdict', () => {
     expect(judgeVerdict('approve', [], []).refusal).toMatch(/every acceptance criterion/);
   });
 
+  it('a criterion proven on cited tests needs no prose evidence: the tests are the evidence (Walk 10)', () => {
+    expect(judgeVerdict('approve', [{ criterion: 'a', status: 'proven', tests: ['t1'] }], [])).toEqual({ proven: 1, total: 1, refusal: null });
+  });
+
+  it('carries the cited tests onto the contract line', () => {
+    expect(alignToContract(['The header shows the type before the page count.'], [{ criterion: 'The header shows the type before the page count.', status: 'proven', tests: ['t1', 't2'] }])).toEqual([{ criterion: 'The header shows the type before the page count.', status: 'proven', tests: ['t1', 't2'] }]);
+  });
+
   it('accepts an approve where everything is proven', () => {
     expect(judgeVerdict('approve', [proven('a'), proven('b')], [{ against: 'criterion', ref: 'a', severity: 'note', what: 'copy nit' }])).toEqual({ proven: 2, total: 2, refusal: null });
   });
