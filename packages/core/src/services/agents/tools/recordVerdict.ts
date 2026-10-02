@@ -564,6 +564,13 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value, proven, total } } as never);
       const count = `${proven} of ${total} criteria proven`;
       if (value !== 'approve') {
+        // QA sent it back: the request's status says so before any retry
+        // goes out (a retry's own start then reads Building).
+        const sentBackFor = Number(task.meta.requestId);
+        if (Number.isInteger(sentBackFor) && sentBackFor > 0) {
+          const { markStatus } = await import('@/services/objects/statusField');
+          await markStatus(ctx.orgId, sentBackFor, `qa_${value}`, { line: `QA sent it back: ${count}.` });
+        }
         let retry: string | null = null;
         if (value === 'changes') {
           const planOf = (m: Record<string, unknown>) => (Number(m.planId) > 0 ? Number(m.planId) : null);
@@ -622,7 +629,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         if (settled && Number.isInteger(requestId) && requestId > 0) {
           const { settleOnMergeCard } = await import('@/services/factory/carry');
           const now = new Date().toISOString();
-          await settleOnMergeCard(ctx.orgId, requestId, settled, now, now).catch((err: Error) => console.warn('record_verdict: settling the request\'s stage failed', { orgId: ctx.orgId, requestId, message: err.message }));
+          await settleOnMergeCard(ctx.orgId, requestId, settled, now, now, res.status === 'pending').catch((err: Error) => console.warn('record_verdict: settling the request\'s stage failed', { orgId: ctx.orgId, requestId, message: err.message }));
         }
         const mirrored = await mirrorVerdictOnPull(ctx.orgId, by, reviewMirrorInput({ url: task.url, value, note: verdict.note, proven, total, findings, taskId: task.id }), count);
         return `Verdict recorded on task #${task.id}: approve, ${count}, at ${commitSha.slice(0, 12)}. The merge card is filed (run #${res.runId}, ${res.status}); a person merges. ${mirrored}`;

@@ -30,6 +30,7 @@ import { nounCode } from '@/libs/codes';
 import { settledReason } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
 import { codeForRecord } from '@/services/codes';
+import { markStatus } from '@/services/objects/statusField';
 import { blockerRefs, blockerResolution } from './blocker';
 import { attemptsOf, classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, settledForMergeCard, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
@@ -189,20 +190,23 @@ async function filingPerson(orgId: string, conversationId: number | null, actor:
  * @param line - The line (`mergeCardLine`).
  * @param cardAt - When the card was filed.
  * @param at - When this is written.
- * @returns Whether it settled a stage.
+ * @param waitsOnPerson - The card is pending: a person merges (else it merges on its trust rule).
+ * @returns Whether it settled a stage or moved the request's status.
  */
-export async function settleOnMergeCard(orgId: string, requestId: number, line: string, cardAt: string, at: string): Promise<boolean> {
+export async function settleOnMergeCard(orgId: string, requestId: number, line: string, cardAt: string, at: string, waitsOnPerson = true): Promise<boolean> {
   const { readRecord, writeMeta } = await lib();
   const request = await readRecord(orgId, requestId);
   if (!request) {
     return false;
   }
+  // The status says whose move it is (FE-130 read "Awaiting dispatch" over
+  // QA 8 of 8 and a merge card waiting on a person).
+  const marked = await markStatus(orgId, requestId, waitsOnPerson ? 'merge_waits' : 'merge_running', { line, at });
   const next = settledForMergeCard(readRecovery(request.meta), line, cardAt, at);
-  if (!next) {
-    return false;
+  if (next) {
+    await writeMeta(orgId, requestId, { recovery: next });
   }
-  await writeMeta(orgId, requestId, { recovery: next });
-  return true;
+  return next !== null || marked !== null;
 }
 
 /**
@@ -218,8 +222,14 @@ async function updateRecovery(orgId: string, requestId: number, change: (s: Reco
   if (!request) {
     return null;
   }
-  const next = change(readRecovery(request.meta));
+  const before = readRecovery(request.meta);
+  const next = change(before);
   await writeMeta(orgId, requestId, { recovery: next });
+  // A STOP IS THE REQUEST'S STATUS (`x-transitions: stopped`), from whichever
+  // step stopped it: a limit reached, a pipeline owner's fix, a check command.
+  if (next.stage === 'stopped' && before.stage !== 'stopped') {
+    await markStatus(orgId, requestId, 'stopped', { line: next.line });
+  }
   return next;
 }
 
@@ -855,6 +865,8 @@ export async function startPlanning(orgId: string, opts: { request: { id: number
       ? noteAttempt(base, { at: opts.at, kind: 'plan', trigger: opts.trigger ?? 'recovery', runId: null, taskId: null, line: opts.why })
       : logLine({ ...base, stage: 'planning', line: `Planning — ${opts.why}`, planRequestedAt: opts.at }, `Planning first: ${opts.why}`, opts.at);
   });
+  // A person's Build reopens a finished request; an automatic plan never does.
+  await markStatus(orgId, opts.request.id, 'planning', { line: `Planning first: ${opts.why}`, reopen: !opts.counted, at: opts.at });
   if (open && planIsApproved(open.meta)) {
     const built = await buildFromApprovedPlan(orgId, { planId: open.id, requestId: opts.request.id, approvedBy: String(open.meta.approvedBy ?? 'a person'), byPerson: false });
     // NEVER "PLANNING" WITH NOTHING PLANNING (#130, 2026-10-02): the plan is
@@ -1021,6 +1033,7 @@ export async function intakeFiledRequest(orgId: string, payload: Partial<ObjectC
   }
   const line = `Filed; the Build card is waiting on a person (${nounCode('action', out.res.runId)}).`;
   await updateRecovery(orgId, id, s => logLine(s, line, at));
+  await markStatus(orgId, id, 'build_card', { line, at });
   await mark({ at, outcome: 'card' });
   return { requestId: id, did: `card:${out.res.status}`, line };
 }

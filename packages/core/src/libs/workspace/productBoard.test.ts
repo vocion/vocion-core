@@ -1,5 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
+import { REQUEST_STATUSES, withRequestStatus } from '@/libs/objects/requestStatuses.fixture';
 import { interpolateHref, resolveRowActionHref } from './pageFields';
 import { attentionOf, deriveProductBoard, healthReading, lifecycleLabel, productCard, productWork } from './productBoard';
 
@@ -10,7 +11,7 @@ function product(id: number, meta: Record<string, unknown>, title = `p${id}`): P
 }
 
 function request(id: number, meta: Record<string, unknown>, title = `r${id}`): PageRow {
-  return { id, title, status: null, createdAt: new Date('2026-09-20T00:00:00Z'), meta: { product: 'send', askedAt: '2026-09-20T00:00:00Z', ...meta } };
+  return withRequestStatus({ id, title, status: null, createdAt: new Date('2026-09-20T00:00:00Z'), meta: { product: 'send', askedAt: '2026-09-20T00:00:00Z', ...meta } });
 }
 
 function release(id: number, title: string, releasedAt: string, product = 'send'): PageRow {
@@ -82,7 +83,7 @@ describe('what needs a person is one action', () => {
   requests[6]!.meta.product = 'slate';
 
   it('counts decisions, work and the backlog the way Work does, for this product only', () => {
-    const work = productWork(product(1, SEND), { requests }, NOW);
+    const work = productWork(product(1, SEND), { statuses: REQUEST_STATUSES, requests }, NOW);
 
     expect(work.decisions).toBe(2);
     expect(work.inProgress).toBe(1);
@@ -91,7 +92,7 @@ describe('what needs a person is one action', () => {
   });
 
   it('says a decision once, as the action, and never also as "to decide"', () => {
-    const meta = productCard(product(1, SEND), [], { requests, releases: [] }, NOW);
+    const meta = productCard(product(1, SEND), [], { statuses: REQUEST_STATUSES, requests, releases: [] }, NOW);
 
     expect(meta.attentionLine).toBe('Review 2 decisions');
     expect(meta.inProgressLine).toBe('1 change in progress');
@@ -104,7 +105,7 @@ describe('what needs a person is one action', () => {
   });
 
   it('puts an issue ahead of a decision, and blocked work after it', () => {
-    const work = productWork(product(1, SEND), { requests }, NOW);
+    const work = productWork(product(1, SEND), { statuses: REQUEST_STATUSES, requests }, NOW);
 
     expect(attentionOf(healthReading(product(1, { ...SEND, health: 'degraded' }), NOW, null), work)?.line).toBe('Issue detected · 1 change in progress');
     expect(attentionOf(healthReading(product(1, SEND), NOW, null), { ...work, decisions: 0, blocked: 1 })?.line).toBe('Unblock 1 change');
@@ -120,7 +121,7 @@ describe('what needs a person is one action', () => {
 
 describe('a product with nothing tracked says so, not that it is quiet', () => {
   it('reads "No work tracked here" for a product the factory has never built for', () => {
-    const meta = productCard(product(1, { slug: 'slate', stage: 'live' }), [], { requests: [], releases: [] }, NOW);
+    const meta = productCard(product(1, { slug: 'slate', stage: 'live' }), [], { statuses: REQUEST_STATUSES, requests: [], releases: [] }, NOW);
 
     expect(meta.workNoneLine).toBe('No work tracked here');
     expect(meta.healthLabel).toBe('Health unavailable · Connect monitoring');
@@ -128,7 +129,7 @@ describe('a product with nothing tracked says so, not that it is quiet', () => {
   });
 
   it('reads "No open work" once work has been tracked and all of it is done', () => {
-    const meta = productCard(product(1, SEND), [], { requests: [request(1, { state: 'shipped' })], releases: [] }, NOW);
+    const meta = productCard(product(1, SEND), [], { statuses: REQUEST_STATUSES, requests: [request(1, { state: 'shipped' })], releases: [] }, NOW);
 
     expect(meta.workNoneLine).toBe('No open work');
   });
@@ -142,7 +143,7 @@ describe('the latest release is named by its title', () => {
       release(12, 'Share button', '2026-09-20T00:00:00Z'),
       release(13, 'Slate thing', '2026-09-24T11:00:00Z', 'slate'),
     ];
-    const meta = productCard(product(1, SEND), [], { requests: [], releases }, NOW);
+    const meta = productCard(product(1, SEND), [], { statuses: REQUEST_STATUSES, requests: [], releases }, NOW);
 
     expect(meta.latestReleaseLine).toBe('Latest: Email delivery tracking and bounce handling');
     expect(meta.latestReleaseId).toBe(10);
@@ -150,7 +151,7 @@ describe('the latest release is named by its title', () => {
   });
 
   it('judges the health check against that release', () => {
-    const meta = productCard(product(1, SEND), [], { requests: [], releases: [release(10, 'After the check', '2026-09-24T10:00:00Z')] }, NOW);
+    const meta = productCard(product(1, SEND), [], { statuses: REQUEST_STATUSES, requests: [], releases: [release(10, 'After the check', '2026-09-24T10:00:00Z')] }, NOW);
 
     expect(meta.healthLabel).toBe('Health check outdated');
   });

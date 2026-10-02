@@ -37,6 +37,7 @@
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { evaluateGates, gateRefusal, gatesOf } from '@/libs/gates/handoffGate';
+import { readStatusModel, withFollowedStatus } from '@/libs/objects/statusModel';
 import { bookkeepingPaths, changedFields } from '@/libs/workspace/bookkeeping';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
 
@@ -372,15 +373,20 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (!row) {
       throw new Error(`No ${objectType.label.toLowerCase()} #${input.id} in this workspace.`);
     }
+    // THE STATUS RIDES WITH THE WRITE (libs/objects/statusModel.ts): a type
+    // that declares one says which writes carry it (`state: triaged`, a
+    // person's Dismiss), so the record's one status moves with its fields and
+    // Undo puts both back.
+    const written = withFollowedStatus(readStatusModel(objectType.schema), input.set as Record<string, unknown>);
     // Sorted: the input comes back from jsonb in no particular order, and the
     // history should read the same however it was stored.
-    const keys = Object.keys(input.set).sort();
+    const keys = Object.keys(written).sort();
     const previous = previousValues(row.metadata, keys);
     // A write that crosses a gated transition and passes clears the return:
     // the seat did the work the gate asked for.
     const crossedGates = gatesOf(objectType.schema).filter(g => typeof input.set[g.when.field] === 'string' && (g.when.becomes ?? []).includes(input.set[g.when.field] as string) && row.metadata[g.when.field] !== input.set[g.when.field]);
     const crossed = crossedGates.length > 0;
-    const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...input.set, returnedTo: null, gate: null } : input.set);
+    const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...written, returnedTo: null, gate: null } : written);
     await bodyBefore(ctx.orgId, row.id);
     await writeMetadata(ctx.orgId, row.id, next);
     // The row is written exactly as before; the body's version rides beside

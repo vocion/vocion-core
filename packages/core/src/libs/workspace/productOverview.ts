@@ -6,7 +6,7 @@ import { groupTabKey } from './pageFields';
 import { dependencyLine, healthReading, latestRelease, lifecycleLabel, plural, productWork, releasesFor } from './productBoard';
 import { genericRecordLinker } from './recordHref';
 import { readRelease } from './releaseFeed';
-import { isWaitingOnPerson } from './workQueue';
+import { waitsOnYou } from './workQueue';
 
 /**
  * A PRODUCT'S OVERVIEW, assembled: the page a product card's name opens
@@ -574,6 +574,7 @@ export function pipelineOf(records: Array<{ row: PageRow; href: string }>): Over
  * @param input.work.tasks - The engineering tasks.
  * @param input.work.live - What is running for each record now.
  * @param input.work.pendingBuilds - Build cards waiting on a person.
+ * @param input.work.statuses - The request type's status model (which lane each status is).
  * @param input.releaseLinked - What each release names.
  * @param input.timeZone - The workspace's zone.
  * @param input.paused - How many of the plugin's automations are paused.
@@ -590,7 +591,7 @@ export function buildProductOverview(input: {
   /** Every repository record (filtered to this product here). */
   repos?: PageRow[];
   /** The work queue's own reading, when the caller has it: tasks, live runs, Build cards. */
-  work?: { tasks?: PageRow[]; live?: ReadonlyMap<number, import('@/libs/factory/liveStatus').LiveRun | null>; pendingBuilds?: Array<{ requestId: number; runId: number; at: Date | null }> };
+  work?: { tasks?: PageRow[]; live?: ReadonlyMap<number, import('@/libs/factory/liveStatus').LiveRun | null>; pendingBuilds?: Array<{ requestId: number; runId: number; at: Date | null }>; statuses?: import('@/libs/objects/statusModel').StatusModel | null };
   /** What each release names, for its headline and its live check (`releaseFeed.readRelease`). */
   releaseLinked?: ReleaseLinked;
   timeZone?: string;
@@ -617,7 +618,7 @@ export function buildProductOverview(input: {
   const done = work.rows.filter(r => lane(r) === 'done');
 
   const decisions: OverviewDecision[] = proposed
-    .filter(r => isWaitingOnPerson(r) && r.meta.state !== 'Deferred')
+    .filter(waitsOnYou)
     .map((r) => {
       const rm = meta(r);
       const minutes = typeof rm.decisionCost === 'number' ? rm.decisionCost : null;
@@ -636,7 +637,7 @@ export function buildProductOverview(input: {
     });
 
   const blocked = progress
-    .filter(r => r.meta.state === 'Blocked')
+    .filter(r => r.meta.blocked === true)
     .map(r => ({ id: r.id, title: r.title, blocker: str(r.meta.blockerLine), href: links.record({ objectType: T.request, id: r.id }) }));
 
   const gaps: string[] = [];
@@ -679,7 +680,7 @@ export function buildProductOverview(input: {
 
   // PROPOSALS, compact: best first as Work ranks them, Build or Dismiss.
   const deciding = decisions.length;
-  const proposalRows = proposed.filter(r => isWaitingOnPerson(r) && r.meta.state !== 'Deferred');
+  const proposalRows = proposed.filter(waitsOnYou);
   const builds = new Map((input.work?.pendingBuilds ?? []).map(b => [b.requestId, b.runId]));
   const PROPOSALS_SHOWN = 5;
   const proposals: OverviewProposal[] = proposalRows.slice(0, PROPOSALS_SHOWN).map(r => ({
@@ -701,7 +702,7 @@ export function buildProductOverview(input: {
   }
   for (const r of progress) {
     const href = links.record({ objectType: T.request, id: r.id });
-    if (r.meta.state === 'Blocked') {
+    if (r.meta.blocked === true) {
       needs.push({ key: `blocked:${r.id}`, line: `${r.title} is blocked${str(r.meta.blockerLine) ? ` on ${str(r.meta.blockerLine)}` : ''}`, tone: 'bad', action: href ? { label: 'Unblock', href } : null });
     } else if (r.meta.needsYou) {
       needs.push({ key: `you:${r.id}`, line: `${r.title}: ${str(r.meta.workLine) ?? 'waiting for you'}`, tone: 'warn', action: href ? { label: 'Open', href } : null });

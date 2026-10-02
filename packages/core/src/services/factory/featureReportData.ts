@@ -320,7 +320,12 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
   ]);
   const watcher = await pipelineWatcher(orgId).catch(() => null);
   const workflow = await workflowStatusOf(orgId, request.meta);
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases, watcher, workflow });
+  // The Current state's label is the request's status, as its type words it.
+  const { loadStatusModel } = await import('@/services/objects/statusField');
+  const { placeOf } = await import('@/libs/objects/statusModel');
+  const statuses = await loadStatusModel(orgId, types.request).catch(() => null);
+  const place = statuses ? placeOf(statuses, request.meta) : null;
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases, watcher, workflow, place: place && place.value !== null ? { label: place.label, tone: place.tone } : null });
   return { ...report, activity };
 }
 

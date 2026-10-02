@@ -73,6 +73,35 @@ describe('the flow runner', () => {
     expect((await durable().status(id))?.line).toBe('counted to 3');
   });
 
+  it('a flow that names its record writes the record\'s status in the same step, by stage or by mark', async () => {
+    const marks: Array<[number, string, string]> = [];
+    const id = await run(FlowSchema.parse({
+      name: 'kestrel/marked',
+      status_record: '{{input.requestId}}',
+      steps: [
+        { status: { stage: 'building', line: 'building it' } },
+        { status: { stage: 'live', mark: 'checking_live', line: 'checking it' } },
+        { end: { stage: 'done' } },
+      ],
+    }), { runAction: async () => ({ status: 'done', result: {}, error: null }), markRecord: async (_o, recordId, transition, line) => {
+      marks.push([recordId, transition, line]);
+    } });
+
+    await expect(memoryRunResult(id)).resolves.toEqual({ stage: 'done' });
+    expect(marks).toEqual([[3, 'building', 'building it'], [3, 'checking_live', 'checking it']]);
+    expect((await durable().status(id))?.stage).toBe('live');
+  });
+
+  it('a flow that names no record writes none', async () => {
+    const marks: unknown[] = [];
+    const id = await run(FlowSchema.parse({ name: 'kestrel/plain', steps: [{ status: { stage: 'building', line: 'x' } }] }), { runAction: async () => ({ status: 'done', result: {}, error: null }), markRecord: async (...a) => {
+      marks.push(a);
+    } });
+    await memoryRunResult(id);
+
+    expect(marks).toEqual([]);
+  });
+
   it('waits for a message with a timeout and branches on it', async () => {
     const id = await run(FlowSchema.parse({
       name: 'kestrel/word',

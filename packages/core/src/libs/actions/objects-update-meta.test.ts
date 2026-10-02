@@ -327,3 +327,39 @@ describe('machine bookkeeping never fans out (#269)', () => {
     expect((await updatedEvents())[0]).toMatchObject({ objectType: 'request', fields: 'priority' });
   });
 });
+
+describe('the status rides with the write (Chris, 2026-10-02)', () => {
+  // A type with one status says which writes carry it (`F:V`); the action names none.
+  const WITH_STATUS = {
+    ...REQUEST_SCHEMA,
+    properties: {
+      ...REQUEST_SCHEMA.properties,
+      status: {
+        'type': 'string',
+        'enum': ['triaged', 'queued'],
+        'x-groups': [{ key: 'proposed', role: 'proposed', default: true, in: ['triaged', 'queued'] }],
+        'x-transitions': { 'state:in_scope': 'queued', 'state:triaged': 'triaged' },
+      },
+      statusLine: { type: 'string' },
+      statusAt: { type: 'string' },
+    },
+  };
+
+  it('writes the status a field carries, and Undo puts both back', async () => {
+    await db.update(businessObjectTypeSchema).set({ schema: WITH_STATUS }).where(eq(businessObjectTypeSchema.id, requestTypeId));
+    forgetCachedObjectTypes();
+    const res = await update({ state: 'in_scope' });
+
+    expect(await readMeta()).toMatchObject({ state: 'in_scope', status: 'queued' });
+
+    await undoAction(res.runId, ORG, { by: 'user_chris' });
+
+    expect(await readMeta()).toEqual({ title: 'CSV export of the ledger', kind: 'gap', state: 'triaged' });
+  });
+
+  it('writes no status on a type that declares none', async () => {
+    await update({ state: 'in_scope' });
+
+    expect((await readMeta()).status).toBeUndefined();
+  });
+});

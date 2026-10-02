@@ -61,6 +61,7 @@ import { loadPendingBuilds } from '@/services/factory/pendingBuilds';
 import { loadReleaseLinked } from '@/services/factory/releaseData';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
+import { loadStatusModel } from '@/services/objects/statusField';
 import { readPageForOrg } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
 import { firstParagraph } from '@/services/wiki/WikiService';
@@ -607,7 +608,10 @@ export default async function WorkspacePage(props: {
       // the queue reads the attempts and the releases that name them.
       ? await (async () => {
           const tasks = await loadObjectRows(orgId, 'engineering_task');
+          // Each row's lane and badge are its status, as the type declares them.
+          const statuses = manifest.source?.kind === 'objects' ? await loadStatusModel(orgId, manifest.source.objectType).catch(() => null) : null;
           return deriveWorkQueue(loaded, {
+            statuses,
             now: new Date(now),
             tasks,
             releases: await loadObjectRows(orgId, 'release'),
@@ -615,7 +619,7 @@ export default async function WorkspacePage(props: {
             pendingBuilds: await loadPendingBuilds(orgId),
             // What is running for each row right now, in one read for the
             // page (the Now line); the page re-reads on its `live` interval.
-            live: await loadWorkLive(orgId, loaded, tasks, new Date(now)),
+            live: await loadWorkLive(orgId, loaded, tasks, new Date(now), statuses),
           });
         })()
       : manifest.derive === 'releaseOutcome'
@@ -630,6 +634,7 @@ export default async function WorkspacePage(props: {
                 now: new Date(now),
                 requests: await loadObjectRows(orgId, 'request'),
                 releases: await loadObjectRows(orgId, 'release'),
+                statuses: await loadStatusModel(orgId, 'request').catch(() => null),
               })
             : loaded;
     const pickable = (manifest.queryFilters ?? []).filter(q => q.picker);

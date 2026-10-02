@@ -81,8 +81,10 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
   const { loadPendingBuilds } = await import('./pendingBuilds');
   const { loadReleaseLinked } = await import('./releaseData');
   const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
+  const { loadStatusModel } = await import('@/services/objects/statusField');
+  const statuses = await loadStatusModel(orgId, types.request).catch(() => null);
   const [live, pendingBuilds, releaseLinked, timeZone] = await Promise.all([
-    loadWorkLive(orgId, mine, tasks, now),
+    loadWorkLive(orgId, mine, tasks, now, statuses),
     loadPendingBuilds(orgId).catch(() => []),
     loadReleaseLinked(orgId, myReleases.slice(0, 60)).catch(() => undefined),
     workspaceTimeZone(orgId).catch(() => 'UTC'),
@@ -103,7 +105,7 @@ export async function loadProductOverview(orgId: string, id: string, now = new D
     links,
     environments,
     repos,
-    work: { tasks, live, pendingBuilds },
+    work: { tasks, live, pendingBuilds, statuses },
     releaseLinked,
     timeZone,
     paused: opts.paused,

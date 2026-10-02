@@ -574,6 +574,9 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
       },
       ...(shots.length > 0 ? { visuals: { ...visuals, afterArtifactIds: after } } : {}),
     });
+    // Seen live, or shipped and not confirmed: the status says which.
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, requestId, verdict.state === 'seen' ? 'live_seen' : 'shipped', { line: verdict.line.slice(0, 500) });
     const { noteOnRequest } = await import('./carry');
     await noteOnRequest(orgId, requestId, `${verdict.line} (release #${releaseId}, attempt ${w.attempt}).`).catch(() => undefined);
   }
@@ -610,6 +613,8 @@ export async function liveCheckGaveUp(orgId: string, releaseId: number, reason: 
       continue;
     }
     await mergeMeta(orgId, requestId, { liveCheck: { ...mark, state: 'not_seen', line, releaseId, checkedAt } });
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, requestId, 'shipped', { line });
     const { noteOnRequest } = await import('./carry');
     await noteOnRequest(orgId, requestId, `${line} (release #${releaseId}).`).catch(() => undefined);
   }

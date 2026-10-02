@@ -19,7 +19,10 @@ import { MAX_WAIT_SECONDS } from './types';
  *     timeout and a catch-up `since`; the event (or null) is kept under `as`.
  *   - `wait_message`: the next message on a topic (a person's word, a cancel).
  *   - `set`: assign variables from values, paths and a few typed operations.
- *   - `status`: what a page shows for the run.
+ *   - `status`: what a page shows for the run. A flow that names the record
+ *     it carries (`status_record`) writes that record's own status in the
+ *     same step: the stage (or the step's `mark`) is a transition its type's
+ *     `x-transitions` gives a value, so the run and the record never disagree.
  *   - `when`: the first branch whose condition holds runs.
  *   - `loop`: a bounded loop; `next` and `break` steer the innermost loop.
  *   - `child`: run another flow and keep its result.
@@ -64,7 +67,7 @@ const Step: z.ZodType<FlowStep> = z.lazy(() => z.union([
   z.object({ wait_event: z.object({ any: z.array(EventSpec).min(1), timeout: z.union([z.number().positive(), z.string()]), since: z.string().optional() }).strict(), as: z.string().min(1) }).strict(),
   z.object({ wait_message: z.object({ topic: z.string().min(1), timeout: z.union([z.number().positive(), z.string()]) }).strict(), as: z.string().min(1) }).strict(),
   z.object({ set: z.record(z.string(), z.unknown()) }).strict(),
-  z.object({ status: z.object({ stage: z.string().min(1), line: z.string(), with: z.record(z.string(), z.unknown()).optional() }).strict() }).strict(),
+  z.object({ status: z.object({ stage: z.string().min(1), line: z.string(), with: z.record(z.string(), z.unknown()).optional(), mark: z.string().min(1).optional() }).strict() }).strict(),
   z.object({ when: z.array(z.union([z.object({ if: Condition, then: z.array(Step) }).strict(), z.object({ else: z.array(Step) }).strict()])).min(1) }).strict(),
   z.object({ loop: z.object({ max: z.number().int().positive(), while: Condition.optional(), steps: z.array(Step) }).strict() }).strict(),
   z.object({ child: z.object({ flow: z.string().min(1), id: z.string().min(1), input: z.record(z.string(), z.unknown()).default({}) }).strict(), as: z.string().optional() }).strict(),
@@ -80,6 +83,12 @@ export const FlowSchema = z.object({
   vars: z.record(z.string(), z.unknown()).default({}),
   /** Merged into every `status` step (e.g. the attempt and base a page shows). */
   status_with: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * The record this flow carries (a template, e.g. `{{input.requestId}}`):
+   * every `status` step also writes the record's own status, for the
+   * transition the step's `mark` (else its stage) names.
+   */
+  status_record: z.string().optional(),
   steps: z.array(Step),
 });
 export type Flow = z.infer<typeof FlowSchema>;
@@ -87,6 +96,8 @@ export type Flow = z.infer<typeof FlowSchema>;
 /** What a flow does in the world, injected in tests. */
 export type FlowEffects = {
   runAction: (orgId: string, actionId: string, input: Record<string, Value>, invokedBy: string) => Promise<{ status: string; result: Record<string, Value> | null; error: string | null }>;
+  /** Write a record's own status for a transition (`services/objects/statusField.markStatus`). */
+  markRecord?: (orgId: string, recordId: number, transition: string, line: string) => Promise<void>;
 };
 
 export type FlowRunInput = { orgId: string; flowRef: string; flow: Flow; input: Record<string, Value> };
@@ -304,7 +315,17 @@ class Runner {
     }
     if ('status' in st) {
       const extra = fill({ ...(this.flow.status_with ?? {}), ...(st.status.with ?? {}) }, this.scope) as Record<string, Value>;
-      await this.ctx.setStatus({ ...extra, stage: String(fill(st.status.stage, this.scope)), line: String(fill(st.status.line, this.scope)) });
+      const stage = String(fill(st.status.stage, this.scope));
+      const line = String(fill(st.status.line, this.scope));
+      // ONE CALL, TWO RECORDS (Chris, 2026-10-02): the run's status and the
+      // record's own. A run snapshots its flow, so a run started before the
+      // flow named its record walks the same steps it always did.
+      const recordId = this.flow.status_record ? Number(fill(this.flow.status_record, this.scope)) : Number.NaN;
+      if (this.effects.markRecord && Number.isSafeInteger(recordId) && recordId > 0) {
+        const transition = st.status.mark ? String(fill(st.status.mark, this.scope)) : stage;
+        await this.ctx.step(this.name('mark'), () => this.effects.markRecord!(this.orgId, recordId, transition, line));
+      }
+      await this.ctx.setStatus({ ...extra, stage, line });
       return undefined;
     }
     if ('when' in st) {
@@ -387,6 +408,10 @@ export const productionFlowEffects: FlowEffects = {
     } catch (err) {
       return { status: 'refused', result: null, error: (err as Error).message };
     }
+  },
+  async markRecord(orgId, recordId, transition, line) {
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, recordId, transition, { line });
   },
 };
 

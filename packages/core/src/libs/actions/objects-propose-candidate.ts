@@ -42,6 +42,7 @@ import type { Action, ActionContext, ReviewCard } from './types';
 import type { GateFailure, GateTurn, HandoffGate } from '@/libs/gates/handoffGate';
 import { z } from 'zod';
 import { evaluateGates, gatesOf } from '@/libs/gates/handoffGate';
+import { createdStatus } from '@/libs/objects/statusModel';
 import { isEmptyValue } from '@/libs/workspace/pageFields';
 
 /** The registered id, and the prefix every dedup key carries. */
@@ -792,7 +793,8 @@ async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, 
     typeId: objectType.id,
     title: input.title,
     status: CANDIDATE_STATUS.proposed,
-    metadata,
+    // Its first status, when its type declares one (libs/objects/statusModel.ts).
+    metadata: createdStatus(objectType.schema, metadata),
     provenance,
     summary: input.summary,
     reviewActionRunId: runId,

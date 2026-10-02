@@ -3,6 +3,7 @@ import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeI
 import { and, eq } from 'drizzle-orm';
 import { assignTypeCodes, TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
+import { createdStatus } from '@/libs/objects/statusModel';
 import { businessObjectSchema, businessObjectTypeSchema, objectDocumentLinkSchema } from '@/models/Schema';
 import { announceObjectCreated, originMeta } from '@/services/objects/objectCreated';
 import { recomputeRollupsForObject } from '@/services/objects/rollups';
@@ -117,8 +118,10 @@ export const createBusinessObject = async (
       typeId: objType.id,
       title: input.title,
       status: input.status ?? 'active',
-      // A record asked for in a conversation says so, in the same write.
-      metadata: withOrigin(input.metadata ?? {}, originMeta(origin ? { conversationId: origin.conversationId, userId: origin.actor ?? userId } : null)),
+      // A record asked for in a conversation says so, in the same write; a
+      // type with one status gives it its first (`created`, or what its
+      // fields carry — libs/objects/statusModel.ts).
+      metadata: withOrigin(createdStatus(objType.schema, input.metadata ?? {}), originMeta(origin ? { conversationId: origin.conversationId, userId: origin.actor ?? userId } : null)),
       createdBy: userId,
     })
     .returning();
@@ -196,7 +199,7 @@ export const upsertBusinessObjectByExternalKey = async (
   }
   const [inserted] = await db
     .insert(businessObjectSchema)
-    .values({ orgId, typeId: objType.id, title: input.title, status: input.status ?? 'active', metadata: input.metadata ?? {}, externalSystem: input.externalKey.system, externalId: input.externalKey.id, createdBy: actorId })
+    .values({ orgId, typeId: objType.id, title: input.title, status: input.status ?? 'active', metadata: createdStatus(objType.schema, input.metadata ?? {}), externalSystem: input.externalKey.system, externalId: input.externalKey.id, createdBy: actorId })
     .returning();
   if (inserted) {
     await recomputeRollupsForObject(orgId, inserted.id);

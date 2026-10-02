@@ -221,6 +221,13 @@ export type FeatureReportInput = {
    */
   workflow?: { stage: string; line: string } | null;
   /**
+   * THE REQUEST'S STATUS (its type's `x-groups`, `libs/objects/statusModel.ts`):
+   * the Current state's label and tone, the same words Work's badge reads.
+   * The sentence, the move and the lines under it are still read off the
+   * records. Absent, the label is read off them too.
+   */
+  place?: { label: string; tone: Tone } | null;
+  /**
    * Whether QA's approve merges the current attempt on its own — the trust
    * ladder's answer for its class (`pullSignals.mergeRunsItself`). Absent,
    * not established.
@@ -3702,7 +3709,8 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const surfaceUrl = resolveLiveUrl(str((input.request.meta.visuals ?? {}) as Record<string, unknown>, 'surfaceUrl'), input.liveBases ?? []);
   const timeline = buildTimeline(normalised, mergedPrs);
   const notices = findNotices(normalised, mergedPrs, line);
-  const status = withActiveRun(buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl, live }), implementation);
+  const read = withActiveRun(buildStatus(normalised, state, { canBuild, canDismiss, plan: planSummary, impl: implementation, release, acceptance, surfaceUrl, live }), implementation);
+  const status = input.place ? { ...read, headline: input.place.label, tone: input.place.tone } : read;
   const facts = workFactsOf(normalised, { mergedPrs, state, release, status });
   const sections: ReportSection[] = [
     askSection(input.request),

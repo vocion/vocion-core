@@ -363,7 +363,7 @@ export async function settleWaitingMerges(orgId: string, now: Date): Promise<Res
   const { MERGE_ACTION_ID } = await import('@/libs/actions/mergeAction');
   const { CLOSED_REQUEST_STATES } = await import('@/libs/factory/requestStates');
   const { readRecord } = await import('@/libs/actions/factory-dispatch');
-  const { mergeCardLine, readRecovery } = await import('./recovery');
+  const { mergeCardLine } = await import('./recovery');
   const { settleOnMergeCard } = await import('./carry');
   const cards = await db.select({ id: actionRunSchema.id, input: actionRunSchema.input, status: actionRunSchema.status, createdAt: actionRunSchema.createdAt })
     .from(actionRunSchema)
@@ -375,7 +375,8 @@ export async function settleWaitingMerges(orgId: string, now: Date): Promise<Res
     const task = Number.isInteger(taskId) && taskId > 0 ? await readRecord(orgId, taskId) : null;
     const requestId = Number(task?.meta.requestId);
     const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-    if (!task || !request || !readRecovery(request.meta).stage || CLOSED_REQUEST_STATES.has(String(request.meta.state))) {
+    // A request whose status does not yet say so is settled too (FE-130).
+    if (!task || !request || CLOSED_REQUEST_STATES.has(String(request.meta.state))) {
       continue;
     }
     const v = (task.meta.verdict ?? {}) as { value?: unknown; proven?: unknown; total?: unknown };

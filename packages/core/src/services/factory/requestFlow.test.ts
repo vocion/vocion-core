@@ -24,7 +24,11 @@ function harness(outcomes: Outcome[], reads: Record<number, Read>, opts: { live?
   const dispatches: Dispatch[] = [];
   const stops: string[] = [];
   const asks: string[] = [];
+  const marks: Array<[string, string]> = [];
   const effects: FlowEffects = {
+    async markRecord(_org, _id, transition, line) {
+      marks.push([transition, line]);
+    },
     async runAction(_org, actionId, input, by) {
       if (actionId === 'factory.dispatch_task') {
         const contract = (input.contract ?? {}) as { attempt?: number; baseSha?: string };
@@ -55,7 +59,7 @@ function harness(outcomes: Outcome[], reads: Record<number, Read>, opts: { live?
   };
   const name = `test.request.flow.${n++}`;
   defineDurable({ name, run: (ctx, input: { orgId: string; flowRef: string; flow: never; input: Record<string, unknown> }) => runFlow(ctx, input, effects) });
-  return { dispatches, stops, asks, name };
+  return { dispatches, stops, asks, marks, name };
 }
 
 const emit = async (type: string, payload: Record<string, unknown>) => {
@@ -88,6 +92,30 @@ afterEach(async () => {
 describe('the software-factory request flow owns a request from Build to live (backlog 054)', () => {
   it('parses as a flow', () => {
     expect(loadFlow(REQUEST_FLOW).name).toBe(REQUEST_FLOW);
+  });
+
+  it('writes the request\'s own status in the same step as the run\'s, and every transition it names has a value on the request type (Chris, 2026-10-02)', async () => {
+    const h = harness([{ kind: 'building', workerRunId: 601, taskId: 1 }], { 601: opened('feat-1', 'pr/61') }, { live: () => ({ state: 'seen', line: 'Seen live: 2 of 2' }) });
+    await ask(60);
+    const id = await start(h.name, 60);
+    await until(id, 'building');
+    await emit('worker_run.completed', { workerRunId: 601 });
+    await until(id, 'review');
+    await emit('pr.merged', { url: 'pr/61' });
+    await until(id, 'deploying');
+    await emit('release.linked', { releaseId: 901, requestIds: [60] });
+    await vi.waitFor(() => expect(h.marks.map(([t]) => t)).toContain('checking_live'));
+    await emit('automation_run.completed', { slug: 'release-live-check' });
+    await memoryRunResult(id);
+
+    expect(h.marks.map(([t]) => t)).toEqual(['starting', 'building', 'review', 'deploying', 'checking_live', 'live']);
+    expect(h.marks[1]![1]).toBe('RUN-601 is building attempt 1.');
+
+    // `checking_live` is deliberately no transition: the release already wrote Shipped.
+    const { REQUEST_STATUSES } = await import('@/libs/objects/requestStatuses.fixture');
+    const { valueFor } = await import('@/libs/objects/statusModel');
+
+    expect(h.marks.map(([t]) => [t, valueFor(REQUEST_STATUSES, t)])).toEqual([['starting', 'building'], ['building', 'building'], ['review', 'in_qa'], ['deploying', 'deploying'], ['checking_live', null], ['live', 'seen_live']]);
   });
 
   it('retries a failure on the kept branch, takes QA\'s send-back as the next attempt, and ends live', async () => {

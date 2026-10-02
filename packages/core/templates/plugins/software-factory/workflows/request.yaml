@@ -26,6 +26,11 @@ vars:
 status_with:
   attempt: '{{vars.attempt}}'
   base: '{{vars.base}}'
+# THE REQUEST'S OWN STATUS moves with the run's (Chris, 2026-10-02): each
+# `status` step's stage — or its `mark` — is a transition the request type's
+# `x-transitions` gives a value (objects/request/type.yaml), so Work, the
+# feature page and this run say the same thing.
+status_record: '{{input.requestId}}'
 steps:
   # The first wait catches up from just before the run was started, so the
   # ask that started it is never missed.
@@ -245,7 +250,8 @@ steps:
         - set:
             releaseId: {from: vars.released.payload.releaseId}
             tries: 0
-        - status: {stage: live, line: 'Live in REL-{{vars.releaseId}}; checking it on the live product.', with: {releaseId: '{{vars.releaseId}}'}}
+        # Shipped already (the release wrote it); checking live moves no status.
+        - status: {stage: live, mark: checking_live, line: 'Live in REL-{{vars.releaseId}}; checking it on the live product.', with: {releaseId: '{{vars.releaseId}}'}}
         - set:
             liveSince: {now: true}
         - loop:

@@ -303,6 +303,86 @@ schema:
         `shipped` — the change merged. `answered` — the reply went back. Every
         request ends in `shipped`, `answered`, or as a duplicate of one that did.
       enum: [new, triaged, in_scope, out_of_scope, deferred, building, shipped, answered]
+    # THE ONE STATUS (Chris, 2026-10-02: "one enum list … a hierarchy of
+    # status labels that run the logic for those 3 tabs"). Every value belongs
+    # to exactly one group, and the group is the Work tab; the feature page's
+    # Current state and the product page's counts read the same field. Core
+    # holds no value of it (libs/objects/statusModel.ts): the labels, groups,
+    # tones, who it waits on and which transition writes which value are all
+    # here. One writer per transition — the request's durable workflow at each
+    # step, the factory's handlers (dispatch, QA's verdict, the merge card, the
+    # merge, the release, the live check, a stop) and a person's own actions —
+    # and `x-transitions` says what each one writes. A write of another field
+    # carries the status with it through `F:V` entries (an agent's `state:
+    # triaged`, a person's Dismiss), first declared match first. A null or
+    # unknown status reads as In progress.
+    status:
+      x-display: {label: Status, format: badge, group: Triage, tones: {new: muted, triaged: muted, deciding: warn, queued: muted, deferred: muted, planning: info, building: info, in_qa: info, changes_asked: warn, awaiting_merge: warn, deploying: info, stopped: bad, shipped: ok, seen_live: ok, answered: muted, out_of_scope: muted, duplicate: muted}}
+      x-labels: {new: Not triaged, triaged: Triaged, deciding: Decide, queued: Queued, deferred: Deferred, planning: Planning, building: Building, in_qa: In QA, changes_asked: Changes asked, awaiting_merge: Waiting on your merge, deploying: Deploying, stopped: Stopped · needs you, shipped: Shipped, seen_live: Shipped · seen live, answered: Answered, out_of_scope: Out of scope, duplicate: Duplicate}
+      x-groups:
+        - {key: progress, label: In progress, role: progress, default: true, in: [planning, building, in_qa, changes_asked, awaiting_merge, deploying, stopped]}
+        - {key: proposed, label: Proposed, role: proposed, in: [new, triaged, deciding, queued, deferred], last: [deferred]}
+        - {key: done, label: Done, role: done, in: [shipped, seen_live, answered]}
+        - {key: archived, label: Archived, role: archived, in: [out_of_scope, duplicate]}
+      # Whose move it is: these lead their tab, and the product page counts them.
+      x-needs-you: [deciding, changes_asked, awaiting_merge, stopped]
+      x-transitions:
+        # Filed, recommended, a Build card up.
+        created: new
+        recommended: deciding
+        build_card: deciding
+        # The request's durable workflow, by its stage (services/factory/requestWorkflow.ts).
+        starting: building
+        planning: planning
+        building: building
+        review: in_qa
+        deploying: deploying
+        merged: deploying
+        live: seen_live
+        live_unconfirmed: shipped
+        live_unchecked: shipped
+        stopped: stopped
+        # The factory's handlers.
+        qa_changes: changes_asked
+        qa_reject: changes_asked
+        merge_waits: awaiting_merge
+        merge_running: deploying
+        shipped: shipped
+        live_seen: seen_live
+        resolved: answered
+        # A write of another field, first match first.
+        'duplicateOf:*': duplicate
+        'recommendationState:rejected': out_of_scope
+        'state:out_of_scope': out_of_scope
+        'state:shipped': shipped
+        'state:answered': answered
+        'state:deferred': deferred
+        'recommendationState:deferred': deferred
+        'state:building': building
+        'recommendationState:proposed': deciding
+        'recommendationState:approved': queued
+        'state:in_scope': queued
+        'state:triaged': triaged
+        'state:new': new
+      type: string
+      description: >-
+        Where the request stands, in one field: Proposed (not triaged,
+        triaged, decide, queued, deferred), In progress (planning, building,
+        in QA, changes asked, waiting on your merge, deploying, stopped · needs
+        you), Done (shipped, shipped · seen live, answered) or Archived (out of
+        scope, duplicate). Written by the factory at each transition and by a
+        person's own actions; agents do not set it by hand. `statusLine` says
+        what is happening in a sentence, `statusAt` when it was written.
+      enum: [new, triaged, deciding, queued, deferred, planning, building, in_qa, changes_asked, awaiting_merge, deploying, stopped, shipped, seen_live, answered, out_of_scope, duplicate]
+    statusLine:
+      x-display: {hidden: true}
+      type: string
+      description: The sentence written with the status — "RUN-478 is building attempt 2", "QA approved 8 of 8; the merge waits on a person". Empty when the transition said none.
+    statusAt:
+      x-display: {hidden: true}
+      type: string
+      format: date-time
+      description: When the status was last written.
     answer:
       x-display: {label: The answer given, role: prose, order: 2}
       type: string

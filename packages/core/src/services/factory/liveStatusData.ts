@@ -1,4 +1,5 @@
 import type { LiveMissionRunInput, LiveRun, LiveWorkerRunInput } from '@/libs/factory/liveStatus';
+import type { StatusModel } from '@/libs/objects/statusModel';
 import type { PageRow } from '@/libs/workspace/pageFields';
 import { and, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -213,9 +214,10 @@ export async function loadLiveRuns(orgId: string, records: readonly Row[], child
  * @param rows - The page's record rows.
  * @param tasks - Their tasks.
  * @param now - The clock.
+ * @param statuses - The request type's status model: which rows are in progress.
  */
-export async function loadWorkLive(orgId: string, rows: readonly PageRow[], tasks: readonly PageRow[], now: Date = new Date()): Promise<Map<number, LiveRun | null>> {
-  const inProgress = rows.filter(r => laneOf(r) === 'progress');
+export async function loadWorkLive(orgId: string, rows: readonly PageRow[], tasks: readonly PageRow[], now: Date = new Date(), statuses?: StatusModel | null): Promise<Map<number, LiveRun | null>> {
+  const inProgress = rows.filter(r => laneOf(r, statuses) === 'progress');
   const { factoryTypes } = await import('@/libs/factory/types');
   const taskType = (await factoryTypes(orgId)).task;
   return loadLiveRuns(orgId, inProgress, tasks, input => taskOfRun(input, taskType), now).catch(() => new Map());

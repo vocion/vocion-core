@@ -1510,6 +1510,8 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     // start never reopens what a person closed.
     // What undo puts back, read before a reopen changes it.
     const before = request ? { state: request.meta.state ?? null, recommendationState: request.meta.recommendationState ?? null, decidedAt: request.meta.decidedAt ?? null, acceptanceFrozenAt: request.meta.acceptanceFrozenAt ?? null } : null;
+    const { markStatus, statusSnapshot } = await import('@/services/objects/statusField');
+    const previousStatus = request ? await statusSnapshot(ctx.orgId, request.id) : null;
     const reopened = Boolean(request && !automatic && (REOPENABLE_REQUEST_STATES.has(String(request.meta.state ?? '')) || request.meta.recommendationState === 'rejected'));
     if (request && reopened) {
       const by = ctx.reviewedBy ?? ctx.invokedBy ?? 'a person';
@@ -1548,7 +1550,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
           : `QA sent the build of plan #${supersededPlan.id} back to planning: ${input.replan}`).slice(0, 1000);
         const { startPlanning } = await import('@/services/factory/carry');
         const planning = await startPlanning(ctx.orgId, { request, plan: null, why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
-        return { planning: true, workerRunId: null, requestId: request.id, record: { objectType: request.typeSlug, id: request.id }, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
+        return { planning: true, workerRunId: null, requestId: request.id, record: { objectType: request.typeSlug, id: request.id }, planId: planning.planId, why, via: planning.via, previousRecovery: planning.previous, previousStatus, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
       }
     }
     // BUILD IS ONE PATH THROUGH THE PLAN GATE (backlog 038: run 401 went out
@@ -1566,7 +1568,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       }
       const { startPlanning } = await import('@/services/factory/carry');
       const planning = await startPlanning(ctx.orgId, { request, plan, why: gate.why, counted: automatic, trigger: input.trigger ?? (input.autoRetryOf ? 'retry' : null), by: ctx.reviewedBy ?? ctx.invokedBy ?? 'a person', at });
-      return { planning: true, workerRunId: null, requestId: request.id, record: { objectType: request.typeSlug, id: request.id }, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
+      return { planning: true, workerRunId: null, requestId: request.id, record: { objectType: request.typeSlug, id: request.id }, planId: planning.planId, why: gate.why, via: planning.via, previousRecovery: planning.previous, previousStatus, supersededPlan, ...(reopened && before ? { previousRequestState: before.state, previousRequest: { recommendationState: before.recommendationState } } : {}) };
     }
     let createdTaskId: number | null = null;
     if (!input.taskId) {
@@ -1649,15 +1651,17 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
         ...(request.meta.acceptanceFrozenAt ? {} : { acceptanceFrozenAt: approvedAt }),
         recovery,
       });
+      // Building: a person's start reopens a finished request; an automatic one never does.
+      await markStatus(ctx.orgId, request.id, 'building', { line: `${nounCode('run', run.id)} is building task #${task.id}.`, reopen: !automatic, at: approvedAt });
     }
-    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, ...(request ? { record: { objectType: request.typeSlug, id: request.id } } : {}), previousTask, previousPlan, previousRequestState: before ? before.state : null, previousRequest: before ? { recommendationState: before.recommendationState, decidedAt: before.decidedAt, acceptanceFrozenAt: before.acceptanceFrozenAt } : null, previousRecovery };
+    return { workerRunId: run.id, agentSlug, taskId: task.id, createdTaskId, planId: plan?.id ?? null, requestId: request?.id ?? null, ...(request ? { record: { objectType: request.typeSlug, id: request.id } } : {}), previousTask, previousPlan, previousRequestState: before ? before.state : null, previousRequest: before ? { recommendationState: before.recommendationState, decidedAt: before.decidedAt, acceptanceFrozenAt: before.acceptanceFrozenAt } : null, previousRecovery, previousStatus };
   },
   async undo(ctx, _input, result) {
     // Planning started instead of a build: nothing ran, so the request goes
     // back to where it stood. A plan already being written stays a draft.
     if (result.planning) {
       if (result.requestId) {
-        await writeMeta(ctx.orgId, Number(result.requestId), { recovery: result.previousRecovery ?? null });
+        await writeMeta(ctx.orgId, Number(result.requestId), { recovery: result.previousRecovery ?? null, ...((result.previousStatus ?? {}) as Meta) });
       }
       const sp = result.supersededPlan as { id?: number; status?: unknown } | null | undefined;
       if (sp?.id) {
@@ -1683,7 +1687,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
       await writeMeta(ctx.orgId, Number(result.planId), { status: pp.status ?? 'proposed', approvedBy: pp.approvedBy ?? null, approvedAt: pp.approvedAt ?? null });
     }
     if (result.requestId && result.previousRequestState !== undefined) {
-      await writeMeta(ctx.orgId, Number(result.requestId), { state: result.previousRequestState, ...((result.previousRequest ?? {}) as Meta), ...(result.previousRecovery !== undefined ? { recovery: result.previousRecovery } : {}) });
+      await writeMeta(ctx.orgId, Number(result.requestId), { state: result.previousRequestState, ...((result.previousRequest ?? {}) as Meta), ...(result.previousRecovery !== undefined ? { recovery: result.previousRecovery } : {}), ...((result.previousStatus ?? {}) as Meta) });
     }
     return { cancelledRun: runId };
   },
