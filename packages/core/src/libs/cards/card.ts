@@ -10,7 +10,7 @@ import type { RecommendedActionPayload } from '@/services/agents/types';
  *
  * Kinds are registered by descriptor — a schema for the payload and the name
  * of a renderer — so a plugin adds a kind without touching this file. Core
- * ships `action` (today's recommendation), `decision`, `ask`, `record` and `link`.
+ * ships `action` (today's recommendation), `decision`, `choice`, `record` and `link`.
  * A card is emitted INTO this contract by exactly three producers: the
  * `recommend_action`/`put_card` tool, a tool's result-to-card descriptor, and
  * the gated backstop. Tools are the door, not the feature.
@@ -29,6 +29,27 @@ export const CardActionSchema = z.object({
   confirm: z.string().optional(),
 });
 export type CardAction = z.infer<typeof CardActionSchema>;
+
+/** The letters a choice card's options carry, in order. The UI shows the letter. */
+export const CHOICE_OPTION_IDS = ['A', 'B', 'C', 'D'] as const;
+
+export const ChoiceOptionSchema = z.object({
+  /** 'A'-'D', in order. The UI shows the letter. */
+  id: z.enum(CHOICE_OPTION_IDS),
+  label: z.string().min(1).max(120),
+  description: z.string().max(200).optional(),
+  /**
+   * Picking this option runs these actions as the person, in order: the pick is
+   * the approval of exactly these inputs. A list, so one cleanup pick can
+   * approve several tracker changes at once.
+   */
+  actions: z.array(z.object({ actionId: z.string().min(1), input: z.record(z.string(), z.unknown()).default({}) })).min(1).max(20).optional(),
+});
+export type ChoiceOption = z.infer<typeof ChoiceOptionSchema>;
+
+/** The person's answer to a choice card. `optionId` is a letter, or `other` for typed text. */
+export const CardAnswerSchema = z.object({ optionId: z.string(), text: z.string(), at: z.string(), by: z.string().optional() });
+export type CardAnswer = z.infer<typeof CardAnswerSchema>;
 
 export const CardSchema = z.object({
   id: z.string().min(1),
@@ -57,6 +78,12 @@ export const CardSchema = z.object({
    * date it happened; `reason` is the short code the log carries.
    */
   lastAttempt: z.object({ at: z.string(), reason: z.string(), summary: z.string() }).optional(),
+  /** The options of a choice card, A to D. */
+  options: z.array(ChoiceOptionSchema).max(4).optional(),
+  /** Whether the person may type their own answer (option id 'other'). Defaults to true for a choice card. */
+  allowOther: z.boolean().optional(),
+  /** The person's answer, once given. */
+  answer: CardAnswerSchema.optional(),
   /** The record the card's action created when it ran — the id the next turn needs. */
   ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),
@@ -109,10 +136,29 @@ export function cardKinds(): CardKindDescriptor[] {
   return [...KINDS.values()];
 }
 
+/**
+ * What is wrong with a choice card, or null. A choice is decided by its
+ * options (each may bind its own actions), so the card itself carries none.
+ * @param card - The card, already shaped by `CardSchema`.
+ */
+function choiceProblem(card: Card): string | null {
+  const options = card.options ?? [];
+  if (options.length < 2) {
+    return 'a choice card offers two to four options';
+  }
+  if (!options.every((option, index) => option.id === CHOICE_OPTION_IDS[index])) {
+    return `a choice card's options are lettered ${CHOICE_OPTION_IDS.slice(0, options.length).join(', ')} in order, with no gaps`;
+  }
+  if (card.actions.length > 0) {
+    return 'a choice card is decided by its options, so it carries no actions of its own';
+  }
+  return null;
+}
+
 // Core kinds. `action` is today's recommendation: one primary action.
 registerCardKind({ kind: 'action', renderer: 'action', refine: c => (c.actions.length === 0 ? 'an action card needs at least one action' : null) });
 registerCardKind({ kind: 'decision', renderer: 'decision', refine: c => (c.actions.length < 2 ? 'a decision card offers at least two ways to decide' : null) });
-registerCardKind({ kind: 'ask', renderer: 'ask' });
+registerCardKind({ kind: 'choice', renderer: 'choice', refine: choiceProblem });
 registerCardKind({ kind: 'record', renderer: 'record' });
 registerCardKind({ kind: 'link', renderer: 'link', refine: c => (c.href ? null : 'a link card names where it opens (href)') });
 

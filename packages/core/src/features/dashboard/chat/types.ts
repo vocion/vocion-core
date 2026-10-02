@@ -46,7 +46,7 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; options?: CardChoiceOption[]; allowOther?: boolean; answer?: CardAnswer; draft?: { prompt: string; missing: string } }
     /** A person's decision on a card, written as a user turn. */
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
@@ -109,6 +109,12 @@ export type CardLastAttempt = { at: string; reason: string; summary: string };
 /** How the person decided a card, and when. */
 export type CardDecision = { action: string; at: string; by?: string };
 
+/** One lettered option of a choice card; picking it runs its bound actions as the person. */
+export type CardChoiceOption = { id: 'A' | 'B' | 'C' | 'D'; label: string; description?: string; actions?: Array<{ actionId: string; input: Record<string, unknown> }> };
+
+/** The person's answer to a choice card; `optionId` is a letter or `other`. */
+export type CardAnswer = { optionId: string; text: string; at: string; by?: string };
+
 /** A2UI: a one-tap recommended action rendered as a card in the answer. */
 export type RecommendedAction = {
   /** The card's id (backlog 025) — how a `card_update` and a decision find it. Absent on a pre-card row. */
@@ -144,6 +150,11 @@ export type RecommendedAction = {
   secondaryHrefLabel?: string;
   lastAttempt?: CardLastAttempt;
   decision?: CardDecision;
+  /** A choice card's options, A to D. */
+  options?: CardChoiceOption[];
+  /** Whether a choice card takes typed text (option id `other`). */
+  allowOther?: boolean;
+  answer?: CardAnswer;
 };
 
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */

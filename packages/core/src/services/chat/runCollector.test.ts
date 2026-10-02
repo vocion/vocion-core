@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { cardShown } from '@/features/dashboard/chat/recommendedAction';
 import { RunCollector } from './runCollector';
 
 /**
@@ -126,5 +127,30 @@ describe('RunCollector', () => {
       secondaryHrefLabel: 'Paste a token',
       lastAttempt: { reason: 'access_denied', summary: 'GitHub denied access' },
     });
+  });
+
+  it('keeps a choice card\'s options, bound actions and answer, and the client draws the same card from the stored run', () => {
+    const c = new RunCollector();
+    const options = [
+      { id: 'A' as const, label: 'Triage the backlog', description: 'Close what is stale', actions: [{ actionId: 'tracker.close', input: { ids: [1, 2] } }, { actionId: 'tracker.label', input: {} }] },
+      { id: 'B' as const, label: 'Write release notes' },
+    ];
+    const answer = { optionId: 'other', text: 'Chase invoices', at: '2026-10-02T09:00:00.000Z', by: 'user_1' };
+    c.onCard({ id: 'card_9', kind: 'choice', label: 'What do you want me taking off your plate?', actionId: '', options, allowOther: true, answer });
+
+    const [run] = c.finalise().runs.filter(r => r.type === 'card');
+
+    expect(run).toMatchObject({ kind: 'choice', options, allowOther: true, answer });
+    expect(cardShown(run as Parameters<typeof cardShown>[0])).toMatchObject({ kind: 'choice', options, allowOther: true, answer });
+  });
+
+  it('a choice card with no answer yet stores none, and allowOther false is kept', () => {
+    const c = new RunCollector();
+    c.onCard({ id: 'card_10', kind: 'choice', label: 'Pick', actionId: '', options: [{ id: 'A', label: 'x' }, { id: 'B', label: 'y' }], allowOther: false });
+
+    const [run] = c.finalise().runs.filter(r => r.type === 'card');
+
+    expect(run).not.toHaveProperty('answer');
+    expect(run).toMatchObject({ allowOther: false });
   });
 });

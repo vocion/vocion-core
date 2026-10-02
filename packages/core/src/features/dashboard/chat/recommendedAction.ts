@@ -1,4 +1,4 @@
-import type { CardDecision, CardField, CardLastAttempt, RecommendedAction } from './types';
+import type { CardAnswer, CardChoiceOption, CardDecision, CardField, CardLastAttempt, RecommendedAction } from './types';
 import { isInAppPath } from '@/libs/connect/inAppPath';
 
 /**
@@ -62,8 +62,11 @@ function withSafeHref(field: CardField): CardField {
  * @param card.secondaryHrefLabel
  * @param card.lastAttempt
  * @param card.decision
+ * @param card.options
+ * @param card.allowOther
+ * @param card.answer
  */
-export function cardShown(card: { kind?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision }): Partial<RecommendedAction> {
+export function cardShown(card: { kind?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; options?: CardChoiceOption[]; allowOther?: boolean; answer?: CardAnswer }): Partial<RecommendedAction> {
   const second = cardLink(card.secondaryHref, card.secondaryHrefLabel);
   return {
     ...(card.kind ? { kind: card.kind } : {}),
@@ -72,6 +75,9 @@ export function cardShown(card: { kind?: string; body?: string; fields?: CardFie
     ...('href' in second ? { secondaryHref: second.href, ...(second.hrefLabel ? { secondaryHrefLabel: second.hrefLabel } : {}) } : {}),
     ...(card.lastAttempt ? { lastAttempt: card.lastAttempt } : {}),
     ...(card.decision ? { decision: card.decision } : {}),
+    ...(card.options ? { options: card.options } : {}),
+    ...(card.allowOther !== undefined ? { allowOther: card.allowOther } : {}),
+    ...(card.answer ? { answer: card.answer } : {}),
   };
 }
 

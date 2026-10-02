@@ -50,7 +50,7 @@ export type ConversationRun
      * lookup result three times on 2026-09-24 because the card lived only
      * in the browser.
      */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; decision?: { action: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; decision?: { action: string; at: string; by?: string }; options?: Array<{ id: 'A' | 'B' | 'C' | 'D'; label: string; description?: string; actions?: Array<{ actionId: string; input: Record<string, unknown> }> }>; allowOther?: boolean; answer?: { optionId: string; text: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
@@ -739,6 +739,7 @@ export async function tailMessages(opts: { orgId: string; conversationId: number
 export type CardRunPatch = {
   state: CardState;
   decision: { action: string; at: string; by?: string };
+  answer: { optionId: string; text: string; at: string; by?: string };
   lastAttempt: { at: string; reason: string; summary: string };
 };
 

@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { cardFromRecommendation, cardKind, readCard, recommendationFromCard, registerCardKind } from './card';
 
+function opt(id: string, extra: Record<string, unknown> = {}) {
+  return { id, label: `Option ${id}`, ...extra };
+}
+
+function choice(options: unknown[], extra: Record<string, unknown> = {}) {
+  return { id: 'c', kind: 'choice', title: 'What do you want me taking off your plate?', options, ...extra };
+}
+
+function boundActions(count: number) {
+  return Array.from({ length: count }, (_, index) => ({ actionId: `a${index}` }));
+}
+
 describe('the card contract', () => {
   it('turns a recommendation into an action card and back without losing what the proposal path needs', () => {
     const card = cardFromRecommendation({ actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'Uploads drop on cellular' }, label: 'File this as a request', rationale: 'seven reports', confidence: 0.9, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'a P1 bug' }, 'card_1');
@@ -40,5 +52,32 @@ describe('the card contract', () => {
 
     expect(readCard(base).ok).toBe(false);
     expect(readCard({ ...base, href: '/dashboard/connectors?add=github' }).ok).toBe(true);
+  });
+
+  describe('the choice card', () => {
+    it('accepts two lettered options, with bound actions and an answer', () => {
+      const checked = readCard(choice([opt('A', { actions: [{ actionId: 'tracker.close', input: { id: 1 } }] }), opt('B')], { answer: { optionId: 'other', text: 'Release notes', at: '2026-10-02T09:00:00.000Z' } }));
+
+      expect(checked).toMatchObject({ ok: true, card: { options: [{ id: 'A', actions: [{ actionId: 'tracker.close', input: { id: 1 } }] }, { id: 'B' }], answer: { optionId: 'other' } } });
+    });
+
+    it('refuses one option, five options, a gap in the letters and a card-level action', () => {
+      expect(readCard(choice([opt('A')]))).toMatchObject({ ok: false });
+      expect(readCard(choice([opt('A'), opt('B'), opt('C'), opt('D'), opt('E')]))).toMatchObject({ ok: false });
+      expect(readCard(choice([opt('A'), opt('C')]))).toMatchObject({ ok: false, reason: expect.stringContaining('A, B') });
+      expect(readCard(choice([opt('B'), opt('A')]))).toMatchObject({ ok: false });
+      expect(readCard(choice([opt('A'), opt('B')], { actions: [{ label: 'Go', actionId: 'a' }] }))).toMatchObject({ ok: false, reason: expect.stringContaining('options') });
+    });
+
+    it('refuses an option that binds 21 actions, and one that binds none', () => {
+      expect(readCard(choice([opt('A', { actions: boundActions(20) }), opt('B')])).ok).toBe(true);
+      expect(readCard(choice([opt('A', { actions: boundActions(21) }), opt('B')])).ok).toBe(false);
+      expect(readCard(choice([opt('A', { actions: [] }), opt('B')])).ok).toBe(false);
+    });
+
+    it('the old ask kind is gone', () => {
+      expect(cardKind('ask')).toBeUndefined();
+      expect(cardKind('choice')).toMatchObject({ renderer: 'choice' });
+    });
   });
 });

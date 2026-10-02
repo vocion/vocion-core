@@ -24,7 +24,7 @@ type CardRunInput = Omit<Extract<ConversationRun, { type: 'card' }>, 'type'>;
 /**
  * The stored run for a card. It keeps everything the card shows, so a reload
  * draws the card the person saw: the body and fields, both links, the last
- * failed attempt and the decision. Keys the card did not set stay off the row.
+ * failed attempt, the decision, and a choice card's options and answer. Keys the card did not set stay off the row.
  * @param card - The card as surfaced.
  */
 function cardRunOf(card: CardRunInput): ConversationRun {
@@ -44,6 +44,9 @@ function cardRunOf(card: CardRunInput): ConversationRun {
     ...(card.secondaryHref ? { secondaryHref: card.secondaryHref, ...(card.secondaryHrefLabel ? { secondaryHrefLabel: card.secondaryHrefLabel } : {}) } : {}),
     ...(card.lastAttempt ? { lastAttempt: card.lastAttempt } : {}),
     ...(card.decision ? { decision: card.decision } : {}),
+    ...(card.options ? { options: card.options } : {}),
+    ...(card.allowOther !== undefined ? { allowOther: card.allowOther } : {}),
+    ...(card.answer ? { answer: card.answer } : {}),
     ...(card.draft ? { draft: card.draft } : {}),
   };
 }
