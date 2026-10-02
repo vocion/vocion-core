@@ -264,6 +264,28 @@ describe('the live check, end to end in a real browser against a fictional produ
     expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen' });
   });
 
+  // WALK 10 (2026-10-02, release #386), fictional: every signed-in flow reached its page and the
+  // release still read "QA could not sign in to the live product as its QA account". The flow that
+  // missed ran signed out on a page behind sign-in; it never tried to sign in.
+  const TWO_LINES = [{ statement: 'The library lists each document with its page count.' }, { statement: 'A visitor sees the document.' }];
+
+  it('a visitor flow on a signed-in page says it ran signed out, not that sign-in failed, while the signed-in flows reach theirs', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_visitor_bounce`;
+    const { releaseId } = await seed(org, TWO_LINES);
+    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
+
+    const out = await runLiveCheck(org, { releaseId, flows: flows([
+      { name: 'library', phase: 'check', line: 1, path: '/', viewports: ['desktop', 'phone'], steps: [{ wait_for: 'body' }, { shoot: 'The library' }] },
+      { name: 'visitor view', phase: 'check', line: 2, signed_in: false, path: '/', steps: [{ shoot: 'What a visitor sees' }] },
+    ]) }, { author }, deps());
+
+    expect(out.runs.map(r => [r.flow, r.viewport, r.shots[0]?.status])).toEqual([['library', 'desktop', 'reached'], ['library', 'phone', 'reached'], ['visitor view', 'desktop', 'not_reached']]);
+    expect(out.verdict.why).toMatchObject({ kind: 'visitor_sent_to_sign_in', flow: 'visitor view', path: '/' });
+    expect(out.verdict.line).toContain('"visitor view" ran signed out, and the page it opened (/) needs sign-in');
+    expect(out.verdict.line).not.toContain('could not sign in');
+    expect((await meta(releaseId)).liveWhy).toMatchObject({ kind: 'visitor_sent_to_sign_in' });
+  });
+
   // FE-314 / REL-347 (2026-10-02), fictional: one line production can show (the API answers 200
   // signed in), one only CI could (proven before the merge). QA cites lines by number.
   const API_LINES = [

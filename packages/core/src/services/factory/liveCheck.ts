@@ -410,12 +410,12 @@ export async function runLiveCheck(
           }
           // What the flow's expect_response steps saw answer as promised, said as a person reads it.
           const proved = (result.responses ?? []).map(r => `${r.method} ${r.path} returned ${r.status}${flow.signed_in ? ' signed in' : ' to a visitor'}`);
-          for (const { shot, status, reason, kind } of keptShots(flow.path, result)) {
+          for (const { shot, status, reason, kind, path: bouncedFrom } of keptShots(flow.path, result, flow.signed_in)) {
             let artifactId: number | null = null;
             const why = reason && status !== 'reached' && setupFailed ? `${reason} (setup did not finish: ${setupFailed})` : reason;
             const typed: LiveReason | null = !why || status === 'reached'
               ? null
-              : setupWhy ?? (kind === 'not_visible' || missing ? typedFailure(why) : { kind: kind ?? 'could_not_run', flow: flow.name, detail: why });
+              : setupWhy ?? (kind === 'not_visible' || missing ? typedFailure(why) : { kind: kind ?? 'could_not_run', flow: flow.name, ...(bouncedFrom ? { path: bouncedFrom } : {}), detail: why });
             const pageUrl = `${new URL(String(env.url)).origin}${shot.at || ''}`;
             if (!explore) {
               artifactId = await attachShot(orgId, input.releaseId, d, { file: shot.file, flow, viewport, label: shot.label, status, reason: why ?? null, pageUrl, author: opts.author, provenance: opts.provenance, proved: status === 'reached' ? proved : [] }).catch((e) => {

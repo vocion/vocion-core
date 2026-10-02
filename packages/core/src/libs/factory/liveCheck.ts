@@ -67,7 +67,7 @@ export const LIVE_ATTEMPTS = 2;
  * the place it failed, never read back out of the message; the message itself
  * is the `detail`, one click away.
  */
-export const LIVE_REASON_KINDS = ['sign_in_failed', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run', 'not_checked'] as const;
+export const LIVE_REASON_KINDS = ['sign_in_failed', 'visitor_sent_to_sign_in', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run', 'not_checked'] as const;
 export type LiveReasonKind = typeof LIVE_REASON_KINDS[number];
 
 /** One reason, typed: its kind, the flow and step it stopped at, and the check's own words. */
@@ -143,6 +143,8 @@ export function liveReasonSentence(r: LiveReason): string {
   switch (r.kind) {
     case 'sign_in_failed':
       return 'QA could not sign in to the live product as its QA account';
+    case 'visitor_sent_to_sign_in':
+      return `${r.flow ? `"${r.flow}"` : 'A flow'} ran signed out, and the page it opened${r.path ? ` (${r.path})` : ''} needs sign-in`;
     case 'setup_failed':
       return `QA could not set up the test data it needed${at ? `: it stopped at ${at}` : r.flow ? ` ("${r.flow}")` : ''}`;
     case 'page_not_found':
@@ -410,16 +412,26 @@ export function isSignInPath(pathname: string): boolean {
  * Reached or not, for one shot of one flow on production, with the reason
  * when not: a step that failed, a page that bounced to sign-in, a page that
  * shows an app error.
+ *
+ * A BOUNCE TO SIGN-IN IS NOT ALWAYS A FAILED SIGN-IN (Walk 10, 2026-10-02,
+ * release #386): "Partly seen live: 4 of 5. Not reached: QA could not sign in
+ * to the live product as its QA account", while every signed-in flow had
+ * reached its page. The fifth was a visitor flow (`signed_in: false`) that
+ * opened the signed-in library; nothing tried to sign in. A signed-out flow
+ * sent to sign-in opened a page behind sign-in, and says so.
  * @param flowPath - The flow's own path (a flow written for the sign-in page may land there).
  * @param shot - The shot.
+ * @param signedIn - Whether the flow ran signed in as the QA account.
  */
-export function shotStatus(flowPath: string, shot: RunnerShot): { status: 'reached' | 'not_reached'; reason?: string; kind?: LiveReasonKind } {
+export function shotStatus(flowPath: string, shot: RunnerShot, signedIn = true): { status: 'reached' | 'not_reached'; reason?: string; kind?: LiveReasonKind; path?: string } {
   if (shot.shortOf) {
     return { status: 'not_reached', reason: shot.shortOf, kind: 'not_visible' };
   }
   const at = String(shot.at || '').split(/[?#]/)[0] ?? '';
   if (at && isSignInPath(at) && !isSignInPath(flowPath)) {
-    return { status: 'not_reached', reason: `production sent the page to sign-in (${at})`, kind: 'sign_in_failed' };
+    return signedIn
+      ? { status: 'not_reached', reason: `production sent the page to sign-in (${at}) after QA signed in`, kind: 'sign_in_failed' }
+      : { status: 'not_reached', reason: `the flow ran signed out and production sent ${flowPath} to sign-in (${at})`, kind: 'visitor_sent_to_sign_in', path: flowPath };
   }
   if (shot.errorState) {
     return { status: 'not_reached', reason: 'the page shows an app error', kind: 'app_error' };
@@ -435,11 +447,12 @@ export function shotStatus(flowPath: string, shot: RunnerShot): { status: 'reach
  * @param result - What `shootFlow` returned.
  * @param result.shots - Its shots.
  * @param result.stepFailures - The steps that failed.
+ * @param signedIn - Whether the flow ran signed in.
  */
-export function keptShots(flowPath: string, result: { shots: RunnerShot[]; stepFailures: unknown[] }): Array<{ shot: RunnerShot; status: 'reached' | 'not_reached'; reason?: string; kind?: LiveReasonKind }> {
+export function keptShots(flowPath: string, result: { shots: RunnerShot[]; stepFailures: unknown[] }, signedIn = true): Array<{ shot: RunnerShot; status: 'reached' | 'not_reached'; reason?: string; kind?: LiveReasonKind; path?: string }> {
   const failed = result.stepFailures.length > 0;
   const labeled = result.shots.some(s => s.label);
-  return result.shots.filter(s => s.label || failed || !labeled).map(shot => ({ shot, ...shotStatus(flowPath, shot) }));
+  return result.shots.filter(s => s.label || failed || !labeled).map(shot => ({ shot, ...shotStatus(flowPath, shot, signedIn) }));
 }
 
 /** One state of a check flow on production, as the release keeps it (`liveEvidence`). */

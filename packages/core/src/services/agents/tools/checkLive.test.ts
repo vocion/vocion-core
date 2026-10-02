@@ -31,3 +31,21 @@ describe('check_live answers a refusal so the run counts it as not done', () => 
     expect(callMeets({ tool: 'check_live', action: null }, { tool: 'check_live', input: { release_id: 363, flows: [flow] }, output: answer, error: null })).toBe(true);
   });
 });
+
+describe('check_live says what to change when a visitor flow hit sign-in (Walk 10, release #386)', () => {
+  it('names the flow that ran signed out and the two ways through, on the retry', async () => {
+    out.value = { ok: false, releaseId: 386, explore: false, attempt: 1, verdict: { state: 'partial', line: 'Partly seen live', why: { kind: 'visitor_sent_to_sign_in', flow: 'visitor view', path: '/', detail: 'x' } } };
+    const [tool] = checkLiveTools(ctx);
+    const answer = JSON.parse(String(await tool!.invoke({ release_id: 386, flows: [flow] })));
+
+    expect(answer.next).toMatch(/^Attempt 1 of 2\. "visitor view" ran signed out \(signed_in: false\) and its page needs sign-in: run it signed in, or open a page a visitor can open/);
+  });
+
+  it('adds nothing for any other reason', async () => {
+    out.value = { ok: false, releaseId: 386, explore: false, attempt: 1, verdict: { state: 'partial', line: 'Partly seen live', why: { kind: 'sign_in_failed', detail: 'x' } } };
+    const [tool] = checkLiveTools(ctx);
+    const answer = JSON.parse(String(await tool!.invoke({ release_id: 386, flows: [flow] })));
+
+    expect(answer.next).toMatch(/^Attempt 1 of 2\. Read what each page showed/);
+  });
+});

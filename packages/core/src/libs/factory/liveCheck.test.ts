@@ -28,9 +28,22 @@ describe('the live flow', () => {
 describe('what one shot shows', () => {
   it('is not reached when a step failed, when production sent it to sign-in, or when the page shows an app error', () => {
     expect(shotStatus('/documents/d1', { file: 'a.png', label: 'line', at: '/documents/d1', shortOf: 'step 2 (wait_for "Last opened") failed' })).toEqual({ status: 'not_reached', reason: 'step 2 (wait_for "Last opened") failed', kind: 'not_visible' });
-    expect(shotStatus('/documents/d1', { file: 'a.png', label: '', at: '/sign-in?next=%2F' })).toEqual({ status: 'not_reached', reason: 'production sent the page to sign-in (/sign-in)', kind: 'sign_in_failed' });
+    expect(shotStatus('/documents/d1', { file: 'a.png', label: '', at: '/sign-in?next=%2F' })).toEqual({ status: 'not_reached', reason: 'production sent the page to sign-in (/sign-in) after QA signed in', kind: 'sign_in_failed' });
     expect(shotStatus('/documents/d1', { file: 'a.png', label: '', at: '/documents/d1', errorState: true }).status).toBe('not_reached');
     expect(shotStatus('/documents/d1', { file: 'a.png', label: 'line', at: '/documents/d1' })).toEqual({ status: 'reached' });
+  });
+
+  it('a signed-out flow sent to sign-in opened a page behind sign-in; it is not a failed sign-in (Walk 10, release #386)', () => {
+    // Four signed-in flows reached their pages; the fifth ran as a visitor on the signed-in
+    // library and was bounced, and the release read "QA could not sign in as its QA account".
+    const visitor = shotStatus('/', { file: 'a.png', label: 'Visitor view', at: '/sign-in' }, false);
+
+    expect(visitor).toEqual({ status: 'not_reached', reason: 'the flow ran signed out and production sent / to sign-in (/sign-in)', kind: 'visitor_sent_to_sign_in', path: '/' });
+    expect(liveReasonSentence({ kind: 'visitor_sent_to_sign_in', flow: 'Check line 4: visitor view', path: '/', detail: visitor.reason! })).toBe('"Check line 4: visitor view" ran signed out, and the page it opened (/) needs sign-in');
+    expect(readLiveReason({ kind: 'visitor_sent_to_sign_in', detail: 'x' })).toMatchObject({ kind: 'visitor_sent_to_sign_in' });
+    // Signed in, the same bounce is the session not holding.
+    expect(shotStatus('/', { file: 'a.png', label: '', at: '/sign-in' }, true).kind).toBe('sign_in_failed');
+    expect(keptShots('/', { shots: [{ file: '1', label: 'v', at: '/sign-in' }], stepFailures: [] }, false)[0]).toMatchObject({ kind: 'visitor_sent_to_sign_in' });
   });
 
   it('keeps each named shot, and the last picture only when nothing was named or a step failed', () => {

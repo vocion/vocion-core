@@ -46,6 +46,18 @@ const inputSchema = z.object({
   explore: z.boolean().optional().describe('Run the flows and report what each page showed, and each request\'s numbered acceptance lines, writing nothing on the release. Cleanup still runs.'),
 });
 
+/**
+ * The move a visitor flow sent to sign-in needs, typed from the reason's kind:
+ * the page needs a signed-in account, so the flow runs signed in, or opens a
+ * page a visitor can (a share link setup remembered).
+ * @param why - The verdict's typed reason.
+ */
+export function visitorHint(why: { kind?: string; flow?: string | null } | null | undefined): string {
+  return why?.kind === 'visitor_sent_to_sign_in'
+    ? `${why.flow ? `"${why.flow}"` : 'A flow'} ran signed out (signed_in: false) and its page needs sign-in: run it signed in, or open a page a visitor can open (a share link setup remembered). `
+    : '';
+}
+
 export function checkLiveTools(ctx: RuntimeContext): StructuredToolInterface[] {
   if (!(ctx.harnessConfig.grantTools ?? []).includes('check_live')) {
     return [];
@@ -67,7 +79,7 @@ export function checkLiveTools(ctx: RuntimeContext): StructuredToolInterface[] {
         : out.verdict.state === 'seen'
           ? 'Written on the release and each feature. Report it in one line; do not describe the pictures.'
           : (out.attempt ?? 0) < LIVE_ATTEMPTS
-              ? `Attempt ${out.attempt} of ${LIVE_ATTEMPTS}. Read what each page showed (pageText) and the first failure, change the flows (the selector, the state setup prepares, the path, the lines cited), and call check_live once more.`
+              ? `Attempt ${out.attempt} of ${LIVE_ATTEMPTS}. ${visitorHint(out.verdict.why)}Read what each page showed (pageText) and the first failure, change the flows (the selector, the state setup prepares, the path, the lines cited), and call check_live once more.`
               : `That was the last attempt: the release and each feature now say "${out.verdict.line}". Report that in one line and stop.`;
       return JSON.stringify({ ...out, next });
     },
