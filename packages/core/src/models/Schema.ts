@@ -3450,6 +3450,11 @@ export const autonomyPolicySchema = pgTable(
     evidence: jsonb('evidence').$type<Record<string, unknown>>(),
     flagged: boolean('flagged').default(false).notNull(),
     flagReason: text('flag_reason'),
+    /** The rung a person wants this action to work toward. A note, never the rung: reaching it is earned. */
+    goalRung: text('goal_rung'),
+    /** User id of the person who named the goal. */
+    goalSetBy: text('goal_set_by'),
+    goalSetAt: timestamp('goal_set_at', { mode: 'date' }),
     /** trust.yaml | app | system */
     source: text('source').default('app').notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),

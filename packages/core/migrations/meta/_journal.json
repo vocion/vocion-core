@@ -1170,6 +1170,13 @@
       "when": 1790900660000,
       "tag": "0166_api_token_login",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1790900720000,
+      "tag": "0167_autonomy_goal",
+      "breakpoints": true
     }
   ]
 }

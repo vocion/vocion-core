@@ -23,12 +23,12 @@ import type { AlignmentEvidence, Eligibility, RiskTier, Rung } from './rungs';
 import type { DbTransaction } from '@/libs/DbTransaction';
 import type { TrustManifest } from '@/libs/workspace/schemas';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { actionForPolicyKey } from '@/libs/actions/policyKey';
 import { aliasesOf, listActions } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
-import { autonomyPolicySchema, trustRuleSchema } from '@/models/Schema';
+import { autonomyPolicySchema, trustRuleSchema, userSchema } from '@/models/Schema';
 import { evidenceFor, scoresByKey } from '@/services/alignment/AlignmentService';
 import { DEFAULT_RUNG, defaultRiskTier, evaluateEligibility, isRiskTier, isRung, nextRung, previousRung, rungAutomates, rungFromTrustRule, rungIndex, TIER_RULES, trustRuleFor } from './rungs';
 
@@ -62,6 +62,11 @@ export type AutonomyPolicyView = {
   flagged: boolean;
   flagReason: string | null;
   source: string;
+  /** The rung a person named during setup to work toward; null when none. The rung above is unaffected. */
+  goalRung: Rung | null;
+  /** Name of who named the goal; null when they cannot be resolved (never an id). */
+  goalSetByName: string | null;
+  goalSetAt: Date | null;
   /** 30-day alignment across every agent proposing this kind. */
   alignment: AlignmentScore;
   eligibility: Eligibility;
@@ -181,6 +186,20 @@ export async function eligibility(orgId: string, actionId: string, now: Date = n
 }
 
 /**
+ * Display names for a set of user ids, one query. A user with no name on file
+ * is left out, so a caller never falls back to showing the id.
+ * @param userIds - Ids to look up; nulls and repeats are ignored.
+ */
+async function namesOfUsers(userIds: Array<string | null>): Promise<Map<string, string>> {
+  const wanted = [...new Set(userIds.filter((id): id is string => !!id))];
+  if (wanted.length === 0) {
+    return new Map();
+  }
+  const rows = await db.select({ id: userSchema.id, name: userSchema.name }).from(userSchema).where(inArray(userSchema.id, wanted));
+  return new Map(rows.filter(row => row.name).map(row => [row.id, row.name!]));
+}
+
+/**
  * Every action kind the org can see — registered actions, plus any kind a
  * policy row or a trust rule names — with rung, risk, alignment and
  * eligibility. One page's worth of data in a handful of queries.
@@ -196,6 +215,7 @@ export async function listPolicies(orgId: string, now: Date = new Date()): Promi
   const policyBy = new Map(policies.map(p => [p.actionId, p]));
   const trustBy = new Map(trustRules.map(t => [t.actionId, t]));
   const ids = new Set<string>([...listActions().map(a => a.id), ...policyBy.keys(), ...trustBy.keys()]);
+  const goalSetters = await namesOfUsers(policies.map(p => p.goalSetBy));
 
   const views = await Promise.all([...ids].map(async (actionId) => {
     const action = actionForPolicyKey(actionId);
@@ -219,6 +239,9 @@ export async function listPolicies(orgId: string, now: Date = new Date()): Promi
       flagged: p?.flagged ?? false,
       flagReason: p?.flagReason ?? null,
       source: p?.source ?? (effective.trustRule ? 'trust.yaml' : 'default'),
+      goalRung: p?.goalRung && isRung(p.goalRung) ? p.goalRung : null,
+      goalSetByName: p?.goalSetBy ? goalSetters.get(p.goalSetBy) ?? null : null,
+      goalSetAt: p?.goalSetAt ?? null,
       alignment: alignment.get(actionId) ?? { agreementRate: null, n: 0, agreed: 0, decided: 0, rejected: 0, withNote: 0, window: '30d' as const },
       eligibility: evaluateEligibility({ rung: effective.rung, tier: effective.riskTier, evidence, neverAuto }),
     } satisfies AutonomyPolicyView;

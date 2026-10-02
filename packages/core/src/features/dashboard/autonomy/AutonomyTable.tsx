@@ -9,6 +9,16 @@ import { client } from '@/libs/Orpc';
 import { RUNG_LABEL, rungAutomates, rungIndex, RUNGS } from '@/services/autonomy/rungs';
 
 /**
+ * The goal a person named during setup, with its date. The setter's name is
+ * left out when it could not be resolved; an id is never shown.
+ * @param p - A row with a goal and the day it was set.
+ */
+function goalLine(p: AutonomyPolicyView): string {
+  const by = p.goalSetByName ? `, set by ${p.goalSetByName}` : ', set';
+  return `Goal: ${RUNG_LABEL[p.goalRung!]}${by} on ${new Date(p.goalSetAt!).toLocaleDateString()}`;
+}
+
+/**
  * The ladder as a table: kind, rung, risk, confidence floor, alignment,
  * eligibility, and the one or two verbs that apply. Dense and quiet — the
  * rung that automates is the only thing drawn in colour, a flag is the only
@@ -94,6 +104,9 @@ export function AutonomyTable({ policies, isAdmin }: { policies: AutonomyPolicyV
                               ? `set ${new Date(p.promotedAt).toLocaleDateString()}${p.promotedBy ? ` · ${p.promotedBy}` : ''}`
                               : 'default'}
                     </div>
+                    {p.goalRung && p.goalSetAt && (
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">{goalLine(p)}</div>
+                    )}
                     {p.flagged && (
                       <div className="mt-1 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400">
                         <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden />

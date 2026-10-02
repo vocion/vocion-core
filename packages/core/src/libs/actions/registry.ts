@@ -9,6 +9,7 @@ import { agentRevisePromptAction } from './agent-revise-prompt';
 import { askFileAction } from './ask-file';
 import { askWithdrawAction } from './ask-withdraw';
 import { autonomyLowerAction } from './autonomy-lower';
+import { autonomySetGoalAction } from './autonomy-set-goal';
 import { chatAddReactionAction } from './chat-add-reaction';
 import { chatReplyInThreadAction } from './chat-reply-in-thread';
 import { discoveryReviewProposalAction } from './discovery-review';
@@ -164,6 +165,8 @@ registerAction(pluginEnableAction);
 registerAction(workspaceDescribeAction);
 // Setup lowers trust to a rung and never raises it; undo is refused (raising is earned on the Autonomy page).
 registerAction(autonomyLowerAction);
+// Setup records the rung a person wants to work toward; the rung itself is untouched.
+registerAction(autonomySetGoalAction);
 // A source saved from what the person picked, on their login; reversible until it syncs (`services/connect/createSourceOnLogin.ts`).
 registerAction(sourceConnectAction);
 // An agent adds a teammate from the catalog, with the daily allowance it is
