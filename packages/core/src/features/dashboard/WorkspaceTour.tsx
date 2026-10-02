@@ -369,6 +369,29 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
     return () => document.removeEventListener('click', onClick, true);
   }, [active, idx, slug, step.advance, step.selector, step.selectorText, router]);
 
+  // `follow` — the tour takes a link on the page itself the moment it
+  // exists: one tap opens the preview, the tour opens the full page.
+  useEffect(() => {
+    if (!active || !onRoute || !step.follow) {
+      return;
+    }
+    let done = false;
+    const poll = setInterval(() => {
+      const link = findTarget(step.follow!) as HTMLAnchorElement | null;
+      if (done || !link?.href) {
+        return;
+      }
+      const url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin) {
+        return;
+      }
+      done = true;
+      advanceRef.current();
+      router.push(`${url.pathname}${url.search}` as never);
+    }, 250);
+    return () => clearInterval(poll);
+  }, [active, stepKey, onRoute, step.follow, router]);
+
   // `prefill` — put the step's line in the chat composer, unsent, so the
   // audience sends it. Once per step; the surface may mount a beat after the
   // route changes, so retry briefly until one claims the request.
