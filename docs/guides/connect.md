@@ -57,6 +57,12 @@ person clicks Connect with Slack
   names an org or a person other than the admin signed in is refused with a
   short code (`state_expired`, `wrong_workspace`, `wrong_person`, `not_admin`,
   `signed_out`), and no exchange is attempted.
+- **Return path.** The start route also accepts `returnTo`, a `/dashboard`
+  path (for example the chat the person was in). It is signed into the state,
+  and the callback lands there with `connect`, `reason` and `source` appended
+  to its own query. Anything that is not a plain `/dashboard` path (another
+  host, a `//` or backslash, `..`, over 500 characters) is dropped at start and
+  refused on verify, and the landing falls back to `/dashboard/sources`.
 - **Exchange** is the provider's. It gets every query parameter but `state`
   and this deployment's callback URL, and returns either a credential bag
   with a display name, or a refusal reason.
@@ -67,6 +73,11 @@ person clicks Connect with Slack
   the workspace: connect Slack once and every `slack` source reads with it.
   If the source that started the connect had been pointed at a pasted
   workspace credential, that link is cleared so the grant is what resolves.
+- **After the login**, a connector that needs nothing more (Slack) gets its
+  source from the callback (`createSourceWhenNoConfigNeeded`). One that needs
+  picks (GitHub repos, a Jira site and project keys) lands back where the
+  person started; in chat the agent asks for the picks and saves them with
+  `source.connect`, on the Connectors page the form asks.
 - **Landing** carries only `connect=ok|error`, a short `reason` code, and the
   source slug. A code, a token or free text from the vendor never reaches a
   URL or a log line; a vendor's refusal reaches the landing URL only as its

@@ -24,6 +24,7 @@
  */
 
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
+import type { DbTransaction } from '@/libs/DbTransaction';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { traceFor } from '@/libs/Langfuse';
@@ -89,6 +90,7 @@ export type SourceRef = {
  * @param input.configJson
  * @param input.clientId
  * @param input.teamId
+ * @param input.tx - The caller's transaction, when the row must land with other writes.
  */
 export async function ensureSource(input: {
   orgId: string;
@@ -98,9 +100,35 @@ export async function ensureSource(input: {
   /** Scope to stamp on docs ingested under this ref. NULL = org-wide/shared. */
   clientId?: string | null;
   teamId?: string | null;
+  tx?: DbTransaction;
+}): Promise<SourceRef> {
+  if (input.tx) {
+    return ensureSourceWithin(input.tx, input);
+  }
+  return db.transaction(tx => ensureSourceWithin(tx, input));
+}
+
+/**
+ * The find-or-insert behind {@link ensureSource}, inside one transaction.
+ * @param conn - The transaction to read and write in.
+ * @param input - The same fields `ensureSource` takes.
+ * @param input.orgId - Org that owns the source.
+ * @param input.slug - The source's slug.
+ * @param input.kind - Source kind, `plugin` by default.
+ * @param input.configJson - Config for a new row.
+ * @param input.clientId - Client scope.
+ * @param input.teamId - Team scope.
+ */
+async function ensureSourceWithin(conn: DbTransaction, input: {
+  orgId: string;
+  slug: string;
+  kind?: 'web' | 'plugin' | 'upload';
+  configJson?: Record<string, unknown>;
+  clientId?: string | null;
+  teamId?: string | null;
 }): Promise<SourceRef> {
   const scope = { clientId: input.clientId ?? null, teamId: input.teamId ?? null };
-  const existing = await db
+  const existing = await conn
     .select({ id: knowledgeSourceSchema.id })
     .from(knowledgeSourceSchema)
     .where(and(
@@ -111,7 +139,7 @@ export async function ensureSource(input: {
   if (existing[0]) {
     return { orgId: input.orgId, sourceId: existing[0].id, sourceSlug: input.slug, ...scope };
   }
-  const inserted = await db
+  const inserted = await conn
     .insert(knowledgeSourceSchema)
     .values({
       orgId: input.orgId,

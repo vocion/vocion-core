@@ -47,7 +47,8 @@ import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 import { ATLASSIAN_API_BASE, isAtlassianGrant, isExpiring, refreshAtlassianGrant, siteForBaseUrl } from '@/libs/atlassian/oauth';
 import { fetchRetryingRateLimits } from '@/libs/http/retryAfter';
-import { getCredentialsForSource, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
+import { updateLoginCredentialValues } from '@/services/ApiTokenService';
+import { getCredentialsForConnector, resolveApiTokenIdForSource, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
 import { InspectInputError } from './inspect';
 
 const jiraConfigSchema = z.object({
@@ -211,14 +212,46 @@ export function resolveJiraAuth(input: {
 
 const RECONNECT_HINT = 'The Atlassian grant may have been revoked — open the source and Connect with Atlassian again.';
 
+/** The stored grant, and the `api_token` row it was read from (null: the per-install `source_credential`). */
+type StoredGrant = { grant: AtlassianGrant; apiTokenId: string | null };
+
 /**
  * The grant as currently stored for the org's Jira install, or null when the
- * stored bag is not a grant (or there is none).
- * @param orgId - The org whose install to read.
+ * stored bag is not a grant (or there is none). Resolves the row the same way
+ * `getCredentialsForSource` does, and hands the row id back so the write after
+ * a refresh goes to the row this read came from.
+ * @param orgId - The org whose Jira install to read.
  */
-async function readStoredGrant(orgId: string): Promise<AtlassianGrant | null> {
-  const stored = await getCredentialsForSource(orgId, 'jira').catch(() => undefined);
-  return isAtlassianGrant(stored) ? stored : null;
+async function readStoredGrant(orgId: string): Promise<StoredGrant | null> {
+  try {
+    const apiTokenId = await resolveApiTokenIdForSource(orgId, 'jira');
+    const stored = await getCredentialsForConnector({ orgId, connectorSlug: 'jira', apiTokenId });
+    return isAtlassianGrant(stored) ? { grant: stored, apiTokenId } : null;
+  } catch {
+    // An unreadable credential is "no stored grant": the refresh then falls
+    // back to the token this run loaded, and its persist step reports the rest.
+    return null;
+  }
+}
+
+/**
+ * Save a refreshed grant to the row it was read from, compare-and-swap on the
+ * refresh token it was refreshed from. A grant read from a login `api_token`
+ * row is written back to that row; one read from the install's
+ * `source_credential` goes back there. Writing to the wrong one would leave the
+ * rotated token where nothing reads it, and the next sync would refresh with a
+ * token Atlassian has already retired.
+ * @param input - Where the grant came from, the new bag, and the token it was refreshed from.
+ * @param input.orgId
+ * @param input.apiTokenId - The login row the grant was read from, or null for `source_credential`.
+ * @param input.grant - The complete new bag.
+ * @param input.expectedRefreshToken
+ */
+async function persistRefreshedGrant(input: { orgId: string; apiTokenId: string | null; grant: AtlassianGrant; expectedRefreshToken: string }): Promise<boolean> {
+  if (input.apiTokenId !== null) {
+    return updateLoginCredentialValues({ orgId: input.orgId, tokenId: input.apiTokenId, values: input.grant, expectedRefreshToken: input.expectedRefreshToken });
+  }
+  return updateCredentialValuesForConnector({ orgId: input.orgId, connectorSlug: 'jira', raw: input.grant, expectedRefreshToken: input.expectedRefreshToken });
 }
 
 function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPersistence): JiraAuth {
@@ -244,7 +277,7 @@ function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPer
     // rotated it, and Atlassian retires a refresh token the moment its
     // successor is minted (with a ten-minute reuse window as the safety net).
     const stored = await readStoredGrant(persistence.orgId);
-    const parent = stored?.refreshToken ?? current.refreshToken;
+    const parent = stored?.grant.refreshToken ?? current.refreshToken;
     let fresh: Awaited<ReturnType<typeof refreshAtlassianGrant>>;
     try {
       fresh = await refreshAtlassianGrant(parent);
@@ -257,11 +290,11 @@ function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPer
     // consent that landed first wins, and this run adopts what it stored.
     let saved = false;
     try {
-      saved = await updateCredentialValuesForConnector({ orgId: persistence.orgId, connectorSlug: 'jira', raw: current, expectedRefreshToken: parent });
+      saved = await persistRefreshedGrant({ orgId: persistence.orgId, apiTokenId: stored?.apiTokenId ?? null, grant: current, expectedRefreshToken: parent });
       if (!saved) {
         const winner = await readStoredGrant(persistence.orgId);
-        if (winner && winner.refreshToken !== parent) {
-          current = { ...winner, cloudId: site.id };
+        if (winner && winner.grant.refreshToken !== parent) {
+          current = { ...winner.grant, cloudId: site.id };
           return;
         }
       }

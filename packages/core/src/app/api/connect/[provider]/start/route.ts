@@ -1,22 +1,72 @@
 /**
- * GET /api/connect/[provider]/start?source=<slug>
+ * GET /api/connect/[provider]/start?connector=<slug>|source=<slug>[&returnTo=/dashboard/...][&conversation=<id>&card=<id>]
  *
- * Sends a workspace admin to the vendor to authorize a source. The state it
- * carries is signed and bound to this org, this source and this person; the
- * callback trusts nothing else. Same gate as pasting a key: admins only.
+ * Sends a workspace admin to the vendor to log in (#1080). It can start from a
+ * connector alone: the login is stored first and sources are linked to it
+ * afterwards. The state it carries is signed and bound to this org, this
+ * connector or source and this person; the callback trusts nothing else. Same gate as pasting a key: admins only.
  *
  * Fails closed on configuration: no AUTH_SECRET means no state can be signed,
  * and no NEXT_PUBLIC_APP_URL means no redirect_uri can be named honestly.
  */
 
 import type { NextRequest } from 'next/server';
+import type { ConnectProvider } from '@/libs/connect/provider';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { providerFor, providerForConnector } from '@/libs/connect/registry';
+import { safeReturnPath } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
 import { signState } from '@/libs/connect/state';
 import { Env } from '@/libs/Env';
+
+type StartTarget
+  = | { ok: true; connectorSlug: string; sourceSlug?: string }
+    | { ok: false; status: number; error: string };
+
+/**
+ * What the login is for: a connector this provider serves, or an existing
+ * source of one. A connector needs no source row.
+ * @param orgId - The workspace.
+ * @param provider - The provider the URL named.
+ * @param params - The start route's query string.
+ */
+async function resolveTarget(orgId: string, provider: ConnectProvider, params: URLSearchParams): Promise<StartTarget> {
+  const connector = params.get('connector')?.trim() ?? '';
+  if (connector) {
+    if (providerForConnector(connector)?.id !== provider.id) {
+      return { ok: false, status: 400, error: `${connector} is not a ${provider.label} connector` };
+    }
+    return { ok: true, connectorSlug: connector };
+  }
+  const sourceSlug = params.get('source')?.trim() ?? '';
+  if (!sourceSlug) {
+    return { ok: false, status: 400, error: 'Missing connector or source' };
+  }
+  const source = await findSourceBySlug(orgId, sourceSlug);
+  if (!source) {
+    return { ok: false, status: 404, error: 'Source not found' };
+  }
+  if (providerForConnector(source.connectorSlug)?.id !== provider.id) {
+    return { ok: false, status: 400, error: `${source.slug} is not a ${provider.label} source` };
+  }
+  return { ok: true, connectorSlug: source.connectorSlug, sourceSlug: source.slug };
+}
+
+/**
+ * The chat card the login came from, when the query names one properly. A
+ * malformed conversation or card id drops both: half a card is no card.
+ * @param params - The start route's query string.
+ */
+function cardFromQuery(params: URLSearchParams): { conversationId?: number; cardId?: string } {
+  const conversation = params.get('conversation') ?? '';
+  const card = params.get('card') ?? '';
+  if (!/^[1-9]\d{0,9}$/.test(conversation) || !/^[\w-]{1,64}$/.test(card)) {
+    return {};
+  }
+  return { conversationId: Number(conversation), cardId: card };
+}
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
   const { orgId, userId, role } = await auth();
@@ -31,16 +81,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   if (!provider) {
     return NextResponse.json({ error: 'Unknown provider' }, { status: 404 });
   }
-  const sourceSlug = req.nextUrl.searchParams.get('source')?.trim() ?? '';
-  if (!sourceSlug) {
-    return NextResponse.json({ error: 'Missing source' }, { status: 400 });
-  }
-  const source = await findSourceBySlug(orgId, sourceSlug);
-  if (!source) {
-    return NextResponse.json({ error: 'Source not found' }, { status: 404 });
-  }
-  if (providerForConnector(source.connectorSlug)?.id !== provider.id) {
-    return NextResponse.json({ error: `${source.slug} is not a ${provider.label} source` }, { status: 400 });
+  const target = await resolveTarget(orgId, provider, req.nextUrl.searchParams);
+  if (!target.ok) {
+    return NextResponse.json({ error: target.error }, { status: target.status });
   }
   if (!provider.configured()) {
     return NextResponse.json(
@@ -59,6 +102,16 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       { status: 500 },
     );
   }
-  const state = signState({ provider: provider.id, orgId, sourceSlug: source.slug, userId });
+  const returnTo = safeReturnPath(req.nextUrl.searchParams.get('returnTo'));
+  const card = cardFromQuery(req.nextUrl.searchParams);
+  const state = signState({
+    provider: provider.id,
+    orgId,
+    userId,
+    ...(target.sourceSlug ? { sourceSlug: target.sourceSlug } : {}),
+    connectorSlug: target.connectorSlug,
+    ...(returnTo ? { returnTo } : {}),
+    ...card,
+  });
   return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id) }), 302);
 }

@@ -12,6 +12,10 @@ describe('the connect outcome the callback writes into the URL', () => {
     expect(readConnectOutcome('?connect=ok&source=slack')).toEqual({ ok: true, source: 'slack' });
   });
 
+  it('names the connector a login started from, when no source was involved', () => {
+    expect(readConnectOutcome('?connect=ok&connector=github')).toEqual({ ok: true, source: 'github' });
+  });
+
   it('reads a refusal by its short code', () => {
     expect(readConnectOutcome('?connect=error&reason=access_denied&source=jira'))
       .toEqual({ ok: false, reason: 'access_denied', source: 'jira' });

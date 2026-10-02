@@ -7,7 +7,7 @@
 import type { AgentEvent } from '@/services/agents/types';
 import type { FiledCard } from '@/services/chat/autoPropose';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cardFromRecommendation } from '@/libs/cards/card';
+import { cardFromRecommendation, CardSchema } from '@/libs/cards/card';
 import { RunCollector } from '@/services/chat/runCollector';
 import { AUTO_FILE_MS, surfaceCard } from './surface';
 
@@ -67,5 +67,13 @@ describe('a card filed under done-for-you', () => {
 
     land({ runId: 7, status: 'pending' });
     await vi.waitFor(() => expect(events.filter(e => e.type === 'card_update')).toEqual([{ type: 'card_update', cardId: 'card_test', runId: 7, state: 'filed' }]));
+  });
+
+  it('puts a link card\'s why on the ledger the reload reads (#1080)', async () => {
+    const collector = new RunCollector();
+    const link = CardSchema.parse({ id: 'card_link', kind: 'link', title: 'Connect GitHub', rationale: 'So the factory can read the repos.', actions: [], source: { tool: 'offer_connection' }, href: '/dashboard/connectors?add=github', state: 'proposed' });
+    await surfaceCard(link, { write: () => {}, collector, where: { conversationId: 1, agentSlug: 'workspace-lead' } });
+
+    expect(collector.finalise().runs.find(r => r.type === 'card')).toMatchObject({ rationale: 'So the factory can read the repos.', href: '/dashboard/connectors?add=github' });
   });
 });

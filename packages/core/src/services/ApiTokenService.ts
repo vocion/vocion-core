@@ -32,12 +32,13 @@
  * kind it is.
  */
 
+import type { DbTransaction } from '@/libs/DbTransaction';
 import type { CredentialPlatformId, CredentialValues } from '@/libs/platforms/registry';
 import type { Principal, WorkspaceRole } from '@/services/authz';
 import { Buffer } from 'node:buffer';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import process from 'node:process';
-import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { DEFAULT_PLATFORM_ID, getPlatform, hintField, holdsManyCredentials, isCredentialPlatformId, keyHint, validatePlatformCredential } from '@/libs/platforms/registry';
@@ -209,12 +210,17 @@ export type TokenSummary = {
   revokedAt: Date | null;
   expiresAt: Date | null;
   keyHint: string | null;
+  /** Pasted by a person, or granted by a provider login (#1080). */
+  obtainedVia: 'paste' | 'login';
+  /** The identity a login belongs to (a GitHub org, a Slack team); null on a paste. */
+  account: string | null;
   /**
    * Whether this row still holds something the reveal route can decrypt.
    *
    * False for a Vocion token issued before minted tokens were kept encrypted:
    * only its hash was ever stored, so the dashboard must not offer a show
-   * button that could never produce anything.
+   * button that could never produce anything. Also false for a login: its
+   * tokens are the provider's grant, never shown on screen.
    */
   revealable: boolean;
 };
@@ -247,9 +253,11 @@ export async function listTokens(
       revokedAt: apiTokenSchema.revokedAt,
       expiresAt: apiTokenSchema.expiresAt,
       keyHint: apiTokenSchema.keyHint,
+      obtainedVia: apiTokenSchema.obtainedVia,
+      account: apiTokenSchema.account,
       // Asked as a boolean rather than by selecting the ciphertext, so no part
       // of an encrypted credential travels with a list that is only metadata.
-      revealable: sql<boolean>`(${apiTokenSchema.ciphertext} is not null)`.mapWith(Boolean),
+      revealable: sql<boolean>`(${apiTokenSchema.ciphertext} is not null and ${apiTokenSchema.obtainedVia} <> 'login')`.mapWith(Boolean),
     })
     .from(apiTokenSchema)
     .where(and(
@@ -361,6 +369,203 @@ export async function storePlatformKey(input: {
   });
 
   return { id, keyHint: hint };
+}
+
+/**
+ * The masked tail to show beside a login: the last characters of its `token`
+ * or `accessToken` when it has one, else the word `login`.
+ * @param values - The provider's credential bag.
+ */
+function loginKeyHint(values: Record<string, unknown>): string {
+  const shown = [values.token, values.accessToken].find(value => typeof value === 'string');
+  return typeof shown === 'string' ? keyHint(shown) : 'login';
+}
+
+/** What storing a login did, so the caller can repoint what used the old rows. */
+export type StoredLogin = { id: string; replacedIds: string[]; rotated: boolean };
+
+/**
+ * The write half of {@link storeLoginCredential}, run inside one transaction.
+ * @param tx - The transaction to write in.
+ * @param input - What the caller asked to store.
+ * @param encrypted - The bag, already sealed under the org's DEK.
+ * @param encrypted.ciphertext
+ * @param encrypted.nonce
+ * @param encrypted.authTag
+ * @param encrypted.dekId
+ * @param hint - Masked tail to show beside the row.
+ */
+async function writeLoginRow(
+  tx: DbTransaction,
+  input: StoreLoginInput,
+  encrypted: { ciphertext: string; nonce: string; authTag: string; dekId: number },
+  hint: string,
+): Promise<StoredLogin> {
+  const [sameAccount] = await tx
+    .select({ id: apiTokenSchema.id })
+    .from(apiTokenSchema)
+    .where(and(
+      eq(apiTokenSchema.orgId, input.orgId),
+      eq(apiTokenSchema.platform, input.platform),
+      eq(apiTokenSchema.account, input.account),
+      eq(apiTokenSchema.obtainedVia, 'login'),
+      isNull(apiTokenSchema.revokedAt),
+    ))
+    .limit(1);
+  if (sameAccount) {
+    // A re-login: the same account keeps its row, so anything pointing at the
+    // id keeps working with the fresh grant.
+    await tx
+      .update(apiTokenSchema)
+      .set({ ...encrypted, keyHint: hint, name: input.name })
+      .where(eq(apiTokenSchema.id, sameAccount.id));
+    return { id: sameAccount.id, replacedIds: [], rotated: true };
+  }
+
+  let replacedIds: string[] = [];
+  if (!holdsManyCredentials(input.platform)) {
+    // Clear the way for the partial unique index, as `storePlatformKey` does.
+    // Revoked, not deleted, to keep the history of what the org held.
+    const revoked = await tx
+      .update(apiTokenSchema)
+      .set({ revokedAt: new Date() })
+      .where(and(
+        eq(apiTokenSchema.orgId, input.orgId),
+        eq(apiTokenSchema.platform, input.platform),
+        isNull(apiTokenSchema.revokedAt),
+      ))
+      .returning({ id: apiTokenSchema.id });
+    replacedIds = revoked.map(row => row.id);
+  }
+  const id = randomUUID().replace(/-/g, '').slice(0, 16);
+  await tx.insert(apiTokenSchema).values({
+    id,
+    orgId: input.orgId,
+    name: input.name,
+    platform: input.platform,
+    secretHash: null,
+    ...encrypted,
+    keyHint: hint,
+    obtainedVia: 'login',
+    account: input.account,
+    createdBy: input.createdBy,
+  });
+  return { id, replacedIds, rotated: false };
+}
+
+type StoreLoginInput = {
+  orgId: string;
+  platform: CredentialPlatformId;
+  name: string;
+  account: string;
+  values: Record<string, unknown>;
+  createdBy: string;
+  tx?: DbTransaction;
+  /**
+   * The bag already sealed by `sealLoginValues`. A caller that holds a
+   * transaction open seals first: sealing reads the org's DEK through the
+   * pool, and doing that mid-transaction waits on a connection the
+   * transaction may be holding.
+   */
+  sealed?: SealedLoginValues;
+};
+
+/** A login bag encrypted under the org's DEK, with its masked hint. */
+export type SealedLoginValues = {
+  encrypted: { ciphertext: string; nonce: string; authTag: string; dekId: number };
+  hint: string;
+};
+
+/**
+ * Encrypt a login bag ahead of `storeLoginCredential`, so the write itself can
+ * run inside a larger transaction without touching the vault.
+ * @param orgId - The org whose DEK seals it.
+ * @param values - The provider's whole bag.
+ */
+export async function sealLoginValues(orgId: string, values: Record<string, unknown>): Promise<SealedLoginValues> {
+  const encrypted = await buildCredentialVault().encrypt(orgId, Buffer.from(JSON.stringify(values), 'utf8'));
+  return { encrypted, hint: loginKeyHint(values) };
+}
+
+/**
+ * Store a provider login's credential bag (#1080).
+ *
+ * - Same platform and account already live (re-login): rotate that row's values in place, keep its id.
+ * - One-live platform with another live row: revoke it and insert; its id is in `replacedIds`.
+ * - Otherwise: insert.
+ *
+ * One transaction (the caller's, when `tx` is given). Never validates against
+ * the platform's `fields`: a login bag is the provider's, not a paste.
+ * @param input - The login to store.
+ * @param input.account - The non-secret identity it belongs to, e.g. a Slack team name.
+ * @param input.values - The provider's whole bag (tokens, installation id, ...).
+ * @param input.sealed - The bag already sealed, when the caller holds a transaction.
+ */
+export async function storeLoginCredential(input: StoreLoginInput): Promise<StoredLogin> {
+  const { encrypted, hint } = input.sealed ?? await sealLoginValues(input.orgId, input.values);
+  if (input.tx) {
+    return writeLoginRow(input.tx, input, encrypted, hint);
+  }
+  return db.transaction(tx => writeLoginRow(tx, input, encrypted, hint));
+}
+
+/**
+ * Write a refreshed login bag back to the same row.
+ *
+ * Compare-and-swap, mirroring `updateCredentialValuesForConnector`: writes only
+ * while the stored bag's `refreshToken` still equals `expectedRefreshToken`,
+ * and the write itself insists the ciphertext is still the one that was read,
+ * so two refreshes racing cannot both win.
+ *
+ * Returns false when the row is gone, revoked, not a login, or the swap lost.
+ * @param input - Which row, the new bag, and the token it was refreshed from.
+ * @param input.orgId
+ * @param input.tokenId
+ * @param input.values
+ * @param input.expectedRefreshToken
+ */
+export async function updateLoginCredentialValues(input: {
+  orgId: string;
+  tokenId: string;
+  values: Record<string, unknown>;
+  expectedRefreshToken: string;
+}): Promise<boolean> {
+  const [row] = await db
+    .select({
+      dekId: apiTokenSchema.dekId,
+      ciphertext: apiTokenSchema.ciphertext,
+      nonce: apiTokenSchema.nonce,
+      authTag: apiTokenSchema.authTag,
+    })
+    .from(apiTokenSchema)
+    .where(and(
+      eq(apiTokenSchema.orgId, input.orgId),
+      eq(apiTokenSchema.id, input.tokenId),
+      eq(apiTokenSchema.obtainedVia, 'login'),
+      isNull(apiTokenSchema.revokedAt),
+    ))
+    .limit(1);
+  if (!row || !row.ciphertext || !row.nonce || !row.authTag || row.dekId === null) {
+    return false;
+  }
+  const vault = buildCredentialVault();
+  const stored = JSON.parse(
+    (await vault.decrypt(input.orgId, row.ciphertext, row.nonce, row.authTag, row.dekId)).toString('utf8'),
+  ) as { refreshToken?: unknown };
+  if (stored.refreshToken !== input.expectedRefreshToken) {
+    return false;
+  }
+  const encrypted = await vault.encrypt(input.orgId, Buffer.from(JSON.stringify(input.values), 'utf8'));
+  const written = await db
+    .update(apiTokenSchema)
+    .set({ ...encrypted, keyHint: loginKeyHint(input.values) })
+    .where(and(
+      eq(apiTokenSchema.id, input.tokenId),
+      eq(apiTokenSchema.ciphertext, row.ciphertext),
+      isNull(apiTokenSchema.revokedAt),
+    ))
+    .returning({ id: apiTokenSchema.id });
+  return written.length === 1;
 }
 
 /**
@@ -497,9 +702,38 @@ export async function resolveCredentialById(
     return { status: 'not-found' };
   }
 
+  await stampLastUsed(orgId, tokenId);
+
   const vault = buildCredentialVault();
   const plaintext = await vault.decrypt(orgId, row.ciphertext, row.nonce, row.authTag, row.dekId);
   return { status: 'ok', values: JSON.parse(plaintext.toString('utf8')) as CredentialValues };
+}
+
+/** How stale `last_used_at` may get before a resolve writes it again. */
+const LAST_USED_REFRESH_MS = 60 * 60 * 1000;
+
+/**
+ * Record that a credential was just used, at most once an hour.
+ *
+ * One conditional UPDATE: it matches only a row never stamped or stamped more
+ * than an hour ago, so a hot path that resolves the same credential on every
+ * call writes once an hour instead of every time.
+ * @param orgId - The org that owns the row.
+ * @param tokenId - The credential that was just resolved.
+ */
+async function stampLastUsed(orgId: string, tokenId: string): Promise<void> {
+  const now = new Date();
+  await db
+    .update(apiTokenSchema)
+    .set({ lastUsedAt: now })
+    .where(and(
+      eq(apiTokenSchema.orgId, orgId),
+      eq(apiTokenSchema.id, tokenId),
+      or(
+        isNull(apiTokenSchema.lastUsedAt),
+        lt(apiTokenSchema.lastUsedAt, new Date(now.getTime() - LAST_USED_REFRESH_MS)),
+      ),
+    ));
 }
 
 /** The answer to rotating one named credential. */
@@ -772,12 +1006,18 @@ export async function revealPlatformCredential(
       ciphertext: apiTokenSchema.ciphertext,
       nonce: apiTokenSchema.nonce,
       authTag: apiTokenSchema.authTag,
+      obtainedVia: apiTokenSchema.obtainedVia,
     })
     .from(apiTokenSchema)
     .where(and(eq(apiTokenSchema.orgId, orgId), eq(apiTokenSchema.id, tokenId)))
     .limit(1);
 
   if (!row) {
+    return { status: 'not-found' };
+  }
+  if (row.obtainedVia === 'login') {
+    // A login's tokens are the provider's grant to Vocion, not a key the org
+    // holds. Answered like a missing row so the screen never shows one.
     return { status: 'not-found' };
   }
   if (!row.ciphertext || !row.nonce || !row.authTag || row.dekId === null) {

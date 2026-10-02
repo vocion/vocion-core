@@ -17,6 +17,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { connectorOfSource } from '@/libs/sources/connectorOf';
 import { listConnectors } from '@/libs/sources/registry';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { listSources } from '@/services/SourceSyncService';
@@ -35,7 +36,7 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
         ].filter(Boolean).join(', ');
         return `- ${p.manifest.name} (${p.manifest.slug}) — ${on ? 'ON' : 'off'}. ${p.manifest.description}${adds ? ` Adds ${adds}.` : ''}${p.manifest.recommend.when.length ? ` Helps when: ${p.manifest.recommend.when.join('; ')}.` : ''}${p.manifest.recommend.connectors.length ? ` Works best with: ${p.manifest.recommend.connectors.join(', ')}.` : ''}${p.manifest.depends.length ? ` Needs: ${p.manifest.depends.join(', ')}.` : ''}`;
       });
-      const connected = new Set((await listSources(ctx.orgId)).map(s => s.kind ?? s.slug));
+      const connected = new Set((await listSources(ctx.orgId)).map(connectorOfSource));
       const connectors = listConnectors().map(c => `- ${c.name ?? c.slug} (${c.slug}) — ${connected.has(c.slug) ? 'connected' : 'not connected'}`);
       return [
         'PLUGINS (turn one on with recommend_action → plugin.enable {slug}; a person can also do it on /dashboard/marketplace/plugins):',

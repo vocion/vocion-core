@@ -34,26 +34,3 @@ export function connectOrigin(): string | null {
 export function callbackUri(origin: string, provider: string): string {
   return `${origin}/api/connect/${provider}/callback`;
 }
-
-/**
- * Where the person lands when the connect is over. Carries only a short code,
- * never anything the vendor sent verbatim.
- * @param origin - The configured public origin; `''` gives a relative URL.
- * @param outcome - `ok`, or the short refusal code.
- * @param sourceSlug - The source the person was connecting, when known.
- */
-export function returnUrl(
-  origin: string,
-  outcome: { ok: true } | { ok: false; reason: string },
-  sourceSlug?: string,
-): string {
-  const url = new URL(`${origin || 'http://relative.invalid'}/dashboard/sources`);
-  url.searchParams.set('connect', outcome.ok ? 'ok' : 'error');
-  if (!outcome.ok) {
-    url.searchParams.set('reason', outcome.reason.replace(/[^\w.-]/g, '_').slice(0, 64));
-  }
-  if (sourceSlug) {
-    url.searchParams.set('source', sourceSlug);
-  }
-  return origin ? url.toString() : `${url.pathname}${url.search}`;
-}

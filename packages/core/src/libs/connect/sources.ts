@@ -1,8 +1,5 @@
 /**
- * The two source reads the connect routes need: a row by slug within an org,
- * and clearing a workspace-credential link so the grant just stored is the
- * one the connector uses (`getCredentialsForSource` prefers a linked
- * `api_token` row over the install's `source_credential`).
+ * The source read the connect routes need: a row by slug within an org.
  */
 
 import { and, eq } from 'drizzle-orm';
@@ -35,17 +32,4 @@ export async function findSourceBySlug(orgId: string, slug: string): Promise<Con
   }
   const connector = (row.configJson as Record<string, unknown> | null)?._connector;
   return { id: row.id, slug: row.slug, connectorSlug: typeof connector === 'string' ? connector : row.slug };
-}
-
-/**
- * Forget a pasted workspace credential the source pointed at, so the grant
- * stored on its install is what resolves next.
- * @param orgId - The workspace.
- * @param sourceId - The source row.
- */
-export async function clearLinkedCredential(orgId: string, sourceId: number): Promise<void> {
-  await db
-    .update(knowledgeSourceSchema)
-    .set({ apiTokenId: null, apiTokenExclusive: false })
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.id, sourceId)));
 }

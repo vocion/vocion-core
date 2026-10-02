@@ -17,7 +17,8 @@ export function readConnectOutcome(search: string): ConnectOutcome | null {
   if (connect !== 'ok' && connect !== 'error') {
     return null;
   }
-  const source = params.get('source');
+  // A login started from a connector comes back naming `connector`; one started from a source names `source`.
+  const source = params.get('source') ?? params.get('connector');
   if (connect === 'ok') {
     return { ok: true, source };
   }
