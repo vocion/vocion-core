@@ -71,7 +71,7 @@ const baseConfig: NextConfig = {
   // (the dashboard then shows "not scheduled yet" for every schedule).
   // Externalizing keeps it a real node_modules dependency, which `output:
   // standalone` traces into the runtime image.
-  serverExternalPackages: ['@temporalio/client', '@temporalio/common', '@temporalio/proto', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse'],
+  serverExternalPackages: ['@dbos-inc/dbos-sdk', '@temporalio/client', '@temporalio/common', '@temporalio/proto', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
   experimental: {
     // `next build` starts one worker per CPU, less one, to collect page data

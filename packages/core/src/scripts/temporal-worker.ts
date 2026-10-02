@@ -59,8 +59,8 @@ async function main(): Promise<void> {
     connection,
     namespace,
     taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-    // Path to the workflows barrel (exports `vocionWorkflow` +
-    // `sourceSyncWorkflow`). Temporal needs a file path (not a module
+    // Path to the workflows barrel (the schedule workflows: syncs, reapers,
+    // automation fires). Temporal needs a file path (not a module
     // import) so it can bundle the deterministic sandbox. Resolved
     // relative to this script's compiled location.
     workflowsPath: require.resolve('../services/temporal/workflows'),

@@ -4868,3 +4868,27 @@ export const notificationPreferenceSchema = pgTable(
     primaryKey({ columns: [table.userId, table.orgId] }),
   ],
 );
+
+/**
+ * A durable run waiting for an event (backlog 054, `libs/durable/events.ts`).
+ * `emitEvent` sends a matching event to the run named here; the row is the
+ * subscription, opened before the run waits and closed after it is answered.
+ */
+export const durableWaitSchema = pgTable(
+  'durable_wait',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    workflowId: text('workflow_id').notNull(),
+    waitKey: text('wait_key').notNull(),
+    /** Event types that answer the wait. */
+    types: jsonb('types').$type<string[]>().notNull(),
+    /** Payload fields an answering event carries with exactly these values. */
+    match: jsonb('match').$type<Record<string, unknown>>().default({}).notNull(),
+    openedAt: timestamp('opened_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('durable_wait_run_key_idx').on(table.workflowId, table.waitKey),
+    index('durable_wait_org_idx').on(table.orgId),
+  ],
+);

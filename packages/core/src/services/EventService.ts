@@ -833,7 +833,13 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   const [row] = await db
     .insert(eventLogSchema)
     .values({ orgId: input.orgId, type: input.type, payload, dedupeKey: input.dedupeKey ?? null, triggered, invokedBy: input.invokedBy ?? null, causedBy })
-    .returning({ id: eventLogSchema.id });
+    .returning({ id: eventLogSchema.id, createdAt: eventLogSchema.createdAt });
+
+  // A RUN WAITING FOR THIS EVENT HEARS IT (backlog 054): the durable runs
+  // that opened a wait matching it are sent it now. Never throws; a run that
+  // misses the send finds the event here when its wait opens.
+  const { forwardEvent } = await import('@/libs/durable');
+  await forwardEvent(input.orgId, input.type, payload, row!.createdAt);
 
   // NOTIFICATIONS (backlog 048): a kind a plugin or the workspace declared
   // for this event tells the people it names. Only declared kinds notify —
