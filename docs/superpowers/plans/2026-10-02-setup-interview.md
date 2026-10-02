@@ -347,7 +347,7 @@ export const objectsCreateGroupAction: Action<typeof objectsCreateGroupInput>;
 - **Roadmap question (amended 2026-10-02: order and pace, from the recorded test).** `How should I work the roadmap?` Asked in the `grow` step, built from `browse_connection` statuses for the chosen project.
   - Options:
     - `One a day, highest priority first` (bound `source.connect` with the Jira config, `sourceSlug`, `intakeStatuses: [<status>]`, `intakePerDay: 1`)
-    - `Everything in <status> now, highest priority first` (same binding, no `intakePerDay`)
+    - `Everything in <status> now, highest priority first` (same binding with `intakePerDay: null`, which clears any earlier cap; ledger ruling)
     - `Only tickets I point you at` (no binding, today's behaviour)
   - When no status is named like the person's word (for example "Ready"), the card says so and offers the closest statuses.
   - `jiraConfigSchema` gains `intakePerDay: z.number().int().min(1).max(20).optional()` beside `intakeStatuses`, with a `configFields` entry, `How many a day the factory picks up`. Both fields use the `replace` pick policy (ledger ruling), so a later answer replaces the earlier one.

@@ -38,5 +38,5 @@ do:
     enforced when you file: once `intakePerDay` are filed today, file_request
     refuses and says how many and for which date. Stop at the first such
     refusal; the rest wait for tomorrow. Report in one line starting with
-    the date: how many were already filed that day, how many you filed now
-    (the keys), how many are waiting.
+    the date: how many you filed now (the keys), how many are waiting, and,
+    when file_request refused, its count for the day as it gave it.
