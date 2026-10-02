@@ -132,6 +132,40 @@ export function planIsApproved(meta: Meta): boolean {
 }
 
 /**
+ * A PLAN NO LONGER STANDS when its row or its fields say rejected or
+ * superseded (#130, 2026-10-02: a stale re-plan superseded plan #276 in its
+ * fields while its row still read approved, so its old approve card counted as
+ * "waiting on a person" and held the approved plan's build for nine hours).
+ * @param plan - The plan.
+ * @param plan.status - Its row status.
+ * @param plan.meta - Its fields.
+ */
+export function planClosed(plan: { status?: string | null; meta: Meta }): boolean {
+  return [plan.status, plan.meta.status].some(s => s === 'rejected' || s === 'superseded');
+}
+
+/**
+ * The request's newest approved plan that still stands, or null: what a build
+ * that names no plan is built with, so a plan-first rule the request already
+ * answered never plans again (#130, 2026-10-02).
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ */
+async function requestApprovedPlan(orgId: string, requestId: number): Promise<FactoryRecord | null> {
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return null;
+  }
+  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const types = await factoryTypes(orgId);
+  const rows = await listBusinessObjects(orgId, types.plan).catch(() => []) as Array<{ id: number; title: string; typeId: number; status: string | null; metadata: unknown }>;
+  const plan = rows
+    .map(r => ({ id: r.id, title: r.title, typeId: r.typeId, status: r.status, meta: (r.metadata ?? {}) as Meta, typeSlug: types.plan }))
+    .filter(p => Number(p.meta.requestId) === requestId && !planClosed(p) && planIsApproved(p.meta))
+    .sort((a, b) => b.id - a.id)[0];
+  return plan ?? null;
+}
+
+/**
  * Merge fields onto a record's metadata.
  * @param orgId - Tenant.
  * @param id - The object id.
@@ -908,8 +942,10 @@ async function productEnvironments(orgId: string, product: string | null): Promi
 
 async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>) {
   const stored = input.taskId ? await readRecord(ctx.orgId, input.taskId) : null;
-  const plan = input.planId ? await readRecord(ctx.orgId, input.planId) : null;
   const requestId = stored ? Number(stored.meta.requestId) : Number(input.requestId);
+  // A build that names no plan is built with the request's approved one: the
+  // plan-first rule is answered by it, and a stale one is still planned again.
+  const plan = input.planId ? await readRecord(ctx.orgId, input.planId) : await requestApprovedPlan(ctx.orgId, requestId);
   const request = Number.isFinite(requestId) ? await readRecord(ctx.orgId, requestId) : null;
   let task = stored;
   const planRepo = plan && Array.isArray(plan.meta.repoSlugs) ? String((plan.meta.repoSlugs as unknown[])[0] ?? '') || null : null;

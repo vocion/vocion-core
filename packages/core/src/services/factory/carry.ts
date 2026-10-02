@@ -322,6 +322,7 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   const { db } = await import('@/libs/DB');
   const { actionRunSchema, askSchema, workerRunSchema } = await import('@/models/Schema');
   const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const { planClosed } = await lib();
   const toRow = (r: { id: number; title: string; status: string | null; metadata: unknown; createdAt: Date | null }): Row => ({ id: r.id, title: r.title, status: r.status, meta: (r.metadata ?? {}) as Meta, createdAt: r.createdAt });
   const types = await factoryTypes(orgId);
   const tasks = ((await listBusinessObjects(orgId, types.task).catch(() => [])) as Array<Parameters<typeof toRow>[0]>).map(toRow).filter(t => Number(t.meta.requestId) === requestId);
@@ -344,7 +345,7 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   // A card for a plan whose row was rejected or superseded is moot, not a
   // person's move (2026-09-30, #130: approve card #5158 for rejected plan #136
   // held the request for fourteen hours).
-  const planIds = plans.filter(p => String(p.meta.status ?? '') !== 'approved' && !['rejected', 'superseded'].includes(String(p.status ?? ''))).map(p => String(p.id));
+  const planIds = plans.filter(p => String(p.meta.status ?? '') !== 'approved' && !planClosed(p)).map(p => String(p.id));
   const pending = await db.select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input }).from(actionRunSchema).where(and(
     eq(actionRunSchema.orgId, orgId),
     inArray(actionRunSchema.actionId, [DISPATCH, APPROVE_PLAN]),
@@ -361,7 +362,7 @@ async function workFor(orgId: string, requestId: number): Promise<{ tasks: Row[]
   // The ROW's status decides (2026-09-30, #130: plan #136's row read rejected
   // while its metadata still said in_review, and the request sat "waiting on a
   // person" for a plan nobody could approve).
-  const waiting = plans.some(p => String(p.meta.status ?? '') === 'in_review' && !['rejected', 'superseded'].includes(String(p.status ?? ''))) || pending.some((a) => {
+  const waiting = plans.some(p => String(p.meta.status ?? '') === 'in_review' && !planClosed(p)) || pending.some((a) => {
     const i = (a.input ?? {}) as Meta;
     return a.actionId === DISPATCH
       ? Number(i.requestId) === requestId || taskIds.includes(String(i.taskId))
@@ -694,9 +695,10 @@ export async function startPlanning(orgId: string, opts: { request: { id: number
   const { planIsApproved } = await lib();
   const previous = opts.request.meta.recovery ?? null;
   const work = await workFor(orgId, opts.request.id);
-  const open = opts.plan && !['rejected', 'superseded'].includes(String(opts.plan.meta.status ?? ''))
+  const { planClosed } = await lib();
+  const open = opts.plan && !planClosed(opts.plan)
     ? opts.plan
-    : [...work.plans].filter(p => !['rejected', 'superseded'].includes(String(p.meta.status ?? ''))).sort((a, b) => b.id - a.id)[0] ?? null;
+    : [...work.plans].filter(p => !planClosed(p)).sort((a, b) => b.id - a.id)[0] ?? null;
   await updateRecovery(orgId, opts.request.id, (s) => {
     const base = opts.counted ? s : personActed(s, opts.at, `Build pressed by ${opts.by}.`);
     return opts.counted
@@ -704,7 +706,14 @@ export async function startPlanning(orgId: string, opts: { request: { id: number
       : logLine({ ...base, stage: 'planning', line: `Planning — ${opts.why}`, planRequestedAt: opts.at }, `Planning first: ${opts.why}`, opts.at);
   });
   if (open && planIsApproved(open.meta)) {
-    await buildFromApprovedPlan(orgId, { planId: open.id, requestId: opts.request.id, approvedBy: String(open.meta.approvedBy ?? 'a person'), byPerson: false });
+    const built = await buildFromApprovedPlan(orgId, { planId: open.id, requestId: opts.request.id, approvedBy: String(open.meta.approvedBy ?? 'a person'), byPerson: false });
+    // NEVER "PLANNING" WITH NOTHING PLANNING (#130, 2026-10-02): the plan is
+    // already approved, so when its build does not start the request says why.
+    if (built.line === null) {
+      const planName = await codeForRecord(orgId, open.id).catch(() => null) ?? `plan #${open.id}`;
+      const line = `${planName} is approved; the build did not start: ${built.did}.`;
+      await updateRecovery(orgId, opts.request.id, s => logLine({ ...s, line }, line, new Date().toISOString()));
+    }
     return { planId: open.id, via: 'approval', previous };
   }
   if (open) {

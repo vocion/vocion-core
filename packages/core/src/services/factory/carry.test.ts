@@ -1000,3 +1000,66 @@ describe('a stop whose ask is closed is still a stop (2026-09-30, "Open alerts" 
     expect(((await read(r.id)).metadata as { recovery: { stage: string | null } }).recovery.stage).not.toBe('stopped');
   });
 });
+
+describe('an approved plan satisfies the plan-first rule (#130, 2026-10-02: "Planning first" with nothing planning)', () => {
+  const planMeta = { approach: 'Match sends to opens in the core package and show them on the room page.', alternatives: ['None.'], verification: 'A test.', dataImpact: 'None.', repoSlugs: ['Acme/northwind-core'] };
+
+  it('a person\'s Build with its own contract and no planId builds with the request\'s approved plan, past a stale card for a superseded one', async () => {
+    const r = await request({ product: 'fleet', title: 'Remind who has not opened the room', state: 'building', recommendationState: 'approved' });
+    // The superseded plan, as a stale re-plan leaves it: its metadata says
+    // superseded, its row still says approved, and its approve card is pending.
+    const [old] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: remind (old)', status: 'approved', metadata: { requestId: r.id, status: 'superseded', approvedBy: 'usr-dana', components: ['apps/old-web — the room page'], ...planMeta } }).returning();
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'factory.approve_plan', status: 'pending', input: { planId: old!.id }, invokedBy: 'factory' } as never);
+    const [plan] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: remind', status: 'approved', metadata: { requestId: r.id, status: 'approved', approvedBy: 'the trust bar (factory.approve_plan)', approvedAt: '2026-10-01T17:02:06.881Z', components: ['apps/web — the room page', 'packages/core — the match'], ...planMeta } }).returning();
+    const { proposeAction } = await import('@/services/ActionService');
+
+    const res = await proposeAction({
+      orgId: ORG,
+      actionId: 'factory.dispatch_task',
+      // The contract a person wrote, naming paths across two packages and a
+      // schema risk (the plan-first rule fires on it), and no planId.
+      input: { requestId: r.id, reason: 'Continue the branch with the real paths.', contract: { riskClass: 'schema', allowedPaths: ['apps/web/src/**', 'packages/core/src/**', 'packages/core/prisma/**'] } },
+      principal: { kind: 'user', id: 'usr-chris', role: 'member', scope: { orgId: ORG } },
+      invokedBy: 'usr-chris',
+    });
+
+    expect(res.status).toBe('done');
+
+    const runs = await runsFor(r.id);
+
+    expect(runs).toHaveLength(1);
+
+    const task = (runs[0]!.input as { task: Record<string, unknown> }).task;
+
+    expect(task.plan).toMatchObject({ plan_id: String(plan!.id) });
+    // The person's paths win over the plan's components.
+    expect(task.allowed_paths).toEqual(expect.arrayContaining(['apps/web/src/**', 'packages/core/prisma/**']));
+    expect(((await read(r.id)).metadata as { recovery?: { stage?: string } }).recovery?.stage).not.toBe('planning');
+  });
+
+  it('an approved plan reached through planning is never held by a card for a superseded plan', async () => {
+    const r = await request({ product: 'fleet', title: 'Remind who has not opened the room, again', state: 'building', recommendationState: 'approved' });
+    const [old] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: remind again (old)', status: 'approved', metadata: { requestId: r.id, status: 'superseded', approvedBy: 'usr-dana', components: ['apps/old-web — the room page'], ...planMeta } }).returning();
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'factory.approve_plan', status: 'pending', input: { planId: old!.id }, invokedBy: 'factory' } as never);
+    const [plan] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: remind again', status: 'approved', metadata: { requestId: r.id, status: 'approved', approvedBy: 'a person', components: ['apps/web — the room page', 'packages/core — the match'], ...planMeta } }).returning();
+
+    const out = await carry.buildFromApprovedPlan(ORG, { planId: plan!.id, requestId: r.id, approvedBy: 'a person', byPerson: false });
+
+    expect(out.did).toMatch(/^build:/);
+    expect(await runsFor(r.id)).toHaveLength(1);
+  });
+
+  it('planning that finds the plan approved but cannot build says why, never "Planning" with nothing running', async () => {
+    const r = await request({ product: 'fleet', title: 'Remind who has not opened the room, a third time', state: 'building', recommendationState: 'approved' });
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.architecture_plan!, title: 'Plan: remind a third time', status: 'approved', metadata: { requestId: r.id, status: 'approved', approvedBy: 'a person', components: ['apps/web — the room page', 'packages/core — the match'], ...planMeta } });
+    // A Build card a person has not decided holds the build, as it should.
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: r.id }, invokedBy: 'usr-dana' } as never);
+
+    await carry.startPlanning(ORG, { request: { id: r.id, title: r.title, meta: (await read(r.id)).metadata as Record<string, unknown> }, plan: null, why: 'the risk class is schema', counted: false, trigger: null, by: 'usr-chris', at: new Date().toISOString() });
+
+    const recovery = ((await read(r.id)).metadata as { recovery: { line: string; log: Array<{ text: string }> } }).recovery;
+
+    expect(recovery.line).toMatch(/is approved; the build did not start: a build is already running or waiting\.$/);
+    expect(recovery.log.at(-1)!.text).toBe(recovery.line);
+  });
+});
