@@ -54,7 +54,15 @@ export type RequestWorkflowDeps = {
   dispatch: (orgId: string, requestId: number, intent: BuildIntent, at: { attempt: number; base: string | null }) => Promise<AttemptOutcome>;
   readRun: (orgId: string, workerRunId: number, automaticSoFar: number) => Promise<RunRead>;
   stop: (orgId: string, requestId: number, why: string) => Promise<void>;
+  /** The live check recorded on a release, or null when none was recorded. */
+  readLive?: (orgId: string, releaseId: number) => Promise<{ state: string; line: string } | null>;
+  /** Ask for the release's live check again, saying why. */
+  askLive?: (orgId: string, releaseId: number, why: string) => Promise<void>;
 };
+
+/** Tries the live check gets to record a result before the run stops on it. */
+export const LIVE_TRIES = 2;
+const LIVE_LIMIT = 30 * 60;
 
 /**
  * The request's run: a loop of attempts, each answering the next build intent.
@@ -167,7 +175,31 @@ export async function runRequest(ctx: DurableContext, input: RequestWorkflowInpu
       await status('merged', `Merged ${run.prUrl}; no release recorded it within 6 hours.`);
       return { stage: 'merged' };
     }
-    await status('live', `Live in REL-${String(released.payload.releaseId ?? '?')}.`, { releaseId: released.payload.releaseId ?? null });
+    const releaseId = Number(released.payload.releaseId);
+    await status('live', `Live in REL-${releaseId}; checking it on the live product.`, { releaseId });
+    // THE LIVE CHECK IS DONE WHEN A RESULT IS RECORDED (release #369: two QA
+    // runs ended, one refused on a long name, one only explored; nothing was
+    // recorded and the release read "ended without a live check"). Each try
+    // waits for the check's own ending, then reads the release.
+    if (deps.readLive && deps.askLive && Number.isInteger(releaseId)) {
+      let since = await clock('live-0');
+      for (let t = 1; t <= LIVE_TRIES; t++) {
+        await waitFirst(`live-${t}`, [{ types: ['automation_run.completed', 'automation_run.failed'], match: { slug: 'release-live-check' } }], LIVE_LIMIT, since);
+        const recorded = await ctx.step(`live-read-${t}`, () => deps.readLive!(orgId, releaseId));
+        if (recorded) {
+          await status(recorded.state === 'seen' ? 'live' : 'live_unconfirmed', recorded.line, { releaseId, liveState: recorded.state });
+          return { stage: recorded.state === 'seen' ? 'live' : 'live_unconfirmed' };
+        }
+        if (t < LIVE_TRIES) {
+          since = await clock(`live-${t}`);
+          await ctx.step(`live-ask-${t}`, () => deps.askLive!(orgId, releaseId, 'the last QA run ended without recording a live check; record one with check_live (not explore), citing every acceptance line or naming it not observable'));
+        }
+      }
+      const why = `REL-${releaseId} is live, but no live check was recorded after ${LIVE_TRIES} tries.`;
+      await ctx.step('live-stop', () => deps.stop(orgId, requestId, why));
+      await status('live_unchecked', why, { releaseId });
+      return { stage: 'live_unchecked' };
+    }
     return { stage: 'live' };
   }
   await status('idle', 'No build was asked for in 90 days; the run ended.');
@@ -226,6 +258,23 @@ export const productionDeps: RequestWorkflowDeps = {
   async stop(orgId, requestId, why) {
     const { stopRequestForPerson } = await import('./carry');
     await stopRequestForPerson(orgId, requestId, why);
+  },
+  async readLive(orgId, releaseId) {
+    const { readRecord } = await import('@/libs/actions/factory-dispatch');
+    const release = await readRecord(orgId, releaseId);
+    const live = (release?.meta.liveCheck ?? null) as { state?: unknown; line?: unknown } | null;
+    return live && typeof live.state === 'string' ? { state: live.state, line: String(live.line ?? live.state) } : null;
+  },
+  async askLive(orgId, releaseId, why) {
+    const { proposeAction } = await import('@/services/ActionService');
+    await proposeAction({
+      orgId,
+      actionId: 'factory.check_live_again',
+      input: { releaseId, reason: why },
+      principal: { kind: 'agent', id: 'agent:factory-workflow', scope: { orgId }, grants: ['*'], autonomy: 5 },
+      invokedBy: 'factory:workflow',
+      internal: true,
+    });
   },
 };
 
