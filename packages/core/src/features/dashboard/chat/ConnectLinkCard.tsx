@@ -2,8 +2,8 @@
 
 import type { RecommendedAction } from './types';
 import { Check, Plug } from 'lucide-react';
-import { describeLastAttempt } from '@/libs/connect/attemptWording';
 import { Link } from '@/libs/I18nNavigation';
+import { LastAttemptLine } from '../LastAttemptLine';
 
 const PRIMARY_BUTTON = 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90';
 
@@ -23,13 +23,6 @@ export function isConnectLinkCard(rec: RecommendedAction): boolean {
  */
 function connectedName(label: string): string {
   return label.replace(/^Connect\s+/i, '');
-}
-
-/**
- * The browser's own zone, so the last-attempt date reads in the person's time.
- */
-function browserTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 /**
@@ -73,11 +66,7 @@ export function ConnectLinkCard({ rec, timeZone }: { rec: RecommendedAction; tim
           </Link>
         )}
       </div>
-      {failed && (
-        <p className="text-xs text-muted-foreground" data-testid="connect-last-attempt">
-          {describeLastAttempt(failed, timeZone ?? browserTimeZone())}
-        </p>
-      )}
+      {failed && <LastAttemptLine attempt={failed} timeZone={timeZone} />}
     </div>
   );
 }

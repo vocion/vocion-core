@@ -1,5 +1,6 @@
 'use client';
 
+import type { ConnectInfo } from './ConnectByLogin';
 import type { ConnectorTile, Source } from './connectors/connectorRows';
 import type { ConnectOutcome } from './connectOutcome';
 import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
@@ -25,6 +26,7 @@ import {
   fieldValuesFromConfig,
   initialFieldValues,
 } from '@/libs/sources/configFields';
+import { canSaveFromLogin, ConnectChoice, failedAttempts, needsLoginOrPaste, saveConnectedSource } from './ConnectByLogin';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
@@ -82,7 +84,12 @@ export function describeSyncResult(result: SyncResult | undefined): SyncOutcome 
   };
 }
 
-export function SourcesPanel() {
+export function SourcesPanel({ connectInfo = {}, timeZone }: {
+  /** Per connector: the login in this workspace and the last failed attempt, from the server. */
+  connectInfo?: Record<string, ConnectInfo>;
+  /** IANA zone for dates; the browser's by default. */
+  timeZone?: string;
+}) {
   const [sources, setSources] = useState<Source[]>([]);
   const [connectors, setConnectors] = useState<ConnectorTile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +109,8 @@ export function SourcesPanel() {
   // Where a chat connect card started (`?returnTo=`), so connecting lands back
   // in the conversation instead of staying here (#1028).
   const [returnTo, setReturnTo] = useState<string | null>(null);
+  // `?paste=1` opens the add form with "Paste a token instead" already ticked.
+  const [pasteFirst, setPasteFirst] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -113,8 +122,12 @@ export function SourcesPanel() {
     if (add) {
       setAddingKind(add);
     }
+    const pasteRequested = params.get('paste') === '1';
+    if (pasteRequested) {
+      setPasteFirst(true);
+    }
     const outcome = readConnectOutcome(window.location.search);
-    if (!outcome && !add && !back) {
+    if (!outcome && !add && !back && !pasteRequested) {
       return;
     }
     if (outcome) {
@@ -126,6 +139,8 @@ export function SourcesPanel() {
     url.searchParams.delete('connect');
     url.searchParams.delete('reason');
     url.searchParams.delete('source');
+    url.searchParams.delete('connector');
+    url.searchParams.delete('paste');
     window.history.replaceState(null, '', url.toString());
   }, []);
 
@@ -261,6 +276,8 @@ export function SourcesPanel() {
               rows={rows}
               syncingId={syncingId}
               searchRef={searchRef}
+              lastAttempts={failedAttempts(connectInfo)}
+              timeZone={timeZone}
               onConnectNew={slug => setAddingKind(slug)}
               onSync={s => void handleSync(s.id)}
               onTest={setTestingSource}
@@ -275,6 +292,8 @@ export function SourcesPanel() {
             <AddSourceDialog
               kind={addingKind}
               connector={connectors.find(c => c.slug === addingKind) ?? null}
+              connectInfo={connectInfo[addingKind]}
+              pasteFirst={pasteFirst}
               onClose={() => setAddingKind(null)}
               onAdded={async () => {
                 setAddingKind(null);
@@ -1581,14 +1600,18 @@ function SourceConfigInput({ field, value, onChange }: {
  * @param props.title - Dialog heading.
  * @param props.fields - The fields this connector asks for.
  * @param props.existing - The source being edited, or null when adding a new one.
+ * @param props.connectInfo
+ * @param props.pasteFirst
  * @param props.onClose - Called when the dialog is dismissed.
  * @param props.onAdded - Called after the source is saved.
  */
-function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, onAdded }: {
+function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInfo, pasteFirst, onClose, onAdded }: {
   kind: string;
   title: string;
   fields: ConfigField[];
   existing: Source | null;
+  connectInfo?: ConnectInfo;
+  pasteFirst?: boolean;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
@@ -1601,6 +1624,11 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, o
   const [advancedShown, setAdvancedShown] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pasteChecked, setPasteChecked] = useState(pasteFirst === true);
+  // Only a NEW source offers the choice; an edit keeps the credential it has.
+  const choosing = !existing;
+  const fromLogin = choosing && canSaveFromLogin(kind, connectInfo);
+  const waitingOnChoice = choosing && needsLoginOrPaste(kind, connectInfo, pasteChecked);
 
   // The saved config goes in so an edit carries through settings this form has
   // no input for, instead of deleting them.
@@ -1615,12 +1643,19 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, o
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (missingLabels.length > 0) {
+    if (missingLabels.length > 0 || waitingOnChoice) {
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
+      // A login is saved by the service the chat action uses; its refusal
+      // sentence throws and is shown as it is. Paste keeps the route it always had.
+      if (fromLogin) {
+        await saveConnectedSource(kind, config);
+        await onAdded();
+        return;
+      }
       const message = existing
         ? await updateSourceConfig(existing.id, config)
         : await createSource(kind, config);
@@ -1643,14 +1678,15 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, o
     <AddSourceDialogFrame
       title={title}
       error={error}
-      requirement={describeMissingFields(missingLabels)}
+      requirement={waitingOnChoice ? 'log in, or choose Paste a token instead' : describeMissingFields(missingLabels)}
       submitLabel={existing ? 'Save changes' : 'Add connector'}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
-      canSubmit={missingLabels.length === 0}
+      canSubmit={missingLabels.length === 0 && !waitingOnChoice}
       onClose={onClose}
       onSubmit={submit}
     >
+      {choosing ? <ConnectChoice connector={kind} info={connectInfo} pasteChecked={pasteChecked} onPasteChange={setPasteChecked} /> : null}
       {everydayFields.map(field => (
         <SourceConfigInput
           key={field.key}
@@ -2370,6 +2406,8 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
  * @param root0.kind
  * @param root0.connector
  * @param root0.existing
+ * @param root0.connectInfo
+ * @param root0.pasteFirst
  * @param root0.onClose
  * @param root0.onAdded
  */
@@ -2377,6 +2415,8 @@ function AddSourceDialog({
   kind,
   connector,
   existing,
+  connectInfo,
+  pasteFirst = false,
   onClose,
   onAdded,
 }: {
@@ -2384,6 +2424,10 @@ function AddSourceDialog({
   connector: ConnectorTile | null;
   /** The source being edited, or null when adding a new one. */
   existing?: Source | null;
+  /** The login state for this connector, for the add form's login-or-paste choice. */
+  connectInfo?: ConnectInfo;
+  /** Open with "Paste a token instead" ticked. */
+  pasteFirst?: boolean;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
@@ -2404,7 +2448,18 @@ function AddSourceDialog({
   }
   // Every other connector describes its own fields, so one form renders them all.
   const fields = configFieldsFor(kind);
-  return <AddConfigurableSourceDialog kind={kind} title={title} fields={fields} existing={source} onClose={onClose} onAdded={onAdded} />;
+  return (
+    <AddConfigurableSourceDialog
+      kind={kind}
+      title={title}
+      fields={fields}
+      existing={source}
+      connectInfo={connectInfo}
+      pasteFirst={pasteFirst}
+      onClose={onClose}
+      onAdded={onAdded}
+    />
+  );
 }
 
 /** What `/rpc/sources/:id/credentials` says about connecting at the vendor. */

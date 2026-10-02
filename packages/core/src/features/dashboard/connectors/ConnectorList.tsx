@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import type { RefObject } from 'react';
+import type { FailedAttempt } from '../LastAttemptLine';
 import type { ConnectorRow, Source } from './connectorRows';
 import type { GrantSummary } from '@/libs/connect/provider';
 import {
@@ -40,6 +41,7 @@ import {
 import { useMemo, useState } from 'react';
 import { ListRows } from '@/components/patterns';
 import { Link } from '@/libs/I18nNavigation';
+import { LastAttemptLine } from '../LastAttemptLine';
 import { describeSourceConfig, filterConnectorRows, formatRelative } from './connectorRows';
 
 /**
@@ -94,6 +96,10 @@ export type ConnectorListProps = {
   /** Focus target for the page's Add connector button. */
   searchRef?: RefObject<HTMLInputElement | null>;
   /** Start connecting a connector nobody has set up (or another instance of one). */
+  /** The newest failed connect attempt per connector slug, shown under its row. */
+  lastAttempts?: Record<string, FailedAttempt>;
+  /** IANA zone for the attempt's date; the browser's by default. */
+  timeZone?: string;
   onConnectNew: (slug: string) => void;
   onSync: (source: Source) => void;
   onTest: (source: Source) => void;
@@ -148,12 +154,14 @@ export function ConnectorList(props: ConnectorListProps) {
       <ListRows>
         {visible.map(row => (row.state === 'not-connected'
           ? (
-              <AvailableRow key={row.tile.slug} row={row} onConnect={() => props.onConnectNew(row.tile.slug)} />
+              <AvailableRow key={row.tile.slug} row={row} attempt={props.lastAttempts?.[row.tile.slug]} timeZone={props.timeZone} onConnect={() => props.onConnectNew(row.tile.slug)} />
             )
           : (
               <ConnectedRow
                 key={row.tile.slug}
                 row={row}
+                attempt={props.lastAttempts?.[row.tile.slug]}
+                timeZone={props.timeZone}
                 open={Boolean(open[row.tile.slug])}
                 onToggle={() => toggle(row.tile.slug)}
                 syncingId={props.syncingId}
@@ -198,31 +206,40 @@ export function ConnectorList(props: ConnectorListProps) {
  * A connector nobody has connected: the whole row is the Connect action.
  * @param root0
  * @param root0.row
+ * @param root0.attempt - The newest failed connect attempt, when there is one.
+ * @param root0.timeZone - IANA zone for its date.
  * @param root0.onConnect
  */
-function AvailableRow({ row, onConnect }: { row: ConnectorRow; onConnect: () => void }) {
+function AvailableRow({ row, attempt, timeZone, onConnect }: { row: ConnectorRow; attempt?: FailedAttempt; timeZone?: string; onConnect: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onConnect}
-      aria-label={`Connect ${row.tile.name}`}
-      className="group flex min-h-12 w-full items-center gap-3 px-2 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-    >
-      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-soft text-muted-foreground">
-        <ConnectorIcon name={row.tile.icon} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{row.tile.name}</span>
-        <span className="block truncate text-[13px] text-muted-foreground">{row.tile.description}</span>
-      </span>
-      {row.tile.authKind !== 'none' && (
-        <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">{row.tile.authKind === 'oauth' ? 'OAuth' : 'API key'}</span>
+    <div>
+      <button
+        type="button"
+        onClick={onConnect}
+        aria-label={`Connect ${row.tile.name}`}
+        className="group flex min-h-12 w-full items-center gap-3 px-2 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+      >
+        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-soft text-muted-foreground">
+          <ConnectorIcon name={row.tile.icon} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{row.tile.name}</span>
+          <span className="block truncate text-[13px] text-muted-foreground">{row.tile.description}</span>
+        </span>
+        {row.tile.authKind !== 'none' && (
+          <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">{row.tile.authKind === 'oauth' ? 'OAuth' : 'API key'}</span>
+        )}
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors group-hover:border-foreground/30 group-hover:text-foreground">
+          <Plus className="size-3" aria-hidden />
+          Connect
+        </span>
+      </button>
+      {attempt && (
+        <div className="px-2 pb-2 pl-13">
+          <LastAttemptLine attempt={attempt} timeZone={timeZone} />
+        </div>
       )}
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors group-hover:border-foreground/30 group-hover:text-foreground">
-        <Plus className="size-3" aria-hidden />
-        Connect
-      </span>
-    </button>
+    </div>
   );
 }
 
@@ -258,6 +275,8 @@ function StateChip({ row }: { row: ConnectorRow }) {
 
 function ConnectedRow(props: {
   row: ConnectorRow;
+  attempt?: FailedAttempt;
+  timeZone?: string;
   open: boolean;
   onToggle: () => void;
   syncingId: number | null;
@@ -318,6 +337,11 @@ function ConnectedRow(props: {
           </li>
         ))}
       </ul>
+      {props.attempt && (
+        <div className="mb-1 ml-9 px-2">
+          <LastAttemptLine attempt={props.attempt} timeZone={props.timeZone} />
+        </div>
+      )}
 
       {props.open && (
         <div id={detailId} className="mr-2 mb-2 ml-9 flex flex-col gap-4 border-t border-border/70 pt-3 text-sm" data-testid="connector-detail">
