@@ -214,12 +214,15 @@ export async function connectPrecheck(input: CreateSourceInput): Promise<string 
   if (!(await newestLiveCredential(input.orgId, platform.id))) {
     return `Log in to ${connectorLabel(input.connector)} first`;
   }
-  const badConfig = configProblem(input.connector, input.config);
-  if (badConfig) {
-    return badConfig;
-  }
   const target = await resolveTarget(input);
-  return target.kind === 'refuse' ? target.reason : null;
+  if (target.kind === 'refuse') {
+    return target.reason;
+  }
+  // A pick on an existing source is a delta (`{intakePerDay: 1}`, or `null`
+  // to clear a rule), so what must be valid is the config the write will save.
+  // A new source has only the pick.
+  const checked = target.kind === 'merge' ? addPickToConfig(input.connector, target.existing, input.config) : input.config;
+  return configProblem(input.connector, checked);
 }
 
 /**

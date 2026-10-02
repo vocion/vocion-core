@@ -236,4 +236,44 @@ describe('source.connect', () => {
     expect(rows).toHaveLength(3);
     expect(untouched.configJson).toEqual({ repos: ['northwind/api'], deployBranch: 'staging', _connector: 'github' });
   });
+
+  describe('a pick that lands on an existing source is checked as the merged config', () => {
+    const JIRA_BASE = { baseUrl: 'https://northwind.atlassian.net', projectKeys: ['ENG'] };
+
+    async function seedJiraSource(extra: Record<string, unknown> = {}) {
+      await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'jira', kind: 'plugin', configJson: { ...JIRA_BASE, ...extra, _connector: 'jira' } });
+    }
+
+    it('{intakeStatuses: null} passes and the write removes the key', async () => {
+      await seedLogin('jira');
+      await seedJiraSource({ intakeStatuses: ['To Do'] });
+      const pick = { connector: 'jira', config: { intakeStatuses: null } };
+
+      expect(await sourceConnectAction.precheck!({ orgId: ORG, invokedBy: ADMIN }, pick)).toBeUndefined();
+
+      await sourceConnectAction.execute(asAdmin, pick);
+      const [row] = await sources();
+
+      expect(row!.configJson).not.toHaveProperty('intakeStatuses');
+      expect(row!.configJson).toMatchObject(JIRA_BASE);
+    });
+
+    it('{intakePerDay: 1} passes without repeating baseUrl', async () => {
+      await seedLogin('jira');
+      await seedJiraSource();
+      const pick = { connector: 'jira', config: { intakePerDay: 1 } };
+
+      expect(await sourceConnectAction.precheck!({ orgId: ORG, invokedBy: ADMIN }, pick)).toBeUndefined();
+
+      await sourceConnectAction.execute(asAdmin, pick);
+
+      expect((await sources())[0]!.configJson).toMatchObject({ ...JIRA_BASE, intakePerDay: 1 });
+    });
+
+    it('a create with only {intakePerDay: 1} is still refused for the missing baseUrl', async () => {
+      await seedLogin('jira');
+
+      expect(await sourceConnectAction.precheck!({ orgId: ORG, invokedBy: ADMIN }, { connector: 'jira', config: { intakePerDay: 1 } })).toMatch(/baseUrl/);
+    });
+  });
 });
