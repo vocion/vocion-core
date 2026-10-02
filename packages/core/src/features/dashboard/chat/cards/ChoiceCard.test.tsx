@@ -111,4 +111,44 @@ describe('a choice card asks one question and takes one answer', () => {
     await expect.element(page.getByRole('alert')).toHaveTextContent('That is not one of this card\'s options.');
     await expect.element(page.getByRole('button', { name: 'B Reports' })).toBeEnabled();
   });
+
+  it('while the session is busy every control is off and one line says to wait', async () => {
+    await render(<ChoiceCard rec={choice} busy onAnswer={vi.fn()} onDismiss={vi.fn()} />);
+
+    await expect.element(page.getByRole('button', { name: 'A Coding & GitHub' })).toBeDisabled();
+    await expect.element(page.getByRole('button', { name: 'Send answer' })).toBeDisabled();
+    await expect.element(page.getByRole('button', { name: 'Skip' })).toBeDisabled();
+    await expect.element(page.getByLabelText('Type your own answer')).toBeDisabled();
+    await expect.element(page.getByText('Wait for the reply to finish.')).toBeVisible();
+  });
+
+  it('turns the options back on when the session stops being busy', async () => {
+    const { rerender } = await render(<ChoiceCard rec={choice} busy onAnswer={vi.fn()} onDismiss={vi.fn()} />);
+    await rerender(<ChoiceCard rec={choice} busy={false} onAnswer={vi.fn()} onDismiss={vi.fn()} />);
+
+    await expect.element(page.getByRole('button', { name: 'A Coding & GitHub' })).toBeEnabled();
+    expect(page.getByText('Wait for the reply to finish.').elements()).toHaveLength(0);
+  });
+
+  it.each([
+    ['resolves false', () => Promise.resolve(false)],
+    ['throws', () => Promise.reject(new Error('network'))],
+  ])('a skip that %s reopens the card and says so', async (_name, outcome) => {
+    await render(<ChoiceCard rec={choice} onAnswer={vi.fn()} onDismiss={outcome} />);
+
+    await page.getByRole('button', { name: 'Skip' }).click();
+
+    await expect.element(page.getByRole('alert')).toHaveTextContent('Could not skip this question. Try again.');
+    await expect.element(page.getByRole('button', { name: 'A Coding & GitHub' })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: 'Skip' })).toBeEnabled();
+  });
+
+  it('a skip the server recorded stays Skipped', async () => {
+    await render(<ChoiceCard rec={choice} onAnswer={vi.fn()} onDismiss={() => Promise.resolve(true)} />);
+
+    await page.getByRole('button', { name: 'Skip' }).click();
+
+    await expect.element(page.getByText('Skipped')).toBeVisible();
+    expect(page.getByRole('alert').elements()).toHaveLength(0);
+  });
 });

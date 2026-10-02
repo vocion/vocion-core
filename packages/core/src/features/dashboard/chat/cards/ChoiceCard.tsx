@@ -28,7 +28,10 @@ const OPTION_BUTTON = 'flex w-full items-start gap-2.5 rounded-lg border border-
 type ChoiceCardProps = {
   rec: RecommendedAction;
   onAnswer: (answer: CardAnswerInput) => void;
-  onDismiss: (dismissal: { cardId: string; label: string }) => void;
+  /** Resolves false when the skip could not be recorded; the card then reopens. */
+  onDismiss: (dismissal: { cardId: string; label: string }) => Promise<boolean> | void;
+  /** True while the session is busy with a reply or an upload. */
+  busy?: boolean;
 };
 
 /**
@@ -73,17 +76,31 @@ function sendAnswer(state: SendState, answer: CardAnswerInput): void {
   state.onAnswer(answer);
 }
 
+const SKIP_FAILED = 'Could not skip this question. Try again.';
+
+type SkipState = {
+  setSkippedHere: (skipped: boolean) => void;
+  setSkipError: (error: string | null) => void;
+  onDismiss: ChoiceCardProps['onDismiss'];
+};
+
 /**
- * Skip: show Skipped now, then record the dismissal.
- * @param setSkippedHere
- * @param onDismiss
- * @param dismissal
- * @param dismissal.cardId
- * @param dismissal.label
+ * Skip: show Skipped now, then record the dismissal. If it was not recorded
+ * (the answer is `false`, or the call threw) the card reopens with a sentence,
+ * so nobody is left looking at a Skipped the server never heard.
+ * @param state - The card's setters and the dismissal recorder.
+ * @param dismissal - Which card, and its question.
+ * @param dismissal.cardId - The card.
+ * @param dismissal.label - The question, as the log words it.
  */
-function skipCard(setSkippedHere: (skipped: boolean) => void, onDismiss: ChoiceCardProps['onDismiss'], dismissal: { cardId: string; label: string }): void {
-  setSkippedHere(true);
-  onDismiss(dismissal);
+async function skipCard(state: SkipState, dismissal: { cardId: string; label: string }): Promise<void> {
+  state.setSkippedHere(true);
+  state.setSkipError(null);
+  const recorded = await Promise.resolve(state.onDismiss(dismissal)).catch(() => false);
+  if (recorded === false) {
+    state.setSkippedHere(false);
+    state.setSkipError(SKIP_FAILED);
+  }
 }
 
 /**
@@ -137,12 +154,13 @@ function OtherField({ disabled, onSend }: { disabled: boolean; onSend: (text: st
   );
 }
 
-export function ChoiceCard({ rec, onAnswer, onDismiss }: ChoiceCardProps) {
+export function ChoiceCard({ rec, onAnswer, onDismiss, busy = false }: ChoiceCardProps) {
   // The refusal the card showed when the person last sent. While it is still
   // the card's current refusal, that send has not come back; a new refusal
   // (or the card changing state) turns the options on again.
   const [sentWith, setSentWith] = useState<{ refusal: RecommendedAction['answerRefused'] } | null>(null);
   const [skippedHere, setSkippedHere] = useState(false);
+  const [skipError, setSkipError] = useState<string | null>(null);
   const cardId = rec.id ?? '';
 
   const answered = answeredText(rec);
@@ -153,7 +171,7 @@ export function ChoiceCard({ rec, onAnswer, onDismiss }: ChoiceCardProps) {
     return <CollapsedCard rec={rec} line="Skipped" />;
   }
 
-  const sending = sentWith !== null && sentWith.refusal === rec.answerRefused;
+  const sending = (sentWith !== null && sentWith.refusal === rec.answerRefused) || busy;
   const sendState: SendState = { refusal: rec.answerRefused, setSentWith, onAnswer };
 
   return (
@@ -173,9 +191,11 @@ export function ChoiceCard({ rec, onAnswer, onDismiss }: ChoiceCardProps) {
         ))}
       </div>
       {choiceAllowsOther(rec) && <OtherField disabled={sending} onSend={text => sendAnswer(sendState, { cardId, optionId: 'other', text })} />}
+      {busy && <p className="text-xs text-muted-foreground">Wait for the reply to finish.</p>}
+      {skipError && <p role="alert" className="text-xs text-destructive">{skipError}</p>}
       {rec.answerRefused && !sending && <p role="alert" className="text-xs text-destructive">{rec.answerRefused.error}</p>}
       <div>
-        <button type="button" onClick={() => skipCard(setSkippedHere, onDismiss, { cardId, label: rec.label })} disabled={sending} className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-50">Skip</button>
+        <button type="button" onClick={() => void skipCard({ setSkippedHere, setSkipError, onDismiss }, { cardId, label: rec.label })} disabled={sending} className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-50">Skip</button>
       </div>
     </div>
   );

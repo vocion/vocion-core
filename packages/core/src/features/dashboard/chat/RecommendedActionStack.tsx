@@ -136,12 +136,12 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
  * @param root0.rec - The card as the transcript holds it.
  */
 function StackCard({ rec }: { rec: RecommendedAction }) {
-  const answerCard = useAnswerCard();
+  const { answer, busy } = useAnswerCard();
   const recordDecision = useRecordCardDecision();
   if (rec.kind !== 'choice') {
     return <RecommendedActionCard rec={rec} />;
   }
-  return <ChoiceCard rec={rec} onAnswer={answerCard} onDismiss={d => recordDecision({ ...d, action: 'dismiss' })} />;
+  return <ChoiceCard rec={rec} busy={busy} onAnswer={answer} onDismiss={d => recordDecision({ ...d, action: 'dismiss' })} />;
 }
 
 /**

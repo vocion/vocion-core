@@ -189,10 +189,13 @@ function ChatShellInner({
   // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
   const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo' | 'dismiss'; runId?: number }) => {
     if (session.conversationId === null) {
-      return;
+      return Promise.resolve(false);
     }
-    void client.conversations.recordCardDecision({ id: session.conversationId, ...d }).catch((err: unknown) => {
+    // Resolves true once written, false when it was not, so a card that
+    // showed its decision at once (Skip) can take it back.
+    return client.conversations.recordCardDecision({ id: session.conversationId, ...d }).then(() => true, (err: unknown) => {
       console.warn('card decision was not written to the conversation', err);
+      return false;
     });
   }, [session.conversationId]);
   const onboardingOpened = useRef(false);
@@ -417,7 +420,7 @@ function ChatShellInner({
                 )
               : (
                   <CardDecisionProvider value={recordCardDecision}>
-                    <CardAnswerProvider value={answerCard}>
+                    <CardAnswerProvider value={{ answer: answerCard, busy: session.isStreaming || session.uploading > 0 }}>
                       <MessageList
                         messages={session.messages}
                         agentName={session.workspaceName}

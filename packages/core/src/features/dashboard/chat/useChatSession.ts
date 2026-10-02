@@ -1360,6 +1360,11 @@ export function useChatSession({
     // block in the composer belongs to the next message, not to this pick.
     const quoted = cardAnswer ? '' : pageContextRef.current?.selection?.text?.trim() ?? '';
     if ((!raw.trim() && !quoted && !pastedText && attachments.length === 0) || streamingRef.current || uploading > 0) {
+      // An answer that cannot go is given back to the person: the card
+      // reopens with a sentence, never a dead button.
+      if (cardAnswer) {
+        setMessages(prev => withRefusedAnswer(prev, cardAnswer.cardId, 'Wait for the reply to finish.', Date.now()));
+      }
       return;
     }
     // `/search <query>` is the retrieval-only path (§9.10) — the virtual

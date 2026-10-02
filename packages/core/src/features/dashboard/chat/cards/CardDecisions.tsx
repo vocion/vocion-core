@@ -13,12 +13,12 @@ import { createContext, use } from 'react';
  */
 export type CardDecision = { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo' | 'dismiss'; runId?: number };
 
-const CardDecisionContext = createContext<((d: CardDecision) => void) | null>(null);
+const CardDecisionContext = createContext<((d: CardDecision) => Promise<boolean> | void) | null>(null);
 
 export const CardDecisionProvider = CardDecisionContext.Provider;
 
-/** The recorder, or a no-op where no conversation is around the card. */
-export function useRecordCardDecision(): (d: CardDecision) => void {
+/** The recorder, or a no-op where no conversation is around the card. A recorder that answers `false` could not write the decision. */
+export function useRecordCardDecision(): (d: CardDecision) => Promise<boolean> | void {
   return use(CardDecisionContext) ?? (() => {});
 }
 
@@ -30,11 +30,17 @@ export function useRecordCardDecision(): (d: CardDecision) => void {
  */
 export type CardAnswerInput = { cardId: string; optionId: 'A' | 'B' | 'C' | 'D' | 'other'; text: string };
 
-const CardAnswerContext = createContext<((a: CardAnswerInput) => void) | null>(null);
+export type CardAnswerSender = {
+  answer: (a: CardAnswerInput) => void;
+  /** True while a reply is streaming or a file is uploading: the session cannot take an answer now. */
+  busy: boolean;
+};
+
+const CardAnswerContext = createContext<CardAnswerSender | null>(null);
 
 export const CardAnswerProvider = CardAnswerContext.Provider;
 
 /** The answer sender, or a no-op where no conversation is around the card. */
-export function useAnswerCard(): (a: CardAnswerInput) => void {
-  return use(CardAnswerContext) ?? (() => {});
+export function useAnswerCard(): CardAnswerSender {
+  return use(CardAnswerContext) ?? { answer: () => {}, busy: false };
 }

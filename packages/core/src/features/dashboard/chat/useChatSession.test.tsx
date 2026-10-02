@@ -729,4 +729,24 @@ describe('useChatSession answering a choice card (#1028)', () => {
     expect(card.answerRefused?.error).toBe('That is not one of this card\'s options.');
     expect(result.current.isStreaming).toBe(false);
   });
+
+  it('an answer tapped while a reply is still streaming is handed back: the card reopens with a sentence', async () => {
+    // A reply that never finishes keeps the session busy.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({ start: () => {} }), { headers: { 'content-type': 'text/event-stream' } })));
+    const { result, act } = await openAskedThread(asked(OPEN_CARD));
+    void act(async () => {
+      void result.current.sendMessage('and another thing');
+    });
+    await vi.waitFor(() => expect(result.current.isStreaming).toBe(true));
+
+    await act(async () => {
+      await result.current.sendMessage('Reports', { cardId: 'card_c', optionId: 'B', text: 'Reports' });
+    });
+
+    const card = result.current.messages[0]!.recommendations![0]!;
+
+    expect(card.answer).toBeUndefined();
+    expect(card.state).toBe('proposed');
+    expect(card.answerRefused?.error).toBe('Wait for the reply to finish.');
+  });
 });

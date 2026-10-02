@@ -29,7 +29,7 @@ describe('a choice card in the stack', () => {
     const decide = vi.fn();
     await render(
       <CardDecisionProvider value={decide}>
-        <CardAnswerProvider value={answer}>
+        <CardAnswerProvider value={{ answer, busy: false }}>
           <RecommendedActionStack recs={[choice]} />
         </CardAnswerProvider>
       </CardDecisionProvider>,
