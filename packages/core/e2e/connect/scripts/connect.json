@@ -1,0 +1,28 @@
+{
+  "providers": {
+    "github": {
+      "outcome": "ok",
+      "displayName": "GitHub — northwind",
+      "credentials": {
+        "installationId": "1",
+        "account": "northwind",
+        "accountType": "Organization",
+        "repositorySelection": "selected",
+        "repositories": ["northwind/portal"]
+      }
+    },
+    "slack": {
+      "outcome": "ok",
+      "displayName": "Slack — Northwind",
+      "credentials": {
+        "token": "scripted-bot-token-not-real",
+        "teamId": "T0NORTHWIND",
+        "teamName": "Northwind",
+        "botUserId": "U0SCRIPTED",
+        "appId": "A0SCRIPTED",
+        "scope": "channels:read,channels:history,groups:read,groups:history"
+      }
+    },
+    "atlassian": { "outcome": "refuse", "reason": "access_denied" }
+  }
+}

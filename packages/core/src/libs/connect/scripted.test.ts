@@ -17,7 +17,7 @@ const SCRIPT = {
 /**
  * Write a script file into a throwaway directory and point the environment at it.
  */
-function useScript(): void {
+function writeScriptAndPointAtIt(): void {
   const file = path.join(mkdtempSync(path.join(tmpdir(), 'connect-script-')), 'connect.json');
   writeFileSync(file, JSON.stringify(SCRIPT));
   vi.stubEnv('VOCION_CONNECT_SCRIPT', file);
@@ -37,7 +37,7 @@ describe('scripted connect providers', () => {
   });
 
   it('refuses to run in production unless the allow flag is set, and names the flag', async () => {
-    useScript();
+    writeScriptAndPointAtIt();
     vi.stubEnv('NODE_ENV', 'production');
     const { scriptedProviders } = await freshModule();
     const { githubProvider } = await import('./providers/github');
@@ -50,7 +50,7 @@ describe('scripted connect providers', () => {
   });
 
   it('answers the GitHub exchange with the scripted bag and name', async () => {
-    useScript();
+    writeScriptAndPointAtIt();
     const { scriptedProviders } = await freshModule();
     const { githubProvider } = await import('./providers/github');
     const [github] = scriptedProviders([githubProvider]);
@@ -62,7 +62,7 @@ describe('scripted connect providers', () => {
   });
 
   it('refuses the Atlassian exchange with the scripted reason', async () => {
-    useScript();
+    writeScriptAndPointAtIt();
     const { scriptedProviders } = await freshModule();
     const { atlassianProvider } = await import('./providers/atlassian');
     const [atlassian] = scriptedProviders([atlassianProvider]);
@@ -71,7 +71,7 @@ describe('scripted connect providers', () => {
   });
 
   it('sends the browser straight back to the callback with the state, and is always configured', async () => {
-    useScript();
+    writeScriptAndPointAtIt();
     const { scriptedProviders } = await freshModule();
     const { githubProvider } = await import('./providers/github');
     const [github] = scriptedProviders([githubProvider]);
@@ -82,7 +82,7 @@ describe('scripted connect providers', () => {
   });
 
   it('refuses a provider the script does not name, so no test can reach a real vendor', async () => {
-    useScript();
+    writeScriptAndPointAtIt();
     const { scriptedProviders } = await freshModule();
     const { slackProvider } = await import('./providers/slack');
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
