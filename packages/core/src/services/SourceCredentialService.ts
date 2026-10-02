@@ -708,6 +708,45 @@ export async function getCredentialsForConnector(input: {
 }
 
 /**
+ * The `api_token` row a connector slug resolves to, or null when it resolves to
+ * the per-install `source_credential` instead.
+ *
+ * The row named by the slug wins; failing that, the oldest row running the
+ * connector that has a credential. Split out of `getCredentialsForSource` so a
+ * caller that goes on to WRITE (the Jira refresh) can write to the very row it
+ * read from, rather than re-deriving the answer a second way.
+ * @param orgId - The org that owns the connector.
+ * @param sourceSlug - A connector row's slug, or the slug of the connector it runs.
+ */
+export async function resolveApiTokenIdForSource(orgId: string, sourceSlug: string): Promise<string | null> {
+  const [namedRow] = await db
+    .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+    .from(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.orgId, orgId),
+      eq(knowledgeSourceSchema.slug, sourceSlug),
+    ))
+    .limit(1);
+
+  let apiTokenId = namedRow?.apiTokenId ?? null;
+  if (apiTokenId === null) {
+    const [runningRow] = await db
+      .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+      .from(knowledgeSourceSchema)
+      .where(and(
+        eq(knowledgeSourceSchema.orgId, orgId),
+        isNotNull(knowledgeSourceSchema.apiTokenId),
+        eq(sql`${knowledgeSourceSchema.configJson} ->> '_connector'`, sourceSlug),
+      ))
+      .orderBy(knowledgeSourceSchema.id)
+      .limit(1);
+    apiTokenId = runningRow?.apiTokenId ?? null;
+  }
+
+  return apiTokenId;
+}
+
+/**
  * The decrypted credentials for a connector named by slug, for callers holding
  * a slug and nothing else — the agent tools and the action runner.
  *
@@ -735,30 +774,7 @@ export async function getCredentialsForSource(
   orgId: string,
   sourceSlug: string,
 ): Promise<RawCredentials | undefined> {
-  const [namedRow] = await db
-    .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
-    .from(knowledgeSourceSchema)
-    .where(and(
-      eq(knowledgeSourceSchema.orgId, orgId),
-      eq(knowledgeSourceSchema.slug, sourceSlug),
-    ))
-    .limit(1);
-
-  let apiTokenId = namedRow?.apiTokenId ?? null;
-  if (apiTokenId === null) {
-    const [runningRow] = await db
-      .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
-      .from(knowledgeSourceSchema)
-      .where(and(
-        eq(knowledgeSourceSchema.orgId, orgId),
-        isNotNull(knowledgeSourceSchema.apiTokenId),
-        eq(sql`${knowledgeSourceSchema.configJson} ->> '_connector'`, sourceSlug),
-      ))
-      .orderBy(knowledgeSourceSchema.id)
-      .limit(1);
-    apiTokenId = runningRow?.apiTokenId ?? null;
-  }
-
+  const apiTokenId = await resolveApiTokenIdForSource(orgId, sourceSlug);
   return getCredentialsForConnector({
     orgId,
     connectorSlug: sourceSlug,
