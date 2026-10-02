@@ -44,7 +44,10 @@ export type PageGroup = {
  *   it names a group. Ignored without `param`.
  */
 export function PageGroupTabs({ groups, param, initial }: { groups: PageGroup[]; param?: string; initial?: string }) {
-  const first = groups[0]?.key ?? '';
+  // The default tab is the first with anything in it (Chris, 2026-10-02: "if
+  // there's 0 in progress, default to Proposed"); an all-empty page opens on
+  // the first. It is also the clean URL, so a link names only other tabs.
+  const first = (groups.find(g => g.count > 0) ?? groups[0])?.key ?? '';
   const start = param && initial && groups.some(g => g.key === initial) ? initial : first;
   const [value, setValue] = useState(start);
   // THE TAB IS IN THE URL (Chris, 2026-09-25: "tabs should be hashtags with
