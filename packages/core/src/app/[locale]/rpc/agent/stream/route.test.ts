@@ -500,6 +500,19 @@ describe('agent stream route — a choice answer is the person\'s turn (#1028)',
     expect(user?.runsJson).toEqual([{ type: 'card_decision', cardId: 'card_setup', action: 'answer', label: 'What matters most?', option: 'A' }]);
   });
 
+  it('a choice a specialist asked is answered by that specialist, whatever agent the client sends', async () => {
+    const { listAgents } = await import('@/services/AgentService');
+    const roster = ['revenue-lead', 'product-manager'].map(slug => ({ slug, name: slug, description: slug, handles: [], suggestions: [], initiative: 'normal', active: 'true' }));
+    vi.mocked(listAgents).mockResolvedValue(roster as never);
+    vi.mocked(runAgentDeep).mockImplementation(finishes);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+    await db.insert(conversationMessageSchema).values({ conversationId: conv.id, role: 'assistant', content: '', agentSlug: 'product-manager', runsJson: [question] });
+
+    await drain(await postAnswer(conv.id, { cardId: 'card_setup', optionId: 'A' }));
+
+    expect(vi.mocked(runAgentDeep).mock.calls[0]![0].agentSlug).toBe('product-manager');
+  });
+
   it('answering twice is a 409 that starts no second turn and adds no second message', async () => {
     vi.mocked(runAgentDeep).mockImplementation(finishes);
     const conv = await seedAskedQuestion();

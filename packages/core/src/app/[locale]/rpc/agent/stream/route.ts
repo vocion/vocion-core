@@ -114,6 +114,17 @@ export async function POST(request: Request): Promise<Response> {
   let agentSlug = body.agent_slug as string | undefined;
   let routing: import('@/services/agents/router').RoutingDecision | null = null;
   const roster = await listAgents(orgId);
+  // A choice is answered by the agent that asked it. The web client always
+  // sends the session's default agent, so for an answer the card's own agent
+  // wins over `agent_slug` and `route`; with no stamp (or an agent the roster
+  // no longer has) the usual resolution below decides.
+  if (cardAnswer && typeof body.conversation_id === 'number') {
+    const { cardAskerOf } = await import('@/services/ConversationService');
+    const askedBy = await cardAskerOf({ orgId, conversationId: body.conversation_id, cardId: cardAnswer.cardId });
+    if (askedBy && roster.some(a => a.slug === askedBy)) {
+      agentSlug = askedBy;
+    }
+  }
   if (!agentSlug || (body.route === true && !cardAnswer)) {
     const agents = roster;
     if (agents.length === 0) {

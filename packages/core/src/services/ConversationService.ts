@@ -775,6 +775,21 @@ export async function readCardRun(input: { orgId: string; conversationId: number
 }
 
 /**
+ * The agent that asked a card: the slug stamped on the assistant message
+ * that holds it. An answer goes back to this agent, not to whichever agent
+ * the client had selected.
+ * @param input
+ * @param input.orgId - The org that owns the conversation.
+ * @param input.conversationId - The conversation the card is in.
+ * @param input.cardId - The card's id.
+ * @returns The asking agent's slug, or null when the card or the stamp is missing.
+ */
+export async function cardAskerOf(input: { orgId: string; conversationId: number; cardId: string }): Promise<string | null> {
+  const found = await selectCardMessage(db, input);
+  return found?.agentSlug ?? null;
+}
+
+/**
  * The newest assistant message of a conversation that holds a card, org and
  * conversation filtered. `lock` takes the row `FOR UPDATE`, which is what a
  * patch needs and a plain read does not.
@@ -788,7 +803,7 @@ export async function readCardRun(input: { orgId: string; conversationId: number
 async function selectCardMessage(executor: DbTransaction | typeof db, input: { orgId: string; conversationId: number; cardId: string }, lock = false) {
   const holdsCard = JSON.stringify([{ type: 'card', id: input.cardId }]);
   const query = executor
-    .select({ id: conversationMessageSchema.id, runs: conversationMessageSchema.runsJson })
+    .select({ id: conversationMessageSchema.id, runs: conversationMessageSchema.runsJson, agentSlug: conversationMessageSchema.agentSlug })
     .from(conversationMessageSchema)
     .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
     .where(and(
