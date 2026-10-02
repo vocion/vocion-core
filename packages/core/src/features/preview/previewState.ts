@@ -72,6 +72,17 @@ function writeParam(value: string | null): void {
   emit();
 }
 
+/**
+ * Whether a preview may open on its own right now. A running workspace tour
+ * (`features/dashboard/WorkspaceTour`) directs attention step by step, and a
+ * pane that opens itself mid-run splits the column the tour is pointing at
+ * and hides the work it asked people to watch (Chris, 2026-10-02). While a
+ * tour is up, what a turn makes waits for the tour's own "tap to open".
+ */
+export function previewMayOpenItself(): boolean {
+  return typeof document === 'undefined' || document.querySelector('[data-tour-chrome]') === null;
+}
+
 /** The ref the URL says is open, or null. */
 export function useOpenPreviewRef(): Pick<RecordRef, 'type' | 'id'> | null {
   const search = useSyncExternalStore(subscribe, readSearch, () => '');

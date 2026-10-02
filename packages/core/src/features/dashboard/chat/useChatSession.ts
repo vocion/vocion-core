@@ -8,7 +8,7 @@ import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { openPreview } from '@/features/preview/previewState';
+import { openPreview, previewMayOpenItself } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
@@ -712,7 +712,9 @@ export function useChatSession({
         // (Chris, 2026-09-18: "maybe preview should open automatically").
         flushDeltas();
         const made = (evt as unknown as { record: { type: RecordRef['type']; id: string } }).record;
-        openPreview({ type: made.type, id: made.id }, null);
+        if (previewMayOpenItself()) {
+          openPreview({ type: made.type, id: made.id }, null);
+        }
         return;
       }
       case 'documents': {
@@ -823,8 +825,11 @@ export function useChatSession({
         // sentence the product had just shown him.
         //
         // The newest artifact of the turn wins, so a turn that renders three
-        // leaves the last one open rather than fighting over the panel.
-        openPreview({ type: 'artifact', id: String(chip.id) }, null);
+        // leaves the last one open rather than fighting over the panel. A
+        // running tour opens artifacts itself (previewMayOpenItself).
+        if (previewMayOpenItself()) {
+          openPreview({ type: 'artifact', id: String(chip.id) }, null);
+        }
         return;
       }
 
