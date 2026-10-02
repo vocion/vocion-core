@@ -82,6 +82,23 @@ function proposalTitle(actionId: string, input: Record<string, unknown> | null, 
 }
 
 /**
+ * Did the person, in their own words on the page they are on, tell the agent
+ * to take this decision? The one consent read every decide path uses: their
+ * latest messages and the page's record, so "build this" means that record.
+ * @param ctx - The turn.
+ * @param ctx.orgId - The workspace.
+ * @param ctx.conversationId - The conversation.
+ * @param ctx.turnMessage - This turn's message.
+ * @param ctx.pageContext - The page they are on.
+ * @param decision - The decision, as a sentence.
+ */
+export async function personSaidToDecide(ctx: { orgId: string; conversationId?: number | null; turnMessage?: string; pageContext?: import('@/services/chat/pageContext').PageContext }, decision: string): Promise<{ said: boolean; quote: string | null }> {
+  const { saidToDecide } = await import('./turnJudge');
+  const page = ctx.pageContext?.record?.label ?? ctx.pageContext?.title ?? null;
+  return saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision, page });
+}
+
+/**
  * The person's words a decision tool is gated on: this turn's message
  * (`ctx.turnMessage`, else the conversation's latest), then the one before.
  * Empty when the turn has no conversation. Never throws.

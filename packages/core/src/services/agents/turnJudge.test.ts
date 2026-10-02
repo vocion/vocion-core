@@ -39,6 +39,15 @@ describe('what the person meant, read by a model', () => {
 });
 
 describe('consent to a decision, read by a model', () => {
+  it('reads "this" as the record on the page the person is on', async () => {
+    const { saidToDecide } = await import('./turnJudge');
+    const seen: unknown[] = [];
+    await saidToDecide({ orgId: 'org_judge', messages: ['Plan this again and build it.'], decision: 'Start the build for request #224', page: 'request #224 Copy link on each row' }, modelSaying({ said: true, quote: 'Plan this again and build it.' }, seen));
+    const human = JSON.stringify(seen[1]);
+
+    expect(human).toContain('The person is on the page of request #224 Copy link on each row');
+  });
+
   it('is the model\'s reading of the person\'s own words, and no consent when there are none or the read fails', async () => {
     const { saidToDecide } = await import('./turnJudge');
 

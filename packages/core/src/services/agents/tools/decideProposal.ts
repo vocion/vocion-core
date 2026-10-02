@@ -3,8 +3,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { deferUntil } from '@/features/dashboard/chat/deferral';
 import { isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
-import { personMessages } from '../owedDecision';
-import { saidToDecide } from '../turnJudge';
+import { personSaidToDecide } from '../owedDecision';
 
 /**
  * A PERSON DECIDES A CARD BY SAYING SO.
@@ -33,7 +32,7 @@ export function decideProposalTool(ctx: RuntimeContext) {
       // before, when this one is a bare "do it") — read by a model, never a
       // word match (`turnJudge.saidToDecide`). A workspace token is the
       // person's own client acting directly, so it carries no message.
-      if (!ctx.userId.startsWith('token:') && !(await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `${input.decision} proposal #${input.id}` })).said) {
+      if (!ctx.userId.startsWith('token:') && !(await personSaidToDecide(ctx, `${input.decision} proposal #${input.id}`)).said) {
         return `Refused: the person has not said to ${input.decision} proposal #${input.id} in their message. Recommend it and let them say so, or let them press the card.`;
       }
       const { decide, snooze } = await import('@/services/ReviewService');

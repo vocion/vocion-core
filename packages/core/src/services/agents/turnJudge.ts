@@ -111,14 +111,16 @@ export const SaidToDecideSchema = z.object({
  * @param input.orgId - The workspace.
  * @param input.messages - The person's recent messages, newest first (the latest, then the one before).
  * @param input.decision - The decision, as a sentence ("approve proposal #5201: Build vanity links").
+ * @param input.page - The record the person is on, so "build this" reads as that record (2026-10-02: "Plan this again and build it" on FE-224 read as no consent without it).
  * @param model - Injected in tests.
  */
-export async function saidToDecide(input: { orgId: string; messages: string[]; decision: string }, model?: Model): Promise<{ said: boolean; quote: string | null }> {
+export async function saidToDecide(input: { orgId: string; messages: string[]; decision: string; page?: string | null }, model?: Model): Promise<{ said: boolean; quote: string | null }> {
   if (input.messages.length === 0) {
     return { said: false, quote: null };
   }
   try {
     const out = await ask(model ?? await classifier(input.orgId), SaidToDecideSchema, 'report_consent', 'Report whether the person said to take this decision.', 'An agent is about to take a decision on a person\'s behalf. You decide from the person\'s own words only whether they told it to take exactly this decision: this action, on this target, with this effect. A question about it, a maybe, a different decision, or a decision about something else is not consent. Consent to one action is never consent to another on the same work: a person who asked to defer, close, file or change a record has not asked for a revert, a merge, a deploy, a delete or any other change to production unless they named that action themselves. Answer only through the tool.', [
+      input.page ? `The person is on the page of ${input.page}; "this" or "it" in their words means that record.` : '',
       `The decision: ${input.decision}`,
       `The person, latest message: ${input.messages[0]!.slice(0, 2_000)}`,
       input.messages[1] ? `The person, message before: ${input.messages[1].slice(0, 2_000)}` : '',

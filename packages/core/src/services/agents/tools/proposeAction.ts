@@ -168,13 +168,12 @@ export async function runProposal(
   // its own still rides the trust ladder, as a card.
   const asPerson = Boolean(ctx.userId) && !ctx.missionRunId && !factoryStep && !isAgentsOwnSchedule(ctx)
     && (await (async () => {
-      const { personMessages } = await import('../owedDecision');
-      const { saidToDecide } = await import('../turnJudge');
+      const { personSaidToDecide } = await import('../owedDecision');
       // The action, its target and its effect (`consentDecision`), so consent
       // to one decision is never read as consent to another (action 5949).
       const { consentDecision } = await import('../consentDecision');
       const decision = await consentDecision(ctx.orgId, action_id, action_input as Record<string, unknown>, rationale.slice(0, 200));
-      return (await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision })).said;
+      return (await personSaidToDecide(ctx, decision)).said;
     })().catch(() => false));
   try {
     const res = await proposeAction({

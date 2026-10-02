@@ -157,9 +157,8 @@ export async function askHeldByThePersonHere(ctx: RuntimeContext, ask: DecisionS
       return null;
     }
     // THE PERSON'S WORD RUNS: asked to put it on the queue, it goes on the queue.
-    const { personMessages } = await import('./owedDecision');
-    const { saidToDecide } = await import('./turnJudge');
-    const consent = await saidToDecide({ orgId: ctx.orgId, messages: await personMessages(ctx), decision: `file a question on the Needs you queue, to be answered later: "${ask.title}"` }).catch(() => ({ said: false }));
+    const { personSaidToDecide } = await import('./owedDecision');
+    const consent = await personSaidToDecide(ctx, `file a question on the Needs you queue, to be answered later: "${ask.title}"`).catch(() => ({ said: false }));
     if (consent.said) {
       return null;
     }
