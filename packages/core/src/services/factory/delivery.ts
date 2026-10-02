@@ -75,30 +75,62 @@ async function attemptsFor(orgId: string, url: string): Promise<Array<{ id: numb
 export const VOCION_MERGED = 'Vocion';
 
 /**
+ * What a machine merge says beside "Vocion": the seat that approved it with
+ * the count it proved, and the trust rule that let it run, e.g.
+ * "Vocion · QA approved 6 of 6 · trust rule (logic)".
+ * @param m - What the merge run and its attempt say.
+ * @param m.approver - The approving seat's name, or null.
+ * @param m.count - "6 of 6" from the attempt's verdict, or null.
+ * @param m.rule - What released it without a press: "trust rule (logic)", or the bar's own words.
+ */
+export function vocionMergeCredit(m: { approver: string | null; count: string | null; rule: string | null }): string {
+  return [VOCION_MERGED, m.approver ? `${m.approver} approved${m.count ? ` ${m.count}` : ''}` : null, m.rule].filter(Boolean).join(' · ');
+}
+
+/**
+ * What released a merge without a press, from its proposal stamp: the trust
+ * rule and the class it was read for, or the bar's own words.
+ * @param proposal - The run's proposal (`autoApproved`, `autoApprovedBy`, `autoApprovedReason`).
+ * @param riskClass - The class on the card.
+ */
+export function releasedByRule(proposal: Record<string, unknown>, riskClass: string | null): string | null {
+  if (proposal.autoApprovedBy === 'trust-rule') {
+    return riskClass ? `trust rule (${riskClass})` : 'trust rule';
+  }
+  return proposal.autoApproved === true && typeof proposal.autoApprovedReason === 'string' && proposal.autoApprovedReason.trim() ? proposal.autoApprovedReason.trim() : null;
+}
+
+/**
  * Who merged it, by name: the person who decided the merge card for one of
- * these attempts, when a person did; Vocion and who approved it, when Vocion
- * merged it on its own (an agent seat's merge, or a trust rule); else
- * GitHub's own login.
+ * these attempts, when a person did; Vocion, who approved it and the rule it
+ * ran on, when Vocion merged it on its own (an agent seat's merge, or a trust
+ * rule); else GitHub's own login.
  *
  * MERGED BY VOCION (run 2, 2026-10-01): a merge Vocion made on the person's
  * token read "Merged by chrisfitkin", as if the person had clicked it. GitHub's
  * `merged_by` is the token's identity; the merge run says who decided it.
+ *
+ * THE MERGE RUN IS STILL RUNNING WHEN ITS EVENT LANDS (Walk 10, 2026-10-02,
+ * PR #180): `git.merge` raises `pr.merged` from inside its own execution, so
+ * the run reads `executing`, not `done`, when this is read, and a reading of
+ * done runs only fell through to the token's owner. A decided run that is
+ * executing is the merge being made.
  * @param orgId - Tenant.
  * @param attemptIds - The attempts that carried the pull request.
  * @param login - GitHub's `merged_by`, or the pull request's author.
  */
 async function mergedByName(orgId: string, attemptIds: number[], login: string | null): Promise<string | null> {
-  const { and, desc, eq, sql } = await import('drizzle-orm');
+  const { and, desc, eq, inArray, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
-  const { actionRunSchema, agentSchema, userSchema } = await import('@/models/Schema');
+  const { actionRunSchema, agentSchema, businessObjectSchema, userSchema } = await import('@/models/Schema');
   const { decidedByMachine } = await import('@/libs/actions/decider');
   const { MERGE_ACTION_ID } = await import('@/libs/actions/mergeAction');
   if (attemptIds.length === 0) {
     return login;
   }
-  const cards = await db.select({ actionId: actionRunSchema.actionId, decidedBy: actionRunSchema.decidedBy, invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal }).from(actionRunSchema).where(and(
+  const cards = await db.select({ actionId: actionRunSchema.actionId, decidedBy: actionRunSchema.decidedBy, invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal, input: actionRunSchema.input }).from(actionRunSchema).where(and(
     eq(actionRunSchema.orgId, orgId),
-    eq(actionRunSchema.status, 'done'),
+    inArray(actionRunSchema.status, ['done', 'executing']),
     sql`(${actionRunSchema.input} ->> 'taskId') in (${sql.join(attemptIds.map(id => sql`${String(id)}`), sql`, `)})`,
     sql`${actionRunSchema.decidedBy} is not null`,
   )).orderBy(desc(actionRunSchema.decidedAt)).limit(5);
@@ -114,16 +146,19 @@ async function mergedByName(orgId: string, attemptIds: number[], login: string |
     return login;
   }
   const proposal = (machine.proposal ?? {}) as Meta;
+  const input = (machine.input ?? {}) as Meta;
   const seat = str(proposal.agentSlug) ?? [machine.invokedBy, machine.decidedBy].map(by => /^agent:(.+)$/.exec(by ?? '')?.[1]).find(Boolean) ?? null;
   const [agent] = seat
     ? await db.select({ name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, seat))).limit(1)
     : [];
-  const approver = agent?.name?.trim() || seat;
-  if (approver) {
-    return `${VOCION_MERGED} · ${approver} approved`;
-  }
-  const rule = str(proposal.autoApprovedReason);
-  return rule ? `${VOCION_MERGED} · ${rule}` : VOCION_MERGED;
+  // The count the approval stood on, from the verdict on the attempt the card merged.
+  const taskId = Number(input.taskId);
+  const [task] = Number.isSafeInteger(taskId) && taskId > 0
+    ? await db.select({ meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, taskId))).limit(1)
+    : [];
+  const verdict = ((task?.meta ?? {}) as Meta).verdict as { proven?: unknown; total?: unknown } | undefined;
+  const count = Number.isInteger(verdict?.proven) && Number.isInteger(verdict?.total) && Number(verdict!.total) > 0 ? `${verdict!.proven} of ${verdict!.total}` : null;
+  return vocionMergeCredit({ approver: agent?.name?.trim() || seat, count, rule: releasedByRule(proposal, str(input.riskClass)) });
 }
 
 /**

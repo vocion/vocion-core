@@ -81,8 +81,33 @@ describe('recordMerge', () => {
     await recordMerge(ORG, { ...merged, mergedBy: 'token-owner' }, deps, NOW);
     const m = await meta(requestId);
 
-    expect(m.delivery).toMatchObject({ mergedBy: 'Vocion · QA approved' });
-    expect(((m.recovery as { log: Array<{ text: string }> }).log.at(-1))?.text).toBe('Merged PR #41 by Vocion · QA approved; the runs it started on GitHub carry it to the release.');
+    expect(m.delivery).toMatchObject({ mergedBy: 'Vocion · QA approved · trust rule' });
+    expect(((m.recovery as { log: Array<{ text: string }> }).log.at(-1))?.text).toBe('Merged PR #41 by Vocion · QA approved · trust rule; the runs it started on GitHub carry it to the release.');
+  });
+
+  it('credits Vocion, QA\'s count and the trust rule while the merge run is still executing, never the token\'s owner (Walk 10, PR #180)', async () => {
+    // git.merge raises pr.merged from inside its own execution: the run reads
+    // `executing` when the event is handled, and a done-only read fell through
+    // to GitHub's merged_by ("Merged PR #180 by <token owner>").
+    await db.insert(agentSchema).values({ orgId: ORG, slug: 'change-reviewer', name: 'QA', systemPrompt: 'x' } as never).onConflictDoNothing();
+    await db.update(businessObjectSchema).set({ metadata: { requestId, prUrl: PR, verdict: { value: 'approve', proven: 6, total: 6 } } }).where(eq(businessObjectSchema.id, taskId));
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'executing', input: { taskId, riskClass: 'logic' }, invokedBy: 'agent:change-reviewer', decidedBy: 'agent:change-reviewer', decidedAt: new Date(), proposal: { agentSlug: 'change-reviewer', autoApproved: true, autoApprovedBy: 'trust-rule', autoApprovedReason: 'trust rule: 90% ≥ 85%' } } as never);
+
+    await recordMerge(ORG, { ...merged, mergedBy: 'token-owner' }, deps, NOW);
+    const m = await meta(requestId);
+
+    expect(m.delivery).toMatchObject({ mergedBy: 'Vocion · QA approved 6 of 6 · trust rule (logic)' });
+    expect(((m.recovery as { log: Array<{ text: string }> }).log.at(-1))?.text).toBe('Merged PR #41 by Vocion · QA approved 6 of 6 · trust rule (logic); the runs it started on GitHub carry it to the release.');
+    expect(JSON.stringify(m)).not.toContain('token-owner');
+  });
+
+  it('a person who pressed Merge is credited while the run is still executing', async () => {
+    const [u] = await db.insert(userSchema).values({ id: 'usr-delivery-ines', email: 'ines@northwind.example', name: 'Ines Okafor' } as never).returning({ id: userSchema.id });
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'executing', input: { taskId }, invokedBy: 'agent:change-reviewer', decidedBy: u!.id, decidedAt: new Date() } as never);
+
+    await recordMerge(ORG, { ...merged, mergedBy: 'token-owner' }, deps, NOW);
+
+    expect((await meta(requestId)).delivery).toMatchObject({ mergedBy: 'Ines Okafor' });
   });
 
   it('a merge a trust rule released with no seat behind it names the rule', async () => {
