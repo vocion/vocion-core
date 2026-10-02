@@ -4,6 +4,8 @@ import type { RecommendedAction } from './types';
 import { ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useAnswerCard, useRecordCardDecision } from './cards/CardDecisions';
+import { ChoiceCard } from './cards/ChoiceCard';
 import { RecommendedActionCard } from './RecommendedActionCard';
 
 /**
@@ -71,7 +73,7 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
   }, [recs.length, scrollToCard]);
 
   if (recs.length <= 1) {
-    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} />)}</>;
+    return <>{recs.map((rec, i) => <StackCard key={i} rec={rec} />)}</>;
   }
 
   return (
@@ -105,7 +107,7 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
           // `flex` so the card stretches to the row's height: the row is as
           // tall as its tallest card, and so is every card in it.
           <div key={i} data-testid="recommended-action-slide" className="flex w-[calc(100%-1.5rem)] min-w-0 shrink-0 snap-start snap-always last:w-full [&>*]:min-w-0 [&>*]:flex-1" aria-hidden={i !== idx ? true : undefined}>
-            <RecommendedActionCard rec={rec} />
+            <StackCard rec={rec} />
           </div>
         ))}
       </div>
@@ -125,6 +127,21 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
       </div>
     </div>
   );
+}
+
+/**
+ * One card of the stack: a choice card gets its own face (lettered options,
+ * your own words, Skip), everything else is the recommended-action card.
+ * @param root0 - The card's props.
+ * @param root0.rec - The card as the transcript holds it.
+ */
+function StackCard({ rec }: { rec: RecommendedAction }) {
+  const answerCard = useAnswerCard();
+  const recordDecision = useRecordCardDecision();
+  if (rec.kind !== 'choice') {
+    return <RecommendedActionCard rec={rec} />;
+  }
+  return <ChoiceCard rec={rec} onAnswer={answerCard} onDismiss={d => recordDecision({ ...d, action: 'dismiss' })} />;
 }
 
 /**

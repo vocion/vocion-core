@@ -1,6 +1,7 @@
 'use client';
 
 import type { AgentSurfaceRequest } from './agentSurface';
+import type { CardAnswerInput } from './cards/CardDecisions';
 import type { AgentOption, ChatAttachment } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
@@ -18,7 +19,7 @@ import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef'
 import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
-import { CardDecisionProvider } from './cards/CardDecisions';
+import { CardAnswerProvider, CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -202,6 +203,11 @@ function ChatShellInner({
       void startOnboardingConversation({ start: () => client.onboarding.start(), open: path => window.location.replace(path) });
     }
   }, [onboardingDue]);
+  // A choice card's pick is a chat turn carrying `card_answer` (#1028).
+  const sendMessage = session.sendMessage;
+  const answerCard = useCallback((a: CardAnswerInput) => {
+    void sendMessage(a.text, a);
+  }, [sendMessage]);
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;
@@ -411,20 +417,22 @@ function ChatShellInner({
                 )
               : (
                   <CardDecisionProvider value={recordCardDecision}>
-                    <MessageList
-                      messages={session.messages}
-                      agentName={session.workspaceName}
-                      // The workspace speaks through its lead; a specialist's turn is attributed.
-                      ownAgentSlug={defaultAgentSlug(agents)}
-                      streaming={session.isStreaming}
-                      activity={session.activity}
-                      onShowSources={openSources}
-                      onCitationClick={(_n, messageId) => openSources(messageId)}
-                      onFeedback={session.handleFeedback}
-                      autonomy={session.autonomy}
-                      conversationId={session.conversationId}
-                      blocks={gateBlocks}
-                    />
+                    <CardAnswerProvider value={answerCard}>
+                      <MessageList
+                        messages={session.messages}
+                        agentName={session.workspaceName}
+                        // The workspace speaks through its lead; a specialist's turn is attributed.
+                        ownAgentSlug={defaultAgentSlug(agents)}
+                        streaming={session.isStreaming}
+                        activity={session.activity}
+                        onShowSources={openSources}
+                        onCitationClick={(_n, messageId) => openSources(messageId)}
+                        onFeedback={session.handleFeedback}
+                        autonomy={session.autonomy}
+                        conversationId={session.conversationId}
+                        blocks={gateBlocks}
+                      />
+                    </CardAnswerProvider>
                   </CardDecisionProvider>
                 )}
 

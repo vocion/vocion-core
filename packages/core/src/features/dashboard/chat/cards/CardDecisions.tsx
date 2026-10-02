@@ -21,3 +21,20 @@ export const CardDecisionProvider = CardDecisionContext.Provider;
 export function useRecordCardDecision(): (d: CardDecision) => void {
   return use(CardDecisionContext) ?? (() => {});
 }
+
+/**
+ * How a choice card sends its answer (#1028). Provided beside
+ * `CardDecisionProvider`: the answer is a chat turn carrying `card_answer`, so
+ * it needs the live session that owns the send path. Found nowhere (a preview,
+ * a test) it sends nothing.
+ */
+export type CardAnswerInput = { cardId: string; optionId: 'A' | 'B' | 'C' | 'D' | 'other'; text: string };
+
+const CardAnswerContext = createContext<((a: CardAnswerInput) => void) | null>(null);
+
+export const CardAnswerProvider = CardAnswerContext.Provider;
+
+/** The answer sender, or a no-op where no conversation is around the card. */
+export function useAnswerCard(): (a: CardAnswerInput) => void {
+  return use(CardAnswerContext) ?? (() => {});
+}

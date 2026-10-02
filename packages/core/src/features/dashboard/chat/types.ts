@@ -155,6 +155,12 @@ export type RecommendedAction = {
   /** Whether a choice card takes typed text (option id `other`). */
   allowOther?: boolean;
   answer?: CardAnswer;
+  /**
+   * Client only, never stored: the server turned an answer away (a bad option,
+   * an unknown card). Carries the server's sentence for the card to show, and
+   * a stamp so two identical refusals still read as two events.
+   */
+  answerRefused?: { error: string; at: number };
 };
 
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */

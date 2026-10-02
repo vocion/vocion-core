@@ -1,6 +1,7 @@
 'use client';
 
 import type { AgentSurfaceRequest } from './agentSurface';
+import type { CardAnswerInput } from './cards/CardDecisions';
 import type { AgentOption } from './types';
 import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import type { PageContext } from '@/services/chat/pageContext';
@@ -27,7 +28,7 @@ import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef'
 import { pageShowsRecord, recordFromPath, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, followExcludeOf } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
-import { CardDecisionProvider } from './cards/CardDecisions';
+import { CardAnswerProvider, CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -317,6 +318,11 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   const sequenceInView = Boolean(run) && (run?.card.content ?? []).some(c => c.kind === 'email');
   const tagProps = useComposerTags(agents, effectiveContext, { change: sequenceInView });
   // Latest session for the request listener (registered once, on mount).
+  // A choice card's pick is a chat turn carrying `card_answer` (#1028).
+  const sendMessage = session.sendMessage;
+  const answerCard = useCallback((a: CardAnswerInput) => {
+    void sendMessage(a.text, a);
+  }, [sendMessage]);
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;
@@ -740,22 +746,24 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
               )
             : (
                 <CardDecisionProvider value={recordCardDecision}>
-                  <MessageList
-                    messages={session.messages}
-                    agentName={session.workspaceName}
-                    streaming={session.isStreaming}
-                    activity={session.activity}
-                    // The rail's second pane is the preview pane: a turn's
-                    // sources open there, beside the thread (Chris,
-                    // 2026-09-29: "clicking source … doesn't do anything").
-                    pageRecord={pageRecord}
-                    onShowSources={openSources}
-                    onCitationClick={(_n, messageId) => openSources(messageId)}
-                    blocks={blocks}
-                    onFeedback={session.handleFeedback}
-                    autonomy={session.autonomy}
-                    conversationId={session.conversationId}
-                  />
+                  <CardAnswerProvider value={answerCard}>
+                    <MessageList
+                      messages={session.messages}
+                      agentName={session.workspaceName}
+                      streaming={session.isStreaming}
+                      activity={session.activity}
+                      // The rail's second pane is the preview pane: a turn's
+                      // sources open there, beside the thread (Chris,
+                      // 2026-09-29: "clicking source … doesn't do anything").
+                      pageRecord={pageRecord}
+                      onShowSources={openSources}
+                      onCitationClick={(_n, messageId) => openSources(messageId)}
+                      blocks={blocks}
+                      onFeedback={session.handleFeedback}
+                      autonomy={session.autonomy}
+                      conversationId={session.conversationId}
+                    />
+                  </CardAnswerProvider>
                 </CardDecisionProvider>
               )}
 

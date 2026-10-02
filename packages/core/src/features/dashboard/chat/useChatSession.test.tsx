@@ -656,3 +656,77 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(result.current.messages[1]!.status).toBe('stopped'));
   });
 });
+
+const OPEN_CARD = { type: 'card', id: 'card_c', kind: 'choice', label: 'What do you want me taking off your plate?', actionId: '', input: {}, state: 'proposed', options: [{ id: 'A', label: 'Coding & GitHub' }, { id: 'B', label: 'Reports' }] };
+const asked = (card: Record<string, unknown>) => ({
+  id: 9,
+  orgId: 'org_1',
+  agentSlug: 'orchestrator',
+  title: 'Setup',
+  messageCount: 1,
+  messages: [{ id: 2, conversationId: 9, role: 'assistant', content: 'One question.', runsJson: [{ type: 'text', text: 'One question.' }, card], createdAt: new Date(), status: 'complete' }],
+});
+
+async function openAskedThread(conversation: ReturnType<typeof asked>) {
+  vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+  vi.mocked(client.conversations.get).mockResolvedValue(conversation as never);
+  const hook = await renderHook(() => useChatSession({ agents: AGENTS, resumeConversationId: 9 }));
+  await vi.waitFor(() => expect(hook.result.current.messages).toHaveLength(1));
+  return hook;
+}
+
+describe('useChatSession answering a choice card (#1028)', () => {
+  it('posts card_answer with the pick, shows the card answered at once, and keeps the composer draft', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"card_update","cardId":"card_c","state":"decided","answer":{"optionId":"B","text":"Reports","at":"2026-10-02T10:00:00.000Z","by":"u1"}}\n\ndata: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { result, act } = await openAskedThread(asked(OPEN_CARD));
+    await act(async () => {
+      result.current.setComposerValue('half a thought');
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('Reports', { cardId: 'card_c', optionId: 'B', text: 'Reports' });
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+
+    expect(body.card_answer).toEqual({ cardId: 'card_c', optionId: 'B', text: 'Reports' });
+    expect(body.conversation_id).toBe(9);
+    expect(result.current.messages[0]!.recommendations![0]).toMatchObject({ state: 'decided', answer: { optionId: 'B', text: 'Reports', by: 'u1' } });
+    expect(result.current.messages[1]).toMatchObject({ role: 'user', content: 'Reports' });
+    expect(result.current.composerValue).toBe('half a thought');
+  });
+
+  it('a 409 means someone answered first: refetch, show the stored answer, and say nothing alarming', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'That question was already answered.' }), { status: 409 })));
+    const { result, act } = await openAskedThread(asked(OPEN_CARD));
+    vi.mocked(client.conversations.get).mockResolvedValue(asked({ ...OPEN_CARD, state: 'decided', answer: { optionId: 'A', text: 'Coding & GitHub', at: '2026-10-02T09:59:00.000Z' } }) as never);
+
+    await act(async () => {
+      await result.current.sendMessage('Reports', { cardId: 'card_c', optionId: 'B', text: 'Reports' });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]!.recommendations![0]).toMatchObject({ state: 'decided', answer: { optionId: 'A', text: 'Coding & GitHub' } });
+    expect(result.current.messages[0]!.recommendations![0]!.answerRefused).toBeUndefined();
+    expect(result.current.turnOutcome).not.toBe('error');
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it.each([400, 404])('a %i puts the card back open with the server sentence, and no stray turn rows', async (status) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'That is not one of this card\'s options.' }), { status })));
+    const { result, act } = await openAskedThread(asked(OPEN_CARD));
+
+    await act(async () => {
+      await result.current.sendMessage('Reports', { cardId: 'card_c', optionId: 'B', text: 'Reports' });
+    });
+
+    const card = result.current.messages[0]!.recommendations![0]!;
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(card.answer).toBeUndefined();
+    expect(card.state).toBe('proposed');
+    expect(card.answerRefused?.error).toBe('That is not one of this card\'s options.');
+    expect(result.current.isStreaming).toBe(false);
+  });
+});

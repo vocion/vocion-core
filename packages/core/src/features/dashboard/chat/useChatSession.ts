@@ -1,5 +1,6 @@
 'use client';
 
+import type { CardAnswerInput } from './cards/CardDecisions';
 import type { TurnOutcome } from './queueReducer';
 import type { CardUpdate } from './recommendedAction';
 import type { AgentOption, AgentRun, CardAnswer, CardChoiceOption, CardDecision, CardField, CardLastAttempt, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
@@ -24,6 +25,7 @@ import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
+import { refusalSentence, updateCardEverywhere, withCardAnswer, withRefusedAnswer } from './cards/choiceAnswers';
 import { isIntentTag } from './composerTags';
 import { cardLink, cardShown, cardUpdated, draftOf, readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
@@ -796,11 +798,10 @@ export function useChatSession({
         return;
       }
       case 'card_update': {
+        // Every row, not only the latest: a choice answer's update names a card
+        // in an earlier reply than the turn the answer starts.
         const u = evt as unknown as CardUpdate & { cardId: string };
-        appendToLatestAgent(m => ({
-          ...m,
-          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? cardUpdated(r, u) : r)),
-        }));
+        setMessages(prev => updateCardEverywhere(prev, u.cardId, r => cardUpdated(r, u)));
         return;
       }
       case 'recommended_action': {
@@ -1324,7 +1325,30 @@ export function useChatSession({
     };
   }, [agent.slug, isSearchOnly, settleBoot, resumeStream, waitForReply, bootTarget]);
 
-  const sendMessage = useCallback(async (raw: string) => {
+  /**
+   * The server turned a choice answer away before any turn began. A 409 means
+   * the card was answered already (another tab, a double tap): fetch the
+   * conversation, which carries the stored answer, and say nothing alarming.
+   * A 400 or 404 puts the card back to open with the server's sentence on it.
+   * Either way the user and assistant rows this send pushed come off.
+   */
+  const settleRefusedAnswer = useCallback(async (resp: Response, cardAnswer: CardAnswerInput) => {
+    const body = await resp.json().catch(() => null) as { error?: unknown } | null;
+    streamingRef.current = false;
+    setPhase('idle');
+    setActivity(null);
+    setTurnOutcome('completed');
+    const id = conversationIdRef.current;
+    const conv = resp.status === 409 && id !== null ? await client.conversations.get({ id }).catch(() => null) : null;
+    if (conv) {
+      setMessages(hydrateTranscript((conv.messages ?? []) as PersistedMessageRow[], nameOfAgent).messages);
+      return;
+    }
+    const sentence = resp.status === 409 ? 'That question was already answered.' : refusalSentence(resp.status, body);
+    setMessages(prev => withRefusedAnswer(prev.slice(0, -2), cardAnswer.cardId, sentence, Date.now()));
+  }, []);
+
+  const sendMessage = useCallback(async (raw: string, cardAnswer?: CardAnswerInput) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
     // sendMessage in the same handler, before React has re-rendered.
     // THE HIGHLIGHTED PASSAGE IS PART OF WHAT WAS SAID (Chris, 2026-09-29: "I
@@ -1332,7 +1356,9 @@ export function useChatSession({
     // be able to submit with just that context"). It rode only as page
     // context: the transcript showed "tell me?" with no quote, history lost
     // it, and an empty box could not send. It is now the turn's opening quote.
-    const quoted = pageContextRef.current?.selection?.text?.trim() ?? '';
+    // An answer is only its own words: a highlighted passage or a pasted
+    // block in the composer belongs to the next message, not to this pick.
+    const quoted = cardAnswer ? '' : pageContextRef.current?.selection?.text?.trim() ?? '';
     if ((!raw.trim() && !quoted && !pastedText && attachments.length === 0) || streamingRef.current || uploading > 0) {
       return;
     }
@@ -1362,24 +1388,28 @@ export function useChatSession({
     // store and the transcript can show.
     const asked = command.text.trim() || (attachments.length > 0 ? `(Attached: ${attachments.map(a => a.title).join(', ')})` : command.text);
     const typed = quoted ? quoteThenAsk(quoted, asked) : asked;
-    const text = pastedText
+    const withPasted = pastedText
       ? `${typed}\n\n--- pasted ---\n${pastedText}`.trim()
       : typed;
-    const sent = attachments;
+    const text = cardAnswer ? raw.trim() : withPasted;
+    const sent = cardAnswer ? [] : attachments;
     // Fresh turn — reset the per-turn trace accumulator and the anchor clock.
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
     textRunsRef.current = 0;
     lastRunIsTextRef.current = false;
     setMessages(prev => [
-      ...prev,
+      // The card reads answered the moment it is tapped; a refusal undoes it.
+      ...(cardAnswer ? withCardAnswer(prev, cardAnswer.cardId, { optionId: cardAnswer.optionId, text: cardAnswer.text, at: new Date().toISOString() }) : prev),
       { role: 'user', content: text, ...(sent.length > 0 ? { attachments: sent } : {}) },
       { role: 'assistant', content: '', runs: [] },
     ]);
-    setComposerValue('');
-    setPastedText(null);
-    setAttachments([]);
-    setAttachError(null);
+    if (!cardAnswer) {
+      setComposerValue('');
+      setPastedText(null);
+      setAttachments([]);
+      setAttachError(null);
+    }
     setPhase('thinking');
 
     const refs = contextRefs;
@@ -1433,6 +1463,9 @@ export function useChatSession({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           message: text,
+          // The pick itself. The server answers the card from this, writes the
+          // person's turn from the card's own words, and refuses a double.
+          ...(cardAnswer ? { card_answer: cardAnswer } : {}),
           agent_slug: turnAgent.slug,
           // Nobody named an agent for this turn: let the workspace choose
           // (`services/agents/router.ts`). The reply is attributed to whoever
@@ -1463,6 +1496,10 @@ export function useChatSession({
             .map(m => ({ role: m.role, content: m.content })),
         }),
       });
+      if (cardAnswer && !resp.ok) {
+        await settleRefusedAnswer(resp, cardAnswer);
+        return;
+      }
       if (!resp.ok || !resp.body) {
         throw new Error(`HTTP ${resp.status}`);
       }
@@ -1584,7 +1621,7 @@ export function useChatSession({
         abortRef.current = null;
       }
     }
-  }, [agent, agents, messages, pastedText, attachments, uploading, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId, resumeStream]);
+  }, [agent, agents, messages, pastedText, attachments, uploading, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId, resumeStream, settleRefusedAnswer]);
 
   /**
    * Attach files to the next message: upload now, chip now. A refused file
