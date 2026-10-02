@@ -3,16 +3,18 @@
 import type { RecommendedAction } from './types';
 import { Check, Plug } from 'lucide-react';
 import { describeLastAttempt } from '@/libs/connect/attemptWording';
+import { Link } from '@/libs/I18nNavigation';
 
 const PRIMARY_BUTTON = 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90';
 
 /**
- * Whether a card is the connect card `offer_connection` emits (#1028): it
- * names a page and no action, so there is nothing to approve.
+ * Whether a card is the connect card `offer_connection` emits (#1028). It is
+ * known by its kind, not by a missing action: other cards can also name a
+ * page and no action, and must not turn into a login button.
  * @param rec - The card as the chat holds it.
  */
 export function isConnectLinkCard(rec: RecommendedAction): boolean {
-  return !rec.actionId && Boolean(rec.href);
+  return rec.kind === 'link' && Boolean(rec.href);
 }
 
 /**
@@ -66,9 +68,9 @@ export function ConnectLinkCard({ rec, timeZone }: { rec: RecommendedAction; tim
           {failed ? 'Try again' : (rec.hrefLabel ?? 'Connect')}
         </a>
         {rec.secondaryHref && (
-          <a href={rec.secondaryHref} data-testid="recommended-action-secondary" className="text-sm font-medium text-brand-amber-deep hover:underline">
+          <Link href={rec.secondaryHref} data-testid="recommended-action-secondary" className="text-sm font-medium text-brand-amber-deep hover:underline">
             {rec.secondaryHrefLabel ?? 'Other options'}
-          </a>
+          </Link>
         )}
       </div>
       {failed && (

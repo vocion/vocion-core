@@ -60,6 +60,13 @@ describe('a link card (offer_connection) starts the login and never says Approve
     expect(container.textContent ?? '').not.toMatch(/last attempt|approve/i);
   });
 
+  it('a record card with a page and no action is not a connect card', async () => {
+    const rec = { ...connect, kind: 'record', label: 'Open feature', hrefLabel: 'Open feature', secondaryHref: undefined, lastAttempt: { at: '2026-10-01T16:12:00.000Z', reason: 'x', summary: 'y' }, state: 'decided' as const };
+    const { container } = await render(<TooltipProvider><RecommendedActionCard rec={rec} /></TooltipProvider>);
+
+    expect(container.textContent ?? '').not.toMatch(/Try again|Connected/);
+  });
+
   it('shows what the login asks for', async () => {
     await render(<TooltipProvider><ConnectLinkCard rec={{ ...connect, body: 'Asks for: The repositories you choose during install' }} timeZone="UTC" /></TooltipProvider>);
 
