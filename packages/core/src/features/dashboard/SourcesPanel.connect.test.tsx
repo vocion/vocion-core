@@ -9,8 +9,12 @@ import { page, userEvent } from 'vitest/browser';
  * asked for again.
  */
 
-const saveSource = vi.fn();
-vi.mock('@/libs/Orpc', () => ({ client: { connect: { saveSource: (...args: unknown[]) => saveSource(...args) } } }));
+const addConnector = vi.fn();
+const revealStoredCredential = vi.fn();
+vi.mock('@/libs/Orpc', () => ({
+  client: { connect: { addConnector: (...args: unknown[]) => addConnector(...args) } },
+  noStoreClient: { connect: { revealStoredCredential: (...args: unknown[]) => revealStoredCredential(...args) } },
+}));
 vi.mock('@/libs/I18nNavigation', () => ({
   useRouter: () => ({ push: () => {}, replace: () => {} }),
   usePathname: () => '/dashboard/connectors',
@@ -91,7 +95,8 @@ function stubSources(sources: ReturnType<typeof githubSource>[]) {
 }
 
 beforeEach(() => {
-  saveSource.mockReset();
+  addConnector.mockReset();
+  revealStoredCredential.mockReset();
   stubSources([]);
 });
 
@@ -99,9 +104,14 @@ afterEach(() => {
   window.history.replaceState(null, '', '/');
 });
 
-describe('the add form follows the connector declaration', () => {
-  it('offers a login link and an unchecked paste box for a connector with a login', async () => {
-    await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: null, lastAttempt: null } }} />);
+const NO_LOGIN = { providerLabel: 'GitHub', loggedInAs: null, stored: null, lastAttempt: null };
+const LOGGED_IN = { providerLabel: 'GitHub', loggedInAs: 'northwind', stored: { kind: 'login' as const, account: 'northwind', hint: '…abcd', revealable: true }, lastAttempt: null };
+const ATLASSIAN_NO_LOGIN = { providerLabel: 'Atlassian', loggedInAs: null, stored: null, lastAttempt: null };
+const GITHUB_CONFIG = { repos: ['northwind/portal'], baseUrl: 'https://api.github.com', deployBranch: 'main', lookbackDays: 7 };
+
+describe('the add form puts the credential inside it', () => {
+  it('a connector with a login and a paste shows the login button, then "or paste a ..." with a real input and the guidance under it', async () => {
+    await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
     await page.getByRole('button', { name: 'Connect GitHub' }).click();
 
     const login = page.getByRole('link', { name: 'Log in with GitHub' });
@@ -110,100 +120,220 @@ describe('the add form follows the connector declaration', () => {
     expect(href.startsWith('/api/connect/github/start?connector=github')).toBe(true);
     expect(decodeURIComponent(href)).toContain('returnTo=/dashboard/connectors?add=github');
 
-    const paste = page.getByRole('checkbox', { name: 'Paste a token instead' });
-
-    await expect.element(paste).not.toBeChecked();
-    await expect.element(page.getByText('Personal access token', { exact: true })).not.toBeInTheDocument();
-
-    await paste.click();
-
-    await expect.element(page.getByText('Personal access token', { exact: true })).toBeVisible();
-
-    const link = page.getByRole('link', { name: /github\.com\/settings\/personal-access-tokens\/new/ });
-
-    await expect.element(link).toBeVisible();
+    await expect.element(page.getByText('or paste a Personal access token')).toBeVisible();
+    await expect.element(page.getByLabelText('Personal access token', { exact: true })).toBeVisible();
+    await expect.element(page.getByRole('link', { name: /github\.com\/settings\/personal-access-tokens\/new/ })).toBeVisible();
     await expect.element(page.getByText('Make a fine-grained personal access token')).toBeVisible();
     await expect.element(page.getByText(/Needs access to: pull_requests:read/)).toBeVisible();
   });
 
+  it('the old two-step wording and the paste checkbox are gone', async () => {
+    await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
+    await page.getByRole('button', { name: 'Connect GitHub' }).click();
+
+    await expect.element(page.getByText(/press Connect on its row/)).not.toBeInTheDocument();
+    await expect.element(page.getByRole('checkbox', { name: 'Paste a token instead' })).not.toBeInTheDocument();
+  });
+
   it('says what the source still needs after the login, from the declaration', async () => {
-    await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: null, lastAttempt: null }, jira: { providerLabel: 'Atlassian', loggedInAs: null, lastAttempt: null } }} />);
+    await render(<SourcesPanel connectInfo={{ github: NO_LOGIN, jira: ATLASSIAN_NO_LOGIN }} />);
     await page.getByRole('button', { name: 'Connect GitHub' }).click();
 
     await expect.element(page.getByTestId('connect-after-login')).toHaveTextContent('After logging in you choose: repositories.');
   });
 
-  it('shows only the paste fields for a connector with no login', async () => {
+  it('a paste-only connector shows its inputs and guidance and no login button', async () => {
     await render(<SourcesPanel connectInfo={{}} />);
     await page.getByRole('button', { name: 'Connect HubSpot' }).click();
 
-    await expect.element(page.getByText('Private-app token', { exact: true })).toBeVisible();
+    await expect.element(page.getByLabelText('Private-app token', { exact: true })).toBeVisible();
     await expect.element(page.getByText('CRM object read access')).toBeVisible();
     await expect.element(page.getByRole('link', { name: /Log in with/ })).not.toBeInTheDocument();
-    await expect.element(page.getByRole('checkbox', { name: 'Paste a token instead' })).not.toBeInTheDocument();
+    await expect.element(page.getByText(/^or paste a/)).not.toBeInTheDocument();
   });
 
-  it('writes no "needs" line when the declared access list is empty', async () => {
-    window.history.replaceState(null, '', '/?paste=1');
-    await render(<SourcesPanel connectInfo={{ jira: { providerLabel: 'Atlassian', loggedInAs: null, lastAttempt: null } }} />);
+  it('a connector made of several inputs (Jira) asks for each one by name, with no "needs" line when the access list is empty', async () => {
+    await render(<SourcesPanel connectInfo={{ jira: ATLASSIAN_NO_LOGIN }} />);
     await page.getByRole('button', { name: 'Connect Jira' }).click();
 
-    await expect.element(page.getByText('API token', { exact: true })).toBeVisible();
+    await expect.element(page.getByLabelText('Atlassian account email', { exact: true })).toBeVisible();
+    await expect.element(page.getByLabelText('API token', { exact: true })).toBeVisible();
     await expect.element(page.getByText(/Needs access to/)).not.toBeInTheDocument();
   });
 
-  it('pre-checks the paste box when the link says ?paste=1', async () => {
-    window.history.replaceState(null, '', '/?paste=1');
-    await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: null, lastAttempt: null } }} />);
-    await page.getByRole('button', { name: 'Connect GitHub' }).click();
+  it('?paste=1 puts the cursor in the first input', async () => {
+    window.history.replaceState(null, '', '/?add=github&paste=1');
+    await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
 
-    await expect.element(page.getByRole('checkbox', { name: 'Paste a token instead' })).toBeChecked();
-    await expect.element(page.getByText('Personal access token', { exact: true })).toBeVisible();
+    await expect.element(page.getByLabelText('Personal access token', { exact: true })).toHaveFocus();
+  });
+
+  it('a secret input is masked and its toggle shows what was typed, then hides it again', async () => {
+    await render(<SourcesPanel connectInfo={{}} />);
+    await page.getByRole('button', { name: 'Connect HubSpot' }).click();
+    await userEvent.fill(page.getByLabelText('Private-app token', { exact: true }), 'pat-na1-typed');
+
+    await expect.element(page.getByLabelText('Private-app token', { exact: true })).toHaveAttribute('type', 'password');
+
+    await page.getByRole('button', { name: 'Show Private-app token' }).click();
+
+    await expect.element(page.getByLabelText('Private-app token', { exact: true })).toHaveAttribute('type', 'text');
+
+    await page.getByRole('button', { name: 'Hide Private-app token' }).click();
+
+    await expect.element(page.getByLabelText('Private-app token', { exact: true })).toHaveAttribute('type', 'password');
+  });
+
+  it('save waits for the credential and names it, and for the settings and names them', async () => {
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
+
+    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeDisabled();
+    await expect.element(page.getByText(/Still needed/i)).toHaveTextContent(/personal access token/);
+    await expect.element(page.getByText(/Still needed/i)).toHaveTextContent(/repositories/);
   });
 });
 
-describe('after a login', () => {
-  it('says who is logged in and saves through the login route with the typed repos', async () => {
-    saveSource.mockResolvedValue({ ok: true, sourceId: 5 });
+describe('a stored login fills the credential, masked', () => {
+  it('shows who is logged in and the masked tail, never the token, with Replace', async () => {
+    window.history.replaceState(null, '', '/?add=github&connect=ok&connector=github');
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
+
+    await expect.element(page.getByTestId('connect-stored-text')).toHaveTextContent('Logged in as northwind · ••••abcd');
+    await expect.element(page.getByRole('button', { name: 'Replace' })).toBeVisible();
+    await expect.element(page.getByRole('link', { name: /Log in with/ })).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain('ghs_');
+  });
+
+  it('Replace empties it to an editable input and the login button comes back', async () => {
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
+    await page.getByRole('button', { name: 'Replace' }).click();
+
+    const input = page.getByLabelText('Personal access token', { exact: true });
+
+    await expect.element(input).toHaveValue('');
+    await expect.element(page.getByTestId('connect-stored-text')).not.toBeInTheDocument();
+
+    await userEvent.fill(input, 'ghp_replacement');
+
+    await expect.element(input).toHaveValue('ghp_replacement');
+    await expect.element(page.getByRole('link', { name: 'Log in with GitHub' })).toBeVisible();
+  });
+
+  it('a stored pasted key reads "Saved key" with its tail, on a connector that has no login', async () => {
+    window.history.replaceState(null, '', '/?add=hubspot');
+    await render(<SourcesPanel connectInfo={{ hubspot: { providerLabel: null, loggedInAs: null, stored: { kind: 'paste', account: null, hint: '…wxyz', revealable: true }, lastAttempt: null } }} />);
+
+    await expect.element(page.getByTestId('connect-stored-text')).toHaveTextContent('Saved key · ••••wxyz');
+    await expect.element(page.getByRole('link', { name: /Log in with/ })).not.toBeInTheDocument();
+  });
+
+  it('saves the kept login in one request with the typed repos, and the form closes', async () => {
+    addConnector.mockResolvedValue({ ok: true, sourceId: 5 });
     stubSources([githubSource('github', 3)]);
     window.history.replaceState(null, '', '/?add=github&connect=ok&connector=github');
-    await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: 'northwind', lastAttempt: null } }} />);
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
 
-    await expect.element(page.getByText('Logged in as northwind')).toBeVisible();
     await expect.element(page.getByText('Connected GitHub.', { exact: false })).toBeVisible();
-    await expect.element(page.getByRole('link', { name: /Log in with/ })).not.toBeInTheDocument();
 
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await vi.waitFor(() => expect(saveSource).toHaveBeenCalledWith({ connector: 'github', createNew: true, config: { repos: ['northwind/portal'], baseUrl: 'https://api.github.com', deployBranch: 'main', lookbackDays: 7 } }));
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith({ connector: 'github', config: { ...GITHUB_CONFIG, repos: ['northwind/portal'] }, credential: { keepStored: true } }));
   });
 
-  it('shows the refusal sentence the route sends back', async () => {
-    saveSource.mockRejectedValue(new Error('Only a workspace admin can connect a source'));
+  it('saves a pasted value in the same one request, with no second dialog afterwards', async () => {
+    addConnector.mockResolvedValue({ ok: true, sourceId: 5 });
     window.history.replaceState(null, '', '/?add=github');
-    await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: 'northwind', lastAttempt: null } }} />);
+    await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
+    await userEvent.fill(page.getByLabelText('Personal access token', { exact: true }), 'ghp_pasted_once');
+    await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith({ connector: 'github', config: { ...GITHUB_CONFIG, repos: ['northwind/portal'] }, credential: { values: { token: 'ghp_pasted_once' } } }));
+
+    await expect.element(page.getByRole('heading', { name: /^Connect github/ })).not.toBeInTheDocument();
+  });
+
+  it('shows the refusal sentence the route sends back, inline, and keeps the form open', async () => {
+    addConnector.mockRejectedValue(new Error('Only a workspace admin can connect a source'));
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
 
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
     await expect.element(page.getByRole('alert')).toHaveTextContent('Only a workspace admin can connect a source');
+    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeVisible();
   });
 });
 
-describe('pasting a token', () => {
-  it('opens the credential dialog for the source it just created', async () => {
-    const posts = stubSources([githubSource('github', 3)]);
-    window.history.replaceState(null, '', '/?add=github&paste=1');
-    await render(<SourcesPanel connectInfo={{ github: { providerLabel: 'GitHub', loggedInAs: null, lastAttempt: null } }} />);
+describe('Show reveals the stored value for an admin', () => {
+  it('Show fetches it, fills editable inputs, and Hide drops it from the page', async () => {
+    revealStoredCredential.mockResolvedValue({ status: 'ok', values: { token: 'ghs_the_real_value_abcd' } });
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
 
+    expect(document.body.innerHTML).not.toContain('ghs_the_real_value_abcd');
+
+    await page.getByRole('button', { name: 'Show' }).click();
+
+    await expect.element(page.getByLabelText('Personal access token', { exact: true })).toHaveValue('ghs_the_real_value_abcd');
+    await expect.element(page.getByLabelText('Personal access token', { exact: true })).toHaveAttribute('type', 'text');
+    expect(revealStoredCredential).toHaveBeenCalledTimes(1);
+    expect(revealStoredCredential).toHaveBeenCalledWith({ connector: 'github' });
+
+    await page.getByRole('button', { name: 'Hide Personal access token' }).click();
+
+    await expect.element(page.getByTestId('connect-stored-text')).toHaveTextContent('Logged in as northwind · ••••abcd');
+    expect(document.body.innerHTML).not.toContain('ghs_the_real_value_abcd');
+  });
+
+  it('an edited revealed value saves as typed values, not as the stored credential', async () => {
+    revealStoredCredential.mockResolvedValue({ status: 'ok', values: { token: 'ghs_the_real_value_abcd' } });
+    addConnector.mockResolvedValue({ ok: true, sourceId: 5 });
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
+    await page.getByRole('button', { name: 'Show' }).click();
+    await userEvent.fill(page.getByLabelText('Personal access token', { exact: true }), 'ghp_edited_after_show');
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await expect.element(page.getByRole('heading', { name: 'Connect github-2' })).toBeVisible();
-    await expect.element(page.getByLabelText(/Access token/)).toBeVisible();
-    expect(posts).toHaveLength(1);
-    expect(saveSource).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith({ connector: 'github', config: { ...GITHUB_CONFIG, repos: ['northwind/portal'] }, credential: { values: { token: 'ghp_edited_after_show' } } }));
+  });
+
+  it('an unedited revealed value still saves as the stored credential', async () => {
+    revealStoredCredential.mockResolvedValue({ status: 'ok', values: { token: 'ghs_the_real_value_abcd' } });
+    addConnector.mockResolvedValue({ ok: true, sourceId: 5 });
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
+    await page.getByRole('button', { name: 'Show' }).click();
+    await page.getByRole('button', { name: 'Hide Personal access token' }).click();
+    await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith(expect.objectContaining({ credential: { keepStored: true } })));
+  });
+
+  it('a refused reveal says so on the line and leaves the credential masked', async () => {
+    revealStoredCredential.mockRejectedValue(new Error('Forbidden'));
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
+    await page.getByRole('button', { name: 'Show' }).click();
+
+    await expect.element(page.getByTestId('connect-reveal-note')).toHaveTextContent('Forbidden');
+    await expect.element(page.getByTestId('connect-stored-text')).toHaveTextContent('••••abcd');
+  });
+
+  it('a login with no token string reads as an app installation, with no Show button and a reason', async () => {
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: { ...LOGGED_IN, stored: { kind: 'login', account: 'northwind', hint: 'login', revealable: false } } }} />);
+
+    await expect.element(page.getByTestId('connect-stored-text')).toHaveTextContent('GitHub App installation · northwind');
+    await expect.element(page.getByRole('button', { name: 'Show' })).not.toBeInTheDocument();
+    await expect.element(page.getByText(/no token to show/)).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Replace' })).toBeVisible();
   });
 });
 
@@ -212,7 +342,7 @@ describe('the last failed attempt', () => {
     await render(
       <SourcesPanel
         timeZone="UTC"
-        connectInfo={{ slack: { providerLabel: 'Slack', loggedInAs: null, lastAttempt: { at: '2026-10-01T16:12:00.000Z', summary: 'Slack denied access' } } }}
+        connectInfo={{ slack: { providerLabel: 'Slack', loggedInAs: null, stored: null, lastAttempt: { at: '2026-10-01T16:12:00.000Z', summary: 'Slack denied access' } } }}
       />,
     );
 

@@ -279,6 +279,112 @@ export async function listTokens(
 export type StoredPlatformKey = { id: string; keyHint: string };
 
 /**
+ * Insert a supplied key's row, first revoking the platform's live key when the
+ * platform holds only one. Runs in the caller's transaction so the revoke and
+ * the insert land together.
+ * @param tx - The transaction to write in.
+ * @param row - The `api_token` row to insert.
+ * @param revokeLiveKeys - Whether the platform allows one live key, so the old one goes first.
+ */
+async function writeKeyRow(tx: DbTransaction, row: typeof apiTokenSchema.$inferInsert & { orgId: string; platform: string }, revokeLiveKeys: boolean): Promise<void> {
+  if (revokeLiveKeys) {
+    // Clear the way for the partial unique index. Revoking rather than
+    // deleting keeps the audit trail of which keys this org has held.
+    await tx
+      .update(apiTokenSchema)
+      .set({ revokedAt: new Date() })
+      .where(and(
+        eq(apiTokenSchema.orgId, row.orgId),
+        eq(apiTokenSchema.platform, row.platform),
+        isNull(apiTokenSchema.revokedAt),
+      ));
+  }
+  await tx.insert(apiTokenSchema).values(row);
+}
+
+/** A supplied key, validated and encrypted, ready to insert. Holds no plaintext. */
+export type SealedPlatformKey = {
+  encrypted: { ciphertext: string; nonce: string; authTag: string; dekId: number };
+  hint: string;
+};
+
+/**
+ * Validate and encrypt a supplied key without writing it. Split from the
+ * insert so a caller with an open transaction can seal first: sealing reads
+ * the org's DEK through the pool, which must not wait on that transaction.
+ * @param input - The key to seal.
+ * @param input.orgId - The org the credential belongs to.
+ * @param input.platform - Which platform the key belongs to.
+ * @param input.apiKey - Single-secret platforms: the key as the person pasted it.
+ * @param input.values - Multi-field platforms: every field, keyed by field name.
+ */
+export async function sealPlatformKey(input: {
+  orgId: string;
+  platform: CredentialPlatformId;
+  apiKey?: string;
+  values?: CredentialValues;
+}): Promise<SealedPlatformKey> {
+  const platform = getPlatform(input.platform);
+  const soleField = platform.fields[0];
+  const supplied = input.values
+    ?? (soleField ? { [soleField.name]: input.apiKey ?? '' } : {});
+
+  // Throws with a message written for the person filling the form, and never
+  // echoes a value back.
+  const values = validatePlatformCredential(input.platform, supplied);
+
+  const vault = buildCredentialVault();
+  const encrypted = await vault.encrypt(
+    input.orgId,
+    // Stored as a JSON document so a platform can carry more than one value —
+    // AWS needs an access key id alongside its secret. Single-secret platforms
+    // are just a one-entry document.
+    Buffer.from(JSON.stringify(values), 'utf8'),
+  );
+  const hintOf = hintField(platform);
+  return { encrypted, hint: hintOf ? keyHint(values[hintOf.name] ?? '') : '…' };
+}
+
+/**
+ * Insert a sealed key in the caller's transaction. See {@link storePlatformKey}
+ * for what a second save means per platform.
+ * @param tx - The transaction to write in.
+ * @param input - The key's row.
+ * @param input.orgId - The org the credential belongs to.
+ * @param input.name - Human label for the credential.
+ * @param input.platform - Which platform the key belongs to.
+ * @param input.sealed - The key, from {@link sealPlatformKey}.
+ * @param input.createdBy - User id of whoever saved it.
+ * @param input.expiresAt - When the key stops being used; null for no expiry.
+ */
+export async function insertSealedPlatformKey(tx: DbTransaction, input: {
+  orgId: string;
+  name: string;
+  platform: CredentialPlatformId;
+  sealed: SealedPlatformKey;
+  createdBy?: string;
+  expiresAt?: Date | null;
+}): Promise<StoredPlatformKey> {
+  const { ciphertext, nonce, authTag, dekId } = input.sealed.encrypted;
+  const id = randomUUID().replace(/-/g, '').slice(0, 16);
+  await writeKeyRow(tx, {
+    id,
+    orgId: input.orgId,
+    name: input.name,
+    platform: input.platform,
+    secretHash: null,
+    dekId,
+    ciphertext,
+    nonce,
+    authTag,
+    keyHint: input.sealed.hint,
+    createdBy: input.createdBy ?? null,
+    expiresAt: input.expiresAt ?? null,
+  }, !holdsManyCredentials(input.platform));
+  return { id, keyHint: input.sealed.hint };
+}
+
+/**
  * Encrypt and store a key the org supplied for a third-party platform.
  *
  * What a second save means depends on the platform's `credentialsPerOrg`:
@@ -317,58 +423,22 @@ export async function storePlatformKey(input: {
   createdBy?: string;
   expiresAt?: Date | null;
 }): Promise<StoredPlatformKey> {
-  const platform = getPlatform(input.platform);
-  const soleField = platform.fields[0];
-  const supplied = input.values
-    ?? (soleField ? { [soleField.name]: input.apiKey ?? '' } : {});
+  const sealed = await sealPlatformKey(input);
+  return db.transaction(tx => insertSealedPlatformKey(tx, { ...input, sealed }));
+}
 
-  // Throws with a message written for the person filling the form, and never
-  // echoes a value back.
-  const values = validatePlatformCredential(input.platform, supplied);
+/** The hint a login shows when its bag holds no token string (a GitHub App installation: tokens are minted per request). */
+export const LOGIN_WITHOUT_TOKEN_HINT = 'login';
 
-  const vault = buildCredentialVault();
-  const { ciphertext, nonce, authTag, dekId } = await vault.encrypt(
-    input.orgId,
-    // Stored as a JSON document so a platform can carry more than one value —
-    // AWS needs an access key id alongside its secret. Single-secret platforms
-    // are just a one-entry document.
-    Buffer.from(JSON.stringify(values), 'utf8'),
-  );
-  const hintOf = hintField(platform);
-  const hint = hintOf ? keyHint(values[hintOf.name] ?? '') : '…';
-
-  const id = randomUUID().replace(/-/g, '').slice(0, 16);
-  const replacesPreviousKey = !holdsManyCredentials(input.platform);
-  await db.transaction(async (tx) => {
-    if (replacesPreviousKey) {
-      // Clear the way for the partial unique index. Revoking rather than
-      // deleting keeps the audit trail of which keys this org has held.
-      await tx
-        .update(apiTokenSchema)
-        .set({ revokedAt: new Date() })
-        .where(and(
-          eq(apiTokenSchema.orgId, input.orgId),
-          eq(apiTokenSchema.platform, input.platform),
-          isNull(apiTokenSchema.revokedAt),
-        ));
-    }
-    await tx.insert(apiTokenSchema).values({
-      id,
-      orgId: input.orgId,
-      name: input.name,
-      platform: input.platform,
-      secretHash: null,
-      dekId,
-      ciphertext,
-      nonce,
-      authTag,
-      keyHint: hint,
-      createdBy: input.createdBy ?? null,
-      expiresAt: input.expiresAt ?? null,
-    });
-  });
-
-  return { id, keyHint: hint };
+/**
+ * The token string a login's bag holds, or null when it holds none. A GitHub
+ * App installation keeps only the installation id: its tokens are minted on
+ * each request, so there is nothing to show or copy.
+ * @param values - The provider's credential bag.
+ */
+export function loginTokenOf(values: Record<string, unknown>): string | null {
+  const shown = [values.token, values.accessToken].find(value => typeof value === 'string' && value !== '');
+  return typeof shown === 'string' ? shown : null;
 }
 
 /**
@@ -377,8 +447,8 @@ export async function storePlatformKey(input: {
  * @param values - The provider's credential bag.
  */
 function loginKeyHint(values: Record<string, unknown>): string {
-  const shown = [values.token, values.accessToken].find(value => typeof value === 'string');
-  return typeof shown === 'string' ? keyHint(shown) : 'login';
+  const token = loginTokenOf(values);
+  return token === null ? LOGIN_WITHOUT_TOKEN_HINT : keyHint(token);
 }
 
 /** What storing a login did, so the caller can repoint what used the old rows. */
@@ -994,10 +1064,13 @@ export type RevealedCredential
  * that is worth surfacing rather than reporting as "no key here".
  * @param orgId - The org the caller is acting in. Rows outside it are invisible.
  * @param tokenId - The credential row to open.
+ * @param options - `includeLogin` also opens a provider login's bag; off by default.
+ * @param options.includeLogin
  */
 export async function revealPlatformCredential(
   orgId: string,
   tokenId: string,
+  options: { includeLogin?: boolean } = {},
 ): Promise<RevealedCredential> {
   const [row] = await db
     .select({
@@ -1015,9 +1088,11 @@ export async function revealPlatformCredential(
   if (!row) {
     return { status: 'not-found' };
   }
-  if (row.obtainedVia === 'login') {
+  if (row.obtainedVia === 'login' && !options.includeLogin) {
     // A login's tokens are the provider's grant to Vocion, not a key the org
-    // holds. Answered like a missing row so the screen never shows one.
+    // holds. Answered like a missing row so the API-credentials screen never
+    // shows one. Only the Connectors form asks for a login's token on purpose
+    // (`includeLogin`), through an admin-only, audited route.
     return { status: 'not-found' };
   }
   if (!row.ciphertext || !row.nonce || !row.authTag || row.dekId === null) {

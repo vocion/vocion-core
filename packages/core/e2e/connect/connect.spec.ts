@@ -25,7 +25,7 @@ import { ADMIN, seedConnectWorkspace } from './support/seed';
  */
 
 /** Hosts a real login would reach. A request to any of these is a failure. */
-const VENDOR_HOSTS = ['github.com', 'api.github.com', 'slack.com', 'atlassian.com', 'auth.atlassian.com'];
+const VENDOR_HOSTS = ['github.com', 'api.github.com', 'slack.com', 'atlassian.com', 'auth.atlassian.com', 'hubapi.com', 'api.hubapi.com'];
 
 /** Every URL the browser asked for, across all cases. */
 const requestedUrls: string[] = [];
@@ -84,6 +84,20 @@ async function listedConnectors(page: Page): Promise<string[]> {
   return body.sources.map(source => source.kind);
 }
 
+/** A made-up key: the test types it in and nothing ever sends it anywhere. */
+const HUBSPOT_KEY = 'pat-na1-e2e-not-a-real-key-0001';
+
+/**
+ * Whether the workspace's HubSpot source reads as connected, the way the
+ * Connectors page reads it.
+ * @param page - A signed-in page.
+ */
+async function hubspotConnected(page: Page): Promise<boolean> {
+  const response = await page.request.get('/rpc/sources');
+  const body = await response.json() as { sources: Array<{ slug: string; credentialConnected: boolean }> };
+  return body.sources.some(source => source.slug.startsWith('hubspot') && source.credentialConnected);
+}
+
 /**
  * Accept a confirm box, as a person pressing OK would.
  * @param dialog - The browser dialog.
@@ -92,15 +106,22 @@ async function acceptDialog(dialog: Dialog): Promise<void> {
   await dialog.accept();
 }
 
-test('GitHub from the Connectors page: log in, name the repository, and the login is in the credential store', async ({ page }) => {
+test('GitHub from the Connectors page: log in, the credential field is filled and masked, name the repository, save once', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
   await page.getByRole('button', { name: 'Connect GitHub' }).click();
+
+  // Before the login the box has a real input to paste into, not a dashed guide.
+  await expect(page.getByLabel('Personal access token', { exact: true })).toBeVisible();
+  await expect(page.getByText(/press Connect on its row/)).toHaveCount(0);
+
   await page.getByRole('link', { name: 'Log in with GitHub' }).click();
 
   await expect.poll(() => requested(/\/dashboard\/connectors\?.*connect=ok/)).toBe(true);
 
-  await expect(page.getByText(/Logged in as northwind/)).toBeVisible();
+  // The scripted GitHub login is an app installation: no token string to show, so the field says whose it is.
+  await expect(page.getByTestId('connect-stored-text')).toHaveText(/^GitHub App installation · northwind/);
+  await expect(page.getByRole('button', { name: 'Show', exact: true })).toHaveCount(0);
 
   await page.getByLabel(/repositor/i).fill('northwind/portal');
   await page.locator('form').getByRole('button', { name: 'Add connector' }).click();
@@ -110,6 +131,35 @@ test('GitHub from the Connectors page: log in, name the repository, and the logi
   await page.goto('/dashboard/developers');
 
   await expect(page.getByText(/Login · northwind/)).toBeVisible();
+});
+
+test('HubSpot, paste only: one key in the add box and one Save make the connected source and list the key', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/dashboard/connectors');
+  await page.getByRole('button', { name: 'Connect HubSpot' }).click();
+
+  // Paste only: inputs and guidance, never a login button.
+  await expect(page.getByRole('link', { name: /Log in with/ })).toHaveCount(0);
+  await expect(page.getByText('CRM object read access')).toBeVisible();
+
+  const field = page.getByLabel('Private-app token', { exact: true });
+
+  await expect(field).toHaveAttribute('type', 'password');
+
+  await field.fill(HUBSPOT_KEY);
+  await page.getByRole('button', { name: 'Show Private-app token' }).click();
+
+  await expect(field).toHaveAttribute('type', 'text');
+
+  await page.locator('form').getByRole('button', { name: 'Add connector' }).click();
+
+  // One Save: no second dialog asks for the credential.
+  await expect(page.getByRole('heading', { name: /^Connect hubspot/ })).toHaveCount(0);
+  await expect.poll(() => hubspotConnected(page)).toBe(true);
+
+  await page.goto('/dashboard/developers');
+
+  await expect(page.getByRole('row').filter({ hasText: 'HubSpot' }).first()).toBeVisible();
 });
 
 test('Slack from the Connectors page: the login makes the source itself and the add form does not reopen', async ({ page }) => {

@@ -1,9 +1,9 @@
 /**
  * What the Connectors page needs to know per connector, as plain data (#1080):
- * the account of a live login, the provider's button name, and the newest
- * attempt when it failed. Only connectors that declare a login get an entry
- * for the login half; any connector with a failed newest attempt gets one for
- * the attempt.
+ * the account of a live login, the provider's button name, the stored login or
+ * key the add form can keep (account and masked tail only, never the value),
+ * and the newest attempt when it failed. A connector gets an entry when it
+ * declares a login, holds a keepable credential, or has a failed newest attempt.
  */
 
 import type { ConnectInfo } from '@/features/dashboard/ConnectByLogin';
@@ -11,6 +11,8 @@ import { lastConnectAttempts } from '@/libs/connect/attempts';
 import { connectOptionFor } from '@/libs/connect/registry';
 import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
+import { LOGIN_WITHOUT_TOKEN_HINT } from '@/services/ApiTokenService';
+import { connectorHoldingCredential } from '@/services/SourceCredentialService';
 import { newestLiveCredential } from './createSourceOnLogin';
 
 /**
@@ -38,6 +40,32 @@ function loginAccount(connector: string, credential: Awaited<ReturnType<typeof n
 }
 
 /**
+ * The stored login or key the add form can keep, as the page may see it: the
+ * account and the masked tail, never the value. A key issued for one place that
+ * another source already holds is left out, because keeping it would only be
+ * refused at save.
+ * @param orgId - The workspace.
+ * @param connector - Connector slug.
+ * @param credential - The connector's newest live credential.
+ */
+async function keepableCredential(orgId: string, connector: string, credential: Awaited<ReturnType<typeof newestLiveCredential>>): Promise<ConnectInfo['stored']> {
+  if (!credential) {
+    return null;
+  }
+  const platform = platformForConnectorSlug(connector);
+  if (credential.obtainedVia === 'paste' && platform?.credentialsShareable === false && await connectorHoldingCredential(orgId, credential.id) !== null) {
+    return null;
+  }
+  const hint = credential.keyHint ?? '…';
+  return {
+    kind: credential.obtainedVia,
+    account: credential.account,
+    hint,
+    revealable: credential.obtainedVia === 'paste' || hint !== LOGIN_WITHOUT_TOKEN_HINT,
+  };
+}
+
+/**
  * The page's per-connector login state and last failed attempt.
  * @param orgId - The workspace.
  */
@@ -54,10 +82,11 @@ export async function connectInfoForOrg(orgId: string): Promise<Record<string, C
     const failed = attempt && !attempt.ok && attempt.summary && !supersededByCredential
       ? { at: attempt.at.toISOString(), summary: attempt.summary }
       : null;
-    if (!loggedInAs && !failed && !howToConnectFor(slug)?.login) {
+    const stored = await keepableCredential(orgId, slug, credential);
+    if (!loggedInAs && !failed && !stored && !howToConnectFor(slug)?.login) {
       continue;
     }
-    info[slug] = { providerLabel: connectOptionFor(slug)?.label ?? null, loggedInAs, lastAttempt: failed };
+    info[slug] = { providerLabel: connectOptionFor(slug)?.label ?? null, loggedInAs, stored, lastAttempt: failed };
   }
   return info;
 }
