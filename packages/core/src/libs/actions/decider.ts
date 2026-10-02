@@ -7,7 +7,7 @@
  * `trust-ladder` when the confidence bar released it. Those are the only
  * stamps the code writes for a machine; this is the one place that knows them.
  */
-const MACHINE_PREFIXES = ['agent:', 'system:', 'factory:', 'automation:', 'mission:'] as const;
+const MACHINE_PREFIXES = ['agent:', 'system:', 'factory:', 'automation:', 'mission:', 'workflow:'] as const;
 const MACHINE_STAMPS = new Set(['trust-ladder']);
 
 /**

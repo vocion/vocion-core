@@ -88,6 +88,10 @@ the URL, the account and resource ids, the pipeline step, the health check, the
 rollback — kept current by the deploy itself). Core ships the storage, the worker control plane, the review queue and
 the trust ladder; this plugin ships what the fields mean.
 
+## The request flow (backlog 054)
+
+In a workspace with `durable: [factory]`, one durable run owns each request from its first Build to live. What that run does is this plugin's `workflows/request.yaml`, a declarative flow: plan or use the approved plan, attempt, retry on the kept branch up to three automatic attempts, stop and ask a person, merge on its trust rule or wait, deploy, release, and a live check that is done only when a result is recorded. Core runs it with the generic flow engine (`libs/durable/flow.ts`) and knows no factory names. What the factory knows about its world is in the actions the flow calls: `factory.dispatch_task`, `factory.read_attempt`, `factory.stop_request`, `factory.read_release_live` and `factory.check_live_again`. A run snapshots the file when it starts, so an edit changes new runs only.
+
 ## Missions and automations
 
 Four missions: **close-the-gap** (no request waits more than a week, and

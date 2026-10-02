@@ -10,12 +10,10 @@ vi.mock('@/libs/actions/factory-dispatch', () => ({
     meta.set(id, { ...(meta.get(id) ?? {}), ...set });
   },
 }));
-// The real workflow is replaced by one that waits for the first ask and ends.
-vi.mock('./requestWorkflow', async () => {
-  const { defineDurable: define } = await import('@/libs/durable');
-  define({ name: 'factory.request', run: async ctx => ctx.waitFor('end', 5) });
-  return { BUILD_REQUESTED: 'factory.build_requested', REQUEST_WORKFLOW: 'factory.request' };
-});
+// The plugin's request flow is replaced by one that waits for an end and stops.
+vi.mock('@/libs/durable/flowDefinitions', () => ({
+  loadFlow: () => ({ name: 'test/request', vars: {}, steps: [{ wait_message: { topic: 'end', timeout: 5 }, as: 'done' }] }),
+}));
 
 const ORG = 'org_wf_start';
 

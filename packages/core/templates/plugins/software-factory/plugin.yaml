@@ -312,7 +312,10 @@ name: Software factory
 #   which sent the attempt back and queued a build of a shipped feature). The
 #   review fires on open pull requests only; core reads a verdict about a
 #   replaced attempt, or a settled request, as history.
-version: 2.52.0
+# 2.53.0 — the request flow is this plugin's `workflows/request.yaml`, a
+#   declarative flow the generic engine runs (backlog 054); core keeps no
+#   factory workflow, only the actions the flow calls.
+version: 2.53.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
