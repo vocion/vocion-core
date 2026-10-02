@@ -486,6 +486,11 @@ async function proposeActionInTurn(input: {
   // answers for no one record: it neither refreshes an open card nor stands
   // behind a decided one. Refreshing on it rewrote whichever record the first
   // such card had made (#124, 2026-09-30); such a filing is a new card.
+  // Whose decision it is, the same for a fresh run and a refreshed one: an
+  // agent's proposal rides the ladder; a person's own (their word, a token)
+  // runs within their autonomy.
+  const gated = decision.gate === 'approve'
+    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number');
   const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
   if (dedupKey && keyIdentifiesOneRecord) {
     const refreshed = await db.transaction(async (tx) => {
@@ -559,6 +564,14 @@ async function proposeActionInTurn(input: {
           return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed' };
         }
       }
+      // A PERSON'S WORD RUNS THE CARD THAT WAS WAITING (FE-130, 2026-10-02:
+      // "continue the existing branch and build it" matched the build card
+      // already up, refreshed it, and left it pending with "nothing runs
+      // until you approve it"). Not gated, it executes as a fresh run would.
+      if (!gated) {
+        await db.update(actionRunSchema).set({ status: 'approved' }).where(eq(actionRunSchema.id, refreshed.id));
+        return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed' };
+      }
       return { runId: refreshed.id, status: 'pending', outcome: 'refreshed' };
     }
 
@@ -590,8 +603,6 @@ async function proposeActionInTurn(input: {
   // and executed at 0.45 confidence past a 0.6 bar (found 2026-09-18). A
   // machine run with no envelope, and a person or token holding the grant,
   // still write within their autonomy as before.
-  const gated = decision.gate === 'approve'
-    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number');
   const [run] = await db
     .insert(actionRunSchema)
     .values({
