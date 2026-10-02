@@ -62,6 +62,7 @@ import { noteTurnRead, readsThisTurn } from '@/services/gates/turnReads';
 import { readBeforeFiling, referenceReadOf } from '@/services/objects/referenceRead';
 import { renderWikiPageBody } from '@/services/wiki/WikiService';
 import { persistToolCall } from '../toolCallRecord';
+import { automationSlugOfRun, intakeCapRefusal } from './intakeCap';
 import { filingOnPersonsWord, runProposal } from './proposeAction';
 
 type JsonSchema = Record<string, unknown>;
@@ -528,17 +529,13 @@ async function capabilitiesToCheck(ctx: RuntimeContext, spec: FilingType, fields
  * @returns The refusal, or undefined when the filing is this run's job (or the run has none).
  */
 export async function wrongFilingForRun(ctx: RuntimeContext, toolName: string): Promise<string | undefined> {
-  if (!ctx.missionRunId) {
+  const slug = await automationSlugOfRun(ctx);
+  if (!slug) {
     return undefined;
   }
   const { and, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
-  const { automationSchema, missionRunSchema } = await import('@/models/Schema');
-  const [run] = await db.select({ causedBy: missionRunSchema.causedBy }).from(missionRunSchema).where(and(eq(missionRunSchema.orgId, ctx.orgId), eq(missionRunSchema.id, ctx.missionRunId))).limit(1);
-  const slug = (run?.causedBy as Array<{ automationSlug?: string }> | null | undefined)?.[0]?.automationSlug;
-  if (!slug) {
-    return undefined;
-  }
+  const { automationSchema } = await import('@/models/Schema');
   const [auto] = await db.select({ doConfig: automationSchema.doConfig }).from(automationSchema).where(and(eq(automationSchema.orgId, ctx.orgId), eq(automationSchema.slug, slug))).limit(1);
   const required = String((auto?.doConfig as { requireTool?: unknown } | null | undefined)?.requireTool ?? '').split(':')[0] ?? '';
   if (!required.startsWith('file_') || required === toolName) {
@@ -598,6 +595,10 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
         return offJob;
       }
       const { title, fields } = filingInputOf(spec, args);
+      const overCap = await intakeCapRefusal(ctx, fields);
+      if (overCap) {
+        return overCap;
+      }
       const meant = await referenceToCorrect(ctx, spec, fields);
       if (meant) {
         return meant;

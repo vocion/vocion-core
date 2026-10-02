@@ -49,7 +49,10 @@ export type TrackerIssue = {
   transitions: TrackerTransition[];
 };
 
-export type TrackerSearchRow = { key: string; summary: string; status: string; assignee: string | null; updated: string | null; url: string };
+/** How a search may be ordered. `priority` is the tracker's own priority, highest first, oldest first within one. */
+export type TrackerSearchOrder = 'priority';
+
+export type TrackerSearchRow = { key: string; summary: string; status: string; assignee: string | null; updated: string | null; url: string; /** The priority's name as the tracker reports it, null when it has none. */ priority: string | null };
 
 export type TrackerFieldUpdate = {
   priority?: string;
@@ -80,7 +83,7 @@ export type TrackerProvider = {
    * A search in the provider's own query language, bounded to the configured
    * projects by the provider itself: a query never leaves them.
    */
-  searchIssues: (query: string, limit: number) => Promise<TrackerSearchRow[]>;
+  searchIssues: (query: string, limit: number, orderBy?: TrackerSearchOrder) => Promise<TrackerSearchRow[]>;
   readAttachment: (id: string) => Promise<{ filename: string; mimeType: string; bytes: Buffer }>;
   createIssue: (input: { projectKey: string; issueType: string; summary: string; description: string; labels?: string[]; priority?: string }) => Promise<{ key: string; url: string }>;
   deleteIssue: (key: string) => Promise<void>;

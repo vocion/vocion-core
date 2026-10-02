@@ -78,6 +78,7 @@ describe('the shipped catalogue', () => {
     expect(intake?.do.checkMission).toBe('close-the-gap');
     expect(intake?.do.prompt).toContain('intakeStatuses');
     expect(intake?.do.prompt).toContain('intakePerDay');
+    expect(intake?.do.prompt).toContain('orderBy: \'priority\'');
   });
 
   it('refuses an unknown slug and names the catalogue', () => {

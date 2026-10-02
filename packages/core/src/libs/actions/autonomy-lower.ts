@@ -4,6 +4,13 @@ import type { Rung } from '@/services/autonomy/rungs';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { rungIndex, RUNGS } from '@/services/autonomy/rungs';
+import { adminCheck } from '@/services/connect/createSourceOnLogin';
+
+/** What a person who is not an admin is told, here and at the Autonomy page's own demote. */
+const NOT_ADMIN = {
+  refusal: 'Only a workspace admin can lower what the factory does on its own',
+  lookupFailure: 'Could not check who approved this, so nothing was lowered. Try again.',
+};
 
 const autonomyLowerInput = z.object({
   actionIds: z.array(z.string().min(1)).min(1).max(10),
@@ -84,6 +91,15 @@ export const autonomyLowerAction: Action<typeof autonomyLowerInput> = {
   grant: 'manage_workspace',
   external: false,
   dedupKeyFor: input => `autonomy.lower:${input.to}:${[...input.actionIds].sort().join(',')}`,
+  async precheck(ctx: ActionContext) {
+    // A member never gets a card that fails at Approve. An agent or token
+    // proposer has no account role; the approver is checked at execute.
+    const proposer = ctx.invokedBy;
+    if (proposer && !proposer.startsWith('agent:') && !proposer.startsWith('token:')) {
+      return (await adminCheck(ctx.orgId, proposer, NOT_ADMIN)) ?? undefined;
+    }
+    return undefined;
+  },
   async reviewCard(_ctx, input) {
     return {
       title: 'Lower trust',
@@ -99,10 +115,11 @@ export const autonomyLowerAction: Action<typeof autonomyLowerInput> = {
   },
   async execute(ctx: ActionContext, input) {
     const by = ctx.reviewedBy ?? ctx.invokedBy;
-    if (!by) {
-      throw new Error('Lowering trust needs to know who chose it');
+    const notAdmin = await adminCheck(ctx.orgId, by, NOT_ADMIN);
+    if (notAdmin) {
+      throw new Error(notAdmin);
     }
-    return { lowered: await lowerAll({ orgId: ctx.orgId, by }, input) };
+    return { lowered: await lowerAll({ orgId: ctx.orgId, by: by! }, input) };
   },
   async undo() {
     throw new Error('Raising autonomy is earned; promote it from the Autonomy page when its evidence supports it.');

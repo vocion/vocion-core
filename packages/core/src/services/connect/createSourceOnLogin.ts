@@ -222,9 +222,18 @@ export async function connectPrecheck(input: CreateSourceInput): Promise<string 
  * fails is a "no" with a sentence, never a raw throw.
  * @param orgId - The workspace.
  * @param userId - The person, when there is one.
+ * @param wording - What to say when the answer is no, or the lookup fails;
+ * connecting a source by default. A caller guarding something else (lowering
+ * trust) passes its own, so the person is never told about the wrong thing.
+ * @param wording.refusal - The sentence for a person who is not an admin.
+ * @param wording.lookupFailure - The sentence for a lookup that failed.
  */
-export async function adminCheck(orgId: string, userId: string | undefined): Promise<string | null> {
-  const refusal = 'Only a workspace admin can connect a source';
+export async function adminCheck(
+  orgId: string,
+  userId: string | undefined,
+  wording: { refusal: string; lookupFailure: string } = { refusal: 'Only a workspace admin can connect a source', lookupFailure: 'Could not check who approved this, so nothing was connected. Try again.' },
+): Promise<string | null> {
+  const refusal = wording.refusal;
   if (!userId) {
     return refusal;
   }
@@ -233,7 +242,7 @@ export async function adminCheck(orgId: string, userId: string | undefined): Pro
     return membership?.accountRole === 'admin' ? null : refusal;
   } catch (error) {
     logger.warn('source.connect could not look up who approved', { reason: error instanceof Error ? error.message : 'unknown' });
-    return 'Could not check who approved this, so nothing was connected. Try again.';
+    return wording.lookupFailure;
   }
 }
 

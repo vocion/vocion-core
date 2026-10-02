@@ -346,7 +346,9 @@ name: Software factory
 #   Jira source gains `intakeStatuses` and `intakePerDay`, and a new automation,
 #   `factory-tracker-intake`, runs hourly on weekdays: the PM files a request
 #   for each issue in an intake status that has none yet, at most `intakePerDay`
-#   a calendar day in the workspace's time zone, highest priority first. Core's
+#   a calendar day in the workspace's time zone, highest priority first (the
+#   tracker search orders by priority, and `file_request` refuses past the
+#   day's cap). Core's
 #   `autonomy.lower` takes a rung to a target and never raises it; the answer
 #   "ask me even before merging pipeline fixes" binds it.
 version: 3.2.0

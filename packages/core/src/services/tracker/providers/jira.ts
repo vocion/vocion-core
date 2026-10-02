@@ -75,7 +75,10 @@ type JiraTransitionsPage = { transitions?: Array<{ id: string; name: string; to?
 type JiraSearchPage = { issues?: JiraIssueFull[]; nextPageToken?: string };
 
 const ISSUE_FIELDS = 'summary,description,status,issuetype,priority,labels,assignee,reporter,created,updated,fixVersions,comment,attachment,issuelinks';
-const SEARCH_FIELDS = 'summary,status,assignee,updated';
+const SEARCH_FIELDS = 'summary,status,assignee,updated,priority';
+
+/** Jira's ordering for `orderBy: 'priority'`: highest priority first, oldest first within one. */
+const PRIORITY_ORDER = 'ORDER BY priority DESC, created ASC';
 
 async function authFor(orgId: string, source: FamilySource): Promise<JiraAuth> {
   const baseUrl = String((source.config as { baseUrl?: unknown }).baseUrl ?? '').replace(/\/+$/, '');
@@ -163,19 +166,22 @@ export async function jiraTrackerProvider(orgId: string, source: FamilySource): 
     issueUrl,
     readIssue,
     transitions,
-    async searchIssues(query, limit) {
+    async searchIssues(query, limit, orderBy) {
       if (projectKeys.length === 0) {
         throw new Error(`The ${source.slug} source lists no project keys, so there is nothing to search.`);
       }
       const projects = `project in (${projectKeys.map(jqlQuote).join(', ')})`;
       const trimmed = query.trim();
-      const jql = trimmed ? `${projects} AND (${trimmed})` : `${projects} ORDER BY updated DESC`;
+      // The ordering goes AFTER the bounded clause, never inside the wrap, so a
+      // query cannot reach past the configured projects and the ORDER BY stays valid JQL.
+      const bounded = trimmed ? `${projects} AND (${trimmed})` : projects;
+      const jql = orderBy === 'priority' ? `${bounded} ${PRIORITY_ORDER}` : trimmed ? bounded : `${bounded} ORDER BY updated DESC`;
       const rows: TrackerSearchRow[] = [];
       let nextPageToken: string | undefined;
       do {
         const page = await json<JiraSearchPage>('/rest/api/3/search/jql', { method: 'POST', body: JSON.stringify({ jql, maxResults: Math.min(limit, 50), fields: SEARCH_FIELDS.split(','), ...(nextPageToken ? { nextPageToken } : {}) }) });
         for (const issue of page.issues ?? []) {
-          rows.push({ key: issue.key, summary: issue.fields?.summary ?? '', status: issue.fields?.status?.name ?? 'Unknown', assignee: userName(issue.fields?.assignee), updated: issue.fields?.updated ?? null, url: issueUrl(issue.key) });
+          rows.push({ key: issue.key, summary: issue.fields?.summary ?? '', status: issue.fields?.status?.name ?? 'Unknown', assignee: userName(issue.fields?.assignee), updated: issue.fields?.updated ?? null, url: issueUrl(issue.key), priority: issue.fields?.priority?.name ?? null });
           if (rows.length >= limit) {
             return rows;
           }

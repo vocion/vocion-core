@@ -42,17 +42,29 @@ describe('textToAdf', () => {
 
 describe('the Jira provider', () => {
   it('bounds every search to the configured projects and links each row to the site', async () => {
-    calls.answers.set('POST /rest/api/3/search/jql', { issues: [{ key: 'NW-7', fields: { summary: 'Report totals are off', status: { name: 'To Do' }, assignee: { displayName: 'Ada' }, updated: '2026-10-01T00:00:00Z' } }] });
+    calls.answers.set('POST /rest/api/3/search/jql', { issues: [{ key: 'NW-7', fields: { summary: 'Report totals are off', status: { name: 'To Do' }, assignee: { displayName: 'Ada' }, updated: '2026-10-01T00:00:00Z', priority: { name: 'High' } } }] });
     const provider = await jiraTrackerProvider('org_1', source);
 
     const rows = await provider.searchIssues('status = "To Do"', 10);
 
     expect(calls.list[0]!.body).toMatchObject({ jql: 'project in ("NW", "OPS") AND (status = "To Do")', maxResults: 10 });
-    expect(rows).toEqual([{ key: 'NW-7', summary: 'Report totals are off', status: 'To Do', assignee: 'Ada', updated: '2026-10-01T00:00:00Z', url: 'https://acme.atlassian.net/browse/NW-7' }]);
+    expect(rows).toEqual([{ key: 'NW-7', summary: 'Report totals are off', status: 'To Do', assignee: 'Ada', updated: '2026-10-01T00:00:00Z', url: 'https://acme.atlassian.net/browse/NW-7', priority: 'High' }]);
 
     await provider.searchIssues('', 5);
 
     expect(calls.list[1]!.body).toMatchObject({ jql: 'project in ("NW", "OPS") ORDER BY updated DESC' });
+  });
+
+  it('orders by priority after the bounded clause, never inside it, and keeps the project bound', async () => {
+    calls.answers.set('POST /rest/api/3/search/jql', { issues: [{ key: 'NW-9', fields: { summary: 'Outage', status: { name: 'Ready' }, priority: { name: 'Highest' } } }, { key: 'NW-4', fields: { summary: 'Typo', status: { name: 'Ready' } } }] });
+    const provider = await jiraTrackerProvider('org_1', source);
+
+    const rows = await provider.searchIssues('status in ("Ready")', 10, 'priority');
+    await provider.searchIssues('', 10, 'priority');
+
+    expect(calls.list[0]!.body).toMatchObject({ jql: 'project in ("NW", "OPS") AND (status in ("Ready")) ORDER BY priority DESC, created ASC' });
+    expect(calls.list[1]!.body).toMatchObject({ jql: 'project in ("NW", "OPS") ORDER BY priority DESC, created ASC' });
+    expect(rows.map(r => [r.key, r.priority])).toEqual([['NW-9', 'Highest'], ['NW-4', null]]);
   });
 
   it('reads an issue whole — text from ADF, comments, attachments, links and the transitions open to it', async () => {

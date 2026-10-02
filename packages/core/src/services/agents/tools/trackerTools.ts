@@ -60,7 +60,7 @@ function searchIssuesTool(ctx: RuntimeContext): StructuredToolInterface {
       try {
         const { trackerProviderFor } = await import('@/services/tracker/provider');
         const provider = await trackerProviderFor(ctx.orgId, { sourceSlug: args.source ?? null });
-        const rows = await provider.searchIssues(args.query ?? '', args.limit ?? 20);
+        const rows = await provider.searchIssues(args.query ?? '', args.limit ?? 20, args.orderBy);
         return JSON.stringify({ ok: true, tracker: provider.kind, projects: provider.projectKeys, count: rows.length, issues: rows, note: rows.length === 0 ? 'Nothing matched inside the configured projects.' : 'Read one whole with tracker_read_issue.' });
       } catch (err) {
         return JSON.stringify({ ok: false, error: (err as Error).message });
@@ -72,6 +72,7 @@ function searchIssuesTool(ctx: RuntimeContext): StructuredToolInterface {
       schema: z.object({
         query: z.string().max(2000).optional().describe('The query, in the tracker\'s own language, without the project clause. Empty: the most recently updated issues.'),
         limit: z.number().int().min(1).max(50).optional().describe('How many (default 20).'),
+        orderBy: z.enum(['priority']).optional().describe('priority: the tracker\'s own priority, highest first, oldest first within one. Omitted, the order the query gives. Each issue carries its priority.'),
         source: z.string().optional().describe('The tracker source to search, when the workspace has more than one.'),
       }),
     },

@@ -20,7 +20,7 @@ import { loadWorkspace } from '@/libs/workspace/loader';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { businessObjectSchema, businessObjectTypeSchema, trustRuleSchema } = await import('@/models/Schema');
+const { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema, missionRunSchema, trustRuleSchema } = await import('@/models/Schema');
 const { and, eq } = await import('drizzle-orm');
 const { filingTypeOf, loadFilingTypes, filingSchema } = await import('./fileRecord');
 const { buildDomainTools } = await import('./registry');
@@ -376,5 +376,42 @@ describe('one run, one filing (#234)', () => {
     expect(await wrongFilingForRun(ctx, 'file_request')).toMatch(/exists to call file_architecture_plan/);
     expect(await wrongFilingForRun(ctx, 'file_architecture_plan')).toBeUndefined();
     expect(await wrongFilingForRun({ orgId: 'org_onejob' } as RuntimeContext, 'file_request')).toBeUndefined();
+  });
+});
+
+describe('file_request and the tracker intake cap (the daily limit setup saved on the Jira source)', () => {
+  const SITE = 'https://northwind.atlassian.net';
+  const TICKET = { ...ASK_353, title: 'Show a sender who opened the file (from NW-31)', evidence: { urls: [`${SITE}/browse/NW-31`] } };
+
+  function ctxWith(filingTypes: FilingType[], missionRunId?: number): RuntimeContext {
+    return {
+      orgId: ORG,
+      userId: 'user_owner',
+      agentSlug: 'product-manager',
+      connectorSources: [],
+      objectTypeSlugs: ['request'],
+      filingTypes,
+      enabledPlugins: ['software-factory'],
+      searchConfig: {},
+      harnessConfig: {},
+      citationSeq: { current: 0 },
+      delegations: new Map(),
+      emit: () => {},
+      ...(missionRunId ? { missionRunId } : {}),
+    } as unknown as RuntimeContext;
+  }
+
+  it('refuses an automation\'s second ticket of the day, and still files the same ticket from chat', async () => {
+    await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'jira-northwind', kind: 'plugin', configJson: { _connector: 'jira', baseUrl: SITE, projectKeys: ['NW'], intakePerDay: 1 } });
+    const [requestType] = await db.select().from(businessObjectTypeSchema).where(and(eq(businessObjectTypeSchema.orgId, ORG), eq(businessObjectTypeSchema.slug, 'request')));
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: requestType!.id, title: 'Already picked up today', metadata: { evidence: { urls: [`${SITE}/browse/NW-30`] } } });
+    const [run] = await db.insert(missionRunSchema).values({ orgId: ORG, title: 'Pick up the roadmap', brief: 'x', team: [], causedBy: [{ automationSlug: 'factory-tracker-intake' }] } as never).returning({ id: missionRunSchema.id });
+    const filingTypes = await loadFilingTypes(ORG, ['request']);
+
+    const fromAutomation = String(await buildDomainTools(ctxWith(filingTypes, run!.id)).find(t => t.name === 'file_request')!.invoke(TICKET));
+    const fromChat = String(await buildDomainTools(ctxWith(filingTypes)).find(t => t.name === 'file_request')!.invoke(TICKET));
+
+    expect(fromAutomation).toMatch(/^The factory already picked up 1 of 1 tickets from jira-northwind today \(\d{4}-\d{2}-\d{2}\)\. The rest wait for tomorrow\.$/);
+    expect(fromChat).toMatch(/is DONE: filed as [A-Z]{2,5}-\d+/);
   });
 });

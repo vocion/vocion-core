@@ -7,19 +7,31 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { autonomyPolicySchema } = await import('@/models/Schema');
+const { accountMembershipSchema, autonomyPolicySchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { autonomyLowerAction } = await import('./autonomy-lower');
 const { bindingProblem } = await import('./bindable');
 const { getAction } = await import('./registry');
 const { effectivePolicy } = await import('@/services/autonomy/AutonomyService');
 
 const ORG = 'org_lower';
-const CTX = { orgId: ORG, invokedBy: 'user_admin' };
+const ADMIN = 'user_lower_admin';
+const MEMBER = 'user_lower_member';
+const CTX = { orgId: ORG, reviewedBy: ADMIN };
+
+beforeAll(async () => {
+  await db.insert(tenantAccountSchema).values({ id: 'acct-lower', name: 'Northwind', slug: 'northwind-lower' });
+  await db.insert(projectSchema).values({ id: ORG, accountId: 'acct-lower', slug: 'northwind', name: 'Northwind' });
+  await db.insert(userSchema).values([{ id: ADMIN, email: 'admin@northwind.example' }, { id: MEMBER, email: 'member@northwind.example' }]);
+  await db.insert(accountMembershipSchema).values([
+    { accountId: 'acct-lower', userId: ADMIN, role: 'admin' },
+    { accountId: 'acct-lower', userId: MEMBER, role: 'member' },
+  ]);
+});
 
 function parse(input: unknown) {
   return autonomyLowerAction.inputSchema.parse(input);
@@ -89,6 +101,23 @@ describe('autonomy.lower', () => {
     const rows = await db.select().from(autonomyPolicySchema).where(eq(autonomyPolicySchema.orgId, ORG));
 
     expect(rows.filter(r => ids.includes(r.actionId)).map(r => r.rung)).toEqual(['assist', 'assist']);
+  });
+
+  it('refuses a member, at proposal time and at approval, and the rung is unchanged', async () => {
+    await seedRung('test.member', 'autonomous');
+    const input = parse({ actionIds: ['test.member'], to: 'assist' });
+    const refusal = 'Only a workspace admin can lower what the factory does on its own';
+
+    expect(await autonomyLowerAction.precheck!({ orgId: ORG, invokedBy: MEMBER }, input)).toBe(refusal);
+    await expect(autonomyLowerAction.execute({ orgId: ORG, reviewedBy: MEMBER }, input)).rejects.toThrow(refusal);
+    expect((await effectivePolicy(ORG, 'test.member')).rung).toBe('autonomous');
+  });
+
+  it('lets an agent propose, and checks the person who approves', async () => {
+    const input = parse({ actionIds: ['test.agent'], to: 'assist' });
+
+    expect(await autonomyLowerAction.precheck!({ orgId: ORG, invokedBy: 'agent:product-manager' }, input)).toBeUndefined();
+    await expect(autonomyLowerAction.execute({ orgId: ORG, invokedBy: 'agent:product-manager', reviewedBy: MEMBER }, input)).rejects.toThrow(/Only a workspace admin/);
   });
 
   it('rejects an empty list and a rung that is not on the ladder', () => {

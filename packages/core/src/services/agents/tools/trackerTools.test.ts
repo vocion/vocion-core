@@ -11,7 +11,7 @@ const provider = vi.hoisted(() => ({
   kind: 'jira',
   projectKeys: ['NW'],
   readIssue: vi.fn(async (key: string) => ({ key, summary: 'Totals are off', status: 'To Do', comments: [], attachments: [{ id: '55', filename: 'shot.png' }] })),
-  searchIssues: vi.fn(async () => [{ key: 'NW-7', summary: 'Totals are off', status: 'To Do', assignee: null, updated: null, url: 'https://acme.atlassian.net/browse/NW-7' }]),
+  searchIssues: vi.fn(async () => [{ key: 'NW-7', summary: 'Totals are off', status: 'To Do', assignee: null, updated: null, url: 'https://acme.atlassian.net/browse/NW-7', priority: 'High' }]),
   readAttachment: vi.fn(async (id: string) => (id === '55'
     ? { filename: 'shot.png', mimeType: 'image/png', bytes: Buffer.from([0x89, 0x50, 0x4E, 0x47]) }
     : { filename: 'notes.md', mimeType: 'text/markdown', bytes: Buffer.from('# Notes\nSeen on prod.') })),
@@ -52,8 +52,16 @@ describe('the tracker reads', () => {
     const [, search] = trackerTools(ctxFor(['jira'])) as unknown as Invokable[];
     const out = JSON.parse(await search!.invoke({ query: 'status = "To Do"', limit: 5 }));
 
-    expect(provider.searchIssues).toHaveBeenCalledWith('status = "To Do"', 5);
+    expect(provider.searchIssues).toHaveBeenCalledWith('status = "To Do"', 5, undefined);
     expect(out).toMatchObject({ ok: true, projects: ['NW'], count: 1, issues: [{ key: 'NW-7' }] });
+  });
+
+  it('passes the priority ordering to the provider and returns each issue with its priority', async () => {
+    const [, search] = trackerTools(ctxFor(['jira'])) as unknown as Invokable[];
+    const out = JSON.parse(await search!.invoke({ query: 'status in ("Ready")', limit: 5, orderBy: 'priority' }));
+
+    expect(provider.searchIssues).toHaveBeenLastCalledWith('status in ("Ready")', 5, 'priority');
+    expect(out.issues[0].priority).toBe('High');
   });
 
   it('stores an image attachment and returns text for a text one', async () => {

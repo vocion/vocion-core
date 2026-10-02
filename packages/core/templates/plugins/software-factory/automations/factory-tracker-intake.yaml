@@ -6,7 +6,8 @@
 # yet, at most `intakePerDay` per calendar day in the workspace's time zone.
 # A source with no `intakeStatuses` files nothing: today's behaviour, tickets a
 # person points at. The per-issue steps are `intake-from-the-tracker`; this
-# only decides which issues, and how many today.
+# only decides which issues. The order (`orderBy: priority`) comes from the
+# tracker search, and the daily cap is enforced by `file_request` itself.
 slug: factory-tracker-intake
 name: Pick up the roadmap
 label: Picked up the roadmap
@@ -26,17 +27,15 @@ do:
     means none). No `intakeStatuses`, or no tracker source: say so in one
     line and stop. Name today's date in the workspace's time zone, as the run
     states it, and use only that date. Then search with
-    tracker_search_issues, `status in ("<each intake status>")`, a limit of
-    50. For each issue returned, lookup_objects for a request whose
-    `evidence.urls` carries the issue's URL; one already filed is skipped,
-    never filed twice. Count the requests this tracker filed today: the ones
-    that match an intake issue's URL and were created on today's date in the
-    workspace's time zone. With a limit, you may file `intakePerDay` minus
-    that count, and none when it is zero or less. Of the issues not yet
-    filed, read each with tracker_read_issue for its priority (the search
-    does not return it), order them highest priority first, oldest first
-    within a priority, and file that many, following `intake-from-the-tracker`
-    for each: `file_request` with the issue's URL first in `evidence.urls`.
-    Report in one line starting with the date you counted for: how many were
-    already filed that day, how many you filed now (the keys), how many are
-    waiting for tomorrow.
+    tracker_search_issues with `status in ("<each intake status>")`,
+    `orderBy: 'priority'` and a limit of 50: the tracker returns them highest
+    priority first, each with its priority. For each issue in that order,
+    lookup_objects for a request whose `evidence.urls` carries the issue's
+    URL; one already filed is skipped, never filed twice. File the rest in
+    that order, following `intake-from-the-tracker` for each: `file_request`
+    with the issue's URL first in `evidence.urls`. The daily limit is
+    enforced when you file: once `intakePerDay` are filed today, file_request
+    refuses and says how many and for which date. Stop at the first such
+    refusal; the rest wait for tomorrow. Report in one line starting with
+    the date: how many were already filed that day, how many you filed now
+    (the keys), how many are waiting.
