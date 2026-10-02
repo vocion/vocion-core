@@ -9,10 +9,15 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+vi.mock('@/services/SourceCredentialService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/SourceCredentialService')>();
+  return { ...original, linkSourceToStoredCredential: vi.fn(original.linkSourceToStoredCredential) };
+});
 
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, sourceDekSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { sealLoginValues, storeLoginCredential, storePlatformKey } = await import('@/services/ApiTokenService');
+const { linkSourceToStoredCredential } = await import('@/services/SourceCredentialService');
 const { sourceConnectAction } = await import('./source-connect');
 
 const ORG = 'org_connect_pick';
@@ -52,6 +57,11 @@ async function sources() {
 
 const asAdmin = { orgId: ORG, reviewedBy: ADMIN };
 const githubPick = { connector: 'github', config: { repos: ['northwind/portal'] } };
+
+async function seedGithubSource(slug: string, repos: string[]) {
+  const [row] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug, kind: 'plugin', configJson: { repos, _connector: 'github' } }).returning();
+  return row!;
+}
 
 describe('source.connect', () => {
   it('creates the source from the pick, linked to the login row', async () => {
@@ -143,5 +153,71 @@ describe('source.connect', () => {
 
     expect(card.title).toBe('Connect GitHub');
     expect(card.fields).toContainEqual({ label: 'Repositories', value: 'northwind/portal' });
+  });
+
+  it('adds the pick to the source\'s existing repositories and never drops one; undo puts the old list back', async () => {
+    await seedLogin();
+    const existing = await seedGithubSource('github-old', ['northwind/api']);
+    const result = await sourceConnectAction.execute(asAdmin, githubPick);
+
+    expect(result).toMatchObject({ created: false, sourceId: existing.id });
+    expect((await sources())[0]!.configJson).toMatchObject({ repos: ['northwind/api', 'northwind/portal'] });
+
+    await sourceConnectAction.undo!(asAdmin, githubPick, result);
+
+    expect((await sources())[0]!.configJson).toMatchObject({ repos: ['northwind/api'] });
+  });
+
+  it('refuses to guess between several sources of the connector, and an explicit sourceSlug picks one', async () => {
+    await seedLogin();
+    await seedGithubSource('github-a', ['northwind/a']);
+    const second = await seedGithubSource('github-b', ['northwind/b']);
+
+    expect(await sourceConnectAction.precheck!(asAdmin, githubPick)).toBe('GitHub has 2 sources (github-a, github-b); say which one with sourceSlug');
+    await expect(sourceConnectAction.execute(asAdmin, githubPick)).rejects.toThrow('say which one with sourceSlug');
+
+    const result = await sourceConnectAction.execute(asAdmin, { ...githubPick, sourceSlug: 'github-b' });
+
+    expect(result).toMatchObject({ sourceId: second.id, created: false });
+    expect((await sources()).find(row => row.slug === 'github-a')!.configJson).toMatchObject({ repos: ['northwind/a'] });
+  });
+
+  it('refuses a sourceSlug that is not a source of this connector', async () => {
+    await seedLogin();
+
+    expect(await sourceConnectAction.precheck!(asAdmin, { ...githubPick, sourceSlug: 'nope' })).toContain('nope');
+  });
+
+  it('a failed credential link leaves no new source and no changed config, and returns the original reason', async () => {
+    const pasted = await storePlatformKey({ orgId: ORG, platform: 'github', name: 'pat', apiKey: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789', createdBy: ADMIN });
+    vi.mocked(linkSourceToStoredCredential).mockRejectedValueOnce(new Error('link exploded'));
+
+    await expect(sourceConnectAction.execute(asAdmin, githubPick)).rejects.toThrow('link exploded');
+    expect(await sources()).toHaveLength(0);
+
+    await seedGithubSource('github-old', ['northwind/api']);
+    vi.mocked(linkSourceToStoredCredential).mockRejectedValueOnce(new Error('link exploded'));
+
+    await expect(sourceConnectAction.execute(asAdmin, githubPick)).rejects.toThrow('link exploded');
+    expect((await sources())[0]).toMatchObject({ configJson: { repos: ['northwind/api'] }, apiTokenId: null });
+    expect(pasted.id).toBeTruthy();
+  });
+
+  it('refuses a member at proposal time, before a card exists', async () => {
+    await seedLogin();
+
+    expect(await sourceConnectAction.precheck!({ orgId: ORG, invokedBy: MEMBER }, githubPick)).toBe('Only a workspace admin can connect a source');
+    expect(await sourceConnectAction.precheck!({ orgId: ORG, invokedBy: ADMIN }, githubPick)).toBeUndefined();
+  });
+
+  it('a member cannot undo what an admin connected, and the source is unchanged', async () => {
+    await seedLogin();
+    await seedGithubSource('github-old', ['northwind/api']);
+    const result = await sourceConnectAction.execute(asAdmin, githubPick);
+
+    await expect(sourceConnectAction.undo!({ orgId: ORG, reviewedBy: MEMBER }, githubPick, result)).rejects.toThrow('Only a workspace admin can connect a source');
+    expect((await sources())[0]!.configJson).toMatchObject({ repos: ['northwind/api', 'northwind/portal'] });
+
+    await expect(sourceConnectAction.undo!(asAdmin, githubPick, { ...result, sourceId: 'x' })).rejects.toThrow('no source to undo');
   });
 });

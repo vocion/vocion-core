@@ -32,6 +32,7 @@
  *     nothing to share and nothing to point at.
  */
 
+import type { DbTransaction } from '@/libs/DbTransaction';
 import { Buffer } from 'node:buffer';
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
@@ -317,19 +318,41 @@ export class CredentialInUseError extends Error {
  * @param input.sourceId - The `knowledge_source` row to point at the credential.
  * @param input.connectorSlug - Which connector that row runs, e.g. `strapi`.
  * @param input.apiTokenId - The stored credential row to point at.
+ * @param input.tx - The caller's transaction, when it has one.
  */
 export async function linkSourceToStoredCredential(input: {
   orgId: string;
   sourceId: number;
   connectorSlug: string;
   apiTokenId: string;
+  /** The caller's transaction, when the link must land or fail with other writes. */
+  tx?: DbTransaction;
 }): Promise<void> {
+  if (input.tx) {
+    return linkWithin(input.tx, input);
+  }
+  return db.transaction(tx => linkWithin(tx, input));
+}
+
+/**
+ * The work of {@link linkSourceToStoredCredential}, inside one transaction.
+ * @param conn - The transaction to read and write in.
+ * @param input - The connector and the credential to link.
+ * @param input.orgId - The org both belong to.
+ * @param input.sourceId - The `knowledge_source` row to point at the credential.
+ * @param input.connectorSlug - Which connector that row runs.
+ * @param input.apiTokenId - The stored credential row to point at.
+ */
+async function linkWithin(
+  conn: DbTransaction,
+  input: { orgId: string; sourceId: number; connectorSlug: string; apiTokenId: string },
+): Promise<void> {
   const platform = platformForConnectorSlug(input.connectorSlug);
   if (!platform) {
     throw new Error(`${input.connectorSlug} does not authenticate with a stored API credential`);
   }
 
-  const [credential] = await db
+  const [credential] = await conn
     .select({ platform: apiTokenSchema.platform })
     .from(apiTokenSchema)
     .where(and(
@@ -358,7 +381,7 @@ export async function linkSourceToStoredCredential(input: {
     // The index is still the rule: two people picking the same credential at
     // once both pass this check, and one of the two writes then fails, which
     // the catch below turns into the same message.
-    const heldBy = await connectorHoldingCredential(input.orgId, input.apiTokenId, input.sourceId);
+    const heldBy = await connectorHoldingCredential(input.orgId, input.apiTokenId, input.sourceId, conn);
     if (heldBy !== null) {
       throw new CredentialInUseError(credentialInUseMessage(heldBy));
     }
@@ -366,7 +389,7 @@ export async function linkSourceToStoredCredential(input: {
 
   let linked: { id: number }[];
   try {
-    linked = await db
+    linked = await conn
       .update(knowledgeSourceSchema)
       .set({ apiTokenId: input.apiTokenId, apiTokenExclusive: exclusive })
       .where(and(
@@ -404,13 +427,15 @@ export async function linkSourceToStoredCredential(input: {
  * @param orgId - The org that owns both.
  * @param apiTokenId - The credential to ask about.
  * @param exceptSourceId - A connector that does not count, normally the one asking.
+ * @param conn - Where to read: the caller's transaction, or the pool.
  */
 export async function connectorHoldingCredential(
   orgId: string,
   apiTokenId: string,
   exceptSourceId?: number,
+  conn: DbTransaction | typeof db = db,
 ): Promise<string | null> {
-  const [holder] = await db
+  const [holder] = await conn
     .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug })
     .from(knowledgeSourceSchema)
     .where(and(
