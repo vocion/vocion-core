@@ -31,11 +31,11 @@ describe('safeReturnPath — never an open redirect', () => {
 
 describe('returnUrl — back where the person came from', () => {
   it('lands on returnTo with the outcome added and its own query kept', () => {
-    expect(returnUrl('', { ok: true }, 'github', '/dashboard/chat?conversation=7')).toBe('/dashboard/chat?conversation=7&connect=ok&source=github');
+    expect(returnUrl('', { ok: true }, { source: 'github', returnTo: '/dashboard/chat?conversation=7' })).toBe('/dashboard/chat?conversation=7&connect=ok&source=github');
   });
 
   it('falls back to Sources for an unsafe returnTo', () => {
-    expect(returnUrl('', { ok: false, reason: 'access_denied' }, 'github', '//evil.example')).toBe('/dashboard/sources?connect=error&reason=access_denied&source=github');
+    expect(returnUrl('', { ok: false, reason: 'access_denied' }, { source: 'github', returnTo: '//evil.example' })).toBe('/dashboard/sources?connect=error&reason=access_denied&source=github');
   });
 });
 
@@ -59,8 +59,18 @@ describe('state carries returnTo, signed', () => {
 
 describe('connectStartHref and connectReturnPrompt', () => {
   it('passes returnTo to the start route only when there is one', () => {
-    expect(connectStartHref('github', 'github', null)).toBe('/api/connect/github/start?source=github');
-    expect(connectStartHref('github', 'github', '/dashboard/chat?conversation=7')).toBe('/api/connect/github/start?source=github&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7');
+    expect(connectStartHref({ provider: 'github', source: 'github', returnTo: null })).toBe('/api/connect/github/start?source=github');
+    expect(connectStartHref({ provider: 'github', source: 'github', returnTo: '/dashboard/chat?conversation=7' })).toBe('/api/connect/github/start?source=github&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7');
+  });
+
+  it('starts from a connector alone and carries the chat card', () => {
+    expect(connectStartHref({ provider: 'github', connector: 'github', returnTo: '/dashboard/chat?conversation=7', conversationId: 7, cardId: 'card_1' }))
+      .toBe('/api/connect/github/start?connector=github&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7&conversation=7&card=card_1');
+  });
+
+  it('says what was connected from the connector when there is no source', () => {
+    expect(connectReturnPrompt({ connect: 'ok', connector: 'github' })).toBe('I connected github. What\'s next?');
+    expect(returnUrl('', { ok: true }, { connector: 'github', returnTo: '/dashboard/chat?conversation=7' })).toBe('/dashboard/chat?conversation=7&connect=ok&connector=github');
   });
 
   it('pre-fills an honest next message: success, failure, or nothing', () => {

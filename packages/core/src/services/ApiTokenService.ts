@@ -461,7 +461,31 @@ type StoreLoginInput = {
   values: Record<string, unknown>;
   createdBy: string;
   tx?: DbTransaction;
+  /**
+   * The bag already sealed by `sealLoginValues`. A caller that holds a
+   * transaction open seals first: sealing reads the org's DEK through the
+   * pool, and doing that mid-transaction waits on a connection the
+   * transaction may be holding.
+   */
+  sealed?: SealedLoginValues;
 };
+
+/** A login bag encrypted under the org's DEK, with its masked hint. */
+export type SealedLoginValues = {
+  encrypted: { ciphertext: string; nonce: string; authTag: string; dekId: number };
+  hint: string;
+};
+
+/**
+ * Encrypt a login bag ahead of `storeLoginCredential`, so the write itself can
+ * run inside a larger transaction without touching the vault.
+ * @param orgId - The org whose DEK seals it.
+ * @param values - The provider's whole bag.
+ */
+export async function sealLoginValues(orgId: string, values: Record<string, unknown>): Promise<SealedLoginValues> {
+  const encrypted = await buildCredentialVault().encrypt(orgId, Buffer.from(JSON.stringify(values), 'utf8'));
+  return { encrypted, hint: loginKeyHint(values) };
+}
 
 /**
  * Store a provider login's credential bag (#1028).
@@ -475,11 +499,10 @@ type StoreLoginInput = {
  * @param input - The login to store.
  * @param input.account - The non-secret identity it belongs to, e.g. a Slack team name.
  * @param input.values - The provider's whole bag (tokens, installation id, ...).
+ * @param input.sealed - The bag already sealed, when the caller holds a transaction.
  */
 export async function storeLoginCredential(input: StoreLoginInput): Promise<StoredLogin> {
-  const vault = buildCredentialVault();
-  const encrypted = await vault.encrypt(input.orgId, Buffer.from(JSON.stringify(input.values), 'utf8'));
-  const hint = loginKeyHint(input.values);
+  const { encrypted, hint } = input.sealed ?? await sealLoginValues(input.orgId, input.values);
   if (input.tx) {
     return writeLoginRow(input.tx, input, encrypted, hint);
   }

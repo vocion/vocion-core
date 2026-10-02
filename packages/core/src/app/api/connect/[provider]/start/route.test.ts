@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
-vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn(), clearLinkedCredential: vi.fn() }));
+vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn() }));
 vi.mock('@/libs/connect/state', () => ({ signState: vi.fn(() => 'signed.state') }));
 const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
@@ -127,11 +127,11 @@ describe('GET /api/connect/[provider]/start', () => {
   it('signs a dashboard returnTo into the state and drops an off-site one', async () => {
     await GET(request('?source=slack&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7'), context());
 
-    expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', userId: 'user_1', returnTo: '/dashboard/chat?conversation=7' });
+    expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', connectorSlug: 'slack', userId: 'user_1', returnTo: '/dashboard/chat?conversation=7' });
 
     await GET(request('?source=slack&returnTo=%2F%2Fevil.example'), context());
 
-    expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', userId: 'user_1' });
+    expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', connectorSlug: 'slack', userId: 'user_1' });
   });
 
   it('sends an admin to the vendor with a state bound to org, source and person', async () => {
@@ -141,6 +141,31 @@ describe('GET /api/connect/[provider]/start', () => {
     expect(res.headers.get('location')).toBe(
       'https://slack.com/oauth/v2/authorize?state=signed.state&redirect_uri=https%3A%2F%2Fagents.example%2Fapi%2Fconnect%2Fslack%2Fcallback',
     );
-    expect(signState).toHaveBeenCalledWith({ provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', userId: 'user_1' });
+    expect(signState).toHaveBeenCalledWith({ provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', connectorSlug: 'slack', userId: 'user_1' });
+  });
+
+  it('starts from a connector alone: no source row is looked up, and the chat card rides in the state', async () => {
+    const res = await GET(request('?connector=slack&conversation=7&card=card_1'), context());
+
+    expect(res.status).toBe(302);
+    expect(findSourceBySlug).not.toHaveBeenCalled();
+    expect(signState).toHaveBeenCalledWith({ provider: 'slack', orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack', conversationId: 7, cardId: 'card_1' });
+  });
+
+  it('refuses a connector this provider does not serve', async () => {
+    const res = await GET(request('?connector=github'), context());
+
+    expect(res.status).toBe(400);
+    expect(signState).not.toHaveBeenCalled();
+  });
+
+  it('drops a conversation or card id that is not shaped like one, rather than signing it', async () => {
+    await GET(request('?connector=slack&conversation=-3&card=card_1'), context());
+
+    expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack' });
+
+    await GET(request('?connector=slack&conversation=7&card=a%20b%2F..'), context());
+
+    expect(signState).toHaveBeenLastCalledWith({ provider: 'slack', orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack' });
   });
 });

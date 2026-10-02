@@ -48,6 +48,16 @@ export type ConnectProvider = {
     | { ok: false; reason: string }
   >;
   /**
+   * The second step for a login that only grants the right to make a token
+   * (#1028): turn the exchanged bag into the one sync uses, or say what is
+   * still missing, in a few words a person can act on ("an API token").
+   * Providers whose login is the credential leave this unset.
+   */
+  finish?: (credentials: RawCredentials) => Promise<
+    | { ok: true; credentials: RawCredentials }
+    | { ok: false; missing: string }
+  >;
+  /**
    * The non-secret account of a stored grant, for the connector card. Reads
    * only what `exchange` stored beside the token; null when the bag is not
    * one this provider stored (a pasted token, an older grant). Never throws.

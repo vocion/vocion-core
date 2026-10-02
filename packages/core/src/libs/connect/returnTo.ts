@@ -38,14 +38,39 @@ function cleanCode(value: string): string {
 }
 
 /**
- * @param provider - Connect provider id (`slack`, `atlassian`, `github`).
- * @param sourceSlug - The source being connected.
- * @param returnTo - Where to land afterwards, already checked by `safeReturnPath`.
+ * @param input - What the start route needs to know.
+ * @param input.provider - Connect provider id (`slack`, `atlassian`, `github`).
+ * @param input.connector - Start from a connector: no source row is needed.
+ * @param input.source - Start from a source, when the person is connecting one that exists.
+ * @param input.returnTo - Where to land afterwards, already checked by `safeReturnPath`.
+ * @param input.conversationId - The chat the login came from, so its card can be marked.
+ * @param input.cardId - The chat card the login came from.
  * @returns The start route URL.
  */
-export function connectStartHref(provider: string, sourceSlug: string, returnTo: string | null): string {
-  const back = returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : '';
-  return `/api/connect/${provider}/start?source=${encodeURIComponent(sourceSlug)}${back}`;
+export function connectStartHref(input: {
+  provider: string;
+  connector?: string;
+  source?: string;
+  returnTo: string | null;
+  conversationId?: number;
+  cardId?: string;
+}): string {
+  const parts: string[] = [];
+  if (input.connector) {
+    parts.push(`connector=${encodeURIComponent(input.connector)}`);
+  } else if (input.source) {
+    parts.push(`source=${encodeURIComponent(input.source)}`);
+  }
+  if (input.returnTo) {
+    parts.push(`returnTo=${encodeURIComponent(input.returnTo)}`);
+  }
+  if (input.conversationId !== undefined) {
+    parts.push(`conversation=${input.conversationId}`);
+  }
+  if (input.cardId) {
+    parts.push(`card=${encodeURIComponent(input.cardId)}`);
+  }
+  return `/api/connect/${input.provider}/start?${parts.join('&')}`;
 }
 
 /**
@@ -54,16 +79,18 @@ export function connectStartHref(provider: string, sourceSlug: string, returnTo:
  * @param params - The query params the callback added.
  * @param params.connect - `ok` or `error`.
  * @param params.reason - The short refusal code, on error.
- * @param params.source - The source that was being connected.
+ * @param params.source - The source that was being connected, when there was one.
+ * @param params.connector - The connector that was being connected, when the login started from it.
  * @returns The message, or null when this visit is not a connect return.
  */
-export function connectReturnPrompt(params: { connect?: string; reason?: string; source?: string }): string | null {
-  if (!params.source) {
+export function connectReturnPrompt(params: { connect?: string; reason?: string; source?: string; connector?: string }): string | null {
+  const name = params.source ?? params.connector;
+  if (!name) {
     return null;
   }
   // The query string is the caller's to write, and this text is put in the
   // composer: same character rule as returnUrl, so nothing but a short code gets in.
-  const source = cleanCode(params.source);
+  const source = cleanCode(name);
   if (params.connect === 'ok') {
     return `I connected ${source}. What's next?`;
   }
@@ -78,23 +105,27 @@ export function connectReturnPrompt(params: { connect?: string; reason?: string;
  * never anything the vendor sent verbatim.
  * @param origin - The configured public origin; `''` gives a relative URL.
  * @param outcome - `ok`, or the short refusal code.
- * @param sourceSlug - The source the person was connecting, when known.
- * @param returnTo - Where the person started, when it passes `safeReturnPath`; else Sources.
+ * @param where - Where it was about.
+ * @param where.source - The source the person was connecting, when there was one.
+ * @param where.connector - The connector, when the login started from it.
+ * @param where.returnTo - Where the person started, when it passes `safeReturnPath`; else Sources.
  */
 export function returnUrl(
   origin: string,
   outcome: { ok: true } | { ok: false; reason: string },
-  sourceSlug?: string,
-  returnTo?: string | null,
+  where: { source?: string; connector?: string; returnTo?: string | null } = {},
 ): string {
-  const base = safeReturnPath(returnTo) ?? '/dashboard/sources';
+  const base = safeReturnPath(where.returnTo) ?? '/dashboard/sources';
   const url = new URL(`${origin || 'http://relative.invalid'}${base}`);
   url.searchParams.set('connect', outcome.ok ? 'ok' : 'error');
   if (!outcome.ok) {
     url.searchParams.set('reason', cleanCode(outcome.reason));
   }
-  if (sourceSlug) {
-    url.searchParams.set('source', sourceSlug);
+  if (where.connector) {
+    url.searchParams.set('connector', cleanCode(where.connector));
+  }
+  if (where.source) {
+    url.searchParams.set('source', where.source);
   }
   return origin ? url.toString() : `${url.pathname}${url.search}`;
 }
