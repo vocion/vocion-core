@@ -288,7 +288,7 @@ export type ResolvedLines
     /** The flows, each check flow's `criterion` written from the line it cites. */
     flows: LiveFlow[];
     beforeMerge: BeforeMergeLine[];
-    /** Lines no check flow cited and QA did not name as ones production cannot show. */
+    /** Lines no check flow cited and QA did not name as ones production cannot show (only ever non-empty while exploring). */
     uncovered: Array<{ requestId: number; line: AcceptanceLine }>;
   }
   | { ok: false; refusal: string };
@@ -296,8 +296,9 @@ export type ResolvedLines
 /**
  * Tie each check flow to the acceptance line it cites, and each line QA says production cannot show
  * to its record. A reference the record does not have is refused with the request's lines, numbered,
- * so QA corrects itself; nothing is run or written on a refusal. An exploring run may leave its
- * check flows uncited (it is learning the page), but never cite a line that is not there.
+ * so QA corrects itself; nothing is run or written on a refusal. A recording run must account for
+ * every line (cited by a check flow, or named in not_observable). An exploring run may leave its
+ * check flows uncited and lines unaccounted (it is learning the page), but never cite a line that is not there.
  * @param flows - QA's flows.
  * @param notObservable - The lines QA says the live product cannot show.
  * @param linesByRequest - Each request the release shipped, and its lines.
@@ -367,6 +368,15 @@ export function resolveLines(flows: readonly LiveFlow[], notObservable: readonly
   const uncovered = shipped.flatMap(id => (linesByRequest.get(id) ?? [])
     .filter(l => !cited.has(`${id}:${l.n}`) && !beforeMerge.some(b => b.requestId === id && b.line === l.n))
     .map(line => ({ requestId: id, line })));
+  // EVERY LINE IS ACCOUNTED FOR (Walk 7, 2026-10-02: release #363 read "1 of 6 states reached"
+  // because QA cited one line and named no other). A recording call that leaves a line neither
+  // cited by a check flow nor named in not_observable is refused, listing those lines, so the run
+  // fixes it in the same turn. Exploring stays free: it is how QA learns the lines.
+  if (!opts.explore && uncovered.length > 0) {
+    const byRequest = shipped.filter(id => uncovered.some(u => u.requestId === id));
+    const missing = byRequest.map(id => `request #${id}: ${uncovered.filter(u => u.requestId === id).map(u => `line ${u.line.n} (${u.line.text.slice(0, 160)})`).join('; ')}`).join('\n');
+    return { ok: false, refusal: `${uncovered.length === 1 ? 'An acceptance line is' : `${uncovered.length} acceptance lines are`} neither cited by a check flow nor named in not_observable:\n${missing}\nEvery line is one or the other: add a check flow citing it (line: n), or name it in not_observable with why production cannot show it, and call check_live again.\n${byRequest.map(id => linesList(id, linesByRequest.get(id) ?? [])).join('\n')}` };
+  }
   return { ok: true, flows: out, beforeMerge, uncovered };
 }
 

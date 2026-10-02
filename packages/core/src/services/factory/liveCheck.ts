@@ -281,7 +281,7 @@ export async function runLiveCheck(
   const resolved = resolveLines(input.flows, input.notObservable ?? [], linesByRequest, { explore });
   if (!resolved.ok) {
     const verdict = liveVerdict([], [resolved.refusal]);
-    return { ok: false, releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems: [], written: 'nothing run or written: the flows cite a line the record does not have', acceptance, beforeMerge: [], refused: resolved.refusal };
+    return { ok: false, releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems: [], written: 'nothing run or written: the flows do not account for the request\'s lines as the record has them', acceptance, beforeMerge: [], refused: resolved.refusal };
   }
   const { beforeMerge, uncovered } = resolved;
   const { productAccess } = await import('@/services/factory/productAccess');

@@ -606,6 +606,17 @@ export function recordVerdictTool(ctx: RuntimeContext) {
           invokedBy: `agent:${by}`,
           proposal: { confidence: MERGE_PROPOSAL_CONFIDENCE, rationale: verdict.note, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: `${count}. ${verdict.note}`.slice(0, 160) },
         });
+        // THE REQUEST'S STAGE SETTLES ON THE CARD (Walk 7, 2026-10-02): a recovery
+        // stage left from an earlier failure of this attempt is no longer true once
+        // QA approved it; the card says whose move it is now.
+        const requestId = Number(task.meta.requestId);
+        const { mergeCardLine } = await import('@/services/factory/recovery');
+        const settled = mergeCardLine({ proven, total, riskClass, status: res.status });
+        if (settled && Number.isInteger(requestId) && requestId > 0) {
+          const { settleOnMergeCard } = await import('@/services/factory/carry');
+          const now = new Date().toISOString();
+          await settleOnMergeCard(ctx.orgId, requestId, settled, now, now).catch((err: Error) => console.warn('record_verdict: settling the request\'s stage failed', { orgId: ctx.orgId, requestId, message: err.message }));
+        }
         const mirrored = await mirrorVerdictOnPull(ctx.orgId, by, reviewMirrorInput({ url: task.url, value, note: verdict.note, proven, total, findings, taskId: task.id }), count);
         return `Verdict recorded on task #${task.id}: approve, ${count}, at ${commitSha.slice(0, 12)}. The merge card is filed (run #${res.runId}, ${res.status}); a person merges. ${mirrored}`;
       } catch (err) {

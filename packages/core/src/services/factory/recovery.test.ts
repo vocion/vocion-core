@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyFailure, closestSibling, contractDelta, environmentDelta, intakeDecision, markHandled, noteAttempt, personActed, planGate, readRecovery, RECOVERY_LIMIT, recoveryDecision, recoveryStage, replanBrief, staleFailure, stalePlanRoots } from './recovery';
+import { classifyFailure, closestSibling, contractDelta, environmentDelta, intakeDecision, markHandled, mergeCardLine, noteAttempt, personActed, planGate, readRecovery, RECOVERY_LIMIT, recoveryDecision, recoveryStage, replanBrief, settledForMergeCard, staleFailure, stalePlanRoots } from './recovery';
 
 // Every name, path and number below is invented. The failure texts are the
 // worker's own refusal shapes (factory/worker/worker.mjs), not a live run's.
@@ -404,5 +404,30 @@ describe('a check that cannot run is configuration, not code', () => {
 
     expect(f.class).toBe('checks_failed');
     expect(recoveryDecision({ failure: f, attempts: 0 }).do).toBe('dispatch');
+  });
+});
+
+describe('an attempt that passed QA settles the stage on its merge card (Walk 7, 2026-10-02, #130)', () => {
+  const recovering = noteAttempt(readRecovery({}), { at: '2026-10-02T03:54:55Z', kind: 'build', trigger: 'recovery', runId: 470, taskId: 360, line: 'sending it again because the required checks failed (no-runtime-ddl)' });
+
+  it('says whose move the card is, in one line', () => {
+    expect(mergeCardLine({ proven: 8, total: 8, riskClass: 'infra', status: 'pending' })).toBe('QA approved 8 of 8; the merge waits on a person (infra class).');
+    expect(mergeCardLine({ proven: 5, total: 5, riskClass: 'logic', status: 'done' })).toBe('QA approved 5 of 5; merged on its trust rule (logic class).');
+    expect(mergeCardLine({ proven: 5, total: 5, riskClass: null, status: 'awaiting_execution' })).toBe('QA approved 5 of 5; the merge is running on its trust rule.');
+    expect(mergeCardLine({ proven: 5, total: 5, riskClass: 'logic', status: 'failed' })).toBeNull();
+  });
+
+  it('clears "Recovering" with the line in the log, and keeps an attempt that started after the card', () => {
+    expect(recoveryStage({ recovery: recovering })?.stage).toBe('recovering');
+
+    const settled = settledForMergeCard(recovering, 'QA approved 8 of 8; the merge waits on a person (infra class).', '2026-10-02T04:21:38Z', '2026-10-02T04:21:39Z');
+
+    expect(settled?.stage).toBeNull();
+    expect(settled?.line).toBeNull();
+    expect(recoveryStage({ recovery: settled })).toBeNull();
+    expect(settled?.log.at(-1)?.text).toBe('QA approved 8 of 8; the merge waits on a person (infra class).');
+    expect(settled?.attempts).toHaveLength(1);
+    expect(settledForMergeCard(recovering, 'x', '2026-10-02T03:00:00Z', '2026-10-02T04:21:39Z')).toBeNull();
+    expect(settledForMergeCard(readRecovery({}), 'x', '2026-10-02T04:21:38Z', '2026-10-02T04:21:39Z')).toBeNull();
   });
 });

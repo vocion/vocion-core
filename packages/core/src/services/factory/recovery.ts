@@ -173,6 +173,54 @@ export function settleRecovery(state: RecoveryState, text: string, at: string): 
   return logLine({ ...state, stage: null, line: null, askId: null }, text, at);
 }
 
+/**
+ * The line a request settles on when an attempt passed QA and its merge card
+ * was filed: nothing is recovering any more, and whose move it is now is the
+ * card's (Walk 7, 2026-10-02: #130 read "Recovering (attempt 1 of 3): … the
+ * required checks failed" for hours over QA 8 of 8 and a pending merge card).
+ * Null for a card that did not land (failed, rejected): that is not settled.
+ * @param input - The verdict's count, the merge's class and the card's status.
+ * @param input.proven - Criteria QA proved.
+ * @param input.total - Criteria judged.
+ * @param input.riskClass - The merge's class, when known.
+ * @param input.status - The card's status (`pending`: a person merges).
+ */
+export function mergeCardLine(input: { proven: number; total: number; riskClass: string | null; status: string }): string | null {
+  const qa = `QA approved ${input.proven} of ${input.total}`;
+  const cls = input.riskClass ? ` (${input.riskClass} class)` : '';
+  if (input.status === 'pending') {
+    return `${qa}; the merge waits on a person${cls}.`;
+  }
+  if (input.status === 'approved' || input.status === 'executing' || input.status === 'awaiting_execution') {
+    return `${qa}; the merge is running on its trust rule${cls}.`;
+  }
+  if (input.status === 'done') {
+    return `${qa}; merged on its trust rule${cls}.`;
+  }
+  return null;
+}
+
+/**
+ * Settle a carrying stage on a filed merge card, when the card is newer than
+ * the stage's last attempt (an attempt started after the card is what the
+ * stage is about, and stays). Null when there is nothing to settle.
+ * @param state - The request's recovery.
+ * @param line - What settled it (`mergeCardLine`).
+ * @param cardAt - When the card was filed.
+ * @param at - When this is written.
+ */
+export function settledForMergeCard(state: RecoveryState, line: string, cardAt: string, at: string): RecoveryState | null {
+  if (!state.stage) {
+    return null;
+  }
+  const lastAttempt = Math.max(0, ...state.attempts.map(a => Date.parse(a.at)).filter(Number.isFinite));
+  const card = Date.parse(cardAt);
+  if (Number.isFinite(card) && card < lastAttempt) {
+    return null;
+  }
+  return settleRecovery(state, line, at);
+}
+
 export function logLine(state: RecoveryState, text: string, at: string, runId: number | null = null): RecoveryState {
   // IN TIME ORDER, whoever writes last (2026-10-01, #294: "Filed and started"
   // at 09:05:05 sat after the 09:06:59 plan lines). A writer stamps its line

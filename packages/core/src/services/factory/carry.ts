@@ -31,7 +31,7 @@ import { settledReason } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
 import { codeForRecord } from '@/services/codes';
 import { blockerRefs, blockerResolution } from './blocker';
-import { attemptsOf, classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
+import { attemptsOf, classifyFailure, contractDelta, environmentDelta, INFRASTRUCTURE_FAILURES, intakeDecision, logLine, markHandled, personActed, readRecovery, recoveryDecision, replanBrief, settledForMergeCard, staleFailure, stalePlanRoots, stopOptions, unblockFor, workerRebuiltSince } from './recovery';
 
 /** The seat whose judgement the factory's own proposals represent. */
 const PM = 'product-manager';
@@ -177,6 +177,32 @@ async function filingPerson(orgId: string, conversationId: number | null, actor:
   }
   const who = typeof actor === 'string' ? actor.trim() : '';
   return who && who !== 'system' && !who.includes(':') && !decidedByMachine(who) ? who : null;
+}
+
+/**
+ * An attempt passed QA and its merge card is filed: the request is not
+ * recovering or planning any more, so its stage settles on one true line —
+ * "QA approved 8 of 8; the merge waits on a person (infra class)." Read fresh
+ * and written only when there was a stage to settle.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param line - The line (`mergeCardLine`).
+ * @param cardAt - When the card was filed.
+ * @param at - When this is written.
+ * @returns Whether it settled a stage.
+ */
+export async function settleOnMergeCard(orgId: string, requestId: number, line: string, cardAt: string, at: string): Promise<boolean> {
+  const { readRecord, writeMeta } = await lib();
+  const request = await readRecord(orgId, requestId);
+  if (!request) {
+    return false;
+  }
+  const next = settledForMergeCard(readRecovery(request.meta), line, cardAt, at);
+  if (!next) {
+    return false;
+  }
+  await writeMeta(orgId, requestId, { recovery: next });
+  return true;
 }
 
 /**

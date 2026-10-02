@@ -346,6 +346,50 @@ export async function settleClosedRequests(orgId: string, now: Date): Promise<Re
   return out;
 }
 
+/**
+ * A request whose attempt passed QA and whose merge card is waiting still
+ * carrying a stage from before the approval is settled on the card's line —
+ * the same settle `record_verdict` makes when it files the card, for a request
+ * that was approved before it did (Walk 7, 2026-10-02: #130 read "Recovering"
+ * over QA 8 of 8 and pending card ACT-6129). Keyed on the merge action's id
+ * and the card's own `taskId`; the task names its request.
+ * @param orgId - Tenant.
+ * @param now - The clock.
+ */
+export async function settleWaitingMerges(orgId: string, now: Date): Promise<Result[]> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const { MERGE_ACTION_ID } = await import('@/libs/actions/mergeAction');
+  const { CLOSED_REQUEST_STATES } = await import('@/libs/factory/requestStates');
+  const { readRecord } = await import('@/libs/actions/factory-dispatch');
+  const { mergeCardLine, readRecovery } = await import('./recovery');
+  const { settleOnMergeCard } = await import('./carry');
+  const cards = await db.select({ id: actionRunSchema.id, input: actionRunSchema.input, status: actionRunSchema.status, createdAt: actionRunSchema.createdAt })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.actionId, MERGE_ACTION_ID), eq(actionRunSchema.status, 'pending')))
+    .limit(40);
+  const out: Result[] = [];
+  for (const card of cards) {
+    const taskId = Number(card.input?.taskId);
+    const task = Number.isInteger(taskId) && taskId > 0 ? await readRecord(orgId, taskId) : null;
+    const requestId = Number(task?.meta.requestId);
+    const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
+    if (!task || !request || !readRecovery(request.meta).stage || CLOSED_REQUEST_STATES.has(String(request.meta.state))) {
+      continue;
+    }
+    const v = (task.meta.verdict ?? {}) as { value?: unknown; proven?: unknown; total?: unknown };
+    if (v.value !== 'approve' || typeof v.proven !== 'number' || typeof v.total !== 'number') {
+      continue;
+    }
+    const line = mergeCardLine({ proven: v.proven, total: v.total, riskClass: str(card.input?.riskClass), status: card.status });
+    if (line && await settleOnMergeCard(orgId, requestId, line, card.createdAt.toISOString(), now.toISOString())) {
+      out.push({ requestId, did: 'settled on its merge card', line });
+    }
+  }
+  return out;
+}
+
 export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Date = new Date(), deps?: ReconcileDeps): Promise<{ acted: Result[] }> {
   const d = deps ?? await defaultDeps();
   const owner = str(input.owner);
@@ -367,6 +411,7 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the pipeline changes', async () => (await import('./pipelineChange')).reconcileChanges(orgId, now, owner));
   await step('the unanswered pipeline fixes', async () => (await import('./pipelineChange')).watchUnanswered(orgId, now, owner));
   await step('the closed requests', () => settleClosedRequests(orgId, now));
+  await step('the waiting merges', () => settleWaitingMerges(orgId, now));
   await step('the missed deploys', async () => (await import('./environments')).watchMissedDeploys(orgId, now, owner).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));
   await step('the unanswered failed deploys', async () => (await import('./deployFailures')).answerFailedDeploys(orgId, now, d.failedDeploys).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));
   return { acted };

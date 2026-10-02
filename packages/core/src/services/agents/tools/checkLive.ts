@@ -41,7 +41,7 @@ const inputSchema = z.object({
   not_observable: z.array(NotObservableSchema).max(40).optional().describe(
     'The acceptance lines the live product cannot show (a CI run, an image\'s contents, a pre-merge guarantee): {request_id?, line, why}. '
     + 'A line QA\'s pre-merge verdict proved reads "proven before merge by QA\'s verdict" on the release and the feature, and is not counted as unreached; '
-    + 'one it did not prove stands unproven. Every line is either cited by a check flow or named here; a line that is neither stands unchecked.',
+    + 'one it did not prove stands unproven. Every line must be either cited by a check flow or named here: a recording call that leaves a line as neither is refused, listing it.',
   ),
   explore: z.boolean().optional().describe('Run the flows and report what each page showed, and each request\'s numbered acceptance lines, writing nothing on the release. Cleanup still runs.'),
 });
@@ -57,15 +57,18 @@ export function checkLiveTools(ctx: RuntimeContext): StructuredToolInterface[] {
         author: { kind: 'agent', id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : null },
         provenance: { agentSlug: ctx.agentSlug ?? null, missionRunId: ctx.missionRunId ?? null },
       });
-      const next = out.refused
-        ? `Nothing ran and nothing was written: ${out.refused}`
-        : out.explore
-          ? 'Nothing was written. Use what each page showed and the numbered acceptance lines to write the flows (a check flow per line production can show, citing it by line; the rest in not_observable), then run check_live without explore.'
-          : out.verdict.state === 'seen'
-            ? 'Written on the release and each feature. Report it in one line; do not describe the pictures.'
-            : (out.attempt ?? 0) < LIVE_ATTEMPTS
-                ? `Attempt ${out.attempt} of ${LIVE_ATTEMPTS}. Read what each page showed (pageText) and the first failure, change the flows (the selector, the state setup prepares, the path, the lines cited), and call check_live once more.`
-                : `That was the last attempt: the release and each feature now say "${out.verdict.line}". Report that in one line and stop.`;
+      // A refusal opens "Not recorded" so the run's required-tool pass counts it as not done
+      // (`isRefusal`) and the agent fixes the flows in the same run.
+      if (out.refused) {
+        return `Not recorded: nothing ran and nothing was written on release #${args.release_id}. ${out.refused}`;
+      }
+      const next = out.explore
+        ? 'Nothing was written. Use what each page showed and the numbered acceptance lines to write the flows (a check flow per line production can show, citing it by line; the rest in not_observable), then run check_live without explore.'
+        : out.verdict.state === 'seen'
+          ? 'Written on the release and each feature. Report it in one line; do not describe the pictures.'
+          : (out.attempt ?? 0) < LIVE_ATTEMPTS
+              ? `Attempt ${out.attempt} of ${LIVE_ATTEMPTS}. Read what each page showed (pageText) and the first failure, change the flows (the selector, the state setup prepares, the path, the lines cited), and call check_live once more.`
+              : `That was the last attempt: the release and each feature now say "${out.verdict.line}". Report that in one line and stop.`;
       return JSON.stringify({ ...out, next });
     },
     {

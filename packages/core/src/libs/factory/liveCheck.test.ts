@@ -167,7 +167,7 @@ describe('a check flow cites an acceptance line by its number', () => {
   });
 
   it('writes the line\'s words from the record, never QA\'s, and ties it to the one request shipped', () => {
-    const out = resolveLines([check({ line: 3, criterion: 'A visitor can download the shared file' })], [], lines);
+    const out = resolveLines([check({ line: 3, criterion: 'A visitor can download the shared file' })], [], lines, { explore: true });
 
     expect(out.ok).toBe(true);
     expect(out.ok && out.flows[0]).toMatchObject({ request_id: 314, line: 3, criterion: 'After deploy, GET /v1/documents with a signed-in session returns 200.' });
@@ -195,11 +195,39 @@ describe('a check flow cites an acceptance line by its number', () => {
   });
 
   it('keeps the lines production cannot show, and says which no flow and no word covered', () => {
-    const out = resolveLines([check({ line: 3 })], [{ line: 1, why: 'a CI run' }, { line: 2, why: 'the image' }, { line: 5, why: 'before the merge' }, { line: 3, why: 'checked anyway' }], lines);
+    const out = resolveLines([check({ line: 3 })], [{ line: 1, why: 'a CI run' }, { line: 2, why: 'the image' }, { line: 5, why: 'before the merge' }, { line: 3, why: 'checked anyway' }], lines, { explore: true });
 
     expect(out.ok && out.beforeMerge.map(b => [b.line, b.proven])).toEqual([[1, true], [2, true], [5, false]]);
     expect(out.ok && out.uncovered.map(u => u.line.n)).toEqual([4]);
     expect(resolveLines([check({ line: 3 })], [{ line: 6, why: 'x' }], lines)).toMatchObject({ ok: false, refusal: expect.stringContaining('not_observable line 6 of request #314 is not there') });
+  });
+
+  it('refuses a recording call that leaves a line neither cited nor named, listing each by number (Walk 7: release #363, 1 of 6)', () => {
+    // QA cited line 3 and said nothing of the other four.
+    const out = resolveLines([check({ line: 3 })], [], lines);
+
+    expect(out.ok).toBe(false);
+
+    const refusal = !out.ok ? out.refusal : '';
+
+    expect(refusal).toContain('4 acceptance lines are neither cited by a check flow nor named in not_observable');
+    expect(refusal).toContain('request #314: line 1 (CI builds the arm64 image three times without exit 132.); line 2 (The engine in the image is linux-musl-arm64.); line 4 (npm ci targets arm64.); line 5 (The revert stays the baseline until the fix lands.)');
+    expect(refusal).not.toMatch(/: line 3 \(/);
+    expect(refusal).toContain('  3. After deploy, GET /v1/documents');
+
+    // One left: named in the singular.
+    const one = resolveLines([check({ line: 3 })], [1, 2, 5].map(line => ({ line, why: 'pre-merge' })), lines);
+
+    expect(!one.ok && one.refusal).toContain('An acceptance line is neither cited by a check flow nor named in not_observable:\nrequest #314: line 4 (npm ci targets arm64.)');
+  });
+
+  it('asks for every line of every request a release shipped, and stays free while exploring', () => {
+    const two = new Map([[1, acceptanceLines({ acceptance: ['A'] })], [2, acceptanceLines({ acceptance: ['B', 'C'] })]]);
+    const out = resolveLines([check({ line: 1, request_id: 1 }), check({ line: 1, request_id: 2 })], [], two);
+
+    expect(!out.ok && out.refusal).toContain('An acceptance line is neither cited by a check flow nor named in not_observable:\nrequest #2: line 2 (C)');
+    expect(resolveLines([check({ line: 1, request_id: 1 }), check({ line: 1, request_id: 2 })], [{ request_id: 2, line: 2, why: 'a CI run' }], two).ok).toBe(true);
+    expect(resolveLines([check({ line: 1, request_id: 1 })], [], two, { explore: true }).ok).toBe(true);
   });
 
   it('runs a check flow alone: no setup is asked for', () => {
