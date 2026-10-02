@@ -21,7 +21,7 @@ const { eq } = await import('drizzle-orm');
 const ORG = 'org_interview';
 const USER = 'user_dana';
 
-const probeInput = z.object({ n: z.number(), boom: z.boolean().optional() });
+const probeInput = z.object({ n: z.number(), boom: z.boolean().optional(), long: z.boolean().optional() });
 const ran: Array<Record<string, unknown>> = [];
 
 const probeAction: Action<typeof probeInput> = {
@@ -37,7 +37,7 @@ const probeAction: Action<typeof probeInput> = {
     if (input.boom) {
       throw new Error('the probe exploded');
     }
-    return { probed: input.n };
+    return input.long ? { probed: input.n, padding: 'x'.repeat(2000) } : { probed: input.n };
   },
 };
 registerAction(probeAction);
@@ -180,7 +180,18 @@ describe('answerChoice', () => {
     const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.actionId, 'test.interview_probe'));
 
     expect(run).toMatchObject({ orgId: ORG, invokedBy: USER, status: 'done', input: { n: 7 } });
-    expect(out.ok && out.modelPrefix).toMatch(/^Answered "What matters most\?": Do it\n\(test\.interview_probe ran: /);
+    expect(out.ok && out.modelPrefix).toMatch(/^Answered "What matters most\?": Do it\n\(test\.interview_probe ran: \{"probed":7\}\)$/);
+  });
+
+  it('caps a long result at 600 characters with an ellipsis', async () => {
+    const options: Options = [{ id: 'A', label: 'Do it', actions: [{ actionId: 'test.interview_probe', input: { n: 9, long: true } }] }];
+    const { conversationId } = await seedConversation(ORG, [choiceCard('card_long', options)]);
+
+    const out = await answerChoice({ orgId: ORG, userId: USER, conversationId, answer: { cardId: 'card_long', optionId: 'A' } });
+    const line = out.ok ? out.modelPrefix.split('\n')[1]! : '';
+
+    expect(line).toMatch(/^\(test\.interview_probe ran: \{"probed":9,"padding":"x+…\)$/);
+    expect(line.length).toBeLessThan(700);
   });
 
   it('an action that throws does not un-answer the card; the agent is told it failed and why', async () => {

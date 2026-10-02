@@ -921,7 +921,7 @@ export async function snooze(
  * and the surface that clicked Approve must say so rather than look done.
  */
 export type DecideResult = {
-  execution?: { status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone'; error: string | null };
+  execution?: { status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone'; error: string | null; result?: Record<string, unknown> | null };
 };
 
 /**
@@ -1068,7 +1068,7 @@ export async function decide(
         const outcome = await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
         // An approve whose execution failed is NOT a completed decision to the
         // person who clicked it — the outcome rides back so the surface says so.
-        execution = { status: outcome.status, error: outcome.error ?? null };
+        execution = { status: outcome.status, error: outcome.error ?? null, result: outcome.result ?? null };
       } else {
         await rejectAction(item.id, orgId, opts?.reason?.trim() || opts?.note, { reviewedBy });
       }

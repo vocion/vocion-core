@@ -83,7 +83,7 @@ async function runBoundAction(input: { orgId: string; userId: string; conversati
     }
     if (proposed.status === 'pending') {
       const decided = await decide({ kind: 'action', id: proposed.runId }, 'approve', orgId, { reviewedBy: userId });
-      return lineForExecution(action.actionId, decided.execution?.status ?? 'done', decided.execution?.error ?? undefined, undefined);
+      return lineForExecution(action.actionId, decided.execution?.status ?? 'done', decided.execution?.error ?? undefined, decided.execution?.result);
     }
     return lineForExecution(action.actionId, proposed.status, proposed.error, proposed.result);
   } catch (error) {
@@ -109,7 +109,25 @@ function lineForExecution(actionId: string, status: string, error: string | unde
   if (status === 'awaiting_execution') {
     return `${actionId} ran: handed off, waiting for whoever does the work outside Vocion`;
   }
-  return `${actionId} ran: ${outcomeOf(result) ?? 'done'}`;
+  return `${actionId} ran: ${outcomeOf(result) ?? resultAsJson(result)}`;
+}
+
+/** The longest a result may run in a line the agent reads. */
+const RESULT_LINE_LIMIT = 600;
+
+/**
+ * An action's result as compact JSON for the agent, cut with `…` past the limit.
+ * One rule for every action, so what an action returns (a source slug, a
+ * `created` flag) is what the agent reads.
+ * @param result - What the action returned.
+ * @returns The JSON, or `done` when it returned nothing.
+ */
+function resultAsJson(result: Record<string, unknown> | null | undefined): string {
+  if (!result || Object.keys(result).length === 0) {
+    return 'done';
+  }
+  const json = JSON.stringify(result);
+  return json.length > RESULT_LINE_LIMIT ? `${json.slice(0, RESULT_LINE_LIMIT)}…` : json;
 }
 
 /**
