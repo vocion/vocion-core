@@ -5,6 +5,8 @@
  * redirect. The value travels inside the signed state.
  */
 
+import { isInAppPath } from './inAppPath';
+
 const MAX_RETURN_PATH = 500;
 
 /**
@@ -13,6 +15,9 @@ const MAX_RETURN_PATH = 500;
  */
 export function safeReturnPath(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw.length > MAX_RETURN_PATH) {
+    return null;
+  }
+  if (!isInAppPath(raw)) {
     return null;
   }
   if (raw !== '/dashboard' && !raw.startsWith('/dashboard/') && !raw.startsWith('/dashboard?')) {
