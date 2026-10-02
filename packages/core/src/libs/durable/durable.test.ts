@@ -99,3 +99,18 @@ describe('a durable run owns its record', () => {
     expect(await durable().state(id)).toBe('cancelled');
   });
 });
+
+describe('the definition registry', () => {
+  it('takes a second copy of the same definition, as a module loaded twice makes', () => {
+    const make = () => ({ name: 'test.copied', run: async (_ctx: unknown, input: { n: number }) => input.n + 1 });
+    const first = defineDurable(make());
+
+    expect(defineDurable(make())).toBe(first);
+  });
+
+  it('refuses a different definition under a taken name', () => {
+    defineDurable({ name: 'test.taken', run: async () => 1 });
+
+    expect(() => defineDurable({ name: 'test.taken', run: async () => 2 })).toThrow('already registered');
+  });
+});
