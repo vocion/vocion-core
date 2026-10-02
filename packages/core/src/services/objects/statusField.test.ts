@@ -80,3 +80,36 @@ describe('markStatus', () => {
     await expect(statusSnapshot(ORG, id)).resolves.toEqual({ status: 'deciding', statusLine: 'Filed; the Build card is waiting on a person (ACT-1).', statusAt: null });
   });
 });
+
+describe('the one-time backfill (migration 0163)', () => {
+  it('writes each request the status its records say, through its type, and never overwrites one', async () => {
+    const { sql } = await import('drizzle-orm');
+    const ids = {
+      shipped: await record({ state: 'building', shippedAt: '2026-10-02T03:19:08Z', shippedIn: 355, recovery: { stage: 'recovering', log: [] } }),
+      seen: await record({ state: 'shipped', shippedAt: '2026-10-01T00:00:00Z', liveCheck: { state: 'seen' } }),
+      reopened: await record({ state: 'building', shippedAt: '2026-09-01T00:00:00Z', reopenedAt: '2026-09-02T00:00:00Z', runningTaskCount: 1 }),
+      stopped: await record({ state: 'building', recovery: { stage: 'stopped', log: [{ at: '2026-10-01T00:00:00Z', text: 'Stopped after 3 attempts.' }] } }),
+      review: await record({ state: 'building', awaitingReviewTaskCount: 1 }),
+      deciding: await record({ state: 'triaged', recommendationState: 'proposed' }),
+      dismissed: await record({ state: 'out_of_scope', recommendationState: 'rejected' }),
+      duplicate: await record({ state: 'new', duplicateOf: 12 }),
+      unknown: await record({}),
+      kept: await record({ state: 'building', status: 'awaiting_merge' }),
+    };
+    await db.execute(sql.raw(readFileSync(join(process.cwd(), 'migrations/0163_request_status_backfill.sql'), 'utf8')));
+    const status = async (id: number) => (await metaOf(id)).status;
+
+    expect(await status(ids.shipped)).toBe('shipped');
+    expect(await status(ids.seen)).toBe('seen_live');
+    expect(await status(ids.reopened)).toBe('building');
+    expect(await status(ids.stopped)).toBe('stopped');
+    expect((await metaOf(ids.stopped)).statusLine).toBe('Stopped after 3 attempts.');
+    expect(await status(ids.review)).toBe('in_qa');
+    expect(await status(ids.deciding)).toBe('deciding');
+    expect(await status(ids.dismissed)).toBe('out_of_scope');
+    expect(await status(ids.duplicate)).toBe('duplicate');
+    // Nothing on its record says where it stands: no status, read In progress.
+    expect(await status(ids.unknown)).toBeUndefined();
+    expect(await status(ids.kept)).toBe('awaiting_merge');
+  });
+});
