@@ -480,6 +480,20 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
       .where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.id, missionIds)));
     // A review whose fire failed reads failed, whatever the run under it says.
     const fireFailed = await failedFireLines(orgId, rows);
+    // When each run's tool calls landed: the Timeline reads which run wrote
+    // a verdict, a plan or a live check by the call made at that moment.
+    const callRows = await db
+      .select({ missionRunId: toolCallSchema.missionRunId, at: toolCallSchema.createdAt })
+      .from(toolCallSchema)
+      .where(and(eq(toolCallSchema.orgId, orgId), inArray(toolCallSchema.missionRunId, missionIds)))
+      .limit(3000)
+      .catch(() => [] as Array<{ missionRunId: number | null; at: Date }>);
+    const callsOf = new Map<number, Date[]>();
+    for (const c of callRows) {
+      if (c.missionRunId !== null) {
+        callsOf.set(c.missionRunId, [...(callsOf.get(c.missionRunId) ?? []), c.at]);
+      }
+    }
     for (const r of rows) {
       const m = mission.get(r.id);
       const share = costed.get(r.id);
@@ -498,6 +512,7 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
         startedAt: r.createdAt,
         endedAt: r.completedAt ?? null,
         touched: [...(touched.get(r.id) ?? [])],
+        calls: callsOf.get(r.id) ?? [],
         // This feature's share of what the run cost (`featureSpend.ts`); null is not recorded.
         cents: share === undefined ? null : Math.round(share / 1_000_000),
       });

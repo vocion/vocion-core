@@ -57,13 +57,14 @@ function input(): FeatureReportInput {
       meta: {
         state: 'shipped',
         liveCheck: { state: 'seen', line: 'Seen live: 4 of 4 states reached', releaseId: 375, checkedAt: '2026-10-02T08:31:53Z', attempt: 1 },
-        delivery: { prUrl: PR(175), pr: 'PR #175', repo: 'example/northwind-portal', mergedAt: '2026-10-02T08:22:25Z', mergedBy: 'dana', mergeSha: 'abc123', runs: [{ runId: 9001, name: 'Deploy', runNumber: 70, url: 'https://github.com/example/northwind-portal/actions/runs/9001', status: 'completed', conclusion: 'success', startedAt: '2026-10-02T08:22:28Z' }], runsReadAt: null },
+        delivery: { prUrl: PR(175), pr: 'PR #175', repo: 'example/northwind-portal', mergedAt: '2026-10-02T08:22:25Z', mergedBy: 'dana', mergeSha: 'abc123', runs: [{ runId: 9001, name: 'Deploy', runNumber: 70, url: 'https://github.com/example/northwind-portal/actions/runs/9001', status: 'in_progress', conclusion: null, startedAt: '2026-10-02T08:22:28Z' }], runsReadAt: null },
         recovery: {
           log: [
             { at: '2026-10-02T07:39:20Z', text: 'Attempt 1 of 3 started.', runId: 477 },
             { at: '2026-10-02T08:22:26.878Z', text: 'Would have run "Write the standard", but it is paused by usr-0001.', runId: null },
             { at: '2026-10-02T08:22:27Z', text: 'Merged PR #175 by dana; the runs it started carry it to the release.', runId: null },
             { at: '2026-10-02T08:30:32Z', text: 'Shipped in release #375.', runId: null },
+            { at: '2026-10-02T08:31:53.647Z', text: 'Seen live: 4 of 4 states reached (release #375, attempt 1).', runId: null },
           ],
         },
       },
@@ -87,11 +88,16 @@ function input(): FeatureReportInput {
     people: { 'usr-0001': 'Dana Okafor' },
     codes: new Map([[371, 'PL-371'], [372, 'ET-372'], [373, 'ET-373'], [374, 'ET-374'], [375, 'REL-375']]),
     activity: [
-      agent({ id: 7093, label: 'Planned it', doing: 'Writing the plan', startedAt: T('2026-10-02T07:13:14Z'), endedAt: T('2026-10-02T07:14:27Z'), touched: [370] }),
-      agent({ id: 7114, startedAt: T('2026-10-02T08:08:23Z'), endedAt: T('2026-10-02T08:08:55Z'), touched: [373], cents: 40 }),
-      agent({ id: 7117, startedAt: T('2026-10-02T08:21:47Z'), endedAt: T('2026-10-02T08:21:59Z'), touched: [374] }),
-      agent({ id: 7119, label: 'Drafted the release note', startedAt: T('2026-10-02T08:30:34Z'), endedAt: T('2026-10-02T08:31:24Z'), touched: [370] }),
-      agent({ id: 7121, label: 'Checked it live', startedAt: T('2026-10-02T08:30:51Z'), endedAt: T('2026-10-02T08:32:08Z'), touched: [370] }),
+      // The planning run and a mockup run were both running when PL-371 was
+      // filed; the call at that second says which one filed it.
+      agent({ id: 7093, label: 'Planned it', doing: 'Writing the plan', startedAt: T('2026-10-02T07:13:14Z'), endedAt: T('2026-10-02T07:14:27Z'), touched: [370], calls: [T('2026-10-02T07:13:20Z'), T('2026-10-02T07:13:53.100Z')] }),
+      agent({ id: 7096, label: 'Drew the mockup', doing: 'Drawing the mockup', startedAt: T('2026-10-02T07:13:32Z'), endedAt: T('2026-10-02T07:14:18Z'), touched: [370], calls: [T('2026-10-02T07:13:40Z'), T('2026-10-02T07:14:10Z')] }),
+      // A review its pull request started names no record; its verdict call says which attempt.
+      agent({ id: 7114, startedAt: T('2026-10-02T08:08:23Z'), endedAt: T('2026-10-02T08:08:55Z'), touched: [], calls: [T('2026-10-02T08:09:25Z')], cents: 40 }),
+      agent({ id: 7117, startedAt: T('2026-10-02T08:21:47Z'), endedAt: T('2026-10-02T08:21:59Z'), touched: [374], calls: [T('2026-10-02T08:22:22Z')] }),
+      agent({ id: 7119, label: 'Drafted the release note', startedAt: T('2026-10-02T08:30:34Z'), endedAt: T('2026-10-02T08:31:24Z'), touched: [370], calls: [T('2026-10-02T08:31:20Z')] }),
+      // The live check read the shipped task after the merge: not a review of it.
+      agent({ id: 7121, label: 'Checked it live', startedAt: T('2026-10-02T08:30:51Z'), endedAt: T('2026-10-02T08:32:08Z'), touched: [370, 374], calls: [T('2026-10-02T08:31:53.500Z')] }),
       { kind: 'conversation', id: 405, title: 'Requested in chat by Dana Okafor', at: T('2026-10-02T07:12:00Z'), status: null, detail: null, origin: true },
     ],
   };
@@ -110,12 +116,14 @@ describe('the feature\'s Timeline', () => {
       'Checked it live · seen 4 of 4',
       'Drafted the release note',
       'Planned it · PL-371',
+      'Drew the mockup',
       'Built attempt 3 · 6/6 checks · PR #175',
       'Built attempt 1 · failed `test`',
       'QA reviewed attempt 3 · approved 6 of 6',
       'QA reviewed attempt 2 · sent back: A document with no upload date keeps its layout',
     ]));
-    expect(all.join('\n')).not.toMatch(/contract-red-team|release-live-check|Task nw-t|Green checks are not/);
+    expect(all.join('\n')).not.toMatch(/contract-red-team|release-live-check|Task nw-t|Green checks are not|Checked it live attempt/);
+    expect(all).not.toContain('Drew the mockup · PL-371');
   });
 
   it('groups each attempt, newest first, its cost the sum of its rows', () => {
@@ -124,6 +132,7 @@ describe('the feature\'s Timeline', () => {
     expect(titles(attempts)).toEqual(['Attempt 3 of 3 · passed', 'Attempt 2 of 3 · sent back', 'Attempt 1 of 3 · failed']);
     expect(attempts[1]!.cents).toBe(106 + 40);
     expect(titles(attempts[0]!.children!)).toEqual(['QA reviewed attempt 3 · approved 6 of 6', 'Built attempt 3 · 6/6 checks · PR #175']);
+    expect(titles(attempts[1]!.children!)[0]).toBe('QA reviewed attempt 2 · sent back: A document with no upload date keeps its layout');
   });
 
   it('reads newest first, where it started last', () => {
@@ -136,7 +145,11 @@ describe('the feature\'s Timeline', () => {
   it('says the merge, the deploy and the release once each, and folds a note beside one under it', () => {
     const all = titles(rows);
 
+    // The deploy run was read in progress at the merge; the release after it says it finished.
     expect(all).toEqual(expect.arrayContaining(['Merged PR #175 · by dana', 'Deployed', 'Released']));
+    expect(rows.find(r => r.kind === 'deploy')!.live).toBe(false);
+    // A note written while a run ran is that run's.
+    expect(rows.find(r => r.title === 'Checked it live · seen 4 of 4')!.notes).toEqual(['Seen live: 4 of 4 states reached (release #375, attempt 1).']);
     expect(all.filter(t => /Shipped in release|Merged PR #175 by/.test(t))).toEqual([]);
     // A note beside a typed row is that row's: folded under it, said in the side panel only.
     expect(all.join('\n')).not.toContain('Would have run');
