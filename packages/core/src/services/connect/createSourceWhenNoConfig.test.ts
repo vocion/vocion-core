@@ -8,10 +8,15 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+vi.mock('@/services/WorkspaceAccessService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/WorkspaceAccessService')>();
+  return { ...original, memberWorkspace: vi.fn(original.memberWorkspace) };
+});
 
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, sourceDekSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { sealLoginValues, storeLoginCredential } = await import('@/services/ApiTokenService');
+const { memberWorkspace } = await import('@/services/WorkspaceAccessService');
 const { createSourceWhenNoConfigNeeded } = await import('./createSourceOnLogin');
 
 const ORG = 'org_login_autosource';
@@ -25,6 +30,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await db.delete(knowledgeSourceSchema);
   await db.delete(apiTokenSchema);
   await db.delete(sourceDekSchema);
@@ -67,5 +73,31 @@ describe('createSourceWhenNoConfigNeeded', () => {
 
     expect(result).toEqual({ created: false });
     expect(await sources()).toHaveLength(1);
+  });
+
+  it('says so when the source cannot be created: a refused save reports why, and the login row stays', async () => {
+    const loginId = await seedLogin('slack');
+    await db.insert(knowledgeSourceSchema).values([
+      { orgId: ORG, slug: 'slack-a', kind: 'plugin', configJson: { _connector: 'slack' } },
+      { orgId: ORG, slug: 'slack-b', kind: 'plugin', configJson: { _connector: 'slack' } },
+    ]);
+
+    const result = await createSourceWhenNoConfigNeeded({ orgId: ORG, userId: ADMIN, connector: 'slack', linkedSourceIds: [] });
+
+    expect(result).toEqual({ created: false, failed: expect.stringContaining('2 sources') });
+    expect(await sources()).toHaveLength(2);
+    expect(await db.select().from(apiTokenSchema).where(eq(apiTokenSchema.id, loginId))).toHaveLength(1);
+  });
+
+  it('says so when the lookup throws, instead of letting the callback 500 after the login was stored', async () => {
+    await seedLogin('slack');
+    vi.mocked(memberWorkspace).mockResolvedValueOnce({ accountRole: 'admin' } as never);
+    vi.spyOn(db, 'select').mockImplementationOnce(() => {
+      throw new Error('database went away');
+    });
+
+    const result = await createSourceWhenNoConfigNeeded({ orgId: ORG, userId: ADMIN, connector: 'slack', linkedSourceIds: [] });
+
+    expect(result).toEqual({ created: false, failed: 'The source could not be created.' });
   });
 });

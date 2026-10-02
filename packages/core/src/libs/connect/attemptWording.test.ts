@@ -16,6 +16,7 @@ describe('connectFailureSummary', () => {
     ['wrong_workspace', 'The login was started by someone else or in another workspace'],
     ['store_failed', 'GitHub logged in, but the credential couldn\'t be saved'],
     ['provider_unreachable', 'GitHub could not be reached, so nothing was connected'],
+    ['source_not_created', 'GitHub logged in, but its source could not be created. Add it from Connectors'],
     ['token_step_failed:refresh token', 'GitHub logged in, but refresh token is still missing'],
     ['server_error', 'GitHub refused the login (server_error)'],
   ])('%s', (reason, expected) => {

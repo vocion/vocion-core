@@ -36,6 +36,8 @@ export function connectFailureSummary(providerLabel: string, reason: string | nu
       return 'The login was started by someone else or in another workspace';
     case 'provider_unreachable':
       return `${providerLabel} could not be reached, so nothing was connected`;
+    case 'source_not_created':
+      return `${providerLabel} logged in, but its source could not be created. Add it from Connectors`;
     case 'store_failed':
       return `${providerLabel} logged in, but the credential couldn't be saved`;
     default:

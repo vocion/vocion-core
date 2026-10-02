@@ -129,6 +129,39 @@ type LoginInput = {
 };
 
 /**
+ * Mark the chat card approved by the person who logged in. A card already
+ * decided returns false; the login stands either way.
+ * @param tx - The transaction to write in.
+ * @param input - Who logged in and which card.
+ * @param input.orgId - The workspace.
+ * @param input.userId - The admin who logged in.
+ * @param input.card - The chat card.
+ */
+async function markCardApproved(tx: DbTransaction, input: { orgId: string; userId: string; card: ChatCard }): Promise<void> {
+  await markCardRun({
+    orgId: input.orgId,
+    conversationId: input.card.conversationId,
+    cardId: input.card.cardId,
+    expectState: 'proposed',
+    patch: { state: 'decided', decision: { action: 'approve', at: new Date().toISOString(), by: input.userId } },
+    tx,
+  });
+}
+
+/**
+ * Approve the chat card of a login that finished after `completeLogin` (the
+ * route does this once the connector's own source exists, so the card never
+ * says Connected before it is true).
+ * @param input - Who logged in and which card.
+ * @param input.orgId - The workspace.
+ * @param input.userId - The admin who logged in.
+ * @param input.card - The chat card.
+ */
+export async function approveLoginCard(input: { orgId: string; userId: string; card: ChatCard }): Promise<void> {
+  await db.transaction(tx => markCardApproved(tx, input));
+}
+
+/**
  * The writes of a successful login, inside the caller's transaction.
  * @param tx - The transaction to write in.
  * @param input - The login, as `completeLogin` received it.
@@ -158,15 +191,7 @@ async function writeLogin(
   const linkedSourceIds = await linkSources(tx, { orgId: input.orgId, tokenId: stored.id, candidates });
   await recordConnectAttempt({ orgId: input.orgId, userId: input.userId, provider: input.provider.id, providerLabel: input.provider.label, connector: input.connectorSlug, ok: true, tx });
   if (input.card) {
-    // A card already decided returns false; the login stands either way.
-    await markCardRun({
-      orgId: input.orgId,
-      conversationId: input.card.conversationId,
-      cardId: input.card.cardId,
-      expectState: 'proposed',
-      patch: { state: 'decided', decision: { action: 'approve', at: new Date().toISOString(), by: input.userId } },
-      tx,
-    });
+    await markCardApproved(tx, { orgId: input.orgId, userId: input.userId, card: input.card });
   }
   return { ok: true, tokenId: stored.id, linkedSourceIds };
 }

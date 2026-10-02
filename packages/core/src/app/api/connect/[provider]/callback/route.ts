@@ -26,8 +26,8 @@ import { returnUrl } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
 import { stateIssuedAt, verifyState } from '@/libs/connect/state';
-import { completeLogin, recordFailedLogin } from '@/services/connect/completeLogin';
-import { createSourceWhenNoConfigNeeded } from '@/services/connect/createSourceOnLogin';
+import { approveLoginCard, completeLogin, recordFailedLogin } from '@/services/connect/completeLogin';
+import { createSourceWhenNoConfigNeeded, loginMakesItsSource } from '@/services/connect/createSourceOnLogin';
 
 type Landing = { source?: string; connector?: string; returnTo?: string | null };
 type ChatCard = { conversationId: number; cardId: string };
@@ -67,6 +67,27 @@ async function failAndLand(request: NextRequest, origin: string, failed: FailedL
 }
 
 /**
+ * Approve the chat card once the login and its source both exist. The card is
+ * a view: a failure here is logged and the login stands.
+ * @param orgId - The workspace.
+ * @param userId - The admin who logged in.
+ * @param provider - The provider the login was with.
+ * @param connectorSlug - The connector it was for.
+ * @param card - The chat card.
+ */
+async function approveCard(orgId: string, userId: string, provider: ConnectProvider, connectorSlug: string, card: ChatCard) {
+  try {
+    await approveLoginCard({ orgId, userId, card });
+  } catch (error) {
+    console.error('[connect] could not approve the chat card', {
+      provider: provider.id,
+      connector: connectorSlug,
+      message: error instanceof Error ? error.name : 'unknown',
+    });
+  }
+}
+
+/**
  * Finish a login whose exchange succeeded: store it, and land.
  * @param request - The callback request.
  * @param origin - The configured public origin, or `''`.
@@ -76,9 +97,11 @@ async function failAndLand(request: NextRequest, origin: string, failed: FailedL
  */
 async function storeAndLand(request: NextRequest, origin: string, done: Parameters<typeof completeLogin>[0], issuedAt: Date, landing: Landing) {
   const { orgId, userId, provider, connectorSlug, card } = done;
+  // A connector that makes its own source approves the card only once that source exists.
+  const makesSource = loginMakesItsSource(connectorSlug);
   let outcome: Awaited<ReturnType<typeof completeLogin>>;
   try {
-    outcome = await completeLogin(done);
+    outcome = await completeLogin(makesSource ? { ...done, card: undefined } : done);
   } catch (error) {
     // Nothing was written: the login ran in one transaction.
     console.error('[connect] could not store the login', {
@@ -93,7 +116,14 @@ async function storeAndLand(request: NextRequest, origin: string, done: Paramete
     return failAndLand(request, origin, { orgId, userId, provider, connectorSlug, card, reason: outcome.reason, stateIssuedAt: issuedAt }, landing);
   }
   // A connector that needs no picks has its source now; one that does is finished in chat or on the Connectors form.
-  await createSourceWhenNoConfigNeeded({ orgId, userId, connector: connectorSlug, linkedSourceIds: outcome.linkedSourceIds });
+  const made = await createSourceWhenNoConfigNeeded({ orgId, userId, connector: connectorSlug, linkedSourceIds: outcome.linkedSourceIds });
+  if (made.failed) {
+    // The login is stored and valid; the person is told the source is missing. No stateIssuedAt: this is a real failure after the success.
+    return failAndLand(request, origin, { orgId, userId, provider, connectorSlug, card, reason: 'source_not_created' }, landing);
+  }
+  if (card && makesSource) {
+    await approveCard(orgId, userId, provider, connectorSlug, card);
+  }
   return landAt(request, origin, { ok: true }, landing);
 }
 

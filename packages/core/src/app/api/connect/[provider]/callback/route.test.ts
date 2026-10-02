@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn() }));
 vi.mock('@/libs/connect/state', () => ({ verifyState: vi.fn(), stateIssuedAt: (state: { exp: number }) => new Date(state.exp - 600000) }));
-vi.mock('@/services/connect/completeLogin', () => ({ completeLogin: vi.fn(), recordFailedLogin: vi.fn() }));
-vi.mock('@/services/connect/createSourceOnLogin', () => ({ createSourceWhenNoConfigNeeded: vi.fn() }));
+vi.mock('@/services/connect/completeLogin', () => ({ completeLogin: vi.fn(), recordFailedLogin: vi.fn(), approveLoginCard: vi.fn() }));
+vi.mock('@/services/connect/createSourceOnLogin', () => ({ createSourceWhenNoConfigNeeded: vi.fn(), loginMakesItsSource: (connector: string) => connector === 'slack' }));
 const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
 
@@ -29,7 +29,7 @@ vi.mock('@/libs/connect/registry', () => {
 const { clerkAuth } = await import('@/libs/Auth');
 const { findSourceBySlug } = await import('@/libs/connect/sources');
 const { verifyState } = await import('@/libs/connect/state');
-const { completeLogin, recordFailedLogin } = await import('@/services/connect/completeLogin');
+const { approveLoginCard, completeLogin, recordFailedLogin } = await import('@/services/connect/completeLogin');
 const { createSourceWhenNoConfigNeeded } = await import('@/services/connect/createSourceOnLogin');
 const { GET } = await import('./route');
 
@@ -68,6 +68,7 @@ beforeEach(() => {
   vi.mocked(findSourceBySlug).mockResolvedValue({ id: 7, slug: 'slack-1727000000', connectorSlug: 'slack' });
   exchange.mockResolvedValue({ ok: true, credentials: { token: 'xoxb-1', teamId: 'T1' }, displayName: 'Slack — Noco' });
   vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_1', linkedSourceIds: [7] });
+  vi.mocked(createSourceWhenNoConfigNeeded).mockResolvedValue({ created: false });
 });
 
 describe('GET /api/connect/[provider]/callback', () => {
@@ -159,7 +160,8 @@ describe('GET /api/connect/[provider]/callback', () => {
     const res = await GET(request(), context());
 
     expect(findSourceBySlug).not.toHaveBeenCalled();
-    expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({ connectorSlug: 'slack', sourceSlug: undefined, card: { conversationId: 7, cardId: 'card_1' } }));
+    expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({ connectorSlug: 'slack', sourceSlug: undefined, card: undefined }));
+    expect(approveLoginCard).toHaveBeenCalledWith({ orgId: 'org_1', userId: 'user_1', card: { conversationId: 7, cardId: 'card_1' } });
     expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'ok', connector: 'slack' });
   });
 
@@ -254,5 +256,26 @@ describe('GET /api/connect/[provider]/callback', () => {
 
     expect(location).not.toContain('c0de');
     expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'store_failed', connector: 'slack', source: 'slack-1727000000' });
+  });
+
+  it('a login that should have made its source and could not says so: error landing, failed attempt on the card, card not approved', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'slack', conversationId: 7, cardId: 'card_1' } });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_1', linkedSourceIds: [] });
+    vi.mocked(createSourceWhenNoConfigNeeded).mockResolvedValue({ created: false, failed: 'slack has 2 sources' });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'source_not_created', connector: 'slack' });
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'source_not_created', card: { conversationId: 7, cardId: 'card_1' } }));
+    expect(approveLoginCard).not.toHaveBeenCalled();
+  });
+
+  it('does not approve the card of a connector that needs picks until chat or the form finishes it', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'github', conversationId: 7, cardId: 'card_1' } });
+
+    await GET(request(), context());
+
+    expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({ card: { conversationId: 7, cardId: 'card_1' } }));
+    expect(approveLoginCard).not.toHaveBeenCalled();
   });
 });

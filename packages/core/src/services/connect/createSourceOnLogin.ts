@@ -346,6 +346,15 @@ export async function undoCreatedSource(orgId: string, result: { sourceId: numbe
 }
 
 /**
+ * Whether a finished login makes the connector's source by itself, because
+ * nothing more is needed to make one.
+ * @param connector - Connector slug.
+ */
+export function loginMakesItsSource(connector: string): boolean {
+  return configProblem(connector, {}) === null;
+}
+
+/**
  * After a login: make the connector's source when nothing more is needed to
  * make one (Slack). A connector that needs picks first (GitHub repos, a Jira
  * site and project keys) is left alone: the chat agent asks and saves with
@@ -356,15 +365,22 @@ export async function undoCreatedSource(orgId: string, result: { sourceId: numbe
  * @param input.userId - The admin who logged in.
  * @param input.connector - The connector the login is for.
  * @param input.linkedSourceIds - The sources the login linked.
- * @returns Whether a source was made. A save that fails is logged; the login stands.
+ * @returns Whether a source was made, or `failed` with a plain reason when one
+ * should have been and could not be (refused or thrown). The login stands.
  */
-export async function createSourceWhenNoConfigNeeded(input: { orgId: string; userId: string; connector: string; linkedSourceIds: readonly number[] }): Promise<{ created: boolean }> {
-  if (input.linkedSourceIds.length > 0 || configProblem(input.connector, {}) !== null) {
+export async function createSourceWhenNoConfigNeeded(input: { orgId: string; userId: string; connector: string; linkedSourceIds: readonly number[] }): Promise<{ created: boolean; failed?: string }> {
+  if (input.linkedSourceIds.length > 0 || !loginMakesItsSource(input.connector)) {
     return { created: false };
   }
-  const saved = await createSourceOnLogin({ orgId: input.orgId, actorUserId: input.userId, connector: input.connector, config: {} });
-  if (!saved.ok) {
+  try {
+    const saved = await createSourceOnLogin({ orgId: input.orgId, actorUserId: input.userId, connector: input.connector, config: {} });
+    if (saved.ok) {
+      return { created: saved.created };
+    }
     logger.warn('a login finished but its source could not be created', { connector: input.connector, reason: saved.reason });
+    return { created: false, failed: saved.reason };
+  } catch (error) {
+    logger.warn('a login finished but creating its source threw', { connector: input.connector, reason: error instanceof Error ? error.name : 'unknown' });
+    return { created: false, failed: 'The source could not be created.' };
   }
-  return { created: saved.ok && saved.created };
 }
