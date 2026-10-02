@@ -376,6 +376,14 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
       return;
     }
     let done = false;
+    // A link that never comes (the tap before this step missed) must not
+    // hold the tour: after fifteen seconds the step moves on where it is.
+    const giveUp = setTimeout(() => {
+      if (!done) {
+        done = true;
+        advanceRef.current();
+      }
+    }, 15_000);
     const poll = setInterval(() => {
       const link = findTarget(step.follow!) as HTMLAnchorElement | null;
       if (done || !link?.href) {
@@ -386,10 +394,14 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
         return;
       }
       done = true;
+      clearTimeout(giveUp);
       advanceRef.current();
       router.push(`${url.pathname}${url.search}` as never);
     }, 250);
-    return () => clearInterval(poll);
+    return () => {
+      clearInterval(poll);
+      clearTimeout(giveUp);
+    };
   }, [active, stepKey, onRoute, step.follow, router]);
 
   // `prefill` — put the step's line in the chat composer, unsent, so the
