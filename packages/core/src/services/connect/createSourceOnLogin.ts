@@ -12,6 +12,7 @@ import { and, asc, desc, eq, gt, isNull, like, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
+import { configFieldsFor } from '@/libs/sources/configFields';
 import { getConnector } from '@/libs/sources/registry';
 import { apiTokenSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
@@ -167,17 +168,22 @@ async function resolveTarget(input: CreateSourceInput): Promise<Target> {
 
 /**
  * The saved config when a pick is added to a source: every list is the
- * existing items then the new ones, without repeats; every other field comes
- * from the pick; fields the pick does not name stay as they were. A pick never
- * removes anything.
+ * existing items then the new ones, without repeats, unless the connector
+ * declares the field `onPick: 'replace'` (a rule the person restates, such as
+ * the statuses the factory picks up), in which case the pick overwrites it;
+ * every other field comes from the pick; fields the pick does not name stay as
+ * they were. Adding a repository or project never removes one.
+ * @param connector - Connector slug, whose field declarations decide add or replace.
  * @param existing - The source's config today.
  * @param pick - What the person picked.
  */
-export function addPickToConfig(existing: Record<string, unknown>, pick: Record<string, unknown>): Record<string, unknown> {
+export function addPickToConfig(connector: string, existing: Record<string, unknown>, pick: Record<string, unknown>): Record<string, unknown> {
+  const replaced = new Set(configFieldsFor(connector).filter(field => field.onPick === 'replace').map(field => field.key));
   const merged: Record<string, unknown> = { ...existing };
   for (const [key, value] of Object.entries(pick)) {
     const current = existing[key];
-    merged[key] = Array.isArray(value) && Array.isArray(current) ? [...new Set([...current, ...value])] : value;
+    const union = Array.isArray(value) && Array.isArray(current) && !replaced.has(key);
+    merged[key] = union ? [...new Set([...current, ...value])] : value;
   }
   return merged;
 }
@@ -272,7 +278,7 @@ async function saveWithin(
   if (target.kind === 'create') {
     saved = await addSource({ orgId: input.orgId, kind: input.connector, slug: target.slug, configJson: input.config, tx });
   } else {
-    const configJson = { ...addPickToConfig(target.existing, input.config), _connector: input.connector };
+    const configJson = { ...addPickToConfig(input.connector, target.existing, input.config), _connector: input.connector };
     const [row] = await tx
       .update(knowledgeSourceSchema)
       .set({ configJson })

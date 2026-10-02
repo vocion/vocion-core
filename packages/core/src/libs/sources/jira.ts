@@ -51,7 +51,7 @@ import { updateLoginCredentialValues } from '@/services/ApiTokenService';
 import { getCredentialsForConnector, resolveApiTokenIdForSource, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
 import { InspectInputError } from './inspect';
 
-const jiraConfigSchema = z.object({
+export const jiraConfigSchema = z.object({
   /** Site base URL, e.g. `https://acme.atlassian.net`. */
   baseUrl: z.string().url(),
   /** Opt-in project include list — only these projects sync. */
@@ -62,6 +62,16 @@ const jiraConfigSchema = z.object({
   includeDescription: z.boolean().default(true),
   /** Status names in Jira's done category to treat as NOT completed (e.g. "Won't Do"). */
   notDoneStatuses: z.array(z.string()).default([]),
+  /**
+   * Statuses the software factory picks up: an issue in one of them becomes a
+   * request. Absent, the factory files only the tickets a person points at.
+   */
+  intakeStatuses: z.array(z.string().min(1)).max(10).optional(),
+  /**
+   * The most requests the factory files from the tracker in one calendar day
+   * (the workspace's time zone), highest priority first. Absent, no daily cap.
+   */
+  intakePerDay: z.number().int().min(1).max(20).optional(),
 });
 
 /** How many `nextPageToken` pages one sync may walk before bailing out. */

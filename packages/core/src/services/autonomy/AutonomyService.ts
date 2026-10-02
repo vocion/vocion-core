@@ -20,6 +20,7 @@
  */
 
 import type { AlignmentEvidence, Eligibility, RiskTier, Rung } from './rungs';
+import type { DbTransaction } from '@/libs/DbTransaction';
 import type { TrustManifest } from '@/libs/workspace/schemas';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, eq } from 'drizzle-orm';
@@ -96,11 +97,13 @@ function resolve(actionId: string, policy: PolicyRow | null, trustRule: TrustRow
  * bounds) and its tier off the registry defaults.
  * @param orgId
  * @param actionId
+ * @param executor - The transaction to read through, when a caller is writing
+ * rungs inside one and must see its own earlier writes. Omitted, the pool.
  */
-export async function effectivePolicy(orgId: string, actionId: string): Promise<EffectivePolicy> {
+export async function effectivePolicy(orgId: string, actionId: string, executor: DbTransaction | typeof db = db): Promise<EffectivePolicy> {
   const [[policy], [trustRule]] = await Promise.all([
-    db.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, actionId))).limit(1),
-    db.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, actionId))).limit(1),
+    executor.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, actionId))).limit(1),
+    executor.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, actionId))).limit(1),
   ]);
   if (policy || trustRule) {
     return resolve(actionId, policy ?? null, trustRule ?? null);
@@ -112,8 +115,8 @@ export async function effectivePolicy(orgId: string, actionId: string): Promise<
   // recorded under the new id.
   for (const alias of aliasesOf(actionId)) {
     const [[aliasPolicy], [aliasRule]] = await Promise.all([
-      db.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, alias))).limit(1),
-      db.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, alias))).limit(1),
+      executor.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, alias))).limit(1),
+      executor.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, alias))).limit(1),
     ]);
     if (aliasPolicy || aliasRule) {
       return resolve(actionId, aliasPolicy ?? null, aliasRule ?? null);
@@ -137,8 +140,8 @@ export async function effectivePolicy(orgId: string, actionId: string): Promise<
     return resolve(actionId, null, null);
   }
   const [[parentPolicy], [parentRule]] = await Promise.all([
-    db.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, parent.id))).limit(1),
-    db.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, parent.id))).limit(1),
+    executor.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, parent.id))).limit(1),
+    executor.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, parent.id))).limit(1),
   ]);
   return resolve(actionId, parentPolicy ?? null, parentRule ?? null);
 }
@@ -225,22 +228,8 @@ export async function listPolicies(orgId: string, now: Date = new Date()): Promi
   return views.sort((a, b) => Number(b.flagged) - Number(a.flagged) || Number(b.automates) - Number(a.automates) || a.actionId.localeCompare(b.actionId));
 }
 
-/**
- * Write a rung for a kind: the policy row and the trust rule together, so
- * what the page says and what ActionService does can never disagree.
- * @param opts
- * @param opts.orgId
- * @param opts.actionId
- * @param opts.rung
- * @param opts.riskTier
- * @param opts.minConfidence
- * @param opts.by
- * @param opts.source
- * @param opts.evidence
- * @param opts.flagged
- * @param opts.flagReason
- */
-async function writeRung(opts: {
+/** Everything one rung change writes. */
+type RungWrite = {
   orgId: string;
   actionId: string;
   rung: Rung;
@@ -251,15 +240,34 @@ async function writeRung(opts: {
   evidence: Record<string, unknown> | null;
   flagged: boolean;
   flagReason: string | null;
-}): Promise<void> {
+};
+
+/**
+ * The two writes of one rung change, on a transaction the caller owns.
+ * @param tx - The transaction both rows are written on.
+ * @param opts - What to write; see `RungWrite`.
+ */
+async function writeRungWithin(tx: DbTransaction, opts: RungWrite): Promise<void> {
   const now = new Date();
   const rule = trustRuleFor(opts.rung, opts.minConfidence);
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(autonomyPolicySchema)
-      .values({
-        orgId: opts.orgId,
-        actionId: opts.actionId,
+  await tx
+    .insert(autonomyPolicySchema)
+    .values({
+      orgId: opts.orgId,
+      actionId: opts.actionId,
+      rung: opts.rung,
+      riskTier: opts.riskTier,
+      minConfidence: opts.minConfidence,
+      promotedAt: now,
+      promotedBy: opts.by,
+      evidence: opts.evidence,
+      flagged: opts.flagged,
+      flagReason: opts.flagReason,
+      source: opts.source,
+    })
+    .onConflictDoUpdate({
+      target: [autonomyPolicySchema.orgId, autonomyPolicySchema.actionId],
+      set: {
         rung: opts.rung,
         riskTier: opts.riskTier,
         minConfidence: opts.minConfidence,
@@ -269,33 +277,34 @@ async function writeRung(opts: {
         flagged: opts.flagged,
         flagReason: opts.flagReason,
         source: opts.source,
-      })
-      .onConflictDoUpdate({
-        target: [autonomyPolicySchema.orgId, autonomyPolicySchema.actionId],
-        set: {
-          rung: opts.rung,
-          riskTier: opts.riskTier,
-          minConfidence: opts.minConfidence,
-          promotedAt: now,
-          promotedBy: opts.by,
-          evidence: opts.evidence,
-          flagged: opts.flagged,
-          flagReason: opts.flagReason,
-          source: opts.source,
-          updatedAt: now,
-        },
-      });
-    await tx
-      .insert(trustRuleSchema)
-      .values({ orgId: opts.orgId, actionId: opts.actionId, threshold: rule.threshold, enabled: String(rule.enabled) })
-      .onConflictDoUpdate({
-        target: [trustRuleSchema.orgId, trustRuleSchema.actionId],
-        set: { threshold: rule.threshold, enabled: String(rule.enabled), updatedAt: now },
-      });
-  });
+        updatedAt: now,
+      },
+    });
+  await tx
+    .insert(trustRuleSchema)
+    .values({ orgId: opts.orgId, actionId: opts.actionId, threshold: rule.threshold, enabled: String(rule.enabled) })
+    .onConflictDoUpdate({
+      target: [trustRuleSchema.orgId, trustRuleSchema.actionId],
+      set: { threshold: rule.threshold, enabled: String(rule.enabled), updatedAt: now },
+    });
 }
 
-async function trackMove(orgId: string, by: string, type: 'autonomy.promoted' | 'autonomy.demoted', meta: { actionId: string; from: Rung; to: Rung; automatic: boolean }): Promise<void> {
+/**
+ * Write a rung for a kind: the policy row and the trust rule together, so
+ * what the page says and what ActionService does can never disagree.
+ * @param opts - What to write.
+ * @param tx - The caller's transaction, when the change is one step of a
+ * larger all-or-nothing set. Omitted, it opens its own.
+ */
+async function writeRung(opts: RungWrite, tx?: DbTransaction): Promise<void> {
+  if (tx) {
+    await writeRungWithin(tx, opts);
+    return;
+  }
+  await db.transaction(tx2 => writeRungWithin(tx2, opts));
+}
+
+export async function trackMove(orgId: string, by: string, type: 'autonomy.promoted' | 'autonomy.demoted', meta: { actionId: string; from: Rung; to: Rung; automatic: boolean }): Promise<void> {
   const { track } = await import('@/services/adoption/track');
   await track({ orgId, userId: by }, type, { meta });
 }
@@ -340,8 +349,23 @@ export async function promote(orgId: string, actionId: string, by: string): Prom
  * @param by
  * @param reason
  */
-export async function demote(orgId: string, actionId: string, by: string, reason?: string): Promise<AutonomyPolicyView> {
-  const effective = await effectivePolicy(orgId, actionId);
+export async function demote(orgId: string, actionId: string, by: string, reason?: string): Promise<AutonomyPolicyView>;
+/**
+ * The same step down, as one move inside a transaction the caller owns, so a
+ * set of moves lands together or not at all (`autonomy.lower`). It reads the
+ * rung through that transaction, so a second step sees the first. It does not
+ * record the adoption event: that is a write on the pool, which would wait on
+ * the open transaction. The caller records it with `trackMove` after commit.
+ * @param orgId
+ * @param actionId
+ * @param by - The person demoting (user id).
+ * @param reason
+ * @param tx - The caller's transaction.
+ * @returns The rung it left and the rung it landed on.
+ */
+export async function demote(orgId: string, actionId: string, by: string, reason: string | undefined, tx: DbTransaction): Promise<{ from: Rung; to: Rung }>;
+export async function demote(orgId: string, actionId: string, by: string, reason?: string, tx?: DbTransaction): Promise<AutonomyPolicyView | { from: Rung; to: Rung }> {
+  const effective = await effectivePolicy(orgId, actionId, tx ?? db);
   const to = previousRung(effective.rung);
   if (!to) {
     throw new AutonomyError('AT_BOTTOM', `${actionId} is already at Observe`);
@@ -357,7 +381,10 @@ export async function demote(orgId: string, actionId: string, by: string, reason
     evidence: { demotedFrom: effective.rung, reason: reason ?? null, at: new Date().toISOString() },
     flagged: false,
     flagReason: null,
-  });
+  }, tx);
+  if (tx) {
+    return { from: effective.rung, to };
+  }
   await trackMove(orgId, by, 'autonomy.demoted', { actionId, from: effective.rung, to, automatic: false });
   return viewOf(orgId, actionId);
 }

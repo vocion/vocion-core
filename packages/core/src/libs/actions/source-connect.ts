@@ -21,6 +21,8 @@ const FIELD_LABELS: Record<string, string> = {
   repos: 'Repositories',
   baseUrl: 'Site',
   projectKeys: 'Projects',
+  intakeStatuses: 'Statuses the factory picks up',
+  intakePerDay: 'How many a day the factory picks up',
 };
 
 /**
@@ -57,7 +59,7 @@ function displayValue(value: unknown): string {
 export const sourceConnectAction: Action<typeof sourceConnectInput> = {
   id: 'source.connect',
   name: 'Connect a source',
-  description: 'Save a source (GitHub repositories, a Jira site and its projects) from what the person picked, on the login they already made. The pick is ADDED to the existing repositories or projects; nothing is removed. Name sourceSlug when the workspace has several sources of the connector. Reversible until it has synced.',
+  description: 'Save a source (GitHub repositories, a Jira site and its projects) from what the person picked, on the login they already made. The pick is ADDED to the existing repositories or projects; nothing is removed. The exception is a rule the person restates (the Jira settings intakeStatuses and intakePerDay), which the new pick replaces. Name sourceSlug when the workspace has several sources of the connector. Reversible until it has synced.',
   inputSchema: sourceConnectInput,
   grant: 'manage_workspace',
   external: false,

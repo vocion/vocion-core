@@ -64,10 +64,20 @@ describe('the shipped catalogue', () => {
     // ui or flow request's mockup the moment it is filed (2.29.0); the eight
     // reporting and hygiene missions are gone.
     expect(factory.missions).toEqual(['close-the-gap', 'keep-the-pipeline-answered', 'prove-the-contract', 'show-it-first', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'incident-deploy-caused', 'pipeline-fix', 'pipeline-fix-ended', 'release-announcement-draft', 'release-live-check', 'release-live-check-ended', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'factory-tracker-intake', 'incident-deploy-caused', 'pipeline-fix', 'pipeline-fix-ended', 'release-announcement-draft', 'release-live-check', 'release-live-check-ended', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
+  });
+
+  it('loads the tracker intake automation, hourly on weekdays, reading what setup saved', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\n'));
+    const intake = ws.automations.find(a => a.slug === 'factory-tracker-intake');
+
+    expect(intake?.when.schedule).toBe('0 * * * 1-5');
+    expect(intake?.do.checkMission).toBe('close-the-gap');
+    expect(intake?.do.prompt).toContain('intakeStatuses');
+    expect(intake?.do.prompt).toContain('intakePerDay');
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
@@ -453,7 +463,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.missions.find(m => m.slug === 'close-the-gap')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'tell-the-requester')?.agent).toBe('product-manager');
     expect(ws.missions.find(m => m.slug === 'prove-the-contract')?.agent).toBe('change-reviewer');
-    expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'release-announcement-draft', 'tell-the-requester-check']);
+    expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'factory-tracker-intake', 'release-announcement-draft', 'tell-the-requester-check']);
     // The decision landing is what makes the card the commitment: approve freezes and queues, defer parks.
     expect(ws.automations.find(a => a.slug === 'factory-decision-landed')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
     expect(ws.automations.filter(a => a.agent === 'change-reviewer').map(a => a.slug).sort()).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'release-live-check', 'release-live-check-ended']);

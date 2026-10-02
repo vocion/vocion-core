@@ -64,6 +64,14 @@ export type ConfigField = {
    * so the form opens showing only the settings that matter.
    */
   advanced?: boolean;
+  /**
+   * What picking a value does to a list field on a source that already has
+   * one. `add` (the default) keeps what was there and adds the new items, so
+   * a person adding a repository never loses one. `replace` overwrites it,
+   * for a rule the person restates (the statuses the factory picks up): a
+   * union could never clear a status they have taken off the list.
+   */
+  onPick?: 'add' | 'replace';
 };
 
 /** The fields to render, keyed by connector slug exactly as the registry spells it. */
@@ -195,6 +203,23 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       type: 'stringArray',
       placeholder: 'Won’t Do',
       help: 'Jira counts these as done. Listing one here keeps its issues treated as open. Separate with commas — a status name containing a comma cannot be entered here.',
+    },
+    {
+      key: 'intakeStatuses',
+      label: 'Statuses the factory picks up',
+      type: 'stringArray',
+      onPick: 'replace',
+      placeholder: 'Ready',
+      help: 'An issue in one of these statuses becomes a request for the factory. Leave blank to file only the tickets you point it at. Separate with commas.',
+    },
+    {
+      key: 'intakePerDay',
+      label: 'How many a day the factory picks up',
+      type: 'number',
+      onPick: 'replace',
+      min: 1,
+      max: 20,
+      help: 'The most requests filed from these statuses in one day, highest priority first. Leave blank for no daily limit.',
     },
   ],
 

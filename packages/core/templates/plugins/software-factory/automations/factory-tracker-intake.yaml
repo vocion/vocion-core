@@ -1,0 +1,42 @@
+# THE TRACKER'S INTAKE RULE, KEPT (#1028, 2026-10-02). Setup asks "How should I
+# work the roadmap?" and saves the answer on the Jira source as
+# `intakeStatuses` (which statuses the factory picks up) and, for "one a day",
+# `intakePerDay`. This is what reads them: hourly on weekdays (cron is UTC) the
+# PM files a request for each issue in an intake status that has no request
+# yet, at most `intakePerDay` per calendar day in the workspace's time zone.
+# A source with no `intakeStatuses` files nothing: today's behaviour, tickets a
+# person points at. The per-issue steps are `intake-from-the-tracker`; this
+# only decides which issues, and how many today.
+slug: factory-tracker-intake
+name: Pick up the roadmap
+label: Picked up the roadmap
+doing: Picking up the roadmap
+description: >-
+  Hourly on weekdays, file a request for each tracker issue in a status the
+  person chose for the factory to pick up, within the daily limit they chose.
+status: active
+agent: product-manager
+when:
+  schedule: '0 * * * 1-5'
+do:
+  checkMission: close-the-gap
+  prompt: >-
+    Read the tracker source's config with describe_sources: `intakeStatuses`
+    (the statuses to pick up) and `intakePerDay` (the daily limit, absent
+    means none). No `intakeStatuses`, or no tracker source: say so in one
+    line and stop. Name today's date in the workspace's time zone, as the run
+    states it, and use only that date. Then search with
+    tracker_search_issues, `status in ("<each intake status>")`, a limit of
+    50. For each issue returned, lookup_objects for a request whose
+    `evidence.urls` carries the issue's URL; one already filed is skipped,
+    never filed twice. Count the requests this tracker filed today: the ones
+    that match an intake issue's URL and were created on today's date in the
+    workspace's time zone. With a limit, you may file `intakePerDay` minus
+    that count, and none when it is zero or less. Of the issues not yet
+    filed, read each with tracker_read_issue for its priority (the search
+    does not return it), order them highest priority first, oldest first
+    within a priority, and file that many, following `intake-from-the-tracker`
+    for each: `file_request` with the issue's URL first in `evidence.urls`.
+    Report in one line starting with the date you counted for: how many were
+    already filed that day, how many you filed now (the keys), how many are
+    waiting for tomorrow.
