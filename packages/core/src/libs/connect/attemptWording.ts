@@ -34,6 +34,8 @@ export function connectFailureSummary(providerLabel: string, reason: string | nu
     case 'wrong_person':
     case 'wrong_workspace':
       return 'The login was started by someone else or in another workspace';
+    case 'provider_unreachable':
+      return `${providerLabel} could not be reached, so nothing was connected`;
     case 'store_failed':
       return `${providerLabel} logged in, but the credential couldn't be saved`;
     default:

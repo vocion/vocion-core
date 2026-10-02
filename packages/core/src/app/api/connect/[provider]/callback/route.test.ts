@@ -101,6 +101,19 @@ describe('GET /api/connect/[provider]/callback', () => {
     expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack', reason: 'invalid_code' }));
   });
 
+  it('records a vendor exchange that throws as a dated failed attempt on the card, and lands with an error', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, connectorSlug: 'slack', conversationId: 7, cardId: 'card_1' } });
+    exchange.mockRejectedValue(new Error('connect ETIMEDOUT with code c0de'));
+
+    const res = await GET(request(), context());
+
+    expect(res.status).toBe(303);
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'provider_unreachable' });
+    expect(res.headers.get('location')).not.toContain('c0de');
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'provider_unreachable', card: { conversationId: 7, cardId: 'card_1' } }));
+    expect(completeLogin).not.toHaveBeenCalled();
+  });
+
   it('hands the provider every query param but the state, with this deployment\'s callback', async () => {
     await GET(request('?code=c0de&state=signed.state&extra=1'), context());
 

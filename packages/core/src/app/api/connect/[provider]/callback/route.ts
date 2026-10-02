@@ -157,7 +157,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       query[key] = value;
     }
   });
-  const exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id) });
+  let exchanged: Awaited<ReturnType<typeof provider.exchange>>;
+  try {
+    exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id) });
+  } catch (error) {
+    // The vendor timed out, refused the connection or sent something unreadable. Nothing was stored.
+    console.error('[connect] vendor exchange threw', {
+      provider: provider.id,
+      connector: connectorSlug,
+      message: error instanceof Error ? error.name : 'unknown',
+    });
+    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'provider_unreachable', card }, landing);
+  }
   if (!exchanged.ok) {
     console.error('[connect] vendor exchange refused', { provider: provider.id, connector: connectorSlug, reason: exchanged.reason });
     return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: exchanged.reason, card }, landing);
