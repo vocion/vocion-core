@@ -17,6 +17,7 @@ vi.mock('@/libs/connect/attempts', async (importOriginal) => {
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, conversationMessageSchema, conversationSchema, knowledgeSourceSchema, sourceAuditSchema, sourceCredentialSchema, sourceDekSchema } = await import('@/models/Schema');
 const { storePlatformKey } = await import('@/services/ApiTokenService');
+const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
 const { completeLogin, recordFailedLogin } = await import('./completeLogin');
 const { lastConnectAttempts, recordConnectAttempt } = await import('@/libs/connect/attempts');
 
@@ -129,6 +130,20 @@ describe('completeLogin', () => {
 
     expect(await sourceLink(chosen.id)).toBe(pasted.id);
     expect(await sourceLink(bare.id)).toBe(login!.id);
+  });
+
+  it('serves every source of the connector from one login, even on a platform whose pasted keys are not shared', async () => {
+    const first = await seedSource('jira-a', 'jira');
+    const second = await seedSource('jira-b', 'jira');
+    const atlassian = stubProvider({ id: 'atlassian', connectorSlugs: ['jira'], label: 'Atlassian', summarize: () => ({ account: 'northwind.atlassian.net' }) });
+
+    await completeLogin({ orgId: ORG, userId: USER, provider: atlassian, connectorSlug: 'jira', exchanged: { credentials: { accessToken: 'at-1' }, displayName: 'Jira - northwind' } });
+
+    const [login] = await loginRows();
+
+    expect(await sourceLink(first.id)).toBe(login!.id);
+    expect(await sourceLink(second.id)).toBe(login!.id);
+    expect(await getCredentialsForConnector({ orgId: ORG, connectorSlug: 'jira', apiTokenId: await sourceLink(second.id) })).toEqual({ accessToken: 'at-1' });
   });
 
   it('marks the card approved by the person who logged in', async () => {

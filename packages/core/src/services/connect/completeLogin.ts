@@ -78,32 +78,28 @@ async function sourcesToLink(
 /**
  * Point the chosen sources at the login row.
  *
- * A credential issued for one place (Jira) may be held by one source only, and
- * a partial unique index enforces it, so an exclusive platform links the first
- * candidate and stops. A shareable one (GitHub, Slack) links every candidate.
+ * A login row is one OAuth grant for the whole account, not a key issued for
+ * one place, so it is shared by nature: every candidate links to it, marked
+ * non-exclusive whatever the platform's pasted keys allow. A source left
+ * unlinked would resolve no credential at all, since no `source_credential`
+ * is written any more.
  * @param tx - The login's transaction.
  * @param input - Who and what to link.
  * @param input.orgId - The workspace.
  * @param input.tokenId - The login row.
- * @param input.platform - The platform the row belongs to.
  * @param input.candidates - Sources the login may point at.
  */
 async function linkSources(
   tx: DbTransaction,
-  input: { orgId: string; tokenId: string; platform: CredentialPlatform; candidates: Array<{ id: number; apiTokenId: string | null }> },
+  input: { orgId: string; tokenId: string; candidates: Array<{ id: number; apiTokenId: string | null }> },
 ): Promise<number[]> {
-  const exclusive = !input.platform.credentialsShareable;
-  if (exclusive && input.candidates.some(source => source.apiTokenId === input.tokenId)) {
+  const ids = input.candidates.filter(source => source.apiTokenId !== input.tokenId).map(source => source.id);
+  if (ids.length === 0) {
     return [];
   }
-  const wanted = exclusive ? input.candidates.slice(0, 1) : input.candidates.filter(source => source.apiTokenId !== input.tokenId);
-  if (wanted.length === 0) {
-    return [];
-  }
-  const ids = wanted.map(source => source.id);
   await tx
     .update(knowledgeSourceSchema)
-    .set({ apiTokenId: input.tokenId, apiTokenExclusive: exclusive })
+    .set({ apiTokenId: input.tokenId, apiTokenExclusive: false })
     .where(and(eq(knowledgeSourceSchema.orgId, input.orgId), inArray(knowledgeSourceSchema.id, ids)));
   return ids;
 }
@@ -159,7 +155,7 @@ async function writeLogin(
     tx,
   });
   const candidates = await sourcesToLink(tx, { orgId: input.orgId, connectorSlug: input.connectorSlug, platform, account, replacedIds: stored.replacedIds, sourceSlug: input.sourceSlug });
-  const linkedSourceIds = await linkSources(tx, { orgId: input.orgId, tokenId: stored.id, platform, candidates });
+  const linkedSourceIds = await linkSources(tx, { orgId: input.orgId, tokenId: stored.id, candidates });
   await recordConnectAttempt({ orgId: input.orgId, userId: input.userId, provider: input.provider.id, providerLabel: input.provider.label, connector: input.connectorSlug, ok: true, tx });
   if (input.card) {
     // A card already decided returns false; the login stands either way.
