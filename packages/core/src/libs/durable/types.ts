@@ -15,13 +15,18 @@ export type DurableStatus = { stage: string; line: string; [key: string]: unknow
 /** An event delivered to a waiting run: the `event_log` row's type, payload and time. */
 export type DeliveredEvent = { type: string; payload: Record<string, unknown>; at: string };
 
+/** One kind of event that answers a wait: its types, and payload fields it carries with exactly these values. */
+export type EventSpec = { types: string[]; match: Record<string, unknown> };
+
 export type WaitForEventOptions = {
   /** The workspace the event must belong to. */
   orgId: string;
-  /** Event types that answer this wait. */
-  types: string[];
-  /** Payload fields the event must carry with exactly these values. */
-  match: Record<string, unknown>;
+  /** Event types that answer this wait (shorthand for one `any` entry). */
+  types?: string[];
+  /** Payload fields the event must carry with exactly these values (with `types`). */
+  match?: Record<string, unknown>;
+  /** The first event matching any of these answers the wait. */
+  any?: EventSpec[];
   /** How long to wait before answering null. */
   timeoutSeconds: number;
   /** Events from this time on count (an event raised before the wait opened is not lost). Defaults to when the wait opened. */

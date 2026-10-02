@@ -345,10 +345,17 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
     }
     // ONE LIMIT FOR EVERY AUTOMATIC STEP (backlog 038): a QA send-back retry
     // counts toward the same three per request as a recovery does.
-    const { stopIfAtLimit } = await import('@/services/factory/carry');
-    const stopped = await stopIfAtLimit(orgId, requestId, `${route.by ?? 'QA'} sent attempt #${task.id} back`);
-    if (stopped) {
-      return stopped;
+    // A request its durable workflow owns is counted there (backlog 054): the
+    // send-back is told to the workflow, which numbers the next attempt.
+    const { readRecord } = await import('@/libs/actions/factory-dispatch');
+    const { ownedByWorkflow } = await import('@/services/factory/requestWorkflowStart');
+    const owner = await readRecord(orgId, requestId);
+    if (!owner || !(await ownedByWorkflow(orgId, owner.meta))) {
+      const { stopIfAtLimit } = await import('@/services/factory/carry');
+      const stopped = await stopIfAtLimit(orgId, requestId, `${route.by ?? 'QA'} sent attempt #${task.id} back`);
+      if (stopped) {
+        return stopped;
+      }
     }
     const { proposeAction } = await import('@/services/ActionService');
     const planId = Number(task.meta.planId);

@@ -1106,6 +1106,7 @@ async function applyWorkspaceLeadConfig(
   // Plugins the same way: the resolved, dependency-closed list lands wholesale;
   // dropping one from `plugins:` turns it off everywhere that reads the column.
   const enabledPlugins = loaded.enabledPlugins;
+  const enabledDurable = loaded.manifest.durable ?? [];
   const embeddingConfig = embeddingConfigFrom(loaded.manifest.defaults ?? {});
   // Declarative like the rest: authored entries land wholesale, an omitted
   // block clears the column (no fast path for any action type).
@@ -1144,6 +1145,7 @@ async function applyWorkspaceLeadConfig(
           accountableUserId: projectSchema.accountableUserId,
           enabledSurfaces: projectSchema.enabledSurfaces,
           enabledPlugins: projectSchema.enabledPlugins,
+          enabledDurable: projectSchema.enabledDurable,
           embeddingConfig: projectSchema.embeddingConfig,
           regenerateSkills: projectSchema.regenerateSkills,
           clientFacingPlaybooks: projectSchema.clientFacingPlaybooks,
@@ -1196,6 +1198,7 @@ async function applyWorkspaceLeadConfig(
   const pluginsUnchanged
     = (project.enabledPlugins ?? []).length === enabledPlugins.length
       && (project.enabledPlugins ?? []).every((s, i) => s === enabledPlugins[i]);
+  const durableUnchanged = JSON.stringify(project.enabledDurable ?? []) === JSON.stringify(enabledDurable);
   // Compared as JSON rather than field by field: the object has two optional
   // keys, so a shallow equality check would have to enumerate both and would
   // silently stop covering a third. Same reasoning for the skill mapping,
@@ -1216,6 +1219,7 @@ async function applyWorkspaceLeadConfig(
     && (project.accountableUserId ?? null) === accountableUserId
     && surfacesUnchanged
     && pluginsUnchanged
+    && durableUnchanged
     && embeddingUnchanged
     && regenerateUnchanged
     && clientFacingUnchanged
@@ -1232,7 +1236,7 @@ async function applyWorkspaceLeadConfig(
   if (!mode.dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

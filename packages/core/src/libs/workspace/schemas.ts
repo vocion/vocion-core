@@ -270,6 +270,12 @@ export const WorkspaceManifestSchema = z.object({
    */
   plugins: z.array(SlugSchema).default([]),
   /**
+   * Processes that run as durable workflows here instead of as automations
+   * reacting to events (backlog 054), e.g. `[factory]`: each record such a
+   * process owns has one workflow that owns its next step. Omit for none.
+   */
+  durable: z.array(SlugSchema).default([]),
+  /**
    * The workspace's own notification kinds, and its overrides of a plugin's
    * (same `kind` replaces it; `status: disabled` turns it off). See
    * {@link NotificationRuleManifestSchema}. Omit for none.

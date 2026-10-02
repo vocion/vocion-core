@@ -319,7 +319,8 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
       : Promise.resolve([] as string[]),
   ]);
   const watcher = await pipelineWatcher(orgId).catch(() => null);
-  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases, watcher });
+  const workflow = await workflowStatusOf(orgId, request.meta);
+  const report = assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now, people, link, missionRuns: live.get(requestId) ?? [], pulls, mergeRule, liveBases, watcher, workflow });
   return { ...report, activity };
 }
 
@@ -453,4 +454,21 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
     origin: true,
   };
   return collapseActivity([asked, ...out.filter(a => !(a.kind === 'conversation' && a.id === origin.conversationId))]);
+}
+
+/**
+ * The status of the durable workflow that owns a request, when one does
+ * (backlog 054). Null when none owns it or it cannot be read.
+ * @param orgId - Tenant.
+ * @param meta - The request's metadata.
+ */
+async function workflowStatusOf(orgId: string, meta: Record<string, unknown>): Promise<{ stage: string; line: string } | null> {
+  const { durableMarkOf, ownedByWorkflow } = await import('./requestWorkflowStart');
+  const mark = durableMarkOf(meta);
+  if (!mark || !(await ownedByWorkflow(orgId, meta))) {
+    return null;
+  }
+  const { durable } = await import('@/libs/durable');
+  const s = await durable().status(mark.workflowId).catch(() => null);
+  return s ? { stage: s.stage, line: s.line } : null;
 }

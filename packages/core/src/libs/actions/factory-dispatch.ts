@@ -28,6 +28,31 @@ import { USABLE_RECORD_STATUSES } from './objects-propose-candidate';
 export const DISPATCH_ACTION_ID = 'factory.dispatch_task';
 
 /**
+ * The request a build ask names, when its workspace runs the factory as a
+ * durable workflow and the ask is not that workflow's own dispatch; else null.
+ * @param orgId - Tenant.
+ * @param input - The dispatch input.
+ * @param input.requestId - The request, when named.
+ * @param input.taskId - The task, when named instead.
+ * @param input.fromWorkflow - Set by the workflow on its own dispatch.
+ */
+async function funnelledRequest(orgId: string, input: { requestId?: number; taskId?: number; fromWorkflow?: boolean }): Promise<number | null> {
+  if (input.fromWorkflow) {
+    return null;
+  }
+  const { durableOn } = await import('@/libs/durable/flags');
+  if (!(await durableOn(orgId, 'factory'))) {
+    return null;
+  }
+  if (input.requestId) {
+    return input.requestId;
+  }
+  const task = input.taskId ? await readRecord(orgId, input.taskId) : null;
+  const id = Number(task?.meta.requestId);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/**
  * THE CONTRACT, carried on the card. On 2026-09-26 the PM said "I've written
  * the contract" and put a dispatch card up; no task existed — the write it
  * narrated never happened. When the card carries the contract itself, the
@@ -44,6 +69,8 @@ const inlineContract = z.object({
   riskClass: z.string().optional(),
   repoSlug: z.string().optional(),
   baseSha: z.string().optional(),
+  /** Which attempt this is, when the request's workflow numbers it (backlog 054). */
+  attempt: z.coerce.number().int().positive().optional(),
   taskId: z.string().optional().describe('A readable id for the worker, e.g. send-0012.'),
   tokenBudget: z.coerce.number().positive().optional(),
   wallClockBudget: z.coerce.number().positive().optional(),
@@ -95,6 +122,8 @@ const dispatchInput = z.object({
    * plan is superseded and planned again with this as the brief, before any run.
    */
   replan: z.string().trim().min(1).max(1500).optional(),
+  /** The request's own durable workflow is dispatching (backlog 054): it runs, never funnels back. */
+  fromWorkflow: z.boolean().optional(),
 }).refine(v => v.taskId !== undefined || v.requestId !== undefined, { message: 'Name the engineering task (taskId), or the request (requestId) — the contract is filled from the request, its plan and the repo.' });
 
 type Meta = Record<string, unknown>;
@@ -1341,17 +1370,21 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
   // ONE BUILD CARD PER REQUEST: a card's own label hash never splits one
   // request into two runs, and a model cannot write the factory's triggers.
   ownsDedupKey: true,
-  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst', 'replan'],
+  internalInput: ['trigger', 'recoveryOfRun', 'recoveryClass', 'autoRetryOf', 'planFirst', 'replan', 'fromWorkflow'],
   policyKeyFor: input => (input.autoRetryOf ? `${DISPATCH_ACTION_ID}.retry` : input.trigger ? `${DISPATCH_ACTION_ID}.${TRIGGER_KEY[input.trigger]}` : DISPATCH_ACTION_ID),
   // Already building, planning or starting: answered with the run, never refused.
   async underway(ctx, input) {
-    if (!input.requestId) {
+    if (!input.requestId || await funnelledRequest(ctx.orgId, input)) {
       return null;
     }
     const u = underwayNow(await earlierStarts(ctx.orgId, input.requestId), { trigger: input.trigger });
     return u ? { line: u.line, href: u.workerRunId ? `/dashboard/p/runs/${u.workerRunId}` : null } : null;
   },
   async precheck(ctx, input) {
+    // The request's workflow decides what a build ask needs (underway, settled, ready).
+    if (await funnelledRequest(ctx.orgId, input)) {
+      return undefined;
+    }
     const { externalWorkersEnabled } = await import('@/services/WorkerRunService');
     if (!externalWorkersEnabled()) {
       return 'External workers are not enabled on this deployment (VOCION_EXTERNAL_WORKERS=1), so nothing can take the build.';
@@ -1430,6 +1463,23 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     };
   },
   async execute(ctx, input) {
+    // ONE OWNER PER REQUEST (backlog 054): where the factory runs as a durable
+    // workflow, a build ask is told to the request's workflow, which alone
+    // dispatches; it numbers the attempt and picks the branch it continues.
+    const funnelled = await funnelledRequest(ctx.orgId, input);
+    if (funnelled) {
+      const { askRequestWorkflow } = await import('@/services/factory/requestWorkflowStart');
+      const { decidedByMachine } = await import('@/libs/actions/decider');
+      const by = ctx.reviewedBy ?? ctx.proposedBy ?? ctx.invokedBy ?? 'factory';
+      return askRequestWorkflow(ctx.orgId, funnelled, {
+        by,
+        byPerson: ctx.origin?.byPerson === true || !decidedByMachine(by),
+        from: input.autoRetryOf ? 'qa' : input.trigger ?? 'build',
+        note: input.note ?? null,
+        planId: input.planId ?? null,
+        trigger: input.trigger ?? null,
+      });
+    }
     const { createWorkerRun } = await import('@/services/WorkerRunService');
     const loaded = await loadAll(ctx, input);
     const { request } = loaded;

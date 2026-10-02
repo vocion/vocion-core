@@ -4,3 +4,4 @@
  * registers itself; its work is imported lazily inside `run`.
  */
 import '@/services/workflows/durableWorkflowRun';
+import '@/services/factory/requestWorkflow';

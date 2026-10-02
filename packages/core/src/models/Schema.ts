@@ -215,6 +215,8 @@ export const projectSchema = pgTable(
      * only run for a workspace that asked for them. Empty = no plugins.
      */
     enabledPlugins: jsonb('enabled_plugins').$type<string[]>().default([]).notNull(),
+    /** Processes that run as durable workflows in this workspace (workspace.yaml `durable:`, backlog 054). */
+    enabledDurable: jsonb('enabled_durable').$type<string[]>().default([]).notNull(),
     /**
      * Which vendor and model produce this workspace's embeddings. Authored as
      * `defaults.embeddingProvider` / `defaults.embeddingModel` in

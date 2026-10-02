@@ -1135,6 +1135,13 @@
       "when": 1790900360000,
       "tag": "0161_durable_wait",
       "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1790900420000,
+      "tag": "0162_project_enabled_durable",
+      "breakpoints": true
     }
   ]
 }

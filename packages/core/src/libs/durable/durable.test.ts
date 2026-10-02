@@ -74,6 +74,21 @@ describe('a durable run owns its record', () => {
     expect((await durable().status(id))?.stage).toBe('timed_out');
   });
 
+  it('is answered by the first of several kinds of event, each with its own match', async () => {
+    defineDurable({
+      name: 'test.any',
+      run: async ctx => ctx.waitForEvent('next', { orgId: ORG, any: [{ types: ['pr.merged'], match: { url: 'u-1' } }, { types: ['build.requested'], match: { recordId: 11 } }], timeoutSeconds: 5 }),
+    });
+    const id = durableIdFor(ORG, 'record', 11);
+    await durable().start('test.any', id, {});
+    await vi.waitFor(async () => expect(await durable().steps(id)).toContain('recv:event:next'));
+    const { emitEvent } = await import('@/services/EventService');
+    await emitEvent({ orgId: ORG, type: 'pr.merged', payload: { url: 'u-2' } });
+    await emitEvent({ orgId: ORG, type: 'build.requested', payload: { recordId: 11, note: 'again' } });
+
+    await expect(memoryRunResult(id)).resolves.toMatchObject({ type: 'build.requested', payload: { note: 'again' } });
+  });
+
   it('a cancel ends a waiting run', async () => {
     const id = durableIdFor(ORG, 'record', 10);
     await durable().start('test.record', id, { recordId: 10, failTimes: 0 });

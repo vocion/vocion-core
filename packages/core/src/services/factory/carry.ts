@@ -513,6 +513,38 @@ async function isOpen(orgId: string, request: FactoryRecord): Promise<boolean> {
 }
 
 /**
+ * Open, and moved on by these handlers: not a request its durable workflow
+ * owns (backlog 054). The one check every handler that would start, retry,
+ * re-plan or sweep a request on its own asks; a handler that only turns a
+ * person's or a plan's ask into a dispatch still runs, since the dispatch
+ * tells the workflow.
+ * @param orgId - Tenant.
+ * @param request - The request.
+ */
+async function carriedHere(orgId: string, request: FactoryRecord): Promise<boolean> {
+  if (!(await isOpen(orgId, request))) {
+    return false;
+  }
+  const { ownedByWorkflow } = await import('./requestWorkflowStart');
+  return !(await ownedByWorkflow(orgId, request.meta));
+}
+
+/**
+ * STOP A REQUEST FOR A PERSON, from its workflow: the same one ask the
+ * recovery files, naming why and that Build again continues it.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param why - Why it stopped.
+ */
+export async function stopRequestForPerson(orgId: string, requestId: number, why: string): Promise<void> {
+  const { readRecord } = await lib();
+  const request = await readRecord(orgId, requestId);
+  if (request) {
+    await escalate(orgId, request, why, 'press Build again with a note on what to change; the workflow continues the latest branch');
+  }
+}
+
+/**
  * STOPPED: one ask to a person, with every attempt since the last person
  * action, its failure and what would unblock it. Filed once per count (the
  * source ref carries when the count began), so a re-run of the sweep
@@ -1272,7 +1304,7 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   const task = await readRecord(orgId, rec.id);
   const requestId = Number(task?.meta.requestId);
   const request = task && Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-  if (!task || !request || !(await isOpen(orgId, request))) {
+  if (!task || !request || !(await carriedHere(orgId, request))) {
     return skip(Number.isInteger(requestId) ? requestId : null, 'no open request for this run');
   }
   const state = readRecovery(request.meta);
@@ -1502,7 +1534,7 @@ export async function replanStaleStops(orgId: string, now: Date = new Date()): P
   for (const stop of stops) {
     const requestId = Number(/^factory-recovery:(\d+):/.exec(String(stop.sourceRef ?? ''))?.[1]);
     const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-    if (!request || !(await isOpen(orgId, request))) {
+    if (!request || !(await carriedHere(orgId, request))) {
       continue;
     }
     const work = await workFor(orgId, requestId);
@@ -1605,7 +1637,7 @@ export async function resumeAfterWorkerRebuild(orgId: string, now: Date = new Da
   for (const stop of stops) {
     const requestId = Number(/^factory-recovery:(\d+):/.exec(String(stop.sourceRef ?? ''))?.[1]);
     const request = Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-    if (!request || !(await isOpen(orgId, request))) {
+    if (!request || !(await carriedHere(orgId, request))) {
       continue;
     }
     // A stop on a check command waits for the repo record, not for a worker or a deploy (`resumeAfterCheckFix`).
@@ -1707,7 +1739,7 @@ export async function sweepStuckRequests(orgId: string, now: Date = new Date(), 
       continue;
     }
     const request = await readRecord(orgId, id);
-    if (!request || !(await isOpen(orgId, request))) {
+    if (!request || !(await carriedHere(orgId, request))) {
       continue;
     }
     const state = readRecovery(request.meta);
@@ -1907,7 +1939,7 @@ export async function planningRunEnded(orgId: string, payload: Record<string, un
     return skip(null, 'no request on the run');
   }
   const request = await (await lib()).readRecord(orgId, requestId);
-  if (!request || !(await isOpen(orgId, request))) {
+  if (!request || !(await carriedHere(orgId, request))) {
     return skip(requestId, 'request closed');
   }
   const state = readRecovery(request.meta);

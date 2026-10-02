@@ -215,6 +215,12 @@ export type FeatureReportInput = {
    */
   pulls?: ReadonlyMap<string, PullSignals>;
   /**
+   * The request's durable workflow status, when one owns it (backlog 054):
+   * what is carrying it, in the workflow's own sentence, in place of the
+   * recovery state the event handlers keep for requests no workflow owns.
+   */
+  workflow?: { stage: string; line: string } | null;
+  /**
    * Whether QA's approve merges the current attempt on its own — the trust
    * ladder's answer for its class (`pullSignals.mergeRunsItself`). Absent,
    * not established.
@@ -2284,6 +2290,25 @@ export type ReportState = {
  * @param live - What is running for it now (the Now line), which says whether a build is queued or building and what the planning move opens.
  * @param mergedPrs - Pull requests the records say merged, so an approved change that merged reads Merged.
  */
+/**
+ * What carries a request its workflow owns, read the way the recovery stage is.
+ * @param w - The workflow's status.
+ * @param w.stage - Its stage.
+ * @param w.line - Its sentence.
+ */
+function workflowCarrying(w: { stage: string; line: string }): ReturnType<typeof recoveryStage> {
+  if (w.stage === 'planning') {
+    return { stage: 'planning', label: 'Planning', line: w.line, tone: 'info' };
+  }
+  if (w.stage === 'starting') {
+    return { stage: 'recovering', label: 'Starting the next attempt', line: w.line, tone: 'info' };
+  }
+  if (w.stage === 'stopped') {
+    return { stage: 'stopped', label: 'Stopped', line: w.line, tone: 'bad' };
+  }
+  return null;
+}
+
 function buildState(input: FeatureReportInput, live: LiveRun | null = null, mergedPrs: ReadonlySet<string> = new Set()): ReportState {
   // AN ACTUAL OBSTACLE FIRST, and only an actual obstacle reads as Blocked
   // (review, 2026-09-24). Waiting on a decision, on QA or on a merge are
@@ -2361,7 +2386,7 @@ function buildState(input: FeatureReportInput, live: LiveRun | null = null, merg
   // THE FACTORY CARRYING IT (backlog 038): planning first, an automatic
   // attempt out after a failure, or stopped at the limit — each says what
   // happens next, in the factory's own sentence.
-  const carrying = recoveryStage(input.request.meta);
+  const carrying = input.workflow ? workflowCarrying(input.workflow) : recoveryStage(input.request.meta);
   const running = input.workerRuns.filter(r => !TERMINAL_BAD.has(r.status) && r.status !== 'completed');
   if (running.length > 0) {
     if (carrying?.stage === 'recovering') {
