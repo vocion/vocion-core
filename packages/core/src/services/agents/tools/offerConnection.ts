@@ -6,10 +6,8 @@ import { newCardId } from '@/libs/cards/card';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
-import { connectorOfSource } from '@/libs/sources/connectorOf';
 import { getConnector } from '@/libs/sources/registry';
-import { newestLiveCredential } from '@/services/connect/createSourceOnLogin';
-import { listSources } from '@/services/SourceSyncService';
+import { connectorHasLiveSource, newestLiveCredential } from '@/services/connect/createSourceOnLogin';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 
 /**
@@ -74,7 +72,8 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
   if (membership?.accountRole !== 'admin') {
     return `Only a workspace admin can connect ${name}. Ask an admin to connect it from Sources.`;
   }
-  if ((await listSources(ctx.orgId)).some(s => connectorOfSource(s) === connector.slug)) {
+  // A source whose login was revoked or expired is not connected: fall through and offer the login again.
+  if (await connectorHasLiveSource(ctx.orgId, connector.slug)) {
     return `${name} is already connected; nothing to offer.`;
   }
   const how = howToConnectFor(connector.slug);

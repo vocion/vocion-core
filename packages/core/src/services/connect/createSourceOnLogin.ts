@@ -13,7 +13,7 @@ import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
-import { apiTokenSchema, knowledgeSourceSchema } from '@/models/Schema';
+import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
 import { addSource } from '@/services/SourceSyncService';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
@@ -89,6 +89,48 @@ export async function newestLiveCredential(orgId: string, platformId: string): P
     ))
     .orderBy(desc(apiTokenSchema.createdAt));
   return rows.find(row => row.obtainedVia === 'login') ?? rows[0] ?? null;
+}
+
+/**
+ * Whether the connector has a source that can still read: its credential is
+ * live (not revoked, not expired). A source on a revoked or expired login is
+ * not "connected", so chat can offer the login again. A source with no linked
+ * credential counts when the old `source_credential` of its connector is live.
+ * @param orgId - The workspace.
+ * @param connector - Connector slug.
+ */
+export async function connectorHasLiveSource(orgId: string, connector: string): Promise<boolean> {
+  const sources = await db
+    .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), sourceIsOfConnector(connector)));
+  if (sources.length === 0) {
+    return false;
+  }
+  const [live] = await db
+    .select({ id: apiTokenSchema.id })
+    .from(knowledgeSourceSchema)
+    .innerJoin(apiTokenSchema, eq(apiTokenSchema.id, knowledgeSourceSchema.apiTokenId))
+    .where(and(
+      eq(knowledgeSourceSchema.orgId, orgId),
+      sourceIsOfConnector(connector),
+      isNull(apiTokenSchema.revokedAt),
+      or(isNull(apiTokenSchema.expiresAt), gt(apiTokenSchema.expiresAt, new Date())),
+    ))
+    .limit(1);
+  if (live) {
+    return true;
+  }
+  if (!sources.some(source => source.apiTokenId === null)) {
+    return false;
+  }
+  const [legacy] = await db
+    .select({ id: sourceCredentialSchema.id })
+    .from(sourceCredentialSchema)
+    .innerJoin(sourceInstallSchema, eq(sourceInstallSchema.id, sourceCredentialSchema.installId))
+    .where(and(eq(sourceInstallSchema.orgId, orgId), eq(sourceInstallSchema.sourceSlug, connector), isNull(sourceCredentialSchema.revokedAt)))
+    .limit(1);
+  return Boolean(legacy);
 }
 
 /** Where a pick lands: a new source, or an existing one it is added to. */

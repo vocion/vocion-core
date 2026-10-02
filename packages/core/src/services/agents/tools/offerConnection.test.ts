@@ -1,9 +1,10 @@
 import type { RuntimeContext } from '../types';
+import { eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
-const { accountMembershipSchema, knowledgeSourceSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { storeLoginCredential } = await import('@/services/ApiTokenService');
 const { recordConnectAttempt } = await import('@/libs/connect/attempts');
 const { connectHref, offerConnectionTool, pasteHref } = await import('./offerConnection');
@@ -24,7 +25,8 @@ beforeAll(async () => {
     { accountId: 'acct_offer', userId: 'usr-admin', role: 'admin' },
     { accountId: 'acct_offer', userId: 'usr-member', role: 'member' },
   ]);
-  await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'slack', configJson: { _connector: 'slack' } });
+  const slackLogin = await storeLoginCredential({ orgId: ORG, platform: 'slack', name: 'Slack - northwind', account: 'northwind', values: { token: 'xoxb-not-a-real-token' }, createdBy: 'usr-admin' });
+  await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'slack', configJson: { _connector: 'slack' }, apiTokenId: slackLogin.id });
 });
 
 describe('connectHref', () => {
@@ -128,6 +130,24 @@ describe('offer_connection', () => {
 
     expect(String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'slack', why: 'x' }))).toMatch(/already connected/);
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('offers the login again once the source\'s credential is revoked or expired', async () => {
+    const emit = vi.fn();
+    const [source] = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.slug, 'slack'));
+
+    await db.update(apiTokenSchema).set({ revokedAt: new Date() }).where(eq(apiTokenSchema.id, source!.apiTokenId!));
+    const revoked = String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'slack', why: 'x' }));
+
+    expect(revoked).toContain('Showed a "Connect Slack" card');
+    expect(emit).toHaveBeenCalledTimes(1);
+
+    await db.update(apiTokenSchema).set({ revokedAt: null, expiresAt: new Date(Date.now() - 60_000) }).where(eq(apiTokenSchema.id, source!.apiTokenId!));
+    await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'slack', why: 'x' });
+
+    expect(emit).toHaveBeenCalledTimes(2);
+
+    await db.update(apiTokenSchema).set({ expiresAt: null }).where(eq(apiTokenSchema.id, source!.apiTokenId!));
   });
 
   it('a member gets no card, since the connect flow is admin-only', async () => {
