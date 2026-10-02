@@ -24,13 +24,13 @@ import type { FeatureReport, ReportActionRun, ReportActivity, ReportArtifact, Re
 import type { FeatureSpend } from './featureSpend';
 import type { FactoryTypes } from '@/libs/factory/types';
 import type { RecordOrigin } from '@/services/objects/related';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { runTitle } from '@/libs/factory/runTitle';
 import { factoryTypes } from '@/libs/factory/types';
 import { runCostCents } from '@/libs/worker/runCost';
-import { actionRunSchema, agentSchema, askSchema, automationSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, askSchema, automationRunSchema, automationSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { failedFireLines } from '@/services/automations/failedFires';
 import { getBusinessObject, listBusinessObjects } from '@/services/BusinessObjectService';
@@ -459,7 +459,36 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
   // share beside it — a review started by its pull request names no record
   // in its tool calls, and its cost must not be a figure nobody can open.
   const costed = spend?.agentRuns ?? new Map<number, number>();
-  const missionIds = [...new Set([...mission.keys(), ...costed.keys()])];
+  // A review its pull request started names no record in its calls: its
+  // fire carried the attempt's pull request (FE-370's QA of attempt 3 was on
+  // no list). Each such run counts as having named that attempt's task.
+  const prTask = new Map<string, number>();
+  for (const w of workerRuns) {
+    const pr = runChange(w).prUrl;
+    const task = Number((w.input?.record as { id?: unknown } | undefined)?.id);
+    if (pr && Number.isSafeInteger(task) && task > 0) {
+      prTask.set(pr, task);
+    }
+  }
+  if (prTask.size > 0) {
+    const fires = await db
+      .select({ runId: automationRunSchema.targetRunId, url: sql<string | null>`coalesce(${automationRunSchema.input} ->> 'url', ${automationRunSchema.input} ->> 'prUrl')` })
+      .from(automationRunSchema)
+      .where(and(
+        eq(automationRunSchema.orgId, orgId),
+        isNotNull(automationRunSchema.targetRunId),
+        inArray(sql`coalesce(${automationRunSchema.input} ->> 'url', ${automationRunSchema.input} ->> 'prUrl')`, [...prTask.keys()]),
+      ))
+      .limit(200)
+      .catch(() => [] as Array<{ runId: number | null; url: string | null }>);
+    for (const f of fires) {
+      const task = f.url ? prTask.get(f.url) : undefined;
+      if (f.runId !== null && task !== undefined) {
+        touched.set(f.runId, (touched.get(f.runId) ?? new Set()).add(task));
+      }
+    }
+  }
+  const missionIds = [...new Set([...mission.keys(), ...costed.keys(), ...touched.keys()])];
   if (missionIds.length > 0) {
     // The automation that started each run (the first fire in its chain)
     // gives it its words: `label`, `doing`, its name (`runTitle`).
