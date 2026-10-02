@@ -55,7 +55,7 @@ function context(provider = 'slack') {
   return { params: Promise.resolve({ provider }) };
 }
 
-function landing(res: Response): { path: string; connect?: string; reason?: string; source?: string; connector?: string } {
+function landing(res: Response): { path: string; connect?: string; reason?: string; source?: string; connector?: string; add?: string } {
   const url = new URL(res.headers.get('location')!);
   return { path: url.pathname, ...Object.fromEntries(url.searchParams) };
 }
@@ -277,5 +277,24 @@ describe('GET /api/connect/[provider]/callback', () => {
 
     expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({ card: { conversationId: 7, cardId: 'card_1' } }));
     expect(approveLoginCard).not.toHaveBeenCalled();
+  });
+
+  it('after a login that made its source, lands on Connectors without reopening the add dialog', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'slack', returnTo: '/dashboard/connectors?add=slack' } });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_1', linkedSourceIds: [] });
+    vi.mocked(createSourceWhenNoConfigNeeded).mockResolvedValue({ created: true });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toEqual({ path: '/dashboard/connectors', connect: 'ok', connector: 'slack' });
+  });
+
+  it('keeps the add dialog open when the connector still needs picks from the form', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, sourceSlug: undefined, connectorSlug: 'github', returnTo: '/dashboard/connectors?add=github' } });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_1', linkedSourceIds: [] });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toEqual({ path: '/dashboard/connectors', add: 'github', connect: 'ok', connector: 'github' });
   });
 });

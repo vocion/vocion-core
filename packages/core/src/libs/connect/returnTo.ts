@@ -30,6 +30,23 @@ export function safeReturnPath(raw: unknown): string | null {
 }
 
 /**
+ * The return path without its `add` param, so landing on the Connectors page
+ * does not reopen the add dialog for a connector that was added by the login
+ * itself (a second click there would make a duplicate source).
+ * @param returnTo - A path already checked by `safeReturnPath`, or absent.
+ * @returns The path without `add`, or the input unchanged when it has none.
+ */
+export function withoutAddParam(returnTo: string | null | undefined): string | null | undefined {
+  const safe = safeReturnPath(returnTo);
+  if (!safe) {
+    return returnTo;
+  }
+  const url = new URL(safe, 'http://relative.invalid');
+  url.searchParams.delete('add');
+  return `${url.pathname}${url.search}`;
+}
+
+/**
  * @param value - A code that came from a query string or a vendor.
  * @returns At most 64 characters of word characters, dots and dashes.
  */

@@ -22,7 +22,7 @@ import type { ConnectProvider } from '@/libs/connect/provider';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { providerFor } from '@/libs/connect/registry';
-import { returnUrl } from '@/libs/connect/returnTo';
+import { returnUrl, withoutAddParam } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
 import { stateIssuedAt, verifyState } from '@/libs/connect/state';
@@ -124,7 +124,11 @@ async function storeAndLand(request: NextRequest, origin: string, done: Paramete
   if (card && makesSource) {
     await approveCard(orgId, userId, provider, connectorSlug, card);
   }
-  return landAt(request, origin, { ok: true }, landing);
+  // The login made the source itself, so the add form has nothing left to offer: land without `add`.
+  const landed = made.created || (makesSource && outcome.linkedSourceIds.length > 0)
+    ? { ...landing, returnTo: withoutAddParam(landing.returnTo) }
+    : landing;
+  return landAt(request, origin, { ok: true }, landed);
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
