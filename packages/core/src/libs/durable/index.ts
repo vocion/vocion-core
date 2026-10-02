@@ -10,6 +10,11 @@ export type { DeliveredEvent, DurableContext, DurableDefinition, DurableEngine, 
  * dev, the in-process one under test (or `DURABLE_MODE=memory`).
  */
 export function durableMode(): 'dbos' | 'memory' {
+  // `next build` never reaches the database: its page workers run with a stub
+  // DATABASE_URL, and a DBOS connection there retries instead of failing.
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    return 'memory';
+  }
   if (process.env.DURABLE_MODE === 'memory' || process.env.DURABLE_MODE === 'dbos') {
     return process.env.DURABLE_MODE;
   }

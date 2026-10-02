@@ -26,6 +26,9 @@ const QUEUE = 'durable';
 export const DURABLE_EXECUTOR_ID = 'vocion-durable';
 
 function databaseUrl(): string {
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    throw new Error('the durable engine is not reachable during `next build`');
+  }
   const url = process.env.DURABLE_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!url) {
     throw new Error('DATABASE_URL is not set, so durable runs have nowhere to live');
