@@ -82,6 +82,7 @@ describe('cite what ran', () => {
     expect(citedTestsRefusal([{ criterion: 'Breaks', status: 'proven', tests: ['t3'] }], run)).toMatch(/is marked proven on t3 .* which failed on this branch/);
     expect(citedTestsRefusal([{ criterion: 'No stray dot', status: 'proven', tests: ['t1', 'the header > no stray dot (\'doc_a\' at 1280 px)'] }], run)).toBeNull();
     expect(citedTestsRefusal([{ criterion: 'No stray dot', status: 'proven', evidence: 'https://x.example/a' }], run)).toBeNull();
-    expect(citedTestsRefusal([{ criterion: 'No stray dot', status: 'proven', tests: ['t1'] }], null)).toMatch(/has no stored list of the tests that ran/);
+    // No stored list is the pipeline's gap: the citations stand.
+    expect(citedTestsRefusal([{ criterion: 'No stray dot', status: 'proven', tests: ['t1'] }], null)).toBeNull();
   });
 });

@@ -38,6 +38,12 @@ export const markdownSpecSchema = z.object({
   /** One line the log and an index show under the title — a wiki page's summary. */
   summary: z.string().max(200).optional(),
   /**
+   * A QA test run's every test that ran, each with the id a verdict cites
+   * (`recordVerdict.latestTestRun`). Walk 11 (2026-10-02, task 389): the
+   * runner sent it and this schema dropped it, so QA's citations were refused.
+   */
+  tests: z.array(z.object({ id: z.string(), file: z.string(), name: z.string(), status: z.string() })).max(5000).optional(),
+  /**
    * Where a page came from when a workspace repo seeded it (`wiki/<slug>.md`,
    * `libs/workspace/wiki-pages.ts`). `sha` is the file's content hash as last
    * applied and `version` the artifact version that apply wrote, so the next

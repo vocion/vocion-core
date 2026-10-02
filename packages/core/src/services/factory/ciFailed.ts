@@ -385,7 +385,10 @@ export async function watchAwaitingReview(orgId: string, now: Date = new Date(),
       continue;
     }
     const since = task.updatedAt ?? new Date(0);
-    const [reviewed] = await db.select({ id: automationRunSchema.id }).from(automationRunSchema).where(and(eq(automationRunSchema.orgId, orgId), sql`${automationRunSchema.input} ->> 'url' = ${url}`, gt(automationRunSchema.startedAt, since))).limit(1);
+    const [reviewed] = await db.select({ id: automationRunSchema.id }).from(automationRunSchema).where(and(eq(automationRunSchema.orgId, orgId), sql`${automationRunSchema.input} ->> 'url' = ${url}`, gt(automationRunSchema.startedAt, since), sql`${automationRunSchema.status} <> 'error'`)).limit(1);
+    // A review that errored is not a review (Walk 11, task 389: the failed
+    // run's second row started after the task's last write, so it was never
+    // restarted again).
     const restarts = Number(meta.reviewRestarts ?? 0);
     if (reviewed || restarts >= REVIEW_RESTARTS) {
       continue;

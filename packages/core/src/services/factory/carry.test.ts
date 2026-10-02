@@ -1042,6 +1042,18 @@ describe('nothing waits on a review that never starts (2026-09-30, #269: CI fail
 
     expect(raised).toHaveLength(2);
   });
+
+  it('starts a review again when the one after the task\'s last write errored (Walk 11, task 389)', async () => {
+    const { watchAwaitingReview } = await import('./ciFailed');
+    const failed = await waitingOnQa('Rooms show when each was last opened', 143);
+    await db.update(businessObjectSchema).set({ status: 'review_failed', updatedAt: new Date(Date.now() - 3_600_000) }).where(eq(businessObjectSchema.id, failed.task.id));
+    await db.insert(eventLogSchema).values({ orgId: ORG, type: 'pr.checks_completed', payload: { url: failed.prUrl, conclusion: 'success', headSha: 'bc9f315a148d' }, dedupeKey: 'github:143:checks' } as never);
+    await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'contract-red-team-evidence', kind: 'mission_check', status: 'error', input: { url: failed.prUrl }, error: 'ended without record_verdict' } as never);
+
+    const out = await watchAwaitingReview(ORG);
+
+    expect(out.find(o => o.requestId === failed.r.id)?.did).toBe('review started again');
+  });
 });
 
 describe('a stop whose ask is closed is still a stop (2026-09-30, "Open alerts" #124)', () => {
