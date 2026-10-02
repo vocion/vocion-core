@@ -146,6 +146,20 @@ describe('a refusal is an outcome, not an empty pass', () => {
     expect(result.response).toContain(REFUSAL_NOTICE);
   });
 
+  it('a seat on another model gets one more pass on the main model, and the person hears its answer (Walk 12)', async () => {
+    const declined = { event: 'on_chat_model_end', metadata: { checkpoint_ns: 'model_request:m1' }, data: { output: { content: [], response_metadata: { stop_reason: 'refusal' } } } };
+    const inputs = passes([declined], [say('Filed FE-12 and started it.')]);
+    const { compileAgentForRequest } = await import('@/services/agents/harness');
+    const { resolvedModelId } = await import('@/libs/llm/langchain');
+
+    const result = await runAgentDeep({ orgId: ORG, agentSlug: 'product-manager', message: 'Put a New badge on documents uploaded today.', onEvent: () => {}, userId: PERSON, modelOverride: { model: 'claude-opus-5-5' } });
+
+    expect(inputs).toHaveLength(2);
+    expect(result.response).toContain('Filed FE-12');
+    expect(result.response).not.toContain(REFUSAL_NOTICE);
+    expect(vi.mocked(compileAgentForRequest).mock.calls.at(-1)?.[3]).toMatchObject({ modelOverride: { model: resolvedModelId('main') } });
+  });
+
   it('reads the stop reason the provider typed', () => {
     expect(stopReasonOf({ response_metadata: { stop_reason: 'refusal' } })).toBe('refusal');
     expect(stopReasonOf({ response_metadata: { stopReason: 'end_turn' } })).toBe('end_turn');

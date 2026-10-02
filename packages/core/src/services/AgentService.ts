@@ -923,6 +923,7 @@ export async function runAgentDeep(opts: {
   // ran two more passes into the same refusal. A refusal is an outcome, read
   // from the response's typed stop reason: the turn ends and says so.
   let refused = false;
+  let refusalRetried = false;
   // WHAT THE PERSON WANTS, read once by a model before the turn runs —
   // never by matching their words (`agents/turnJudge.ts`). A question makes
   // the turn read-only (`agents/turnScope.ts`): nothing is filed, changed or
@@ -1181,6 +1182,42 @@ export async function runAgentDeep(opts: {
     const intent = await intentP;
     turn.readOnly = personTurn && intent.asks === 'answer' && !('unread' in intent);
     await runGraph(input);
+
+    // A REFUSAL GETS ONE OTHER MODEL (Walk 12, 2026-10-02): the product
+    // manager on Opus 5.5 declined "put a New badge on recent documents", a
+    // benign ask the model misread, and the person was told to rephrase. A
+    // refused turn that has written nothing runs once more, from the start, on the
+    // workspace's main model when that is a different model; the person hears
+    // "declined" only if that model declines too.
+    if (refused && !refusalRetried && turn.writes === 0) {
+      const chosen = chatModelOptionsWithOverride(harness ?? {}, modelOverride);
+      const provider = chosen.provider ?? resolveProvider('main');
+      const fallback = resolvedModelIdFor('main', provider);
+      if (fallback && fallback !== (chosen.model ?? resolvedModelId('main'))) {
+        refusalRetried = true;
+        refused = false;
+        console.warn('agent turn: the model declined; once more on the main model', { orgId: opts.orgId, agentSlug: opts.agentSlug, from: chosen.model, to: fallback });
+        emit({ type: 'run_meta', model: fallback, provider, strength: opts.modelPrefs?.strength ?? 'balanced', thinking: opts.modelPrefs?.effort ?? 'off' });
+        compiled = await compileAgentForRequest(
+          opts.orgId,
+          opts.agentSlug,
+          {
+            emit,
+            userId: opts.userId,
+            allowedSourceSlugs: opts.allowedSourceSlugs,
+            missionSlug: opts.missionSlug,
+            missionRunId: opts.missionRunId,
+            conversationId: opts.conversationId,
+            pageContext: opts.pageContext,
+            turnMessage: opts.message,
+            timeZone: opts.timeZone,
+          },
+          { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider } },
+        );
+        graphMessages = null;
+        await runGraph(input);
+      }
+    }
 
     {
       const held = answerStreamer.flush();
