@@ -19,6 +19,9 @@
  *   - `objects.propose_candidate` — approving an extracted record is what lets
  *     it be published outside; the moderation loop exists so a human sees
  *     every candidate.
+ *   - `objects.create_group` — it writes active records on the spot, so only a
+ *     person's pick on a choice card or a person's approval may run it, never a
+ *     trust rule on an agent's own proposal.
  *
  * Deliberately not configurable. Fails safe — it can only keep an item in the
  * review queue, never release it.
@@ -28,6 +31,7 @@ export const NEVER_AUTO_ACTION_IDS: ReadonlySet<string> = new Set([
   'discovery.review_proposal',
   'personalization.enroll',
   'objects.propose_candidate',
+  'objects.create_group',
 ]);
 
 /** Grants that put an action on the never-auto list whatever its id. */

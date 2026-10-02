@@ -13,6 +13,7 @@ const { businessObjectSchema, businessObjectTypeSchema } = await import('@/model
 const { forgetCachedObjectTypes } = await import('./objects-propose-candidate');
 const { objectsCreateGroupAction } = await import('./objects-create-group');
 const { bindingProblem } = await import('./bindable');
+const { isNeverAuto } = await import('./neverAuto');
 const { eq } = await import('drizzle-orm');
 
 const ORG = 'org_create_group';
@@ -92,6 +93,23 @@ afterAll(async () => {
 });
 
 describe('objects.create_group', () => {
+  it('finds the matching record among many unrelated ones of the same type', async () => {
+    await seedTypes();
+    const [productType] = await db.select().from(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.slug, 'product'));
+    const unrelated = Array.from({ length: 50 }, (_, index) => ({ orgId: ORG, typeId: productType!.id, title: `Other ${index}`, status: 'active', metadata: { slug: `other-${index}` } }));
+    await db.insert(businessObjectSchema).values(unrelated);
+    const [match] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: productType!.id, title: 'Portal', status: 'active', metadata: { slug: 'Northwind Portal' } }).returning();
+
+    const result = await objectsCreateGroupAction.execute(CTX, groupInput({ children: [] })) as { parent: { id: number; created: boolean } };
+
+    expect(result.parent).toEqual({ id: match!.id, created: false });
+    expect(await records()).toHaveLength(51);
+  });
+
+  it('is held for a person on the trust ladder, like other record-creating actions', () => {
+    expect(isNeverAuto(objectsCreateGroupAction)).toBe(true);
+  });
+
   it('creates a parent and two children, each child carrying the parent link, active', async () => {
     await seedTypes();
     const result = await objectsCreateGroupAction.execute(CTX, groupInput()) as { parent: { created: boolean }; children: Array<{ created: boolean }> };

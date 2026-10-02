@@ -73,20 +73,63 @@ function keyOf(type: string, identityFields: string[], title: string, fields: Re
 }
 
 /**
- * Records of this type already in the workspace, keyed the way a new one would be.
+ * The value a dedup field holds on an incoming member, the way the dedup key reads it
+ * (a blank title falls back to the member's own title).
+ * @param member - The incoming record.
+ * @param field - A `dedupOn` field.
+ */
+function incomingValue(member: GroupMember, field: string): unknown {
+  const value = member.fields[field];
+  return (value === undefined || value === null || value === '') && field === 'title' ? member.title : value;
+}
+
+/**
+ * The SQL for a stored record's value of one dedup field, mirroring `incomingValue`.
+ * @param field - A `dedupOn` field.
+ * @param sql - drizzle's `sql` tag.
+ * @param schema - The `business_object` table.
+ */
+function storedValue(field: string, sql: typeof import('drizzle-orm').sql, schema: typeof import('@/models/Schema').businessObjectSchema) {
+  if (field === 'title') {
+    return sql`coalesce(nullif(${schema.metadata}->>'title', ''), ${schema.title})`;
+  }
+  return sql`${schema.metadata}->>${field}`;
+}
+
+/**
+ * Records of this type that could share a dedup key with the incoming members,
+ * keyed the way a new one would be, in ONE query. Each dedup field must match
+ * one of the incoming values, either exactly or after the same lowercase and
+ * dash folding `normaliseForKey` applies; the exact dedup key is then compared
+ * in code on that small set. A field where any incoming value is blank is left
+ * unfiltered, because a blank is a key slot of its own. Accented letters fold
+ * differently in SQL, so an accented stored value is matched on its exact text.
  * A rejected record does not count: the person said no to that one.
  * @param tx - The open transaction.
  * @param orgId - The workspace.
  * @param type - The stored object type.
  * @param identityFields - The type's `dedupOn`.
+ * @param members - The incoming records of this type.
  */
-async function knownRecordsOf(tx: DbTransaction, orgId: string, type: ObjectTypeRow, identityFields: string[]): Promise<KnownRecords> {
-  const { and, eq, ne } = await import('drizzle-orm');
+async function knownRecordsOf(tx: DbTransaction, orgId: string, type: ObjectTypeRow, identityFields: string[], members: GroupMember[]): Promise<KnownRecords> {
+  const { and, eq, inArray, ne, or, sql } = await import('drizzle-orm');
   const { businessObjectSchema } = await import('@/models/Schema');
+  const { normaliseForKey } = await import('./objects-propose-candidate');
+  const matches = [];
+  for (const field of identityFields) {
+    const raws = members.map(member => String(incomingValue(member, field) ?? ''));
+    const folded = raws.map(raw => normaliseForKey(raw));
+    if (folded.includes('none')) {
+      continue;
+    }
+    const stored = storedValue(field, sql, businessObjectSchema);
+    const storedFolded = sql`left(trim(both '-' from regexp_replace(lower(${stored}), '[^a-z0-9]+', '-', 'g')), 80)`;
+    matches.push(or(inArray(stored, raws), inArray(storedFolded, folded)));
+  }
   const rows = await tx
     .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, metadata: businessObjectSchema.metadata })
     .from(businessObjectSchema)
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.typeId, type.id), ne(businessObjectSchema.status, 'rejected')));
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.typeId, type.id), ne(businessObjectSchema.status, 'rejected'), ...matches));
   const known: KnownRecords = new Map();
   for (const row of rows) {
     const key = keyOf(type.slug, identityFields, row.title, row.metadata ?? {});
@@ -136,21 +179,22 @@ async function landMember(tx: DbTransaction, ctx: ActionContext, type: ObjectTyp
  * @param types - The parent's type, then each distinct child type, by slug.
  */
 async function writeGroup(tx: DbTransaction, ctx: ActionContext, input: GroupInput, types: Map<string, ObjectTypeRow>): Promise<{ parent: Landed; children: Landed[] }> {
+  const linkValue = input.parent.fields[input.link.parentField];
+  const linkedChildren = input.children.map(child => ({ ...child, fields: { ...child.fields, [input.link.childField]: linkValue } }));
   const knownByType = new Map<string, { known: KnownRecords; identityFields: string[] }>();
   for (const [slug, type] of types) {
     const identityFields = (await identityFieldsOf(type)) ?? ['title'];
-    knownByType.set(slug, { known: await knownRecordsOf(tx, ctx.orgId, type, identityFields), identityFields });
+    const members = [input.parent, ...linkedChildren].filter(member => member.type === slug);
+    knownByType.set(slug, { known: await knownRecordsOf(tx, ctx.orgId, type, identityFields, members), identityFields });
   }
 
   const parentSide = knownByType.get(input.parent.type)!;
   const parent = await landMember(tx, ctx, types.get(input.parent.type)!, parentSide.identityFields, parentSide.known, input.parent);
 
-  const linkValue = input.parent.fields[input.link.parentField];
   const children: Landed[] = [];
-  for (const child of input.children) {
-    const side = knownByType.get(child.type)!;
-    const linked = { ...child, fields: { ...child.fields, [input.link.childField]: linkValue } };
-    children.push(await landMember(tx, ctx, types.get(child.type)!, side.identityFields, side.known, linked));
+  for (const linked of linkedChildren) {
+    const side = knownByType.get(linked.type)!;
+    children.push(await landMember(tx, ctx, types.get(linked.type)!, side.identityFields, side.known, linked));
   }
   return { parent, children };
 }
