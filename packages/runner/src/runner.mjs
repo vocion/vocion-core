@@ -38,6 +38,7 @@ import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, pathsMissingFailure } from './preflight.mjs';
 import { captureEvidence, containerCredentials, productionBase, publishArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
 import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
+import { resumeConflictNote } from './resume.mjs';
 import { checkPlan, serviceSpec } from './services.mjs';
 import { withUsage } from './usage.mjs';
 
@@ -660,8 +661,9 @@ function prepareRepo(task, run) {
 
   // A branch in base_sha is a resume (a factory/...-wip-... branch a failed run kept, or any other
   // branch). The working branch starts from it and is rebased on origin/main before Claude starts,
-  // so the PR that follows lands on today's main. A rebase that does not apply cleanly fails the
-  // run here, at cost 0, with the conflicting files in the note.
+  // so the PR that follows lands on today's main. A rebase that does not apply cleanly is the
+  // engineer's to resolve (FE-224, 2026-10-02: the run stopped at prepare, "resolve it by hand",
+  // and the feature waited on a person): the branch stays as it was and the brief names the files.
   let resumedFrom = null;
   if (base.resume) {
     must('git', ['fetch', '--quiet', 'origin', 'main']);
@@ -671,9 +673,13 @@ function prepareRepo(task, run) {
     if (rebase.code !== 0) {
       const conflicts = sh('git', ['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);
       sh('git', ['rebase', '--abort']);
-      throw new Error(`resume branch ${base.ref} does not rebase cleanly on origin/main (${conflicts.join(', ') || tail(rebase.stderr || rebase.stdout, 4)}); resolve it by hand or pass a sha`);
+      resumedFrom = { ref: base.ref, sha: baseSha, commits: ahead, rebased_onto: null, main: mainSha, conflicts, head: must('git', ['rev-parse', 'HEAD']).trim() };
+      log('resumed.conflicts', resumedFrom);
+    } else {
+      resumedFrom = { ref: base.ref, sha: baseSha, commits: ahead, rebased_onto: mainSha, head: must('git', ['rev-parse', 'HEAD']).trim() };
     }
-    resumedFrom = { ref: base.ref, sha: baseSha, commits: ahead, rebased_onto: mainSha, head: must('git', ['rev-parse', 'HEAD']).trim() };
+  }
+  if (resumedFrom && !resumedFrom.conflicts) {
     log('resumed', resumedFrom);
   }
   const headBranch = must('git', ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
@@ -1148,7 +1154,7 @@ function land(task, runId, verification, claude, prepared, evidence = null, test
     `- Vocion worker run: \`${runId}\``,
     `- Worker: \`${workerId}\``,
     `- Model: \`${claude.model || 'unknown'}\`, cost $${round2(claude.costUsd)}, ${claude.result?.num_turns ?? '?'} turns, ${claude.durationS}s`,
-    `- Base: \`${prepared.baseSha}\`${prepared.resumedFrom ? ` (resumed from \`${prepared.resumedFrom.ref}\` at \`${prepared.resumedFrom.sha}\`, rebased on \`${prepared.resumedFrom.rebased_onto}\`)` : ''}`,
+    `- Base: \`${prepared.baseSha}\`${prepared.resumedFrom ? ` (resumed from \`${prepared.resumedFrom.ref}\` at \`${prepared.resumedFrom.sha}\`, ${prepared.resumedFrom.rebased_onto ? `rebased on \`${prepared.resumedFrom.rebased_onto}\`` : `merged with main by the engineer (conflicts: ${(prepared.resumedFrom.conflicts || []).join(', ') || 'unnamed'})`})` : ''}`,
     '',
     '## Agent report',
     '',
@@ -1622,6 +1628,10 @@ async function main() {
   }
   if (prepared.resumedFrom) {
     log('task.resumed', { task_id: task.task_id, resumedFrom: prepared.resumedFrom, attempt: prepared.attempt, branch: prepared.branch });
+  }
+  const conflictNote = resumeConflictNote(prepared.resumedFrom);
+  if (conflictNote) {
+    task = { ...task, notes: task.notes ? `${conflictNote}\n\n${task.notes}` : conflictNote };
   }
 
   // Every allowed path against the tree just cloned, before services or a model call (run 411: a
