@@ -522,11 +522,17 @@ async function isOpen(orgId: string, request: FactoryRecord): Promise<boolean> {
  * @param request - The request.
  */
 async function carriedHere(orgId: string, request: FactoryRecord): Promise<boolean> {
-  if (!(await isOpen(orgId, request))) {
-    return false;
-  }
+  return (await isOpen(orgId, request)) && !(await ownedHere(orgId, request));
+}
+
+/**
+ * Whether the request's durable workflow owns it (backlog 054).
+ * @param orgId - Tenant.
+ * @param request - The request.
+ */
+async function ownedHere(orgId: string, request: FactoryRecord): Promise<boolean> {
   const { ownedByWorkflow } = await import('./requestWorkflowStart');
-  return !(await ownedByWorkflow(orgId, request.meta));
+  return ownedByWorkflow(orgId, request.meta);
 }
 
 /**
@@ -1304,7 +1310,10 @@ export async function recoverFailedRun(orgId: string, runId: number, opts: { now
   const task = await readRecord(orgId, rec.id);
   const requestId = Number(task?.meta.requestId);
   const request = task && Number.isInteger(requestId) && requestId > 0 ? await readRecord(orgId, requestId) : null;
-  if (!task || !request || !(await carriedHere(orgId, request))) {
+  if (task && request && (await ownedHere(orgId, request))) {
+    return skip(requestId, 'the request\'s workflow owns it');
+  }
+  if (!task || !request || !(await isOpen(orgId, request))) {
     return skip(Number.isInteger(requestId) ? requestId : null, 'no open request for this run');
   }
   const state = readRecovery(request.meta);
