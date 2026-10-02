@@ -10,6 +10,7 @@
 import type { CardAnswer, ChoiceOption } from '@/libs/cards/card';
 import type { ConversationRun } from '@/services/ConversationService';
 import { z } from 'zod';
+import { bindingProblem } from '@/libs/actions/bindable';
 import { choiceAllowsOther } from '@/libs/cards/card';
 import { proposeAction } from '@/services/ActionService';
 import { outcomeOf } from '@/services/chat/historyTools';
@@ -60,6 +61,11 @@ type ActionLine = string;
  */
 async function runBoundAction(input: { orgId: string; userId: string; conversationId: number; action: BoundAction }): Promise<ActionLine> {
   const { orgId, userId, conversationId, action } = input;
+  // The binding was checked when the card was asked; checked again here
+  // because the row is what runs, and a tap must never carry an outside change.
+  if (bindingProblem(action.actionId) !== null) {
+    return `${action.actionId} failed: not run — it changes something outside Vocion and needs its own approval`;
+  }
   try {
     const proposed = await proposeAction({
       orgId,

@@ -139,6 +139,23 @@ describe('ask_choice', () => {
     expect(retry).toMatch(/^Asked\./);
   });
 
+  it('refuses a binding to an action that changes something outside Vocion, and does not spend the turn on it', async () => {
+    const conversationId = nextConversation++;
+    openTurn(conversationId);
+    const emit = vi.fn();
+    const out = String(await askChoiceTool(ctxFor(conversationId, emit)).invoke({
+      question: 'Move it?',
+      options: [{ label: 'Yes', action: { actionId: 'tracker.comment', input: {} } }, { label: 'No' }],
+    }));
+
+    expect(out).toBe('Option A can\'t be offered: tracker.comment changes something outside Vocion, so it can\'t ride on an option. Leave the option unbound and propose the change after the answer, so the person approves exactly what it does.');
+    expect(emit).not.toHaveBeenCalled();
+
+    const retry = String(await askChoiceTool(ctxFor(conversationId, emit)).invoke({ question: 'Move it?', options: THREE }));
+
+    expect(retry).toMatch(/^Asked\./);
+  });
+
   it('puts a valid bound action on the emitted option', async () => {
     const emit = vi.fn();
     const action = { actionId: 'workspace.describe', input: { description: 'Northwind portal rebuild for the support team.' } };

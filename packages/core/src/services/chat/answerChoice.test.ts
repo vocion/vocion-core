@@ -13,7 +13,7 @@ import { z } from 'zod';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
+const { actionRunSchema, conversationMessageSchema, conversationSchema, knowledgeSourceSchema } = await import('@/models/Schema');
 const { registerAction } = await import('@/libs/actions/registry');
 const { answerChoice } = await import('@/services/chat/answerChoice');
 const { eq } = await import('drizzle-orm');
@@ -42,6 +42,19 @@ const probeAction: Action<typeof probeInput> = {
 };
 registerAction(probeAction);
 
+const outsideRan: Array<Record<string, unknown>> = [];
+const outsideAction: Action<typeof probeInput> = {
+  ...probeAction,
+  id: 'test.interview_outside',
+  description: 'Stands in for an action that changes something outside Vocion.',
+  external: true,
+  async execute(_ctx, input) {
+    outsideRan.push(input);
+    return { sent: input.n };
+  },
+};
+registerAction(outsideAction);
+
 type Options = Array<{ id: 'A' | 'B' | 'C' | 'D'; label: string; actions?: Array<{ actionId: string; input: Record<string, unknown> }> }>;
 
 const THREE_OPTIONS: Options = [
@@ -67,6 +80,7 @@ async function cardOf(messageId: number, cardId: string) {
 
 beforeEach(async () => {
   ran.length = 0;
+  outsideRan.length = 0;
   await db.delete(actionRunSchema);
   await db.delete(conversationSchema);
 });
@@ -203,12 +217,43 @@ describe('answerChoice', () => {
     expect(out.ok && out.actionOutcome?.split('\n')).toHaveLength(2);
   });
 
-  it('an action id nobody registered is a failed line, not a thrown error', async () => {
+  it('an action id nobody registered is not run and reads as a failed line, not a thrown error', async () => {
     const options: Options = [{ id: 'A', label: 'Do it', actions: [{ actionId: 'test.not_registered', input: {} }] }];
     const { conversationId } = await seedConversation(ORG, [choiceCard('card_ghost', options)]);
 
     const out = await answerChoice({ orgId: ORG, userId: USER, conversationId, answer: { cardId: 'card_ghost', optionId: 'A' } });
 
-    expect(out.ok && out.modelPrefix).toContain('(test.not_registered failed: No registered action: test.not_registered)');
+    expect(out.ok && out.modelPrefix).toContain('(test.not_registered failed: not run — it changes something outside Vocion and needs its own approval)');
+  });
+
+  it('never runs a persisted binding to an outside change: its line says so, the card is still answered, and the next action runs', async () => {
+    const options: Options = [{
+      id: 'A',
+      label: 'Send it',
+      actions: [
+        { actionId: 'test.interview_outside', input: { n: 5 } },
+        { actionId: 'test.interview_probe', input: { n: 6 } },
+      ],
+    }];
+    const { conversationId, messageId } = await seedConversation(ORG, [choiceCard('card_outside', options)]);
+
+    const out = await answerChoice({ orgId: ORG, userId: USER, conversationId, answer: { cardId: 'card_outside', optionId: 'A' } });
+
+    expect(outsideRan).toEqual([]);
+    expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.actionId, 'test.interview_outside'))).toHaveLength(0);
+    expect(out.ok && out.modelPrefix.split('\n')[1]).toBe('(test.interview_outside failed: not run — it changes something outside Vocion and needs its own approval)');
+    expect(ran).toEqual([{ n: 6 }]);
+    expect(await cardOf(messageId, 'card_outside')).toMatchObject({ state: 'decided' });
+  });
+
+  it('a member answering a card bound to source.connect is refused as a failed line, and no source is created', async () => {
+    const options: Options = [{ id: 'A', label: 'Connect it', actions: [{ actionId: 'source.connect', input: { connector: 'github', config: { repos: ['northwind/portal'] } } }] }];
+    const { conversationId, messageId } = await seedConversation(ORG, [choiceCard('card_connect', options)]);
+
+    const out = await answerChoice({ orgId: ORG, userId: USER, conversationId, answer: { cardId: 'card_connect', optionId: 'A' } });
+
+    expect(out.ok && out.modelPrefix).toContain('(source.connect failed: Only a workspace admin can connect a source)');
+    expect(await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, ORG))).toHaveLength(0);
+    expect(await cardOf(messageId, 'card_connect')).toMatchObject({ state: 'decided' });
   });
 });

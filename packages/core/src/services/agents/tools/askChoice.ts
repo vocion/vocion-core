@@ -2,6 +2,7 @@ import type { RuntimeContext } from '../types';
 import type { Card, ChoiceOption } from '@/libs/cards/card';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { bindingProblem } from '@/libs/actions/bindable';
 import { getAction } from '@/libs/actions/registry';
 import { CHOICE_OPTION_IDS, newCardId } from '@/libs/cards/card';
 import { latestTurnIn } from '@/libs/streams/buffer';
@@ -77,6 +78,10 @@ async function boundActionProblem(ctx: RuntimeContext, options: AskChoiceInput['
     const action = getAction(option.action.actionId);
     if (!action) {
       return `Option ${letter} can't be offered: there is no action "${option.action.actionId}".`;
+    }
+    // A tap runs the action with no further look at its input, so only changes inside Vocion may ride on one.
+    if (bindingProblem(action.id) === 'external') {
+      return `Option ${letter} can't be offered: ${action.id} changes something outside Vocion, so it can't ride on an option. Leave the option unbound and propose the change after the answer, so the person approves exactly what it does.`;
     }
     const parsed = action.inputSchema.safeParse(option.action.input);
     if (!parsed.success) {

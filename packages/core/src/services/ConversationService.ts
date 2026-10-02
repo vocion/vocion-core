@@ -769,9 +769,26 @@ export function cardRunState(run: CardRunEntry): string {
  * @returns The card's run entry, or null when this conversation has no such card.
  */
 export async function readCardRun(input: { orgId: string; conversationId: number; cardId: string }): Promise<CardRunEntry | null> {
+  const found = await selectCardMessage(db, input);
+  const run = found?.runs?.find(entry => entry.type === 'card' && entry.id === input.cardId);
+  return run && run.type === 'card' ? run : null;
+}
+
+/**
+ * The newest assistant message of a conversation that holds a card, org and
+ * conversation filtered. `lock` takes the row `FOR UPDATE`, which is what a
+ * patch needs and a plain read does not.
+ * @param executor - The database or an open transaction.
+ * @param input - Org, conversation and card id.
+ * @param input.orgId
+ * @param input.conversationId
+ * @param input.cardId
+ * @param lock - Lock the message row for update.
+ */
+async function selectCardMessage(executor: DbTransaction | typeof db, input: { orgId: string; conversationId: number; cardId: string }, lock = false) {
   const holdsCard = JSON.stringify([{ type: 'card', id: input.cardId }]);
-  const [message] = await db
-    .select({ runs: conversationMessageSchema.runsJson })
+  const query = executor
+    .select({ id: conversationMessageSchema.id, runs: conversationMessageSchema.runsJson })
     .from(conversationMessageSchema)
     .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
     .where(and(
@@ -782,8 +799,8 @@ export async function readCardRun(input: { orgId: string; conversationId: number
     ))
     .orderBy(desc(conversationMessageSchema.id))
     .limit(1);
-  const run = message?.runs?.find(entry => entry.type === 'card' && entry.id === input.cardId);
-  return run && run.type === 'card' ? run : null;
+  const [message] = lock ? await query.for('update', { of: conversationMessageSchema }) : await query;
+  return message ?? null;
 }
 
 /**
@@ -825,20 +842,7 @@ export async function markCardRun(input: { orgId: string; conversationId: number
  * @param input.patch
  */
 async function patchCardRun(tx: DbTransaction, input: { orgId: string; conversationId: number; cardId: string; expectState?: CardState; patch: Partial<CardRunPatch> }): Promise<boolean> {
-  const holdsCard = JSON.stringify([{ type: 'card', id: input.cardId }]);
-  const [message] = await tx
-    .select({ id: conversationMessageSchema.id, runs: conversationMessageSchema.runsJson })
-    .from(conversationMessageSchema)
-    .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
-    .where(and(
-      eq(conversationSchema.orgId, input.orgId),
-      eq(conversationMessageSchema.conversationId, input.conversationId),
-      eq(conversationMessageSchema.role, 'assistant'),
-      sql`${conversationMessageSchema.runsJson} @> ${holdsCard}::jsonb`,
-    ))
-    .orderBy(desc(conversationMessageSchema.id))
-    .limit(1)
-    .for('update', { of: conversationMessageSchema });
+  const message = await selectCardMessage(tx, input, true);
   if (!message?.runs) {
     return false;
   }
