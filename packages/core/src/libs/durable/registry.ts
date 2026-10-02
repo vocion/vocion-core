@@ -1,11 +1,11 @@
 import type { DurableDefinition } from './types';
 
-// One name space per process. Under Node 20, tsx can load a module twice (the
-// static graph, then a dynamic `import()` of the same file), so the registry
-// lives on globalThis and a second copy of the same definition is the same
-// definition (the v0.6.0 deploy's applier failed every schedule on it).
-const REGISTRY = Symbol.for('vocion.durable.definitions');
-const definitions: Map<string, DurableDefinition<any, any>> = ((globalThis as any)[REGISTRY] ??= new Map());
+// Under Node 20, tsx can evaluate a module twice (the static graph, then a
+// dynamic `import()` of the same file) against this one registry, so a second
+// copy of the same definition is the same definition (the v0.6.0 deploy's
+// applier failed every schedule on it). Next's route bundles each carry their
+// own registry, so they never meet here.
+const definitions = new Map<string, DurableDefinition<any, any>>();
 
 /**
  * Register a definition so the executor can run it. Idempotent by name; a
