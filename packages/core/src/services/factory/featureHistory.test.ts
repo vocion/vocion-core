@@ -136,7 +136,7 @@ describe('the feature\'s Timeline', () => {
   it('says the merge, the deploy and the release once each, and folds a note beside one under it', () => {
     const all = titles(rows);
 
-    expect(all).toEqual(expect.arrayContaining(['Merged PR #175 · by dana', 'Deployed · Deploy', 'Released']));
+    expect(all).toEqual(expect.arrayContaining(['Merged PR #175 · by dana', 'Deployed', 'Released']));
     expect(all.filter(t => /Shipped in release|Merged PR #175 by/.test(t))).toEqual([]);
     // A note beside a typed row is that row's: folded under it, said in the side panel only.
     expect(all.join('\n')).not.toContain('Would have run');

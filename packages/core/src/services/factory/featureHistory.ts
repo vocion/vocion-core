@@ -311,8 +311,9 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
       rows.push({
         key: `deploy-${run.runId}`,
         kind: 'deploy',
-        title: going ? `Deploying · ${run.name ?? 'run'}` : ok ? `Deployed · ${run.name ?? 'run'}` : `${run.name ?? 'Deploy'} ${run.conclusion ?? 'ended'}`,
-        code: run.runNumber !== null ? `#${run.runNumber}` : null,
+        title: going ? 'Deploying' : ok ? 'Deployed' : `Deploy ${run.conclusion === 'failure' ? 'failed' : run.conclusion ?? 'ended'}`,
+        // Which run, as GitHub names it: "Deploy #70".
+        code: [run.name, run.runNumber !== null ? `#${run.runNumber}` : null].filter(Boolean).join(' ') || null,
         at: run.startedAt,
         tone: going ? 'info' : ok ? 'ok' : 'bad',
         cents: null,
