@@ -13,6 +13,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
+const { buildCredentialVault } = await import('@/libs/crypto/credentialVault');
 const { apiTokenSchema, sourceDekSchema } = await import('@/models/Schema');
 const {
   listTokens,
@@ -53,9 +54,34 @@ async function storeAtlassianLogin() {
   });
 }
 
+type VaultDecrypt = ReturnType<typeof buildCredentialVault>['decrypt'];
+
+/**
+ * Open the stored bag, then let a rival refresh land on the same row before the
+ * caller gets the plaintext back. That is the window a lost update lives in:
+ * the caller has read, the rival writes, the caller is about to write.
+ * @param realDecrypt - The vault's own decrypt.
+ * @param tokenId - The row the rival refreshes.
+ * @param args - The arguments the caller passed to decrypt.
+ */
+async function decryptThenRivalRefresh(realDecrypt: VaultDecrypt, tokenId: string, args: Parameters<VaultDecrypt>) {
+  const plaintext = await realDecrypt(...args);
+  const rivalWon = await updateLoginCredentialValues({
+    orgId: ORG,
+    tokenId,
+    values: { accessToken: 'at-rival', refreshToken: 'rt-rival' },
+    expectedRefreshToken: 'rt-1',
+  });
+
+  expect(rivalWon).toBe(true);
+
+  return plaintext;
+}
+
 beforeEach(clearCredentials);
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -151,6 +177,23 @@ describe('updateLoginCredentialValues', () => {
 
     expect(written).toBe(false);
     expect(await resolveCredentialById(ORG, id)).toEqual({ status: 'ok', values: { accessToken: 'at-1', refreshToken: 'rt-1' } });
+  });
+
+  it('writes nothing when a rival refresh lands between this one reading the row and writing it', async () => {
+    const { id } = await storeAtlassianLogin();
+    const vault = buildCredentialVault();
+    const realDecrypt = vault.decrypt.bind(vault);
+    vi.spyOn(vault, 'decrypt').mockImplementationOnce((...args) => decryptThenRivalRefresh(realDecrypt, id, args));
+
+    const written = await updateLoginCredentialValues({
+      orgId: ORG,
+      tokenId: id,
+      values: { accessToken: 'at-loser', refreshToken: 'rt-loser' },
+      expectedRefreshToken: 'rt-1',
+    });
+
+    expect(written).toBe(false);
+    expect(await resolveCredentialById(ORG, id)).toEqual({ status: 'ok', values: { accessToken: 'at-rival', refreshToken: 'rt-rival' } });
   });
 
   it('refuses a pasted key, which has no refresh lineage to swap', async () => {
